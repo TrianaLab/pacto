@@ -317,18 +317,7 @@ func TestBuildProduct_HighlightsAcrossPages(t *testing.T) {
 	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
 	res := &Result{Classification: "BREAKING"}
 	for i := range 150 {
-		c := AffectedConsumer{Service: fmt.Sprintf("c%03d", i), Direct: i%2 == 0, CompatibilityVerdict: CompatibilityCompatible}
-		switch {
-		case i == 148:
-			c.Service, c.CompatibilityVerdict, c.Targets = "zz-blocks", CompatibilityIncompatible, []string{"prod/k8s/zz"}
-		case i == 10:
-			c.CompatibilityVerdict = CompatibilityIncompatible
-		case i == 12:
-			c.Unmet = []contract.Mismatch{{Guarantee: "delivery"}}
-		case i%6 == 0:
-			c.CompatibilityVerdict = CompatibilityUnknown
-		}
-		res.Consumers = append(res.Consumers, c)
+		res.Consumers = append(res.Consumers, highlightFixtureConsumer(i))
 	}
 	for _, offset := range []int{0, 100} {
 		page := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 100, offset).Consumers
@@ -352,6 +341,23 @@ func TestBuildProduct_HighlightsAcrossPages(t *testing.T) {
 	if h := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, &Result{}, 0, 0).Consumers.Highlights; h == nil {
 		t.Error("highlights must be an empty list, never null")
 	}
+}
+
+// highlightFixtureConsumer is consumer i of the 150 the highlight test pages over: one
+// blocking, one incompatible, one refused, every sixth unknown, the rest compatible.
+func highlightFixtureConsumer(i int) AffectedConsumer {
+	c := AffectedConsumer{Service: fmt.Sprintf("c%03d", i), Direct: i%2 == 0, CompatibilityVerdict: CompatibilityCompatible}
+	switch {
+	case i == 148:
+		c.Service, c.CompatibilityVerdict, c.Targets = "zz-blocks", CompatibilityIncompatible, []string{"prod/k8s/zz"}
+	case i == 10:
+		c.CompatibilityVerdict = CompatibilityIncompatible
+	case i == 12:
+		c.Unmet = []contract.Mismatch{{Guarantee: "delivery"}}
+	case i%6 == 0:
+		c.CompatibilityVerdict = CompatibilityUnknown
+	}
+	return c
 }
 
 // A consumer the viewer may not read is counted, never named.
