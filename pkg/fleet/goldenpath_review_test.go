@@ -101,3 +101,27 @@ func TestRestrictDroppedRevisionIsHidden(t *testing.T) {
 		t.Error("the consumer revision whose reference resolved to the dropped revision was not validated again")
 	}
 }
+
+// TestRestrictDroppedRevisionLimitationIsHidden pins that a limitation naming
+// the older revision a golden path visible only as one drops is left out of
+// the restricted view, like one naming a hidden service.
+func TestRestrictDroppedRevisionLimitationIsHidden(t *testing.T) {
+	path := NewServiceKeyDomain(acme, "http-service")
+	var dropped RevisionKey
+	base := goldenRestrictFleet(t, templated("http-service", "1.0.0")).snap
+	for _, k := range base.Services[path].Revisions {
+		if base.Revisions[k].Version == "0.9.0" {
+			dropped = k
+		}
+	}
+	msg := "bundle " + string(dropped) + " could not be read"
+	q := goldenRestrictFleet(t, templated("http-service", "1.0.0"),
+		NewMemorySource("oci-2", "oci", &Collection{Limitations: []Limitation{{Code: "bundle-unreadable", Message: msg}}}))
+	has := func(q *Query) bool {
+		return slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Message == msg })
+	}
+	r := q.Restrict(shopOnly)
+	if r.snap.Revisions[dropped] != nil || !has(q) || has(r) {
+		t.Errorf("dropped %q kept %v, unrestricted has %v, restricted has %v", dropped, r.snap.Revisions[dropped] != nil, has(q), has(r))
+	}
+}
