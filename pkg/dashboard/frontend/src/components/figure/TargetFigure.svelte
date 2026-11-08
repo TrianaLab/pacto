@@ -23,7 +23,7 @@
   alt={`${statusLabel(status)}. ${m.words}`} wires={m.wires}>
   {#snippet stage()}
     <div class="tgtfig">
-      <div class="tgtfig-p"><Plinth count={1} a="plinth" m="plinth" /><span class="t-meta">this target</span></div>
+      <div class="tgtfig-p"><Plinth count={1} a="plinth" m="plinth" /></div>
       <div class="tgtfig-r" data-a="rev">
         {#if named}
           <a class="id mono" href={hashForHref(named.href)} title={revisionLabel}><bdi class:fit={elidable(revisionLabel)}>{revisionLabel}</bdi></a>

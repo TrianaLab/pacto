@@ -108,6 +108,8 @@ describe('offeringModel (G3, S2)', () => {
     expect(m.stations.map((s) => `${s.label}|${s.n}|${s.share}|${s.tone}${s.hatch ? '/hatch' : ''}`)).toEqual([
       'Requested|1|10%|info', 'Provisioning|0|0%|neutral', 'Ready|6|60%|ok', 'Deleting|0|0%|neutral', 'Failed|2|20%|err', 'Not reported|1|10%|neutral/hatch',
     ]);
+    expect(m.wires.find((w) => w.id === 'wfail')!.tone).toBe('err');
+    expect(offeringModel(providers(1), { ready: 1 }).wires.find((w) => w.id === 'wfail')!.tone).toBe('neutral');
     // Unknown is never ok-toned.
     expect(m.stations.find((s) => s.key === 'unknown')!.tone).not.toBe('ok');
     expect(m.summary).toBe('Of 10 requests, 6 are ready, 1 in progress, 2 failed and 0 being removed; 1 has no reported phase, so their readiness is unknown.');

@@ -360,14 +360,16 @@ a.tl-n:hover { text-decoration: underline; }
 .stackfig { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 0 var(--sp-8); min-width: 0; }
 .stackfig-s { min-width: 0; }
 .stack-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
-.stack-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; }
+/* C13a: the wire ends 8px short of the words in a 2.25px dot, so it never reads as a minus sign. */
+.stack-row { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; padding-left: 10px; }
+.stack-row::before { content: ''; position: absolute; left: -2.25px; top: calc(50% - 2.25px); width: 4.5px; height: 4.5px; border-radius: 50%; background: var(--fig-line-strong); }
 .stack-row .id { display: block; flex: 0 1 auto; max-width: 100%; }
 .fig[data-w="col"] .stackfig { grid-template-columns: 110px minmax(0, 1fr); gap: 0 var(--sp-5); }
 
 /* Target: the plinth wired to the revision it runs. */
 .tgtfig { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 0 var(--sp-8); min-width: 0; }
 .tgtfig-p { display: grid; justify-items: center; gap: var(--sp-2); }
-.tgtfig-r { display: grid; gap: 2px; justify-self: start; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; }
+.tgtfig-r { display: grid; gap: 2px; padding: var(--sp-2); justify-self: start; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; }
 .fig[data-w="col"] .tgtfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); justify-items: center; }
 .fig[data-w="col"] .tgtfig-r { justify-self: center; text-align: center; }
 
@@ -379,7 +381,7 @@ a.tl-n:hover { text-decoration: underline; }
 .srcfig-h { grid-column: 3; display: flex; align-items: center; gap: var(--sp-3); }
 .srcfig-hl { display: grid; gap: 2px; font-size: var(--text-sm); line-height: 1.4; }
 .fig[data-w="col"] .srcfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); }
-.fig[data-w="col"] .srcfig-h { grid-column: 1; }
+.fig[data-w="col"] .srcfig-h { grid-column: 1; justify-self: end; flex-direction: row-reverse; text-align: right; }
 
 /* Offering: providers fan into the hub, the hub leads the phase track (Failed under
    Provisioning, Not reported under the track). Vertical under rowMin. */
@@ -389,7 +391,8 @@ a.tl-n:hover { text-decoration: underline; }
   grid-template-areas: "prov prov prov prov prov" "hub requested provisioning ready deleting" ". . failed chips chips" ". unknown unknown unknown unknown";
 }
 .ofig-prov { grid-area: prov; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); min-width: 0; font-size: var(--text-sm); }
-.ofig-prov li { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: 19rem; }
+/* Each name sits above its mark, so the wires from the marks down to the hub pass under no name. */
+.ofig-prov li { display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 10px; min-width: 0; max-width: 19rem; }
 .ofig-prov .id { min-width: 0; }
 .cnt { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; flex: none; border: 1.5px solid var(--fig-line-strong); border-radius: 8px; font-size: var(--text-xs); font-weight: 600; color: var(--c-text-2); background: var(--c-surface); }
 .ofig-hub { grid-area: hub; display: grid; justify-items: start; gap: var(--sp-2); min-width: 0; }
@@ -406,3 +409,4 @@ a.tl-n:hover { text-decoration: underline; }
 .fig[data-w="col"] .ph { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; }
 .fig[data-w="col"] .ph-l { justify-items: start; }
 .anc { display: block; width: 1px; height: 1px; }
+.fig[data-w="col"] .ofig-prov li { flex-direction: row; align-items: center; }

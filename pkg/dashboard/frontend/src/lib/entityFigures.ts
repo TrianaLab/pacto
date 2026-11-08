@@ -197,7 +197,8 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
     ...(['requested', 'provisioning', 'ready'] as const).map((k, i): WireDef => ({
       id: `wt${i}`, from: `ph-${k}`, fs: 'r', to: `ph-${PHASES[i + 1][0]}`, ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'neutral', head: true,
     })),
-    { id: 'wfail', from: 'ph-provisioning-b', fs: 'c', to: 'ph-failed', ts: 't', style: 'obs', tone: 'err', head: true, when: notCol },
+    // Red only when something failed: an empty branch is not an alarm.
+    { id: 'wfail', from: 'ph-provisioning-b', fs: 'c', to: 'ph-failed', ts: 't', style: 'obs', tone: phases?.failed ? 'err' : 'neutral', head: true, when: notCol },
   ];
   const n = (k: keyof PhaseTally) => phases?.[k] ?? 0;
   const progress = n('requested') + n('provisioning');

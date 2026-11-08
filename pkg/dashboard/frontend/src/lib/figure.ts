@@ -51,7 +51,7 @@ export function plinthGeometry(count: number, w = 150) {
   const cx = w / 2, hw = 40, t = 12, gap = 18, top = 28;
   const by = top + (n - 1) * gap + 30;
   return {
-    W: w, H: by + 34,
+    W: w, H: by + 44,
     base: slab(cx, by, 64, 8),
     slabs: Array.from({ length: n }, (_, k) => slab(cx, top + k * gap, hw, t)),
     anchor: { x: cx + hw, y: top + t / 2 },
