@@ -283,6 +283,20 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       const rects = [...range.getClientRects()].filter((r) => r.width > 0.5 && r.height > 0.5);
       if (!rects.length) continue;
       if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(n.textContent ?? '')) lone = say(el);
+      // SPEC 22 r2, squeezed: a word broken down to one or two characters per line
+      // (a column squeezed to a sliver renders its header one letter per line).
+      if (rects.length > 1) {
+        const txt = n.textContent ?? '';
+        let best = { at: 0, len: 0 };
+        for (const m of txt.matchAll(/\S+/g)) if (m[0].length > best.len) best = { at: m.index, len: m[0].length };
+        if (best.len >= 4) {
+          const wr = document.createRange();
+          wr.setStart(n, best.at);
+          wr.setEnd(n, best.at + best.len);
+          const lines = new Set([...wr.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))).size;
+          if (lines > 1 && best.len / lines < 3) out.push(`squeezed text, ${lines} lines for a ${best.len}-character word: ${say(el)}`);
+        }
+      }
       fonts.add(el);
       let clip = { l: -1e9, t: -1e9, r: 1e9, b: 1e9 };
       // The tightest horizontal cut by a box that does not scroll: text past it is lost.
@@ -313,6 +327,19 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       }
     }
     if (lone) out.push(`a lone surrogate (a cut emoji) in ${lone}`);
+
+    // SPEC 22 r2: no table column holding words is narrower than 6ch.
+    for (const cell of root.querySelectorAll('th, td')) {
+      if (skipped(cell) || hiddenByA11y(cell) || !cell.getClientRects().length) continue;
+      if ((cell.textContent ?? '').trim().length < 3) continue;
+      const cs = getComputedStyle(cell);
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (!ctx) continue;
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const ch = ctx.measureText('0').width;
+      const w = cell.getBoundingClientRect().width - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      if (w < 6 * ch - 0.5) out.push(`a table column ${w.toFixed(0)}px wide, under 6ch (${(6 * ch).toFixed(0)}px): ${say(cell)}`);
+    }
 
     // Nothing renders below --text-xs (12.19px).
     for (const el of fonts) {
@@ -526,13 +553,14 @@ export async function figureLinkTotals(page: Page): Promise<string[]> {
 }
 
 /**
- * sweepOverflow checks horizontal overflow at every 20px from 760 to 1440 (SPEC 19):
+ * sweepOverflow checks horizontal overflow at every 20px from 760 to 1440 (SPEC 19),
+ * then every 40px to 1920 (SPEC 22):
  * a layout clean at 1024 and 1280 spilled at 840 to 900, 1040 to 1100 and 1140 to
  * 1160. Only overflow is checked here; the full gate runs at the fixed widths.
  */
 export async function sweepOverflow(page: Page, skip: string[] = []): Promise<string[]> {
   const out: string[] = [];
-  for (let w = 760; w <= 1440; w += 20) {
+  for (let w = 760; w <= 1920; w += w < 1440 ? 20 : 40) {
     await page.setViewportSize({ width: w, height: 900 });
     await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
     const found = await page.evaluate((skipSel) => {

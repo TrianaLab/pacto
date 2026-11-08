@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
 import { densityProblems, figureLinkTotals, gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
 
-// G1, the transversal layout gate (SPEC section 12): every route, at 390, 760, 1024 and
-// 1280px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
+// G1, the transversal layout gate (SPEC sections 12 and 22): every route, at 390, 760,
+// 1024, 1280, 1600, 1920 and 2560px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
 // the final frame forced, on the scale fixture. It fails on intersecting text, two text
 // boxes closer than 8px on one line, a box spilling with visible overflow, text under
 // 12.19px, ellipsized text with no title, text cut with no ellipsis, an identity that
@@ -12,15 +12,17 @@ import { densityProblems, figureLinkTotals, gateMode, installScaleFixture, layou
 // the figure rules once figures exist: at most 20 marks, no mark over text, every
 // number a filter link or data-nofilter, every "List all N" landing on a list of N and
 // every "N more" on N plus the names shown, and on list views L3: the list within 600px
-// of the top or a Compact toggle on the figure. Then it sweeps every 20px from 760 to 1440 for
-// horizontal overflow (SPEC 19), since a layout clean at the fixed widths spilled
-// between them.
+// of the top or a Compact toggle on the figure, and (SPEC 22 r2) no word squeezed to one
+// or two characters per line and no table column under 6ch. Then it sweeps every 20px
+// from 760 to 1440 and every 40px on to 1920 for horizontal overflow (SPEC 19, 22),
+// since a layout clean at the fixed widths spilled between them. The shell has a top
+// navbar and no sidebar yet, so there is no sidebar state to vary.
 //
 // PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
 // nothing else is excluded.
 const PENDING: string[] = [];
 
-const WIDTHS = [390, 760, 1024, 1280];
+const WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 
 async function chooseRevision(page: Page, sel: string, version: string) {
   const read = () => page.locator(`${sel} option`).evaluateAll(

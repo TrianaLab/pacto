@@ -283,7 +283,14 @@ test.describe('Delivery views', () => {
     for (const hash of ['#/delivery/changes/prod/op1']) {
       await page.goto('/' + hash);
       await expect(page.getByTestId('decision-safer')).toBeVisible({ timeout: T });
-      expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)), hash).toBe(true);
+      // On failure the message names what runs past the edge, so a rare spill is diagnosable.
+      const spill = await page.evaluate(() => {
+        if ([document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)) return '';
+        const edge = document.body.clientWidth + 1;
+        return [...document.querySelectorAll('body *')].filter((el) => el.getBoundingClientRect().right > edge)
+          .slice(0, 5).map((el) => `<${el.tagName.toLowerCase()} class="${el.getAttribute('class') ?? ''}"> "${(el.textContent ?? '').trim().slice(0, 30)}"`).join(' | ') || 'no element';
+      });
+      expect(spill, `${hash} scrolls sideways`).toBe('');
     }
   });
 
