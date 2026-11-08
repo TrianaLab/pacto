@@ -117,7 +117,7 @@ export function rankModel(kind: 'owner' | 'domain', agg: RankAggregate | null | 
   lanes.push(...tails);
   const rated = rows.filter((r) => r.size >= RATE_MIN_SERVICES).sort((a, b) => b.n / b.size - a.n / a.size || a.label.localeCompare(b.label))[0];
   const rate = rated ? { label: rated.label, text: `${sharePct(rated.n, rated.size)} of ${countOf(rated.size, 'service')}` } : null;
-  const wires: WireDef[] = lanes.map((l, k) => ({ id: `wr${k}`, from: 'hub', to: `ln-${k}`, style: 'obs', tone: 'neutral', col: { fs: 'b', ts: 'l' } }));
+  const wires: WireDef[] = lanes.map((l, k) => ({ id: `wr${k}`, from: 'hub', to: `ln-${k}`, style: 'obs', tone: 'neutral', col: { from: 'hub-n', fs: 'b', ts: 'l' } }));
   const alt = `${countOf(total, 'non-compliant service')} of ${formatCount(services)}: ${lanes.map((l) => `${l.label} ${formatCount(l.n)}`).join(', ')}.`;
   return { total, services, lanes, rate, wires, alt, word };
 }
@@ -168,7 +168,7 @@ export function trustModel(counts: SourceCountsLike | null | undefined) {
   return { rows, wires, steps, partial, alt, key: { un: c.unavailable ?? 0, st: c.stale ?? 0 } };
 }
 
-export interface NamedSource { key: string; label: string; href?: string; kind?: string; status?: string }
+export interface NamedSource { key: string; label: string; href?: string; secondary?: string; status?: string }
 
 /** At most this many rows, named sources and tallies together (S2). */
 export const SOURCE_ROWS = 8;

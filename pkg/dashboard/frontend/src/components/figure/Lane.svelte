@@ -41,7 +41,8 @@
         <a class="badge chip t-{tone}" class:unk={hatch} href={hashForHref(c.href)} title={c.label} data-ring={c.ring || undefined}><bdi class:fit={elidable(c.label)}>{c.label}</bdi></a>
       {/each}
     </span>
-    {#if note}{#if note.href}<a class="lane-note" href={note.href}>{note.text}</a>{:else}<span class="lane-note t-meta" data-nofilter>{note.text}</span>{/if}{/if}
     {#if n && href}<a class="lane-more" {href} data-n={n} onclick={pick}>{chips.length ? (n > chips.length ? `${formatCount(n - chips.length)} more` : '') : `List all ${formatCount(n)}`}</a>{/if}
   </span>
+  <!-- A note wraps on its own line under the lane, never squeezed beside it (C8). -->
+  {#if note}{#if note.href}<a class="lane-note" href={note.href}>{note.text}</a>{:else}<span class="lane-note t-meta" data-nofilter>{note.text}</span>{/if}{/if}
 </div>

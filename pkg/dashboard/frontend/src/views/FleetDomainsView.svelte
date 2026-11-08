@@ -132,7 +132,7 @@
   {:else}
     <ul class="lv-list pl-list pl-list--facts pl-list--domains" data-testid="domain-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{plural(ref.services ?? 0, 'service', 'services')}{ref.nonCompliant ? ` · ${formatCount(ref.nonCompliant)} non-compliant` : ''} · {plural(ref.targets ?? 0, 'operational target', 'operational targets')}</span></EntityLink></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{plural(ref.services ?? 0, 'service', 'services')} · {plural(ref.targets ?? 0, 'operational target', 'operational targets')}</span></EntityLink></li>
       {/each}
     </ul>
     <Pager page={list} href={pageHref} label="Domain pages" noun="domains" testid="domain" />

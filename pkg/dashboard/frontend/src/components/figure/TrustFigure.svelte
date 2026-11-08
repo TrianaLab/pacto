@@ -44,7 +44,7 @@
               {#if r.named}
                 <span class="src-t">
                   <a class="id" href={hashForHref(r.named.href)} title={r.named.label}><bdi class:fit={elidable(r.named.label)}>{r.named.label}</bdi></a>
-                  <span class="t-meta">{r.named.kind ? `${r.named.kind} · ` : ''}{SOURCE_STATE[r.st].word}</span>
+                  <span class="t-meta">{r.named.secondary ? `${r.named.secondary} · ` : ''}{SOURCE_STATE[r.st].word}</span>
                 </span>
               {:else}
                 <span class="src-t">

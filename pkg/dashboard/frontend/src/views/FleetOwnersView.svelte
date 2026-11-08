@@ -227,7 +227,7 @@
   {:else}
     <ul class="lv-list pl-list pl-list--facts pl-list--owners" data-testid="owner-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}{ref.nonCompliant ? ` · ${formatCount(ref.nonCompliant)} non-compliant` : ''}</span></EntityLink></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}</span></EntityLink></li>
       {/each}
     </ul>
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />

@@ -20,8 +20,9 @@
 <Figure id="rank" testid="rank-figure" question="Largest {m.word}s by non-compliant services" alt={m.alt} wires={m.wires} compact={true}>
   {#snippet stage()}
     <div class="rank">
-      <div class="rank-hub">
-        <HubNode tone="neutral" kind={kind} a="hub" />
+      <!-- Wires leave the hub's label block, so they never cross its words. -->
+      <div class="rank-hub" data-a="hub">
+        <HubNode tone="neutral" kind={kind} a="hub-n" />
         <span class="rank-hl"><b class="stat" data-nofilter>{formatCount(m.total)}</b><span>non-compliant</span><span class="t-meta">of {countOf(m.services, 'service')}</span></span>
       </div>
       <div class="rank-lanes">

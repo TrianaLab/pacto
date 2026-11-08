@@ -13,6 +13,8 @@
 }
 /* SPEC 2: the iso plane (.iso-backdrop) behind every figure, glow on the drawing's side. */
 .fig.iso-backdrop { --iso-at: 30% 45%; }
+/* Straight under the page header, a figure keeps the scaffold's one title-to-content gap. */
+.page-hd + .fig { margin-top: 0; }
 .fig.iso-backdrop::before { border-radius: inherit; }
 .fig--explain { border-style: dashed; border-color: var(--c-accent-border); }
 .fig-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-4); }
@@ -446,9 +448,9 @@ a.prow-n:hover b { text-decoration: underline; }
 .rank-hl .stat { font: 700 1.5rem/1.15 var(--font-display); font-variant-numeric: tabular-nums; }
 .rank-lanes { grid-area: lanes; display: grid; gap: var(--sp-2); min-width: 0; }
 .rank-h { margin: 0; }
-.lane-note { flex: 0 1 auto; min-width: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
-a.lane-note { color: var(--c-accent); }
-.lane-name.id { display: block; overflow: hidden; white-space: nowrap; }
+.lane-note { grid-column: 2 / -1; justify-self: start; min-width: 0; overflow-wrap: break-word; }
+a.lane-note { color: var(--c-accent); font-size: var(--text-sm); }
+.fig .lane-name.id { display: block; width: max-content; max-width: 14rem; min-width: 0; }
 .fig[data-w="col"] .rank { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "hub hub" ". lanes"; row-gap: var(--sp-4); }
 
 /* Trust figures (r5): source rows fan into a Bus (distinct endpoints, so wires never
@@ -468,4 +470,5 @@ a.lane-note { color: var(--c-accent); }
 .trust-hl { display: grid; gap: 2px; justify-items: start; font-size: var(--text-sm); line-height: 1.35; }
 .fig[data-w="col"] .trust { grid-template-columns: minmax(0, 1fr) 40px; }
 .fig[data-w="col"] .bus { margin: var(--sp-3) var(--sp-4) var(--sp-3) 0; }
-.fig[data-w="col"] .trust-hub { grid-column: 1 / -1; justify-content: flex-end; padding-top: var(--sp-5); }
+.fig[data-w="col"] .trust-hub { grid-column: 1 / -1; flex-direction: row-reverse; justify-content: flex-start; padding-top: var(--sp-5); }
+.fig[data-w="col"] .trust-hl { justify-items: end; text-align: right; }

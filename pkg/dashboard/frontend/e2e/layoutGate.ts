@@ -80,6 +80,10 @@ export function installScaleFixture(): void {
     if (doc.truncated) doc.nextOffset = offset + count;
   };
   const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50 };
+  const NC_OWNERS: [string, number, number][] = [['team:load-owner-a', 40, 297], ['team:load-owner-b', 31, 60], ['team:load-owner-c', 22, 30], ['team:load-owner-d', 12, 400]];
+  const NC_DOMAINS: [string, number, number][] = [[longName('load-domain-a'), 45, 310], [longName('load-domain-b'), 30, 90], [longName('load-domain-c'), 25, 40], [longName('load-domain-d'), 15, 700]];
+  const NC_LISTS = new Map<string, number>([...NC_OWNERS, ...NC_DOMAINS].map(([k, n]) => [k, n] as [string, number])
+    .concat([['-unidentified', 84], ['(none)', 40], ['(unknown)', 14]]));
 
   const amend = (method: string, path: string, doc: Record<string, unknown>, body: string | null) => {
     const [route, query = ''] = path.split('?');
@@ -105,10 +109,36 @@ export function installScaleFixture(): void {
         }
       }
     }
-    // The owner ranking at fleet scale: its labels long, its keys (and so its counts and
-    // links) the engine's.
-    const nco = (doc.aggregate as { nonCompliantByOwner?: { label: string }[] } | undefined)?.nonCompliantByOwner;
-    if (route === '/api/fleet/entities' && nco) nco.forEach((o) => { o.label = longName(o.label); });
+    // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
+    // domains, names up to 200 characters), and every list a lane links to holds exactly
+    // what the lane counts.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'service') {
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      if (ag && q.get('limit') === '1' && !narrowed) {
+        scaleTally(ag.ownership as Record<string, number>, 5000);
+        Object.assign(ag, {
+          services: 5000, matched: 5000, serviceCompliance: { ...(ag.serviceCompliance as object), nonCompliant: 389 },
+          nonCompliantByOwner: NC_OWNERS.map(([key, n, size]) => ({ key, label: longName(key.slice(5)), kind: 'team', services: size, nonCompliant: n })),
+          nonCompliantBeyondRanking: 389 - 105 - 84, nonCompliantUnidentified: 84, nonCompliantOwners: 120,
+          nonCompliantByDomain: NC_DOMAINS.map(([domain, n, size]) => ({ domain, services: size, nonCompliant: n })),
+          nonCompliantDomainsBeyond: 389 - 115 - 40 - 14, nonCompliantDomains: 140, nonCompliantNoDomain: 40, nonCompliantDomainUnknown: 14,
+        });
+      }
+      if (q.get('status') === 'NonCompliant') {
+        const n = NC_LISTS.get(q.get('ownerKey') || q.get('businessDomain') || (q.get('ownership') === 'unidentified' ? '-unidentified' : ''));
+        if (n != null) {
+          // The ranking's groups are made up, so the engine lists none of their services:
+          // the page is filled with stand-ins and counts what the lane counted.
+          const ents = doc.entities as Record<string, unknown>[];
+          if (!ents.length) {
+            const lim = Math.min(n, Number(q.get('limit') || 25));
+            doc.entities = Array.from({ length: lim }, (_, i) => ({ kind: 'service', key: `load/nc-${i}`, label: `nc-${i}`, status: 'NonCompliant', href: `/fleet/services/load%2Fnc-${i}` }));
+            doc.count = lim;
+          }
+          page(doc, n);
+        }
+      }
+    }
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
