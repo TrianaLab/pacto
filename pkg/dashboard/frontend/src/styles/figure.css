@@ -305,3 +305,15 @@ a.tl-n:hover { text-decoration: underline; }
 .lad-note { margin: 0; }
 .fig[data-w="col"] .lad, .fig[data-w="narrow"] .lad { grid-template-columns: minmax(0, 1fr); }
 @container fig (min-width: 560px) and (max-width: 899px) { .lad { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Publish (SPEC 7): Build, Signature, Registry in 64px slots with labels on one
+   baseline, then the two lanes that partition the services. */
+.pub { display: grid; grid-template-columns: repeat(3, minmax(6rem, 9rem)) minmax(0, 1fr); align-items: end; gap: var(--sp-5) var(--sp-6); padding-bottom: var(--sp-6); }
+.pnode { display: grid; justify-items: center; gap: 4px; min-width: 0; text-align: center; font-size: var(--text-sm); line-height: 1.4; }
+.pnode .nd { margin-top: var(--sp-2); }
+.pub-lanes { align-self: center; }
+.fig:not([data-w="wide"]) .pub { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fig:not([data-w="wide"]) .pub-lanes { grid-column: 1 / -1; }
+.fig[data-w="col"] .pub { grid-template-columns: minmax(0, 1fr); padding-bottom: 0; }
+.fig[data-w="col"] .pnode { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; text-align: left; }
+.fig[data-w="col"] .pnode .nd { grid-row: 1 / span 2; grid-column: 1; margin: 0; }

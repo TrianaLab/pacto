@@ -18,17 +18,22 @@
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import CappedList from '../components/CappedList.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
+  import PublishFigure from '../components/figure/PublishFigure.svelte';
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
-  let { offset = '', limit = '', q = '', refreshTick = 0 } = $props();
+  // signed narrows the list to the services whose every version is signed (yes) or
+  // that have an unsigned version (no): the figure's two lanes.
+  let { offset = '', limit = '', q = '', signed = '', refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.deliveryPublished({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
+    // The router passes any string; the server refuses one it does not know.
+    signed: /** @type {any} */ (signed || undefined),
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${signed}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(q);
+  const listQuestion = $derived(`${q}@@${signed}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -36,7 +41,7 @@
   const data = $derived(answer.data);
   const services = $derived(data?.services ?? []);
   const serviceTotal = $derived(data?.page?.total ?? services.length);
-  const href = (off, lim) => deliveryPublishUrl({ q, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryPublishUrl({ q, signed, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
 
   // Publishes Pacto refused, for whoever supervises: the check that refused
   // each and, for the version rule, the bump the change needs. Its own read,
@@ -85,6 +90,7 @@
       tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-publish" />
+  {#if data?.counts?.services}<PublishFigure counts={data.counts} href={(s) => deliveryPublishUrl({ q, signed: s })} serviceHref={deliveryServiceUrl} />{/if}
 
   <!-- The refused publishes are a count that opens: the versions are what the page lists. -->
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
@@ -134,8 +140,9 @@
     {/if}
   </section>
 
-  <h2 class="t-section-title">Versions by service</h2>
-  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v })} label="Filter services by name" placeholder="Service" testid="published-filter" />
+  <h2 class="t-section-title" data-view-total={data ? serviceTotal : undefined}>Versions by service</h2>
+  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q })}>Show every service</a></p>{/if}
+  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v, signed })} label="Filter services by name" placeholder="Service" testid="published-filter" />
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
   {:else if !data && loader.error}

@@ -14,6 +14,8 @@ import PromotionFigure from './PromotionFigure.svelte';
 import HistoryFigure from './HistoryFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import AutonomyFigure from './AutonomyFigure.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import PublishFigure from './PublishFigure.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -244,5 +246,25 @@ describe('AutonomyFigure', () => {
     expect(target.querySelector('.lad-note')?.textContent).toContain('1 Stage reports no level.');
     expect(target.querySelector('figure svg text')).toBeNull();
     unmount(c);
+  });
+});
+
+describe('PublishFigure', () => {
+  it('partitions the services into two lanes whose counts open the lists they count (T3)', async () => {
+    const counts = { services: 40, versions: 120, signed: 110, unsigned: 10, unsignedServices: 6, firstUnsigned: ['a', 'b', 'c', 'd'] };
+    const href = (s: string) => `#/delivery/publish?signed=${s}`;
+    const { target, c } = render(PublishFigure, { counts, href, serviceHref: (n: string) => `#/fleet/services/${n}` }, false);
+    await settle();
+    const lanes = [...target.querySelectorAll('.lane')];
+    expect(lanes.map((l) => l.querySelector('.lane-name')?.textContent)).toEqual(['Every version signed', 'An unsigned version']);
+    expect(lanes.map((l) => l.querySelector('a.lane-count')?.getAttribute('href'))).toEqual([href('yes'), href('no')]);
+    expect(lanes.map((l) => l.querySelector('.lane-count b')?.textContent)).toEqual(['34', '6']);
+    expect([...lanes[1].querySelectorAll('.chip')].map((x) => x.getAttribute('href'))).toEqual(['#/fleet/services/a', '#/fleet/services/b', '#/fleet/services/c', '#/fleet/services/d']);
+    expect(target.querySelector('figcaption')?.textContent).toContain('6 services of 40 have a version that is not signed, 10 versions in all');
+    expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
+    const all = render(PublishFigure, { counts: { ...counts, unsigned: 0, unsignedServices: 0, firstUnsigned: [] }, href, serviceHref: (n: string) => n }, false);
+    await settle();
+    expect(all.target.querySelector('figcaption')?.textContent).toContain('Every version of the 40 services is signed.');
   });
 });
