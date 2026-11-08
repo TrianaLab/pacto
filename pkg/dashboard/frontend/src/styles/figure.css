@@ -140,6 +140,8 @@ a.lane-count:hover b, .lane-more:hover { text-decoration: underline; }
 .fig[data-w="col"] .lane > .nd { grid-row: span 3; align-self: start; }
 .fig[data-w="col"] .lane > :not(.nd) { grid-column: 2; }
 .fig[data-w="col"] .lane-name.words { white-space: normal; }
+/* A column lane ends on its "List all N" line, so a sub-line keeps the full row gap (C4). */
+.fig[data-w="col"] .lane-sub { margin-top: 0; }
 
 /* The Change analysis figure: stack, split node, lanes. */
 .impact { display: grid; grid-template-columns: 148px 20px 28px 32px minmax(0, 1fr); grid-template-areas: "name name name name name" "stack . split . lanes"; align-items: center; row-gap: var(--sp-2); }
