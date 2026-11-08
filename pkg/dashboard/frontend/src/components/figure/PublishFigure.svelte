@@ -27,9 +27,9 @@
 <Figure id="signed" testid="publish-figure" question="Can every published version be traced to who built it?" alt={alt} {wires} rowMin={0} compact={true}>
   {#snippet stage()}
     <div class="pub">
-      <div class="pnode"><b>Build</b><span class="t-meta">CI builds the bundle</span><Node tone="neutral" big a="pb" m="pb" /></div>
-      <div class="pnode seal"><b>Signature</b><span class="t-meta">the builder signs it</span><Node tone="accent" glyph="ok" big a="ps" m="ps" /></div>
-      <div class="pnode"><b>Registry</b><span class="t-meta">{countOf(counts.versions, 'version')}</span><Node tone="neutral" shape="square" big a="pr" m="pr" /></div>
+      <div class="pnode"><b>Build</b><span class="t-meta">CI builds the bundle</span><span class="pslot"><Node tone="neutral" big a="pb" m="pb" /></span></div>
+      <div class="pnode seal"><b>Signature</b><span class="t-meta">the builder signs it</span><span class="pslot"><Node tone="accent" glyph="ok" big a="ps" m="ps" /></span></div>
+      <div class="pnode"><b>Registry</b><span class="t-meta">{countOf(counts.versions, 'version')}</span><span class="pslot"><Node tone="neutral" shape="square" big a="pr" m="pr" /></span></div>
       <div class="lanes pub-lanes">
         <Lane k="sig" tone="ok" glyph="ok" label="Every version signed" n={signedSvcs} total={counts.services} href={href('yes')} />
         <Lane k="uns" tone="warn" glyph="warn" label="An unsigned version" n={counts.unsignedServices} total={counts.services} {chips} href={href('no')} />

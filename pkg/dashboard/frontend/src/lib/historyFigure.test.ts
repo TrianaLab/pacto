@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { historyModel, tickLabel, TL_KINDS, TL_HEIGHT } from './historyFigure.ts';
+import { historyModel, segHeights, tickLabel, TL_KINDS, TL_HEIGHT } from './historyFigure.ts';
 
 const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
 const end = '2026-11-08T14:04:00Z';
@@ -28,12 +28,25 @@ describe('historyModel', () => {
     const m = historyModel(t, { source: 'records', live: true });
     expect(m.columns).toHaveLength(12);
     expect(m.columns[11].segs.map((s) => s.k.key)).toEqual(['failed', 'held', 'acceptedUnknown', 'released']);
-    expect(m.columns[11].segs.map((s) => s.h)).toEqual([4, 4, 4, Math.round((40 / 44) * TL_HEIGHT)]);
+    expect(m.columns[11].segs.map((s) => s.h)).toEqual([4, 4, 4, 73]);
     expect(m.columns[0].missing).toBe(2);
     expect(m.gapWords).toEqual(['2 records between yesterday 14:04 and yesterday 16:04']);
     expect(m.ticks).toEqual({ first: 'yesterday 14:04', mid: '02:04', last: 'now, 14:04' });
     expect(m.caption).toBe('1 failed and 2 held for a person, of 45 changes from yesterday 14:04 to now, 14:04 UTC. The record is missing in 1 slice, 2 records in all.');
     expect(TL_KINDS.find((k) => k.key === 'acceptedUnknown')).toMatchObject({ tone: 'neutral', hatch: true });
+  });
+
+  it('never draws a column taller than its box, floors and gaps included (C4)', () => {
+    const gaps = (hs: number[]) => hs.reduce((a, b) => a + b, 0) + hs.length - 1;
+    // The G1 fixture's buckets: many changes, several small kinds on top.
+    for (let i = 0; i < 12; i++) {
+      const hs = segHeights([(i * 13) % 40, (i * 7) % 25, 1200 + i * 37, 300].filter(Boolean), 1200 + 11 * 37 + 39 + 24 + 300);
+      expect(gaps(hs)).toBeLessThanOrEqual(TL_HEIGHT);
+      expect(Math.min(...hs)).toBeGreaterThanOrEqual(4);
+    }
+    expect(gaps(segHeights([1, 1, 1, 1, 1], 5))).toBeLessThanOrEqual(TL_HEIGHT);
+    expect(segHeights([1, 1, 1, 1, 1], 5000)).toEqual([4, 4, 4, 4, 4]);
+    expect(segHeights([], 1)).toEqual([]);
   });
 
   it('never claims a complete record it cannot see', () => {

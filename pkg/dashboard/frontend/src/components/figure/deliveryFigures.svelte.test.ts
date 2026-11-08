@@ -71,7 +71,7 @@ describe('InboxFigure', () => {
     { environment: 'prod', errored: 0, held: 1, frozen: 1, upstream: ['test'] },
     { environment: '', errored: 0, held: 3, frozen: 0, upstream: [] },
   ];
-  const href = (env: string, kind: string) => `#/delivery/inbox?environment=${env}&show=${kind}`;
+  const href = (env: string, kind: string, except?: string[]) => `#/delivery/inbox?environment=${env}&show=${kind}${except ? `&except=${except.join('|')}` : ''}`;
 
   it('draws neutral stations, one queue per environment and links every count it can filter (T3, S10)', async () => {
     const { target, c } = render(InboxFigure, { byEnvironment, href }, false);
@@ -94,13 +94,15 @@ describe('InboxFigure', () => {
     unmount(p.c);
   });
 
-  it('links the folded station to the lists of every environment (S2)', async () => {
+  it('links the folded station to the lists of every environment it folds (S2, T3)', async () => {
     const many = Array.from({ length: 9 }, (_, i) => ({ environment: `e${i}`, errored: i + 1, held: 0, frozen: 0, upstream: [] }));
     const { target, c } = render(InboxFigure, { byEnvironment: many, href }, false);
     await settle();
     const fold = [...target.querySelectorAll('.station')].at(-1)!;
-    expect(fold.querySelector('.pst-name')?.textContent).toBe('3 more environments');
-    expect(fold.querySelector('a.qrow')?.getAttribute('href')).toBe(href('', 'errored'));
+    const drawn = ['e3', 'e4', 'e5', 'e6', 'e7', 'e8'];
+    expect(fold.querySelector('a.pst-name')?.textContent).toBe('3 more environments');
+    expect(fold.querySelector('a.pst-name')?.getAttribute('href')).toBe(href('', '', drawn));
+    expect(fold.querySelector('a.qrow')?.getAttribute('href')).toBe(href('', 'errored', drawn));
     expect(fold.querySelector('a.qrow')?.textContent?.trim()).toBe('6 errored');
     unmount(c);
   });
@@ -163,19 +165,42 @@ describe('EnvFleetFigure', () => {
     { environment: 'test', tier: 'test', stages: 3, failed: 0, frozen: 0, autoHold: 0, waiting: 0, unverified: 1, empty: 0, verified: 2, upstream: [] },
     { environment: 'prod', tier: 'prod', stages: 2, failed: 1, frozen: 1, autoHold: 0, waiting: 0, unverified: 0, empty: 0, verified: 0, upstream: ['test'] },
   ];
-  const href = (st: string, env: string) => `#/delivery/environments?state=${st}&environment=${env}`;
+  const href = (st: string, env: string, except?: string[]) => `#/delivery/environments?state=${st}&environment=${env}${except ? `&except=${except.join('|')}` : ''}`;
 
   it('draws neutral stations and links every count to the board filtered to it (S10, T3)', async () => {
-    const { target, c } = render(EnvFleetFigure, { byEnvironment, href, partial: true }, false);
+    const { target, c } = render(EnvFleetFigure, { byEnvironment, href }, false);
     await settle();
     expect([...target.querySelectorAll('.stn')].map((x) => x.getAttribute('class'))).toEqual(['stn mk t-neutral', 'stn mk t-neutral']);
     expect([...target.querySelectorAll('.envc a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['1', href('unverified', 'test')], ['2', href('verified', 'test')], ['1', href('failed', 'prod')], ['1', href('frozen', 'prod')]]);
     expect(target.querySelector('.envc .qglyph.unk')).toBeTruthy();
     expect(target.querySelector('.queue-h')?.textContent).toBe('3 Stages, named like test');
+    expect(target.querySelector('.queue-h a')?.getAttribute('href')).toBe(href('', 'test'));
     expect(target.querySelector('figcaption')?.textContent).toContain('5 Stages in 2 environments: 1 failed, 0 waiting for a person and 1 frozen.');
-    expect(target.querySelector('figcaption')?.textContent).toContain('Namespaces you cannot list are not counted.');
     expect(target.querySelector('figure svg text')).toBeNull();
+    expect(target.querySelectorAll('.opencap')).toHaveLength(0);
+    unmount(c);
+  });
+
+  it('ends every share bar in an open cap when the listing is partial (S5a)', async () => {
+    const { target, c } = render(EnvFleetFigure, { byEnvironment, href, partial: true }, false);
+    await settle();
+    expect(target.querySelector('figcaption')?.textContent).toContain('Namespaces you cannot list are not counted, so each environment may hold more Stages.');
+    expect(target.querySelectorAll('.sbar-row .opencap')).toHaveLength(2);
+    expect(target.querySelectorAll('figcaption .opencap')).toHaveLength(1);
+    unmount(c);
+  });
+
+  it('links the folded station and its counts to the board of every environment it folds (S2, T3)', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ ...byEnvironment[0], environment: `e${i}`, failed: i + 1, stages: i + 4 }));
+    const { target, c } = render(EnvFleetFigure, { byEnvironment: many, href }, false);
+    await settle();
+    const fold = [...target.querySelectorAll('.station')].at(-1)!;
+    const drawn = ['e3', 'e4', 'e5', 'e6', 'e7', 'e8'];
+    expect(fold.querySelector('a.pst-name')?.textContent).toBe('3 more environments');
+    expect(fold.querySelector('a.pst-name')?.getAttribute('href')).toBe(href('', '', drawn));
+    expect(fold.querySelector('.queue-h a')?.getAttribute('href')).toBe(href('', '', drawn));
+    expect(fold.querySelector('.envc a')?.getAttribute('href')).toBe(href('failed', '', drawn));
     unmount(c);
   });
 });
@@ -206,6 +231,31 @@ describe('PromotionFigure', () => {
     expect(target.querySelectorAll('.stn.t-neutral')).toHaveLength(3);
     expect(target.textContent).toContain('not on this page of the board');
     expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
+  });
+
+  it('badges the two Stages of the last promotion and offers to replay it, never autoplaying', async () => {
+    const last = { to: 'prod/pay', from: 'dev/pay', digest: FROM, started: '2026-11-08T10:00:00Z', finished: '2026-11-08T12:00:00Z' };
+    const { target, c } = render(PromotionFigure, { service: 'pay', graph: { ...graph, last }, rows }, false);
+    await settle();
+    expect(target.querySelector('[data-testid="promoted-from"]')?.closest('[data-testid="promotion-station"]')?.textContent).toContain('dev');
+    expect(target.querySelector('[data-testid="promoted-here"]')?.closest('[data-testid="promotion-station"]')?.textContent).toContain('prod');
+    expect([...target.querySelectorAll('button')].some((b) => b.textContent === 'Replay')).toBe(true);
+    expect(target.querySelector('figure')?.getAttribute('data-narration')).not.toBe('playing');
+    unmount(c);
+  });
+
+  it('links the Stages past the cap to the board that lists them (S2)', async () => {
+    const nodes = Array.from({ length: 12 }, (_, i) => ({ namespace: `e${i}`, stage: 'pay', environment: `e${i}`, level: i,
+      upstream: i ? { kind: 'stage', namespace: `e${i - 1}`, stage: 'pay', environment: `e${i - 1}` } : { kind: 'artifact', repository: 'r' } }));
+    const edges = nodes.slice(1).map((_, i) => ({ from: `e${i}/pay`, to: `e${i + 1}/pay` }));
+    const moreHref = (ex: string[]) => `#/delivery/environments?except=${ex.join('|')}`;
+    const { target, c } = render(PromotionFigure, { service: 'pay', graph: { nodes, edges }, rows: [], moreHref }, false);
+    await settle();
+    const shown = target.querySelectorAll('[data-testid="promotion-station"]').length;
+    const a = target.querySelector('figcaption a');
+    expect(a?.textContent).toBe(`${12 - shown} more Stages`);
+    expect(a?.getAttribute('href')).toBe(moreHref(nodes.slice(0, shown).map((n) => n.environment)));
     unmount(c);
   });
 });
@@ -245,6 +295,18 @@ describe('AutonomyFigure', () => {
     expect([...target.querySelectorAll('.keyl b')].map((b) => b.textContent)).toEqual(['2', '1', '1']);
     expect(target.querySelector('.lad-note')?.textContent).toContain('1 Stage reports no level.');
     expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
+  });
+
+  it('links each level count to the Stages it counts and outlines the fleet default (T3)', async () => {
+    const byLevel = [{ level: 'observe', stages: 1 }, { level: 'advise', stages: 4 }, { level: 'auto-nonbreaking', stages: 2 }, { level: 'autonomous', stages: 0 }, { level: '', stages: 1 }];
+    const href = (l: string) => `#/delivery/autonomy?level=${l}`;
+    const { target, c } = render(AutonomyFigure, { byLevel, promotions: { count: 1, of: 3, untyped: 0 }, href }, false);
+    await settle();
+    expect([...target.querySelectorAll('.lv a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['1', href('observe')], ['4', href('advise')], ['2', href('auto-nonbreaking')], ['0', href('autonomous')]]);
+    expect(target.querySelector('.lad-note a')?.getAttribute('href')).toBe(href('none'));
+    expect([...target.querySelectorAll('.lv.lv-def .lv-t')].map((b) => b.textContent)).toEqual(['Observe']);
     unmount(c);
   });
 });

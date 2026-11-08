@@ -32,6 +32,8 @@ describe('fleetEnvModel', () => {
       expect(sum).toBe(m.stages);
       if (n > MAX_ENV_STATIONS) {
         expect(m.stations.at(-1)!.key).toBe('+');
+        // Its filter is every environment but the ones drawn.
+        expect(m.stations.at(-1)!.except).toEqual(m.stations.slice(0, -1).map((s) => s.env));
         expect(m.stations.slice(0, -1).every((s) => s.counts[0].s.key === 'failed')).toBe(true);
       }
     }
@@ -71,6 +73,25 @@ describe('promotionModel', () => {
     expect(m.caption).toBe('svc is delivered through 4 Stages, a path that forks declared by each Stage\'s upstream.');
   });
 
+  it('draws the last promotion as an accent arrow with badges and a replay on its real times', () => {
+    const graph: Any = {
+      nodes: [node('test', 0, art), node('prod', 1, { kind: 'stage', namespace: 'test', stage: 'svc', environment: 'test' })],
+      edges: [{ from: 'test/svc', to: 'prod/svc' }],
+      last: { to: 'prod/svc', from: 'test/svc', digest: 'sha256:a', started: '2026-11-08T10:00:00Z', finished: '2026-11-08T12:04:00Z' },
+    };
+    const m = promotionModel('svc', graph, [row('test'), row('prod')]);
+    expect(m.stations.map((s) => s.promoted)).toEqual(['from', 'here']);
+    expect(m.wires.find((w) => w.id === 'wp1')?.tone).toBe('accent');
+    expect(m.steps).toEqual([{ cap: 'Replaying 1 event: 1.0.0 promoted from test to prod, started 2026-11-08 10:00 and concluded 2026-11-08 12:04 UTC.', dur: 240, sig: ['wp1'] }]);
+    expect(m.caption).toContain('The accent arrow is the last promotion: 1.0.0 from test to prod, concluded 2026-11-08 12:04 UTC.');
+    expect(m.key).toEqual(['prod/svc', 'test/svc', 'sha256:a', '2026-11-08T12:04:00Z']);
+    // A promotion into an entry, or a digest the row no longer runs, draws no arc or names the digest.
+    expect(promotionModel('svc', { ...graph, last: { ...graph.last, from: '' } }, []).steps).toEqual([]);
+    const moved = promotionModel('svc', { ...graph, last: { ...graph.last, digest: 'sha256:bbbbbbbbbbbbbbbbbbbbbbbb', started: '' } }, [row('test'), row('prod')]);
+    expect(moved.steps[0].cap).toBe('Replaying 1 event: sha256:bbbbbbbbbbbb promoted from test to prod, concluded 2026-11-08 12:04 UTC.');
+    expect(promotionModel('svc', { ...graph, last: undefined }, []).key).toBeNull();
+  });
+
   it('draws a source it cannot follow hatched, with the reason and no wire (SPEC 21 rule 4)', () => {
     const graph = { nodes: [node('prod', 0, { kind: 'none' }), node('qa', 0, { kind: 'stage', namespace: 'x', stage: 'gone', problem: 'missing' }),
       node('dr', 0, { kind: 'records', stream: 'c/n/s' }), node('ext', 0, { kind: 'stage', namespace: 'o', stage: 'other', environment: 'test' })], edges: [] };
@@ -92,7 +113,7 @@ describe('promotionModel', () => {
       const marks = m.stations.length + m.stations.filter((s) => s.source).length + m.wires.length;
       expect(marks).toBeLessThanOrEqual(20);
       expect(m.more).toBe(n - m.stations.length);
-      if (m.more) expect(m.caption).toContain(`${m.more} more Stages are listed in the table below.`);
+      if (m.more) expect(m.moreExcept).toEqual(m.stations.map((s) => s.env));
     }
   });
 

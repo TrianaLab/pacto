@@ -12,7 +12,8 @@ import { expect, type Page } from '@playwright/test';
 // demo into the population the spec's figures must survive: 5,000 services, 300 owners,
 // 300 domains, 50 sources, 1,284 consumers (412 direct, 8 highlights, 3 hidden,
 // partial), 25 providers, 60 delivery environments (waiting in the inbox and counted
-// by state), a history timeline and autonomy levels in the thousands, and
+// by state), a history timeline, autonomy levels and published versions in the
+// thousands, and
 // identities of 60 to 200 characters including an emoji and a right-to-left override.
 // Keys and hrefs never change, so every link still lands.
 
@@ -152,6 +153,21 @@ export function installScaleFixture(): void {
       if (tl) {
         tl.buckets.forEach((b, i) => { b.released = 1200 + i * 37; b.failed = (i * 13) % 40; b.held = (i * 7) % 25; b.other = 300; });
         for (const k of ['released', 'failed', 'held', 'other']) tl.totals[k] = tl.buckets.reduce((n, b) => n + b[k], 0);
+      }
+    }
+    // The publish figure at fleet scale: thousands of services and versions, and the
+    // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
+    // are lengthened (no route lists them), and the list totals follow the lanes, so
+    // "N more" still lands on N plus the chips.
+    if (route === '/api/delivery/published') {
+      const c = doc.counts as Record<string, unknown> | undefined;
+      if (c) {
+        const names = (c.firstUnsigned as string[] | undefined) ?? [];
+        Object.assign(c, { services: 5000, unsignedServices: 1800, versions: 41000, signed: 38000, unsigned: 3000,
+          firstUnsigned: Array.from({ length: 4 }, (_, i) => longName(names[i] ?? `unsigned-${i}`)) });
+        const pg = doc.page as { total: number; offset: number; limit: number; nextOffset?: number };
+        pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'yes' ? 3200 : 5000;
+        if (pg.offset + pg.limit < pg.total) pg.nextOffset = pg.offset + pg.limit;
       }
     }
     if (route === '/api/delivery/autonomy') {
@@ -410,9 +426,17 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       // A mark never covers text (a "+N" count chip is itself the mark).
       const words = boxes.filter((x) => f.contains(x.el) && !x.el.closest('.mk, .on-mark'));
       for (const m of marks) {
-        const r = m.getBoundingClientRect();
+        // A mark is what it draws: its own box and every child that overflows it (a
+        // stacked segment taller than its column spills out of a fixed-height box).
+        const r = [m, ...m.querySelectorAll('*')].map((e) => e.getBoundingClientRect()).filter((q) => q.width > 0.5 && q.height > 0.5)
+          .reduce((a, q) => ({ left: Math.min(a.left, q.left), top: Math.min(a.top, q.top), right: Math.max(a.right, q.right), bottom: Math.max(a.bottom, q.bottom) }),
+            { left: 1e9, top: 1e9, right: -1e9, bottom: -1e9 });
+        if (r.right < r.left) continue;
         const hit = words.find((x) => Math.min(x.r, r.right) - Math.max(x.l, r.left) > 1 && Math.min(x.b, r.bottom) - Math.max(x.t, r.top) > 1);
-        if (hit) out.push(`a mark covers text in a figure: ${say(hit.el)}`);
+        if (hit) { out.push(`a mark covers text in a figure: ${say(hit.el)}`); continue; }
+        // C4: a mark and the text straight above or below it keep a clear 8px gap.
+        const near = words.find((x) => Math.min(x.r, r.right) - Math.max(x.l, r.left) > 1 && Math.max(x.t - r.bottom, r.top - x.b) < 7.5);
+        if (near) out.push(`a ${Math.max(near.t - r.bottom, r.top - near.b).toFixed(1)}px gap, under 8px, between a mark and text: ${say(near.el)}`);
       }
       for (const n of f.querySelectorAll('.lane, .station, .fig-aside')) {
         const tw = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);

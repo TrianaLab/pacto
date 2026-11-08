@@ -24,15 +24,17 @@
   // stands in the way. The page only reads: a level moves through a proposed
   // operation a second person approves, and a fix is something to copy and run.
   // Stages and blockers page on the server, each with its place in the URL.
-  let { offset = '', limit = '', q = '', blockers: blockersAt = '', refreshTick = 0, miraURL = '' } = $props();
+  let { offset = '', limit = '', q = '', blockers: blockersAt = '', level = '', refreshTick = 0, miraURL = '' } = $props();
 
-  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt) });
+  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt), level });
   const loader = createProductLoader(() => api.deliveryAutonomy({
     offset: query.offset || undefined, limit: query.limit || undefined, q: q || undefined, blockers: query.blockers || undefined,
+    // The router passes any string; the server refuses a level it does not know.
+    level: /** @type {any} */ (level || undefined),
   }));
   const question = $derived(JSON.stringify(query));
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(q);
+  const listQuestion = $derived(`${q}@@${level}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -115,7 +117,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} />{/if}
+    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} href={(l) => deliveryAutonomyUrl({ q, level: l })} />{/if}
 
     <dl class="au-metrics">
       <div class="au-metric" data-testid="autonomy-contracted">
@@ -128,6 +130,8 @@
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
       </div>
+      <!-- With the figure drawn, its aside is the one carrier of who approved the promotions. -->
+      {#if !data.byLevel?.some((l) => l.stages)}
       <div class="au-metric" data-testid="autonomy-promotions">
         <dt>Promotions without a person <HelpTip label="this count" text="Counted over the last 20 operations per environment." /></dt>
         {#if promotions.of}
@@ -141,6 +145,7 @@
           <dd class="t-body-2">No promotion succeeded in the last 20 operations per environment.</dd>
         {/if}
       </div>
+      {/if}
     </dl>
 
     <section aria-labelledby="au-blockers">
@@ -200,8 +205,9 @@
     </section>
     <section aria-labelledby="au-stages">
       <h2 id="au-stages" class="t-section-title">Each Stage</h2>
+      {#if level}<p class="t-meta" data-testid="autonomy-level">Only the Stages {level === 'none' ? 'that report no level' : `on ${levelLabel(level)}`}. <a href={deliveryAutonomyUrl({ q })}>Show every Stage</a></p>{/if}
       {#if stages.length === 0}
-        <p class="t-body-2" data-testid="autonomy-empty">{q ? `No Stage you can see matches “${q}”.` : `No Stage exists ${data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}.`}</p>
+        <p class="t-body-2" data-testid="autonomy-empty">{q ? `No Stage you can see matches “${q}”${level ? ' on this level' : ''}.` : level ? 'No Stage you can see is on this level.' : `No Stage exists ${data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}.`}</p>
       {:else}
         <div class="data-scroll">
           <table class="data-table au-table" data-testid="autonomy-stages">

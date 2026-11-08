@@ -4,22 +4,24 @@
   // from an entry; a fork stacks its branches in one column. An entry shows where its
   // candidates come from; a source Pacto cannot follow is a hatched marker with the
   // reason and no wire. Each Stage is a neutral station (S10) with its environment, the
-  // version it runs and its state. Ambient: no narration (no promotion time is reported
-  // here, so a replay would assert a transition the data does not hold).
+  // version it runs and its state. The last concluded promotion is an accent arrow with
+  // "promoted from" and "promoted here" badges on its two Stages; Replay walks it once,
+  // captioned with its recorded times. It never autoplays: the reader asks for it.
   import Figure from './Figure.svelte';
   import Station from './Station.svelte';
   import Node from './Node.svelte';
   import { promotionModel } from '../../lib/envFigure.ts';
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { elidable } from '../../lib/elide.ts';
+  import { countOf } from '../../lib/format.ts';
 
-  /** @type {{ service: string, graph: NonNullable<import('../../lib/api.ts').DeliveryEnvironments['promotion']>, rows: import('../../lib/api.ts').DeliveryEnvironments['environments'], id?: string }} */
-  let { service, graph, rows, id = 'promo' } = $props();
+  /** @type {{ service: string, graph: NonNullable<import('../../lib/api.ts').DeliveryEnvironments['promotion']>, rows: import('../../lib/api.ts').DeliveryEnvironments['environments'], moreHref?: (except: string[]) => string, id?: string }} */
+  let { service, graph, rows, moreHref, id = 'promo' } = $props();
   const m = $derived(promotionModel(service, graph, rows));
 </script>
 
 <Figure {id} testid="promotion-figure" question={`Where is ${service} on its way to production?`}
-  alt={m.alt} wires={m.wires} rowMin={m.cols * 170}>
+  alt={m.alt} wires={m.wires} steps={m.steps} autoKey={m.key} rowMin={m.cols * 170}>
   {#snippet stage()}
     <div class="pgraph" style:--cols={m.cols} style:--rows={m.rows}>
       {#each m.stations as s, i (s.key)}
@@ -48,10 +50,12 @@
               <span class="t-meta">not on this page of the board</span>
             {/if}
             {#if s.cycle}<span class="t-meta">on a cycle of upstream links</span>{/if}
+            {#if s.promoted}<span class="badge badge-accent" data-testid="promoted-{s.promoted}">{s.promoted === 'here' ? 'Promoted here' : 'Promoted from'}</span>{/if}
           </span>
         </div>
       {/each}
     </div>
   {/snippet}
-  {#snippet caption()}{m.caption}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
+  <!-- S2: the Stages past the cap are a link to the board that lists them. -->
+  {#snippet caption()}{m.caption}{#if m.more}{' '}{#if moreHref}<a href={moreHref(m.moreExcept)}>{countOf(m.more, 'more Stage')}</a>{:else}{countOf(m.more, 'more Stage')}{/if}{m.more === 1 ? ' is' : ' are'} not drawn.{/if}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
 </Figure>

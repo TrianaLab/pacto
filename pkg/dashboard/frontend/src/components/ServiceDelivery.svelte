@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl } from '../lib/router.ts';
-  import { shortDigest, sentence } from '../lib/delivery.ts';
+  import { shortDigest, sentence, exceptParam } from '../lib/delivery.ts';
   import PreviewSection from './PreviewSection.svelte';
   import DeliveryBadges from './DeliveryBadges.svelte';
   import DeliveryProblem from './DeliveryProblem.svelte';
@@ -58,7 +58,7 @@
 
 <PreviewSection title="Delivery" count={rows.length} total={rows.length} {emptyBody}
   help="The Stages of this service: the version each environment runs and whether it is verified, failed, frozen or waiting.">
-  {#if data?.promotion?.nodes?.length}<PromotionFigure {service} graph={data.promotion} {rows} id="svc-promo" />{/if}
+  {#if data?.promotion?.nodes?.length}<PromotionFigure {service} graph={data.promotion} {rows} id="svc-promo" moreHref={(ex) => deliveryEnvironmentsUrl({ service, domain, except: exceptParam(ex) })} />{/if}
   {#each rows as r (r.namespace + '/' + r.stage)}
     <div class="sd-row" data-testid="service-delivery-row">
       <span class="sd-env">{r.environment}</span>

@@ -19,12 +19,12 @@ describe('inboxModel (G3)', () => {
     }
   });
 
-  it('keeps the most stuck environments in promotion order and folds the rest into one unfiltered station', () => {
+  it('keeps the most stuck environments in promotion order and folds the rest into one station that lists exactly them', () => {
     const all = [env('a', 0, 0, 1), env('b', 5), env('c', 0, 1), env('d'), env('e', 2), env('f', 0, 0, 2), env('g', 1), env('h', 0, 3)];
     const m = inboxModel(all);
     expect(m.stations.map((s) => s.key)).toEqual(['b', 'c', 'e', 'f', 'g', 'h', '+']);
-    expect(m.stations[6]).toMatchObject({ label: '2 more environments', env: '', frozen: 1 });
-    expect(m.figRef).toBe('The queues share one scale; the 2 more environments are counted, not drawn, and their counts open the lists of every environment.');
+    expect(m.stations[6]).toMatchObject({ label: '2 more environments', env: '', frozen: 1, except: ['b', 'c', 'e', 'f', 'g', 'h'] });
+    expect(m.figRef).toBe('The queues share one scale; the 2 more environments are counted, not drawn.');
     // The folded station is off the scale and out of the story.
     expect(inboxModel([...all, env('i', 99)]).max).toBe(99);
     expect(inboxModel([env('z', 1), ...Array.from({ length: 7 }, (_, i) => env(`y${i}`, 0, 0, 1))]).steps.flatMap((s) => s.show)).toEqual(['[data-m="qb0errored"]']);

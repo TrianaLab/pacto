@@ -499,6 +499,7 @@ test.describe('The path to autonomy', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Path to autonomy' })).toBeVisible({ timeout: T });
     await expect(page.getByTestId('autonomy-contracted')).toContainText('80%');
     await expect(page.getByTestId('autonomy-contracted')).toContainText('of the 5 services Pacto has seen');
+    // This answer reports no level, so no figure draws and the metric carries the count.
     await expect(page.getByTestId('autonomy-promotions')).toContainText('3 of 5');
     await expect(page.getByTestId('autonomy-stages')).toContainText('Pacto proposes Auto non-breaking: 3 verified promotions, no incident.');
     await expect(page.getByTestId('autonomy-blockers')).toContainText('pacto init --cluster --namespace pay --out ./pacto-drafts');

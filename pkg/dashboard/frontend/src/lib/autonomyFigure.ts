@@ -12,6 +12,9 @@ import { levelLabel } from './delivery.ts';
 type Level = NonNullable<DeliveryAutonomy['byLevel']>[number];
 
 /** What happens to one change on each level, in one sentence. */
+/** The fleet default: a Stage with no spec.startLevel starts on observe (delivery.CurrentLevel). */
+export const DEFAULT_LEVEL = 'observe';
+
 const SAYS: Record<string, string> = {
   observe: 'GitOps promotes every change; Pacto plans it and moves nothing',
   advise: 'Pacto proposes; a person promotes every change',
@@ -20,7 +23,7 @@ const SAYS: Record<string, string> = {
 };
 
 export function autonomyModel(byLevel: Level[], promotions: { count: number; of: number; untyped: number }) {
-  const cards = byLevel.filter((l) => l.level).map((l) => ({ level: l.level, label: levelLabel(l.level), says: SAYS[l.level] ?? '', n: l.stages }));
+  const cards = byLevel.filter((l) => l.level).map((l) => ({ level: l.level, label: levelLabel(l.level), says: SAYS[l.level] ?? '', n: l.stages, def: l.level === DEFAULT_LEVEL }));
   const max = Math.max(1, ...cards.map((c) => c.n));
   const none = byLevel.find((l) => !l.level)?.stages ?? 0;
   const total = byLevel.reduce((n, l) => n + l.stages, 0);
@@ -32,7 +35,7 @@ export function autonomyModel(byLevel: Level[], promotions: { count: number; of:
   ].filter(Boolean).join(' ');
   return {
     cards, max, none, total, approvals, caption,
-    figRef: 'The drawings are the same size on purpose; the bars give the number of Stages.',
+    figRef: 'The drawings are the same size on purpose; the bars give the number of Stages. The outlined card is where every Stage starts.',
     alt: `${cards.map((c) => `${c.label} ${c.n}`).join(', ')}${none ? `, no level ${none}` : ''}. Approvals: ${approvals.person} by a person, ${approvals.auto} automatic, ${approvals.unrecorded} not recorded.`,
   };
 }

@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -34,17 +34,20 @@
   // name and the tier its name says; a dot opens the full cell. Above it, a
   // figure: every environment's Stages by state, or with one service, that
   // service's own promotion path (SPEC 21).
-  let { offset = '', limit = '', q = '', environment = '', tier = '', state: stateFilter = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
+  let { offset = '', limit = '', q = '', environment = '', tier = '', state: stateFilter = '', service = '', domain = '', except = '', refreshTick = 0, miraURL = '' } = $props();
+  // The figure's folded station: every environment but the ones it draws.
+  const exceptEnvs = $derived(exceptList(except));
 
   const loader = createProductLoader(() => api.deliveryEnvironments({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     environment: environment || undefined, tier: tier || undefined, service: service || undefined, domain: domain || undefined,
+    except: exceptEnvs.length ? exceptEnvs : undefined,
     // The router passes any string; the server refuses a state it does not know.
     state: /** @type {any} */ (stateFilter || undefined),
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}@@${except}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}`);
+  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}@@${except}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -55,12 +58,13 @@
   // filters the rows; the columns follow the same environment and tier.
   const environments = $derived(data?.environmentNames ?? [...new Set(rows.map((r) => r.environment))]);
   const tiers = $derived(data?.environmentTiers ?? {});
-  const shown = $derived(environment ? [environment] : tier ? environments.filter((e) => tiers[e] === tier) : environments);
+  const shown = $derived((environment ? [environment] : tier ? environments.filter((e) => tiers[e] === tier) : environments).filter((e) => !exceptEnvs.includes(e)));
   const tierOptions = $derived(['dev', 'test', 'prod'].filter((t) => Object.values(tiers).includes(t)));
-  const filtered = $derived(!!(q || environment || tier || stateFilter || service));
-  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, ...over }); };
-  // A figure count lands on the board filtered to its state and environment.
-  const stateHref = (st, env) => deliveryEnvironmentsUrl({ q, service, domain, state: st, environment: env || undefined });
+  const filtered = $derived(!!(q || environment || tier || stateFilter || service || exceptEnvs.length));
+  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, except: except || undefined, ...over }); };
+  // A figure count lands on the board filtered to its state and environment; the folded
+  // station's, on every environment but the ones the figure draws.
+  const stateHref = (st, env, ex) => deliveryEnvironmentsUrl({ q, service, domain, state: st || undefined, environment: env || undefined, except: exceptParam(ex) });
   // A column a person can read is 12rem: past four the board becomes the strip.
   // The strip's columns are one dot wide and fit their content, so the State
   // column takes the rest; 50 environments scroll sideways like the board does.
@@ -119,7 +123,7 @@
     return m;
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
-  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, except: except || undefined, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   // The '–' key is only worth reading when a '–' cell is on the page.
   const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
@@ -205,14 +209,18 @@
     <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, state: stateFilter, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
     <span class="ev-picks">
       {#if tierOptions.length > 1 || tier}
-        <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '' })} />
+        <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '', except: '' })} />
       {/if}
       {#if environments.length > 1 || environment}
-        <Select label="Environment" value={environment} options={[{ value: '', label: 'Every environment' }, ...environments]} onchange={(e) => go({ environment: e.currentTarget.value, tier: '' })} />
+        <Select label="Environment" value={environment} options={[{ value: '', label: 'Every environment' }, ...environments]} onchange={(e) => go({ environment: e.currentTarget.value, tier: '', except: '' })} />
       {/if}
       <Select label="State" value={stateFilter} options={[{ value: '', label: 'Any state' }, ...ENV_STATES.map((s) => ({ value: s.key, label: s.word[0].toUpperCase() + s.word.slice(1) }))]} onchange={(e) => go({ state: e.currentTarget.value })} />
     </span>
   </div>
+  {#if exceptEnvs.length}
+    <p class="t-body-2" data-testid="environments-except">Every environment but {andList(exceptEnvs, 3)}.
+      <a href={deliveryEnvironmentsUrl({ q, tier, state: stateFilter, service, domain })}>Show every environment</a></p>
+  {/if}
 
   {#if !data && loader.loading}
     <EmptyState loading={true} />
@@ -221,12 +229,12 @@
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if service && data.promotion?.nodes?.length}
-      <PromotionFigure {service} graph={data.promotion} {rows} />
+      <PromotionFigure {service} graph={data.promotion} {rows} moreHref={(ex) => deliveryEnvironmentsUrl({ q, service, domain, except: exceptParam(ex) })} />
     {:else if !service && data.counts?.byEnvironment?.length}
       <EnvFleetFigure byEnvironment={data.counts.byEnvironment} href={stateHref} partial={data.completeness === 'partial'} asOf={timeLabel(data.asOf)} />
     {/if}
     {#if rows.length === 0 && filtered}
-      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in an environment named like ${tier}` : ''}{stateFilter ? ` has a Stage that is ${ENV_STATES.find((x) => x.key === stateFilter)?.word ?? stateFilter}` : ''}.</p></div>
+      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{exceptEnvs.length ? ` has a Stage outside ${andList(exceptEnvs, 3)}` : ''}{tier ? ` has a Stage in an environment named like ${tier}` : ''}{stateFilter ? ` has a Stage that is ${ENV_STATES.find((x) => x.key === stateFilter)?.word ?? stateFilter}` : ''}.</p></div>
     {:else if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No Stages yet</h2>

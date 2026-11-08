@@ -10,14 +10,14 @@
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { formatCount } from '../../lib/format.ts';
 
-  /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryInbox['byEnvironment']>, href: (env: string, kind: string) => string, partial?: boolean }} */
+  /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryInbox['byEnvironment']>, href: (env: string, kind: string, except?: string[]) => string, partial?: boolean }} */
   let { byEnvironment, href, partial = false } = $props();
   const m = $derived(inboxModel(byEnvironment));
   const w = $derived(m.stations.length > 4 ? 80 : 96);
   // S5a (r5): a partial listing makes every queue a lower bound: each bar ends in an
   // open cap, and the caption says so beside the same glyph.
-  // The folded station's counts link to the lists of every environment (S2): no one
-  // filter names the environments it folds, and those lists hold them all.
+  // The folded station's name and counts link to the lists of every environment but
+  // the ones drawn (S2, T3), so each opens exactly what it counts.
 </script>
 
 <Figure id="inbox" testid="inbox-figure" question="Where are changes stuck on their way to production?"
@@ -28,13 +28,13 @@
         <li class="pst station">
           <Station a="p{i}" m="p{i}" {w} />
           <div class="pst-l">
-            <b class="pst-name"><bdi>{s.label}</bdi></b>
+            {#if s.except}<a class="pst-name" href={href('', '', s.except)}>{s.label}</a>{:else}<b class="pst-name"><bdi>{s.label}</bdi></b>{/if}
             <div class="queue">
               <span class="queue-h">Waiting to enter <bdi>{s.label}</bdi></span>
               {#each KINDS.filter((k) => s[k.key]) as k (k.key)}
                 {@const body = { n: s[k.key], k }}
                 {#if s.env || s.key === '+'}
-                  <a class="qrow" href={href(s.env, k.key)}>{@render row(body, i)}</a>
+                  <a class="qrow" href={href(s.env, k.key, s.except)}>{@render row(body, i)}</a>
                 {:else}
                   <span class="qrow" data-nofilter>{@render row(body, i)}</span>
                 {/if}

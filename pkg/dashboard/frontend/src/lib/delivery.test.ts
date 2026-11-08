@@ -4,6 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  exceptParam, exceptList,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -201,6 +202,12 @@ describe('what a check concluded', () => {
     expect(andList(['a'])).toBe('a');
     expect(andList(['a', 'b'])).toBe('a and b');
     expect(andList(['a', 'b', 'c'])).toBe('a, b and c');
+    // The folded station's filter survives any name, and a bad value is no filter.
+    expect(exceptList(exceptParam(['prod,eu', '', 'test'])!)).toEqual(['prod,eu', '', 'test']);
+    expect(exceptParam([])).toBeUndefined();
+    expect(exceptList('nope')).toEqual([]);
+    expect(exceptList('[1]')).toEqual([]);
+    expect(exceptList('{}')).toEqual([]);
     expect(reasonWords('ApprovalRequired')).toBe('Waiting for a person to approve');
     expect(reasonWords('ExecutionDeadline')).toBe('Execution deadline');
     expect(reasonWords('the plan changed')).toBe('the plan changed');

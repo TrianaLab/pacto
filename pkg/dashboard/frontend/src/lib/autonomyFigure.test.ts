@@ -8,6 +8,8 @@ describe('autonomyModel', () => {
     const m = autonomyModel(byLevel, { count: 3, of: 5, untyped: 2 });
     expect(m.cards.map((c) => [c.label, c.n])).toEqual([['Observe', 2], ['Advise', 10], ['Auto non-breaking', 0], ['Autonomous', 1]]);
     expect(m.max).toBe(10);
+    // The fleet default (observe) is the one outlined card.
+    expect(m.cards.filter((c) => c.def).map((c) => c.level)).toEqual(['observe']);
     expect(m.none).toBe(3);
     expect(m.approvals).toEqual({ person: 2, auto: 3, unrecorded: 2 });
     expect(m.caption).toBe('16 Stages: 2 observe, 10 advise, 0 auto non-breaking, 1 autonomous and 3 that report no level. 3 of the 5 promotions in the Stages\' last 20 operations ran with no person. 2 operations carry no type, so who approved them is not recorded; that is never counted as automatic.');

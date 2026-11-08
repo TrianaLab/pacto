@@ -24,6 +24,25 @@ export const TL_KINDS: { key: TlKind; tone: FigTone; hatch?: boolean; label: str
 
 /** The tallest column, in px; a non-zero kind keeps a 4px floor (S5). */
 export const TL_HEIGHT = 88;
+/** The space between two stacked segments, in px (`.tl-bar` gap). */
+const TL_GAP = 1;
+const TL_FLOOR = 4;
+
+/**
+ * segHeights splits a column of n changes into its segments, so the drawn column
+ * (segments, floors and gaps) is never taller than TL_HEIGHT (C4: a column that grew
+ * past its box covered the count above it). The column is scaled to the tallest; each
+ * non-zero kind keeps its floor, and the largest kind gives back what the floors took.
+ */
+export function segHeights(ns: number[], max: number): number[] {
+  const n = ns.reduce((a, b) => a + b, 0);
+  if (!n) return ns.map(() => 0);
+  const col = Math.max(TL_FLOOR * ns.length, Math.round((n / max) * (TL_HEIGHT - TL_GAP * (ns.length - 1))));
+  const out = ns.map((k) => Math.max(TL_FLOOR, Math.round((k / n) * col)));
+  const big = ns.indexOf(Math.max(...ns));
+  out[big] = Math.max(TL_FLOOR, out[big] + col - out.reduce((a, b) => a + b, 0));
+  return out;
+}
 
 /** tickLabel is a time with its day when it is not the window's last day (SPEC 6.2 r3). */
 export function tickLabel(iso: string, endIso: string): string {
@@ -49,10 +68,14 @@ export function historyModel(t: Timeline, { source, live }: { source: 'records' 
   const missingKnown = source === 'records';
   const buckets = t.buckets ?? [];
   const max = Math.max(1, ...buckets.map(sum));
-  const columns = buckets.map((b, i) => ({
-    i, start: b.start, end: b.end, n: sum(b), missing: missingKnown ? b.missing : 0,
-    segs: TL_KINDS.filter((k) => b[k.key]).map((k) => ({ k, n: b[k.key], h: Math.max(4, Math.round((b[k.key] / max) * TL_HEIGHT)) })),
-  }));
+  const columns = buckets.map((b, i) => {
+    const kinds = TL_KINDS.filter((k) => b[k.key]);
+    const hs = segHeights(kinds.map((k) => b[k.key]), max);
+    return {
+      i, start: b.start, end: b.end, n: sum(b), missing: missingKnown ? b.missing : 0,
+      segs: kinds.map((k, j) => ({ k, n: b[k.key], h: hs[j] })),
+    };
+  });
   const total = sum(t.totals);
   const gaps = columns.filter((c) => c.missing);
   const end = live ? `now, ${tickLabel(t.end, t.end)}` : tickLabel(t.end, t.end);

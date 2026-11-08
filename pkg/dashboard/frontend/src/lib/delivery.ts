@@ -450,6 +450,25 @@ export function andList(names: string[], max = Infinity, word = 'and'): string {
   return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} ${word} ${xs[xs.length - 1]}`;
 }
 
+/**
+ * The `except` URL parameter: the environments a figure draws, which its folded
+ * station leaves out so its counts open exactly what they count. It travels as one
+ * JSON array, so any environment name (commas included) survives the round trip.
+ */
+export function exceptParam(envs: string[] | undefined): string | undefined {
+  return envs?.length ? JSON.stringify(envs) : undefined;
+}
+
+/** exceptList reads the `except` URL parameter; anything but an array of strings is no filter. */
+export function exceptList(raw: string): string[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 // ── The autonomy ladder ─────────────────────────────────────────────────────
 
 /** The operation type that moves a Stage's level, one level at a time. */

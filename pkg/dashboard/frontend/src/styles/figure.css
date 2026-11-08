@@ -243,6 +243,10 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 /* Environments (SPEC 7, 21): the fleet stations' share bar and counts, and one service's
    own promotion graph (columns are links from an entry; a fork stacks in one column). */
+/* S5a: a lower-bound share bar ends in an open cap beyond its last segment. */
+.sbar-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sbar-row .sbar { flex: 1 1 auto; min-width: 0; }
+.sbar-row .qcap { margin-left: 0; }
 .sbar { display: flex; gap: 1px; height: 10px; border-radius: 2px; overflow: hidden; background: var(--c-surface-inset); box-shadow: inset 0 0 0 1px var(--c-border); }
 .sbar i { display: block; flex: 1 1 0; min-width: 2px; background: var(--tone); }
 .sbar i.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
@@ -271,6 +275,8 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .tl { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; align-items: end; margin: 0; padding: 0; list-style: none; }
 .tl-c { display: grid; justify-items: center; gap: 4px; min-width: 0; }
 .tl-n { font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--c-text-2); }
+/* C4: the count keeps 8px clear above its column (4px of margin plus the row gap). */
+.fig:not([data-w="col"]) .tl-n { margin-bottom: 4px; }
 a.tl-n { color: var(--c-accent); text-decoration: none; font-weight: 600; }
 a.tl-n:hover { text-decoration: underline; }
 .tl-bar { display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; width: min(100%, 28px); height: var(--tl-h); }
@@ -305,7 +311,12 @@ a.tl-n:hover { text-decoration: underline; }
 .lad { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: var(--sp-4); margin: 0; padding: 0; list-style: none; }
 .lv { display: grid; align-content: start; gap: 6px; min-width: 0; padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); line-height: 1.4; }
 .lv .t-meta { overflow-wrap: anywhere; }
+/* The fleet default level: outlined in accent, the same size as every card (S9). */
+.lv.lv-def { border-color: var(--c-accent); box-shadow: inset 0 0 0 1px var(--c-accent); }
+.lv-def-l { color: var(--c-text-2); }
 .aflow { display: block; max-width: 100%; height: auto; overflow: visible; }
+/* C4: the drawing keeps 8px clear above the level's name (the card's 6px gap plus this). */
+.lv .aflow { margin-bottom: 4px; }
 .af-l { fill: none; stroke: var(--fig-line-strong); stroke-width: 1.5; }
 .af-l.af-acc { stroke: var(--c-accent); }
 .af-l.af-dot { stroke-dasharray: 0.5 4; stroke-linecap: round; stroke-width: 2; }
@@ -321,14 +332,18 @@ a.tl-n:hover { text-decoration: underline; }
 
 /* Publish (SPEC 7): Build, Signature, Registry in 64px slots with labels on one
    baseline, then the two lanes that partition the services. */
-.pub { display: grid; grid-template-columns: repeat(3, minmax(6rem, 11rem)) minmax(0, 1fr); align-items: end; gap: var(--sp-6) var(--sp-8); }
-.pnode.seal .nd { margin-bottom: 28px; }
-.pnode { display: grid; justify-items: center; gap: 4px; min-width: 0; text-align: center; font-size: var(--text-sm); line-height: 1.4; }
-.pnode .nd { margin-top: var(--sp-2); }
+.pub { display: grid; grid-template-columns: repeat(3, minmax(6rem, 11rem)) minmax(0, 1fr); align-items: end; gap: 0 var(--sp-8); }
+.pub-lanes { margin-top: var(--sp-6); }
+.pnode { display: grid; grid-row: span 3; grid-template-rows: subgrid; justify-items: center; align-items: end; row-gap: 4px; min-width: 0; text-align: center; font-size: var(--text-sm); line-height: 1.4; }
+/* r4: every mark in one 64px slot, so the labels above share a baseline. Build and
+   Registry sit in the middle of theirs and the seal at the top of its own, so the bypass
+   along their lower edges passes 12px under the seal (C4). */
+.pslot { display: grid; place-items: center; height: 64px; margin-top: var(--sp-2); }
+.pnode.seal .pslot { align-items: start; }
 .pub-lanes { grid-column: 1 / -1; padding-left: var(--sp-6); }
 .fig:not([data-w="wide"]) .pub { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .fig[data-w="col"] .pub { grid-template-columns: minmax(0, 1fr); }
-.fig[data-w="col"] .pnode.seal .nd { margin-bottom: 0; }
 .fig[data-w="col"] .pub-lanes { padding-left: 0; }
-.fig[data-w="col"] .pnode { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; text-align: left; }
-.fig[data-w="col"] .pnode .nd { grid-row: 1 / span 2; grid-column: 1; margin: 0; }
+.fig[data-w="col"] .pnode { grid-row: auto; grid-template-rows: none; grid-template-columns: 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; }
+.fig[data-w="col"] .pub { row-gap: var(--sp-4); }
+.fig[data-w="col"] .pslot { grid-row: 1 / span 2; grid-column: 1; height: auto; margin: 0; }

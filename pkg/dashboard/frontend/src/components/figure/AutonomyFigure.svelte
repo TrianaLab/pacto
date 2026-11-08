@@ -8,8 +8,8 @@
   import { KIND_GLYPH } from '../../lib/figure.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
 
-  /** @type {{ byLevel: NonNullable<import('../../lib/api.ts').DeliveryAutonomy['byLevel']>, promotions: { count: number, of: number, untyped: number } }} */
-  let { byLevel, promotions } = $props();
+  /** @type {{ byLevel: NonNullable<import('../../lib/api.ts').DeliveryAutonomy['byLevel']>, promotions: { count: number, of: number, untyped: number }, href?: (level: string) => string }} */
+  let { byLevel, promotions, href } = $props();
   const m = $derived(autonomyModel(byLevel, promotions));
 </script>
 
@@ -24,7 +24,7 @@
   {#snippet stage()}
     <ol class="lad" style:--n={m.cards.length}>
       {#each m.cards as c (c.level)}
-        <li class="lv">
+        <li class="lv" class:lv-def={c.def}>
           <svg class="aflow mk" width="168" height="64" viewBox="0 0 168 64" aria-hidden="true" focusable="false">
             {#if c.level === 'observe'}
               <path class="af-l" d="M21 32 H146" /><path class="af-l af-dot" d="M84 32 V14" />
@@ -41,8 +41,8 @@
             {/if}
           </svg>
           <b class="lv-t">{c.label}</b>
-          <span class="t-meta">{c.says}</span>
-          <span><b data-nofilter>{formatCount(c.n)}</b> {c.n === 1 ? 'Stage' : 'Stages'}</span>
+          <span class="t-meta">{c.says}{#if c.def}{' '}<span class="lv-def-l">Every Stage starts here unless it sets a start level.</span>{/if}</span>
+          <span>{#if href}<a href={href(c.level)}><b>{formatCount(c.n)}</b></a>{:else}<b data-nofilter>{formatCount(c.n)}</b>{/if} {c.n === 1 ? 'Stage' : 'Stages'}</span>
           <span class="cbar" aria-hidden="true"><i style:width="max(6px, {((c.n / m.max) * 100).toFixed(1)}%)" class:zero={!c.n}></i></span>
         </li>
       {/each}
@@ -60,7 +60,7 @@
       <li><i class="sw t-neutral"></i><span>Automatic</span><b data-nofilter>{formatCount(m.approvals.auto)}</b></li>
       <li><i class="sw t-neutral hatch"></i><span>Not recorded</span><b data-nofilter>{formatCount(m.approvals.unrecorded)}</b></li>
     </ul>
-    <p class="t-meta lad-note">Over the last 20 operations per Stage. Not recorded is never counted as automatic.{#if m.none}{' '}{countOf(m.none, 'Stage')} {m.none === 1 ? 'reports' : 'report'} no level.{/if}</p>
+    <p class="t-meta lad-note">Over the last 20 operations per Stage. Not recorded is never counted as automatic.{#if m.none}{' '}{#if href}<a href={href('none')}>{countOf(m.none, 'Stage')}</a>{:else}{countOf(m.none, 'Stage')}{/if} {m.none === 1 ? 'reports' : 'report'} no level.{/if}</p>
   {/snippet}
   {#snippet caption()}{m.caption}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
 </Figure>

@@ -17,6 +17,7 @@ import type { DeliveryEnvironments } from './api.ts';
 import { countOf, formatCount } from './format.ts';
 import { andList } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
+import type { Step } from './narrate.ts';
 
 type Counts = NonNullable<DeliveryEnvironments['counts']['byEnvironment']>[number];
 type Row = NonNullable<DeliveryEnvironments['environments']>[number];
@@ -50,6 +51,8 @@ export interface EnvStation {
   label: string;
   /** The environment its counts filter the board to; '' for the folded station. */
   env: string;
+  /** The folded station's filter: every environment but these (the ones drawn). */
+  except?: string[];
   tier: string;
   stages: number;
   counts: { s: (typeof ENV_STATES)[number]; n: number }[];
@@ -68,7 +71,7 @@ export function fleetEnvModel(byEnv: Counts[]) {
   const counted = (cs: Counts[]) => ENV_STATES.map((s) => ({ s, n: cs.reduce((n, e) => n + Number(e[s.field] ?? 0), 0) })).filter((c) => c.n);
   const stations: EnvStation[] = envs.map((e) => ({ key: e.environment, label: e.environment, env: e.environment, tier: e.tier ?? '', stages: e.stages, counts: counted([e]) }));
   if (rest.length) {
-    stations.push({ key: '+', label: countOf(rest.length, 'more environment'), env: '', tier: '', stages: rest.reduce((n, e) => n + e.stages, 0), counts: counted(rest) });
+    stations.push({ key: '+', label: countOf(rest.length, 'more environment'), env: '', except: envs.map((e) => e.environment), tier: '', stages: rest.reduce((n, e) => n + e.stages, 0), counts: counted(rest) });
   }
   const fed = (i: number) => i + 1 < envs.length && (envs[i + 1].upstream ?? []).includes(envs[i].environment);
   const wires: WireDef[] = stations.slice(1).flatMap((_, i) => fed(i) ? [{
@@ -115,6 +118,8 @@ export interface PromoStation {
   version: string;
   source: PromoSource | null;
   cycle: boolean;
+  /** The last succeeded promotion: 'from' on the Stage that offered it, 'here' on the one it reached. */
+  promoted: '' | 'from' | 'here';
 }
 
 /** sourceOf says where an entry's candidates come from; null when a shown Stage feeds it. */
@@ -123,7 +128,11 @@ function sourceOf(n: GNode, fedInGraph: boolean, ownStage = false): PromoSource 
   if (fedInGraph) return null;
   switch (u.kind) {
     case 'artifact': return { kind: 'artifact', label: 'New artifacts', sub: u.repository ? `from ${u.repository}` : 'published to the registry' };
-    case 'records': return { kind: 'records', label: 'Another cluster', sub: 'verified there, read from its signed records' };
+    case 'records':
+      // SPEC 21 r1: records the promoter does not trust, or cannot verify, feed nothing.
+      if (u.trust === 'untrusted') return { kind: 'unknown', label: 'Untrusted records', sub: "the promoter trusts no key for another cluster's records, so the Stage never promotes" };
+      if (u.trust === 'unreadable') return { kind: 'unknown', label: 'Unreadable records', sub: `the records of ${u.stream} cannot be read or verified` };
+      return { kind: 'records', label: 'Another cluster', sub: u.trust === 'trusted' ? 'verified there, read from its signed records' : 'verified there; the promoter has not said yet whether it trusts the records' };
     case 'stage':
       if (u.problem === 'missing') return { kind: 'unknown', label: 'Missing upstream', sub: `the Stage ${u.namespace}/${u.stage} does not exist` };
       if (u.problem === 'unreadable') return { kind: 'unknown', label: 'Unreadable upstream', sub: `the Stage ${u.namespace}/${u.stage} cannot be read` };
@@ -164,13 +173,19 @@ export function promotionModel(service: string, graph: Graph, rows: Row[]) {
       key, env: n.environment, stage: (envCount.get(n.environment) ?? 0) > 1 ? key : '',
       col: levels.indexOf(n.level) + 1 + (hasSource ? 1 : 0), row, stageRow: r, state: r ? rowState(r) : null,
       version: r ? r.version || (r.pointer ? r.pointer.slice(0, 19) : '') : '',
-      source: src(n, keys), cycle: !!n.cycle,
+      source: src(n, keys), cycle: !!n.cycle, promoted: '',
     };
   });
+  // The last concluded promotion is an accent arrow between the two Stages, when both
+  // are drawn and one feeds the other (SPEC 7); a replay walks it with its real times.
+  const last = graph.last;
+  const toI = last ? keys.indexOf(last.to) : -1, fromI = last?.from ? keys.indexOf(last.from) : -1;
+  const arc = toI >= 0 && fromI >= 0 ? toI : -1;
+  if (arc >= 0) { stations[fromI].promoted = 'from'; stations[toI].promoted = 'here'; }
   const wires: WireDef[] = [];
   stations.forEach((s, i) => {
     const from = keys.indexOf(fedBy.get(s.key) ?? '');
-    if (from >= 0) wires.push({ id: `wp${i}`, from: `s${from}-r`, fs: 'c', to: `s${i}-l`, ts: 'c', col: { from: `s${from}-b`, to: `s${i}-t` }, style: 'obs', tone: 'neutral', head: true });
+    if (from >= 0) wires.push({ id: `wp${i}`, from: `s${from}-r`, fs: 'c', to: `s${i}-l`, ts: 'c', col: { from: `s${from}-b`, to: `s${i}-t` }, style: 'obs', tone: i === arc ? 'accent' : 'neutral', head: true });
     if (s.source && s.source.kind !== 'unknown') {
       wires.push({ id: `ws${i}`, from: `src${i}`, fs: 'r', to: `s${i}-l`, ts: 'c', col: { from: `src${i}`, fs: 'b', to: `s${i}-t`, ts: 'c' }, style: 'obs', tone: 'neutral', head: true });
     }
@@ -179,14 +194,31 @@ export function promotionModel(service: string, graph: Graph, rows: Row[]) {
   const unknown = stations.filter((s) => s.source?.kind === 'unknown');
   const forks = [...rowIn.values()].some((n) => n > 1);
   const shape = nodes.length === 1 ? 'one Stage' : forks ? 'a path that forks' : 'a chain';
+  let promotion = '';
+  const steps: Step[] = [];
+  if (arc >= 0 && last) {
+    const f = stations[fromI], t = stations[toI];
+    const v = t.stageRow?.pointer === last.digest && t.stageRow.version ? t.stageRow.version : last.digest.slice(0, 19);
+    const utc = (iso: string) => (Number.isNaN(Date.parse(iso)) ? iso : new Date(iso).toISOString().slice(0, 16).replace('T', ' '));
+    promotion = `The accent arrow is the last promotion: ${v} from ${f.env} to ${t.env}, concluded ${utc(last.finished)} UTC.`;
+    steps.push({ cap: `Replaying 1 event: ${v} promoted from ${f.env} to ${t.env}, ${last.started ? `started ${utc(last.started)} and ` : ''}concluded ${utc(last.finished)} UTC.`, dur: 240, sig: [`wp${arc}`] });
+  }
   const caption = [
     `${service} is delivered through ${countOf(nodes.length, 'Stage')}, ${shape} declared by each Stage's upstream.`,
     unknown.length ? `${andList(unknown.map((s) => s.env), 3)} ${unknown.length === 1 ? 'has' : 'have'} no source Pacto can follow, drawn hatched: ${unknown.map((s) => s.source!.sub).join('; ')}.` : '',
     stations.some((s) => s.cycle) ? 'Some Stages feed each other in a cycle, so the order cannot place them.' : '',
-    more ? `${countOf(more, 'more Stage')} ${more === 1 ? 'is' : 'are'} listed in the table below.` : '',
+    promotion,
   ].filter(Boolean).join(' ');
+  // The "N more Stages" link opens the board without the environments every one of
+  // whose Stages is drawn. ponytail: an environment holding a drawn Stage and a folded
+  // one stays on that board, so it also lists the drawn sibling; a Stage filter would fix it.
+  const drawnPerEnv = new Map<string, number>();
+  for (const s of stations) drawnPerEnv.set(s.env, (drawnPerEnv.get(s.env) ?? 0) + 1);
+  const moreExcept = [...drawnPerEnv].filter(([e, k]) => envCount.get(e) === k).map(([e]) => e);
   return {
-    stations, wires, caption, more, hasSource, cols: levels.length + (hasSource ? 1 : 0),
+    stations, wires, steps, caption, more, moreExcept, hasSource,
+    // Only what the replay animates: the arc and its times.
+    key: arc >= 0 && last ? [last.to, last.from, last.digest, last.finished] : null, cols: levels.length + (hasSource ? 1 : 0),
     rows: Math.max(1, ...rowIn.values()),
     figRef: 'An arrow goes from the Stage that verifies a version to the Stage it offers it to.',
     alt: stations.map((s) => `${s.env}${s.version ? ` runs ${s.version}` : ''}${s.state ? `, ${s.state.word}` : ''}${s.source ? `; fed by ${s.source.label}` : ''}`).join('; '),

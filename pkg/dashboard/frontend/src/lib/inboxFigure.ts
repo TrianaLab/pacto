@@ -36,6 +36,8 @@ export interface InboxStation {
   label: string;
   /** The environment this station filters the lists to; '' when no filter lists it. */
   env: string;
+  /** The folded station's filter: every environment but these (the ones drawn). */
+  except?: string[];
   errored: number;
   held: number;
   frozen: number;
@@ -56,7 +58,7 @@ export function inboxModel(byEnv: Env[]) {
   }));
   if (rest.length) {
     const sum = (k: Kind) => rest.reduce((n, e) => n + e[k], 0);
-    stations.push({ key: '+', label: `${countOf(rest.length, 'more environment')}`, env: '', errored: sum('errored'), held: sum('held'), frozen: sum('frozen') });
+    stations.push({ key: '+', label: `${countOf(rest.length, 'more environment')}`, env: '', except: envs.map((e) => e.environment), errored: sum('errored'), held: sum('held'), frozen: sum('frozen') });
   }
   // One scale for the environments drawn one by one. The folded station sums many, so
   // it prints its counts without bars: on the same scale it would flatten every other.
@@ -85,7 +87,7 @@ export function inboxModel(byEnv: Env[]) {
   return {
     stations, max, wires, steps, caption,
     figRef: [wires.length ? 'An arrow joins two environments when the Stages of the second are fed by the first.' : '',
-      `The queues share one scale${rest.length ? `; the ${countOf(rest.length, 'more environment')} are counted, not drawn, and their counts open the lists of every environment` : ''}.`].filter(Boolean).join(' '),
+      `The queues share one scale${rest.length ? `; the ${countOf(rest.length, 'more environment')} are counted, not drawn` : ''}.`].filter(Boolean).join(' '),
     alt: stations.map((s) => `waiting to enter ${s.label}: ${s.errored} errored, ${s.held} held, ${s.frozen} frozen`).join('; '),
     // The key covers only what the steps animate: errored and held per station.
     key: stations.map((s) => [s.key, s.errored, s.held]),
