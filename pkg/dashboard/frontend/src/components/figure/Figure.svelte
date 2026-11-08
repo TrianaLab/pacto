@@ -21,9 +21,26 @@
 
   // A rail walk (`walk`) takes one step per station reached (A1b) and may carry a token
   // that travels them (`token`). `rowMin` is the width under which a row of steps turns
-  // vertical (S1 r3, data-minw): each step keeps at least 150px.
-  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], walk?: boolean, token?: import('../../lib/narrate.ts').TokenWalk | null, rowMin?: number, autoplay?: boolean, autoKey?: unknown, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
-  let { id, question, kind = 'data', alt = '', wires = [], steps = [], walk = false, token = null, rowMin = 0, autoplay = false, autoKey = null, testid = undefined, stage, aside = null, foot = null, caption } = $props();
+  // vertical (S1 r3, data-minw): each step keeps at least 150px. `compact` offers the
+  // L3 (r5) Compact toggle of a list view's figure: it folds the drawing away, keeps
+  // the aside and caption, and is remembered per figure.
+  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], walk?: boolean, token?: import('../../lib/narrate.ts').TokenWalk | null, rowMin?: number, autoplay?: boolean, autoKey?: unknown, compact?: boolean, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
+  let { id, question, kind = 'data', alt = '', wires = [], steps = [], walk = false, token = null, rowMin = 0, autoplay = false, autoKey = null, compact = false, testid = undefined, stage, aside = null, foot = null, caption } = $props();
+
+  const COMPACT = 'pacto-fig-compact';
+  /** @returns {string[]} */
+  function compactIds() {
+    try { return JSON.parse(localStorage.getItem(COMPACT) || '[]'); } catch { return []; }
+  }
+  let folded = $state(untrack(() => compact && compactIds().includes(id)));
+  async function toggleCompact() {
+    folded = !folded;
+    if (folded) { io?.disconnect(); skip(); }
+    // localStorage may be unavailable (private mode); the figure still folds.
+    try { localStorage.setItem(COMPACT, JSON.stringify([...compactIds().filter((x) => x !== id), ...(folded ? [id] : [])])); } catch { /* not remembered */ }
+    await tick();
+    layout();
+  }
 
   /** @type {HTMLElement} */ let el;
   /** @type {HTMLElement} */ let stageEl;
@@ -55,7 +72,8 @@
   }
 
   function start() {
-    if (!steps.length) { ring(true); return; }
+    // A folded figure plays nothing, and keeps its once-per-session narration for later.
+    if (!steps.length || folded) { ring(true); return; }
     if (reduced) { setStep(steps.length); return; }
     if (!autoplay || autoKey == null || finalMode() || !claimAutoplay(sessionKey(autoKey))) { ring(true); return; }
     // Pending shows the final frame until the figure is in view: nothing waits at opacity 0.
@@ -122,14 +140,17 @@
   });
 </script>
 
-<figure class="fig fig--{kind} iso-backdrop" id="fig-{id}" data-fig data-w={w} data-narration={narration} data-testid={testid}
+<figure class="fig fig--{kind} iso-backdrop" id="fig-{id}" data-fig data-w={w} data-narration={narration} data-compact={folded || undefined} data-testid={testid}
   aria-labelledby="fig-{id}-q" bind:this={el}>
   <div class="fig-head">
     <span class="fig-kind">{kind === 'explain' ? 'How this works' : 'Data figure'}</span>
     <p class="fig-q" id="fig-{id}-q">{question}</p>
-    {#if steps.length}
+    {#if steps.length || compact}
       <div class="fig-ctl">
-        {#if reduced}
+        {#if compact}<button type="button" class="btn btn-sm" aria-pressed={folded} onclick={toggleCompact}>Compact</button>{/if}
+        {#if !steps.length || folded}
+          <!-- a folded figure has no narration to drive -->
+        {:else if reduced}
           <button type="button" class="btn btn-sm" disabled={k <= 1} onclick={() => setStep(k - 1)}>Previous</button>
           <span class="t-meta" data-nofilter>Step {k} of {steps.length}</span>
           <button type="button" class="btn btn-sm" disabled={k >= steps.length} onclick={() => setStep(k + 1)}>Next</button>
@@ -151,7 +172,7 @@
     </div>
     {#if aside}<div class="fig-aside">{@render aside()}</div>{/if}
   </div>
-  {#if steps.length}
+  {#if steps.length && !folded}
     <ol class="visually-hidden" aria-label="What the drawing shows, in order">
       {#each steps as s, i (i)}<li aria-current={reduced && i === k - 1 ? 'step' : undefined}>{s.cap}</li>{/each}
     </ol>

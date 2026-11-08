@@ -429,6 +429,24 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
 }
 
 /**
+ * densityProblems is L3 (r5), for list views at 1280x900: a data figure above the list
+ * either leaves the list's first row (a table header or a list row) within 600px of the
+ * page top or offers a Compact toggle (aria-pressed) that folds the drawing away.
+ */
+export async function densityProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const fig = document.querySelector('main [data-fig].fig--data');
+    if (!fig) return [];
+    const after = (el: Element) => !!(fig.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !fig.contains(el);
+    const first = [...document.querySelectorAll('main thead, main .pl-row')].find((el) => after(el) && el.getClientRects().length);
+    if (!first) return [];
+    const top = Math.round(first.getBoundingClientRect().top + window.scrollY);
+    const toggle = [...fig.querySelectorAll('.fig-head button[aria-pressed]')].some((b) => (b.textContent ?? '').trim() === 'Compact');
+    return top > 600 && !toggle ? [`the list starts ${top}px from the page top, under a figure with no Compact toggle (L3)`] : [];
+  });
+}
+
+/**
  * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
  * and reads the total of the list it lands on, from the `data-view-total` its pager
  * carries: "List all N" must land on N, "N more" on N plus the chips its lane names.

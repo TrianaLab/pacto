@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
-import { figureLinkTotals, gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
+import { densityProblems, figureLinkTotals, gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
 
 // G1, the transversal layout gate (SPEC section 12): every route, at 390, 760, 1024 and
 // 1280px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
@@ -11,7 +11,8 @@ import { figureLinkTotals, gateMode, installScaleFixture, layoutProblems, sweepO
 // horizontal page scroll, more than one element carrying an err box-shadow ring, and
 // the figure rules once figures exist: at most 20 marks, no mark over text, every
 // number a filter link or data-nofilter, every "List all N" landing on a list of N and
-// every "N more" on N plus the names shown. Then it sweeps every 20px from 760 to 1440 for
+// every "N more" on N plus the names shown, and on list views L3: the list within 600px
+// of the top or a Compact toggle on the figure. Then it sweeps every 20px from 760 to 1440 for
 // horizontal overflow (SPEC 19), since a layout clean at the fixed widths spilled
 // between them.
 //
@@ -36,15 +37,16 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
-type Route = { name: string; hash?: string; open?: (page: Page) => Promise<void> };
+// `list` marks list views, where L3 holds the list within 600px or the figure folds.
+type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
 const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
-  { name: 'services', hash: '#/fleet/services' },
-  { name: 'owners', hash: '#/fleet/owners' },
-  { name: 'domains', hash: '#/fleet/domains' },
-  { name: 'offerings', hash: '#/fleet/offerings' },
-  { name: 'sources', hash: '#/fleet/sources' },
-  { name: 'attention', hash: '#/fleet/attention' },
+  { name: 'services', list: true, hash: '#/fleet/services' },
+  { name: 'owners', list: true, hash: '#/fleet/owners' },
+  { name: 'domains', list: true, hash: '#/fleet/domains' },
+  { name: 'offerings', list: true, hash: '#/fleet/offerings' },
+  { name: 'sources', list: true, hash: '#/fleet/sources' },
+  { name: 'attention', list: true, hash: '#/fleet/attention' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
   { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },
@@ -59,20 +61,20 @@ const ROUTES: Route[] = [
     },
   },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
-  { name: 'revision list', hash: '#/fleet/revisions?service=payments-service' },
+  { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
-  { name: 'target list', hash: '#/fleet/targets' },
+  { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
-  { name: 'delivery inbox', hash: '#/delivery/inbox' },
-  { name: 'delivery environments', hash: '#/delivery/environments' },
-  { name: 'delivery history', hash: '#/delivery/history' },
+  { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
+  { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
+  { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
-  { name: 'delivery autonomy', hash: '#/delivery/autonomy' },
-  { name: 'delivery publish', hash: '#/delivery/publish' },
+  { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
+  { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
 ];
@@ -115,6 +117,7 @@ for (const theme of ['dark', 'light'] as const) {
         // Last, because it navigates: every "List all N" / "N more" lands on N (T3).
         await page.setViewportSize({ width: 1280, height: 900 });
         await settle(page);
+        if (r.list) problems.push(...await densityProblems(page));
         problems.push(...await figureLinkTotals(page));
         expect(problems, `${r.name} (${theme})`).toEqual([]);
       });

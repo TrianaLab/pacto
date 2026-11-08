@@ -14,12 +14,14 @@
   let { byEnvironment, href, partial = false } = $props();
   const m = $derived(inboxModel(byEnvironment));
   const w = $derived(m.stations.length > 4 ? 80 : 96);
-  // S5a: a partial listing makes every queue a lower bound, said once in the caption.
-  // ponytail: no open caps on the queue bars yet; add them if the sentence is missed.
+  // S5a (r5): a partial listing makes every queue a lower bound: each bar ends in an
+  // open cap, and the caption says so beside the same glyph.
+  // The folded station's counts link to the lists of every environment (S2): no one
+  // filter names the environments it folds, and those lists hold them all.
 </script>
 
 <Figure id="inbox" testid="inbox-figure" question="Where are changes stuck on their way to production?"
-  alt={m.alt} wires={m.wires} steps={m.steps} rowMin={m.stations.length * 150} autoplay={m.steps.length > 0} autoKey={m.key}>
+  alt={m.alt} wires={m.wires} steps={m.steps} rowMin={m.stations.length * 150} autoplay={m.steps.length > 0} autoKey={m.key} compact={true}>
   {#snippet stage()}
     <ol class="pipe" style:--n={m.stations.length}>
       {#each m.stations as s, i (s.key)}
@@ -31,7 +33,7 @@
               <span class="queue-h">Waiting to enter <bdi>{s.label}</bdi></span>
               {#each KINDS.filter((k) => s[k.key]) as k (k.key)}
                 {@const body = { n: s[k.key], k }}
-                {#if s.env}
+                {#if s.env || s.key === '+'}
                   <a class="qrow" href={href(s.env, k.key)}>{@render row(body, i)}</a>
                 {:else}
                   <span class="qrow" data-nofilter>{@render row(body, i)}</span>
@@ -43,11 +45,13 @@
       {/each}
     </ol>
   {/snippet}
-  {#snippet caption()}{m.caption}{#if partial}{' '}Namespaces you cannot list are not counted, so each queue may hold more.{/if}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
+  {#snippet caption()}{m.caption}{#if partial}{' '}{@render cap()}Namespaces you cannot list are not counted, so each queue may hold more.{/if}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
 </Figure>
 
 {#snippet row(/** @type {{ n: number, k: (typeof KINDS)[number] }} */ b, /** @type {number} */ i)}
   <svg class="qglyph t-{b.k.tone}" width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true" focusable="false"><circle r="7" /><path d={GLYPH_PATH[b.k.glyph]} /></svg>
-  {#if m.stations[i].key !== '+'}<span class="qbar" aria-hidden="true"><i class="t-{b.k.tone}" data-m="qb{i}{b.k.key}" style:width="max(14px, {((b.n / m.max) * 100).toFixed(1)}%)"></i></span>{/if}
+  {#if m.stations[i].key !== '+'}<span class="qbar" aria-hidden="true"><i class="t-{b.k.tone}" data-m="qb{i}{b.k.key}" style:width="max(14px, {((b.n / m.max) * 100).toFixed(1)}%)"></i></span>{#if partial}{@render cap()}{/if}{/if}
   <span class="qn"><b>{formatCount(b.n)}</b> {b.k.word}</span>
 {/snippet}
+
+{#snippet cap()}<svg class="opencap qcap" width="12" height="16" viewBox="0 0 12 16" aria-hidden="true" focusable="false"><path d="M4 1 L1.5 15 M10.5 1 L8 15" /></svg>{/snippet}

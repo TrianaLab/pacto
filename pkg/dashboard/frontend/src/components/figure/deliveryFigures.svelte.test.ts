@@ -28,7 +28,7 @@ function render(C: Any, props: Any, reduced: boolean) {
 const stage = (t: HTMLElement) => t.querySelector('.fig-stage')!.innerHTML;
 const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
 
-afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; sessionStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; sessionStorage.clear(); localStorage.clear(); });
 
 describe('ChangeFigure', () => {
   it('renders its final frame under reduced motion too, the token at rest on the gate (G2)', async () => {
@@ -74,10 +74,59 @@ describe('InboxFigure', () => {
     expect(rows[4].hasAttribute('data-nofilter')).toBe(true);
     expect(target.querySelector('figcaption')?.textContent).toContain('1 errored change, 6 held changes and 1 frozen Stage wait for you.');
     expect(target.querySelector('[data-m="qb1frozen"]')?.classList.contains('t-frost')).toBe(true);
+    expect(target.querySelectorAll('.opencap')).toHaveLength(0);
     unmount(c);
     const p = render(InboxFigure, { byEnvironment, href, partial: true }, false);
     expect(p.target.querySelector('figcaption')?.textContent).toContain('Namespaces you cannot list are not counted, so each queue may hold more.');
+    // S5a: every queue bar ends open, with the same glyph beside the sentence.
+    expect(p.target.querySelectorAll('.qrow .opencap')).toHaveLength(5);
+    expect(p.target.querySelectorAll('figcaption .opencap')).toHaveLength(1);
     unmount(p.c);
+  });
+
+  it('links the folded station to the lists of every environment (S2)', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ environment: `e${i}`, errored: i + 1, held: 0, frozen: 0, upstream: [] }));
+    const { target, c } = render(InboxFigure, { byEnvironment: many, href }, false);
+    await settle();
+    const fold = [...target.querySelectorAll('.station')].at(-1)!;
+    expect(fold.querySelector('.pst-name')?.textContent).toBe('3 more environments');
+    expect(fold.querySelector('a.qrow')?.getAttribute('href')).toBe(href('', 'errored'));
+    expect(fold.querySelector('a.qrow')?.textContent?.trim()).toBe('6 errored');
+    unmount(c);
+  });
+
+  it('folds the drawing away with a remembered Compact toggle, keeping the caption (L3)', async () => {
+    const a = render(InboxFigure, { byEnvironment, href }, false);
+    await settle();
+    const btn = () => [...document.querySelectorAll('button')].find((x) => x.textContent === 'Compact') as HTMLButtonElement;
+    expect(btn().getAttribute('aria-pressed')).toBe('false');
+    btn().click();
+    await settle();
+    const fig = a.target.querySelector('figure')!;
+    expect(fig.hasAttribute('data-compact')).toBe(true);
+    expect(btn().getAttribute('aria-pressed')).toBe('true');
+    expect([...a.target.querySelectorAll('button')].map((x) => x.textContent)).toEqual(['Compact']);
+    expect(a.target.querySelector('figcaption')?.textContent).toContain('wait for you');
+    expect(JSON.parse(localStorage.getItem('pacto-fig-compact')!)).toEqual(['inbox']);
+    unmount(a.c);
+    // Remembered: the next visit starts folded, and plays nothing.
+    const b = render(InboxFigure, { byEnvironment, href }, false);
+    await settle();
+    expect(b.target.querySelector('figure')?.hasAttribute('data-compact')).toBe(true);
+    expect(b.target.querySelector('figure')?.getAttribute('data-narration')).toBe('done');
+    btn().click();
+    await settle();
+    expect(b.target.querySelector('figure')?.hasAttribute('data-compact')).toBe(false);
+    expect(localStorage.getItem('pacto-fig-compact')).toBe('[]');
+    unmount(b.c);
+    // Storage that throws still folds, unremembered.
+    vi.stubGlobal('localStorage', { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, clear() {} });
+    const d = render(InboxFigure, { byEnvironment, href }, false);
+    await settle();
+    btn().click();
+    await settle();
+    expect(d.target.querySelector('figure')?.hasAttribute('data-compact')).toBe(true);
+    unmount(d.c);
   });
 
   it('renders the same drawing under reduced motion (G2)', async () => {

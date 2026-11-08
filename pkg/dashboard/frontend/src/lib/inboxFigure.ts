@@ -11,6 +11,7 @@
  */
 import type { DeliveryInbox } from './api.ts';
 import { countOf, formatCount } from './format.ts';
+import { andList } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step } from './narrate.ts';
 
@@ -77,11 +78,14 @@ export function inboxModel(byEnv: Env[]) {
       dur: 240, show: at.map((i) => `[data-m="qb${i}${k.key}"]`),
     });
   }
-  const caption = `${countOf(total('errored'), 'errored change')}, ${countOf(total('held'), 'held change')} and ${countOf(total('frozen'), 'frozen Stage')} wait for you.`;
+  // SPEC 21: a cycle of upstream links gives its environments no place; say so.
+  const cyc = byEnv.filter((e) => e.cycle).map((e) => e.environment);
+  const caption = [`${countOf(total('errored'), 'errored change')}, ${countOf(total('held'), 'held change')} and ${countOf(total('frozen'), 'frozen Stage')} wait for you.`,
+    cyc.length ? `The Stages of ${andList(cyc, 3)} feed each other in a cycle, so ${cyc.length === 1 ? 'it is' : 'they are'} placed by name.` : ''].filter(Boolean).join(' ');
   return {
     stations, max, wires, steps, caption,
     figRef: [wires.length ? 'An arrow joins two environments when the Stages of the second are fed by the first.' : '',
-      `The queues share one scale${rest.length ? `; the ${countOf(rest.length, 'more environment')} are counted, not drawn` : ''}.`].filter(Boolean).join(' '),
+      `The queues share one scale${rest.length ? `; the ${countOf(rest.length, 'more environment')} are counted, not drawn, and their counts open the lists of every environment` : ''}.`].filter(Boolean).join(' '),
     alt: stations.map((s) => `waiting to enter ${s.label}: ${s.errored} errored, ${s.held} held, ${s.frozen} frozen`).join('; '),
     // The key covers only what the steps animate: errored and held per station.
     key: stations.map((s) => [s.key, s.errored, s.held]),

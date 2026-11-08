@@ -45,6 +45,9 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   const fromV = name(e.spec.params?.from);
   const toV = name(e.spec.params?.to);
   const here = `${namespace}/${e.spec.stage}`;
+  // The environment station names the Stage's spec.environment; namespace/Stage only
+  // when the Stage could not be read.
+  const env = d.environment || here;
   const stillRuns = fromV ? `still runs ${fromV}` : 'nothing changed here';
   const failed = outcome === 'Failed' || outcome === 'Errored';
 
@@ -70,11 +73,11 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
     return unknown('gate', 'Gate', 'not reached', 'diamond');
   }
   function target(): S {
-    const t = { key: 'to', label: here, shape: 'square' as const };
+    const t = { key: 'to', label: env, shape: 'square' as const };
     if (running && !applied) return { ...t, tone: 'accent', glyph: '', sub: `${toV || 'the change'} is being released` };
     if (applied) return failed ? { ...t, tone: 'err', glyph: 'err', sub: `${toV || 'the change'} was released here, then failed` } : { ...t, tone: 'ok', glyph: 'ok', sub: `${toV || 'the change'} was released here` };
     if (e.stage.frozen && !concluded) return { ...t, tone: 'frost', glyph: 'frozen', sub: `frozen: ${stillRuns}` };
-    return unknown('to', here, `not reached: ${stillRuns}`, 'square');
+    return unknown('to', env, `not reached: ${stillRuns}`, 'square');
   }
   function verify(): S {
     const v = { key: 'verify', label: 'Checks after release' };

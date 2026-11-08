@@ -24,7 +24,7 @@ describe('inboxModel (G3)', () => {
     const m = inboxModel(all);
     expect(m.stations.map((s) => s.key)).toEqual(['b', 'c', 'e', 'f', 'g', 'h', '+']);
     expect(m.stations[6]).toMatchObject({ label: '2 more environments', env: '', frozen: 1 });
-    expect(m.figRef).toBe('The queues share one scale; the 2 more environments are counted, not drawn.');
+    expect(m.figRef).toBe('The queues share one scale; the 2 more environments are counted, not drawn, and their counts open the lists of every environment.');
     // The folded station is off the scale and out of the story.
     expect(inboxModel([...all, env('i', 99)]).max).toBe(99);
     expect(inboxModel([env('z', 1), ...Array.from({ length: 7 }, (_, i) => env(`y${i}`, 0, 0, 1))]).steps.flatMap((s) => s.show)).toEqual(['[data-m="qb0errored"]']);
@@ -68,5 +68,12 @@ describe('inboxModel narration (G2)', () => {
 
   it('gives the three totals once, in words', () => {
     expect(inboxModel([env('test', 1, 2), env('prod', 0, 0, 1)]).caption).toBe('1 errored change, 2 held changes and 1 frozen Stage wait for you.');
+  });
+
+  it('says when a cycle of upstream links leaves environments placed by name (SPEC 21)', () => {
+    const cyc = (e: ReturnType<typeof env>) => ({ ...e, cycle: true });
+    expect(inboxModel([env('test', 1), cyc(env('a', 1, 0, 0, ['b'])), cyc(env('b', 1, 0, 0, ['a']))]).caption)
+      .toBe('3 errored changes, 0 held changes and 0 frozen Stages wait for you. The Stages of a and b feed each other in a cycle, so they are placed by name.');
+    expect(inboxModel([cyc(env('a', 1, 0, 0, ['a']))]).caption).toContain('The Stages of a feed each other in a cycle, so it is placed by name.');
   });
 });

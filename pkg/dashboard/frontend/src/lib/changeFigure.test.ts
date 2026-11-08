@@ -44,9 +44,10 @@ describe('changeModel stations (G3)', () => {
     expect(view(m).slice(4)).toEqual(['Gate|ok|let it through', 'prod/payments|err|2.0.1 was released here, then failed', 'Checks after release|err|failed']);
   });
 
-  it('rests a verified release at the environment, calm', () => {
-    const m = changeModel(change({ phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', applied: true }), 'prod');
+  it('rests a verified release at the environment, calm, named by the Stage', () => {
+    const m = changeModel(change({ phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', applied: true }, { environment: 'production' }), 'prod');
     expect([m.at, m.tone, m.autoplay]).toEqual([5, 'ok', false]);
+    expect(m.stations[5]).toMatchObject({ label: 'production', sub: '2.0.1 was released here' });
     expect(m.stations[6]).toMatchObject({ tone: 'ok', sub: 'verified' });
     expect(m.stations[3]).toMatchObject({ tone: 'neutral', sub: 'not needed' });
   });
