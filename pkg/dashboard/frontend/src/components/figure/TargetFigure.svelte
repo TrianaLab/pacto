@@ -38,7 +38,7 @@
   {#snippet aside()}
     <dl class="facts">
       <dt>Compliance</dt><dd><span class="stamp t-{stamp}">{statusLabel(status)}</span></dd>
-      <dt>Revision match</dt><dd>{m.words}</dd>
+      <dt>Link</dt><dd>{m.words}</dd>
     </dl>
   {/snippet}
   {#snippet caption()}This target is {statusLabel(status).toLowerCase()}. {m.words}{' '}<span class="fig-ref">The wire's style is the link: solid observed, dashed inferred, dotted ambiguous, broken missing.</span>{/snippet}

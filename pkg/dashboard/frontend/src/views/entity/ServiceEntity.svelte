@@ -527,7 +527,7 @@
       {#if (d.dependents?.total ?? 0) > 1}
         <!-- B4: the dependents' compliance over every visible dependent, never the
              preview; hidden ones are counted in the line below and never here. -->
-        <DistributionBar title="Compliance of dependents" level={4} segments={complianceSegments(d.dependentsStatus)} total={d.dependents.total} />
+        <DistributionBar title="Compliance of dependents" level={3} segments={complianceSegments(d.dependentsStatus)} total={d.dependents.total} />
       {/if}
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
       {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
