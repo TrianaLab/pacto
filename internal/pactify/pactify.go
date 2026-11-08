@@ -231,6 +231,14 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 		p.deliveryStep()
 	}
 	p.ignore()
+	if err := p.conflicts(); err != nil {
+		return nil, err
+	}
+	if r.Mode == modeTemplate {
+		if err := p.validateTemplate(ctx); err != nil {
+			return nil, err
+		}
+	}
 	return r, nil
 }
 
@@ -296,9 +304,11 @@ type planner struct {
 }
 
 // file plans path: Add when it is not there, else Keep. A path already
-// planned keeps its first plan, so a later file never replaces it.
+// planned keeps its first plan, so a later file never replaces it. Paths are
+// compared ignoring case, since on a case-insensitive filesystem Pacto.yaml
+// written after pacto.yaml would replace it.
 func (p *planner) file(path, content string) string {
-	if slices.ContainsFunc(p.r.Files, func(f File) bool { return f.Path == path }) {
+	if slices.ContainsFunc(p.r.Files, func(f File) bool { return strings.EqualFold(f.Path, path) }) {
 		return Keep
 	}
 	action := Add
@@ -307,6 +317,29 @@ func (p *planner) file(path, content string) string {
 	}
 	p.r.Files = append(p.r.Files, File{Path: path, Action: action, Content: content})
 	return action
+}
+
+// conflicts refuses a plan whose files cannot all be written, before anything
+// is: a file planned where another is planned as its folder, or a file under
+// a name the folder already holds as a file. Apply would stop half way.
+func (p *planner) conflicts() error {
+	for _, f := range p.r.Files {
+		prefix := strings.ToLower(f.Path) + "/"
+		for _, g := range p.r.Files {
+			if strings.HasPrefix(strings.ToLower(g.Path), prefix) {
+				return fmt.Errorf("%s is planned both as a file and as the folder of %s", f.Path, g.Path)
+			}
+		}
+		if f.Action != Add {
+			continue
+		}
+		for d := filepath.Dir(f.Path); d != "."; d = filepath.Dir(d) {
+			if info, err := os.Stat(filepath.Join(p.r.Dir, d)); err == nil && !info.IsDir() {
+				return fmt.Errorf("%s cannot be written: %s is a file in %s", f.Path, d, p.r.Dir)
+			}
+		}
+	}
+	return nil
 }
 
 // apply writes every Add and Append. It never touches a Keep.

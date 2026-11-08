@@ -253,11 +253,12 @@ func TestTemplatePublishLines(t *testing.T) {
 	r, c = mustFromPath(t, goldenPath(""), Options{}, override.Overrides{})
 	wantLines(t, "Unknown", r.Unknown, "registry: no --registry was given")
 	wantLines(t, "Next", r.Next, "put the signing key at cosign.key", "run pacto publish --plan to see what publishing gift-cards builds")
-	wantLines(t, "Found", r.Found, "publish.artifacts api: oci://ghcr.io/platform/images/http-service becomes oci://ghcr.io/platform/images/gift-cards")
+	wantLines(t, "Found", r.Found, "publish.artifacts api: oci://ghcr.io/platform/images/http-service becomes oci://registry.example/gift-cards",
+		"publish.artifacts base: oci://ghcr.io/platform/images/base becomes oci://registry.example/base")
 	if f := file(t, r, ".pactoignore"); f.Action != Add || f.Content != signKey+"\n" {
 		t.Errorf(".pactoignore: %+v", f)
 	}
-	if arts := c.Publish.Artifacts; arts[0].Ref != "oci://ghcr.io/platform/images/gift-cards" || arts[1].Ref != "oci://ghcr.io/platform/images/base" {
+	if arts := c.Publish.Artifacts; arts[0].Ref != "oci://registry.example/gift-cards" || arts[1].Ref != "oci://registry.example/base" {
 		t.Errorf("artifacts: %+v", arts)
 	}
 }

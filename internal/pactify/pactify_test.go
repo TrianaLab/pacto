@@ -810,14 +810,21 @@ func TestApplyFailures(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// A file where a folder must go.
+	// A file where a folder must go is refused before anything is written.
 	dir := writeTree(t, fraudDir(t), map[string]string{"delivery": "a file"})
-	if _, err := Init(context.Background(), Options{Dir: dir, Delivery: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "failed to create directory") {
+	if _, err := Init(context.Background(), Options{Dir: dir, Delivery: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "delivery is a file in") {
 		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		t.Fatal("a refused plan wrote pacto.yaml")
+	}
+	r := &Result{Dir: dir, Files: []File{{Path: "delivery/x.yaml", Action: Add}}}
+	if err := apply(r, os.WriteFile); err == nil || !strings.Contains(err.Error(), "failed to create directory") {
+		t.Fatalf("apply mkdir: %v", err)
 	}
 
 	// The file to append to went away between plan and apply.
-	r := &Result{Dir: t.TempDir(), Files: []File{{Path: ".pactoignore", Action: Append, Content: "x\n"}}}
+	r = &Result{Dir: t.TempDir(), Files: []File{{Path: ".pactoignore", Action: Append, Content: "x\n"}}}
 	if err := apply(r, os.WriteFile); err == nil {
 		t.Fatal("appending to a missing file was not an error")
 	}

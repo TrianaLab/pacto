@@ -91,15 +91,15 @@ func (p *planner) fromTemplate(ctx context.Context) error {
 	if err := p.copyTemplate(); err != nil {
 		return err
 	}
-	overlay, err := p.overlay(text)
+	c, err := contract.Parse(strings.NewReader(text))
+	if err != nil {
+		return fmt.Errorf("the contract created from %s is not valid: %w", t.Ref, err)
+	}
+	planned, err := p.overlay()
 	if err != nil {
 		return err
 	}
-	c, err := p.validateTemplate(ctx, text, overlay)
-	if err != nil {
-		return err
-	}
-	steps, err := p.plugins(ctx, path.Service.Template.Plugins, c, overlay)
+	steps, err := p.plugins(ctx, path.Service.Template.Plugins, c, planned)
 	if err != nil {
 		return err
 	}
@@ -108,16 +108,22 @@ func (p *planner) fromTemplate(ctx context.Context) error {
 	return nil
 }
 
-// overlay is what the folder will hold: the created contract, the path's
-// files it adds and the files it keeps as they are on disk.
-func (p *planner) overlay(text string) (fstest.MapFS, error) {
-	overlay := fstest.MapFS{"pacto.yaml": {Data: []byte(text)}}
-	for _, f := range p.r.Files[1:] { // the contract is the first file planned
+// overlay is what the folder will hold: every file planned, with the bytes
+// on disk for the files it keeps and appends to.
+func (p *planner) overlay() (fstest.MapFS, error) {
+	overlay := fstest.MapFS{}
+	for _, f := range p.r.Files {
 		data := []byte(f.Content)
-		if f.Action == Keep {
-			var err error
-			if data, err = os.ReadFile(filepath.Join(p.r.Dir, f.Path)); err != nil {
+		if f.Action != Add {
+			old, err := os.ReadFile(filepath.Join(p.r.Dir, f.Path))
+			if err != nil {
 				return nil, fmt.Errorf("reading %s, which the folder already holds: %w", f.Path, err)
+			}
+			if data = old; f.Action == Append {
+				if len(old) > 0 && old[len(old)-1] != '\n' {
+					data = append(data, '\n')
+				}
+				data = append(data, f.Content...)
 			}
 		}
 		overlay[f.Path] = &fstest.MapFile{Data: data}
@@ -157,42 +163,68 @@ func (p *planner) applyValues(m map[string]any) (map[string]any, error) {
 
 // copyTemplate plans every path file a created service gets, add-only.
 func (p *planner) copyTemplate() error {
-	return fs.WalkDir(p.opts.Template.FS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || slices.Contains(notCopied, name) {
+	t := p.opts.Template
+	return fs.WalkDir(t.FS, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || slices.ContainsFunc(notCopied, func(n string) bool { return strings.EqualFold(n, name) }) {
 			return err
 		}
-		data, err := fs.ReadFile(p.opts.Template.FS, name)
+		data, err := fs.ReadFile(t.FS, name)
 		if err != nil {
-			return fmt.Errorf("reading %s from the golden path %s: %w", name, p.opts.Template.Ref, err)
+			return fmt.Errorf("reading %s from the golden path %s: %w", name, t.Ref, err)
 		}
-		p.file(name, string(data))
-		return nil
+		if bytes.Contains(data, []byte("PRIVATE KEY-----")) {
+			return fmt.Errorf("the golden path %s ships a private key at %s: a service created from it signs with its own key, so the path is refused", t.Ref, name)
+		}
+		_, err = p.addFile("the golden path", name, data)
+		return err
 	})
 }
 
-// validateTemplate validates the created contract over exactly what the
-// folder will hold: the contract, the path's files it adds and the files it
-// keeps as they are on disk. Any error refuses the creation.
-func (p *planner) validateTemplate(ctx context.Context, text string, fsys fs.FS) (*contract.Contract, error) {
-	t := p.opts.Template
-	c, err := contract.Parse(strings.NewReader(text))
-	if err != nil {
-		return nil, fmt.Errorf("the contract created from %s is not valid: %w", t.Ref, err)
+// addFile plans a file a golden path or a plugin gives, add-only. A name
+// under .git is refused, since git runs the commands a .git/config names. With
+// --delivery a file under delivery/ is left out, so the Pacto resource and
+// Stages planned are the ones Pacto writes.
+func (p *planner) addFile(from, name string, data []byte) (string, error) {
+	if slices.ContainsFunc(strings.Split(name, "/"), func(c string) bool { return strings.EqualFold(c, ".git") }) {
+		return "", fmt.Errorf("%s gives %s, a file under .git: git runs the commands a .git folder names, so the creation is refused", from, name)
 	}
+	if p.opts.Delivery && strings.HasPrefix(strings.ToLower(name), "delivery/") {
+		p.unknown("%s: %s gives this file, which was left out because --delivery writes the delivery files", name, from)
+		return Keep, nil
+	}
+	return p.file(name, string(data)), nil
+}
+
+// validateTemplate validates the created contract over exactly what the
+// bundle will hold: every file planned, the files the folder keeps as they are
+// on disk, filtered by the .pactoignore planned. It runs once everything is
+// planned, plugin output included, and any error refuses the creation.
+func (p *planner) validateTemplate(ctx context.Context) error {
+	t := p.opts.Template
+	overlay, err := p.overlay()
+	if err != nil {
+		return err
+	}
+	m, _ := ignore.Load(overlay) // ponytail: a MapFS reads every file it holds
+	text := overlay["pacto.yaml"].Data
+	c, _ := contract.Parse(bytes.NewReader(text)) // ponytail: fromTemplate parsed the same text
 	validate := t.Validate
 	if validate == nil {
 		validate = localStages
 	}
-	p.stages = validate(ctx, c, []byte(text), fsys)
+	p.stages = validate(ctx, c, text, ignore.FS(overlay, m))
+	if i := slices.IndexFunc(p.r.Steps, func(s fleet.CreationStep) bool { return s.Step == fleet.StepValidation }); i >= 0 {
+		p.r.Steps[i] = validationStep(p.stages)
+	}
 	r := validation.Merged(p.stages)
 	if r.IsValid() {
-		return c, nil
+		return nil
 	}
 	lines := make([]string, len(r.Errors))
 	for i, e := range r.Errors {
 		lines[i] = e.Code + " " + e.Path + ": " + e.Message
 	}
-	return nil, fmt.Errorf("the contract created from %s is not valid:\n%s", t.Ref, strings.Join(lines, "\n"))
+	return fmt.Errorf("the contract created from %s is not valid:\n%s", t.Ref, strings.Join(lines, "\n"))
 }
 
 // localStages validates with no resolver: references stay unchecked.
@@ -291,7 +323,7 @@ func (p *planner) creationSteps(c *contract.Contract, plugins []fleet.CreationSt
 	}
 	p.r.Steps = []fleet.CreationStep{sig,
 		{Step: fleet.StepContract, Status: fleet.StepStatusPlanned, Detail: "planned at " + p.r.Path},
-		validationStep(p.stages)}
+		{Step: fleet.StepValidation}} // validateTemplate fills it once everything is planned
 	p.r.Steps = append(p.r.Steps, plugins...)
 	p.r.Steps = append(p.r.Steps, []fleet.CreationStep{
 		{Step: fleet.StepPublished, Status: fleet.StepStatusUnknown, Detail: "not observed at creation: publish the service with pacto publish"},
@@ -370,9 +402,10 @@ func provisioningStep(c *contract.Contract) fleet.CreationStep {
 		Detail: "no report says what the service consumes is provisioned: " + strings.Join(consumed, ", ")}
 }
 
-// rewritePublish gives the created service its own publish coordinates and
-// returns a line for each artifact it renamed. With describeOnly the publish
-// section goes.
+// rewritePublish gives the created service its own publish coordinates: its
+// bundle and every artifact in the registry given, and its own signing key in
+// place of the path's signer. It returns a line for each value it replaced.
+// With describeOnly the publish section goes.
 func rewritePublish(m map[string]any, oldName, newName, registry string, describeOnly bool) []string {
 	pub, ok := m["publish"].(map[string]any)
 	if !ok {
@@ -387,16 +420,26 @@ func rewritePublish(m map[string]any, oldName, newName, registry string, describ
 	}
 	pub["bundle"] = "oci://" + registry + "/" + newName
 	var found []string
+	if sign, ok := pub["sign"].(map[string]any); ok && (len(sign) != 1 || sign["key"] != signKey) {
+		pub["sign"] = map[string]any{"key": signKey}
+		found = append(found, "publish.sign: the golden path's signer was not carried over; the service signs with its own key at "+signKey)
+	}
 	arts, _ := pub["artifacts"].([]any)
 	for _, a := range arts {
 		art, _ := a.(map[string]any)
 		ref, _ := art["ref"].(string)
 		i := strings.LastIndex(ref, "/")
-		if i < 0 || ref[i+1:] != oldName || oldName == newName {
+		if i < 0 {
 			continue
 		}
-		art["ref"] = ref[:i+1] + newName
-		found = append(found, fmt.Sprintf("publish.artifacts %v: %s becomes %s", art["name"], ref, art["ref"]))
+		name := ref[i+1:]
+		if name == oldName {
+			name = newName
+		}
+		if next := "oci://" + registry + "/" + name; next != ref {
+			art["ref"] = next
+			found = append(found, fmt.Sprintf("publish.artifacts %v: %s becomes %s", art["name"], ref, next))
+		}
 	}
 	return found
 }

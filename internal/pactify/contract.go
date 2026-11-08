@@ -735,7 +735,7 @@ func (p *planner) ignore() {
 	}
 	// A plugin may already have planned one; its lines are kept and the
 	// missing ones added to it.
-	i := slices.IndexFunc(p.r.Files, func(f File) bool { return f.Path == ".pactoignore" })
+	i := slices.IndexFunc(p.r.Files, func(f File) bool { return strings.EqualFold(f.Path, ".pactoignore") })
 	data, planned, err := p.currentIgnore(i)
 	if err != nil {
 		p.file(".pactoignore", strings.Join(need, "\n")+"\n")

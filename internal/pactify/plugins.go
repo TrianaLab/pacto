@@ -92,7 +92,17 @@ func (p *planner) runPlugin(ctx context.Context, pl contract.TemplatePlugin, bin
 		if !filepath.IsLocal(f.Path) {
 			return "", fmt.Errorf("the plugin %s returned %q, a path outside the folder", pl.Name, f.Path)
 		}
-		if p.file(filepath.ToSlash(filepath.Clean(f.Path)), f.Content) == Add {
+		name := filepath.ToSlash(filepath.Clean(f.Path))
+		if strings.EqualFold(name, "pacto.lock") {
+			p.unknown("pacto.lock: the plugin %s returned one, which was not written: run pacto lock to pin the references", pl.Name)
+			kept++
+			continue
+		}
+		action, err := p.addFile("the plugin "+pl.Name, name, []byte(f.Content))
+		if err != nil {
+			return "", err
+		}
+		if action == Add {
 			added++
 		} else {
 			kept++
