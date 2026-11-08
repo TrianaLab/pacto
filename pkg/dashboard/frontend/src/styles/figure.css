@@ -421,3 +421,51 @@ a.tl-n:hover { text-decoration: underline; }
 .fig[data-w="col"] .ph-l { justify-items: start; }
 .anc { display: block; width: 1px; height: 1px; }
 .fig[data-w="col"] .ofig-prov li { flex-direction: row; align-items: center; }
+
+/* PostureColumn (r5): one flat stacked column, worst on top; each stratum is wired to
+   its HTML row, which carries the count, the share and the link. */
+.pfig { display: grid; grid-template-columns: 48px 48px minmax(0, 1fr); align-items: center; min-width: 0; }
+.pcol { display: block; overflow: visible; }
+.pc { fill: var(--tone); stroke: none; }
+.pc.unk { fill: url(#fig-hatch); stroke: var(--c-neutral); stroke-width: 1; }
+.prows { display: grid; gap: var(--sp-2); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.prow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-3); min-height: 2.25rem; min-width: 0; }
+.prow-l { flex: 0 1 12rem; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.prow-n { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--c-text-2); text-decoration: none; }
+.prow-n b { color: var(--c-text); }
+a.prow-n b { color: var(--c-accent); }
+a.prow-n:hover b { text-decoration: underline; }
+.psw { flex: none; width: 14px; height: 14px; border-radius: 3px; background: var(--tone); }
+.psw.unk { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
+.fig[data-w="col"] .pfig { grid-template-columns: 48px 16px minmax(0, 1fr); }
+
+/* Rank figure (r5): a neutral hub fanned into lanes that partition its population. */
+.rank { display: grid; grid-template-columns: minmax(7rem, max-content) 40px minmax(0, 1fr); grid-template-areas: "hub . lanes"; align-items: center; min-width: 0; }
+.rank-hub { grid-area: hub; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.rank-hl { display: grid; gap: 2px; font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
+.rank-hl .stat { font: 700 1.5rem/1.15 var(--font-display); font-variant-numeric: tabular-nums; }
+.rank-lanes { grid-area: lanes; display: grid; gap: var(--sp-2); min-width: 0; }
+.rank-h { margin: 0; }
+.lane-note { flex: 0 1 auto; min-width: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+a.lane-note { color: var(--c-accent); }
+.lane-name.id { display: block; overflow: hidden; white-space: nowrap; }
+.fig[data-w="col"] .rank { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "hub hub" ". lanes"; row-gap: var(--sp-4); }
+
+/* Trust figures (r5): source rows fan into a Bus (distinct endpoints, so wires never
+   meet in one point) and the bus feeds the snapshot. */
+.trust { display: grid; grid-template-columns: minmax(0, 26rem) 96px max-content; align-items: center; min-width: 0; }
+.srcs { display: grid; gap: var(--sp-2); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.src { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 2.75rem; }
+.src-t { flex: 1 1 0; display: grid; gap: 2px; min-width: 0; text-align: right; font-size: var(--text-sm); line-height: 1.35; }
+.src-t .id { display: block; overflow: hidden; white-space: nowrap; }
+.src.stat .src-t { flex: 0 1 auto; text-align: left; }
+.src-n { flex: none; min-width: 3.2ch; text-align: right; font: 700 1.5rem/1.15 var(--font-display); font-variant-numeric: tabular-nums; }
+.src-lead { flex: 1 1 24px; min-width: 24px; border-top: var(--fig-stroke) dotted var(--fig-line); }
+.bus { position: relative; align-self: stretch; display: flex; flex-direction: column; justify-content: space-around; margin: var(--sp-3) 28px var(--sp-3) 0; }
+.bus::after { content: ""; position: absolute; right: 3px; top: 0; bottom: 0; border-right: 2px solid var(--fig-line-strong); }
+.bus i { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--fig-line-strong); margin-left: auto; position: relative; z-index: 1; }
+.trust-hub { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.trust-hl { display: grid; gap: 2px; justify-items: start; font-size: var(--text-sm); line-height: 1.35; }
+.fig[data-w="col"] .trust { grid-template-columns: minmax(0, 1fr) 40px; }
+.fig[data-w="col"] .bus { margin: var(--sp-3) var(--sp-4) var(--sp-3) 0; }
+.fig[data-w="col"] .trust-hub { grid-column: 1 / -1; justify-content: flex-end; padding-top: var(--sp-5); }

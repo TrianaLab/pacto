@@ -11,21 +11,29 @@
   import { sharePct } from '../../lib/figure.ts';
   import { elidable } from '../../lib/elide.ts';
 
-  /** @type {{ k: number, tone: string, hatch?: boolean, glyph?: any, label: string, n: number, total?: number, chips?: { key: string, label: string, href: string, ring: boolean }[], open?: boolean, decides?: boolean, href?: string, onpick?: ((e: MouseEvent) => void) | null }} */
-  let { k, tone, hatch = false, glyph = '', label, n, total = 0, chips = [], open = false, decides = false, href = '', onpick = null } = $props();
+  // A group lane (a rank figure's owner or domain) keeps a neutral node (S10) and
+  // carries the severity in its bar (`barTone`); its name may be an identity (`ident`,
+  // isolated and elided in its middle, C6) and its lane note says what its count is of,
+  // in words with its own denominator (C14), or links what no count can (`note.href`).
+  /** @type {{ k: number | string, tone: string, barTone?: string, hatch?: boolean, glyph?: any, label: string, ident?: boolean, n: number, total?: number, chips?: { key: string, label: string, href: string, ring: boolean }[], open?: boolean, decides?: boolean, href?: string, note?: { text: string, href?: string } | null, onpick?: ((e: MouseEvent) => void) | null }} */
+  let { k, tone, barTone = '', hatch = false, glyph = '', label, ident = false, n, total = 0, chips = [], open = false, decides = false, href = '', note = null, onpick = null } = $props();
   const share = $derived(total ? n / total : 0);
   const pick = (/** @type {MouseEvent} */ e) => onpick?.(e);
 </script>
 
 <div class="lane" class:decides data-a="lane-{k}">
   <Node {tone} {hatch} {glyph} a="ln-{k}" m="ln-{k}" />
-  <span class="lane-name" class:words={label.length <= 20}>{label}</span>
+  {#if ident}
+    <span class="lane-name id" title={label}><bdi class:fit={elidable(label)}>{label}</bdi></span>
+  {:else}
+    <span class="lane-name" class:words={label.length <= 20}>{label}</span>
+  {/if}
   {#if href && n}
     <a class="lane-count" {href} onclick={pick}><b>{formatCount(n)}</b>{#if total}{` · ${sharePct(n, total)}`}{/if}</a>
   {:else}
     <span class="lane-count" data-nofilter><b>{formatCount(n)}</b>{#if total}{` · ${sharePct(n, total)}`}{/if}</span>
   {/if}
-  <span class="mbar" aria-hidden="true">{#if n}<i class="t-{tone}" class:hatch style:width="max(8px, {(share * 100).toFixed(1)}%)"></i>{/if}</span>
+  <span class="mbar" aria-hidden="true">{#if n}<i class="t-{barTone || tone}" class:hatch style:width="max(8px, {(share * 100).toFixed(1)}%)"></i>{/if}</span>
   <span class="opencap-cell" aria-hidden="true">{#if open}<svg class="opencap" width="12" height="16" viewBox="0 0 12 16"><path d="M4 1 L1.5 15 M10.5 1 L8 15" /></svg>{/if}</span>
   <span class="lane-list">
     <span class="lane-chips">
@@ -33,6 +41,7 @@
         <a class="badge chip t-{tone}" class:unk={hatch} href={hashForHref(c.href)} title={c.label} data-ring={c.ring || undefined}><bdi class:fit={elidable(c.label)}>{c.label}</bdi></a>
       {/each}
     </span>
+    {#if note}{#if note.href}<a class="lane-note" href={note.href}>{note.text}</a>{:else}<span class="lane-note t-meta" data-nofilter>{note.text}</span>{/if}{/if}
     {#if n && href}<a class="lane-more" {href} data-n={n} onclick={pick}>{chips.length ? (n > chips.length ? `${formatCount(n - chips.length)} more` : '') : `List all ${formatCount(n)}`}</a>{/if}
   </span>
 </div>
