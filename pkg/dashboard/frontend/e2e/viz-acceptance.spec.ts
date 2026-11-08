@@ -191,9 +191,8 @@ test.describe('Every product visualization is named, textual and keyboard-operab
     test.setTimeout(120_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     let total = 0;
-    // SURFACES never reach an analysis, and the isometric impact diagram's err motion
-    // (rise, dash flow, ring, stamp) only exists once one has run, so the analysed
-    // Change analysis route joins the sweep.
+    // SURFACES never reach an analysis, and the impact figure's narration only exists
+    // once one has run, so the analysed Change analysis route joins the sweep.
     const k = await keys(page);
     const sweep = [
       ...SURFACES.map((s) => ({ ...s, after: undefined as ((p: Page) => Promise<void>) | undefined })),
@@ -210,7 +209,6 @@ test.describe('Every product visualization is named, textual and keyboard-operab
           return {
             // getAttribute, not className: an SVG element's className is an SVGAnimatedString.
             tag: `${el.tagName.toLowerCase()}.${el.getAttribute('class')}`,
-            iso: !!el.closest('[data-testid="iso-impact"]'),
             transition: worst(cs.transitionDuration) + Math.max(0, worst(cs.transitionDelay)),
             animation: worst(cs.animationDuration) + Math.max(0, worst(cs.animationDelay)),
           };
@@ -219,7 +217,12 @@ test.describe('Every product visualization is named, textual and keyboard-operab
       total += moving.length;
       const offenders = moving.filter((m) => m.transition > 0.001 || m.animation > 0.001);
       expect(offenders, `${s.name} still animates:\n  ${offenders.map((o) => o.tag).join('\n  ')}`).toEqual([]);
-      if (s.after) expect(moving.filter((m) => m.iso).length, 'the impact diagram declared no motion').toBeGreaterThan(0);
+      // A narration under reduced motion is a step-through, never an animation.
+      if (s.after) {
+        const narr = await page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).length);
+        expect(narr, 'the impact figure narrated under reduced motion').toBe(0);
+        await expect(page.getByText(/^Step \d+ of \d+$/)).toBeVisible();
+      }
     }
     // The sweep is only a gate if it found something to sweep. A selector typo, or a
     // rename of the marker attribute, would otherwise turn this test permanently green.

@@ -67,7 +67,9 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
     oldRevision: rev1, newRevision: rev2, classification: 'BREAKING',
     consumers: {
       total: 2, count: 2, limit: 100, offset: opts.offset ?? 0, truncated: opts.nextOffset != null, nextOffset: opts.nextOffset,
-      direct: 1,
+      direct: 1, refused: 0,
+      byOutcome: [{ key: 'incompatible', count: 1 }, { key: 'unknown', count: 1 }, { key: 'compatible', count: 0 }, { key: 'unclassified', count: 0 }],
+      byOwner: [{ owner: 'core', consumers: 1, incompatible: 1 }], beyondRanking: 0, noOwner: 1, owners: 1,
       highlights: [
         { service: ref('service', 'domain-a/billing', 'billing'), path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'incompatible', owner: 'core', blocking: true },
       ],
@@ -135,7 +137,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
     flushSync();
     const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
-    expect(answer).toBe('Breaking 3 changes, 1 breaking. 2 consumers affected: 1 does not accept payments 2.0.0, 1 unknown.');
+    expect(answer).toBe('3 changes, 1 breaking. 2 consumers affected: 1 does not accept payments 2.0.0, 1 unknown.');
     // Every backing part is a real disclosure widget, closed until asked for.
     const folds = Array.from(target.querySelectorAll('details.ca-fold')) as HTMLDetailsElement[];
     expect(folds.map((d) => d.querySelector('summary h2')?.textContent)).toEqual(['What changed', 'Affected consumers', 'Owners and targets']);
@@ -231,14 +233,17 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     analyzeBtn(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="iso-impact"] svg[role="img"]')).toBeTruthy());
-    const svg = () => target.querySelector('[data-testid="iso-impact"] svg[role="img"]');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"] svg[role="img"]')).toBeTruthy());
+    const svg = () => target.querySelector('[data-testid="impact-figure"] svg[role="img"]');
     const label = svg()!.getAttribute('aria-label');
-    expect(label).toContain('billing incompatible');
-    expect(target.querySelectorAll('[data-testid="iso-impact"] [data-verdict]')).toHaveLength(1);
-    // The diagram sits between the answer and the folds.
-    const order = [...target.querySelectorAll('[data-testid="changes-answer"], [data-testid="iso-impact"], .ca-stack')].map((e) => e.getAttribute('data-testid') ?? 'ca-stack');
-    expect(order).toEqual(['changes-answer', 'iso-impact', 'ca-stack']);
+    expect(label).toContain('1 incompatible, 1 unknown, 0 compatible, 0 unclassified of 2 consumers');
+    expect([...target.querySelectorAll('[data-testid="impact-figure"] .chip')].map((c) => c.getAttribute('title'))).toEqual(['billing']);
+    // The table marks the consumers the figure names.
+    expect(target.querySelector('[data-testid="changes-consumers"] tbody tr .badge-accent')?.textContent).toBe('Highlighted');
+    expect(target.querySelector('[data-testid="impact-owners"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('core (1, 1 incompatible); 1 with no identified owner');
+    // The figure, with its answer card, sits above the folds.
+    const order = [...target.querySelectorAll('[data-testid="impact-figure"], [data-testid="changes-answer"], .ca-stack')].map((e) => e.getAttribute('data-testid') ?? 'ca-stack');
+    expect(order).toEqual(['impact-figure', 'changes-answer', 'ca-stack']);
     impactFn.mockResolvedValueOnce(impactResult({ offset: 100 }));
     (Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Next') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100 })));
@@ -248,21 +253,24 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
-  it('opens the consumer table from "more" and names no consumer the viewer may not see', async () => {
+  it('opens the consumer table from a lane and names no consumer the viewer may not see', async () => {
     const res = impactResult();
     res.consumers.hidden = 2;
     impactFn.mockResolvedValue(res);
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     analyzeBtn(target).click();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="iso-impact-more"]')).toBeTruthy());
-    expect(target.querySelector('[data-testid="iso-impact-hidden"]')?.textContent?.trim()).toBe('2 consumers you may not see');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"] .lane-more')).toBeTruthy());
+    const ghost = target.querySelector('[data-testid="impact-figure"] .lane.ghost')!;
+    expect(ghost.textContent).toContain('Hidden from you');
+    expect(ghost.querySelector('.chip')).toBeNull();
+    expect(target.querySelector('[data-testid="impact-figure"] .lane-sub')?.textContent).toBe('Names hidden by your access. Not counted in the 2.');
     expect(target.querySelectorAll('[data-testid="changes-consumers"] tbody tr')).toHaveLength(2);
     const fold = target.querySelector('#sec-affected-consumers') as HTMLDetailsElement;
     expect(fold.open).toBe(false);
     const scrolled = vi.fn();
     fold.scrollIntoView = scrolled; // jsdom has no layout
-    (target.querySelector('[data-testid="iso-impact-more"]') as HTMLButtonElement).click();
+    (target.querySelector('[data-testid="impact-figure"] .lane-more') as HTMLButtonElement).click();
     expect(fold.open).toBe(true);
     expect(document.activeElement).toBe(fold.querySelector('summary'));
     expect(scrolled).toHaveBeenCalledWith({ block: 'start' });

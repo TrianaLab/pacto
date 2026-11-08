@@ -2,21 +2,19 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { appReady, settle } from './ready';
 
-// Browser acceptance for the isometric impact diagram in Change analysis, and for the
-// isometric backdrop behind the Overview header and the idle empty states.
-//
-// The unit tests prove the layout model and the component in jsdom. What only a real
-// engine can prove is that the drawn labels do not collide or spill once a real font
-// renders them (Verdana is forced here because CI renders DejaVu, which is wider than
-// Inter), that the motion settles for axe and collapses under reduced motion, and that
-// "+N more" lands the reader on the table below the sticky navbar.
+// Browser acceptance for the Change analysis figure (SPEC 7, flagship) and its narration
+// (SPEC 6, G2), and for the isometric backdrop behind the Overview header and the idle
+// empty states. The shared G1 gate (layout.spec.ts) owns overlap, scale and copy-in-box;
+// this file owns what only a real engine can show: the narration plays when the reader
+// asks, once per answer, Skip ends it in one frame, reduced motion steps instead, a route
+// change ends it, and the rest state is every mark at full opacity in place.
 //
 // The assertions read whatever the demo answers for its known breaking pair, never the
 // literals of a particular fixture publish.
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const WIDE_FONT = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}';
-const FIGURE = '[data-testid="iso-impact"]';
+const FIGURE = '[data-testid="impact-figure"]';
 
 // The revision pickers read "1.0.0 · <short digest>": pick the one of a version once the
 // revisions have loaded (the same helper as demo.spec.ts).
@@ -27,104 +25,26 @@ async function chooseRevision(page: Page, sel: string, version: string) {
   await page.locator(sel).selectOption(await read());
 }
 
-async function analyse(page: Page) {
+async function pick(page: Page) {
   await appReady(page);
   await page.goto('/#/fleet/changes/payments-service');
   await page.addStyleTag({ content: WIDE_FONT });
   await chooseRevision(page, '#impact-old-rev', '1.0.0');
   await chooseRevision(page, '#impact-new-rev', '2.0.1');
+}
+
+async function analyse(page: Page) {
+  await pick(page);
   await page.getByRole('button', { name: /Compare revisions/ }).click();
-  await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
 }
 
-/**
- * The layout gate: no two labels outside the sheet overlap, every label sits inside the
- * drawing, and the page never scrolls sideways. Skewed text (the sheet's rows and the
- * provider's face label) is skipped: its axis-aligned box overlaps its neighbours by
- * construction. Lone surrogates are checked too: a cut emoji renders as a replacement box.
- */
-async function assertLayout(page: Page, where: string) {
-  const r = await page.evaluate((sel) => {
-    const svg = document.querySelector(`${sel} svg`) as SVGSVGElement;
-    const box = svg.getBoundingClientRect();
-    const texts = Array.from(svg.querySelectorAll('text'))
-      .filter((t) => !t.closest('.lift') && !t.hasAttribute('transform') && (t.textContent ?? '').trim());
-    const rects = texts.map((t) => ({ s: (t.textContent ?? '').trim(), b: t.getBoundingClientRect() }));
-    const overlaps: string[] = [];
-    for (let i = 0; i < rects.length; i++) {
-      for (let j = i + 1; j < rects.length; j++) {
-        const a = rects[i].b, b = rects[j].b;
-        if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) {
-          overlaps.push(`"${rects[i].s}" x "${rects[j].s}"`);
-        }
-      }
-    }
-    const outside = rects
-      .filter(({ b }) => b.left < box.left - 1 || b.right > box.right + 1 || b.top < box.top - 1 || b.bottom > box.bottom + 1)
-      .map(({ s }) => s);
-    const lone = Array.from(svg.querySelectorAll('text'))
-      .map((t) => t.textContent ?? '')
-      .filter((s) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s));
-    const doc = document.documentElement;
-    return { n: rects.length, overlaps, outside, lone, spill: doc.scrollWidth - doc.clientWidth };
-  }, FIGURE);
-  expect(r.n, `${where}: no labels measured`).toBeGreaterThan(0);
-  expect(r.overlaps, `${where}: labels overlap`).toEqual([]);
-  expect(r.outside, `${where}: labels outside the drawing`).toEqual([]);
-  expect(r.lone, `${where}: a label splits a surrogate pair`).toEqual([]);
-  expect(r.spill, `${where}: the page scrolls sideways`).toBeLessThanOrEqual(0);
-}
-
-/**
- * Amends the impact answer to twelve direct consumers with 200-character identities (one
- * with an emoji at every possible cut, one with a right-to-left override), highlights
- * capped at 8 as the backend caps them, a next page, partial evidence and three consumers
- * the viewer may not see. Through `window.__pactoServe`, the one function boot.js routes
- * every API call through: Playwright's interception never sees a wasm-served fetch.
- */
-function installImpactScale(): void {
-  interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
-  let real: Serve | null = null;
-  const long = (s: string) => (s + '-').repeat(200).slice(0, 200);
-  const NAMES = [
-    'svc-' + '\u{1F680}x'.repeat(98),
-    'svc‮gnp.exe-' + 'y'.repeat(180),
-    ...Array.from({ length: 10 }, (_, i) => long(`consumer-${i}`)),
-  ];
-  const VERDICTS = ['incompatible', 'unknown', 'compatible'];
-  const consumer = (name: string, i: number) => {
-    const key = `domain-load/${name}`;
-    return {
-      service: { kind: 'service', key, label: name, domain: 'domain-load', href: `/fleet/services/${encodeURIComponent(key)}` },
-      direct: true, depth: 1, confidence: 'declared',
-      compatibilityVerdict: VERDICTS[i % 3], compatibility: '^' + long(`1.${i}.0`).slice(1),
-      blocking: i === 0, owner: long(`team-${i}`),
-      path: [], pathTotal: 0, pathTruncated: false,
-    };
-  };
-  const wrapped: Serve = async (method, path, body) => {
-    const res = await (real as Serve)(method, path, body);
-    if (method !== 'POST' || path.split('?')[0] !== '/api/fleet/impact' || res.status !== 200) return res;
-    const doc = JSON.parse(res.body);
-    const all = NAMES.map(consumer);
-    doc.consumers = {
-      ...doc.consumers,
-      items: all.slice(0, 10), highlights: all.slice(0, 8),
-      total: 12, direct: 12, count: 10, offset: 0, limit: 10, nextOffset: 10, truncated: true, hidden: 3,
-    };
-    doc.meta = { ...doc.meta, completeness: 'partial' };
-    return { ...res, body: JSON.stringify(doc) };
-  };
-  Object.defineProperty(window, '__pactoServe', {
-    configurable: true,
-    get() { return real ? wrapped : undefined; },
-    set(v: Serve) { real = v; },
-  });
-}
+const narrations = (page: Page) => page.evaluate(() => document.getAnimations()
+  .filter((a) => String(a.id).startsWith('narr:') && a.playState !== 'finished').length);
+const state = (page: Page) => page.locator(FIGURE).getAttribute('data-narration');
 
 for (const theme of ['dark', 'light'] as const) {
-  test.describe(`isometric impact (${theme})`, () => {
+  test.describe(`impact figure (${theme})`, () => {
     test.use({ colorScheme: theme, viewport: { width: 1280, height: 900 } });
     test.beforeEach(async ({ page }) => {
       if (theme === 'light') {
@@ -132,40 +52,27 @@ for (const theme of ['dark', 'light'] as const) {
       }
     });
 
-    test('draws the breaking pair, settles for axe and fits at 1280 and 1024', async ({ page }, testInfo) => {
+    test('draws the breaking pair and settles for axe', async ({ page }) => {
       test.setTimeout(90_000);
       await analyse(page);
-      const svg = page.locator(`${FIGURE} svg[role="img"]`);
-      const label = (await svg.getAttribute('aria-label')) ?? '';
-      expect(label).toContain('breaking');
-      const names = await page.locator(`${FIGURE} [data-verdict] text.em`).allTextContents();
-      expect(names.length).toBeGreaterThan(0);
-      // The drawn label may be cut; the aria-label carries the full name, so its visible
-      // stem (before any ellipsis) must be in it.
-      for (const n of names) expect(label).toContain(n.replace(/…$/, ''));
-      await expect(page.locator(`${FIGURE} [data-verdict="incompatible"]`).first()).toBeVisible();
-      const blocked = await page.getByText('Blocked', { exact: true }).count();
-      await expect(page.locator(`${FIGURE} .ring`)).toHaveCount(blocked ? 1 : 0);
-      await expect(page.locator(`${FIGURE} .stamp text`)).toContainText('BREAKING');
-
+      await page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).forEach((a) => a.finish()));
+      const label = (await page.locator(`${FIGURE} svg[role="img"]`).getAttribute('aria-label')) ?? '';
+      expect(label).toMatch(/\d+ incompatible, \d+ unknown, \d+ compatible/);
+      await expect(page.locator(`${FIGURE} .lane`).first()).toBeVisible();
+      await expect(page.locator(`${FIGURE} .lane-name`).first()).toHaveText('Incompatible');
+      await expect(page.locator(`${FIGURE} .stamp`).first()).toBeVisible();
+      await expect(page.locator(`${FIGURE} [data-ring]`)).toHaveCount(await page.getByText('Blocked', { exact: true }).count() ? 1 : 0);
       await settle(page);
       const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
       expect(results.violations, JSON.stringify(results.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))).toEqual([]);
-
-      await assertLayout(page, '1280');
-      await testInfo.attach(`iso-impact-${theme}-1280.png`, { body: await page.locator(FIGURE).screenshot(), contentType: 'image/png' });
-      await page.setViewportSize({ width: 1024, height: 900 });
-      await assertLayout(page, '1024');
-      await testInfo.attach(`iso-impact-${theme}-1024.png`, { body: await page.locator(FIGURE).screenshot(), contentType: 'image/png' });
     });
 
-    test('"more" opens the consumers table below the sticky navbar', async ({ page }) => {
+    test('a lane\'s "more" opens the consumers table below the sticky navbar', async ({ page }) => {
       await analyse(page);
-      await page.getByTestId('iso-impact-more').click();
+      await page.locator(`${FIGURE} .lane-more:visible`).first().click();
       const fold = page.locator('#sec-affected-consumers');
       await expect(fold).toHaveAttribute('open', '');
-      const summary = fold.locator('> summary');
-      await expect(summary).toBeFocused();
+      await expect(fold.locator('> summary')).toBeFocused();
       // WCAG 2.2 2.4.11: the focused summary is not hidden under the sticky navbar.
       await expect.poll(() => page.evaluate(() => {
         const s = document.querySelector('#sec-affected-consumers > summary')!.getBoundingClientRect();
@@ -174,70 +81,54 @@ for (const theme of ['dark', 'light'] as const) {
       })).toBe(true);
     });
 
-    test('is static under a reduced-motion preference', async ({ page }) => {
+    test('tells the answer once when the reader compares, and Skip ends it in one frame', async ({ page }) => {
+      await page.addInitScript(() => sessionStorage.clear());
+      await pick(page);
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect.poll(() => state(page), { timeout: 30_000 }).toMatch(/playing|done/);
+      const skip = page.getByRole('button', { name: 'Skip to final frame' });
+      if ((await state(page)) === 'playing') {
+        await skip.click();
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+      }
+      await expect.poll(() => state(page)).toBe('done');
+      await expect(skip).toBeDisabled();
+      expect(await narrations(page)).toBe(0);
+      // The same answer again: told already this session, so it rests on its final frame.
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
+      await page.waitForTimeout(100);
+      expect(await narrations(page)).toBe(0);
+      await expect.poll(() => state(page)).toBe('done');
+    });
+
+    test('a route change leaves no narration running', async ({ page }) => {
+      await page.addInitScript(() => sessionStorage.clear());
+      await pick(page);
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
+      await page.evaluate(() => { location.hash = '#/fleet'; });
+      await expect(page.locator(FIGURE)).toHaveCount(0);
+      expect(await narrations(page)).toBe(0);
+    });
+
+    test('steps instead of moving under reduced motion, and rests with every mark in place', async ({ page }) => {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await analyse(page);
-      const durations = await page.evaluate((sel) => {
-        const worst = (v: string) => Math.max(...v.split(',').map((p) => parseFloat(p) || 0));
-        return Array.from(document.querySelectorAll(`${sel} [data-motion]`)).map((el) => {
-          const cs = getComputedStyle(el);
-          return { tag: el.getAttribute('class'), t: worst(cs.animationDuration) + Math.max(0, worst(cs.animationDelay)) };
-        });
-      }, FIGURE);
-      expect(durations.length).toBeGreaterThan(0);
-      expect(durations.filter((d) => d.t > 0.001)).toEqual([]);
-      await page.waitForTimeout(300);
-      const running = await page.evaluate((sel) => document.getAnimations()
-        .filter((a) => a.playState === 'running')
-        .filter((a) => ((a.effect as KeyframeEffect | null)?.target as Element | null)?.closest(sel)).length, FIGURE);
-      expect(running).toBe(0);
-      const blocked = await page.getByText('Blocked', { exact: true }).count();
-      await expect(page.locator(`${FIGURE} .ring`)).toHaveCount(blocked ? 1 : 0);
-      // Reduced motion collapses travel, never the rest state: the ring stays drawn at its
-      // resting opacity and nothing is left mid-transform.
-      const rest = await page.evaluate((sel) => Array.from(document.querySelectorAll(`${sel} .ring, ${sel} .stamp-in, ${sel} .c`))
-        .map((el) => { const cs = getComputedStyle(el); return { cls: el.getAttribute('class'), opacity: cs.opacity, transform: cs.transform }; }), FIGURE);
-      for (const r of rest) {
+      await expect(page.locator(FIGURE).getByText(/^Step 4 of 4$/)).toBeVisible();
+      expect(await narrations(page)).toBe(0);
+      const rest = () => page.evaluate((sel) => [...document.querySelectorAll(`${sel} .mk`)]
+        .filter((m) => m.getClientRects().length)
+        .map((m) => { const cs = getComputedStyle(m); return { cls: m.getAttribute('class'), opacity: cs.opacity, transform: cs.transform }; }), FIGURE);
+      for (const r of await rest()) {
+        expect(r.opacity, r.cls ?? '').toBe('1');
         expect(r.transform, r.cls ?? '').toBe('none');
-        expect(Number(r.opacity), r.cls ?? '').toBeGreaterThan(0);
       }
-    });
-
-    test('labels sit on the page ground their halo assumes', async ({ page }) => {
-      await analyse(page);
-      // The label halo strokes with --c-bg; it only hides wires if the figure's nearest
-      // painted ancestor is that same ground.
-      const { ground, page: pageBg } = await page.evaluate((sel) => {
-        let el: Element | null = document.querySelector(sel);
-        let bg = 'rgba(0, 0, 0, 0)';
-        while (el && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) {
-          bg = getComputedStyle(el).backgroundColor;
-          el = el.parentElement;
-        }
-        const probe = document.createElement('div');
-        probe.style.backgroundColor = 'var(--c-bg)';
-        document.body.appendChild(probe);
-        const want = getComputedStyle(probe).backgroundColor;
-        probe.remove();
-        return { ground: bg, page: want };
-      }, FIGURE);
-      expect(ground).toBe(pageBg);
-    });
-
-    test('twelve consumers with hostile 200-character identities stay bounded', async ({ page }) => {
-      test.setTimeout(90_000);
-      await page.addInitScript(installImpactScale);
-      await analyse(page);
-      await expect(page.locator(`${FIGURE} [data-verdict]`)).toHaveCount(8);
-      await expect(page.getByTestId('iso-impact-more')).toContainText('4 more in Affected consumers');
-      await expect(page.getByTestId('iso-impact-hidden')).toHaveText('3 consumers you may not see');
-      const label = (await page.locator(`${FIGURE} svg`).getAttribute('aria-label')) ?? '';
-      expect(label).toContain('12 direct');
-      expect(label).toContain('evidence partial');
-      expect(label).toContain('3 you may not see');
-      await assertLayout(page, 'scale 1280');
-      await page.setViewportSize({ width: 1024, height: 900 });
-      await assertLayout(page, 'scale 1024');
+      await page.locator(FIGURE).getByRole('button', { name: 'Previous' }).click();
+      await expect(page.locator(FIGURE).getByText(/^Step 3 of 4$/)).toBeVisible();
+      await expect(page.locator(`${FIGURE} [data-m="gate"]`)).toHaveCSS('opacity', '0');
+      await page.locator(FIGURE).getByRole('button', { name: 'Next' }).click();
+      await expect(page.locator(`${FIGURE} [data-m="gate"]`)).toHaveCSS('opacity', '1');
     });
 
     // axe reports every text node over a large ::before as "incomplete" (pseudoContent)

@@ -146,6 +146,10 @@ export function installScaleFixture(): void {
         items: all.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: 10, offset: 0, limit: 10,
         nextOffset: 10, truncated: true, hidden: 3, refused: 5,
         byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 61 }, { key: 'compatible', count: 1209 }],
+        // Disjoint: the 5 refused are counted with the incompatible.
+        byOutcome: [{ key: 'incompatible', count: 37 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1189 }, { key: 'unclassified', count: 6 }],
+        byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
+        beyondRanking: 400, noOwner: 84, owners: 300,
       });
       if (meta) meta.completeness = 'partial';
     }

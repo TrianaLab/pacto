@@ -2,9 +2,8 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
-  import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount, countOf } from '../lib/format.ts';
+  import { shortDigest, formatCount, countOf } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { formatRelative } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -17,9 +16,8 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import IsoImpact from '../components/IsoImpact.svelte';
+  import ImpactFigure from '../components/figure/ImpactFigure.svelte';
   import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
-  import { classificationLabel, IMPACT_GATE } from '../lib/isoImpact.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -87,6 +85,9 @@
   // Swapping the whole result for a loader on every page reset the scroll to the top.
   let pagingConsumers = $state(false);
   let analyzeGen = 0;
+  // The reader pressed Compare: the figure may tell its answer (SPEC 6, A2). A restored
+  // link or a page of the table is not a request, so it shows the final frame.
+  let readerAsked = $state(false);
   let limShown = $state(8);
 
   // Service picker (only when the route carries no service key): search-first, so a
@@ -100,9 +101,6 @@
   // A migrated legacy name that resolved to several services, or to none: the picker
   // says which, rather than silently opening the wrong service or an empty search.
   let migrateNote = $state('');
-
-  // The release gate `pacto impact` exits on, worded once for the badge and the diagram.
-  const GATE = IMPACT_GATE;
 
   function verdictClass(v) {
     if (v === 'compatible') return 'badge-ok';
@@ -252,9 +250,10 @@
     if (!observedAvailable) includeObserved = false;
   });
 
-  async function analyze(offset = 0, paging = false) {
+  async function analyze(offset = 0, paging = false, asked = false) {
     if (!serviceKey || !fromRevKey || !toRevKey) return;
     const gen = ++analyzeGen;
+    if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
     else analyzing = true;
     analyzeError = null;
@@ -287,7 +286,7 @@
     }
   }
 
-  // "+N more" under the diagram opens the full table: open the fold, focus its summary
+  // "N more" in a lane of the figure opens the full table: open the fold, focus its summary
   // without the browser's own jump, then scroll it under the sticky navbar (.ca-fold
   // carries the scroll margin).
   function openConsumers() {
@@ -334,24 +333,11 @@
       { label: 'Change analysis' },
     ];
   });
-  // The one-line answer. Version-range verdicts are per consumer (the range each one
-  // declared), never per field, and come from the backend tallies over EVERY consumer.
+  // Version-range verdicts are per consumer (the range each one declared), never per
+  // field, and come from the backend tallies over EVERY consumer.
   const verdictCount = (k) => (consumers.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
-  const answerText = $derived.by(() => {
-    if (!result) return '';
-    const what = changes.total === 0
-      ? 'No contract differences.'
-      : `${countOf(changes.total, 'change')}, ${formatCount(changes.breaking)} breaking.`;
-    if (!consumers.total) return `${what} No consumer is affected.`;
-    const newLabel = result.newRevision?.version || result.newRevision?.label || 'the new revision';
-    const parts = [
-      verdictCount('incompatible') ? `${formatCount(verdictCount('incompatible'))} ${verdictCount('incompatible') === 1 ? 'does' : 'do'} not accept ${newLabel}` : '',
-      // A refused consumer breaks whatever its range verdict, so it is named on its own.
-      consumers.refused ? `${formatCount(consumers.refused)} ${consumers.refused === 1 ? 'requires' : 'require'} a guarantee ${newLabel} does not offer` : '',
-      verdictCount('unknown') ? `${formatCount(verdictCount('unknown'))} unknown` : '',
-    ].filter(Boolean);
-    return `${what} ${countOf(consumers.total, 'consumer')} affected${parts.length ? `: ${parts.join(', ')}` : ''}.`;
-  });
+  // The figure's chips name these; the table marks them so every name is readable in full.
+  const highlighted = $derived(new Set((consumers.highlights ?? []).map((c) => c.service?.key)));
   const consumerMeta = $derived(
     consumers.total
       ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`
@@ -426,7 +412,7 @@
 {:else}
   <!-- No page navigator: the answer sits under the pickers and every part behind it is a
        fold, so the page is one screen and going back to change a revision is no scroll. -->
-  <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
+  <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0, false, true); }}>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
@@ -478,38 +464,10 @@
   {:else if analyzing}
     <EmptyState loading message="Comparing the two revisions…" />
   {:else if result}
-    <!-- The answer first: what kind of change this is and who it reaches, in one line.
-         Everything that backs it -- the field diff, the consumer table, owners and targets,
-         the evidence gaps -- is folded below with its count, one click away. -->
-    <div class="ca-answer" data-testid="changes-answer">
-      <p class="ca-answer-line">
-        <span class="badge {classificationClass(result.classification)}">{classificationLabel(result.classification)}</span>
-        <span>{answerText}</span>
-      </p>
-      {#if GATE[result.gate]}
-        <p class="ca-answer-line" data-testid="changes-gate">
-          <span class="badge {GATE[result.gate].cls}">{GATE[result.gate].label}</span>
-          <span class="text-2">{result.gateReason}</span>
-        </p>
-      {/if}
-      <p class="impact-summary">
-        {#if result.oldRevision || result.newRevision}
-          <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
-        {/if}
-        <span class="badge {completenessClass(result.meta?.completeness)}"><span class="badge-dot"></span>{completenessLabel(result.meta?.completeness)}</span>
-        {#if result.meta?.asOf}<span class="text-3">Data as of {formatRelative(result.meta.asOf)}</span>{/if}
-        <!-- The snapshot id is precise and occasionally decisive, but it is opaque to
-             anyone who has not read the data model. The chip states what it MEANS; the id
-             itself stays exact, one hover away. -->
-        <span class="snap-id" class:match={result.snapshotMatch} title="Snapshot {result.snapshotId}">
-          {result.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}
-        </span>
-      </p>
-    </div>
-
-    <!-- The same answer, drawn: the drawing reads only the backend highlights and counts,
-         so paging the table below never changes it. The table stays the full answer. -->
-    <IsoImpact impact={result} onmore={openConsumers} />
+    <!-- The answer, drawn and stated: the figure reads only the backend tallies and the
+         ranked highlights, so paging the table below never changes it. Its card says what
+         changed, who it reaches and what the gate decides; the table stays the full answer. -->
+    <ImpactFigure impact={result} autoplay={readerAsked} onmore={openConsumers} />
 
     <div class="ca-stack">
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
@@ -585,7 +543,7 @@
               <tbody>
                 {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
                   <tr>
-                    <td data-label="Consumer" class="consumer-cell"><EntityLink ref={c.service} showStatus={false} /></td>
+                    <td data-label="Consumer" class="consumer-cell">{#if highlighted.has(c.service?.key)}<span class="badge badge-accent">Highlighted</span> {/if}<EntityLink ref={c.service} showStatus={false} /></td>
                     <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
                     <td data-label="Path" class="path-cell">
                       {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
@@ -682,12 +640,9 @@
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }
 
-  .ca-answer { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-3); }
-  .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
   .consumer-refused { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; margin-top: var(--sp-1); }
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
-  .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }
@@ -696,8 +651,6 @@
   .ca-show-all { align-self: flex-start; }
   .check-row { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .disco-more { margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .snap-id { font-family: var(--font-mono, monospace); font-size: var(--text-xs); color: var(--c-text-3); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 999px; }
-  .snap-id.match { color: var(--c-ok); border-color: var(--c-ok-border, var(--c-ok)); }
 
   .partial-banner { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid var(--c-warn-border); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-text-2); font-size: var(--text-sm); }
   .partial-banner strong { color: var(--c-warn); }

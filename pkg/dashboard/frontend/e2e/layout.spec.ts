@@ -16,10 +16,7 @@ import { gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './
 //
 // PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
 // nothing else is excluded.
-const PENDING: string[] = [
-  // P1 rewrites the isometric impact diagram as ImpactFigure on the figure primitives.
-  '[data-testid="iso-impact"]',
-];
+const PENDING: string[] = [];
 
 const WIDTHS = [390, 760, 1024, 1280];
 
