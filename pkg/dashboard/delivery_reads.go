@@ -479,6 +479,14 @@ type StageCounts struct {
 	ByEnvironment []EnvironmentCount `json:"byEnvironment" doc:"Every environment of the services that match q and service, over every page, with its Stages counted by state; in the promotion order the Stages declare, then by name"`
 }
 
+// keeps is the environment, tier and state filters. They narrow the rows,
+// not the columns a person picks from: a service with no Stage there is left
+// out.
+func (in *environmentsInput) keeps(st delivery.StageObject, held map[string]int) bool {
+	return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || envTier(st.Spec.Environment) == in.Tier) &&
+		(in.State == "" || stageState(st, held) == in.State)
+}
+
 func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput) (*environmentsOutput, error) {
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
@@ -510,12 +518,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if in.Service != "" {
 		out.Body.Promotion = promotionGraph(stages, byStage, complete)
 	}
-	// The environment, tier and state filters narrow the rows, not the
-	// columns a person picks from: a service with no Stage there is left out.
-	stages = filter(stages, func(st delivery.StageObject) bool {
-		return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || envTier(st.Spec.Environment) == in.Tier) &&
-			(in.State == "" || stageState(st, held) == in.State)
-	})
+	stages = filter(stages, func(st delivery.StageObject) bool { return in.keeps(st, held) })
 	var services []string
 	services, out.Body.Counts = countStages(stages, held)
 	out.Body.Counts.ByEnvironment = byEnv

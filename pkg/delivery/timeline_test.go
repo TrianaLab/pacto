@@ -48,18 +48,15 @@ func TestTimeline(t *testing.T) {
 	if got := fmt.Sprintf("%+v", tl.Totals); got != "{Missing:2 Failed:2 Held:1 AcceptedUnknown:1 Released:1 Other:1}" {
 		t.Errorf("totals: %s", got)
 	}
-	var sum TimelineCounts
-	for _, b := range tl.Buckets {
-		sum.Missing += b.Missing
-		sum.Failed += b.Failed
-		sum.Held += b.Held
-		sum.AcceptedUnknown += b.AcceptedUnknown
-		sum.Released += b.Released
-		sum.Other += b.Other
-	}
-	if sum != tl.Totals {
+	if sum := sumBuckets(tl.Buckets); sum != tl.Totals {
 		t.Errorf("the buckets sum to the totals: %+v", sum)
 	}
+	checkSlices(t, tl, at)
+}
+
+// checkSlices checks where TestTimeline's lines fell.
+func checkSlices(t *testing.T, tl HistoryTimeline, at func(int) string) {
+	t.Helper()
 	if b := tl.Buckets[0]; b.Missing != 2 || b.Start != tl.Start || b.End != at(22) {
 		t.Errorf("the first slice holds the gap: %+v", b)
 	}
@@ -69,8 +66,25 @@ func TestTimeline(t *testing.T) {
 	if b := tl.Buckets[9]; b.Released != 1 || b.AcceptedUnknown != 1 || b.Other != 1 {
 		t.Errorf("five hours ago: %+v", b)
 	}
-	// A window of no length still counts what is at its one instant.
-	if tl = Timeline([]HistoryEntry{{Finished: at(0)}}, end, end); tl.Buckets[0].Other != 1 {
+}
+
+// A window of no length still counts what is at its one instant.
+func TestTimelineZeroWindow(t *testing.T) {
+	end := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	if tl := Timeline([]HistoryEntry{{Finished: end.Format(time.RFC3339)}}, end, end); tl.Buckets[0].Other != 1 {
 		t.Errorf("a zero window: %+v", tl.Buckets)
 	}
+}
+
+func sumBuckets(bs []TimelineBucket) TimelineCounts {
+	var sum TimelineCounts
+	for _, b := range bs {
+		sum.Missing += b.Missing
+		sum.Failed += b.Failed
+		sum.Held += b.Held
+		sum.AcceptedUnknown += b.AcceptedUnknown
+		sum.Released += b.Released
+		sum.Other += b.Other
+	}
+	return sum
 }

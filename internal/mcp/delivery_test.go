@@ -208,8 +208,18 @@ func TestDeliveryPlanToolCalls(t *testing.T) {
 	}
 	var h delivery.History
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
-	if h.Stage.Name != "s" || h.Completeness != "partial" || h.Timeline == nil || len(h.Timeline.Buckets) != delivery.TimelineBuckets {
-		t.Fatalf("history, with its timeline (B7): %+v", h)
+	if h.Stage.Name != "s" || h.Completeness != "partial" {
+		t.Fatalf("history: %+v", h)
+	}
+}
+
+// B7: one Stage's history carries its timeline.
+func TestDeliveryHistoryToolTimeline(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
+	if h.Timeline == nil || len(h.Timeline.Buckets) != delivery.TimelineBuckets {
+		t.Fatalf("history, with its timeline: %+v", h.Timeline)
 	}
 }
 
