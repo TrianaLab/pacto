@@ -61,6 +61,7 @@
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Offerings' }]} />
   <PageHeader
+    glyph="offering"
     title="Platform offerings"
     count={list ? plural(total, 'offering', 'offerings') : ''}
     subtitle="Services that platform teams publish for other teams to use, grouped by the service.offering their contracts declare."

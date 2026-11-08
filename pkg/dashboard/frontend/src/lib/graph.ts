@@ -690,6 +690,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         width: 1,
         'line-color': pal.textDim,
         'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' || ele.data('etype') === 'runs' ? 'dashed' : 'solid'),
+        // One dash for every dashed edge, the figures' projected wire (SPEC 2.1).
+        'line-dash-pattern': [6, 5],
         'target-arrow-shape': restArrow,
         'target-arrow-color': pal.textDim,
         'arrow-scale': 0.85,
@@ -712,9 +714,10 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
     },
     {
       // expected-not-observed: declared but not witnessed in the window (not proof it
-      // is unused). Info tone, kept solid.
+      // is unused). Info tone.
       selector: "edge[state='expected-not-observed']",
-      style: { 'line-color': pal.info, 'target-arrow-color': pal.info },
+      // Projected, never observed: the figures' dashed wire (SPEC 2.1).
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
     },
     {
       // drift (observed-not-expected): observed at runtime but never declared. The

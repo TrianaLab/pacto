@@ -211,7 +211,7 @@
       { key: 'rel:reference', label: 'Configuration reference', cls: 'lg-edge lg-ref' },
     ] },
     { title: 'Reconciliation', items: [
-      { key: 'state:matched', label: 'Matched / corroborated', cls: 'lg-edge lg-matched' },
+      { key: 'state:matched', label: 'Matched / corroborated (observed)', cls: 'lg-edge lg-matched' },
       { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
@@ -441,7 +441,7 @@
              affordance that a graph renders HERE once a focus is chosen -- so the tab reads
              as a graph discovery experience, not an empty page -- without auto-rendering the
              whole fleet. -->
-        <div class="disco-placeholder" data-testid="graph-discovery-placeholder" aria-hidden="true">
+        <div class="disco-placeholder iso-backdrop" data-testid="graph-discovery-placeholder" aria-hidden="true">
           <svg viewBox="0 0 120 64" class="disco-ph-glyph" role="presentation" focusable="false">
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
@@ -631,7 +631,7 @@
                   ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
                 {/each}
               {/each}
-              <span class="t-meta lg-hint">Select an entry to hide it.</span>
+              <span class="t-meta lg-hint">Solid: observed. Dashed: projected or not yet observed. Dotted: cannot be verified. Select an entry to hide it.</span>
             </div>
 
             <!-- Accessible text alternative: the same nodes and edges as
@@ -847,7 +847,7 @@
   .lg-runs { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-ref { border-top-style: dashed; }
   .lg-matched { border-top-color: var(--c-ok); }
-  .lg-eno { border-top-color: var(--c-info); }
+  .lg-eno { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
   .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
   .lg-refused { border-top-width: 3px; border-top-color: var(--c-err); }
