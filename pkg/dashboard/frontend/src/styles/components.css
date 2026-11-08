@@ -595,7 +595,9 @@ tr.clickable:active { background: var(--c-surface-inset); }
 }
 .disclosure > summary::-webkit-details-marker { display: none; }
 .disclosure > summary:hover { color: var(--c-text); }
-.disclosure-caret { display: inline-block; flex-shrink: 0; }
+/* A square glyph box: turned open, it keeps the same footprint instead of swinging its
+   line box over the title beside it. */
+.disclosure-caret { display: inline-block; flex-shrink: 0; width: 1em; height: 1em; line-height: 1; text-align: center; }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
 /* A fold titled by a heading reads the same on every page (Fold.svelte's look): a plain
    sans title at body size, never a serif section title or italic, and the count or note
@@ -883,7 +885,7 @@ button.detail-card-header {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "name" "num";
   }
-  .pl-list.pl-list--domains .pl-num { text-align: left; }
+  .pl-list.pl-list--domains .pl-num { text-align: left; white-space: normal; }
 }
 
 /* The one-line answer under a page title: each page answers its question first, in

@@ -192,7 +192,7 @@
 
   <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} data-testid="navbar-search">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <span class="search-trigger-text">{searchPlaceholder}</span>
+    <span class="search-trigger-text" title={searchPlaceholder}>{searchPlaceholder}</span>
     <kbd class="search-kbd" aria-hidden="true">{searchKbd}</kbd>
   </button>
 
@@ -361,6 +361,9 @@
   /* One line that truncates: wrapping a squeezed placeholder spills it out of the bar. */
   .search-trigger { min-width: 9rem; }
   .search-trigger-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* In the trigger the key hint is a flex item after the text, never laid over it. */
+  .search-trigger { padding-right: 10px; }
+  .search-trigger .search-kbd { position: static; transform: none; flex-shrink: 0; }
   .navbar-right {
     display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
   }

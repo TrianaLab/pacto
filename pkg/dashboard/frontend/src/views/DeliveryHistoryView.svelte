@@ -377,7 +377,7 @@
   .hv-table tbody th .hv-source { margin: 0; font-weight: 400; }
   .hv-none { color: var(--c-text-3); }
   .hv-seq, .hv-class, .hv-digest { color: var(--c-text-2); }
-  .hv-reason { color: var(--c-text-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hv-reason { max-width: 100%; overflow-wrap: anywhere; color: var(--c-text-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Two lines until a reader points at it or tabs to it; then the whole reason. */
   .hv-reason:hover, .hv-reason:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
   /* Who asked and the Agent chip share a line, so a row stays one line tall. */
