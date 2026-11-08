@@ -89,6 +89,13 @@ func TestResolveTemplate_Directory(t *testing.T) {
 	if tpl, err = (&Service{}).resolveTemplate(t.Context(), published, target, nil); err != nil || tpl.Ref != "oci://ghcr.io/acme/paths/http-service:1.0.0" {
 		t.Fatalf("published coordinate: %+v %v", tpl, err)
 	}
+
+	// When the relative path would climb above the home folder, only the
+	// folder name is recorded.
+	t.Setenv("HOME", filepath.Dir(filepath.Dir(from)))
+	if tpl, err = (&Service{}).resolveTemplate(t.Context(), from, target, nil); err != nil || tpl.Ref != "http-service" {
+		t.Errorf("above the home folder: ref %q, %v", tpl.Ref, err)
+	}
 }
 
 // TestDirTemplateErrors: a directory with no contract, an unreadable
