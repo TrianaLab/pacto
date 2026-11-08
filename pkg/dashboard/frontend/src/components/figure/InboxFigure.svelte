@@ -10,10 +10,12 @@
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { formatCount } from '../../lib/format.ts';
 
-  /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryInbox['byEnvironment']>, href: (env: string, kind: string) => string }} */
-  let { byEnvironment, href } = $props();
+  /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryInbox['byEnvironment']>, href: (env: string, kind: string) => string, partial?: boolean }} */
+  let { byEnvironment, href, partial = false } = $props();
   const m = $derived(inboxModel(byEnvironment));
   const w = $derived(m.stations.length > 4 ? 80 : 96);
+  // S5a: a partial listing makes every queue a lower bound, said once in the caption.
+  // ponytail: no open caps on the queue bars yet; add them if the sentence is missed.
 </script>
 
 <Figure id="inbox" testid="inbox-figure" question="Where are changes stuck on their way to production?"
@@ -41,7 +43,7 @@
       {/each}
     </ol>
   {/snippet}
-  {#snippet caption()}{m.caption}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
+  {#snippet caption()}{m.caption}{#if partial}{' '}Namespaces you cannot list are not counted, so each queue may hold more.{/if}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
 </Figure>
 
 {#snippet row(/** @type {{ n: number, k: (typeof KINDS)[number] }} */ b, /** @type {number} */ i)}

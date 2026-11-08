@@ -140,7 +140,7 @@
     {#if inbox.byEnvironment?.length}
       <!-- Over every page and before the environment filter, so it never moves while the
            lists below are paged or narrowed; each count links to its narrowed list. -->
-      <InboxFigure byEnvironment={inbox.byEnvironment}
+      <InboxFigure byEnvironment={inbox.byEnvironment} partial={inbox.completeness === 'partial'}
         href={(env, kind) => deliveryInboxUrl({ q, environment: env, show: kind === 'held' ? undefined : kind })} />
     {/if}
     {#if environment}

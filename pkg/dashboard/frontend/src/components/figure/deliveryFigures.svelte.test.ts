@@ -75,6 +75,9 @@ describe('InboxFigure', () => {
     expect(target.querySelector('figcaption')?.textContent).toContain('1 errored change, 6 held changes and 1 frozen Stage wait for you.');
     expect(target.querySelector('[data-m="qb1frozen"]')?.classList.contains('t-frost')).toBe(true);
     unmount(c);
+    const p = render(InboxFigure, { byEnvironment, href, partial: true }, false);
+    expect(p.target.querySelector('figcaption')?.textContent).toContain('Namespaces you cannot list are not counted, so each queue may hold more.');
+    unmount(p.c);
   });
 
   it('renders the same drawing under reduced motion (G2)', async () => {
