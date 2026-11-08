@@ -739,6 +739,9 @@ type historyOutput struct {
 		Page      Page           `json:"page" doc:"Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage)"`
 		// Counts are over every page; without a stage only.
 		Counts *HistoryCounts `json:"counts,omitempty" doc:"Without a stage: Stages that wait for a person and frozen Stages, over every page"`
+		// Timeline is over every page; without a stage only (one Stage's is on
+		// its history).
+		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline"`
 		Labels
 	}
 }
@@ -791,6 +794,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 				delivery.OfService(st, in.Service, in.Domain)
 		})
 		out.Body.Counts = historyCounts(stages, ops)
+		out.Body.Timeline = clusterTimeline(stages, ops, since, until)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
 			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
 		})
@@ -813,6 +817,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
 		if one {
+			start, end := delivery.TimelineWindow(since, until, time.Now())
+			sh.Timeline = new(delivery.Timeline(entries, start, end))
 			entries = filter(entries, func(e delivery.HistoryEntry) bool {
 				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason)
 			})
@@ -880,6 +886,21 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 		}
 	}
 	return c
+}
+
+// clusterTimeline counts the Operations still in the cluster on stages by
+// time and kind (B7): reading every Stage's signed records for a fleet figure
+// would read every record stream on every poll.
+func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time) *delivery.HistoryTimeline {
+	byStage := stagesByName(stages)
+	var entries []delivery.HistoryEntry
+	for _, o := range ops {
+		if byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil {
+			entries = append(entries, delivery.StatusEntry(o))
+		}
+	}
+	start, end := delivery.TimelineWindow(since, until, time.Now())
+	return new(delivery.Timeline(entries, start, end))
 }
 
 // historiesOf reads the history of each target, describeParallel at once: on

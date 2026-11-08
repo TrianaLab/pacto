@@ -1343,6 +1343,21 @@ export interface components {
             unverifiedRecord?: string;
             verification?: string;
         };
+        "Delivery.HistoryTimeline": {
+            /** @description Equal slices of the window, oldest first */
+            buckets: components["schemas"]["Delivery.TimelineBucket"][] | null;
+            /** @description The window's end: until, or when the answer was made */
+            end: string;
+            /** @description The window's start: since, or one day before its end */
+            start: string;
+            /** @description Every line in the window; the buckets sum to it */
+            totals: components["schemas"]["Delivery.TimelineCounts"];
+            /**
+             * Format: int64
+             * @description Lines with no time, or one that does not parse: in no slice and no total
+             */
+            untimed: number;
+        };
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
         };
@@ -1533,6 +1548,72 @@ export interface components {
             service: components["schemas"]["Delivery.ServiceRef"];
             startLevel?: string;
             workload?: components["schemas"]["Delivery.WorkloadRef"];
+        };
+        "Delivery.TimelineBucket": {
+            /**
+             * Format: int64
+             * @description Changes whose verification ended unknown and a person accepted it
+             */
+            acceptedUnknown: number;
+            end: string;
+            /**
+             * Format: int64
+             * @description Changes that failed or errored
+             */
+            failed: number;
+            /**
+             * Format: int64
+             * @description Changes held for a person
+             */
+            held: number;
+            /**
+             * Format: int64
+             * @description Gap and unrecordable records: a change ran, but what it did is not on the record
+             */
+            missing: number;
+            /**
+             * Format: int64
+             * @description Every other line: in flight, cancelled, rejected, expired, superseded, or a change that moved nothing
+             */
+            other: number;
+            /**
+             * Format: int64
+             * @description Changes that succeeded and moved what the Stage runs: a promotion, rollback or override
+             */
+            released: number;
+            start: string;
+        };
+        "Delivery.TimelineCounts": {
+            /**
+             * Format: int64
+             * @description Changes whose verification ended unknown and a person accepted it
+             */
+            acceptedUnknown: number;
+            /**
+             * Format: int64
+             * @description Changes that failed or errored
+             */
+            failed: number;
+            /**
+             * Format: int64
+             * @description Changes held for a person
+             */
+            held: number;
+            /**
+             * Format: int64
+             * @description Gap and unrecordable records: a change ran, but what it did is not on the record
+             */
+            missing: number;
+            /**
+             * Format: int64
+             * @description Every other line: in flight, cancelled, rejected, expired, superseded, or a change that moved nothing
+             */
+            other: number;
+            /**
+             * Format: int64
+             * @description Changes that succeeded and moved what the Stage runs: a promotion, rollback or override
+             */
+            released: number;
         };
         "Delivery.Times": {
             admitted?: string;
@@ -2862,6 +2943,8 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
+            /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline */
+            timeline?: components["schemas"]["Delivery.HistoryTimeline"];
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
             /** @description The version each digest named here carries, when its artifact could be read */
@@ -4284,6 +4367,7 @@ export interface components {
             problems?: string[] | null;
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
+            timeline?: components["schemas"]["Delivery.HistoryTimeline"];
             unreadable?: string[] | null;
             /**
              * Format: int64

@@ -208,8 +208,8 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"json", []string{"explain", "-n", "prod", "held"}, false, []string{`"summary"`, `"rerun"`, `"moveFirst"`}},
 		{"text", []string{"explain", "-n", "prod", "missing"}, true, nil},
 		{"text", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{"SEQ", "held", "promote", "Held",
-			"partial: read from the Operation objects"}},
-		{"json", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"completeness": "partial"`}},
+			"partial: read from the Operation objects", "with the record missing"}},
+		{"json", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"completeness": "partial"`, `"timeline"`, `"buckets"`}},
 		{"text", []string{"history", "-n", "prod", "--stage", "missing"}, true, nil},
 	})
 }
@@ -238,7 +238,8 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 		t.Fatalf("history of the last two hours: %v\n%s", err, out)
 	}
 	if out, err = runDelivery(t, d, "text", "history", "--all", "--service", "payments", "--until", "2000-01-01T00:00:00Z"); err != nil ||
-		strings.Contains(out, "one-hour-ago") || !strings.Contains(out, "== prod/payments-prod") || !strings.Contains(out, "held") {
+		strings.Contains(out, "one-hour-ago") || !strings.Contains(out, "== prod/payments-prod") || !strings.Contains(out, "held") ||
+		!strings.Contains(out, "1999-12-31T00:00:00Z to 2000-01-01T00:00:00Z: ") {
 		t.Fatalf("history of payments before 2000: %v\n%s", err, out)
 	}
 	if out, _ = runDelivery(t, d, "text", "history", "--all", "--service", "orders"); strings.Contains(out, "==") {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -327,4 +328,33 @@ func TestDeliveryHistoryWindow(t *testing.T) {
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "until"), "a bad until is refused: %d %v", code, body)
 	code, body = call(t, http.MethodGet, base+"/api/delivery/history?since=2026-11-03T00:00:00Z&until=2026-11-02T00:00:00Z", nil)
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "since is after until"), "an inverted window is refused: %d %v", code, body)
+}
+
+// B7: without a stage, the timeline counts the Operations still in the
+// cluster on the Stages that match, never one the caller cannot see; one
+// Stage's timeline counts its whole history before q and paging.
+func TestDeliveryHistoryTimeline(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	ago := func(h int) string { return time.Now().Add(-time.Duration(h) * time.Hour).UTC().Format(time.RFC3339) }
+	for i := range f.ops {
+		f.ops[i].Status.Times.Finished = ago(1)
+	}
+	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Failed,
+		Times: delivery.Times{Finished: ago(1)}}))
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: []delivery.HistoryEntry{
+		{Operation: "a", Kind: delivery.RecordGap, Finished: ago(2)}, {Operation: "b", Outcome: delivery.Succeeded, Pointer: &delivery.PointerChange{After: dRun}, Finished: ago(3)}}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
+	tl := page(h["timeline"])
+	expect(t, len(tl["buckets"].([]any)) == delivery.TimelineBuckets, "twelve slices: %v", tl)
+	tot := page(tl["totals"])
+	// 3 held on payments, 2 errored on frozen Stages; the Operations on gone or
+	// unseen Stages are not counted.
+	expect(t, tot["held"] == float64(3) && tot["failed"] == float64(2) && tot["other"] == float64(0), "the cluster's changes: %v", tot)
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?q=ledger", nil)
+	expect(t, page(page(h["timeline"])["totals"])["failed"] == float64(1), "q narrows the timeline: %v", h["timeline"])
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=nothing-matches", nil)
+	one := page(h["histories"].([]any)[0])
+	tot = page(page(one["timeline"])["totals"])
+	expect(t, h["timeline"] == nil && tot["missing"] == float64(1) && tot["released"] == float64(1), "one Stage's timeline is its own, before q: %v", one["timeline"])
 }

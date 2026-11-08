@@ -601,15 +601,20 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				start, end := delivery.TimelineWindow(since, until, c.Now())
+				var all []delivery.HistoryEntry
 				for i := range hs.Histories {
 					hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+					all = append(all, hs.Histories[i].Entries...)
 				}
+				hs.Timeline = new(delivery.Timeline(all, start, end))
 				return formatResult(cmd, v.GetString(outputFormatKey), hs, func() error {
 					out := cmd.OutOrStdout()
 					for _, h := range hs.Histories {
 						_, _ = fmt.Fprintf(out, "== %s/%s\n", h.Namespace, h.Stage.Name)
 						printHistory(out, &h.History)
 					}
+					printTimeline(out, hs.Timeline)
 					printAnswerNotes(out, nil, hs.Unreadable)
 					_, _ = fmt.Fprintf(out, "as of %s, %s: %s\n", hs.AsOf, hs.Completeness, hs.Note)
 					return nil
@@ -620,8 +625,11 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 				return err
 			}
 			*h = delivery.WindowEntries(*h, since, until)
+			start, end := delivery.TimelineWindow(since, until, c.Now())
+			h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
 				printHistory(cmd.OutOrStdout(), h)
+				printTimeline(cmd.OutOrStdout(), h.Timeline)
 				return nil
 			}, nil)
 		},
@@ -697,6 +705,18 @@ func printHistory(out io.Writer, h *delivery.History) {
 	_ = w.Flush()
 	printAnswerNotes(out, h.Problems, h.Unreadable)
 	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
+}
+
+// printTimeline says the timeline's totals in one line (B7); the slices are
+// in -o json.
+func printTimeline(out io.Writer, t *delivery.HistoryTimeline) {
+	c := t.Totals
+	_, _ = fmt.Fprintf(out, "%s to %s: %d failed, %d held, %d accepted unknown, %d released, %d other, %d with the record missing",
+		t.Start, t.End, c.Failed, c.Held, c.AcceptedUnknown, c.Released, c.Other, c.Missing)
+	if t.Untimed > 0 {
+		_, _ = fmt.Fprintf(out, "; %d with no time", t.Untimed)
+	}
+	_, _ = fmt.Fprintln(out)
 }
 
 // shortRecord is a record id short enough for a table; "-" is a line read

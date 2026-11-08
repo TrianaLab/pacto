@@ -208,8 +208,8 @@ func TestDeliveryPlanToolCalls(t *testing.T) {
 	}
 	var h delivery.History
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
-	if h.Stage.Name != "s" || h.Completeness != "partial" {
-		t.Fatalf("history: %+v", h)
+	if h.Stage.Name != "s" || h.Completeness != "partial" || h.Timeline == nil || len(h.Timeline.Buckets) != delivery.TimelineBuckets {
+		t.Fatalf("history, with its timeline (B7): %+v", h)
 	}
 }
 
@@ -242,8 +242,8 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 	// With no stage the tools walk every Stage: a fleet audit.
 	var hs delivery.Histories
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod"}), &hs)
-	if hs.Note != "ns=prod" {
-		t.Fatalf("history of every Stage: %+v", hs)
+	if hs.Note != "ns=prod" || hs.Timeline == nil {
+		t.Fatalf("history of every Stage, with one timeline over them (B7): %+v", hs)
 	}
 	var vs delivery.StreamVerifications
 	decode(t, callToolOn(t, server, "pacto_delivery_record_verify", map[string]any{}), &vs)
