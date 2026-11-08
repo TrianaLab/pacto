@@ -403,4 +403,20 @@ describe('FleetAttentionView — answer first, no repeated hints', () => {
     expect(nexts).toEqual(['Fix the contract', '', 'Open the target']);
     unmount(component); document.body.removeChild(target);
   });
+
+  // SPEC 2.2: unknown compliance is the neutral hatch on the category bars, never amber.
+  it('draws the unknown category as the hatch and stale as a caution', async () => {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: 5, offset: 0, limit: 25, count: 1, truncated: false,
+      categories: [{ category: 'unknown', count: 3 }, { category: 'stale', count: 2 }],
+      severities: { warnings: 5 },
+      items: [item(1, 'Fix the contract')],
+    });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.hb-fill').length).toBe(2));
+    const fills = Array.from(target.querySelectorAll('.hb-fill'));
+    expect(fills.map((f) => f.classList.contains('hatch'))).toEqual([true, false]);
+    unmount(component); document.body.removeChild(target);
+  });
 });

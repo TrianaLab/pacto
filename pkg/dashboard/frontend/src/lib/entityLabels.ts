@@ -97,7 +97,8 @@ export function knowledgeTone(level: string | undefined): Tone {
   switch (level) {
     case 'complete': return 'ok';
     case 'empty': return 'neutral';
-    case 'partial': return 'warn';
+    // Partial knowledge is the unknown family: the neutral hatch, never a status tone.
+    case 'partial': return 'neutral';
     case 'stale': return 'warn';
     case 'unavailable': return 'err';
     default: return 'neutral';
@@ -239,9 +240,9 @@ export function sourceHealthLabel(status: string | undefined): string {
 export function sourceHealthTone(status: string | undefined): Tone {
   switch (status) {
     case 'available': return 'ok';
-    case 'partial': return 'warn';
     case 'stale': return 'warn';
     case 'unavailable': return 'err';
+    // Partial, like unknown, is the neutral family, never a status tone.
     default: return 'neutral';
   }
 }

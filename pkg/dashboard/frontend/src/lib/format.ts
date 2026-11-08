@@ -124,12 +124,12 @@ export function completenessLabel(c: string | undefined): string {
   return COMPLETENESS_LABELS[c] || c;
 }
 
-/** Badge class for a completeness — a partial answer reads as a warning. */
+/**
+ * Badge class for a completeness. Partial is the unknown family, neutral and never a
+ * status tone (SPEC 2.2): missing knowledge is not a warning about what is known.
+ */
 export function completenessClass(c: string | undefined): string {
-  if (c === 'complete') return 'badge-ok';
-  if (c === 'partial') return 'badge-warn';
-  if (c === 'empty') return 'badge-neutral';
-  return 'badge-neutral';
+  return c === 'complete' ? 'badge-ok' : 'badge-neutral';
 }
 
 export function changeTypeClass(t: string): string {

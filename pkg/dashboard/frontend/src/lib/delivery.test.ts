@@ -185,7 +185,7 @@ describe('what a check concluded', () => {
     expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'Breaking' });
     expect(verdictBadge({ gate: 'pacto.impact', result: 'Pass', citation: { classification: 'POTENTIAL_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'May break' });
     expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'NON_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: '' });
-    expect(verdictBadge({ gate: 'pacto.diff', result: 'Unknown' })).toEqual({ label: 'Unknown', tone: 'badge-warn', chip: '' });
+    expect(verdictBadge({ gate: 'pacto.diff', result: 'Unknown' })).toEqual({ label: 'Unknown', tone: 'badge-neutral', chip: '' });
     expect(verdictBadge({ gate: 'pacto.published', result: 'Pass' })).toEqual({ label: 'Pass', tone: 'badge-ok', chip: '' });
     expect(verdictBadge({ gate: 'mira.health', result: 'Fail' })).toEqual({ label: 'Fail', tone: 'badge-err', chip: '' });
     expect(verdictBadge({ gate: 'pacto.environment', result: 'Pass', citation: { applicable: 'false' } })).toEqual({ label: 'N/A', tone: 'badge-neutral', chip: '' });

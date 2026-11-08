@@ -212,7 +212,9 @@
   .pv-fold-body > p { margin: 0; }
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }
-  .pv-partial { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid var(--c-warn-border); }
+  /* A possibly incomplete list is the unknown family: neutral, with the hatch as a band
+     on its leading edge so the pattern never sits under the words. */
+  .pv-partial { padding: var(--sp-2) var(--sp-3) var(--sp-2) calc(var(--sp-3) + 6px); border-radius: var(--radius-sm); background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg); color: var(--c-text-2); border: 1px solid var(--c-neutral); }
   .pv-stages { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
   .pv-more { align-self: flex-start; }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }

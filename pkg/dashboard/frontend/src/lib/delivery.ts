@@ -413,7 +413,8 @@ export function verdictBadge(v: { gate?: string; result?: string; citation?: Rec
   const chip = CLASSIFICATION_CHIPS[v.citation?.classification ?? ''] ?? '';
   if (v.citation?.applicable === 'false') return { label: 'N/A', tone: 'badge-neutral', chip };
   if (v.result === 'Pass' && EVIDENCE_GATES.has(v.gate ?? '')) return { label: 'Checked', tone: 'badge-neutral', chip };
-  const tone = ({ Pass: 'badge-ok', Fail: 'badge-err', Unknown: 'badge-warn' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
+  // Unknown is neutral, never warn: a check that could not decide is an open question.
+  const tone = ({ Pass: 'badge-ok', Fail: 'badge-err' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
   return { label: v.result ?? '', tone, chip };
 }
 

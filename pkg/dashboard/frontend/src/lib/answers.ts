@@ -37,18 +37,25 @@ export function postureAnswer(sum: PostureSummary = {}, incomplete = false, conf
     nc ? `${plural(nc, 'running target breaks its', 'running targets break their')} contract` : '',
     invalid ? `${plural(invalid, 'revision is', 'revisions are')} invalid` : '',
   ].filter(Boolean);
+  // Unknown compliance and never-observed targets are open questions: they ask for a
+  // look in the neutral tone, never warn (SPEC 2.2). The rest are cautions.
+  const unknowns = new Set<string>();
+  const ask = (s: string) => { if (s) unknowns.add(s); return s; };
   const concerns = [
-    targets && unknown ? `${plural(unknown, 'running target has', 'running targets have')} unknown compliance` : '',
+    targets && unknown ? ask(`${plural(unknown, 'running target has', 'running targets have')} unknown compliance`) : '',
     targets && sum.revisionsInUse === 0 && (sum.revisions ?? 0) > 0 ? 'no running target matches a known revision' : '',
     conflicts ? `${plural(conflicts, 'revision names', 'revisions name')} a different owner` : '',
     targets && stale ? `${plural(stale, 'running target has', 'running targets have')} stale evidence` : '',
-    targets && never ? `${plural(never, 'running target was', 'running targets were')} never observed` : '',
+    targets && never ? ask(`${plural(never, 'running target was', 'running targets were')} never observed`) : '',
   ].filter(Boolean);
   if (problems.length) return { tone: 'err', lead: 'Needs work.', rest: `${cap(joinAnd([...problems, ...concerns]))}.` };
-  if (concerns.length) return { tone: 'warn', lead: 'Needs a look.', rest: `${cap(joinAnd(concerns))}.` };
+  if (concerns.length) {
+    const tone = concerns.every((c) => unknowns.has(c)) ? 'neutral' : 'warn';
+    return { tone, lead: 'Needs a look.', rest: `${cap(joinAnd(concerns))}.` };
+  }
   if (targets === 0) return { tone: 'neutral', lead: 'Nothing running yet.', rest: 'There is no compliance picture until a target is observed.' };
   // The knowledge banner under the answer says what is missing; saying it here too doubled it.
-  if (incomplete) return { tone: 'warn', lead: 'Nothing broken found.', rest: '' };
+  if (incomplete) return { tone: 'neutral', lead: 'Nothing broken found.', rest: '' };
   if ((sum.compliance?.compliant ?? 0) === targets) {
     return { tone: 'ok', lead: 'Healthy.', rest: targets === 1 ? 'The one running target is compliant.' : `All ${plural(targets, 'running target', 'running targets')} are compliant.` };
   }

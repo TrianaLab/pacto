@@ -90,12 +90,15 @@ describe('knowledge + source-health labels/tones', () => {
     expect(knowledgeLabel('unavailable')).toBe('Source unavailable');
     expect(knowledgeTone('complete')).toBe('ok');
     expect(knowledgeTone('unavailable')).toBe('err');
+    // Partial is the unknown family: neutral, never a status tone.
+    expect(knowledgeTone('partial')).toBe('neutral');
   });
   it('labels source health', () => {
     expect(sourceHealthLabel('available')).toBe('Available');
     expect(sourceHealthLabel('stale')).toBe('Stale');
     expect(sourceHealthTone('available')).toBe('ok');
     expect(sourceHealthTone('unavailable')).toBe('err');
+    expect(sourceHealthTone('partial')).toBe('neutral');
   });
 });
 

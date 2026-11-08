@@ -200,7 +200,7 @@
     {:else}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
     {/if}
-    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone="warn" />
+    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone={knowledge.level === 'unavailable' ? 'warn' : ''} />
   </div>
   <div class="page-toc-layout">
     <PageToc />

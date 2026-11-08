@@ -170,7 +170,7 @@ describe('completenessLabel', () => {
 describe('completenessClass', () => {
   it('maps complete to ok, partial to warn, empty to neutral', () => {
     expect(completenessClass('complete')).toBe('badge-ok');
-    expect(completenessClass('partial')).toBe('badge-warn');
+    expect(completenessClass('partial')).toBe('badge-neutral');
     expect(completenessClass('empty')).toBe('badge-neutral');
   });
   it('falls back to neutral for missing/unknown', () => {

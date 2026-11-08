@@ -77,10 +77,10 @@
     gap: var(--sp-2);
   }
   .state-box :is(h2, h3) { color: var(--c-text-2); }
-  .state-box.is-unknown :is(h2, h3) { color: var(--c-warn); }
+  /* Missing knowledge is the neutral family, never a status tone (SPEC 2.2). */
   .ps-knowledge {
-    font-size: var(--text-xs); font-weight: 600; color: var(--c-warn);
-    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
+    font-size: var(--text-xs); font-weight: 600; color: var(--c-text-2);
+    background: var(--c-neutral-bg); border: 1px solid var(--c-neutral);
     padding: 2px 8px; border-radius: var(--radius-xs);
   }
   .ps-detail { font-size: var(--text-sm); margin: 0; }
