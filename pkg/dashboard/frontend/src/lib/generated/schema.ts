@@ -2025,6 +2025,13 @@ export interface components {
             path: string;
             title: string;
         };
+        "Fleet.DomainCount": {
+            domain: string;
+            /** Format: int64 */
+            nonCompliant: number;
+            /** Format: int64 */
+            services: number;
+        };
         "Fleet.DomainTally": {
             domain: string;
             domainUnknown?: boolean;
@@ -2054,6 +2061,22 @@ export interface components {
             domains: number;
             /** Format: int64 */
             matched: number;
+            /** Format: int64 */
+            nonCompliantBeyondRanking?: number;
+            nonCompliantByDomain?: components["schemas"]["Fleet.DomainCount"][] | null;
+            nonCompliantByOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
+            /** Format: int64 */
+            nonCompliantDomainUnknown?: number;
+            /** Format: int64 */
+            nonCompliantDomains?: number;
+            /** Format: int64 */
+            nonCompliantDomainsBeyond?: number;
+            /** Format: int64 */
+            nonCompliantNoDomain?: number;
+            /** Format: int64 */
+            nonCompliantOwners?: number;
+            /** Format: int64 */
+            nonCompliantUnidentified?: number;
             /** Format: int64 */
             offeringCount: number;
             /** Format: int64 */
@@ -2352,6 +2375,8 @@ export interface components {
             key: string;
             kind: string;
             label: string;
+            /** Format: int64 */
+            nonCompliant?: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -3805,6 +3830,8 @@ export interface components {
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** Format: int64 */
+            nonCompliant?: number;
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
@@ -5853,8 +5880,8 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
-                /** @description Declared-ownership filter for service entities */
-                ownership?: "consistent" | "conflicting" | "unowned";
+                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone) */
+                ownership?: "consistent" | "conflicting" | "unowned" | "unidentified";
                 /** @description Declared-readiness filter for contract revision entities */
                 readiness?: "passing" | "below-threshold" | "expired" | "not-declared";
                 /** @description Source-health filter for source entities */
@@ -5866,8 +5893,8 @@ export interface operations {
                 template?: "only" | "exclude";
                 /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list */
                 createdFrom?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first) or nonCompliant (owners and domains with the most non-compliant services first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

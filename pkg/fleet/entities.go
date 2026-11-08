@@ -113,6 +113,9 @@ const (
 	SortHealth = "health"
 	// SortServices puts the owners with the most services first, then by name.
 	SortServices = "services"
+	// SortNonCompliant puts the owners and domains with the most non-compliant
+	// services first, then the most services, then by name.
+	SortNonCompliant = "nonCompliant"
 )
 
 // Template filter values (see [EntityFilter.Template] and [SearchFilter.Template]).
@@ -186,7 +189,20 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		}
 	}
 	sortEntityRefs(filtered)
-	switch f.Sort {
+	sortEntityList(filtered, f.Sort)
+
+	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
+	return &EntityList{
+		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
+		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
+		Aggregate: q.aggregate(filtered),
+	}, nil
+}
+
+// sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
+// stably over the kind-then-key order it arrives in.
+func sortEntityList(filtered []EntityRef, order string) {
+	switch order {
 	case SortName:
 		sort.SliceStable(filtered, func(i, j int) bool { return naturalLess(filtered[i].Label, filtered[j].Label) })
 	case SortHealth:
@@ -204,14 +220,18 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 			}
 			return naturalLess(filtered[i].Label, filtered[j].Label)
 		})
+	case SortNonCompliant:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := filtered[i], filtered[j]
+			if a.NonCompliant != b.NonCompliant {
+				return a.NonCompliant > b.NonCompliant
+			}
+			if a.Services != b.Services {
+				return a.Services > b.Services
+			}
+			return naturalLess(a.Label, b.Label)
+		})
 	}
-
-	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
-	return &EntityList{
-		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
-		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
-		Aggregate: q.aggregate(filtered),
-	}, nil
 }
 
 // NoBusinessDomain is the BusinessDomain filter value for the services known to
@@ -228,6 +248,11 @@ const (
 	OwnershipConsistent  = "consistent"
 	OwnershipConflicting = "conflicting"
 	OwnershipUnowned     = "unowned"
+	// OwnershipUnidentified is every service with no single canonical owner:
+	// unowned, conflicting or owned by contacts alone. It is the union the
+	// non-compliant owner ranking counts as "no identified owner", not a fourth
+	// partition bucket.
+	OwnershipUnidentified = "unidentified"
 )
 
 // Readiness filter values (see [ReadinessTally]).
@@ -240,7 +265,7 @@ const (
 
 func validOwnershipFilter(s string) bool {
 	switch s {
-	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned:
+	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned, OwnershipUnidentified:
 		return true
 	default:
 		return false
@@ -261,10 +286,10 @@ func validateEntityFilter(f EntityFilter) error {
 		return err
 	}
 	if err := validateFields([]fieldCheck{
-		{"sort", f.Sort, "not a sort order (name, health, services)", validSort},
+		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant)", validSort},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
-		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned)", validOwnershipFilter},
+		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned, unidentified)", validOwnershipFilter},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
@@ -284,7 +309,9 @@ func validateEntityFilter(f EntityFilter) error {
 	return validateFilterCombos(f)
 }
 
-func validSort(s string) bool { return s == SortName || s == SortHealth || s == SortServices }
+func validSort(s string) bool {
+	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant
+}
 
 // validSourceHealth reports whether s is a known source-health value.
 func validSourceHealth(s string) bool {
@@ -411,6 +438,7 @@ func (q *Query) domainListRefs() []EntityRef {
 		}
 		ref.Services++
 		ref.Targets += len(s.Targets)
+		ref.NonCompliant += b2i(s.Status == StatusNonCompliant)
 	}
 	refs := make([]EntityRef, 0, len(by))
 	for _, ref := range by {
@@ -467,7 +495,7 @@ func (q *Query) ownerListRefs() []EntityRef {
 	var refs []EntityRef
 	// The same rule as the owner page: a service is an owner's when any of its
 	// revisions names them.
-	claimed := map[string]int{}
+	claimed, nonCompliant := map[string]int{}, map[string]int{}
 	for _, s := range q.snap.Services {
 		if s.Template {
 			continue // a golden path is no service of its owner's estate
@@ -475,11 +503,13 @@ func (q *Query) ownerListRefs() []EntityRef {
 		claims := q.ownerClaimsOf(s)
 		for _, k := range claims.keys {
 			claimed[k]++
+			nonCompliant[k] += b2i(s.Status == StatusNonCompliant)
 		}
 	}
 	for _, o := range q.owners() {
 		ref := ownerEntityRef(o)
 		ref.Services = claimed[o]
+		ref.NonCompliant = nonCompliant[o]
 		refs = append(refs, ref)
 	}
 	return refs
@@ -607,10 +637,12 @@ func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
 	if r.Kind != KindService {
 		return false
 	}
-	n, _ := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
+	n, key := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
 	var t OwnershipTally
 	t.add(n)
 	switch want {
+	case OwnershipUnidentified:
+		return n != 1 || key == ""
 	case OwnershipUnowned:
 		return t.Unowned == 1
 	case OwnershipConsistent:

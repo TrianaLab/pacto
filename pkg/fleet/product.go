@@ -138,6 +138,9 @@ type EntityRef struct {
 	Template  bool   `json:"template,omitempty"`
 	Created   int    `json:"created,omitempty"`
 	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
+	// NonCompliant counts the NonCompliant services among an OWNER or DOMAIN
+	// reference's Services, set only on list answers.
+	NonCompliant int `json:"nonCompliant,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

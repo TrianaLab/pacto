@@ -47,18 +47,18 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned)")
+	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key")
-	f.String("sort", "", "order: name, health (least healthy first) or services (owners with the most services first)")
+	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first) or nonCompliant (owners and domains with the most non-compliant services first)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
-	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned))
+	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant))
 	return cmd
 }
 
@@ -240,9 +240,42 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
 		}
+		printNonCompliantRanking(w, &res.Aggregate)
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printNonCompliantRanking renders who owns the matched non-compliant services and
+// which domains hold them, the rows and counts summing to every one of them.
+func printNonCompliantRanking(w io.Writer, a *fleet.EntityAggregate) {
+	total := a.ServiceCompliance.NonCompliant
+	if total == 0 {
+		return
+	}
+	parts := make([]string, 0, len(a.NonCompliantByOwner)+2)
+	for _, o := range a.NonCompliantByOwner {
+		parts = append(parts, fmt.Sprintf("%s %d of %d", o.Key, o.NonCompliant, o.Services))
+	}
+	parts = appendCount(parts, a.NonCompliantBeyondRanking, "with other owners")
+	parts = appendCount(parts, a.NonCompliantUnidentified, "with no identified owner")
+	_, _ = fmt.Fprintf(w, "Non-compliant services by owner (%d): %s\n", total, strings.Join(parts, ", "))
+	parts = parts[:0]
+	for _, d := range a.NonCompliantByDomain {
+		parts = append(parts, fmt.Sprintf("%s %d of %d", d.Domain, d.NonCompliant, d.Services))
+	}
+	parts = appendCount(parts, a.NonCompliantDomainsBeyond, "in other domains")
+	parts = appendCount(parts, a.NonCompliantNoDomain, "with no domain")
+	parts = appendCount(parts, a.NonCompliantDomainUnknown, "whose domain is unknown")
+	_, _ = fmt.Fprintf(w, "Non-compliant services by domain (%d): %s\n", total, strings.Join(parts, ", "))
+}
+
+// appendCount adds "N words" when N is not zero.
+func appendCount(parts []string, n int, words string) []string {
+	if n == 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%d %s", n, words))
 }
 
 func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string) error {

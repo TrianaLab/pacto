@@ -846,9 +846,9 @@ pacto fleet entities [text] [flags]
       --offset int                 result offset for paging
       --owner string               free-text owner search over team, DRI and contacts
       --owner-key string           exact owner key, such as team:platform or dri:alice
-      --ownership string           how a service's revisions declare ownership (consistent, conflicting, unowned)
+      --ownership string           how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
       --phase string               with --consumes: only the consumers with a provisioning status of that offering in this phase
-      --sort string                order: name, health (least healthy first) or services (owners with the most services first)
+      --sort string                order: name, health (least healthy first), services (owners with the most services first) or nonCompliant (owners and domains with the most non-compliant services first)
       --status string              canonical compliance status
       --template string[="only"]   golden paths only, or exclude to leave them out
 ```

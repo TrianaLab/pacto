@@ -415,7 +415,9 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
 			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
-			"starting points for pacto_create from. created_from lists the services created from one. Read-only.",
+			"starting points for pacto_create from. created_from lists the services created from one. Over services, the aggregate ranks owners " +
+			"and business domains by non-compliant services (nonCompliantByOwner, nonCompliantByDomain) and counts " +
+			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over name, key and owner"},
 			"kind":            {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
@@ -425,11 +427,11 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"offering":        {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":           {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
-			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
+			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
 			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":    {Type: "string", Description: "Services created from this golden path, by service key"},
-			"sort":            {Type: "string", Description: "Order: by name, least healthy first or owners with the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices}},
+			"sort":            {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first or owners and domains with the most non-compliant services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant}},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),

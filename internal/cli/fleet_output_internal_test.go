@@ -271,3 +271,23 @@ func TestPrintRevisionPlace(t *testing.T) {
 		t.Errorf("a revision that is not current says so: %q", buf.String())
 	}
 }
+
+func TestPrintNonCompliantRanking(t *testing.T) {
+	var buf bytes.Buffer
+	printNonCompliantRanking(&buf, &fleet.EntityAggregate{})
+	if buf.Len() != 0 {
+		t.Errorf("no non-compliant service printed %q", buf.String())
+	}
+	printNonCompliantRanking(&buf, &fleet.EntityAggregate{
+		ServiceCompliance:         fleet.ComplianceTally{NonCompliant: 9},
+		NonCompliantByOwner:       []fleet.OwnerCount{{Key: "team:a", Services: 10, NonCompliant: 3}},
+		NonCompliantBeyondRanking: 4, NonCompliantUnidentified: 2,
+		NonCompliantByDomain: []fleet.DomainCount{{Domain: "pay", Services: 5, NonCompliant: 5}},
+		NonCompliantNoDomain: 3, NonCompliantDomainUnknown: 1,
+	})
+	want := "Non-compliant services by owner (9): team:a 3 of 10, 4 with other owners, 2 with no identified owner\n" +
+		"Non-compliant services by domain (9): pay 5 of 5, 3 with no domain, 1 whose domain is unknown\n"
+	if buf.String() != want {
+		t.Errorf("ranking text = %q, want %q", buf.String(), want)
+	}
+}
