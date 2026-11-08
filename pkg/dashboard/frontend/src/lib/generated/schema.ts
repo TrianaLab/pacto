@@ -3684,6 +3684,7 @@ export interface components {
             count: number;
             failed: components["schemas"]["ProductRefPreview"];
             items: components["schemas"]["ProductOfferingUse"][] | null;
+            phaseConsumers: components["schemas"]["Fleet.PhaseTally"];
             phases: components["schemas"]["Fleet.PhaseTally"];
             range: components["schemas"]["Fleet.RangeTally"];
             /** Format: int64 */

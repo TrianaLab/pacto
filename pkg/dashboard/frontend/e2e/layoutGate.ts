@@ -523,14 +523,17 @@ export async function densityProblems(page: Page): Promise<string[]> {
 /**
  * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
  * and reads the total of the list it lands on, from the `data-view-total` its pager
- * carries: "List all N" must land on N, "N more" on N plus the chips its lane names.
- * A link that lands on no paged list (prose) fails too. It navigates, so call it last.
+ * carries: "List all N" must land on N, "N more" on N plus the chips its lane names,
+ * and a link that says how many it lists in `data-lists` (a phase station's "N
+ * consumers", where the station's own count is of requests) on that N. A link that lands on no paged list (prose) fails too. It navigates, so call it last.
  */
 export async function figureLinkTotals(page: Page): Promise<string[]> {
   const links = await page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
-    .filter((a) => a.getClientRects().length && /^(List all [\d,]+|[\d,]+ more)$/.test((a.textContent ?? '').trim()))
+    .filter((a) => a.getClientRects().length && (a.hasAttribute('data-lists') || /^(List all [\d,]+|[\d,]+ more)$/.test((a.textContent ?? '').trim())))
     .map((a) => {
       const t = (a.textContent ?? '').trim(), n = Number(t.replace(/[^\d]/g, ''));
+      const lists = a.getAttribute('data-lists');
+      if (lists != null) return { href: a.getAttribute('href') ?? '', text: t, want: Number(lists) };
       const lane = a.closest('.lane, .station');
       const shown = lane ? [...lane.querySelectorAll('.chip')].filter((c) => c.getClientRects().length).length : 0;
       return { href: a.getAttribute('href') ?? '', text: t, want: t.startsWith('List all') ? n : n + shown };

@@ -661,6 +661,10 @@ type OfferingUsesPreview struct {
 	// environment and entry) by phase. A policy reference provisions nothing
 	// and adds none, so the fields sum to the requests, not to Total.
 	Phases PhaseTally `json:"phases"`
+	// PhaseConsumers counts the distinct consumers with at least one status in
+	// each phase: the total of the list a phase filter returns. A consumer
+	// with statuses in two phases counts in both.
+	PhaseConsumers PhaseTally `json:"phaseConsumers"`
 	// Failed names up to MaxFailedConsumers of the distinct consumers with a
 	// Failed status, by key; its Total counts them all.
 	Failed RefPreview `json:"failed"`
@@ -693,6 +697,7 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	it, total, trunc := boundSlice(uses, MaxDetailPreview)
 	out := OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 	failed := map[string]EntityRef{}
+	inPhase := map[string]bool{}
 	for _, u := range uses {
 		switch u.RangeStatus {
 		case RangeSatisfied:
@@ -706,6 +711,10 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 		}
 		for _, st := range u.Provisioning {
 			out.Phases.add(st.Phase)
+			if id := phaseBucket(st.Phase) + "\x00" + u.Consumer.Key; !inPhase[id] {
+				inPhase[id] = true
+				out.PhaseConsumers.add(st.Phase)
+			}
 			if st.Phase == string(evidence.PhaseFailed) {
 				failed[u.Consumer.Key] = u.Consumer
 			}

@@ -745,13 +745,18 @@ func TestOfferingUsesPreviewTallies(t *testing.T) {
 		{Consumer: ref("b"), Provisioning: st("Failed")},
 		{Consumer: ref("e"), Provisioning: st("Failed")},
 		{Consumer: ref("a"), Via: RelationshipPolicyRef},
+		{Consumer: ref("d"), RangeStatus: RangeSatisfied, Provisioning: st("Ready")},
 	}
 	p := offeringUsesPreview(uses)
-	if want := (RangeTally{Satisfied: 1, Unsatisfied: 1, Unknown: 1, None: 3}); p.Range != want {
+	if want := (RangeTally{Satisfied: 2, Unsatisfied: 1, Unknown: 1, None: 3}); p.Range != want {
 		t.Errorf("range = %+v, want %+v", p.Range, want)
 	}
-	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 1, Failed: 4, Deleting: 1, Unknown: 1}); p.Phases != want {
+	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 2, Failed: 4, Deleting: 1, Unknown: 1}); p.Phases != want {
 		t.Errorf("phases = %+v, want %+v", p.Phases, want)
+	}
+	// d is Ready twice: two requests, one consumer, as the phase filter lists it.
+	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 1, Failed: 4, Deleting: 1, Unknown: 1}); p.PhaseConsumers != want {
+		t.Errorf("phase consumers = %+v, want %+v", p.PhaseConsumers, want)
 	}
 	if p.Failed.Total != 4 || p.Failed.Count != MaxFailedConsumers || !p.Failed.Truncated || p.Failed.Items[0].Key != "a" || p.Failed.Items[2].Key != "d" {
 		t.Errorf("failed = %+v, want the first 3 of 4 by key", p.Failed)

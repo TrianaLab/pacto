@@ -113,6 +113,9 @@ describe('offeringModel (G3, S2)', () => {
       'Requested|1|10%|info', 'Provisioning|0|0%|neutral', 'Ready|6|60%|ok', 'Deleting|0|0%|neutral', 'Failed|2|20%|err', 'Not reported|1|10%|neutral/hatch',
     ]);
     expect(m.wires.find((w) => w.id === 'wfail')!.tone).toBe('err');
+    // The consumers each station's link lists are their own unit: six Ready requests can be one consumer.
+    expect(m.stations.map((s) => s.consumers)).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(offeringModel(providers(1), { ready: 6 }, { ready: 1 }).stations.find((s) => s.key === 'ready')).toMatchObject({ n: 6, consumers: 1 });
     expect(offeringModel(providers(1), { ready: 1 }).wires.find((w) => w.id === 'wfail')!.tone).toBe('neutral');
     // Unknown is never ok-toned.
     expect(m.stations.find((s) => s.key === 'unknown')!.tone).not.toBe('ok');

@@ -168,6 +168,7 @@ describe('OfferingFigure', () => {
       offering: 'postgres', hidden: 2, providersHref: '#/fleet/services?offering=postgres',
       providers: { total: 25, count: 3, items: [provider('a'), provider('b'), provider('c')] },
       consumers: { total: 9, range: { satisfied: 6, unsatisfied: 1, unknown: 1, none: 1 }, phases: { requested: 1, provisioning: 1, ready: 5, failed: 4, unknown: 2 },
+        phaseConsumers: { requested: 1, provisioning: 1, ready: 2, failed: 4, unknown: 1 },
         failed: { total: 4, count: 3, items: [ref('service', 'x'), ref('service', 'y'), ref('service', 'z')] } },
     });
     await settle();
@@ -181,8 +182,16 @@ describe('OfferingFigure', () => {
     expect(more.textContent).toBe('1 more');
     expect(more.getAttribute('aria-label')).toBe('1 more failed consumer');
     expect(more.getAttribute('href')).toBe('#/fleet/services?consumes=postgres&phase=failed');
-    expect(target.querySelector('.ph-ready a')?.getAttribute('href')).toBe('#/fleet/services?consumes=postgres&phase=ready');
-    expect(target.querySelector('.ph-unknown a')?.getAttribute('href')).toBe('#/fleet/services?consumes=postgres&phase=unknown');
+    // A station counts requests; its link says how many consumers the filter lists (C14, T3).
+    const ready = target.querySelector('.ph-ready a') as HTMLAnchorElement;
+    expect(target.querySelector('.ph-ready [data-nofilter]')?.textContent).toBe('5 · 38%');
+    expect(ready.getAttribute('href')).toBe('#/fleet/services?consumes=postgres&phase=ready');
+    expect(ready.textContent).toBe('2 consumers ready');
+    expect(ready.getAttribute('data-lists')).toBe('2');
+    const unknown = target.querySelector('.ph-unknown a') as HTMLAnchorElement;
+    expect(unknown.getAttribute('href')).toBe('#/fleet/services?consumes=postgres&phase=unknown');
+    expect(unknown.getAttribute('data-lists')).toBe('1');
+    expect(target.querySelector('.ph-deleting a')).toBeNull();
     expect(target.querySelector('.ph-deleting [data-nofilter]')?.textContent).toBe('0 · 0%');
     // Hidden consumers are counted, never named: the only names are the ones the backend gave.
     expect([...target.querySelectorAll('#fig-offering a.chip')].map((a) => a.textContent)).toEqual(['x', 'y', 'z']);

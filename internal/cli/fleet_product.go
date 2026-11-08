@@ -489,6 +489,9 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	if p := uses.Phases; p != (fleet.PhaseTally{}) {
 		_, _ = fmt.Fprintf(w, "  provisioning requests: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
 			p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
+		c := uses.PhaseConsumers
+		_, _ = fmt.Fprintf(w, "  consumers by phase: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
+			c.Requested, c.Provisioning, c.Ready, c.Failed, c.Deleting, c.Unknown)
 	}
 }
 

@@ -486,7 +486,7 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
 			"shows otherwise. Tallies cover every visible item, never the preview: an " +
-			"offering's consumers carry 'range' and 'phases' and name up to 3 'failed' consumers; a service carries " +
+			"offering's consumers carry 'range', 'phases' (requests) and 'phaseConsumers' (distinct consumers, as the phase filter lists them) and name up to 3 'failed' consumers; a service carries " +
 			"'dependentsStatus'; a revision carries its 'position' of 'revisions' (newest first), 'current', " +
 			"'serviceTargets' and 'evidenceSources' with 'evidenceSourceCounts'. Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{

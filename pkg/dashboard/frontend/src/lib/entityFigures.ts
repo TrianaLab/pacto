@@ -188,7 +188,7 @@ export function evidenceModel(sources: { total?: number; items?: (Ref & { status
 
 export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; failed?: number; deleting?: number; unknown?: number }
 
-export interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string }
+export interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
 
 const PHASES: [keyof PhaseTally, string, string, FigTone, GlyphName | '', boolean?][] = [
   ['requested', 'Requested', 'asked for, not started', 'info', 'progress'],
@@ -211,9 +211,12 @@ export const MAX_PROVIDER_MARKS = 2;
  * offeringModel draws the providers wired into the offering, and the offering's
  * requests (one per use, environment and entry) on the phase track: where they are now,
  * never how they moved, because providers report only the current phase (A6). A phase
- * with no request keeps its station, neutral, with 0.
+ * with no request keeps its station, neutral, with 0. A station counts requests (C14:
+ * one denominator, the hub's), and names apart the distinct consumers behind them,
+ * the list its phase filter opens (T3): one consumer Ready in three environments is
+ * three requests and one consumer.
  */
-export function offeringModel(providers: { total?: number; items?: Ref[] }, phases: PhaseTally | undefined) {
+export function offeringModel(providers: { total?: number; items?: Ref[] }, phases: PhaseTally | undefined, phaseConsumers?: PhaseTally) {
   const items = providers.items ?? [];
   const total = providers.total ?? items.length;
   const cap = phases?.unknown ? 1 : MAX_PROVIDER_MARKS;
@@ -222,7 +225,7 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
   const requests = PHASES.reduce((n, [k]) => n + (phases?.[k] ?? 0), 0);
   const stations: PhaseStation[] = PHASES.map(([key, label, sub, tone, glyph, hatch]) => {
     const n = phases?.[key] ?? 0;
-    return { key, label, sub, n, share: sharePct(n, requests), tone: n ? tone : 'neutral', hatch: hatch && n > 0, glyph: n ? glyph : '' };
+    return { key, label, sub, n, share: sharePct(n, requests), consumers: phaseConsumers?.[key] ?? 0, tone: n ? tone : 'neutral', hatch: hatch && n > 0, glyph: n ? glyph : '' };
   });
   const marks = [...named.map((_, k) => `p${k}`), ...(more ? ['pm'] : [])];
   const notCol: WireDef['when'] = ['wide', 'mid', 'narrow'];

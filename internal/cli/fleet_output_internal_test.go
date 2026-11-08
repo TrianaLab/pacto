@@ -227,8 +227,8 @@ func TestPrintOriginText_Unresolved(t *testing.T) {
 
 func TestPrintTallies(t *testing.T) {
 	var buf bytes.Buffer
-	printOfferingUses(&buf, "Consumers:", fleet.OfferingUsesPreview{Total: 2, Range: fleet.RangeTally{Satisfied: 1, None: 1}, Phases: fleet.PhaseTally{Ready: 1, Failed: 2}})
-	for _, want := range []string{"  range of all 2: 1 satisfied, 0 unsatisfied, 0 unknown, 1 not checked\n", "  provisioning requests: 0 requested, 0 provisioning, 1 ready, 2 failed, 0 deleting, 0 not reported\n"} {
+	printOfferingUses(&buf, "Consumers:", fleet.OfferingUsesPreview{Total: 2, Range: fleet.RangeTally{Satisfied: 1, None: 1}, Phases: fleet.PhaseTally{Ready: 1, Failed: 2}, PhaseConsumers: fleet.PhaseTally{Ready: 1, Failed: 1}})
+	for _, want := range []string{"  range of all 2: 1 satisfied, 0 unsatisfied, 0 unknown, 1 not checked\n", "  provisioning requests: 0 requested, 0 provisioning, 1 ready, 2 failed, 0 deleting, 0 not reported\n", "  consumers by phase: 0 requested, 0 provisioning, 1 ready, 1 failed, 0 deleting, 0 not reported\n"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("uses text lacks %q:\n%s", want, buf.String())
 		}

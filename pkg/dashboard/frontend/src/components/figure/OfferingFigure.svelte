@@ -16,25 +16,27 @@
   /** @type {{ offering: string, providers: any, consumers: any, hidden: number, providersHref: string }} */
   let { offering, providers, consumers, hidden, providersHref } = $props();
   // A provider row carries its service; the figure draws the service.
-  const m = $derived(offeringModel({ total: providers?.total, items: (providers?.items ?? []).map((/** @type {any} */ p) => p.service ?? {}) }, consumers?.phases));
+  const m = $derived(offeringModel({ total: providers?.total, items: (providers?.items ?? []).map((/** @type {any} */ p) => p.service ?? {}) }, consumers?.phases, consumers?.phaseConsumers));
   const failed = $derived(consumers?.failed ?? { items: [], total: 0 });
   const range = $derived(consumers?.range ?? {});
   const st = (/** @type {string} */ k) => m.stations.find((s) => s.key === k);
-  // Every phase count lists the consumers behind it (T3): the services with a request in that phase.
+  // A station counts requests; its link names the distinct consumers it lists (T3, C14):
+  // the services with a request in that phase.
   const phaseHref = (/** @type {string} */ k) => fleetServicesUrl({ consumes: offering, phase: k });
   const moreFailed = $derived(failed.total - failed.count);
 </script>
+
+{#snippet consumersLink(/** @type {import('../../lib/entityFigures.ts').PhaseStation} */ s)}
+  <a href={phaseHref(s.key)} data-lists={s.consumers}>{countOf(s.consumers, 'consumer')}<span class="visually-hidden">{` ${s.label.toLowerCase()}`}</span></a>
+{/snippet}
 
 {#snippet station(/** @type {import('../../lib/entityFigures.ts').PhaseStation} */ s)}
   <div class="ph station ph-{s.key}">
     <Node tone={s.tone} hatch={s.hatch} glyph={s.glyph} big a="ph-{s.key}" m="ph-{s.key}" />
     <span class="ph-l">
       <b>{s.label}</b>
-      {#if s.n}
-        <a href={phaseHref(s.key)}><b>{formatCount(s.n)}</b> · {s.share}<span class="visually-hidden"> {s.label.toLowerCase()}: list the consumers</span></a>
-      {:else}
-        <span data-nofilter><b>0</b> · {s.share}</span>
-      {/if}
+      <span data-nofilter><b>{formatCount(s.n)}</b> · {s.share}</span>
+      {#if s.consumers}{@render consumersLink(s)}{/if}
       <span class="t-meta">{s.sub}</span>
     </span>
     {#if s.key === 'provisioning'}<i class="anc" data-a="ph-provisioning-b"></i>{/if}
@@ -71,7 +73,7 @@
       {#if st('unknown').n}
         <div class="ph station ph-unknown">
           <Node tone="neutral" hatch glyph="unknown" a="ph-unknown" m="ph-unknown" />
-          <span><a href={phaseHref('unknown')}><b>{formatCount(st('unknown').n)}</b> not reported ({st('unknown').share})</a>: {st('unknown').sub}.</span>
+          <span><span data-nofilter><b>{formatCount(st('unknown').n)}</b> not reported ({st('unknown').share})</span> from {@render consumersLink(st('unknown'))}: {st('unknown').sub}.</span>
         </div>
       {/if}
     </div>
