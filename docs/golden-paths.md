@@ -82,7 +82,7 @@ visible on each surface by naming their repositories:
 Developers then list the paths with `pacto fleet entities --template`,
 `pacto_fleet_entities` with `template: only` or the dashboard's Golden paths
 tab. Search results mark each path; `pacto fleet search --template` keeps only
-paths and `--template exclude` leaves them out. Each path shows its summary,
+paths and `--template=exclude` leaves them out. Each path shows its summary,
 its requirements, its plugins, its signature and a command to copy, pinned to
 the path's digest when a registry served it.
 
@@ -114,14 +114,17 @@ policies, workload, state and capabilities. Pacto resets the identity:
 - `service.owner` is `--owner` and `service.domain` is `--domain`;
 - the path's offering, summary, lifecycle, readiness, `metadata.repo` and
   `metadata.summary` are dropped, each with an Unknown line that names it;
-- `publish.bundle` moves under `--registry`, or under the `registry.example`
-  placeholder.
+- `publish.bundle` and every artifact move under `--registry`, or under the
+  `registry.example` placeholder;
+- `publish.sign` names the new service's own key, `cosign.key`.
 
 `--values` files, then `--set` entries, change any field before the identity is
 set; a `null` removes a field. `service.origin` records the path's reference
 and the content digest of its files. For a directory the reference is its
-published coordinate when its contract has one, otherwise a path relative to
-the new contract. YAML comments in the path are not kept. The path's
+published coordinate when its contract has one, which Pacto does not check
+against the registry, otherwise a path relative to the new contract, or only
+the folder name when that path would climb above your home folder. A
+directory may hold only regular files: a symlink is refused. YAML comments in the path are not kept. The path's
 `pacto.lock` is not copied: run `pacto lock` to pin the new service's
 references.
 
@@ -129,7 +132,8 @@ Pacto validates the result strictly, with every reference resolved, before it
 writes anything. A configuration reference it cannot resolve fails with
 `CONFIG_REF_UNRESOLVED`, and values the provider's schema rejects fail with
 `CONFIG_VALUES_VALIDATION_FAILED`. It only adds files: a folder that already
-holds a `pacto.yaml` is refused and any other file there is left as it is.
+holds a `pacto.yaml` is refused and any other file there is left as it is. A
+path or plugin that gives a file under `.git` or a private key is refused.
 
 An agent creates a service the same way with `pacto_create` and `from`,
 `owner`, `domain`, `values`, `set`, `run_plugins`, `delivery` and `dry_run`.
@@ -146,7 +150,8 @@ under `publish.deploy`. Without it, the delivery step says `unknown` and names
 the missing field. The demo's `http-service` path publishes no manifests, so it
 plans none. A Stage also needs the version that runs: in a new folder, with no
 workload manifest, only `delivery/pacto.yaml` is planned and the step says why.
-Files already there are kept as they are.
+Files already there are kept as they are, and the path's own `delivery/` files
+are left out.
 
 ## Trust
 
@@ -169,10 +174,11 @@ step says `unknown`: Pacto did not check who signed the path. Unknown is
 neither a pass nor a failure. To check the same signature without Pacto, run
 `cosign verify --key platform.pub` on the path's `repository@sha256:...`.
 
-The fleet's signature line for a path stays `unknown` even when the signature
-verifies. The fleet checks a bundle against the signer its own contract
-declares, and anyone who can push declares their own signer. Only the creation
-step, checked against your template keys, can say `done`.
+The fleet shows a path's signature as Verified when the bundle verifies against
+the signer its own contract declares, and anyone who can push declares their
+own signer. So the checklist of a service created from the path keeps its
+signature step `unknown`. Only the creation step, checked against your
+template keys, can say `done`.
 
 ## Plugins
 
