@@ -16,10 +16,11 @@ import (
 // promotionOrder orders the environments of stages the way their Stages
 // declare changes travel: an environment comes after every environment one
 // of its Stages names as candidates.upstreamStage. Environments the links do
-// not order (no link, or a cycle) keep name order (env-2 before env-10).
-// upstream maps each environment to every environment that feeds it,
-// directly or through others.
-func promotionOrder(stages []delivery.StageObject) (order []string, upstream map[string][]string) {
+// not order keep name order (env-2 before env-10). upstream maps each
+// environment to every environment that feeds it, directly or through
+// others; cycle holds the environments on a cycle of links, which the Stages
+// give no place: they are placed by name, and the caller says so.
+func promotionOrder(stages []delivery.StageObject) (order []string, upstream map[string][]string, cycle map[string]bool) {
 	byStage := stagesByName(stages)
 	feeds := map[string]map[string]bool{} // environment -> environments it is fed by directly
 	envs := map[string]bool{}
@@ -38,12 +39,18 @@ func promotionOrder(stages []delivery.StageObject) (order []string, upstream map
 			feeds[env][up.Spec.Environment] = true
 		}
 	}
-	upstream = map[string][]string{}
+	upstream, cycle = map[string][]string{}, map[string]bool{}
 	for env := range envs {
-		upstream[env] = closure(env, feeds)
+		up, onCycle := closure(env, feeds)
+		upstream[env] = up
+		if onCycle {
+			cycle[env] = true
+		}
 	}
 	// Kahn's order: each round takes the first environment by name whose
-	// feeders are all placed. What is left is a cycle, placed by name.
+	// feeders are all placed. When none is free, every one left is on a
+	// cycle or fed by one, so the first by name on a cycle goes next: an
+	// environment fed by a cycle still comes after it.
 	left := sortedNames(envs)
 	placed := map[string]bool{}
 	for len(left) > 0 {
@@ -56,31 +63,33 @@ func promotionOrder(stages []delivery.StageObject) (order []string, upstream map
 			return true
 		})
 		if i < 0 {
-			i = 0
+			i = slices.IndexFunc(left, func(e string) bool { return cycle[e] })
 		}
 		placed[left[i]] = true
 		order = append(order, left[i])
 		left = slices.Delete(left, i, i+1)
 	}
-	return order, upstream
+	return order, upstream, cycle
 }
 
 // closure is every environment that feeds env, directly or through others,
-// in name order.
-func closure(env string, feeds map[string]map[string]bool) []string {
+// in name order, and whether env feeds itself (it is on a cycle).
+func closure(env string, feeds map[string]map[string]bool) ([]string, bool) {
 	seen := map[string]bool{}
 	next := []string{env}
 	for len(next) > 0 {
 		e := next[0]
 		next = next[1:]
 		for f := range feeds[e] {
-			if !seen[f] && f != env {
+			if !seen[f] {
 				seen[f] = true
 				next = append(next, f)
 			}
 		}
 	}
-	return sortedNames(seen)
+	onCycle := seen[env]
+	delete(seen, env)
+	return sortedNames(seen), onCycle
 }
 
 func sortedNames(set map[string]bool) []string {
@@ -100,6 +109,7 @@ type InboxEnvironment struct {
 	Frozen      int      `json:"frozen" doc:"Frozen Stages in this environment"`
 	Errored     int      `json:"errored" doc:"Errored changes on Stages in this environment that are still frozen"`
 	Upstream    []string `json:"upstream" doc:"Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares"`
+	Cycle       bool     `json:"cycle,omitempty" doc:"The environment is on a cycle of candidates.upstreamStage links, so the Stages give it no place in the order: it is placed by name"`
 }
 
 // inboxByEnvironment counts the inbox's sections by the environment of the
@@ -130,13 +140,14 @@ func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem
 	for _, st := range frozen {
 		at(st.Spec.Environment).Frozen++
 	}
-	order, upstream := promotionOrder(stages)
+	order, upstream, cycle := promotionOrder(stages)
 	out := []InboxEnvironment{}
 	for _, env := range append(order, "") {
 		if c := counts[env]; c != nil {
 			if up := upstream[env]; up != nil {
 				c.Upstream = up
 			}
+			c.Cycle = cycle[env]
 			out = append(out, *c)
 			delete(counts, env)
 		}

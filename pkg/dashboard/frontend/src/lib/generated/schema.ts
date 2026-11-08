@@ -2933,6 +2933,8 @@ export interface components {
             toRevisionKey: string;
         };
         InboxEnvironment: {
+            /** @description The environment is on a cycle of candidates.upstreamStage links, so the Stages give it no place in the order: it is placed by name */
+            cycle?: boolean;
             /** @description The environment the Stages deliver to; empty for held changes on a Stage the caller cannot read */
             environment: string;
             /**
@@ -3116,6 +3118,8 @@ export interface components {
              * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
              */
             decisionFreshness?: number;
+            /** @description The environment the Stage delivers to (its spec.environment); absent when the Stage could not be read */
+            environment?: string;
             explanation: components["schemas"]["Delivery.Explanation"];
             /** @description The Stage's level now: observe, advise, auto-nonbreaking or autonomous */
             level?: string;

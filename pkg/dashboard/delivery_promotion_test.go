@@ -26,6 +26,7 @@ func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
 		stages   []delivery.StageObject
 		order    string
 		upstream map[string][]string
+		cycle    string
 	}{
 		{
 			// Names alone would put prod before staging's "s" and qa first.
@@ -33,6 +34,7 @@ func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
 			stages:   []delivery.StageObject{fed("prod", "a", "staging", "a"), fed("qa", "a", "", ""), fed("staging", "a", "qa", "a")},
 			order:    "[qa staging prod]",
 			upstream: map[string][]string{"qa": {}, "staging": {"qa"}, "prod": {"qa", "staging"}},
+			cycle:    "map[]",
 		},
 		{
 			name: "a fork, and an upstream in the Stage's own namespace",
@@ -41,24 +43,28 @@ func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
 					Candidates: delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "a"}}}}},
 			order:    "[dev dev-2 prod-eu prod-us]",
 			upstream: map[string][]string{"dev": {}, "dev-2": {"dev"}, "prod-eu": {"dev"}, "prod-us": {"dev"}},
+			cycle:    "map[]",
 		},
 		{
-			// c is free to go first; the cycle a <-> b is placed by name after it.
-			name:     "a dangling upstream orders nothing and a cycle keeps name order",
-			stages:   []delivery.StageObject{fed("b", "x", "a", "x"), fed("a", "x", "b", "x"), fed("c", "x", "nowhere", "x")},
-			order:    "[c a b]",
-			upstream: map[string][]string{"a": {"b"}, "b": {"a"}, "c": {}},
+			// c is free to go first; the cycle a <-> b is placed by name after
+			// it and reported; 0, fed by b, comes after the cycle, not by name.
+			name: "a dangling upstream orders nothing and a cycle is reported",
+			stages: []delivery.StageObject{fed("b", "x", "a", "x"), fed("a", "x", "b", "x"), fed("c", "x", "nowhere", "x"),
+				fed("0", "x", "b", "x")},
+			order:    "[c a b 0]",
+			upstream: map[string][]string{"0": {"a", "b"}, "a": {"b"}, "b": {"a"}, "c": {}},
+			cycle:    "map[a:true b:true]",
 		},
 	}
 	for _, c := range cases {
-		order, up := promotionOrder(c.stages)
+		order, up, cycle := promotionOrder(c.stages)
 		for k, v := range up {
 			if len(v) == 0 {
 				up[k] = []string{}
 			}
 		}
-		if fmt.Sprint(order) != c.order || !reflect.DeepEqual(up, c.upstream) {
-			t.Errorf("%s: order %v upstream %v, want %s %v", c.name, order, up, c.order, c.upstream)
+		if fmt.Sprint(order) != c.order || !reflect.DeepEqual(up, c.upstream) || fmt.Sprint(cycle) != c.cycle {
+			t.Errorf("%s: order %v upstream %v cycle %v, want %s %v %s", c.name, order, up, cycle, c.order, c.upstream, c.cycle)
 		}
 	}
 }

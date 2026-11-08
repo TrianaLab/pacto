@@ -121,10 +121,13 @@ func TestAutonomy(t *testing.T) {
 	// The change view names the Stage's level, and nothing when the Stage cannot be read.
 	_, op := call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
 	expect(t, op["level"] == "observe", "change level %v", op["level"])
+	expect(t, op["environment"] == "prod", "change environment %v", op["environment"])
 	f.stageErr = errors.New("forbidden")
 	_, op = call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
 	_, has := op["level"]
+	_, hasEnv := op["environment"]
 	expect(t, !has, "no level from an unreadable Stage: %v", op)
+	expect(t, !hasEnv, "no environment from an unreadable Stage: %v", op)
 }
 
 func TestAutonomyPartialAndRefused(t *testing.T) {
