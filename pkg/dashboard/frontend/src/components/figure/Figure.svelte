@@ -17,6 +17,7 @@
   import { fitIdents } from '../../lib/elide.ts';
   import { play, resolve, claimAutoplay, finalMode, sessionKey } from '../../lib/narrate.ts';
   import { prefersReducedMotion } from '../../lib/motion.ts';
+  import Wire from './Wire.svelte';
 
   /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], autoplay?: boolean, autoKey?: unknown, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
   let { id, question, kind = 'data', alt = '', wires = [], steps = [], autoplay = false, autoKey = null, testid = undefined, stage, aside = null, foot = null, caption } = $props();
@@ -41,7 +42,7 @@
     await tick();
     if (!stageEl?.isConnected) return;
     layoutLanes(stageEl, CHIP_CAP[w]);
-    fitIdents(stageEl);
+    fitIdents(el); // the stage's names, and the aside's and foot's
     paths = wirePaths(stageEl, wires, w);
     if (first) { first = false; await tick(); if (stageEl?.isConnected) start(); }
   }
@@ -131,10 +132,7 @@
     <div class="fig-stage" bind:this={stageEl}>
       <svg class="fig-wires" role="img" aria-label={alt} focusable="false">
         <g bind:this={svgEl}>
-          {#each paths as p (p.id)}
-            <path class="w mk w--{p.style} t-{p.tone}" data-wid={p.id} d={p.d} style:display={p.off ? 'none' : null} />
-            <path class="sig t-{p.tone}" data-wid={p.id} d={p.d} style:display={p.off ? 'none' : null} />
-          {/each}
+          {#each paths as p (p.id)}<Wire w={p} />{/each}
         </g>
       </svg>
       {@render stage()}

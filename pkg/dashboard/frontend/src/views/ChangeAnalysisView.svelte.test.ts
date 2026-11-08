@@ -137,7 +137,8 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
     flushSync();
     const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
-    expect(answer).toBe('3 changes, 1 breaking. 2 consumers affected: 1 does not accept payments 2.0.0, 1 unknown.');
+    // The line states the diff; who it reaches is the lanes' (one carrier per fact).
+    expect(answer).toBe('3 changes, 1 breaking.');
     // Every backing part is a real disclosure widget, closed until asked for.
     const folds = Array.from(target.querySelectorAll('details.ca-fold')) as HTMLDetailsElement[];
     expect(folds.map((d) => d.querySelector('summary h2')?.textContent)).toEqual(['What changed', 'Affected consumers', 'Owners and targets']);
@@ -205,8 +206,8 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="consumer-refused"]')).toBeTruthy());
     flushSync();
-    const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
-    expect(answer).toContain('2 consumers affected: 1 requires a guarantee payments 2.0.0 does not offer, 1 unknown.');
+    // The refusal is counted with the incompatible lane, and annotated under it.
+    expect(target.querySelector('[data-testid="impact-figure"] .lane-sub')?.textContent).toContain('1 of them refuses a required guarantee');
     expect(target.querySelector('[data-testid="changes-consumers"] summary')?.textContent).toContain('2 · 1 refused');
     const cell = target.querySelector('[data-testid="consumer-refused"]')!.closest('td')!;
     expect(cell.querySelector('.badge-ok')).toBeNull();
@@ -240,7 +241,9 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     expect([...target.querySelectorAll('[data-testid="impact-figure"] .chip')].map((c) => c.getAttribute('title'))).toEqual(['billing']);
     // The table marks the consumers the figure names.
     expect(target.querySelector('[data-testid="changes-consumers"] tbody tr .badge-accent')?.textContent).toBe('Highlighted');
-    expect(target.querySelector('[data-testid="impact-owners"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('core (1, 1 incompatible); 1 with no identified owner');
+    expect([...target.querySelectorAll('[data-testid="impact-owners"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['core1 consumer, 1 incompatible']);
+    expect(target.querySelector('[data-testid="impact-owners"] li bdi')?.getAttribute('title')).toBe('core');
+    expect(target.querySelector('[data-testid="impact-owners"] .t-meta')?.textContent).toBe('1 with no identified owner');
     // The figure, with its answer card, sits above the folds.
     const order = [...target.querySelectorAll('[data-testid="impact-figure"], [data-testid="changes-answer"], .ca-stack')].map((e) => e.getAttribute('data-testid') ?? 'ca-stack');
     expect(order).toEqual(['impact-figure', 'changes-answer', 'ca-stack']);
@@ -270,10 +273,24 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     expect(fold.open).toBe(false);
     const scrolled = vi.fn();
     fold.scrollIntoView = scrolled; // jsdom has no layout
-    (target.querySelector('[data-testid="impact-figure"] .lane-more') as HTMLButtonElement).click();
-    expect(fold.open).toBe(true);
+    // The lane's link lists its outcome: the table pages to it in place and opens.
+    const more = target.querySelector('[data-testid="impact-figure"] .lane-more') as HTMLAnchorElement;
+    expect(more.getAttribute('href')).toBe('#/fleet/changes/domain-a%2Fpayments?old=domain-a%2Fpayments%40sha256%3A1&new=domain-a%2Fpayments%40sha256%3A2&outcome=incompatible');
+    impactFn.mockResolvedValueOnce({ ...res, consumers: { ...res.consumers, outcome: 'incompatible', matching: 1, items: [res.consumers.items[0]], count: 1 } });
+    more.click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: 'incompatible', offset: 0 })));
+    await vi.waitFor(() => expect(fold.open).toBe(true));
+    expect(location.hash).toContain('outcome=incompatible');
     expect(document.activeElement).toBe(fold.querySelector('summary'));
     expect(scrolled).toHaveBeenCalledWith({ block: 'start' });
+    expect(target.querySelector('.consumer-pager')?.getAttribute('data-view-total')).toBe('1');
+    expect(target.querySelector('.consumer-pager')?.textContent).toContain('of 1 incompatible');
+    // The count and the link of a lane go to the same list; the ghost lane links nowhere.
+    expect(target.querySelector('[data-testid="impact-figure"] a.lane-count')?.getAttribute('href')).toBe(more.getAttribute('href'));
+    expect(ghost.querySelector('a')).toBeNull();
+    // Back to the URL without the outcome lists every consumer again.
+    location.hash = more.getAttribute('href')!.replace('&outcome=incompatible', '');
+    await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: undefined, offset: 0 })));
     unmount(component); document.body.removeChild(target);
   });
 
@@ -283,8 +300,10 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-gate"]')).toBeTruthy());
     const gate = target.querySelector('[data-testid="changes-gate"]') as HTMLElement;
-    expect(gate.querySelector('.badge-err')?.textContent).toBe('Blocked');
-    expect(gate.textContent).toContain('breaking changes affect active consumers: billing');
+    // Drawn once as a stamp in the figure; the card says why in words.
+    expect(gate.textContent).toBe('The release gate blocks it: breaking changes affect active consumers: billing.');
+    expect(target.querySelector('[data-testid="impact-gate"] .stamp')?.textContent).toBe('Blocked');
+    expect([...target.querySelectorAll('[data-testid="changes-answer"] .stamp')].map((x) => x.textContent)).toEqual(['Breaking']);
     unmount(component); document.body.removeChild(target);
 
     impactFn.mockResolvedValue({ ...impactResult(), gate: '' });

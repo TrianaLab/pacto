@@ -193,7 +193,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['name', 'old', 'new', 'observed']) {
+    for (const k of ['name', 'old', 'new', 'observed', 'outcome']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -622,7 +622,7 @@ export function fleetAttentionUrl(opts: {
 // query, so an analysis is shareable and restored by back/forward.
 export function fleetChangesUrl(
   serviceKey = '',
-  opts: { name?: string; old?: string; new?: string; observed?: boolean } = {},
+  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string } = {},
 ): string {
   const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
@@ -630,6 +630,7 @@ export function fleetChangesUrl(
   if (opts.old) qs.set('old', opts.old);
   if (opts.new) qs.set('new', opts.new);
   if (opts.observed) qs.set('observed', '1');
+  if (opts.outcome) qs.set('outcome', opts.outcome);
   const str = qs.toString();
   return str ? `${base}?${str}` : base;
 }

@@ -151,18 +151,13 @@ function hiddenLane(n: number): ImpactLane {
   return { key: 'hidden', label: 'Hidden from you', tone: 'neutral', hatch: true, glyph: 'unknown', n, share: 0, chips: [], decides: false, ghost: true };
 }
 
-/** The answer in one line: the diff and who it reaches, from the complete tallies. */
+/**
+ * The card's lead line: the diff in one line. Who it reaches is the lanes' fact, drawn
+ * once from the outcome tally (L3: one carrier per fact), so the line never restates
+ * it from a second tally.
+ */
 export function answerText(im: ProductImpact): string {
   const ch = im.changes;
   const what = !ch?.total ? 'No contract differences.' : `${countOf(ch.total, 'change')}, ${formatCount(ch.breaking ?? 0)} breaking.`;
-  const cs = im.consumers;
-  if (!cs?.total) return `${what} No consumer is affected.`;
-  const v = (k: string) => (cs.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
-  const to = im.newRevision?.version || im.newRevision?.label || 'the new revision';
-  const parts = [
-    v('incompatible') ? `${formatCount(v('incompatible'))} ${v('incompatible') === 1 ? 'does' : 'do'} not accept ${to}` : '',
-    cs.refused ? `${formatCount(cs.refused)} ${cs.refused === 1 ? 'requires' : 'require'} a guarantee ${to} does not offer` : '',
-    v('unknown') ? `${formatCount(v('unknown'))} unknown` : '',
-  ].filter(Boolean);
-  return `${what} ${countOf(cs.total, 'consumer')} affected${parts.length ? `: ${parts.join(', ')}` : ''}.`;
+  return im.consumers?.total ? what : `${what} No consumer is affected.`;
 }

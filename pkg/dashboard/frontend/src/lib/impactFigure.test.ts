@@ -163,9 +163,11 @@ describe('outcomeOf and the shared ranking fixture', () => {
 });
 
 describe('answerText', () => {
-  it('states the diff and who it reaches', () => {
+  // Who the change reaches is the lanes' fact (one carrier, from byOutcome); the line
+  // states only the diff, so a second tally can never contradict the lanes.
+  it('states the diff, and that nobody is reached only when nobody is', () => {
     const im = impact({ incompatible: 1, unknown: 1 }, { consumers: { byVerdict: [{ key: 'incompatible', count: 1 }, { key: 'unknown', count: 1 }], refused: 1 } });
-    expect(answerText(im)).toBe('3 changes, 1 breaking. 2 consumers affected: 1 does not accept 3.0.0, 1 requires a guarantee 3.0.0 does not offer, 1 unknown.');
+    expect(answerText(im)).toBe('3 changes, 1 breaking.');
     expect(answerText(impact({}, { changes: { total: 0 } }))).toBe('No contract differences. No consumer is affected.');
   });
 });

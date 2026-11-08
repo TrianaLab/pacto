@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import ImpactFigure from './ImpactFigure.svelte';
+import { GLYPH_PATH } from '../../lib/figure.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -76,7 +77,10 @@ describe('ImpactFigure', () => {
     expect(target.querySelector('[data-testid="impact-gate"]')?.textContent).toContain('Release gate, decided by this lane');
     const card = target.querySelector('[data-testid="changes-answer"]')!.textContent!.replace(/\s+/g, ' ');
     expect(card).toContain('At least 1,284: 412 direct, 872 indirect. Consumers known only to the 2 unavailable sources are not counted.');
-    expect(card).toContain('team-a (40, 9 incompatible); 1,200 more consumers of other owners; 44 with no identified owner');
+    expect(card).toContain('team-a40 consumers, 9 incompatible 1,200 more consumers of other owners; 44 with no identified owner');
+    expect(card).toContain('Gate The release gate blocks it: breaking changes affect active consumers.');
+    // The refusal note under Incompatible carries the err glyph on its err node.
+    expect(target.querySelector('.lane-sub .nd.t-err path.gp')?.getAttribute('d')).toBe(GLYPH_PATH.err);
     expect(card).toContain('3, not counted and never named');
     expect(target.querySelector('figcaption')?.textContent).toContain('If this revision is published, it breaks 37 of at least 1,284 consumers');
     unmount(c);

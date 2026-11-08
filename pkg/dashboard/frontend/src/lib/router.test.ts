@@ -502,6 +502,12 @@ describe('fleetChangesUrl', () => {
     expect(fleetChangesUrl('domain-a/payments', { old: 'a', new: 'b', observed: true }))
       .toBe('#/fleet/changes/domain-a%2Fpayments?old=a&new=b&observed=1');
   });
+  // A lane of the figure links to the consumers of its outcome, and the link parses back.
+  it('carries the outcome a lane lists, and parses it back', () => {
+    const url = fleetChangesUrl('payments', { old: 'a', new: 'b', outcome: 'unknown' });
+    expect(url).toBe('#/fleet/changes/payments?old=a&new=b&outcome=unknown');
+    expect(parseHash(url).params).toEqual({ svc: 'payments', old: 'a', new: 'b', outcome: 'unknown' });
+  });
   // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
   // in the query -- never promoted into the path where it would look canonical.
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {

@@ -3,25 +3,25 @@
  * produced and never measures a word to place it. Lanes fold their chips into "N more"
  * (C8a) and wires are drawn between the anchors the grid placed (SPEC 3).
  */
-import { anchorPoint, wirePath, type WidthClass, type WireDef, type Side } from './figure.ts';
+import { anchorPoint, wirePath, wirePoint, breakMark, arrowHead, BREAK_AT, planChips, type WidthClass, type WireDef, type Side } from './figure.ts';
 import { fitIdents } from './elide.ts';
 import { formatCount } from './format.ts';
 
 /**
- * layoutLanes shows at most `cap` chips per lane, then folds chips from the end until
- * the last one shown fits its box. A lane with highlights always names one while its
- * chip box is visible: the first chip is elided (C6) into the box rather than folded,
- * unless the box is under 6rem. The "N more" link counts what is not named.
+ * layoutLanes names at most `cap` chips per lane in the room the lane leaves them (C8a):
+ * planChips shares that room, eliding (C6) the long names, and folds the rest into the
+ * "N more" link, which counts what is not named. A lane with highlights names at least
+ * one while its chip box is visible.
  */
 export function layoutLanes(stage: Element, cap: number): void {
   for (const lane of stage.querySelectorAll<HTMLElement>('.lane')) {
     const box = lane.querySelector<HTMLElement>('.lane-chips');
+    const list = lane.querySelector<HTMLElement>('.lane-list');
     const more = lane.querySelector<HTMLElement>('.lane-more');
-    if (!box) continue;
+    if (!box || !list) continue;
     const chips = [...box.children] as HTMLElement[];
     const visible = box.getClientRects().length > 0;
     const bdi = (c: HTMLElement) => c.querySelector<HTMLElement>('bdi');
-    chips.forEach((c, i) => { c.hidden = !visible || i >= cap; c.style.maxWidth = ''; const b = bdi(c); if (b) b.style.maxWidth = ''; });
     const n = Number(more?.dataset.n ?? 0);
     const say = (shown: number) => {
       if (!more) return;
@@ -30,39 +30,34 @@ export function layoutLanes(stage: Element, cap: number): void {
     };
     // The link reserves its widest label, so folding never moves the chips' room.
     if (more) { more.style.minWidth = ''; say(0); more.style.minWidth = `${Math.ceil(more.getBoundingClientRect().width)}px`; }
-    fitIdents(box);
-    let shown = chips.filter((c) => !c.hidden).length;
-    const right = () => box.getBoundingClientRect().right + 0.5;
-    // A chip that does not fit is elided into the room left when that room is at least
-    // 8rem (C8a), so a second name survives before it is folded.
-    const squeeze = (c: HTMLElement) => {
-      const room = Math.floor(right() - 0.5 - c.getBoundingClientRect().left);
+    // Natural widths: every candidate whole, free of the CSS cap.
+    chips.forEach((c, i) => {
+      c.hidden = !visible || i >= cap; c.style.maxWidth = '';
+      const b = bdi(c); if (b) { b.style.maxWidth = 'none'; b.textContent = c.title || b.textContent; }
+    });
+    if (!visible) { say(0); continue; }
+    const gap = parseFloat(getComputedStyle(list).columnGap) || 0;
+    const pad = parseFloat(getComputedStyle(box).paddingLeft) + parseFloat(getComputedStyle(box).paddingRight);
+    const reserve = more && !more.hidden ? more.getBoundingClientRect().width + gap : 0;
+    const room = Math.floor(list.clientWidth - reserve - pad);
+    const cand = chips.filter((c) => !c.hidden);
+    const plan = planChips(cand.map((c) => c.getBoundingClientRect().width), room, cap, parseFloat(getComputedStyle(box).columnGap) || 0);
+    cand.forEach((c, i) => {
+      c.hidden = i >= plan.shown;
       const b = bdi(c);
-      if (room < 120 || !b?.classList.contains('fit')) return false;
-      c.style.maxWidth = `${room}px`;
-      b.style.maxWidth = '100%';
-      fitIdents(c);
-      return c.getBoundingClientRect().right <= right();
-    };
-    while (shown > 1 && chips[shown - 1].getBoundingClientRect().right > right() && !squeeze(chips[shown - 1])) {
-      chips[shown - 1].style.maxWidth = '';
-      chips[--shown].hidden = true;
-    }
-    if (shown === 1 && chips[0].getBoundingClientRect().right > right()) {
-      const room = Math.floor(box.getBoundingClientRect().width);
-      if (room >= 90) {
-        chips[0].style.maxWidth = `${room}px`;
-        const b = bdi(chips[0]);
-        if (b) b.style.maxWidth = '100%';
-        fitIdents(chips[0]);
-      }
-      if (room < 90 || chips[0].getBoundingClientRect().right > right()) { chips[0].hidden = true; shown = 0; }
-    }
-    say(shown);
+      if (b) b.style.maxWidth = '100%';
+      if (i < plan.shown) c.style.maxWidth = `${plan.widths[i]}px`;
+    });
+    fitIdents(box);
+    say(plan.shown);
   }
 }
 
-export interface DrawnWire { id: string; d: string; off: boolean; style: string; tone: string }
+export interface DrawnWire {
+  id: string; d: string; off: boolean; style: string; tone: string;
+  /** The ✕ of a broken wire (C12), and the arrowhead of a "moves to" wire (C13b). */
+  mark?: string; head?: string;
+}
 
 /** wirePaths places every wire of a figure for its current layout. */
 export function wirePaths(stage: Element, wires: WireDef[], w: WidthClass): DrawnWire[] {
@@ -74,8 +69,11 @@ export function wirePaths(stage: Element, wires: WireDef[], w: WidthClass): Draw
     if ((def.when && !def.when.includes(w)) || !a || !b || !a.getClientRects().length || !b.getClientRects().length) return out;
     if (a.closest('[hidden]') || b.closest('[hidden]')) return out;
     const fs: Side = d.fs ?? 'r', ts: Side = d.ts ?? 'l';
-    out.d = wirePath(anchorPoint(a.getBoundingClientRect(), fs, sr), fs, anchorPoint(b.getBoundingClientRect(), ts, sr), ts);
-    out.off = false;
-    return out;
+    const p1 = anchorPoint(a.getBoundingClientRect(), fs, sr), p2 = anchorPoint(b.getBoundingClientRect(), ts, sr);
+    return {
+      ...out, off: false, d: wirePath(p1, fs, p2, ts),
+      mark: def.style === 'broken' ? breakMark(wirePoint(p1, fs, p2, ts, BREAK_AT)) : undefined,
+      head: def.head ? arrowHead(p1, fs, p2, ts) : undefined,
+    };
   });
 }

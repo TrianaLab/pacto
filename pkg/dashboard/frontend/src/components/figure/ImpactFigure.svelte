@@ -4,22 +4,30 @@
   // dashed (projected) wire, splits into at most five disjoint lanes that sum to the
   // total, and the gate sits under the lane that decides it, wired down from its node.
   // Every count comes from the backend tallies over every consumer (lib/impactFigure.ts),
-  // so paging the table never changes the drawing; the table below holds every name.
+  // so paging the table never changes the drawing. Each lane's count and "N more" link
+  // to the consumers table filtered to that outcome, which lists the highlighted ones
+  // first, so every name the chips cut is readable there in full.
   import Figure from './Figure.svelte';
   import Node from './Node.svelte';
   import Lane from './Lane.svelte';
+  import Ghost from './Ghost.svelte';
   import Stack from './Stack.svelte';
   import AnswerCard from './AnswerCard.svelte';
   import { impactModel, answerText } from '../../lib/impactFigure.ts';
-  import { completenessClass, completenessLabel, formatCount, countOf } from '../../lib/format.ts';
+  import { formatCount, countOf } from '../../lib/format.ts';
   import { formatRelative } from '../../lib/dateFormat.ts';
   import { hashForHref } from '../../lib/router.ts';
+  import { elidable } from '../../lib/elide.ts';
 
-  /** @type {{ impact: import('../../lib/api.ts').ProductImpact, autoplay?: boolean, onmore?: (() => void) | null }} */
-  let { impact, autoplay = false, onmore = null } = $props();
+  /** @type {{ impact: import('../../lib/api.ts').ProductImpact, autoplay?: boolean, laneHref?: ((outcome: string) => string) | null, onlane?: ((outcome: string, e: MouseEvent) => void) | null }} */
+  let { impact, autoplay = false, laneHref = null, onlane = null } = $props();
   const m = $derived(impactModel(impact));
   const tallies = $derived(impact.consumers);
   const asOf = $derived(impact.meta?.asOf ? formatRelative(impact.meta.asOf) : '');
+  const gateLine = $derived.by(() => {
+    const r = impact.gateReason ?? '';
+    return `${m.gate?.says ?? ''}${r ? `: ${r}` : ''}${/[.!?]$/.test(r) ? '' : '.'}`;
+  });
 </script>
 
 {#snippet swatch(/** @type {string} */ cls)}
@@ -53,12 +61,15 @@
       <div class="splitcell"><Node tone="accent" a="split" m="split" /></div>
       <div class="lanes">
         {#each m.lanes as l, k (l.key)}
-          <Lane {k} tone={l.tone} hatch={l.hatch} glyph={l.glyph} label={l.label} n={l.n} total={l.ghost ? 0 : m.total}
-            chips={l.chips} ghost={l.ghost} open={m.partial && !l.ghost} decides={l.decides} onmore={l.ghost ? null : onmore} />
           {#if l.ghost}
-            <p class="lane-sub t-meta">Names hidden by your access. Not counted in the {formatCount(m.total)}.</p>
-          {:else if l.key === 'incompatible' && m.refused}
-            <p class="lane-sub t-meta"><Node tone="err" glyph="warn" />{countOf(m.refused, 'of them refuses', 'of them refuse')} a required guarantee</p>
+            <Ghost {k} n={l.n} label={l.label} note="Names hidden by your access. Not counted in the {formatCount(m.total)}." />
+          {:else}
+            <Lane {k} tone={l.tone} hatch={l.hatch} glyph={l.glyph} label={l.label} n={l.n} total={m.total}
+              chips={l.chips} open={m.partial} decides={l.decides}
+              href={laneHref ? laneHref(l.key) : ''} onpick={onlane ? (e) => onlane(l.key, e) : null} />
+            {#if l.key === 'incompatible' && m.refused}
+              <p class="lane-sub t-meta"><Node tone="err" glyph="err" />{countOf(m.refused, 'of them refuses', 'of them refuse')} a required guarantee</p>
+            {/if}
           {/if}
           {#if k === m.gateLane}{@render gateRow()}{/if}
         {/each}
@@ -67,9 +78,10 @@
     </div>
   {/snippet}
   {#snippet foot()}
-    <AnswerCard testid="changes-answer" stamps={[m.classification, ...(m.gate ? [{ label: m.gate.stamp, tone: m.gate.tone }] : [])]}>
-      <p class="ca-answer-line">{answerText(impact)}</p>
-      <dl class="facts">
+    <AnswerCard testid="changes-answer" stamps={[m.classification]} hidden={m.hidden} completeness={impact.meta?.completeness} {asOf}
+      provenance="Contract diff of the two revisions, projected on the fleet snapshot">
+      {#snippet lead()}<p class="ca-answer-line">{answerText(impact)}</p>{/snippet}
+      {#snippet facts()}
         <dt>Change</dt>
         <dd><bdi>{m.service}</bdi> <span class="mono">{m.from} → {m.to}</span></dd>
         <dt>Consumers</dt>
@@ -80,26 +92,27 @@
         {#if (tallies.byOwner?.length ?? 0) > 0}
           <dt>Most affected owners</dt>
           <dd data-testid="impact-owners">
-            {#each tallies.byOwner ?? [] as o, i (o.owner)}{i ? ', ' : ''}<bdi>{o.owner}</bdi> ({formatCount(o.consumers)}{o.incompatible ? `, ${formatCount(o.incompatible)} incompatible` : ''}){/each}{#if tallies.beyondRanking}; {countOf(tallies.beyondRanking, 'more consumer', 'more consumers')} of other owners{/if}{#if tallies.noOwner}; {formatCount(tallies.noOwner)} with no identified owner{/if}
+            <!-- A short list, one owner a line, each name elided in its middle (C6) when it
+                 does not fit; the full name stays in its title. -->
+            <ul class="ac-owners">
+              {#each tallies.byOwner ?? [] as o (o.owner)}
+                <li><bdi class:fit={elidable(o.owner)} title={o.owner}>{o.owner}</bdi><span class="ac-owner-n">{countOf(o.consumers, 'consumer')}{o.incompatible ? `, ${formatCount(o.incompatible)} incompatible` : ''}</span></li>
+              {/each}
+            </ul>
+            {#if tallies.beyondRanking || tallies.noOwner}
+              <span class="t-meta">{[tallies.beyondRanking ? `${countOf(tallies.beyondRanking, 'more consumer', 'more consumers')} of other owners` : '', tallies.noOwner ? `${formatCount(tallies.noOwner)} with no identified owner` : ''].filter(Boolean).join('; ')}</span>
+            {/if}
           </dd>
         {/if}
-        {#if m.hidden}
-          <dt>You may not see</dt>
-          <dd>{formatCount(m.hidden)}, not counted and never named</dd>
-        {/if}
         {#if m.gate}
-          <dt>Release gate</dt>
-          <dd data-testid="changes-gate"><span class="badge {m.gate.cls}">{m.gate.label}</span> {impact.gateReason}</dd>
+          <!-- The gate is drawn once in the figure (diamond and stamp); the card says why. -->
+          <dt>Gate</dt>
+          <dd data-testid="changes-gate">{gateLine}</dd>
         {/if}
-        <dt>Evidence</dt>
-        <dd>
-          <span class="badge wrap {completenessClass(impact.meta?.completeness)}">{completenessLabel(impact.meta?.completeness)}</span>
-          <span class="snap-id" class:match={impact.snapshotMatch} title="Snapshot {impact.snapshotId}">{impact.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}</span>
-        </dd>
-        {#if asOf}<dt>As of</dt><dd>{asOf}</dd>{/if}
-        <dt>Provenance</dt>
-        <dd>Contract diff of the two revisions, projected on the fleet snapshot</dd>
-      </dl>
+      {/snippet}
+      {#snippet evidence()}
+        <span class="snap-id" class:match={impact.snapshotMatch} title="Snapshot {impact.snapshotId}">{impact.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}</span>
+      {/snippet}
     </AnswerCard>
   {/snippet}
   {#snippet caption()}

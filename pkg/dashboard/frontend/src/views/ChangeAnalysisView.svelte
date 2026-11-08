@@ -1,15 +1,16 @@
 <script>
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack, tick } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { shortDigest, formatCount, countOf } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
+  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import Select from '../components/Select.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
   import RequirementList from '../components/RequirementList.svelte';
@@ -17,7 +18,8 @@
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import ImpactFigure from '../components/figure/ImpactFigure.svelte';
-  import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
+  import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
+  import { OUTCOMES } from '../lib/impactFigure.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -89,6 +91,11 @@
   // link or a page of the table is not a request, so it shows the final frame.
   let readerAsked = $state(false);
   let limShown = $state(8);
+  // The consumers table lists one outcome when a lane's link asked for it (T3): the
+  // lane's count is that list's total. The figure always shows every outcome.
+  let outcome = $state(untrack(() => (OUTCOMES.includes(params.outcome) ? params.outcome : '')));
+  // A restored link to one outcome opens the table on it once the answer is in.
+  let showTable = untrack(() => !!outcome);
 
   // Service picker (only when the route carries no service key): search-first, so a
   // service beyond the first page of results is still discoverable.
@@ -267,6 +274,7 @@
         includeObserved,
         limit: CONSUMER_PAGE,
         offset,
+        outcome: outcome || undefined,
       });
       if (gen !== analyzeGen) return;
       result = res;
@@ -274,7 +282,8 @@
       // The analyzed pair becomes the URL, so the exact analysis is shareable and
       // restorable. A replaceState (not a push) keeps Back on the previous SCREEN rather
       // than on every selector tweak.
-      history.replaceState(null, '', fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved }));
+      history.replaceState(null, '', changesUrl(outcome));
+      if (showTable) { showTable = false; await tick(); openConsumers(); }
     } catch (e) {
       if (gen !== analyzeGen) return;
       // A snapshot-id mismatch is a 409: the published snapshot changed, so the honest
@@ -286,7 +295,32 @@
     }
   }
 
-  // "N more" in a lane of the figure opens the full table: open the fold, focus its summary
+  const changesUrl = (o = '') => fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o });
+
+  // A lane's count or "N more" lists that outcome. A plain click keeps the answer on
+  // screen: it pushes the link's URL (so Back returns to the whole table), pages the
+  // table to that outcome and opens it. A modified click is the browser's.
+  function showOutcome(/** @type {string} */ o, /** @type {MouseEvent} */ e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    outcome = o;
+    history.pushState(null, '', changesUrl(o));
+    showTable = true;
+    analyze(0, true);
+  }
+  function setOutcome(/** @type {string} */ o) {
+    outcome = o;
+    analyze(0, true);
+  }
+  // Back and Forward between a lane's list and the whole table: the route stays the
+  // same view, so the URL's outcome is read here.
+  function onHash() {
+    const o = parseHash(location.hash).params?.outcome ?? '';
+    if (parseHash(location.hash).view === 'changes' && o !== outcome && result) setOutcome(OUTCOMES.includes(o) ? o : '');
+  }
+  onMount(() => { window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); });
+
+  // "N more" in a lane of the figure opens the table: open the fold, focus its summary
   // without the browser's own jump, then scroll it under the sticky navbar (.ca-fold
   // carries the scroll margin).
   function openConsumers() {
@@ -343,7 +377,11 @@
       ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`
       : 'None',
   );
-  const cShownFrom = $derived(consumers.total === 0 ? 0 : (consumers.offset ?? 0) + 1);
+  // What the table pages over: every consumer, or those of the outcome a lane asked for.
+  const cMatching = $derived(consumers.matching ?? consumers.total ?? 0);
+  const outcomeLabel = (/** @type {string} */ o) => outcomeSegments([{ key: o, count: 0 }])[0]?.label ?? o;
+  const outcomeOptions = $derived([{ value: '', label: 'Every outcome' }, ...OUTCOMES.map((o) => ({ value: o, label: outcomeLabel(o) }))]);
+  const cShownFrom = $derived(cMatching === 0 ? 0 : (consumers.offset ?? 0) + 1);
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
@@ -467,7 +505,7 @@
     <!-- The answer, drawn and stated: the figure reads only the backend tallies and the
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
-    <ImpactFigure impact={result} autoplay={readerAsked} onmore={openConsumers} />
+    <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
 
     <div class="ca-stack">
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
@@ -506,7 +544,7 @@
           <span class="ca-fold-meta">{consumerMeta}</span>
         </summary>
         <div class="ca-fold-body">
-        {#if (consumers.items?.length ?? 0) === 0}
+        {#if !consumers.total}
           <EmptyState title="No affected consumers" message="Nothing in the operational graph uses this change." level={3} />
         {:else}
           <!-- Both rankings come from the backend tallies over EVERY consumer, so they do
@@ -527,6 +565,13 @@
               total={consumers.total}
             />
           </div>
+          <div class="consumer-tools">
+            <Select label="Outcome" value={outcome} options={outcomeOptions} onchange={(e) => setOutcome(e.currentTarget.value)} />
+            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each outcome.</span>
+          </div>
+          {#if (consumers.items?.length ?? 0) === 0}
+            <p class="text-dim" data-testid="consumers-none-of-outcome">No consumer is {outcomeLabel(outcome).toLowerCase()}.</p>
+          {:else}
           <div class="data-scroll" aria-busy={pagingConsumers}>
             <table class="data-table">
               <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
@@ -561,8 +606,9 @@
               </tbody>
             </table>
           </div>
-          <nav class="consumer-pager" aria-label="Consumer pages">
-            <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(consumers.total)}{pagingConsumers ? ' · loading…' : ''}</span>
+          {/if}
+          <nav class="consumer-pager" aria-label="Consumer pages" data-view-total={cMatching}>
+            <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(cMatching)}{consumers.outcome ? ` ${outcomeLabel(consumers.outcome).toLowerCase()}` : ''}{pagingConsumers ? ' · loading…' : ''}</span>
             <div class="pager-btns">
               <button type="button" class="pg" disabled={!cHasPrev || pagingConsumers} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE), true)}>Previous</button>
               <button type="button" class="pg" disabled={!cHasNext || pagingConsumers} onclick={() => analyze(consumers.nextOffset, true)}>Next</button>
@@ -656,6 +702,7 @@
   .partial-banner strong { color: var(--c-warn); }
 
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+  .consumer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0; }
   .consumer-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
   .pager-btns { display: flex; gap: var(--sp-2); }
   .pg { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); cursor: pointer; min-height: var(--touch-min); }
