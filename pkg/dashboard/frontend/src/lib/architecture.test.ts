@@ -212,7 +212,7 @@ describe('product visualization system', () => {
   // Illustrations: one answer drawn beside the table that carries it in full. Not chart
   // primitives, so not in ALLOWED_VIZ; their dash is the non-colour channel (unknown is
   // dashed, a broken edge flows), not a retired chart shape.
-  const ILLUSTRATIONS = ['components/IsoImpact.svelte'];
+  const ILLUSTRATIONS = ['components/figure/ImpactFigure.svelte'];
 
   it('keeps every illustration beside the table that carries its answer in full', () => {
     for (const rel of ILLUSTRATIONS) {
@@ -286,6 +286,8 @@ describe('product design system', () => {
     // and '--ease-' a typo'd var(--dur-2s) would be treated as component-owned and
     // never checked, which is exactly how a motion value gets re-invented.
     '--dur-', '--ease-', '--motion-', '--stagger-',
+    // Figures and their narration (SPEC 3.1).
+    '--fig-', '--narrate-',
   ];
   const isGlobalToken = (t: string) => GLOBAL_TOKEN_FAMILIES.some((p) => t.startsWith(p));
 
@@ -724,5 +726,42 @@ describe('product in-page navigation', () => {
     // contents would silently skip them.
     const tagged = PRODUCT_UI.filter((f) => /data-toc="/.test(f.body)).map((f) => f.rel);
     expect(tagged.length, 'no page contributes a section to the navigator').toBeGreaterThan(3);
+  });
+});
+
+/**
+ * Figure guards (SPEC 12, G4). The drawing draws marks and HTML carries every word, so
+ * a figure primitive never holds an SVG <text> and nothing rotates or skews text. Depth
+ * is drawn only where it is a fact: an iso primitive takes the layers it stacks.
+ * Explainers ("How this works") draw a mechanism, never a status, so they use neutral
+ * and accent only.
+ */
+describe('figures', () => {
+  const FIG = join(SRC, 'components/figure');
+  const figFiles = sourceFiles(FIG).map((f) => ({ rel: relative(SRC, f), body: readFileSync(f, 'utf8') }))
+    .filter((f) => !f.rel.endsWith('.test.ts'));
+  const figCss = readFileSync(join(SRC, 'styles/figure.css'), 'utf8');
+
+  it('exists, so the guards below are not vacuous', () => {
+    expect(figFiles.map((f) => f.rel)).toEqual(expect.arrayContaining(['components/figure/Figure.svelte', 'components/figure/Stack.svelte']));
+  });
+
+  it('puts no <text> in a figure primitive and rotates or skews nothing', () => {
+    for (const f of figFiles) expect(f.body, f.rel).not.toMatch(/<text\b/);
+    for (const [rel, body] of [...figFiles.map((f) => [f.rel, f.body]), ['styles/figure.css', figCss]]) {
+      expect(body, rel).not.toMatch(/\b(rotate|skew[XY]?)\(/);
+    }
+  });
+
+  it('requires the layers an iso primitive stacks', () => {
+    for (const name of ['Stack.svelte']) {
+      const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
+      expect(body, name).toMatch(/let \{ layers \} = \$props\(\)/);
+    }
+  });
+
+  it('keeps explainers to neutral and accent', () => {
+    const explain = figFiles.filter((f) => f.rel.startsWith('components/figure/explain/'));
+    for (const f of explain) expect(f.body, f.rel).not.toMatch(/--c-(ok|warn|err)\b|\bt-(ok|warn|err)\b/);
   });
 });

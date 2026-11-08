@@ -1,0 +1,123 @@
+/**
+ * C6: measured segment elision. An identity is rendered whole; only when it does not fit
+ * its box are whole segments in its middle (a segment ends after - _ . / :) replaced
+ * with "…", keeping the separator, so the head and the tail both end on a word boundary:
+ * `risk-us-eu-west-1-partner-feed-compliance` reads `risk-us-…-feed-compliance`. The
+ * full value stays in the element's `title`.
+ */
+
+const BIDI = /[\u202A-\u202E\u2066-\u2069\u200E\u200F]/;
+
+/** elidable: longer than 12 code points and free of bidi controls (those keep CSS end truncation). */
+export const elidable = (name: string) => !BIDI.test(name) && Array.from(name).length > 12;
+
+const segsOf = (n: string) => n.split(/(?<=[-_./:])/);
+
+/** Whole-segment elisions of a name, longest first. A pin keeps that segment visible. */
+function elisions(parts: string[], pin?: number): string[] {
+  const n = parts.length, out: string[] = [];
+  for (let h = n - 2; h >= 1; h--) {
+    for (let t = n - 1 - h; t >= 1; t--) {
+      if (parts.slice(0, h).join('').length < 4 || parts.slice(n - t).join('').length < 5) continue;
+      const hid = parts.slice(h, n - t);
+      const sep = /[-_./:]$/.test(hid[hid.length - 1]) ? hid[hid.length - 1].slice(-1) : '';
+      let mid = '…' + sep;
+      if (pin != null && pin >= h && pin < n - t) {
+        if (hid.length === 1) continue;
+        mid = (pin > h ? '…' : '') + parts[pin] + (pin < n - t - 1 ? '…' + sep : '');
+      }
+      out.push(parts.slice(0, h).join('') + mid + parts.slice(n - t).join(''));
+    }
+  }
+  return out.sort((a, b) => b.length - a.length);
+}
+
+/**
+ * fitName returns the longest elision of `name` that `fits`, the name itself when it
+ * fits, or null when nothing readable does. With a pin (siblings that would read alike)
+ * the distinguishing segment must start within the first 12 visible characters.
+ */
+export function fitName(name: string, fits: (s: string) => boolean, pin?: number): string | null {
+  if (fits(name)) return name;
+  const parts = segsOf(name);
+  const near = (c: string) => {
+    if (pin == null) return true;
+    const off = c.indexOf(parts[pin]);
+    return off >= 0 && Array.from(c.slice(0, off)).length <= 12;
+  };
+  const c = elisions(parts, pin).filter(near).find(fits);
+  if (c) return c;
+  if (pin != null) return null;
+  // No whole-segment elision fits: keep the last segment (or its last 8 characters) and
+  // as much head as fits, never fewer than 3 characters of it.
+  const cp = Array.from(name), last = Array.from(parts[parts.length - 1]);
+  const tail = (last.length <= 16 ? last : last.slice(-8)).join('');
+  const head = cp.slice(0, cp.length - Array.from(tail).length);
+  let lo = 0, hi = head.length;
+  while (lo < hi) {
+    const m = (lo + hi + 1) >> 1;
+    if (fits(head.slice(0, m).join('') + '…' + tail)) lo = m;
+    else hi = m - 1;
+  }
+  return lo >= 3 ? head.slice(0, lo).join('') + '…' + tail : null;
+}
+
+/**
+ * fitSiblings elides names that sit side by side (chips in one lane). Two that would read
+ * the same keep the first segment that tells them apart; two still alike in their first
+ * 16 visible characters are not elided at all (null: the caller folds or end-truncates).
+ */
+export function fitSiblings(names: string[], fits: (name: string, s: string) => boolean): (string | null)[] {
+  const out = names.map((n) => fitName(n, (s) => fits(n, s)));
+  const head = (s: string | null) => Array.from(s ?? '').slice(0, 16).join('');
+  names.forEach((n, i) => {
+    const twins = names.filter((o, j) => j !== i && o !== n && out[j] === out[i]);
+    if (!twins.length || out[i] === n) return;
+    const p = segsOf(n);
+    let pin = p.length;
+    for (const o of twins) {
+      const q = segsOf(o);
+      let k = 0;
+      while (k < p.length && p[k] === q[k]) k++;
+      pin = Math.min(pin, k);
+    }
+    if (pin < p.length) out[i] = fitName(n, (s) => fits(n, s), pin) ?? out[i];
+  });
+  return out.map((o, i) => (o !== names[i] && names.some((m, j) => m !== names[i] && head(out[j]) === head(o)) ? null : o));
+}
+
+let ctx: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * fitIdents measures every `.fit` identity under root in its own computed font (canvas,
+ * no layout thrash) and elides the ones that overflow their box. The full name is read
+ * back from the nearest `[title]`, so a second pass starts from the whole name again.
+ */
+export function fitIdents(root: Element): void {
+  if (ctx === undefined) {
+    try { ctx = document.createElement('canvas').getContext('2d'); } catch { ctx = null; }
+  }
+  const els = [...root.querySelectorAll<HTMLElement>('.fit')].filter((e) => e.getClientRects().length);
+  for (const e of els) {
+    const full = e.closest<HTMLElement>('[title]')?.title;
+    if (full && e.textContent !== full) e.textContent = full;
+  }
+  if (!ctx) return;
+  const c = ctx;
+  const groups = new Map<Element, HTMLElement[]>();
+  for (const e of els) {
+    if (e.scrollWidth <= e.clientWidth + 0.5) continue;
+    const g = e.closest('.lane-chips') ?? root;
+    groups.set(g, [...(groups.get(g) ?? []), e]);
+  }
+  for (const list of groups.values()) {
+    const names = list.map((e) => e.closest<HTMLElement>('[title]')?.title ?? e.textContent ?? '');
+    const res = fitSiblings(names, (name, s) => {
+      const e = list[names.indexOf(name)];
+      const cs = getComputedStyle(e);
+      c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      return c.measureText(s).width <= e.clientWidth - 2;
+    });
+    list.forEach((e, i) => { if (res[i]) e.textContent = res[i]; });
+  }
+}

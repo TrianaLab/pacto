@@ -65,4 +65,14 @@ describe.each(Object.entries(THEMES))('isometric contrast, %s theme', (_, t) => 
       expect(ratio(c(stroke), c('--c-bg')), `${stroke} on --c-bg`).toBeGreaterThanOrEqual(3);
     }
   });
+
+  // G6 (SPEC 8): every figure mark -- tone fills' edges, wires, glyphs, the hatch's solid
+  // edge -- is at 3:1 against the figure surface, the slab face and the page.
+  it('keeps every figure mark at 3:1 on the surface, the slab face and the page', () => {
+    for (const ground of ['--c-bg', '--c-surface', '--c-iso-face']) {
+      for (const stroke of ['--c-err', '--c-warn', '--c-ok', '--c-accent', '--c-neutral', '--c-text-3']) {
+        expect(ratio(c(stroke), c(ground)), `${stroke} on ${ground}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
 });

@@ -254,6 +254,32 @@
   --c-iso-shadow: rgba(0, 0, 0, 0.55);
   --c-iso-grid: rgba(129, 140, 248, 0.09);
   --c-iso-glow: rgba(129, 140, 248, 0.14);
+  /* Toned slab sides mix the tone into a NEUTRAL side, not the lavender iso side, so
+     ok reads green and warn reads amber in both themes. */
+  --c-fig-side: #182033;
+  --c-fig-side-2: #10162a;
+
+  /* Figures (SPEC 3.1): explanatory drawings. Marks only; words are HTML. One stroke,
+     one node and one lane height for every figure, so two drawings read as one
+     language. */
+  --fig-line: color-mix(in srgb, var(--c-text-3) 55%, transparent);
+  --fig-line-strong: var(--c-text-3);
+  --fig-tone-mix-top: 6%;
+  --fig-tone-mix-side: 24%;
+  --fig-tone-mix-side-2: 36%;
+  --fig-stroke: 1.25px;
+  --fig-node: 14px;
+  --fig-lane-h: 2.5rem;
+  --fig-signal-len: 18px;
+  --fig-glyph-sm: 20px;
+  --fig-glyph-md: 32px;
+  --fig-label-col-min: 9rem;
+  /* Narration (SPEC 6): a finite retelling inside one figure. Each step is at most
+     --dur-3, steps are --narrate-hold apart, and the whole story is at most
+     --narrate-max. lib/narrate.ts mirrors these and asserts the cap. */
+  --narrate-step: 240ms;
+  --narrate-hold: 120ms;
+  --narrate-max: 1200ms;
 
   /* Layout */
   --navbar-h: 56px;
@@ -314,6 +340,8 @@
   --c-iso-shadow: rgba(49, 46, 129, 0.22);
   --c-iso-grid: rgba(79, 70, 229, 0.1);
   --c-iso-glow: rgba(79, 70, 229, 0.1);
+  --c-fig-side: #eceff4;
+  --c-fig-side-2: #d9dee7;
 }
 
 /* ─── Responsive token overrides ─── */
