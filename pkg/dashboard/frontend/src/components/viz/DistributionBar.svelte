@@ -122,12 +122,24 @@
 
   // What a slice can say depends on how wide it is drawn: its count and name, its
   // count alone, or nothing (the tooltip and the legend still say it). A count is
-  // never cut short: "2…" for 231 read as two.
+  // never cut short: "2…" for 231 read as two. Each slice measures its own label in the
+  // font it renders (C2: no characters-times-width estimate, which DejaVu and Verdana
+  // outran), every time the bar's width or its rows change.
   let barWidth = $state(0);
-  const segWidth = (v) => (sum > 0 ? Math.max(0, barWidth - 2 * (rows.length - 1)) * (v / sum) : 0);
-  // Before the bar is measured (or where nothing is laid out) every label is offered and
-  // the slice clips it.
-  const fits = (v, text) => barWidth === 0 || segWidth(v) >= text.length * 7 + 16;
+  // A slice that grows or shrinks to new data is measured again once it has settled.
+  let settled = $state(0);
+  /** @type {HTMLElement | undefined} */ let barEl = $state();
+  const cut = (/** @type {HTMLElement} */ t) => t.scrollWidth > t.clientWidth + 0.5;
+  $effect(() => {
+    void barWidth; void rows; void settled;
+    for (const seg of barEl?.querySelectorAll('.dist-seg') ?? []) {
+      const t = seg.querySelector('.dist-seg-text');
+      if (!t) continue;
+      seg.dataset.fit = 'all';
+      if (cut(t)) seg.dataset.fit = 'value';
+      if (cut(t)) seg.dataset.fit = 'none';
+    }
+  });
 </script>
 
 <figure class="dist">
@@ -173,7 +185,7 @@
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
     {#if !one}
-    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true" bind:clientWidth={barWidth}>
+    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true" bind:clientWidth={barWidth} bind:this={barEl} ontransitionend={() => settled++}>
       {#each rows as r (r.label)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
@@ -186,7 +198,7 @@
           style="flex-grow: {r.value}"
           onmouseenter={() => (active = r.label)}
           onmouseleave={() => (active = '')}
-        >{#if fits(r.value, formatCount(r.value))}<span class="dist-seg-text"><span class="dist-seg-value">{formatCount(r.value)}</span>{#if fits(r.value, `${formatCount(r.value)} ${r.label}`)}{' '}<span class="dist-seg-name">{r.label}</span>{/if}</span>{/if}</span>
+        ><span class="dist-seg-text"><span class="dist-seg-value">{formatCount(r.value)}</span>{' '}<span class="dist-seg-name">{r.label}</span></span></span>
       {/each}
     </div>
     {/if}
@@ -270,6 +282,8 @@
     font-size: var(--text-xs); font-weight: 600; line-height: 1;
   }
   .dist-seg-value { font-variant-numeric: tabular-nums; }
+  /* What the slice's own measurement left room for (the script sets data-fit). */
+  .dist-seg:global([data-fit="value"]) .dist-seg-name, .dist-seg:global([data-fit="none"]) .dist-seg-text { display: none; }
   /* A dimmed slice keeps its colour at a third; its label would drop below AA, so it
      goes rather than being shown unreadable. */
   .dist-seg.dim .dist-seg-text { visibility: hidden; }
