@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -213,15 +214,23 @@ func TestProductMeta_SourceCountsSpanThePopulationTheListIsCutFrom(t *testing.T)
 		if i == 0 {
 			st = SourceUnavailable
 		}
-		snap.Sources = append(snap.Sources, SourceState{ID: fmt.Sprintf("src-%02d", i), Status: st})
+		kind := "oci"
+		if i%3 == 0 {
+			kind = "kubernetes"
+		}
+		snap.Sources = append(snap.Sources, SourceState{ID: fmt.Sprintf("src-%02d", i), Kind: kind, Status: st})
 	}
 	m := NewQuery(snap).ProductMeta()
 	if !m.SourcesTruncated || len(m.Sources) != MaxMetaSources {
 		t.Fatalf("sources = %d carried / truncated=%v, want the cut this test exists to survive",
 			len(m.Sources), m.SourcesTruncated)
 	}
-	want := SourceCounts{Total: MaxMetaSources + 11, Available: MaxMetaSources + 10, Unavailable: 1}
-	if m.SourceCounts != want {
+	// The available ones are also split by kind, over the same population: every
+	// third source (src-00, the unavailable one, aside) is a cluster.
+	clusters := (MaxMetaSources + 10) / 3
+	want := SourceCounts{Total: MaxMetaSources + 11, Available: MaxMetaSources + 10, Unavailable: 1,
+		AvailableByKind: []SourceKindCount{{Kind: "oci", Count: MaxMetaSources + 10 - clusters}, {Kind: "kubernetes", Count: clusters}}}
+	if !reflect.DeepEqual(m.SourceCounts, want) {
 		t.Errorf("sourceCounts = %+v, want %+v", m.SourceCounts, want)
 	}
 	var carriedUnavailable int
@@ -258,8 +267,8 @@ func TestProductMeta_SourceCountsSurviveAHealthBucketLargerThanTheCap(t *testing
 	}
 	m := NewQuery(snap).ProductMeta()
 
-	want := SourceCounts{Total: down + 1, Available: 1, Unavailable: down}
-	if m.SourceCounts != want {
+	want := SourceCounts{Total: down + 1, Available: 1, Unavailable: down, AvailableByKind: []SourceKindCount{{Count: 1}}}
+	if !reflect.DeepEqual(m.SourceCounts, want) {
 		t.Errorf("sourceCounts = %+v, want %+v", m.SourceCounts, want)
 	}
 	if !m.SourcesTruncated || len(m.Sources) != MaxMetaSources {

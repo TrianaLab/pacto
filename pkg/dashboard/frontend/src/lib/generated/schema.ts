@@ -2790,6 +2790,7 @@ export interface components {
         "Fleet.SourceCounts": {
             /** Format: int64 */
             available: number;
+            availableByKind?: components["schemas"]["Fleet.SourceKindCount"][] | null;
             /** Format: int64 */
             partial: number;
             /** Format: int64 */
@@ -2802,6 +2803,11 @@ export interface components {
         "Fleet.SourceError": {
             code: string;
             message: string;
+        };
+        "Fleet.SourceKindCount": {
+            /** Format: int64 */
+            count: number;
+            kind: string;
         };
         "Fleet.SourceState": {
             error?: components["schemas"]["Fleet.SourceError"];
@@ -3835,6 +3841,8 @@ export interface components {
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
+            /** Format: int64 */
+            owned?: number;
             owner?: string;
             parentService?: string;
             scope?: string;
@@ -5893,8 +5901,12 @@ export interface operations {
                 template?: "only" | "exclude";
                 /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list */
                 createdFrom?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first) or nonCompliant (owners and domains with the most non-compliant services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant";
+                /** @description Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities) */
+                hasNonCompliant?: boolean;
+                /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
+                sourceKind?: string;
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) or rate (owners and domains with the highest share of non-compliant services first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

@@ -51,14 +51,16 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key")
-	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first) or nonCompliant (owners and domains with the most non-compliant services first)")
+	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) or rate (owners and domains with the highest share of non-compliant services first)")
+	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
+	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate))
 	return cmd
 }
 
@@ -106,6 +108,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	nc, _ := cmd.Flags().GetBool("has-non-compliant")
 	kinds := fleet.ProductKinds()
 	if k := get("kind"); k != "" {
 		kinds = []string{k}
@@ -119,7 +122,8 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
-		Template: get("template"), CreatedFrom: get("created-from"), Limit: limit, Offset: offset,
+		Template: get("template"), CreatedFrom: get("created-from"),
+		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
 	}
 }
 

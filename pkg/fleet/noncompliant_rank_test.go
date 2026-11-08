@@ -118,18 +118,181 @@ func TestEntities_SortNonCompliant(t *testing.T) {
 	}
 }
 
-// A restricted view ranks only what the reader may see: hidden services are in no
-// row and no count.
+// A restricted view ranks only what the reader may see: in a partly hidden fleet the
+// hidden services leave every row and count, the visible ones stay, and the owner
+// list, its non-compliant filter and the rankings keep agreeing.
 func TestNonCompliantRankings_RestrictedView(t *testing.T) {
-	q := ownershipFleet(t)
-	setService(t, q, "agreed", StatusNonCompliant, "pay", false)
-	r := q.Restrict(func(string) bool { return false })
-	agg := entityAggregateOf(t, r, EntityFilter{Kinds: []EntityKind{KindService}})
-	rows := 0
-	for _, o := range agg.NonCompliantByOwner {
-		rows += o.NonCompliant
+	q := inventoryFleet(t,
+		inventoryRevision{service: "a1", owner: contract.Owner{Team: "alpha"}, target: "shop", compliance: StatusNonCompliant, domain: "pay"},
+		inventoryRevision{service: "a2", owner: contract.Owner{Team: "alpha"}, target: "hush", compliance: StatusNonCompliant, domain: "pay"},
+		inventoryRevision{service: "b1", owner: contract.Owner{Team: "beta"}, target: "hush", compliance: StatusNonCompliant, domain: "ops"},
+		inventoryRevision{service: "c1", owner: contract.Owner{Team: "gamma"}, target: "shop", domain: "ops"},
+	)
+	// The fixture's targets come from a local source; the view restricts by
+	// Kubernetes namespace.
+	for _, tg := range q.snap.Targets {
+		tg.Kind = SourceKindKubernetes
 	}
-	if rows+agg.NonCompliantBeyondRanking+agg.NonCompliantUnidentified != agg.ServiceCompliance.NonCompliant {
-		t.Errorf("restricted owner ranking does not partition %d: %+v", agg.ServiceCompliance.NonCompliant, agg)
+	r := q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+
+	full := entityAggregateOf(t, q, EntityFilter{Kinds: []EntityKind{KindService}})
+	if full.ServiceCompliance.NonCompliant != 3 || full.NonCompliantOwners != 2 {
+		t.Fatalf("unrestricted: %d non-compliant, %d owners", full.ServiceCompliance.NonCompliant, full.NonCompliantOwners)
+	}
+	agg := entityAggregateOf(t, r, EntityFilter{Kinds: []EntityKind{KindService}})
+	assertRestrictedRankings(t, agg)
+	owners, err := r.Entities(EntityFilter{Kinds: []EntityKind{KindOwner}, HasNonCompliant: true})
+	if err != nil || owners.Total != agg.NonCompliantOwners || owners.Entities[0].Key != "team:alpha" || owners.Entities[0].NonCompliant != 1 {
+		t.Errorf("restricted owners with a non-compliant service = %+v (%v)", owners, err)
+	}
+	all, _ := r.Entities(EntityFilter{Kinds: []EntityKind{KindOwner, KindDomain}})
+	for _, e := range all.Entities {
+		if e.Key == "team:beta" || (e.Key == "ops" && e.NonCompliant != 0) || (e.Key == "team:alpha" && e.Services != 1) {
+			t.Errorf("a hidden service shows in %+v", e)
+		}
+	}
+}
+
+// assertRestrictedRankings checks the rankings of the restricted view above: only a1,
+// alpha's one visible non-compliant service in pay, is counted.
+func assertRestrictedRankings(t *testing.T, agg EntityAggregate) {
+	t.Helper()
+	if agg.ServiceCompliance.NonCompliant != 1 || agg.NonCompliantOwners != 1 || agg.NonCompliantUnidentified != 0 {
+		t.Errorf("restricted: %d non-compliant, %d owners, %d unidentified", agg.ServiceCompliance.NonCompliant, agg.NonCompliantOwners, agg.NonCompliantUnidentified)
+	}
+	if want := []OwnerCount{{Key: "team:alpha", Label: "alpha", Kind: "team", Services: 1, Targets: 1, NonCompliant: 1}}; fmt.Sprint(agg.NonCompliantByOwner) != fmt.Sprint(want) {
+		t.Errorf("restricted owner ranking = %+v, want %+v", agg.NonCompliantByOwner, want)
+	}
+	if len(agg.NonCompliantByDomain) != 1 || agg.NonCompliantByDomain[0] != (DomainCount{Domain: "pay", Services: 1, NonCompliant: 1}) || agg.NonCompliantDomains != 1 {
+		t.Errorf("restricted domain ranking = %+v", agg.NonCompliantByDomain)
+	}
+}
+
+// An owner row counts the non-compliant services it owns outright, as the rank
+// figure does, so the owners the "has a non-compliant service" filter lists are the
+// ones the figure counts; a disputed service is no row's.
+func TestOwnerRows_CountWhatTheRankingCounts(t *testing.T) {
+	q := ownershipFleet(t)
+	setService(t, q, "disputed", StatusNonCompliant, "", false)
+	setService(t, q, "agreed", StatusNonCompliant, "", false)
+	agg := entityAggregateOf(t, q, EntityFilter{Kinds: []EntityKind{KindService}})
+	list, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindOwner}, HasNonCompliant: true})
+	if err != nil || list.Total != agg.NonCompliantOwners || list.Total != 1 || list.Entities[0].Key != "team:team-a" {
+		t.Fatalf("owners with a non-compliant service = %+v (%v), want team-a alone", list, err)
+	}
+	all, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindOwner}})
+	for _, e := range all.Entities {
+		if e.Key == "team:team-x" && (e.Services != 1 || e.Owned != 0 || e.NonCompliant != 0) {
+			t.Errorf("a disputing owner = %+v, want 1 claimed, 0 owned, 0 non-compliant", e)
+		}
+		if e.Key == "team:team-a" && (e.Owned != 1 || e.NonCompliant != 1 || e.RateBase() != 1) {
+			t.Errorf("team-a = %+v, want 1 owned and non-compliant", e)
+		}
+	}
+	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, HasNonCompliant: true}); err == nil {
+		t.Error("hasNonCompliant on services was accepted")
+	}
+}
+
+// sort=rate puts the highest share of non-compliant services first, then the most,
+// then by name; an owner's share is of the services it owns outright.
+func TestEntities_SortRate(t *testing.T) {
+	q := inventoryFleet(t,
+		inventoryRevision{service: "a1", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "a2", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "a3", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "b1", owner: contract.Owner{Team: "beta"}},
+		inventoryRevision{service: "c1", owner: contract.Owner{Team: "gamma"}},
+		inventoryRevision{service: "c2", owner: contract.Owner{Team: "gamma"}},
+		inventoryRevision{service: "d1", owner: contract.Owner{Team: "delta"}},
+		inventoryRevision{service: "d2", owner: contract.Owner{Team: "delta"}},
+		inventoryRevision{service: "e1", owner: contract.Owner{Team: "eps"}},
+		inventoryRevision{service: "e2", owner: contract.Owner{Team: "eps"}},
+		inventoryRevision{service: "e3", owner: contract.Owner{Team: "eps"}},
+		inventoryRevision{service: "e4", owner: contract.Owner{Team: "eps"}},
+	)
+	for name, st := range map[string]string{"a1": StatusNonCompliant, "a2": StatusNonCompliant, "a3": StatusCompliant, "b1": StatusNonCompliant,
+		"c1": StatusNonCompliant, "c2": StatusCompliant, "d1": StatusNonCompliant, "d2": StatusCompliant,
+		"e1": StatusNonCompliant, "e2": StatusNonCompliant, "e3": StatusCompliant, "e4": StatusCompliant} {
+		setService(t, q, name, st, "x", false)
+	}
+	list, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindOwner}, Sort: SortRate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range list.Entities {
+		got = append(got, fmt.Sprintf("%s:%d/%d", e.Label, e.NonCompliant, e.RateBase()))
+	}
+	// eps and delta share a rate; the one with more non-compliant services goes first.
+	if want := "[beta:1/1 alpha:2/3 eps:2/4 delta:1/2 gamma:1/2]"; fmt.Sprint(got) != want {
+		t.Errorf("owners by rate = %v, want %s", got, want)
+	}
+	d, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindDomain}, Sort: SortRate, HasNonCompliant: true})
+	if d.Total != 1 || d.Entities[0].RateBase() != 12 || d.Entities[0].NonCompliant != 7 {
+		t.Errorf("domains by rate = %+v", d.Entities)
+	}
+}
+
+// An owner list filtered by a business domain keeps the owners with a service there,
+// and a domain list filtered by an owner key the domains where that owner has one:
+// the "N more" links of the domain and owner pages.
+func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
+	q := inventoryFleet(t,
+		inventoryRevision{service: "a1", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "a2", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "b1", owner: contract.Owner{Team: "beta"}},
+		inventoryRevision{service: "n1", owner: contract.Owner{Team: "beta"}},
+	)
+	setService(t, q, "a1", StatusCompliant, "pay", false)
+	setService(t, q, "a2", StatusCompliant, "ops", false)
+	setService(t, q, "b1", StatusCompliant, "pay", false)
+	setService(t, q, "n1", StatusCompliant, "", false)
+	keys := func(f EntityFilter) string {
+		l, err := q.Entities(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range l.Entities {
+			out = append(out, e.Key)
+		}
+		return fmt.Sprint(out)
+	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: "ops", Sort: SortName}); got != "[team:alpha]" {
+		t.Errorf("owners in ops = %s", got)
+	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: NoBusinessDomain}); got != "[team:beta]" {
+		t.Errorf("owners with a service in no domain = %s", got)
+	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:alpha", Sort: SortName}); got != "[ops pay]" {
+		t.Errorf("domains of alpha = %s", got)
+	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:beta"}); got != "[pay]" {
+		t.Errorf("domains of beta = %s, want no row for the service with no domain", got)
+	}
+}
+
+// sourceKind keeps the sources of one kind, and the source counts split the
+// available ones by kind, so a per-kind tally and the list it opens agree.
+func TestEntities_SourceKind(t *testing.T) {
+	snap := &FleetSnapshot{Sources: []SourceState{
+		{ID: "reg-a", Kind: "oci", Status: SourceAvailable}, {ID: "reg-b", Kind: "oci", Status: SourceAvailable},
+		{ID: "cl-a", Kind: SourceKindKubernetes, Status: SourceAvailable}, {ID: "cl-b", Kind: SourceKindKubernetes, Status: SourceStale},
+	}}
+	q := NewQuery(snap)
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceKind: SourceKindKubernetes, SourceHealth: string(SourceAvailable)})
+	if err != nil || l.Total != 1 || l.Entities[0].Key != "cl-a" {
+		t.Fatalf("available clusters = %+v (%v)", l, err)
+	}
+	want := []SourceKindCount{{Kind: "oci", Count: 2}, {Kind: SourceKindKubernetes, Count: 1}}
+	if got := l.Meta.SourceCounts.AvailableByKind; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("available by kind = %v, want %v", got, want)
+	}
+	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, SourceKind: "oci"}); err == nil {
+		t.Error("sourceKind on services was accepted")
+	}
+	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceKind: "Not A Kind"}); err == nil {
+		t.Error("a malformed source kind was accepted")
 	}
 }

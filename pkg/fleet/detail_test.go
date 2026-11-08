@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -796,7 +797,7 @@ func TestRevisionPlaceAndEvidence(t *testing.T) {
 	if want := []string{"k8s", "files", "gone", "oci"}; !slices.Equal(ids, want) {
 		t.Errorf("evidence sources = %v, want %v", ids, want)
 	}
-	if want := (SourceCounts{Total: 4, Available: 1, Stale: 1, Unavailable: 1}); counts != want {
+	if want := (SourceCounts{Total: 4, Available: 1, Stale: 1, Unavailable: 1, AvailableByKind: []SourceKindCount{{Count: 1}}}); !reflect.DeepEqual(counts, want) {
 		t.Errorf("evidence counts = %+v, want %+v", counts, want)
 	}
 }
