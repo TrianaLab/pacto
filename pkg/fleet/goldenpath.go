@@ -214,7 +214,7 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 		sig := rev.Provenance.Signature
 		d.Signature = &sig
 	}
-	d.Instantiate, d.InstantiateReason = instantiation(s.Name, rev)
+	d.Instantiate, d.InstantiateReason = instantiation(rev)
 	return d
 }
 
@@ -230,7 +230,7 @@ func revisionSignature(r *ContractRevision) BundleSignature {
 // instantiation is how to create a service from rev: only from its
 // digest-pinned registry reference, so the copied command creates from the
 // bytes shown, or from the directory a file:// reference names.
-func instantiation(name string, rev *ContractRevision) (*TemplateInstantiation, string) {
+func instantiation(rev *ContractRevision) (*TemplateInstantiation, string) {
 	ref := ""
 	switch {
 	case strings.HasPrefix(rev.ResolvedRef, "oci://") && strings.Contains(rev.ResolvedRef, "@sha256:"):
