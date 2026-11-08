@@ -1,8 +1,12 @@
 package impact
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -278,12 +282,14 @@ func TestBuildProduct_CompatibilityAndBlocking(t *testing.T) {
 			{Service: "idle", Direct: true, Compatibility: "^1.0.0", CompatibilityVerdict: CompatibilityIncompatible},
 		},
 	}
+	// Both are incompatible; the blocking one ranks first among the highlights, so it
+	// is listed first.
 	items := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 0, 0).Consumers.Items
-	if items[0].Service.Key != "idle" || items[0].Blocking || items[0].Compatibility != "^1.0.0" {
-		t.Errorf("untargeted consumer = %+v", items[0])
+	if items[1].Service.Key != "idle" || items[1].Blocking || items[1].Compatibility != "^1.0.0" {
+		t.Errorf("untargeted consumer = %+v", items[1])
 	}
-	if items[1].Service.Key != "ran" || !items[1].Blocking {
-		t.Errorf("targeted incompatible consumer must block: %+v", items[1])
+	if items[0].Service.Key != "ran" || !items[0].Blocking {
+		t.Errorf("targeted incompatible consumer must block: %+v", items[0])
 	}
 	if active, _ := res.blockingConsumers(); len(active) != 1 || active[0] != "ran" {
 		t.Errorf("gate names %v, want [ran]", active)
@@ -368,7 +374,7 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 		Revisions: []fleet.RawRevision{
 			{Bundle: mkBundle(auth)},
 			{Bundle: mkBundle(svcContract("seen", "1.0.0", contract.Owner{}, dep))},
-			{Bundle: mkBundle(svcContract("secret", "1.0.0", contract.Owner{}, dep))},
+			{Bundle: mkBundle(svcContract("secret", "1.0.0", contract.Owner{Team: "vault-team"}, dep))},
 		},
 		Targets: []fleet.RawTarget{
 			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant},
@@ -389,6 +395,58 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 	page := BuildProduct(q.ProductMeta(), snap, svc, rev, rev, res, 0, 0).Consumers
 	if page.Hidden != 1 || page.Total != 1 || page.Items[0].Service.Label != "seen" {
 		t.Errorf("hidden %d, total %d, items %+v", page.Hidden, page.Total, page.Items)
+	}
+	// The tallies come from the caller's view too: the hidden consumer is in no
+	// outcome bucket and its owner is never named.
+	sum := 0
+	for _, b := range page.ByOutcome {
+		sum += b.Count
+	}
+	if sum != 1 || page.Owners != 0 || len(page.ByOwner) != 0 || page.NoOwner != 1 || page.BeyondRanking != 0 {
+		t.Errorf("tallies under restrict = %+v", page.ConsumerTallies)
+	}
+	if b, _ := json.Marshal(page); bytes.Contains(b, []byte("secret")) || bytes.Contains(b, []byte("vault-team")) {
+		t.Errorf("the restricted page names a hidden consumer: %s", b)
+	}
+}
+
+// The table lists consumers as the figure reads them: by outcome, the highlighted
+// ones first within each, then by key. A filtered page keeps one outcome and says how
+// many match, while every tally still covers every consumer.
+func TestBuildProduct_OutcomeOrderAndFilter(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	res := &Result{Classification: "BREAKING", Consumers: []AffectedConsumer{
+		{Service: "a-ok", CompatibilityVerdict: CompatibilityCompatible},
+		{Service: "b-ok-hl", Direct: true, CompatibilityVerdict: CompatibilityCompatible},
+		{Service: "c-unk", CompatibilityVerdict: CompatibilityUnknown},
+		{Service: "d-refused", CompatibilityVerdict: CompatibilityCompatible, Unmet: []contract.Mismatch{{Guarantee: "g"}}},
+		{Service: "e-novel", CompatibilityVerdict: "novel"},
+		{Service: "f-bad", CompatibilityVerdict: CompatibilityIncompatible},
+		{Service: "g-bad-hl", Direct: true, CompatibilityVerdict: CompatibilityIncompatible},
+	}}
+	keys := func(items []ProductConsumer) []string {
+		out := make([]string, 0, len(items))
+		for _, c := range items {
+			out = append(out, c.Service.Key)
+		}
+		return out
+	}
+	all := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 0, 0).Consumers
+	want := []string{"g-bad-hl", "d-refused", "f-bad", "c-unk", "b-ok-hl", "a-ok", "e-novel"}
+	if got := keys(all.Items); !slices.Equal(got, want) || all.Matching != 7 || all.Outcome != "" {
+		t.Errorf("order = %v (matching %d), want %v", got, all.Matching, want)
+	}
+	inc := BuildProductOutcome(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 2, 0, OutcomeIncompatible).Consumers
+	if got := keys(inc.Items); !slices.Equal(got, []string{"g-bad-hl", "d-refused"}) || inc.Matching != 3 || inc.Total != 7 ||
+		inc.Outcome != OutcomeIncompatible || inc.NextOffset == nil || *inc.NextOffset != 2 {
+		t.Errorf("incompatible page = %v, matching %d, total %d, next %v", got, inc.Matching, inc.Total, inc.NextOffset)
+	}
+	if !reflect.DeepEqual(inc.ConsumerTallies, all.ConsumerTallies) || len(inc.Highlights) != len(all.Highlights) {
+		t.Errorf("a filter changed the tallies: %+v vs %+v", inc.ConsumerTallies, all.ConsumerTallies)
+	}
+	if !IsOutcome(OutcomeUnclassified) || IsOutcome("refused") || IsOutcome("") {
+		t.Error("IsOutcome accepts exactly the four outcomes")
 	}
 }
 

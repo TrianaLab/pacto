@@ -67,9 +67,16 @@ type TallyBucket struct {
 	Count int    `json:"count"`
 }
 
-// ConsumersPage is a stable, offset-paged consumer answer.
+// ConsumersPage is a stable, offset-paged consumer answer. Items are ordered by
+// outcome (incompatible, unknown, compatible, unclassified), the highlighted
+// consumers first within each outcome in their ranked order, then by key.
 type ConsumersPage struct {
-	Total      int               `json:"total"`
+	Total int `json:"total"`
+	// Outcome is the outcome Items are filtered to, when the caller asked for one.
+	Outcome string `json:"outcome,omitempty"`
+	// Matching counts the consumers Items page over: Total, or the consumers whose
+	// outcome is Outcome when the page is filtered. Every tally still covers Total.
+	Matching   int               `json:"matching"`
 	Count      int               `json:"count"`
 	Limit      int               `json:"limit"`
 	Offset     int               `json:"offset"`
@@ -217,6 +224,17 @@ func mutableRefDescription(rev *fleet.ContractRevision) string {
 // bounds every list. SnapshotMatch is true because the caller analyzed only the
 // immutable content [ImmutableRef] returned, over this snapshot.
 func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int) *Product {
+	return BuildProductOutcome(meta, snap, svcKey, fromRev, toRev, res, limit, offset, "")
+}
+
+// IsOutcome reports whether s names a consumer outcome a page can be filtered to.
+func IsOutcome(s string) bool { return slices.Contains(outcomeOrder, s) }
+
+// BuildProductOutcome is [BuildProduct] with the consumer page filtered to one
+// outcome (see [IsOutcome]); "" pages over every consumer. The tallies, the
+// highlights and Total always cover every consumer, so a drawing made from them is
+// the same whichever filter the table below it shows.
+func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int, outcome string) *Product {
 	consumers := make([]ProductConsumer, 0, len(res.Consumers))
 	for _, c := range res.Consumers {
 		path := pathRefs(snap, c.Path)
@@ -269,7 +287,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
 		Changes:        boundChanges(res),
-		Consumers:      pageConsumers(consumers, limit, offset, hidden),
+		Consumers:      pageConsumersOutcome(consumers, limit, offset, hidden, outcome),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
@@ -287,7 +305,12 @@ var completenessRank = map[fleet.Completeness]int{
 // and a next-offset cursor. hidden is the count of direct consumers the viewer may
 // not see.
 func pageConsumers(all []ProductConsumer, limit, offset, hidden int) ConsumersPage {
-	pg := fleet.Paginate(all, limit, offset, DefaultProductConsumers, MaxProductConsumers)
+	return pageConsumersOutcome(all, limit, offset, hidden, "")
+}
+
+// pageConsumersOutcome is pageConsumers over the consumers of one outcome ("" for
+// all). all must be sorted by key.
+func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outcome string) ConsumersPage {
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
@@ -303,15 +326,55 @@ func pageConsumers(all []ProductConsumer, limit, offset, hidden int) ConsumersPa
 	}
 	// all is sorted by key, so a stable sort by rank keeps key as the tiebreak.
 	sort.SliceStable(direct, func(i, j int) bool { return highlightRank(direct[i]) < highlightRank(direct[j]) })
+	highlights := direct[:min(len(direct), MaxHighlights)]
+	listed := orderByOutcome(all, highlights, outcome)
+	pg := fleet.Paginate(listed, limit, offset, DefaultProductConsumers, MaxProductConsumers)
 	return ConsumersPage{
 		Refused: refused, Direct: len(direct), Hidden: hidden,
-		Highlights: direct[:min(len(direct), MaxHighlights)],
-		Total:      len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
+		Highlights: highlights,
+		Total:      len(all), Outcome: outcome, Matching: len(listed),
+		Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		ByVerdict:       tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
 		ByConfidence:    tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
 		ConsumerTallies: tallyProductConsumers(all),
 	}
+}
+
+// orderByOutcome keeps the consumers of one outcome ("" for all) and orders them as
+// the figure reads: by outcome, the highlighted ones first within each in their
+// ranked order, then by key (all is sorted by key and the sort is stable).
+func orderByOutcome(all, highlights []ProductConsumer, outcome string) []ProductConsumer {
+	rank := make(map[string]int, len(highlights))
+	for i, h := range highlights {
+		rank[h.Service.Key] = i
+	}
+	pos := func(c ProductConsumer) (int, int) {
+		r, ok := rank[c.Service.Key]
+		if !ok {
+			r = len(highlights)
+		}
+		return slices.Index(outcomeOrder, consumerOutcome(c)), r
+	}
+	out := make([]ProductConsumer, 0, len(all))
+	for _, c := range all {
+		if outcome == "" || consumerOutcome(c) == outcome {
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		oi, ri := pos(out[i])
+		oj, rj := pos(out[j])
+		if oi != oj {
+			return oi < oj
+		}
+		return ri < rj
+	})
+	return out
+}
+
+func consumerOutcome(c ProductConsumer) string {
+	return outcomeOf(c.CompatibilityVerdict, len(c.Unmet) > 0)
 }
 
 // highlightRank orders consumers worth drawing: blocking, other broken

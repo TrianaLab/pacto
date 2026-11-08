@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"fmt"
 	"net/http"
 	"strings"
@@ -327,7 +328,8 @@ func postJSON(t *testing.T, url string, body any, wantStatus int, into any) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != wantStatus {
-		t.Fatalf("POST %s: expected %d, got %d", url, wantStatus, resp.StatusCode)
+		msg, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST %s: expected %d, got %d: %s", url, wantStatus, resp.StatusCode, msg)
 	}
 	if into != nil {
 		if err := json.NewDecoder(resp.Body).Decode(into); err != nil {

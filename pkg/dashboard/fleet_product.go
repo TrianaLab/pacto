@@ -316,6 +316,7 @@ type impactRequest struct {
 	IncludeObserved bool   `json:"includeObserved,omitempty"`
 	Limit           int    `json:"limit,omitempty" doc:"Max consumers per page (negatives rejected; excessive values capped)"`
 	Offset          int    `json:"offset,omitempty" doc:"Consumer page offset (negatives rejected)"`
+	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified" doc:"List only the consumers of this outcome; the tallies still cover every consumer"`
 }
 
 type fleetImpactPostInput struct {
@@ -365,7 +366,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if res.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot changed during analysis; refetch and retry")
 	}
-	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset))}, nil
+	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset, b.Outcome))}, nil
 }
 
 // productQueryError maps a product-query error to HTTP: absent → 404, a document

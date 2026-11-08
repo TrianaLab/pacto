@@ -2921,6 +2921,11 @@ export interface components {
              * @description Consumer page offset (negatives rejected)
              */
             offset?: number;
+            /**
+             * @description List only the consumers of this outcome; the tallies still cover every consumer
+             * @enum {string}
+             */
+            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified";
             serviceKey?: string;
             /** @description The snapshot the client analyzed; a mismatch with the published snapshot is rejected */
             snapshotId?: string;
@@ -3357,11 +3362,14 @@ export interface components {
             /** Format: int64 */
             limit: number;
             /** Format: int64 */
+            matching: number;
+            /** Format: int64 */
             nextOffset?: number;
             /** Format: int64 */
             noOwner: number;
             /** Format: int64 */
             offset: number;
+            outcome?: string;
             /** Format: int64 */
             owners: number;
             /** Format: int64 */
