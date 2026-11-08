@@ -8,8 +8,10 @@
   import DeliveryBadges from './DeliveryBadges.svelte';
   import DeliveryProblem from './DeliveryProblem.svelte';
   import DeliveryUnavailable from './DeliveryUnavailable.svelte';
+  import PromotionFigure from './figure/PromotionFigure.svelte';
 
-  // A service's Stages on its page, with the same badges as the Delivery board.
+  // A service's Stages on its page: its own promotion path as a figure (SPEC 21),
+  // then each Stage with the same badges as the Delivery board.
   // `state` is whether this dashboard serves delivery: only 'enabled' asks.
   // `domain` is the service's registry domain: same-named services in two
   // domains are two services, and a Stage naming one is not the other's.
@@ -56,6 +58,7 @@
 
 <PreviewSection title="Delivery" count={rows.length} total={rows.length} {emptyBody}
   help="The Stages of this service: the version each environment runs and whether it is verified, failed, frozen or waiting.">
+  {#if data?.promotion?.nodes?.length}<PromotionFigure {service} graph={data.promotion} {rows} id="svc-promo" />{/if}
   {#each rows as r (r.namespace + '/' + r.stage)}
     <div class="sd-row" data-testid="service-delivery-row">
       <span class="sd-env">{r.environment}</span>

@@ -533,7 +533,7 @@ describe('environments', () => {
     a.destroy();
     const b = render(DeliveryEnvironmentsView, { tier: 'dev', q: 'x' });
     await settle();
-    expect(text(b.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see matches “x” has a Stage in a dev environment.');
+    expect(text(b.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see matches “x” has a Stage in an environment named like dev.');
     b.destroy();
   });
 

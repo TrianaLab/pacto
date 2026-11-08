@@ -6,6 +6,10 @@ import ChangeFigure from './ChangeFigure.svelte';
 import InboxFigure from './InboxFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import Station from './Station.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import EnvFleetFigure from './EnvFleetFigure.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import PromotionFigure from './PromotionFigure.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -144,6 +148,58 @@ describe('Station', () => {
     const { target, c } = render(Station, { a: 'p0', m: 'p0' }, false);
     expect([...target.querySelectorAll('[data-a]')].map((x) => x.getAttribute('data-a'))).toEqual(['p0-t', 'p0-l', 'p0-r', 'p0-b']);
     expect(target.textContent!.trim()).toBe('');
+    unmount(c);
+  });
+});
+
+describe('EnvFleetFigure', () => {
+  const byEnvironment = [
+    { environment: 'test', tier: 'test', stages: 3, failed: 0, frozen: 0, autoHold: 0, waiting: 0, unverified: 1, empty: 0, verified: 2, upstream: [] },
+    { environment: 'prod', tier: 'prod', stages: 2, failed: 1, frozen: 1, autoHold: 0, waiting: 0, unverified: 0, empty: 0, verified: 0, upstream: ['test'] },
+  ];
+  const href = (st: string, env: string) => `#/delivery/environments?state=${st}&environment=${env}`;
+
+  it('draws neutral stations and links every count to the board filtered to it (S10, T3)', async () => {
+    const { target, c } = render(EnvFleetFigure, { byEnvironment, href, partial: true }, false);
+    await settle();
+    expect([...target.querySelectorAll('.stn')].map((x) => x.getAttribute('class'))).toEqual(['stn mk t-neutral', 'stn mk t-neutral']);
+    expect([...target.querySelectorAll('.envc a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['1', href('unverified', 'test')], ['2', href('verified', 'test')], ['1', href('failed', 'prod')], ['1', href('frozen', 'prod')]]);
+    expect(target.querySelector('.envc .qglyph.unk')).toBeTruthy();
+    expect(target.querySelector('.queue-h')?.textContent).toBe('3 Stages, named like test');
+    expect(target.querySelector('figcaption')?.textContent).toContain('5 Stages in 2 environments: 1 failed, 0 waiting for a person and 1 frozen.');
+    expect(target.querySelector('.fig-aside')?.textContent).toContain('Partial: namespaces you cannot list are not counted');
+    expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
+  });
+});
+
+describe('PromotionFigure', () => {
+  const graph = {
+    nodes: [
+      { namespace: 'dev', stage: 'pay', environment: 'dev', level: 0, upstream: { kind: 'artifact', repository: 'pay-candidates' } },
+      { namespace: 'prod', stage: 'pay', environment: 'prod', level: 1, upstream: { kind: 'stage', namespace: 'dev', stage: 'pay', environment: 'dev' } },
+      { namespace: 'dr', stage: 'pay', environment: 'dr', level: 0, upstream: { kind: 'none' } },
+    ],
+    edges: [{ from: 'dev/pay', to: 'prod/pay' }],
+  };
+  const rows = [
+    { namespace: 'dev', stage: 'pay', service: 'pay', environment: 'dev', pointer: FROM, version: '2.0.1', verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [] },
+    { namespace: 'prod', stage: 'pay', service: 'pay', environment: 'prod', pointer: FROM, version: '2.0.0', verified: true, failed: false, frozen: true, autoHold: false, held: 0, actions: [] },
+  ];
+
+  it('draws the service\'s own path, its entry and a hatched source it cannot follow (SPEC 21)', async () => {
+    const { target, c } = render(PromotionFigure, { service: 'pay', graph, rows }, false);
+    await settle();
+    expect(target.querySelector('.fig-q')?.textContent).toBe('Where is pay on its way to production?');
+    expect([...target.querySelectorAll('[data-testid="promotion-station"] .pg-l > b')].map((b) => b.textContent)).toEqual(['dev', 'prod', 'dr']);
+    expect(target.querySelector('.pg-src:not(.pg-unk)')?.textContent).toContain('New artifacts');
+    expect(target.querySelector('.pg-unk .nd.unk')).toBeTruthy();
+    expect(target.querySelector('.pg-unk [data-a]')).toBeNull();
+    expect(target.querySelector('.stamp.t-frost')?.textContent).toBe('Frozen');
+    expect(target.querySelectorAll('.stn.t-neutral')).toHaveLength(3);
+    expect(target.textContent).toContain('not on this page of the board');
+    expect(target.querySelector('figure svg text')).toBeNull();
     unmount(c);
   });
 });

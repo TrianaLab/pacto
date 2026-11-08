@@ -22,43 +22,52 @@
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import { cap } from '../lib/cap.svelte.ts';
+  import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
+  import PromotionFigure from '../components/figure/PromotionFigure.svelte';
+  import { ENV_STATES } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
   // from here, through a plan. The board pages by service on the server and
   // keeps every environment as a column on every page. Past a few columns
-  // each service is one row of status dots, one per environment, under a
-  // rotated name and its tier; a dot opens the full cell.
-  let { offset = '', limit = '', q = '', environment = '', tier = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
+  // each service is one row of status dots, one per environment, under its
+  // name and the tier its name says; a dot opens the full cell. Above it, a
+  // figure: every environment's Stages by state, or with one service, that
+  // service's own promotion path (SPEC 21).
+  let { offset = '', limit = '', q = '', environment = '', tier = '', state: stateFilter = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
 
   const loader = createProductLoader(() => api.deliveryEnvironments({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     environment: environment || undefined, tier: tier || undefined, service: service || undefined, domain: domain || undefined,
+    // The router passes any string; the server refuses a state it does not know.
+    state: /** @type {any} */ (stateFilter || undefined),
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${domain}/${service}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${domain}/${service}`);
+  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${stateFilter}@@${domain}/${service}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
   const answer = $derived(loader.answer(question, listQuestion));
   const data = $derived(answer.data);
   const rows = $derived(data?.environments ?? []);
-  // The server orders environments the way changes travel and filters the
-  // rows; the columns follow the same environment and tier.
+  // The server orders environments as the Stages declare their upstreams and
+  // filters the rows; the columns follow the same environment and tier.
   const environments = $derived(data?.environmentNames ?? [...new Set(rows.map((r) => r.environment))]);
   const tiers = $derived(data?.environmentTiers ?? {});
   const shown = $derived(environment ? [environment] : tier ? environments.filter((e) => tiers[e] === tier) : environments);
   const tierOptions = $derived(['dev', 'test', 'prod'].filter((t) => Object.values(tiers).includes(t)));
-  const filtered = $derived(!!(q || environment || tier || service));
-  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, service, domain, ...over }); };
+  const filtered = $derived(!!(q || environment || tier || stateFilter || service));
+  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, ...over }); };
+  // A figure count lands on the board filtered to its state and environment.
+  const stateHref = (st, env) => deliveryEnvironmentsUrl({ q, service, domain, state: st, environment: env || undefined });
   // A column a person can read is 12rem: past four the board becomes the strip.
   // The strip's columns are one dot wide and fit their content, so the State
   // column takes the rest; 50 environments scroll sideways like the board does.
   const BOARD_MAX = 4;
   const strip = $derived(shown.length > BOARD_MAX);
-  // The strip's groups: consecutive environments of one tier (the server
-  // orders them dev, test, prod, then the names it cannot place).
+  // The strip's groups: consecutive environments whose names say one tier, in
+  // the server's declared order.
   const groups = $derived(shown.reduce((gs, e) => {
     const t = tiers[e] ?? '';
     if (gs.at(-1)?.tier === t) gs.at(-1).envs.push(e); else gs.push({ tier: t, envs: [e] });
@@ -110,7 +119,7 @@
     return m;
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
-  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, service, domain, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   // The '–' key is only worth reading when a '–' cell is on the page.
   const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
@@ -191,9 +200,9 @@
     {/if}
   </PageHeader>
   <DeliveryNav current="delivery-environments" />
-  <DeliveryServiceFilter {service} {domain} clear={deliveryEnvironmentsUrl({ q, environment, tier })} />
+  <DeliveryServiceFilter {service} {domain} clear={deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter })} />
   <div class="ev-tools">
-    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
+    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, state: stateFilter, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
     <span class="ev-picks">
       {#if tierOptions.length > 1 || tier}
         <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '' })} />
@@ -201,6 +210,7 @@
       {#if environments.length > 1 || environment}
         <Select label="Environment" value={environment} options={[{ value: '', label: 'Every environment' }, ...environments]} onchange={(e) => go({ environment: e.currentTarget.value, tier: '' })} />
       {/if}
+      <Select label="State" value={stateFilter} options={[{ value: '', label: 'Any state' }, ...ENV_STATES.map((s) => ({ value: s.key, label: s.word[0].toUpperCase() + s.word.slice(1) }))]} onchange={(e) => go({ state: e.currentTarget.value })} />
     </span>
   </div>
 
@@ -210,8 +220,13 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if service && data.promotion?.nodes?.length}
+      <PromotionFigure {service} graph={data.promotion} {rows} />
+    {:else if !service && data.counts?.byEnvironment?.length}
+      <EnvFleetFigure byEnvironment={data.counts.byEnvironment} href={stateHref} partial={data.completeness === 'partial'} asOf={timeLabel(data.asOf)} />
+    {/if}
     {#if rows.length === 0 && filtered}
-      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
+      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in an environment named like ${tier}` : ''}{stateFilter ? ` has a Stage that is ${ENV_STATES.find((x) => x.key === stateFilter)?.word ?? stateFilter}` : ''}.</p></div>
     {:else if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No Stages yet</h2>

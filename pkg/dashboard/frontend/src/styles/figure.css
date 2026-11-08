@@ -91,6 +91,7 @@
 .stamp.t-warn { color: var(--c-warn); }
 .stamp.t-ok { color: var(--c-ok); }
 .stamp.t-accent { color: var(--c-accent); }
+.stamp.t-frost { color: var(--c-info); }
 
 /* Chips: identities in a lane. Shown whole, elided (C6) or folded into "N more". */
 .badge.chip { flex: none; min-width: 0; max-width: 100%; background: color-mix(in srgb, var(--tone, var(--c-neutral)) 8%, var(--c-surface)); color: var(--tone, var(--c-text-2)); border-color: color-mix(in srgb, var(--tone, var(--c-neutral)) 45%, transparent); text-decoration: none; }
@@ -235,3 +236,27 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 /* A folded chip or an empty list link is gone, whatever display its class sets. */
 .fig [hidden] { display: none !important; }
+
+/* Environments (SPEC 7, 21): the fleet stations' share bar and counts, and one service's
+   own promotion graph (columns are links from an entry; a fork stacks in one column). */
+.sbar { display: flex; gap: 1px; height: 10px; border-radius: 2px; overflow: hidden; background: var(--c-surface-inset); box-shadow: inset 0 0 0 1px var(--c-border); }
+.sbar i { display: block; flex: 1 1 0; min-width: 2px; background: var(--tone); }
+.sbar i.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
+.sbar i.t-frost { background: var(--c-frost), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-info); }
+.envc { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.envc li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); min-width: 0; }
+.envc a { text-decoration: none; }
+.envc a b { color: var(--c-accent); }
+.envc a:hover b { text-decoration: underline; }
+.qglyph.unk circle { fill: url(#fig-hatch); stroke: var(--c-neutral); }
+.qglyph.unk path { stroke: var(--c-text); }
+.pgraph { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: var(--sp-5) var(--sp-5); align-items: start; }
+.pg-st, .pg-src { display: grid; justify-items: center; align-content: start; gap: var(--sp-2); min-width: 0; text-align: center; }
+.pg-src { padding-top: 0; }
+.pg-l { display: grid; gap: 2px; justify-items: center; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.pg-run { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--sp-2); }
+.pg-run .stamp { font-size: var(--text-xs); padding: 2px 6px; }
+.fig[data-w="col"] .pgraph { grid-template-columns: minmax(0, 1fr); }
+.fig[data-w="col"] .pg-st, .fig[data-w="col"] .pg-src { grid-column: 1 !important; grid-row: auto !important; grid-template-columns: 96px minmax(0, 1fr); justify-items: start; text-align: left; }
+.fig[data-w="col"] .pg-src { grid-template-columns: 28px minmax(0, 1fr); }
+.fig[data-w="col"] .pg-l, .fig[data-w="col"] .pg-run { justify-items: start; justify-content: flex-start; }
