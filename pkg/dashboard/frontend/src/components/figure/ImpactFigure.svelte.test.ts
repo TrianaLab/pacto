@@ -1,0 +1,84 @@
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { mount, unmount, flushSync } from 'svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import ImpactFigure from './ImpactFigure.svelte';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+type Any = any;
+const consumer = (key: string, o: Any = {}): Any => ({
+  service: { kind: 'service', key, label: key, href: `/fleet/services/${key}` },
+  path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'unknown', ...o,
+});
+const impact = (): Any => ({
+  meta: { completeness: 'partial', asOf: '2026-11-07T14:04:00Z', sourceCounts: { total: 50, available: 48, partial: 0, stale: 0, unavailable: 2 } },
+  service: { kind: 'service', key: 'payments-service', label: 'payments-service', href: '/fleet/services/payments-service' },
+  oldRevision: { kind: 'revision', key: 'p@1', label: 'p 2.0.1', version: '2.0.1', href: '' },
+  newRevision: { kind: 'revision', key: 'p@2', label: 'p 3.0.0', version: '3.0.0', href: '' },
+  classification: 'BREAKING', gate: 'blocked', gateReason: 'breaking changes affect active consumers', snapshotId: 's', snapshotMatch: true,
+  changes: { total: 1, count: 1, breaking: 1, potential: 0, nonBreaking: 0, truncated: false, items: [] },
+  consumers: {
+    total: 1284, direct: 412, hidden: 3, refused: 5, count: 0, limit: 100, offset: 0, truncated: false, items: [], byVerdict: [], byConfidence: [],
+    byOutcome: [{ key: 'incompatible', count: 37 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1189 }, { key: 'unclassified', count: 6 }],
+    byOwner: [{ owner: 'team-a', consumers: 40, incompatible: 9 }], beyondRanking: 1200, noOwner: 44, owners: 120,
+    highlights: [consumer('checkout-web', { compatibilityVerdict: 'incompatible', blocking: true }), consumer('refunds-worker', { compatibilityVerdict: 'incompatible' }), consumer('search-scheduler')],
+  },
+});
+
+function render(reduced: boolean) {
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: reduced && q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const c = mount(ImpactFigure, { target, props: { impact: impact(), autoplay: true } });
+  return { target, c };
+}
+
+afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; });
+
+describe('ImpactFigure', () => {
+  it('renders the same drawing as its final frame and under reduced motion (G2)', async () => {
+    const a = render(false);
+    await vi.waitFor(() => expect(a.target.querySelector('.ring-on')).toBeTruthy());
+    const b = render(true);
+    await vi.waitFor(() => expect(b.target.querySelector('.ring-on')).toBeTruthy());
+    const stage = (t: HTMLElement) => t.querySelector('.fig-stage')!.innerHTML;
+    expect(stage(b.target)).toBe(stage(a.target));
+    expect(b.target.querySelector('.nar-hid')).toBeNull();
+    expect(b.target.textContent).toContain('Step 4 of 4');
+    expect(a.target.querySelector('[data-narration]')?.getAttribute('data-narration')).not.toBe('playing');
+    // Skip is disabled whenever nothing plays; reduced motion steps instead of replaying.
+    const skip = [...a.target.querySelectorAll('button')].find((x) => x.textContent === 'Skip to final frame') as HTMLButtonElement;
+    expect(skip.disabled).toBe(true);
+    expect([...b.target.querySelectorAll('button')].map((x) => x.textContent)).toEqual(expect.arrayContaining(['Previous', 'Next']));
+    unmount(a.c); unmount(b.c);
+  });
+
+  it('steps back through the story under reduced motion, hiding what has not happened yet', async () => {
+    const { target, c } = render(true);
+    await vi.waitFor(() => expect(target.querySelector('.ring-on')).toBeTruthy());
+    ([...target.querySelectorAll('button')].find((x) => x.textContent === 'Previous') as HTMLButtonElement).click();
+    flushSync();
+    expect(target.textContent).toContain('Step 3 of 4');
+    expect(target.querySelector('[data-m="gate"]')?.classList.contains('nar-hid')).toBe(true);
+    expect(target.querySelector('.ring-on')).toBeNull();
+    unmount(c);
+  });
+
+  it('puts words in HTML only, rings one chip and states the answer in the card', async () => {
+    const { target, c } = render(false);
+    await vi.waitFor(() => expect(target.querySelector('.ring-on')).toBeTruthy());
+    expect(target.querySelector('figure svg text')).toBeNull();
+    expect(target.querySelectorAll('[data-ring]')).toHaveLength(1);
+    expect(target.querySelector('[data-ring]')?.getAttribute('title')).toBe('checkout-web');
+    expect(target.querySelectorAll('.lane')).toHaveLength(5);
+    expect([...target.querySelectorAll('.lane-name')].map((n) => n.textContent)).toEqual(['Incompatible', 'Unknown', 'Compatible', 'Hidden from you', 'Unclassified']);
+    expect(target.querySelectorAll('.opencap')).toHaveLength(4);
+    expect(target.querySelector('.lane-sub')?.textContent).toContain('5 of them refuse a required guarantee');
+    expect(target.querySelector('[data-testid="impact-gate"]')?.textContent).toContain('Release gate, decided by this lane');
+    const card = target.querySelector('[data-testid="changes-answer"]')!.textContent!.replace(/\s+/g, ' ');
+    expect(card).toContain('At least 1,284: 412 direct, 872 indirect. Consumers known only to the 2 unavailable sources are not counted.');
+    expect(card).toContain('team-a (40, 9 incompatible); 1,200 more consumers of other owners; 44 with no identified owner');
+    expect(card).toContain('3, not counted and never named');
+    expect(target.querySelector('figcaption')?.textContent).toContain('If this revision is published, it breaks 37 of at least 1,284 consumers');
+    unmount(c);
+  });
+});

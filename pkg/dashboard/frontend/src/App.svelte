@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { finishNarrations } from './lib/narrate.ts';
   import { parseHash, legacyRedirectTarget, replaceHash, fleetOverviewUrl } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
   import { toggleTheme } from './lib/theme.svelte.ts';
@@ -87,6 +88,8 @@
   let reloadInterval = POLL_FAST; // the currently-active poll interval (ms)
 
   function onHashChange() {
+    // A narration never outlives its page: end every one before the next route renders.
+    finishNarrations();
     route = parseHash(location.hash);
     // Reflect external hash changes (back/forward, shared links) into the shared
     // filter store so the views' filtered set stays in sync with the URL.
@@ -288,6 +291,12 @@
   });
 </script>
 
+<!-- The figures' one hatch pattern (SPEC 3.1): unknown, partial and hidden marks fill
+     with it; their solid neutral edge carries the contrast. -->
+<svg class="fig-defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs><pattern id="fig-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="6" height="6" fill="var(--c-iso-face)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern></defs>
+</svg>
 {#if auth.loaded && !gated}
 <Navbar
   {services}
@@ -565,6 +574,7 @@
     color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
   }
   .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
+  .fig-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
   .app-loading { color: var(--c-text-3); padding: var(--sp-4) 0; }
   .permissions-note {
     margin: 0; padding: var(--sp-2) var(--sp-3); text-align: center;

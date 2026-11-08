@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
-  changeSegments, verdictSegments, confidenceSegments, segmentTotal,
+  changeSegments, verdictSegments, confidenceSegments, outcomeSegments, segmentTotal,
   COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel, signatureSegments, signatureState,
   ownershipSegments, readinessSegments, canonicalRank, type Segment,
 } from './distributions.ts';
@@ -45,9 +45,10 @@ describe('complianceSegments', () => {
       ...complianceSegments({}), ...severitySegments({}), ...signatureSegments({}),
       ...evidenceSegments({}),
       ...verdictSegments([{ key: 'unknown', count: 1 }]), ...confidenceSegments([{ key: 'unknown', count: 1 }]),
+      ...outcomeSegments([{ key: 'unknown' }, { key: 'unclassified' }]),
     ];
     const hatched = all.filter((x) => x.hatch);
-    expect(hatched.length).toBeGreaterThanOrEqual(6);
+    expect(hatched.length).toBeGreaterThanOrEqual(8);
     for (const x of hatched) expect(x.tone, x.label).toBe('neutral');
   });
 

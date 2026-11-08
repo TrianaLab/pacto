@@ -447,6 +447,17 @@ const VERDICT_META: Meta = {
   compatible: { label: 'Compatible', tone: 'ok' },
 };
 
+// Outcomes are the backend's DISJOINT partition of the consumers (byOutcome): a consumer
+// that refuses a required guarantee is incompatible whatever its range accepts, so the
+// buckets sum to the total and can be drawn as lanes. Unclassified is a verdict the
+// engine does not recognize: a shortfall, hatched like unknown.
+const OUTCOME_META: Meta = {
+  incompatible: { label: 'Incompatible', tone: 'err' },
+  unknown: { label: 'Unknown', tone: 'neutral', hatch: true },
+  compatible: { label: 'Compatible', tone: 'ok' },
+  unclassified: { label: 'Unclassified', tone: 'neutral', hatch: true },
+};
+
 const CONFIDENCE_META: Meta = {
   corroborated: { label: 'Declared and observed', tone: 'ok' },
   contractual: { label: 'Declared with a range', tone: 'ok' },
@@ -465,6 +476,10 @@ function buckets(items: { key?: string; count?: number }[] | undefined, meta: Me
 
 export function verdictSegments(items: { key?: string; count?: number }[] | undefined): Segment[] {
   return buckets(items, VERDICT_META);
+}
+
+export function outcomeSegments(items: { key?: string; count?: number }[] | undefined): Segment[] {
+  return buckets(items, OUTCOME_META);
 }
 
 export function confidenceSegments(items: { key?: string; count?: number }[] | undefined): Segment[] {

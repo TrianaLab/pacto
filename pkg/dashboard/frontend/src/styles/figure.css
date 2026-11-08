@@ -1,0 +1,151 @@
+/* ─── Figures (SPEC 3): explanatory drawings ───
+   The drawing draws marks; HTML carries every word (C1). One grid per figure places the
+   stage, aside, foot and caption (C3). Wires sit in an SVG layer under the stage at 1
+   unit = 1 CSS px. Tones come from the status tokens; unknown is the grey hatch with a
+   solid neutral edge. */
+.fig {
+  container: fig / inline-size;
+  position: relative; isolation: isolate;
+  margin: var(--sp-4) 0 var(--sp-5);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border); border-radius: var(--radius);
+  padding: var(--sp-4);
+}
+.fig--explain { border-style: dashed; border-color: var(--c-accent-border); }
+.fig-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-4); }
+.fig-kind { font: var(--role-label-font); font-variant-caps: all-small-caps; letter-spacing: 0.05em; color: var(--c-text-3); white-space: nowrap; }
+.fig-q { font: italic 600 var(--text-md)/1.35 var(--font-display); margin: 0; flex: 1 1 18rem; min-width: 0; color: var(--c-text); }
+.fig-ctl { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.fig-body { display: grid; gap: var(--sp-4) var(--sp-6); align-items: start; }
+@container fig (min-width: 1000px) {
+  .fig-body.has-aside { grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem); align-items: center; }
+  .fig-aside { border-left: 1px solid var(--c-border); padding-left: var(--sp-5); }
+}
+.fig-aside { display: grid; gap: var(--sp-3); align-content: start; min-width: 0; font-size: var(--text-sm); }
+.fig-stage { position: relative; min-width: 0; }
+.fig-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.fig-stage > :not(.fig-wires) { position: relative; z-index: 1; }
+.fig-foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-4); margin-top: var(--sp-4); container-type: inline-size; }
+.fig figcaption { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--c-border); font-size: var(--text-sm); color: var(--c-text-2); max-width: 90ch; }
+.step-now { margin: var(--sp-2) 0 0; color: var(--c-text-2); }
+.nar-hid { opacity: 0 !important; }
+
+/* Wires (SPEC 2.1): observed solid, projected dashed, stale dotted, missing broken. */
+.fig .w { fill: none; stroke: var(--tone, var(--fig-line-strong)); stroke-width: var(--fig-stroke); stroke-linecap: round; }
+.fig .w--proj { stroke-dasharray: 6 5; }
+.fig .w--stale { stroke-dasharray: 0.5 4.5; stroke-width: 2; }
+.fig .w--broken { stroke-dasharray: 2 9; stroke-width: 1.75; }
+.fig .sig { fill: none; stroke: var(--tone, var(--c-accent)); stroke-width: 3; stroke-linecap: round; opacity: 0; }
+.fig .t-err { --tone: var(--c-err); }
+.fig .t-warn { --tone: var(--c-warn); }
+.fig .t-ok { --tone: var(--c-ok); }
+.fig .t-accent { --tone: var(--c-accent); }
+.fig .t-neutral { --tone: var(--fig-line-strong); }
+
+/* Node: a flat pin with one glyph (C15). */
+.nd { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; }
+.nd.big { width: 40px; height: 40px; }
+.nd svg { display: block; overflow: visible; }
+.nd .f { fill: color-mix(in srgb, var(--tone) 18%, var(--c-iso-face)); stroke: var(--tone); stroke-width: 1.5; }
+.nd .gp { fill: none; stroke: var(--tone); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.nd.unk .f { fill: url(#fig-hatch); stroke: var(--c-neutral); }
+.nd.unk .gp { stroke: var(--c-text); }
+
+/* Slabs (iso): the Stack's layers. Sides mix the tone into a neutral side. */
+.slab { --tone: var(--c-accent); }
+.slab .top { fill: color-mix(in srgb, var(--tone) var(--fig-tone-mix-top), var(--c-iso-face)); }
+.slab .side { fill: color-mix(in srgb, var(--tone) var(--fig-tone-mix-side), var(--c-fig-side)); }
+.slab .side.dk { fill: color-mix(in srgb, var(--tone) var(--fig-tone-mix-side-2), var(--c-fig-side-2)); }
+.slab .edge { fill: none; stroke: var(--tone); stroke-width: 1.5; stroke-linejoin: round; }
+.slab.dash .edge { stroke-dasharray: 4 4; opacity: 0.75; }
+.slab.dash .top, .slab.dash .side { opacity: 0.6; }
+.slab.t-neutral { --tone: var(--c-neutral); }
+.stack { display: block; width: 100%; height: auto; }
+.swk { flex: none; }
+
+/* Stamp: the verdict. Flat, double border, caps, never rotated (C9). */
+.stamp {
+  display: inline-block; font: 700 var(--text-sm)/1.2 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 4px 10px; border: 3px double currentColor; border-radius: var(--radius-xs);
+  white-space: nowrap; flex-shrink: 0; min-width: max-content; color: var(--c-neutral);
+  background: color-mix(in srgb, currentColor 8%, var(--c-surface));
+}
+.stamp.t-err { color: var(--c-err); }
+.stamp.t-warn { color: var(--c-warn); }
+.stamp.t-ok { color: var(--c-ok); }
+.stamp.t-accent { color: var(--c-accent); }
+
+/* Chips: identities in a lane. Shown whole, elided (C6) or folded into "N more". */
+.badge.chip { flex: none; min-width: 0; max-width: 100%; background: color-mix(in srgb, var(--tone, var(--c-neutral)) 8%, var(--c-surface)); color: var(--tone, var(--c-text-2)); border-color: color-mix(in srgb, var(--tone, var(--c-neutral)) 45%, transparent); text-decoration: none; }
+.badge.chip.t-neutral { --tone: var(--c-neutral); color: var(--c-text-2); }
+.badge.chip.unk { border-style: dashed; border-color: var(--c-neutral); }
+.badge.chip bdi { display: inline-block; min-width: 0; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.badge.chip:hover { filter: brightness(1.15); }
+.ring-on { box-shadow: var(--motion-alarm-ring); animation: fig-alarm var(--motion-alarm-period) ease-out var(--motion-alarm-count); }
+@keyframes fig-alarm { 0% { box-shadow: 0 0 0 0 transparent; } 60% { box-shadow: 0 0 0 5px var(--c-err-border); } 100% { box-shadow: var(--motion-alarm-ring); } }
+
+/* Lanes: rows of one shared grid (subgrid), so counts and bars line up in every lane. */
+.lanes {
+  display: grid; align-items: center; row-gap: var(--sp-2); min-width: 0;
+  grid-template-columns: 28px max-content 7rem minmax(96px, 160px) 12px minmax(0, 1fr);
+  column-gap: var(--sp-2);
+}
+.lane { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: var(--fig-lane-h); min-width: 0; }
+.lane-name { font-weight: 600; line-height: 1.3; min-width: 0; max-width: 14rem; overflow-wrap: break-word; color: var(--c-text); }
+.lane-name.words { white-space: nowrap; }
+.lane-count { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--c-text-2); }
+.lane-count b { color: var(--c-text); }
+.mbar { height: 10px; border-radius: 2px; background: var(--c-surface-inset); box-shadow: inset 0 0 0 1px var(--c-border); overflow: hidden; display: flex; }
+.mbar i { display: block; flex: none; background: var(--tone); }
+.mbar i.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
+.opencap { display: block; fill: none; stroke: var(--c-neutral); stroke-width: 1.6; stroke-linecap: round; }
+.lane-list { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.lane-chips { display: flex; gap: var(--sp-2); flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 4px; margin: -4px 0; }
+.lane-more { flex: none; white-space: nowrap; font: inherit; font-size: var(--text-sm); color: var(--c-accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.lane-more:hover { text-decoration: underline; }
+.lane.ghost { border-top: 1px dashed var(--c-border); padding-top: var(--sp-2); }
+.lane-sub { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; margin: -6px 0 0; overflow-wrap: anywhere; }
+.lane-sub .nd { width: 16px; height: 16px; }
+.lane-sub .nd svg { width: 16px; height: 16px; }
+.lane-gate { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); margin-left: -6px; min-width: 0; }
+/* S1 by the figure's own width (Figure sets data-w): the share bar goes under 800px, the
+   chips under 560px, and under 480px each lane is one column of words beside its node. */
+.fig:not([data-w="wide"]) .lane .mbar, .fig:not([data-w="wide"]) .lane .opencap-cell { display: none; }
+.fig:not([data-w="wide"]) .lanes { grid-template-columns: 28px max-content 7rem minmax(0, 1fr); }
+.fig:is([data-w="narrow"], [data-w="col"]) .lane .lane-chips { display: none; }
+.fig[data-w="col"] .lanes { grid-template-columns: 28px minmax(0, 1fr); }
+.fig[data-w="col"] .lane > .nd { grid-row: span 3; align-self: start; }
+.fig[data-w="col"] .lane > :not(.nd) { grid-column: 2; }
+.fig[data-w="col"] .lane-name.words { white-space: normal; }
+
+/* The Change analysis figure: stack, split node, lanes. */
+.impact { display: grid; grid-template-columns: 148px 20px 28px 32px minmax(0, 1fr); grid-template-areas: "name name name name name" "stack . split . lanes"; align-items: center; row-gap: var(--sp-2); }
+.fig:not([data-w="wide"]) .impact { grid-template-columns: 112px 16px 28px 24px minmax(0, 1fr); }
+.stackcell { grid-area: stack; display: grid; gap: var(--sp-2); min-width: 0; }
+.stack-name { grid-area: name; justify-self: start; font-weight: 600; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.stack-labels { display: grid; gap: 4px; font-size: var(--text-xs); line-height: 1.4; color: var(--c-text-2); }
+.stack-labels > span { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--sp-2); }
+.splitcell { grid-area: split; display: grid; place-items: center; }
+.impact > .lanes { grid-area: lanes; }
+.fig[data-w="col"] .impact { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "name name" "stack stack" "split ." ". lanes"; row-gap: var(--sp-3); }
+.fig[data-w="col"] .stackcell { grid-template-columns: 110px minmax(0, 1fr); align-items: center; }
+
+/* AnswerCard. */
+.ac { display: grid; gap: var(--sp-3); align-content: start; padding: var(--sp-4); }
+.ac:hover { border-color: var(--c-border); }
+.ac-stamps { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin: 0; }
+.ac .ca-answer-line { margin: 0; color: var(--c-text); }
+dl.facts { display: grid; grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr); gap: 6px var(--sp-4); margin: 0; font-size: var(--text-sm); }
+dl.facts dt { color: var(--c-text-3); }
+dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+@container (max-width: 440px) { dl.facts { grid-template-columns: minmax(0, 1fr); gap: 0; } dl.facts dd { margin-bottom: var(--sp-2); } }
+.snap-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--c-text-3); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); white-space: nowrap; }
+.snap-id.match { color: var(--c-ok); border-color: var(--c-ok-border); }
+
+@media (forced-colors: active) {
+  .fig .w, .nd .f, .nd .gp, .slab .edge { stroke: CanvasText; }
+  .nd .f, .mbar i { forced-color-adjust: none; }
+}
+
+/* A folded chip or an empty list link is gone, whatever display its class sets. */
+.fig [hidden] { display: none !important; }
