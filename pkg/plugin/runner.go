@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -157,8 +158,16 @@ func Installed() []InstalledPlugin {
 	return out
 }
 
+// pluginNameRE is what a plugin name may hold: a name with a path separator or
+// ".." would make the lookup below resolve a binary outside PATH and the
+// plugin directory, since exec.LookPath and filepath.Join both follow it.
+var pluginNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 // findPlugin locates a pacto-plugin-<name> binary in PATH or the user plugin directory.
 func findPlugin(name string) (string, error) {
+	if !pluginNameRE.MatchString(name) || strings.Contains(name, "..") {
+		return "", fmt.Errorf("plugin name %q is not valid: use letters, digits, dots, hyphens and underscores", name)
+	}
 	binaryName := "pacto-plugin-" + name
 
 	if path, err := exec.LookPath(binaryName); err == nil {
