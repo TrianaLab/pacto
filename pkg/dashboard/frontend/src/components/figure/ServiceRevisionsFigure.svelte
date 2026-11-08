@@ -7,18 +7,20 @@
   import { serviceStackModel } from '../../lib/entityFigures.ts';
   import { countOf, formatCount } from '../../lib/format.ts';
   import { inService } from '../../lib/identityContext.ts';
+  import { hashForHref } from '../../lib/router.ts';
 
-  /** @type {{ revisions: any, currentKey: string, self: string, allHref: string }} */
-  let { revisions, currentKey, self, allHref } = $props();
+  /** @type {{ revisions: any, current: any, self: string, allHref: string }} */
+  let { revisions, current, self, allHref } = $props();
   const label = (/** @type {any} */ r) => inService(r, self).label ?? r.key ?? '';
-  const m = $derived(serviceStackModel(revisions, currentKey, label));
+  const m = $derived(serviceStackModel(revisions, current?.key ?? '', label, current));
 </script>
 
 <Figure id="revisions" testid="service-revisions-figure" question="Which revisions exist?" alt={m.alt} wires={m.wires}>
-  {#snippet stage()}<StackRows layers={m.layers} rows={m.rows} earlier={m.earlier} earlierHref={allHref} />{/snippet}
+  {#snippet stage()}<StackRows layers={m.layers} rows={m.rows} earlier={m.earlier} earlierHref={allHref} earlierNote={m.currentFolded ? `the current ${m.current} is among them` : ''} />{/snippet}
   {#snippet aside()}
     <dl class="facts">
       <dt>Revisions</dt><dd><a href={allHref}>{formatCount(m.total)}</a></dd>
+      {#if m.current}<dt>Current</dt><dd class="mono">{#if current?.href}<a href={hashForHref(current.href)}><bdi>{m.current}</bdi></a>{:else}<bdi>{m.current}</bdi>{/if}</dd>{/if}
       {#if m.newest}<dt>Newest</dt><dd class="mono"><bdi>{m.newest}</bdi></dd>{/if}
       {#if m.oldest && m.total > 1}<dt>Oldest</dt><dd class="mono"><bdi>{m.oldest}</bdi></dd>{/if}
       <dt>Drawn</dt><dd>The newest {countOf(m.layers.length, 'revision')}{m.earlier ? `; the ${formatCount(m.earlier)} earlier ones are on the plinth` : ''}</dd>

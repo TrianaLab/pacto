@@ -77,7 +77,7 @@ const rowWires = (rows: { a: string; dash?: boolean }[]): WireDef[] => rows.map(
  * chronological preview): up to five layers, the current one in accent, and every older
  * revision folded into one plinth whose row links to the full history.
  */
-export function serviceStackModel(revisions: { total?: number; items?: Ref[] } | undefined, currentKey: string, label: (r: Ref) => string) {
+export function serviceStackModel(revisions: { total?: number; items?: Ref[] } | undefined, currentKey: string, label: (r: Ref) => string, currentRef?: Ref | null) {
   const items = revisions?.items ?? [];
   const total = revisions?.total ?? items.length;
   const shown = items.slice(0, MAX_STACK_LAYERS);
@@ -90,10 +90,14 @@ export function serviceStackModel(revisions: { total?: number; items?: Ref[] } |
   if (earlier) wires.push({ id: 'wplinth', from: 'plinth', fs: 'c', to: 'lplinth', ts: 'l', style: 'obs', tone: 'neutral' });
   const newest = rows[0]?.label ?? '';
   const oldest = total === items.length && items.length ? label(items[items.length - 1]) : '';
+  // The revision in use is named even when it is older than the layers drawn: then it
+  // sits on the plinth, and the plinth's row says so.
+  const current = currentRef ? label(currentRef) : '';
+  const currentFolded = !!current && !rows.some((r) => r.current);
   return {
-    rows, earlier, total, wires, newest, oldest,
+    rows, earlier, total, wires, newest, oldest, current, currentFolded,
     layers: rows.map((r) => ({ tone: r.current ? 'accent' : 'neutral', a: r.a, m: r.a })),
-    alt: `${countOf(total, 'revision')}${newest ? `; the newest is ${newest}` : ''}${earlier ? `; ${formatCount(earlier)} earlier ones on the plinth` : ''}.`,
+    alt: `${countOf(total, 'revision')}${newest ? `; the newest is ${newest}` : ''}${earlier ? `; ${formatCount(earlier)} earlier ones on the plinth` : ''}${currentFolded ? `, the current ${current} among them` : ''}.`,
   };
 }
 
@@ -153,6 +157,33 @@ export function sourceModel(health: string | undefined) {
   };
 }
 
+/** Sources about one revision: the ones the backend named, worst first, at most three. */
+export const MAX_EVIDENCE_MARKS = 3;
+
+/**
+ * evidenceModel draws where the evidence about a revision comes from: each named source
+ * wired into the revision in its state's style (an unavailable source's wire is broken,
+ * and sends nothing), and the rest a "+N" count. Counts come from the backend tally
+ * over every source, never from the named ones.
+ */
+export function evidenceModel(sources: { total?: number; items?: (Ref & { status?: string; secondary?: string })[] } | undefined, counts: { available?: number } | undefined) {
+  const items = (sources?.items ?? []).slice(0, MAX_EVIDENCE_MARKS);
+  const total = sources?.total ?? items.length;
+  const marks = items.map((r, k) => ({ ref: r, a: `e${k}`, ...sourceModel(r.status) }));
+  const more = total - marks.length;
+  // The unnamed sources are solid only when every one of them is current; otherwise
+  // dotted, so no source that is not current hides behind a solid wire.
+  const restCurrent = (counts?.available ?? 0) - marks.filter((mk) => mk.ref.status === 'available').length === more;
+  // Stacked in one column the wires would cross the sources under them, so the
+  // vertical layout lists the sources instead.
+  const when: WireDef['when'] = ['wide', 'mid', 'narrow'];
+  const wires: WireDef[] = [
+    ...marks.map((mk): WireDef => ({ id: `w${mk.a}`, from: mk.a, fs: 'r', to: 'rv', ts: 'l', when, style: mk.style, tone: mk.tone === 'warn' ? 'warn' : 'neutral' })),
+    ...(more ? [{ id: 'wem', from: 'em', fs: 'r', to: 'rv', ts: 'l', when, style: restCurrent ? 'obs' : 'stale', tone: 'neutral' } as WireDef] : []),
+  ];
+  return { marks, more, total, wires, restCurrent };
+}
+
 // ── Offering: who provides it, who uses it, and is their request ready ─────────────
 
 export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; failed?: number; deleting?: number; unknown?: number }
@@ -168,7 +199,12 @@ const PHASES: [keyof PhaseTally, string, string, FigTone, GlyphName | '', boolea
   ['unknown', 'Not reported', 'no phase a provider reported can be trusted, so readiness is unknown', 'neutral', 'unknown', true],
 ];
 
-/** The provider marks: up to two named, or one and a "+N" count when there are more. */
+/**
+ * The provider marks: up to two named, or one and a "+N" count when there are more.
+ * When requests have no reported phase, the Not reported station takes one of the
+ * figure's 20 marks (G1), so the providers fold into a single mark: the one provider,
+ * or a "+N" count of them all.
+ */
 export const MAX_PROVIDER_MARKS = 2;
 
 /**
@@ -180,7 +216,8 @@ export const MAX_PROVIDER_MARKS = 2;
 export function offeringModel(providers: { total?: number; items?: Ref[] }, phases: PhaseTally | undefined) {
   const items = providers.items ?? [];
   const total = providers.total ?? items.length;
-  const named = total > MAX_PROVIDER_MARKS ? items.slice(0, MAX_PROVIDER_MARKS - 1) : items.slice(0, MAX_PROVIDER_MARKS);
+  const cap = phases?.unknown ? 1 : MAX_PROVIDER_MARKS;
+  const named = total > cap ? items.slice(0, cap - 1) : items.slice(0, cap);
   const more = total - named.length;
   const requests = PHASES.reduce((n, [k]) => n + (phases?.[k] ?? 0), 0);
   const stations: PhaseStation[] = PHASES.map(([key, label, sub, tone, glyph, hatch]) => {
@@ -192,8 +229,8 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
   const wires: WireDef[] = [
     // Providers fan into the offering from above; the vertical layout lists them instead.
     ...marks.map((a): WireDef => ({ id: `w${a}`, from: a, fs: 'b', to: 'hub', ts: 't', style: 'obs', tone: 'neutral', when: notCol })),
-    // The requests belong to the offering: no arrowhead from the hub (C13b).
-    { id: 'whub', from: 'hub', fs: 'r', to: 'ph-requested', ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'accent' },
+    // A request moves from the offering onto the track, so the wire carries an arrowhead (C13b).
+    { id: 'whub', from: 'hub', fs: 'r', to: 'ph-requested', ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'accent', head: true },
     ...(['requested', 'provisioning', 'ready'] as const).map((k, i): WireDef => ({
       id: `wt${i}`, from: `ph-${k}`, fs: 'r', to: `ph-${PHASES[i + 1][0]}`, ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'neutral', head: true,
     })),
@@ -208,5 +245,44 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
   return {
     named, more, total, requests, stations, wires, summary,
     alt: `${countOf(total, 'provider')}; ${summary}`,
+  };
+}
+
+// ── Offering use: is this one request ready? ───────────────────────────────────────
+
+export interface UseRequest { phase?: string; environment?: string; entry?: string; asOf?: string; verified?: boolean }
+
+const USE_TONE: Record<string, FigTone> = { Requested: 'info', Provisioning: 'info', Ready: 'ok', Failed: 'err', Deleting: 'info' };
+const USE_GLYPH: Record<string, GlyphName> = { Requested: 'progress', Provisioning: 'progress', Ready: 'ok', Failed: 'err', Deleting: 'none' };
+
+/**
+ * useDetailModel is one request of an offering use on its rail: Requested →
+ * Provisioning → Ready (or Failed), then Deleting when that is where it is. A provider
+ * reports only the current phase (A6), so the narration is one step: the current
+ * station appears with its reported time. Earlier stations are drawn at rest, for
+ * their order only, and no signal runs. A request with no trusted phase is unknown:
+ * every station hatched, no step.
+ */
+export function useDetailModel(req: UseRequest, when: string) {
+  const phase = req.phase ?? 'Unknown';
+  const names = ['Requested', 'Provisioning', phase === 'Failed' ? 'Failed' : 'Ready', ...(phase === 'Deleting' ? ['Deleting'] : [])];
+  const cur = names.indexOf(phase);
+  const stations: RailStation[] = names.map((label, k) => cur < 0
+    ? { key: label, label, sub: 'unknown', tone: 'neutral', hatch: true, glyph: '', reached: false }
+    : {
+      key: label, label, reached: k <= cur,
+      tone: k === cur ? USE_TONE[phase] : 'neutral', glyph: k === cur ? USE_GLYPH[phase] : '',
+      sub: k === cur ? `last reported ${when}` : k < cur ? 'came before' : 'not reached',
+    });
+  const wires = stations.slice(1).map((_, k) => chainWire(k, k < cur ? 'obs' : 'proj'));
+  const steps: Step[] = cur < 0 ? [] : [{ cap: `${phase}: reported ${when}.`, dur: 240, show: [`[data-m="f${cur}"]`] }];
+  const where = [req.environment, req.entry].filter(Boolean).join(' ');
+  return {
+    stations, wires, steps,
+    key: { phase, where },
+    summary: cur < 0
+      ? 'The provider has not reported a phase Pacto can trust, so readiness is unknown.'
+      : `The provider reported ${phase} ${when}. Earlier phases are drawn for their order only; the provider reports only the current one.${req.verified === false ? ' The report is not signed.' : ''}`,
+    alt: `${where ? `${where}: ` : ''}${cur < 0 ? 'unknown' : `${phase}, reported ${when}`}.`,
   };
 }

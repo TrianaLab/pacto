@@ -10,7 +10,7 @@
   import HubNode from './HubNode.svelte';
   import { offeringModel } from '../../lib/entityFigures.ts';
   import { countOf, formatCount } from '../../lib/format.ts';
-  import { hashForHref } from '../../lib/router.ts';
+  import { hashForHref, fleetServicesUrl } from '../../lib/router.ts';
   import { elidable } from '../../lib/elide.ts';
 
   /** @type {{ offering: string, providers: any, consumers: any, hidden: number, providersHref: string }} */
@@ -20,6 +20,9 @@
   const failed = $derived(consumers?.failed ?? { items: [], total: 0 });
   const range = $derived(consumers?.range ?? {});
   const st = (/** @type {string} */ k) => m.stations.find((s) => s.key === k);
+  // Every phase count lists the consumers behind it (T3): the services with a request in that phase.
+  const phaseHref = (/** @type {string} */ k) => fleetServicesUrl({ consumes: offering, phase: k });
+  const moreFailed = $derived(failed.total - failed.count);
 </script>
 
 {#snippet station(/** @type {import('../../lib/entityFigures.ts').PhaseStation} */ s)}
@@ -27,7 +30,11 @@
     <Node tone={s.tone} hatch={s.hatch} glyph={s.glyph} big a="ph-{s.key}" m="ph-{s.key}" />
     <span class="ph-l">
       <b>{s.label}</b>
-      <span data-nofilter><b>{formatCount(s.n)}</b> · {s.share}</span>
+      {#if s.n}
+        <a href={phaseHref(s.key)}><b>{formatCount(s.n)}</b> · {s.share}<span class="visually-hidden"> {s.label.toLowerCase()}: list the consumers</span></a>
+      {:else}
+        <span data-nofilter><b>0</b> · {s.share}</span>
+      {/if}
       <span class="t-meta">{s.sub}</span>
     </span>
     {#if s.key === 'provisioning'}<i class="anc" data-a="ph-provisioning-b"></i>{/if}
@@ -43,7 +50,7 @@
           <li><Node shape="square" glyph="provider" a="p{k}" /><a class="id" href={hashForHref(p.href)} title={p.label}><bdi class:fit={elidable(p.label ?? '')}>{p.label}</bdi></a></li>
         {/each}
         {#if m.more}
-          <li><span class="cnt mk" data-a="pm" aria-hidden="true">+{formatCount(m.more)}</span><a href={providersHref}>{formatCount(m.more)} more {m.more === 1 ? 'provider' : 'providers'}</a></li>
+          <li><span class="cnt mk" data-a="pm" aria-hidden="true">+{formatCount(m.more)}</span><a href={providersHref}>{formatCount(m.more)} {m.named.length ? 'more ' : ''}{m.more === 1 ? 'provider' : 'providers'}</a></li>
         {/if}
       </ul>
       <div class="ofig-hub">
@@ -56,15 +63,15 @@
       {@render station(st('deleting'))}
       {@render station(st('failed'))}
       {#if failed.count}
-        <div class="ph-chips">
+        <div class="ph-chips station">
           {#each failed.items as c (c.key)}<a class="badge chip t-err" href={hashForHref(c.href)} title={c.label}><bdi class:fit={elidable(c.label ?? '')}>{c.label}</bdi></a>{/each}
-          {#if failed.total > failed.count}<span class="t-meta" data-nofilter>{formatCount(failed.total - failed.count)} more failed {failed.total - failed.count === 1 ? 'consumer' : 'consumers'}</span>{/if}
+          {#if moreFailed > 0}<a href={phaseHref('failed')} aria-label="{formatCount(moreFailed)} more failed {moreFailed === 1 ? 'consumer' : 'consumers'}">{formatCount(moreFailed)} more</a>{/if}
         </div>
       {/if}
       {#if st('unknown').n}
         <div class="ph station ph-unknown">
           <Node tone="neutral" hatch glyph="unknown" a="ph-unknown" m="ph-unknown" />
-          <span><span data-nofilter><b>{formatCount(st('unknown').n)}</b> not reported ({st('unknown').share})</span>: {st('unknown').sub}.</span>
+          <span><a href={phaseHref('unknown')}><b>{formatCount(st('unknown').n)}</b> not reported ({st('unknown').share})</a>: {st('unknown').sub}.</span>
         </div>
       {/if}
     </div>

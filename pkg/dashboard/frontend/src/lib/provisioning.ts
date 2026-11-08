@@ -54,3 +54,8 @@ export function provisioningTitle(st: ProvisioningStatus, now: number = Date.now
     st.revision ? `Consumer revision: ${st.revision.label}` : '',
   ].filter(Boolean).join('\n');
 }
+
+/** The words of a provisioning phase bucket, as the phase filter and the phase track name it. */
+export const PHASE_WORDS: Record<string, string> = {
+  requested: 'Requested', provisioning: 'Provisioning', ready: 'Ready', failed: 'Failed', deleting: 'Deleting', unknown: 'Not reported',
+};

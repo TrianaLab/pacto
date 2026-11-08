@@ -383,6 +383,17 @@ a.tl-n:hover { text-decoration: underline; }
 .fig[data-w="col"] .srcfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); }
 .fig[data-w="col"] .srcfig-h { grid-column: 1; justify-self: end; flex-direction: row-reverse; text-align: right; }
 
+/* Evidence: the sources about a revision, each wired into it. Vertical under the col width. */
+.evfig { display: grid; grid-template-columns: minmax(0, max-content) minmax(var(--sp-8), 8rem) max-content; align-items: center; justify-content: start; min-width: 0; }
+.evfig-s { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-4); min-width: 0; }
+.evfig-s li { display: grid; grid-template-columns: minmax(0, 1fr) 28px; column-gap: var(--sp-3); align-items: center; min-width: 0; max-width: 19rem; }
+.evfig-t { display: grid; gap: 2px; min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
+.evfig-t > .t-meta { overflow-wrap: anywhere; }
+.evfig-h { grid-column: 3; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.evfig-hl { display: grid; gap: 2px; min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
+.fig[data-w="col"] .evfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); }
+.fig[data-w="col"] .evfig-h { grid-column: 1; justify-self: end; flex-direction: row-reverse; text-align: right; }
+
 /* Offering: providers fan into the hub, the hub leads the phase track (Failed under
    Provisioning, Not reported under the track). Vertical under rowMin. */
 .ofig {

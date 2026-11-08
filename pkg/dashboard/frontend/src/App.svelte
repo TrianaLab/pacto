@@ -435,6 +435,7 @@
       offering={route.params.offering || ''}
       consumes={route.params.consumes || ''}
       createdFrom={route.params.createdFrom || ''}
+      phase={route.params.phase || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}

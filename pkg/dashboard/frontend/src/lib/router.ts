@@ -216,7 +216,7 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'createdFrom', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -450,7 +450,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; createdFrom?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -471,6 +471,8 @@ export function fleetServicesUrl(opts: {
   if (opts.offering) qs.set('offering', opts.offering);
   // consumes keeps the services that consume a provider of that offering.
   if (opts.consumes) qs.set('consumes', opts.consumes);
+  // phase narrows those consumers to the ones with a provisioning status in it.
+  if (opts.consumes && opts.phase) qs.set('phase', opts.phase);
   // createdFrom keeps the services whose declared origin is that golden path.
   if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
   setPaging(qs, opts);

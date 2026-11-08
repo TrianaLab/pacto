@@ -463,7 +463,7 @@
   </div>
 
   {#if (d.revisions?.total ?? 0) > 0}
-    <ServiceRevisionsFigure revisions={d.revisions} currentKey={d.currentRevision?.key ?? ''} {self} allHref={allRevisionsHref} />
+    <ServiceRevisionsFigure revisions={d.revisions} current={d.currentRevision ?? null} {self} allHref={allRevisionsHref} />
   {/if}
 
   <div class="se-wrap" data-testid="service-delivery">

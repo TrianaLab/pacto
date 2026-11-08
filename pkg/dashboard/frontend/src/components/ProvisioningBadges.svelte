@@ -8,18 +8,29 @@
   // through which source, signed or not, when, for which consumer revision and the
   // external reference, so a long reference never widens the row. The phase also has a
   // glyph drawn as geometry (S6, C15), so it never depends on colour alone.
-  let { statuses = [] } = $props();
+  // With `onselect`, each badge is a toggle button that opens that request's rail
+  // (the offering use detail); `selected` is the index shown, -1 for none.
+  /** @type {{ statuses?: any[], onselect?: ((i: number) => void) | null, selected?: number }} */
+  let { statuses = [], onselect = null, selected = -1 } = $props();
 </script>
 
 {#each statuses as st, i (`${st.environment ?? ''}:${st.entry ?? ''}:${i}`)}
-  <span class="pb" data-testid="provisioning-badge">
+  {#snippet badge()}
     <svg class="pb-g pb-{phaseTone(st.phase)}" width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true" focusable="false"><path d={GLYPH_PATH[phaseGlyph(st.phase)]} /></svg>
     <IdentityBadge label={phaseBadgeLabel(st)} tone={phaseTone(st.phase)} title={provisioningTitle(st)} describe />
-  </span>
+  {/snippet}
+  {#if onselect}
+    <button type="button" class="pb pb-btn" data-testid="provisioning-badge" aria-pressed={selected === i} onclick={() => onselect(selected === i ? -1 : i)}>{@render badge()}</button>
+  {:else}
+    <span class="pb" data-testid="provisioning-badge">{@render badge()}</span>
+  {/if}
 {/each}
 
 <style>
   .pb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+  .pb-btn { padding: 2px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: pointer; }
+  .pb-btn:hover { border-color: var(--c-text-3); }
+  .pb-btn[aria-pressed='true'] { border-color: var(--c-accent); }
   .pb-g { flex: none; fill: none; stroke: var(--c-neutral); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .pb-ok { stroke: var(--c-ok); }
   .pb-err { stroke: var(--c-err); }

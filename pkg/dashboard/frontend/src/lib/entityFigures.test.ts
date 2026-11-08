@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { offeringModel, revisionStackModel, serviceStackModel, sourceModel, targetModel, validationModel, MAX_PROVIDER_MARKS } from './entityFigures.ts';
+import { evidenceModel, offeringModel, revisionStackModel, serviceStackModel, sourceModel, targetModel, useDetailModel, validationModel, MAX_EVIDENCE_MARKS, MAX_PROVIDER_MARKS } from './entityFigures.ts';
 import { timeline, sessionKey } from './narrate.ts';
 import { MAX_STACK_LAYERS } from './figure.ts';
 
@@ -91,6 +91,10 @@ describe('targetModel and sourceModel (SPEC 2.1)', () => {
       .toEqual(['obs|ok', 'stale|warn', 'stale|neutral', 'broken|err', 'stale|neutral']);
     expect(sourceModel('weird').hatch).toBe(true);
   });
+  it('never tones a source ok unless it is current (G3: unknown is never ok)', () => {
+    for (const h of ['stale', 'partial', 'unavailable', '', 'weird', undefined]) expect(sourceModel(h).tone).not.toBe('ok');
+    expect(sourceModel('partial').hatch).toBe(true);
+  });
 });
 
 describe('offeringModel (G3, S2)', () => {
@@ -114,11 +118,92 @@ describe('offeringModel (G3, S2)', () => {
     expect(m.stations.find((s) => s.key === 'unknown')!.tone).not.toBe('ok');
     expect(m.summary).toBe('Of 10 requests, 6 are ready, 1 in progress, 2 failed and 0 being removed; 1 has no reported phase, so their readiness is unknown.');
   });
-  it('says when nobody asked for a resource, and stays within 20 marks', () => {
-    const m = offeringModel(providers(40), undefined);
-    expect(m.summary).toBe('No consumer has asked a provider for a resource yet.');
-    const nodes = MAX_PROVIDER_MARKS + 1 + m.stations.length;
-    const wireMarks = m.wires.reduce((n, w) => n + 1 + (w.head ? 1 : 0), 0);
-    expect(nodes + wireMarks).toBeLessThanOrEqual(20);
+  it('says when nobody asked for a resource', () => {
+    expect(offeringModel(providers(40), undefined).summary).toBe('No consumer has asked a provider for a resource yet.');
+  });
+  // Marks as G1 counts them: provider marks, the hub, the five track stations, Not
+  // reported only when it has requests, and every drawn wire with its arrowhead.
+  for (const unknown of [0, 3]) {
+    for (const n of [1, 2, 40]) {
+      it(`stays within 20 marks with ${n} providers and ${unknown} requests not reported`, () => {
+        const m = offeringModel(providers(n), { ready: 1, unknown });
+        const nodes = m.named.length + (m.more ? 1 : 0) + 1 + 5 + (unknown ? 1 : 0);
+        const wireMarks = m.wires.filter((w) => w.from !== 'pm' || m.more).reduce((k, w) => k + 1 + (w.head ? 1 : 0), 0);
+        expect(nodes + wireMarks).toBeLessThanOrEqual(20);
+        expect(m.named.length + m.more).toBe(n);
+      });
+    }
+  }
+  it('draws direction on every wire that moves a request: the hub into the track and the track (C13b)', () => {
+    const m = offeringModel(providers(2), {});
+    expect(m.wires.filter((w) => w.head).map((w) => w.id)).toEqual(['whub', 'wt0', 'wt1', 'wt2', 'wfail']);
+    // Providers belong to the offering: no arrowhead.
+    expect(m.wires.filter((w) => /^p(\d|m)$/.test(w.from)).every((w) => !w.head)).toBe(true);
+  });
+  it('never tones Not reported ok, at any count (G3)', () => {
+    for (const unknown of [0, 1, 400]) {
+      const st = offeringModel(providers(1), { unknown }).stations.find((s) => s.key === 'unknown')!;
+      expect(st.tone).not.toBe('ok');
+      expect(st.hatch).toBe(unknown > 0);
+    }
+  });
+});
+
+describe('useDetailModel (A6, G2)', () => {
+  for (const phase of ['Requested', 'Provisioning', 'Ready', 'Failed', 'Deleting']) {
+    it(`tells a ${phase} request in exactly one step, with no signal`, () => {
+      const m = useDetailModel({ phase }, 'at Nov 5, 23:13');
+      expect(m.steps).toHaveLength(1);
+      expect(m.steps.flatMap((s) => s.sig ?? [])).toEqual([]);
+      const cur = m.stations.findIndex((s) => s.label === phase);
+      expect(m.steps[0].show).toEqual([`[data-m="f${cur}"]`]);
+      expect(m.steps[0].cap).toBe(`${phase}: reported at Nov 5, 23:13.`);
+      // Earlier stations are at rest and neutral; nothing past the current one is reached.
+      expect(m.stations.slice(0, cur).every((s) => s.tone === 'neutral' && s.sub === 'came before')).toBe(true);
+      expect(m.stations.slice(cur + 1).every((s) => !s.reached)).toBe(true);
+      expect(timeline(m.steps).total).toBeLessThanOrEqual(1200);
+    });
+  }
+  it('tones the current station by its phase and never says ok for unknown', () => {
+    expect(useDetailModel({ phase: 'Ready' }, 'x').stations.map((s) => s.tone)).toEqual(['neutral', 'neutral', 'ok']);
+    expect(useDetailModel({ phase: 'Failed' }, 'x').stations.map((s) => s.label)).toEqual(['Requested', 'Provisioning', 'Failed']);
+    const unk = useDetailModel({}, 'x');
+    expect(unk.steps).toEqual([]);
+    expect(unk.stations.every((s) => s.tone === 'neutral' && s.hatch)).toBe(true);
+    expect(unk.wires.every((w) => w.style === 'proj')).toBe(true);
+    expect(unk.alt).toBe('unknown.');
+  });
+  it('keys the session on the phase and the request, never the time', () => {
+    expect(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod' }, 'at 1').key)).toBe(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod', asOf: 'later' }, 'at 2').key));
+    expect(useDetailModel({ phase: 'Ready', environment: 'prod', entry: 'db', verified: false }, 'x').summary).toContain('not signed');
+  });
+});
+
+describe('evidenceModel (G3)', () => {
+  const src = (k: string, status?: string) => ({ key: k, label: k, status });
+  it('names at most three sources and styles each wire by its state, never ok for unknown', () => {
+    const m = evidenceModel({ total: 40, items: [src('a', 'unavailable'), src('b', 'stale'), src('c'), src('d', 'available')] }, { available: 39 });
+    expect(m.marks).toHaveLength(MAX_EVIDENCE_MARKS);
+    expect(m.marks.map((mk) => `${mk.style}|${mk.tone}`)).toEqual(['broken|err', 'stale|warn', 'stale|neutral']);
+    expect(m.more).toBe(37);
+    expect(m.restCurrent).toBe(false);
+    expect(m.wires.find((w) => w.id === 'wem')!.style).toBe('stale');
+  });
+  it('draws the rest solid only when every one of them is current', () => {
+    const m = evidenceModel({ total: 5, items: [src('a', 'available')] }, { available: 5 });
+    expect(m.restCurrent).toBe(true);
+    expect(m.wires.find((w) => w.id === 'wem')!.style).toBe('obs');
+    expect(evidenceModel(undefined, undefined).wires).toEqual([]);
+  });
+});
+
+describe('serviceStackModel current revision', () => {
+  it('names the revision in use when it is folded into the plinth', () => {
+    const items = Array.from({ length: 7 }, (_, i) => ref(`r${i}`));
+    const m = serviceStackModel({ total: 7, items }, 'r6', label, items[6]);
+    expect(m.currentFolded).toBe(true);
+    expect(m.current).toBe('r6');
+    expect(m.alt).toContain('the current r6 among them');
+    expect(serviceStackModel({ total: 7, items }, 'r1', label, items[1]).currentFolded).toBe(false);
   });
 });

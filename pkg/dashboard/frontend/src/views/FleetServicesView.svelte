@@ -22,6 +22,7 @@
   import ListSort from '../components/ListSort.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
+  import { PHASE_WORDS } from '../lib/provisioning.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
 
@@ -37,14 +38,14 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes || createdFrom));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -71,6 +72,7 @@
     capability: capability || undefined,
     offering: offering || undefined,
     consumes: consumes || undefined,
+    phase: (consumes && phase) || undefined,
     createdFrom: createdFrom || undefined,
     // Golden paths have their own tab and stay out of the service population.
     template: 'exclude',
@@ -84,9 +86,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${createdFrom}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -116,6 +118,8 @@
       capability: patch.capability ?? capability,
       offering: patch.offering ?? offering,
       consumes: patch.consumes ?? consumes,
+      // A phase narrows one offering's consumers, so it goes with them.
+      phase: patch.consumes === '' ? '' : patch.phase ?? phase,
       createdFrom: patch.createdFrom ?? createdFrom,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
@@ -172,6 +176,7 @@
     capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,
     offering ? { key: 'offering', label: 'Offering', value: offering } : null,
     consumes ? { key: 'consumes', label: 'Consumes', value: consumes } : null,
+    consumes && phase ? { key: 'phase', label: 'Provisioning phase', value: PHASE_WORDS[phase] ?? phase } : null,
     createdFrom ? { key: 'createdFrom', label: 'Created from', value: createdFrom } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));

@@ -70,8 +70,32 @@ describe.each(Object.entries(THEMES))('isometric contrast, %s theme', (_, t) => 
   // edge -- is at 3:1 against the figure surface, the slab face and the page.
   it('keeps every figure mark at 3:1 on the surface, the slab face and the page', () => {
     for (const ground of ['--c-bg', '--c-surface', '--c-iso-face']) {
-      for (const stroke of ['--c-err', '--c-warn', '--c-ok', '--c-accent', '--c-neutral', '--c-text-3']) {
+      for (const stroke of ['--c-err', '--c-warn', '--c-ok', '--c-info', '--c-accent', '--c-neutral', '--c-text-3']) {
         expect(ratio(c(stroke), c(ground)), `${stroke} on ${ground}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  // A glyph sits on its own mark's tinted fill: a node's (18% of its tone over the face)
+  // and a hub's (14%). The glyph stroke is the tone itself and must reach 3:1 on it.
+  const mix = (tone: RGBA, pct: number): RGBA => [0, 1, 2].map((i) => tone[i] * pct + c('--c-iso-face')[i] * (1 - pct)).concat(1) as RGBA;
+  it('keeps a node glyph at 3:1 on its tinted fill, the info tone included', () => {
+    for (const tone of ['--c-err', '--c-warn', '--c-ok', '--c-info', '--c-accent', '--c-neutral']) {
+      expect(ratio(c(tone), mix(c(tone), 0.18)), `${tone} glyph on its node`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('keeps the hub glyph and edge at 3:1 on the hub fill and the page', () => {
+    for (const tone of ['--c-accent', '--c-neutral']) {
+      expect(ratio(c(tone), mix(c(tone), 0.14)), `${tone} glyph on the hub fill`).toBeGreaterThanOrEqual(3);
+      for (const ground of ['--c-bg', '--c-surface']) expect(ratio(c(tone), c(ground)), `${tone} hub edge on ${ground}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  // The provisioning badge glyph (ProvisioningBadges.svelte) strokes the phase tone on
+  // the card or the page, never on a mark.
+  it('keeps the provisioning badge glyph strokes at 3:1 where they sit', () => {
+    for (const ground of ['--c-bg', '--c-surface']) {
+      for (const tone of ['--c-ok', '--c-err', '--c-info', '--c-neutral']) {
+        expect(ratio(c(tone), c(ground)), `${tone} badge glyph on ${ground}`).toBeGreaterThanOrEqual(3);
       }
     }
   });

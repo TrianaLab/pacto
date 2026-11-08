@@ -418,6 +418,19 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('narrows the consumers to a provisioning phase, and drops the phase with the offering', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ consumes: 'postgresql', phase: 'failed' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ consumes: 'postgresql', phase: 'failed' }));
+    const chipText = (c: Element) => c.textContent?.replace(/\s+/g, ' ').trim();
+    expect(Array.from(target.querySelectorAll('.chip')).map(chipText)).toEqual(['Consumes: postgresql ×', 'Provisioning phase: Failed ×']);
+    const consumes = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Consumes')) as HTMLElement;
+    (consumes.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('the URL echo of a submit does not overwrite what was typed after it', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')]));
     const props = $state({ refreshTick: 0, text: '' });

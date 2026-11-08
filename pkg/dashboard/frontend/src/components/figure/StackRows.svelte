@@ -6,8 +6,8 @@
   import { hashForHref } from '../../lib/router.ts';
   import { elidable } from '../../lib/elide.ts';
 
-  /** @type {{ layers: { tone: string, dash?: boolean, a: string, m?: string }[], rows: import('../../lib/entityFigures.ts').StackRow[], earlier?: number, earlierHref?: string }} */
-  let { layers, rows, earlier = 0, earlierHref = '' } = $props();
+  /** @type {{ layers: { tone: string, dash?: boolean, a: string, m?: string }[], rows: import('../../lib/entityFigures.ts').StackRow[], earlier?: number, earlierHref?: string, earlierNote?: string }} */
+  let { layers, rows, earlier = 0, earlierHref = '', earlierNote = '' } = $props();
 </script>
 
 <div class="stackfig">
@@ -24,7 +24,7 @@
       </li>
     {/each}
     {#if earlier}
-      <li class="stack-row" data-a="lplinth"><a href={earlierHref}>{earlier === 1 ? '1 earlier revision' : `${earlier.toLocaleString('en-US')} earlier revisions`}</a></li>
+      <li class="stack-row" data-a="lplinth"><a href={earlierHref}>{earlier === 1 ? '1 earlier revision' : `${earlier.toLocaleString('en-US')} earlier revisions`}</a>{#if earlierNote}<span class="t-meta">{earlierNote}</span>{/if}</li>
     {/if}
   </ul>
 </div>

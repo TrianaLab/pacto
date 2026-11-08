@@ -32,7 +32,7 @@
   {/snippet}
   {#snippet aside()}
     <dl class="facts">
-      <dt>{source.health === 'unavailable' ? 'Last reported' : 'Reports'}</dt><dd data-nofilter>{reports}</dd>
+      <dt>Reports</dt><dd data-nofilter>{reports}</dd>
     </dl>
   {/snippet}
   {#snippet caption()}
