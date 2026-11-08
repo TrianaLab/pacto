@@ -692,3 +692,68 @@ func TestOfferingHiddenConsumers(t *testing.T) {
 		t.Errorf("pa hidden dependents = %d, want the callers counted there", pa.HiddenDependents)
 	}
 }
+
+// The offering-use and dependents tallies cover the view the caller may read:
+// a hidden consumer is counted in the hidden count only, never in a tally.
+func TestOfferingAndDependentsTalliesFollowRestrict(t *testing.T) {
+	both := svc24("both", "1.0.0", "")
+	both.Dependencies = []contract.Dependency{{Name: "pa", Required: true}}
+	seen := svc24("seen", "1.0.0", "")
+	seen.Dependencies = []contract.Dependency{{Name: "pa", Required: true}}
+	tgt := func(ns, name string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
+	}
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", both, nil), ociRev("ghcr.io/acme", seen, nil)},
+		Targets:   []RawTarget{tgt("shop", "pa"), tgt("hush", "both"), tgt("shop", "seen")},
+	})
+	r := q.Restrict(func(ns string) bool { return ns == "shop" })
+	for name, view := range map[string]*Query{"unrestricted": q, "restricted": r} {
+		c := offeringData(t, view, "db").Consumers
+		if got := c.Range.Satisfied + c.Range.Unsatisfied + c.Range.Unknown + c.Range.None; got != c.Total {
+			t.Errorf("%s: range tally sums to %d, want %d", name, got, c.Total)
+		}
+		d, err := view.EntityDetail(KindService, string(NewServiceKeyDomain("ghcr.io/acme", "pa")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := d.Service.DependentsStatus.Total(); got != d.Service.Dependents.Total {
+			t.Errorf("%s: dependents tally = %d, want %d", name, got, d.Service.Dependents.Total)
+		}
+	}
+	if got := offeringData(t, r, "db").Consumers.Total; got != 1 {
+		t.Errorf("restricted consumers = %d, want only the visible one", got)
+	}
+	if got := q.statusTally([]ServiceKey{"missing"}); got.Other != 1 {
+		t.Errorf("a key the snapshot does not hold = %+v, want Other", got)
+	}
+}
+
+func TestOfferingUsesPreviewTallies(t *testing.T) {
+	st := func(phases ...string) []ProvisioningStatus {
+		out := make([]ProvisioningStatus, len(phases))
+		for i, p := range phases {
+			out[i] = ProvisioningStatus{Phase: p}
+		}
+		return out
+	}
+	ref := func(k string) EntityRef { return EntityRef{Kind: KindService, Key: k, Label: k} }
+	uses := []OfferingUse{
+		{Consumer: ref("d"), RangeStatus: RangeSatisfied, Provisioning: st("Failed", "Ready")},
+		{Consumer: ref("a"), RangeStatus: RangeUnsatisfied, Provisioning: st("Failed")},
+		{Consumer: ref("c"), RangeStatus: RangeUnknown, Provisioning: st("Requested", "Provisioning", "Deleting", "Unknown")},
+		{Consumer: ref("b"), Provisioning: st("Failed")},
+		{Consumer: ref("e"), Provisioning: st("Failed")},
+		{Consumer: ref("a"), Via: RelationshipPolicyRef},
+	}
+	p := offeringUsesPreview(uses)
+	if want := (RangeTally{Satisfied: 1, Unsatisfied: 1, Unknown: 1, None: 3}); p.Range != want {
+		t.Errorf("range = %+v, want %+v", p.Range, want)
+	}
+	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 1, Failed: 4, Deleting: 1, Unknown: 1}); p.Phases != want {
+		t.Errorf("phases = %+v, want %+v", p.Phases, want)
+	}
+	if p.Failed.Total != 4 || p.Failed.Count != MaxFailedConsumers || !p.Failed.Truncated || p.Failed.Items[0].Key != "a" || p.Failed.Items[2].Key != "d" {
+		t.Errorf("failed = %+v, want the first 3 of 4 by key", p.Failed)
+	}
+}

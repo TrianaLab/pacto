@@ -224,3 +224,22 @@ func TestPrintOriginText_Unresolved(t *testing.T) {
 		t.Errorf("origin text:\n%s", b.String())
 	}
 }
+
+func TestPrintTallies(t *testing.T) {
+	var buf bytes.Buffer
+	printOfferingUses(&buf, "Consumers:", fleet.OfferingUsesPreview{Total: 2, Range: fleet.RangeTally{Satisfied: 1, None: 1}, Phases: fleet.PhaseTally{Ready: 1, Failed: 2}})
+	for _, want := range []string{"  range of all 2: 1 satisfied, 0 unsatisfied, 0 unknown, 1 not checked\n", "  provisioning requests: 0 requested, 0 provisioning, 1 ready, 2 failed, 0 deleting, 0 not reported\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("uses text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printDependents(&buf, &fleet.ServiceDetailData{})
+	if buf.Len() != 0 {
+		t.Errorf("no dependents printed %q", buf.String())
+	}
+	printDependents(&buf, &fleet.ServiceDetailData{Dependents: fleet.RefPreview{Total: 3}, HiddenDependents: 2, DependentsStatus: fleet.ComplianceTally{Compliant: 1, NonCompliant: 1, Invalid: 1}})
+	if want := "Dependents: 3 (1 compliant, 1 non-compliant, 0 unknown, 1 other)\n2 dependents you may not see\n"; buf.String() != want {
+		t.Errorf("dependents text = %q, want %q", buf.String(), want)
+	}
+}

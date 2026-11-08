@@ -2379,6 +2379,20 @@ export interface components {
             /** Format: int64 */
             unowned: number;
         };
+        "Fleet.PhaseTally": {
+            /** Format: int64 */
+            deleting: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            provisioning: number;
+            /** Format: int64 */
+            ready: number;
+            /** Format: int64 */
+            requested: number;
+            /** Format: int64 */
+            unknown: number;
+        };
         "Fleet.ProductEvidenceRef": {
             collector?: string;
             detectedAt?: string;
@@ -2467,6 +2481,16 @@ export interface components {
             source: string;
             sourceKind?: string;
             verified: boolean;
+        };
+        "Fleet.RangeTally": {
+            /** Format: int64 */
+            none: number;
+            /** Format: int64 */
+            satisfied: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            unsatisfied: number;
         };
         "Fleet.ReadinessCheck": {
             category?: string;
@@ -3658,7 +3682,10 @@ export interface components {
         ProductOfferingUsesPreview: {
             /** Format: int64 */
             count: number;
+            failed: components["schemas"]["ProductRefPreview"];
             items: components["schemas"]["ProductOfferingUse"][] | null;
+            phases: components["schemas"]["Fleet.PhaseTally"];
+            range: components["schemas"]["Fleet.RangeTally"];
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -3881,6 +3908,7 @@ export interface components {
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
+            dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];

@@ -483,7 +483,9 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"plugins its service.template names, its requirements, the services created from it and the " +
 			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
-			"shows otherwise. Read-only.",
+			"shows otherwise. Tallies cover every visible item, never the preview: an " +
+			"offering's consumers carry 'range' and 'phases' and name up to 3 'failed' consumers; a service carries " +
+			"'dependentsStatus'. Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

@@ -254,6 +254,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
+			printDependents(w, res.Service)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
@@ -477,6 +478,26 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	}
 	if uses.Truncated {
 		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
+	}
+	r := uses.Range
+	_, _ = fmt.Fprintf(w, "  range of all %d: %d satisfied, %d unsatisfied, %d unknown, %d not checked\n", uses.Total, r.Satisfied, r.Unsatisfied, r.Unknown, r.None)
+	if p := uses.Phases; p != (fleet.PhaseTally{}) {
+		_, _ = fmt.Fprintf(w, "  provisioning requests: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
+			p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
+	}
+}
+
+// printDependents renders how many services depend on this one, by status,
+// and how many the caller's permissions hide.
+func printDependents(w io.Writer, d *fleet.ServiceDetailData) {
+	if d.Dependents.Total == 0 && d.HiddenDependents == 0 {
+		return
+	}
+	t := d.DependentsStatus
+	_, _ = fmt.Fprintf(w, "Dependents: %d (%d compliant, %d non-compliant, %d unknown, %d other)\n",
+		d.Dependents.Total, t.Compliant, t.NonCompliant, t.Unknown, t.Total()-t.Compliant-t.NonCompliant-t.Unknown)
+	if d.HiddenDependents > 0 {
+		_, _ = fmt.Fprintf(w, "%d dependents you may not see\n", d.HiddenDependents)
 	}
 }
 

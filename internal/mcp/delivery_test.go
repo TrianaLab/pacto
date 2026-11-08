@@ -215,7 +215,7 @@ func TestDeliveryPlanToolCalls(t *testing.T) {
 
 // B7: one Stage's history carries its timeline.
 func TestDeliveryHistoryToolTimeline(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
 	var h delivery.History
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
 	if h.Timeline == nil || len(h.Timeline.Buckets) != delivery.TimelineBuckets {

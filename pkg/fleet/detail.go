@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
 	"github.com/trianalab/pacto/v4/pkg/semver"
 )
@@ -379,6 +380,10 @@ type ServiceDetailData struct {
 	// never named.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
+	// DependentsStatus tallies every visible dependent by its status, over the
+	// complete population, never the bounded Dependents preview. Hidden
+	// dependents are counted in HiddenDependents only.
+	DependentsStatus ComplianceTally `json:"dependentsStatus"`
 	// ReferencedBy names the services whose revisions declare a configuration or
 	// policy REFERENCE to this service. A reference is not a dependency, so these
 	// services are absent from Dependents and from graph traversal; a shared
@@ -623,17 +628,95 @@ type OfferingUse struct {
 	Provisioning []ProvisioningStatus `json:"provisioning,omitempty"`
 }
 
-// OfferingUsesPreview is a bounded preview of offering uses.
+// OfferingUsesPreview is a bounded preview of offering uses. Range, Phases and
+// Failed are tallied over EVERY use, never the bounded Items, so a figure can
+// draw proportions from them.
 type OfferingUsesPreview struct {
 	Total     int           `json:"total"`
 	Count     int           `json:"count"`
 	Truncated bool          `json:"truncated"`
 	Items     []OfferingUse `json:"items"`
+	// Range counts the uses by RangeStatus; a use with no range check counts
+	// as None. Its fields sum to Total.
+	Range RangeTally `json:"range"`
+	// Phases counts the provisioning statuses of every use (one per
+	// environment and entry) by phase. A policy reference provisions nothing
+	// and adds none, so the fields sum to the requests, not to Total.
+	Phases PhaseTally `json:"phases"`
+	// Failed names up to MaxFailedConsumers of the distinct consumers with a
+	// Failed status, by key; its Total counts them all.
+	Failed RefPreview `json:"failed"`
 }
+
+// RangeTally counts offering uses by whether the provider version satisfies
+// the declared range.
+type RangeTally struct {
+	Satisfied   int `json:"satisfied"`
+	Unsatisfied int `json:"unsatisfied"`
+	Unknown     int `json:"unknown"`
+	None        int `json:"none"`
+}
+
+// PhaseTally counts provisioning statuses by phase. Unknown means no provider
+// reported a phase Pacto can trust (see [ProvisioningStatus]).
+type PhaseTally struct {
+	Requested    int `json:"requested"`
+	Provisioning int `json:"provisioning"`
+	Ready        int `json:"ready"`
+	Failed       int `json:"failed"`
+	Deleting     int `json:"deleting"`
+	Unknown      int `json:"unknown"`
+}
+
+// MaxFailedConsumers bounds OfferingUsesPreview.Failed.
+const MaxFailedConsumers = 3
 
 func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	it, total, trunc := boundSlice(uses, MaxDetailPreview)
-	return OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	out := OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	failed := map[string]EntityRef{}
+	for _, u := range uses {
+		switch u.RangeStatus {
+		case RangeSatisfied:
+			out.Range.Satisfied++
+		case RangeUnsatisfied:
+			out.Range.Unsatisfied++
+		case RangeUnknown:
+			out.Range.Unknown++
+		default:
+			out.Range.None++
+		}
+		for _, st := range u.Provisioning {
+			out.Phases.add(st.Phase)
+			if st.Phase == string(evidence.PhaseFailed) {
+				failed[u.Consumer.Key] = u.Consumer
+			}
+		}
+	}
+	refs := make([]EntityRef, 0, len(failed))
+	for _, k := range slices.Sorted(maps.Keys(failed)) {
+		refs = append(refs, failed[k])
+	}
+	shown, n, more := boundSlice(refs, MaxFailedConsumers)
+	out.Failed = RefPreview{Total: n, Count: len(shown), Truncated: more, Items: shown}
+	return out
+}
+
+func (t *PhaseTally) add(phase string) {
+	switch evidence.ProvisionPhase(phase) {
+	case evidence.PhaseRequested:
+		t.Requested++
+	case evidence.PhaseProvisioning:
+		t.Provisioning++
+	case evidence.PhaseReady:
+		t.Ready++
+	case evidence.PhaseFailed:
+		t.Failed++
+	case evidence.PhaseDeleting:
+		t.Deleting++
+	default:
+		t.Unknown++
+	}
 }
 
 // ConsumeSnippet is what a service adds to its contract to consume a provider
@@ -872,6 +955,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,
 		HiddenDependents:   s.HiddenDependents,
+		DependentsStatus:   q.statusTally(view.Dependents),
 		ReferencedBy:       refPreview(q.referencingServices(s.Key)),
 		Findings:           attributedTargetFindingsPreview(view.Targets),
 		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
@@ -1555,6 +1639,20 @@ func (q *Query) targetsForRevision(revKey RevisionKey) (exact, inferred []Entity
 	sortEntityRefs(exact)
 	sortEntityRefs(inferred)
 	return exact, inferred
+}
+
+// statusTally counts services by status; a key the snapshot does not hold
+// counts as Other.
+func (q *Query) statusTally(keys []ServiceKey) ComplianceTally {
+	var t ComplianceTally
+	for _, k := range keys {
+		status := ""
+		if s := q.snap.Services[k]; s != nil {
+			status = s.Status
+		}
+		t.add(status)
+	}
+	return t
 }
 
 func (q *Query) serviceKeyRefs(keys []ServiceKey) []EntityRef {
