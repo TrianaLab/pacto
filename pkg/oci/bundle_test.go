@@ -674,7 +674,7 @@ func TestExtractTar_FileExceedsMaxSize(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	// Create a file that exceeds the per-file size limit.
-	bigData := make([]byte, maxFileSize+1)
+	bigData := make([]byte, MaxFileSize+1)
 	if err := tw.WriteHeader(&tar.Header{
 		Name: "huge.bin",
 		Size: int64(len(bigData)),
@@ -702,9 +702,9 @@ func TestExtractTar_TotalSizeExceeded(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	// Create enough files to exceed the total size limit.
-	// Each file is just under the per-file limit but together they exceed maxTotalSize.
-	fileSize := maxFileSize
-	numFiles := (maxTotalSize / fileSize) + 1
+	// Each file is just under the per-file limit but together they exceed MaxTotalSize.
+	fileSize := MaxFileSize
+	numFiles := (MaxTotalSize / fileSize) + 1
 	data := make([]byte, fileSize)
 	for i := 0; i < numFiles; i++ {
 		if err := tw.WriteHeader(&tar.Header{

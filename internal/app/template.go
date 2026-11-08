@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -41,6 +43,10 @@ type InitFrom struct {
 // localOrigin is the Unknown line of a service whose origin is a local path.
 const localOrigin = "origin.ref is a local path; publish the golden path and use its oci:// reference so others can resolve it"
 
+// publishedOrigin is the Unknown line of a service created from a local
+// folder whose contract names where the path is published.
+const publishedOrigin = "origin.ref is the coordinate the golden path's contract names, read from a local folder: Pacto did not check that the published revision holds these files, so origin.digest may match no published revision"
+
 // InitFrom creates a service from a golden path: it reads the path from a
 // directory or a registry, verifies its signature when the trust config names
 // a template key, then plans the folder like Init, validating strictly with
@@ -72,7 +78,11 @@ func (s *Service) InitFrom(ctx context.Context, opts InitOptions, from InitFrom)
 	}
 	opts.Template = t
 	r, err := s.Init(ctx, opts)
-	if r != nil && !strings.HasPrefix(t.Ref, contract.OCIScheme) {
+	switch {
+	case r == nil || strings.HasPrefix(from.From, contract.OCIScheme):
+	case strings.HasPrefix(t.Ref, contract.OCIScheme):
+		r.Unknown = append(r.Unknown, publishedOrigin)
+	default:
 		r.Unknown = append(r.Unknown, localOrigin)
 	}
 	return r, err
@@ -96,12 +106,10 @@ func (s *Service) resolveTemplate(ctx context.Context, from, absTarget string, t
 // its published coordinate or a path relative to the created contract, so no
 // host path is recorded.
 func dirTemplate(from, absFrom, absTarget string) (*pactify.Template, error) {
-	dirFS := os.DirFS(absFrom)
-	matcher, err := ignore.Load(dirFS)
+	fsys, err := readTemplateDir(absFrom)
 	if err != nil {
 		return nil, fmt.Errorf("reading the golden path %s: %w", from, err)
 	}
-	fsys := ignore.FS(dirFS, matcher)
 	raw, err := fs.ReadFile(fsys, "pacto.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("reading the golden path %s: %w", from, err)
@@ -110,17 +118,71 @@ func dirTemplate(from, absFrom, absTarget string) (*pactify.Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	digest, err := lock.HashFS(fsys)
-	if err != nil {
-		return nil, fmt.Errorf("hashing the golden path %s: %w", from, err)
-	}
-	ref, _ := filepath.Rel(absTarget, absFrom) // ponytail: two absolute paths always have a relative path
-	ref = filepath.ToSlash(ref)
+	digest, _ := lock.HashFS(fsys) // ponytail: a MapFS reads every file it holds
+	ref := localRef(absFrom, absTarget)
 	if c.Publish != nil && c.Publish.Bundle != "" {
 		ref = c.Publish.Bundle + ":" + c.Service.Version
 	}
 	return &pactify.Template{FS: fsys, Ref: ref, Digest: digest,
 		Signature: fleet.CreationStep{Step: fleet.StepSignature, Status: fleet.StepStatusUnknown, Detail: "a directory carries no signature"}}, nil
+}
+
+// localRef is absFrom relative to absTarget. When the two share no parent
+// below the filesystem root or the home folder, that path would spell out
+// host folders such as /Users/<name>, so only the path's folder name is kept.
+func localRef(absFrom, absTarget string) string {
+	ref, _ := filepath.Rel(absTarget, absFrom) // ponytail: two absolute paths always have a relative path
+	common := absTarget
+	for _, part := range strings.Split(ref, string(filepath.Separator)) {
+		if part == ".." {
+			common = filepath.Dir(common)
+		}
+	}
+	home, _ := os.UserHomeDir()
+	if filepath.Dir(common) == common || home != "" && common != home && strings.HasPrefix(home, common+string(filepath.Separator)) {
+		return filepath.Base(absFrom)
+	}
+	return filepath.ToSlash(ref)
+}
+
+// readTemplateDir reads the files a bundle of the directory would hold into
+// memory, within the limits a pulled bundle is read with. A symlink or any
+// other entry that is not a regular file is refused: os.DirFS follows a link
+// out of the folder, to a secret or to a device that never ends.
+func readTemplateDir(abs string) (fstest.MapFS, error) {
+	if info, err := os.Lstat(filepath.Join(abs, ignore.IgnoreFileName)); err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", ignore.IgnoreFileName)
+	}
+	dirFS := os.DirFS(abs)
+	matcher, err := ignore.Load(dirFS)
+	if err != nil {
+		return nil, err
+	}
+	out := fstest.MapFS{}
+	var total int64
+	err = fs.WalkDir(ignore.FS(dirFS, matcher), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file: a golden path holds only files and folders", name)
+		}
+		f, err := dirFS.Open(name)
+		var data []byte
+		if err == nil {
+			data, err = io.ReadAll(io.LimitReader(f, oci.MaxFileSize+1))
+			_ = f.Close()
+		}
+		if err != nil {
+			return err
+		}
+		if total += int64(len(data)); len(data) > oci.MaxFileSize || total > oci.MaxTotalSize {
+			return fmt.Errorf("%s is over the size a bundle may hold (%d bytes a file, %d in all)", name, oci.MaxFileSize, oci.MaxTotalSize)
+		}
+		out[name] = &fstest.MapFile{Data: data}
+		return nil
+	})
+	return out, err
 }
 
 // ociTemplate pulls a golden path by the manifest digest its tag resolves to,

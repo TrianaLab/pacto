@@ -100,13 +100,13 @@ func TestDirTemplateErrors(t *testing.T) {
 		t.Errorf("no pacto.yaml: %v", err)
 	}
 	badIgnore := t.TempDir()
-	_ = os.Mkdir(filepath.Join(badIgnore, ignore.IgnoreFileName), 0o755)
+	_ = os.WriteFile(filepath.Join(badIgnore, ignore.IgnoreFileName), nil, 0)
 	if _, err := dirTemplate(badIgnore, badIgnore, target); err == nil {
 		t.Error("an unreadable .pactoignore was accepted")
 	}
 	unreadable := writeGoldenPath(t, "")
 	_ = os.Chmod(filepath.Join(unreadable, "docs", "runbook.md"), 0)
-	if _, err := dirTemplate(unreadable, unreadable, target); err == nil || !strings.Contains(err.Error(), "hashing") {
+	if _, err := dirTemplate(unreadable, unreadable, target); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("an unreadable file: %v", err)
 	}
 }
@@ -473,5 +473,72 @@ func TestInitFromRunsPlugins(t *testing.T) {
 	_, err = svc.InitFrom(t.Context(), InitOptions{Dir: filepath.Join(t.TempDir(), "x"), Owner: "checkout"}, InitFrom{From: from, Trust: trust, RunPlugins: []string{"test"}})
 	if err == nil || !strings.Contains(err.Error(), "signature a template key verified") {
 		t.Errorf("under trust: %v", err)
+	}
+}
+
+// TestDirTemplateReadsOnlyRegularFiles pins that a directory golden path is
+// read like a pulled bundle: a symlink, even to a file outside the folder, is
+// refused, and so is a file over a bundle's size limits.
+func TestDirTemplateReadsOnlyRegularFiles(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "gift-cards")
+	secret := filepath.Join(t.TempDir(), "secret.txt")
+	_ = os.WriteFile(secret, []byte("token"), 0o600)
+
+	linked := writeGoldenPath(t, "")
+	if err := os.Symlink(secret, filepath.Join(linked, "docs", "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dirTemplate(linked, linked, target); err == nil || !strings.Contains(err.Error(), "docs/notes.md is not a regular file") {
+		t.Errorf("symlink: %v", err)
+	}
+
+	linkedIgnore := writeGoldenPath(t, "")
+	_ = os.Remove(filepath.Join(linkedIgnore, ignore.IgnoreFileName))
+	_ = os.Symlink(secret, filepath.Join(linkedIgnore, ignore.IgnoreFileName))
+	if _, err := dirTemplate(linkedIgnore, linkedIgnore, target); err == nil || !strings.Contains(err.Error(), ".pactoignore is not a regular file") {
+		t.Errorf("symlinked .pactoignore: %v", err)
+	}
+
+	for name, sizes := range map[string][]int64{"one file": {oci.MaxFileSize + 1}, "in all": {9 << 20, 9 << 20, 9 << 20, 9 << 20, 9 << 20, 9 << 20}} {
+		big := writeGoldenPath(t, "")
+		for i, size := range sizes {
+			p := filepath.Join(big, "blob"+string(rune('a'+i)))
+			if err := os.WriteFile(p, nil, 0o644); err != nil || os.Truncate(p, size) != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := dirTemplate(big, big, target); err == nil || !strings.Contains(err.Error(), "over the size a bundle may hold") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// TestLocalRef pins that a directory origin never spells out host folders
+// above the home folder, such as /Users/<name>.
+func TestLocalRef(t *testing.T) {
+	t.Setenv("HOME", "/Users/me")
+	for _, tc := range []struct{ from, target, want string }{
+		{"/Users/me/tmp-gp/path", "/tmp/out3", "path"},
+		{"/Users/other/paths/http", "/Users/me/svc", "http"},
+		{"/Users/me/paths/http", "/Users/me/svc/out", "../../paths/http"},
+		{"/Users/me/b", "/Users/me/a", "../b"},
+		{"/tmp/paths/http", "/tmp/out", "../paths/http"},
+	} {
+		if got := localRef(filepath.FromSlash(tc.from), filepath.FromSlash(tc.target)); got != tc.want {
+			t.Errorf("localRef(%s, %s) = %q, want %q", tc.from, tc.target, got, tc.want)
+		}
+	}
+}
+
+// TestInitFromPublishedDirectory pins that a directory whose contract names
+// its published coordinate says that coordinate was never checked.
+func TestInitFromPublishedDirectory(t *testing.T) {
+	from := writeGoldenPath(t, "publish:\n  bundle: oci://ghcr.io/acme/paths/http-service\n")
+	r, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: filepath.Join(t.TempDir(), "gift-cards"), Owner: "checkout", Plan: true}, InitFrom{From: from})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Unknown[len(r.Unknown)-1] != publishedOrigin {
+		t.Errorf("unknown: %v", r.Unknown)
 	}
 }
