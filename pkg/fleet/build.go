@@ -1380,7 +1380,7 @@ func aggregateServices(snap *FleetSnapshot) {
 		// collapsing them by map iteration order would fabricate a service label
 		// and break target-correlated search. Labels live on the target.
 	}
-	placed := kubePlacementKnown(snap)
+	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)

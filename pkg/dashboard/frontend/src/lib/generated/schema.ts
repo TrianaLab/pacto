@@ -3728,6 +3728,8 @@ export interface components {
             createdServices: components["schemas"]["ProductRefPreview"];
             /** Format: int64 */
             hiddenCreatedServices?: number;
+            /** Format: int64 */
+            hiddenRequirements?: number;
             instantiate?: components["schemas"]["Fleet.TemplateInstantiation"];
             instantiateReason?: string;
             plugins: components["schemas"]["Contract.TemplatePlugin"][] | null;

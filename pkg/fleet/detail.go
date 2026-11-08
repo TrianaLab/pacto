@@ -410,6 +410,9 @@ type TemplateDetail struct {
 	// included. UnresolvedRequirements are those no service resolves.
 	Requirements           OfferingUsesPreview           `json:"requirements"`
 	UnresolvedRequirements UnresolvedDependenciesPreview `json:"unresolvedRequirements"`
+	// HiddenRequirements counts the services the golden path requires that
+	// the caller's permissions hide, never naming them.
+	HiddenRequirements int `json:"hiddenRequirements,omitempty"`
 	// CreatedServices are the services whose origin resolves to the golden
 	// path; HiddenCreatedServices counts those the caller's permissions hide.
 	CreatedServices       RefPreview `json:"createdServices"`

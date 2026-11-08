@@ -29,8 +29,8 @@ func serviceRevisions(snap *FleetSnapshot, s *ServiceRecord) []*ContractRevision
 
 // deriveTemplate marks s a golden path when its newest readable revision
 // declares service.template and the fleet knows s runs nowhere: it has no
-// target and placed says no Kubernetes source is unavailable or partial. While
-// one is, a target-less service stays a service, so an outage never drops a
+// target and placed says no source that reports targets is unavailable or
+// partial. While one is, a target-less service stays a service, so an outage never drops a
 // running service from impact. Each revision of a golden path that declares
 // the template gets its content hash, the digest a service.origin records.
 func deriveTemplate(snap *FleetSnapshot, s *ServiceRecord, placed bool) {
@@ -148,11 +148,12 @@ func (q *Query) deployedTemplateAttention() []AttentionItem {
 }
 
 // createdCounts is, per golden path, how many services of the snapshot
-// declare an origin that resolves to it.
+// declare an origin that resolves to it. A golden path derived from another
+// is left out, like the Services list the count opens leaves it out.
 func (q *Query) createdCounts() map[ServiceKey]int {
 	out := map[ServiceKey]int{}
 	for _, s := range q.snap.Services {
-		if s.Origin != nil && s.Origin.GoldenPath != "" {
+		if !s.Template && s.Origin != nil && s.Origin.GoldenPath != "" {
 			out[s.Origin.GoldenPath]++
 		}
 	}
@@ -188,15 +189,19 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 		return nil
 	}
 	var edges []Relationship
+	hidden := map[ServiceKey]bool{}
 	for _, rel := range q.snap.templateEdges {
 		if rel.FromRevision == rev.Key {
 			edges = append(edges, rel)
+		}
+		if rel.FromRevision == rev.Key && rel.Hidden {
+			hidden[rel.hiddenTo] = true
 		}
 	}
 	reqs, _ := q.offeringUsesIn(edges, func(*ServiceRecord) bool { return true }, s.Key, false)
 	createdRefs := []EntityRef{}
 	for _, c := range q.snap.Services {
-		if q.createdFrom(c.Key, s.Key) {
+		if !c.Template && q.createdFrom(c.Key, s.Key) {
 			createdRefs = append(createdRefs, serviceEntityRef(c))
 		}
 	}
@@ -207,6 +212,7 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 		UnresolvedRequirements: unresolvedDependencyItems(serviceEntityRef(s), edges),
 		CreatedServices:        refPreview(createdRefs),
 		HiddenCreatedServices:  s.HiddenCreated,
+		HiddenRequirements:     len(hidden),
 		SignatureNote:          selfDeclaredSignature,
 		Provenance:             ProvenanceDeclared,
 	}

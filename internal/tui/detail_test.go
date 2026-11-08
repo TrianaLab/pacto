@@ -604,11 +604,12 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		Requirements:          fleet.OfferingUsesPreview{Total: 2},
 		CreatedServices:       fleet.RefPreview{Total: 1},
 		HiddenCreatedServices: 2,
+		HiddenRequirements:    1,
 		Signature:             &fleet.BundleSignature{Status: fleet.SignatureUnsigned},
 		Instantiate:           &fleet.TemplateInstantiation{CLI: "pacto init <name> --from oci://r/p@sha256:x --owner <team>"},
 	}})
 	out := b.String()
-	for _, want := range []string{"Golden path", "unsigned", "dockerfile: A Dockerfile", "2 (0 unresolved)", "3", "pacto init <name> --from oci://r/p@sha256:x"} {
+	for _, want := range []string{"Golden path", "unsigned", "dockerfile: A Dockerfile", "3 (0 unresolved)", "3", "pacto init <name> --from oci://r/p@sha256:x"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("golden path detail lacks %q:\n%s", want, out)
 		}

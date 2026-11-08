@@ -13,10 +13,11 @@ services. A service is a golden path when:
 - the newest revision Pacto can read declares
   [`service.template`](contract-reference/sections.md#golden-path-template);
 - the service has no operational target;
-- every Kubernetes source is available and complete, so Pacto knows the
-  service runs nowhere.
+- every source that reports targets (Kubernetes, the Evidence Server and a
+  target state file) is available and complete, so Pacto knows the service
+  runs nowhere.
 
-While a Kubernetes source is unavailable or partial, a service without targets
+While such a source is unavailable or partial, a service without targets
 stays an ordinary service, so an outage never drops a running service from
 impact. A running service that declares `service.template` also stays a
 service and raises `GOLDEN_PATH_DEPLOYED` (warning, category `golden-path`).
@@ -56,7 +57,8 @@ origin is labelled `declared`.
 | `template` (search) | `only`, `exclude` | The same filter on search; the default keeps golden paths, each hit marked `template` |
 
 A golden path row in an entity list carries `created`, the number of services
-created from it, and its signature status: `not-checked` when no source that
+created from it, golden paths derived from it left out like the Services list
+leaves them out, and its signature status: `not-checked` when no source that
 read the path checks signatures, and the path's detail then has no
 `signature`.
 
@@ -85,7 +87,9 @@ The `delivery` step appears only in the step list `pacto init --from
 
 A namespace-scoped viewer sees a golden path that has no Kubernetes target,
 like a declared offering provider, with only the revisions that declare
-`service.template`. Services created from it that the viewer cannot see are
-counted in `hiddenCreated` and never named. A visible service whose golden
+`service.template`. Nothing in the view resolves to the older revisions it
+drops. Services created from it that the viewer cannot see are counted in
+`hiddenCreated`, and its requirements on services the viewer cannot see in
+`hiddenRequirements`, never named. A visible service whose golden
 path is hidden keeps its declared `ref` and `digest` and links nowhere, with
 the reason "the golden path it names is not in this view".

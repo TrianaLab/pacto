@@ -398,6 +398,9 @@ func printTemplateText(w io.Writer, summary string, t *fleet.TemplateDetail) {
 			_, _ = fmt.Fprintf(w, "  %s: %s\n", u.Ref, orDash(u.Reason))
 		}
 	}
+	if t.HiddenRequirements > 0 {
+		_, _ = fmt.Fprintf(w, "Hidden requirements: %d on services you may not see\n", t.HiddenRequirements)
+	}
 	if t.CreatedServices.Total > 0 || t.HiddenCreatedServices > 0 {
 		_, _ = fmt.Fprintln(w, "Created services:")
 		for _, c := range t.CreatedServices.Items {

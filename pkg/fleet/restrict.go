@@ -97,10 +97,19 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		out.Targets[k] = t
 	}
 	out.Revisions = restrictRevisions(s, hiddenSvc, offeringOnly)
-	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc)
-	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc)
+	// The older revisions a golden path visible only as one drops are hidden
+	// like a hidden service's: nothing visible may resolve to or name them.
+	dropped := map[RevisionKey]bool{}
+	for k := range s.Revisions {
+		if out.Revisions[k] == nil {
+			dropped[k] = true
+			hiddenNames = append(hiddenNames, string(k))
+		}
+	}
+	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
+	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	out.hiddenConsumers = hiddenConsumers
-	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc)
+	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents, origins, hiddenCreated)...)
@@ -311,11 +320,21 @@ func kubePlacementKnown(s *FleetSnapshot) bool {
 	})
 }
 
+// targetPlacementKnown reports whether a service with no target in s truly
+// runs nowhere: no source that reports operational targets (Kubernetes, the
+// Evidence Server or a target state file) is unavailable or partial.
+func targetPlacementKnown(s *FleetSnapshot) bool {
+	return !slices.ContainsFunc(s.Sources, func(src SourceState) bool {
+		return src.Status != SourceAvailable && slices.Contains([]string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}, src.Kind)
+	})
+}
+
 // restrictRelationships sets out.Relationships to rels without the hidden
 // services, and returns, per visible service, the hidden services it depends
 // on, that depend on it and that consume it (see [ConsumesEdge]; observed
-// callers depend on a service without consuming it).
-func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) (deps, dependents, consumers map[ServiceKey]map[ServiceKey]bool) {
+// callers depend on a service without consuming it). An edge to a visible
+// service that resolved to a dropped revision loses that resolution.
+func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool, dropped map[RevisionKey]bool) (deps, dependents, consumers map[ServiceKey]map[ServiceKey]bool) {
 	deps, dependents, consumers = map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
 	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
 		if m[at] == nil {
@@ -352,6 +371,8 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			if rel.GuaranteeStatus != "" {
 				rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
 			}
+		case dropped[rel.ResolvedRevision]:
+			rel.ResolvedRevision, rel.LockedDigest = "", ""
 		}
 		out.Relationships = append(out.Relationships, rel)
 	}
@@ -364,14 +385,14 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 // hidden provider declares: the reference becomes unverified. A revision is
 // copied, never changed in place. out.Services must not be restricted yet: its
 // statuses read the revalidated revisions.
-func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) {
+func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool, dropped map[RevisionKey]bool) {
 	stale := map[RevisionKey]bool{}
 	// ponytail: a fixpoint costing config refs x chain depth passes.
 	for changed := true; changed; {
 		changed = false
 		for _, rel := range rels {
 			if rel.Type == RelationshipConfigRef && !stale[rel.FromRevision] && out.Revisions[rel.FromRevision] != nil &&
-				(hiddenSvc[rel.ToService] || stale[rel.ResolvedRevision]) {
+				(hiddenSvc[rel.ToService] || stale[rel.ResolvedRevision] || dropped[rel.ResolvedRevision]) {
 				stale[rel.FromRevision], changed = true, true
 			}
 		}
@@ -397,9 +418,9 @@ func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map
 // out, restricted like Relationships. A golden path consumes nothing, so its
 // edges to hidden services count nowhere. out.Revisions must already be
 // restricted.
-func restrictTemplateEdges(out *FleetSnapshot, edges []Relationship, hiddenSvc map[ServiceKey]bool) []Relationship {
+func restrictTemplateEdges(out *FleetSnapshot, edges []Relationship, hiddenSvc map[ServiceKey]bool, dropped map[RevisionKey]bool) []Relationship {
 	var scratch FleetSnapshot
-	restrictRelationships(&scratch, edges, hiddenSvc)
+	restrictRelationships(&scratch, edges, hiddenSvc, dropped)
 	return slices.DeleteFunc(scratch.Relationships, func(rel Relationship) bool { return out.Revisions[rel.FromRevision] == nil })
 }
 

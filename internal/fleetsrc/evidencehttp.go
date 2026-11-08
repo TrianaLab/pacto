@@ -43,7 +43,7 @@ func NewEvidenceHTTPSource(id, baseURL string) *EvidenceHTTPSource {
 func (s *EvidenceHTTPSource) ID() string { return s.id }
 
 // Kind implements [fleet.Source].
-func (s *EvidenceHTTPSource) Kind() string { return "evidence-http" }
+func (s *EvidenceHTTPSource) Kind() string { return fleet.SourceKindEvidenceHTTP }
 
 // Collect GETs the server's read-only targets projection and maps each into an
 // external fleet target. Any transport, status or decode failure is returned so

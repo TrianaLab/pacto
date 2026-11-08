@@ -195,7 +195,7 @@ func renderTemplateDetail(b *strings.Builder, t *fleet.TemplateDetail) {
 	for _, p := range t.Plugins {
 		field(b, "plugin", p.Name+": "+p.Description)
 	}
-	field(b, "requirements", fmt.Sprintf("%d (%d unresolved)", t.Requirements.Total, t.UnresolvedRequirements.Total))
+	field(b, "requirements", fmt.Sprintf("%d (%d unresolved)", t.Requirements.Total+t.HiddenRequirements, t.UnresolvedRequirements.Total))
 	field(b, "created services", fmt.Sprintf("%d", t.CreatedServices.Total+t.HiddenCreatedServices))
 	if t.Instantiate != nil {
 		field(b, "create", t.Instantiate.CLI)
