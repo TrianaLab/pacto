@@ -115,9 +115,9 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
     // The buckets are the backend's 40 services, not the 2 owner rows below them.
     expect(legend(target)).toEqual([
-      ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
       ['Revisions name different owners', '2', '#/fleet/services?ownership=conflicting'],
       ['No declared owner', '4', '#/fleet/services?ownership=unowned'],
+      ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
     ]);
     expect(aggregateOf(target)?.querySelector('.dist-scope')?.textContent)
       .toBe('All 40 services in the snapshot, whatever this page is filtered or paged to.');
@@ -261,7 +261,7 @@ describe('FleetOwnersView (G)', () => {
     // The owner question carries the search and the offset; the ownership question does not.
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], text: 'team', offset: 25 }));
     expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], template: 'exclude', limit: 1 });
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 });
@@ -306,7 +306,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     respondByKind(listResp(owners(2), { total: 2 }));
     (aggregateOf(target)?.querySelector('button') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -326,7 +326,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     expect(aggregateOf(target)?.querySelector('[data-testid="stale-refresh"]')?.textContent)
       .toContain('This ownership summary could not be refreshed');
     // And the last answer we did receive is still readable, rather than thrown away.
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -350,9 +350,9 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     ]);
     // 5 + 2 + 1 == 8 of 10: the missing two are a bucket, not rounding.
     expect(rows).toEqual([
-      ['One declared owner', '5', '(50% of 10)'],
       ['Revisions name different owners', '2', '(20% of 10)'],
       ['No declared owner', '1', '(10% of 10)'],
+      ['One declared owner', '5', '(50% of 10)'],
       ['Unclassified', '2', '(20% of 10)'],
     ]);
     unmount(component); document.body.removeChild(target);
@@ -385,9 +385,9 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Still shares of 8 -- the denominator was not quietly moved to make them fit --
     // and no Unclassified slice was invented to pad a bar that is already too full.
     expect(rows).toEqual([
-      ['One declared owner', '(75% of 8)'],
       ['Revisions name different owners', '(38% of 8)'],
       ['No declared owner', '(13% of 8)'],
+      ['One declared owner', '(75% of 8)'],
     ]);
     unmount(component); document.body.removeChild(target);
   });

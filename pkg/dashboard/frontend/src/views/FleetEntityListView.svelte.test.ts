@@ -199,11 +199,11 @@ describe('FleetEntityListView', () => {
     expect(target.querySelector('.lv-inventory .dist-title')?.textContent).toBe('Contract revision readiness');
     expect(Array.from(target.querySelectorAll('.lv-inventory .dist-item')).map((n) => [
       n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
-    ])).toEqual([['Passing', '20'], ['Below its own threshold', '5'], ['Assessment expired', '2'], ['Not assessed', '20']]);
+    ])).toEqual([['Below its own threshold', '5'], ['Assessment expired', '2'], ['Passing', '20'], ['Not assessed', '20']]);
     // 47 revisions, one on screen: the denominator is the population, not the page.
     expect(target.querySelector('.lv-inventory .dist-scope')?.textContent).toBe('All 47 contract revisions in the snapshot.');
     expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('Readiness is separate from compliance');
-    expect(target.querySelector('.lv-inventory .dist-legend a')?.getAttribute('href'))
+    expect(target.querySelectorAll('.lv-inventory .dist-legend a')[2]?.getAttribute('href'))
       .toBe('#/fleet/revisions?readiness=passing');
     unmount(component);
   });
@@ -214,7 +214,7 @@ describe('FleetEntityListView', () => {
     await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
     const sel = target.querySelector('select[aria-label="Filter by declared readiness"]') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value))
-      .toEqual(['', 'passing', 'below-threshold', 'expired', 'not-declared']);
+      .toEqual(['', 'below-threshold', 'expired', 'passing', 'not-declared']);
     sel.value = 'expired';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/revisions?service=domain-a%2Fpayments&readiness=expired');

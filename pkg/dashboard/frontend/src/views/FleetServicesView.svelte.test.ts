@@ -92,7 +92,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     const sel = target.querySelector('select[aria-label="Filter by declared ownership"]') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value))
-      .toEqual(['', 'consistent', 'conflicting', 'unowned']);
+      .toEqual(['', 'conflicting', 'unowned', 'consistent']);
     sel.value = 'conflicting';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?owner=team-a&ownership=conflicting');
@@ -211,12 +211,12 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const compliance = dist(target, 'Compliance');
     expect(Array.from(compliance.querySelectorAll('.dist-legend .dist-item')).map((n) => [
       n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
-    ])).toEqual([['Compliant', '20'], ['Not compliant', '5'], ['Unknown', '3'], ['Not evaluated', '12']]);
+    ])).toEqual([['Not compliant', '5'], ['Unknown', '3'], ['Compliant', '20'], ['Not evaluated', '12']]);
     // 40 matching services, of which only 2 are on screen: the denominator is the match.
     expect(compliance.querySelector('.dist-scope')?.textContent).toBe('All 40 services in the snapshot.');
-    expect(compliance.querySelector('.dist-pct')?.textContent).toBe('(50% of 40)');
+    expect(compliance.querySelectorAll('.dist-pct')[2]?.textContent).toBe('(50% of 40)');
     // Every bucket drills into the same list, narrowed by that status.
-    expect(compliance.querySelector('.dist-legend a')?.getAttribute('href')).toBe('#/fleet/services?status=Compliant');
+    expect(compliance.querySelectorAll('.dist-legend a')[2]?.getAttribute('href')).toBe('#/fleet/services?status=Compliant');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -228,9 +228,9 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const ownership = dist(target, 'Declared ownership');
     expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, across every page.');
     expect(Array.from(ownership.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent))
-      .toEqual(['One declared owner', 'Revisions name different owners', 'No declared owner']);
+      .toEqual(['Revisions name different owners', 'No declared owner', 'One declared owner']);
     // The owner filter survives the click; it is narrowed, not replaced.
-    expect(ownership.querySelector('.dist-legend a')?.getAttribute('href'))
+    expect(ownership.querySelectorAll('.dist-legend a')[2]?.getAttribute('href'))
       .toBe('#/fleet/services?owner=team-a&ownership=consistent');
     unmount(component); document.body.removeChild(target);
   });

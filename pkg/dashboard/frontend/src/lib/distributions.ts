@@ -92,7 +92,18 @@ export interface SeverityTally {
 const n = (v: number | undefined) => v || 0;
 
 /**
- * Every canonical compliance state, plus the catch-all, in the order always shown.
+ * CANONICAL_ORDER is the order every status distribution is shown in, whatever the
+ * data: err, warn, the unknown hatch, ok, then the tones that carry no verdict (info,
+ * flat neutral). Empty buckets keep their place. `canonicalRank` is what the builders
+ * below are tested against.
+ */
+const CANONICAL_ORDER = ['err', 'warn', 'hatch', 'ok', 'info', 'neutral'] as const;
+export function canonicalRank(s: { tone: Segment['tone']; hatch?: boolean }): number {
+  return CANONICAL_ORDER.indexOf(s.hatch ? 'hatch' : s.tone);
+}
+
+/**
+ * Every canonical compliance state, plus the catch-all, in the canonical order.
  *
  * Both the wording and the tone are `format.ts`'s, never a second opinion: a legend
  * reading "Non-Compliant" above rows badged "Not compliant" asks the reader to believe
@@ -102,11 +113,11 @@ const n = (v: number | undefined) => v || 0;
 export const COMPLIANCE_STATES: BucketState<keyof ComplianceTally>[] = [
   ...(
     [
-      ['Compliant', 'compliant'],
       ['NonCompliant', 'nonCompliant'],
-      ['Unknown', 'unknown'],
-      ['Warning', 'warning'],
       ['Invalid', 'invalid'],
+      ['Warning', 'warning'],
+      ['Unknown', 'unknown'],
+      ['Compliant', 'compliant'],
       ['Reference', 'reference'],
       ['NotEvaluated', 'notEvaluated'],
     ] as [string, keyof ComplianceTally][]
@@ -136,10 +147,10 @@ export function statusHrefs(url: (status: string) => string): Record<string, str
 export function linkSegments(t: LinkTally | undefined): Segment[] {
   const l = t || {};
   return [
-    { label: 'Exact', value: n(l.exact), tone: 'ok' },
-    { label: 'Inferred', value: n(l.inferred), tone: 'info' },
     { label: 'Ambiguous', value: n(l.ambiguous), tone: 'warn' },
     { label: 'Unresolved', value: n(l.unresolved), tone: 'warn' },
+    { label: 'Exact', value: n(l.exact), tone: 'ok' },
+    { label: 'Inferred', value: n(l.inferred), tone: 'info' },
   ];
 }
 
@@ -151,8 +162,8 @@ export function linkSegments(t: LinkTally | undefined): Segment[] {
 export const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
   { value: 'error', field: 'errors', label: 'Errors', tone: 'err' },
   { value: 'warning', field: 'warnings', label: 'Warnings', tone: 'warn' },
-  { value: 'info', field: 'infos', label: 'Info', tone: 'info' },
   { value: '', field: 'unknown', label: 'Unknown severity', tone: 'neutral', hatch: true },
+  { value: 'info', field: 'infos', label: 'Info', tone: 'info' },
 ];
 
 /** severitySegments renders a finding-severity distribution. */
@@ -174,9 +185,9 @@ export function evidenceSegments(e: { withEvidence?: number; withoutEvidence?: n
   const w = e || {};
   const fresh = Math.max(0, n(w.withEvidence) - n(w.stale));
   return [
-    { label: 'Fresh evidence', value: fresh, tone: 'ok' },
     { label: 'Stale evidence', value: n(w.stale), tone: 'warn' },
     { label: 'No evidence', value: n(w.withoutEvidence), tone: 'neutral', hatch: true },
+    { label: 'Fresh evidence', value: fresh, tone: 'ok' },
   ];
 }
 
@@ -205,9 +216,9 @@ export interface ReadinessTally {
  * revisions name two teams has no answer at all to "who do I page".
  */
 export const OWNERSHIP_STATES: BucketState<keyof OwnershipTally>[] = [
-  { value: 'consistent', field: 'consistent', label: 'One declared owner', tone: 'ok' },
   { value: 'conflicting', field: 'conflicting', label: 'Revisions name different owners', tone: 'err' },
   { value: 'unowned', field: 'unowned', label: 'No declared owner', tone: 'warn' },
+  { value: 'consistent', field: 'consistent', label: 'One declared owner', tone: 'ok' },
 ];
 
 export function ownershipSegments(t: OwnershipTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
@@ -359,9 +370,9 @@ export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey
  * the same reason — an out-of-date assessment is not a low score.
  */
 export const READINESS_STATES: BucketState<keyof ReadinessTally>[] = [
-  { value: 'passing', field: 'passing', label: 'Passing', tone: 'ok' },
   { value: 'below-threshold', field: 'belowThreshold', label: 'Below its own threshold', tone: 'warn' },
   { value: 'expired', field: 'expired', label: 'Assessment expired', tone: 'warn' },
+  { value: 'passing', field: 'passing', label: 'Passing', tone: 'ok' },
   { value: 'not-declared', field: 'notDeclared', label: 'Not assessed', tone: 'neutral' },
 ];
 
@@ -384,10 +395,10 @@ export interface SignatureTally {
  * that could not finish and a revision no source checks are neutral, never positive.
  */
 export const SIGNATURE_STATES: BucketState<keyof SignatureTally>[] = [
-  { value: 'verified', field: 'verified', label: 'Verified', tone: 'ok' },
   { value: 'unverified', field: 'unverified', label: 'Unverified', tone: 'err' },
   { value: 'unsigned', field: 'unsigned', label: 'Unsigned', tone: 'warn' },
   { value: 'unknown', field: 'unknown', label: 'Unknown', tone: 'neutral', hatch: true },
+  { value: 'verified', field: 'verified', label: 'Verified', tone: 'ok' },
   { value: 'not-checked', field: 'notChecked', label: 'Not checked', tone: 'neutral' },
 ];
 
@@ -403,7 +414,7 @@ export function signatureSegments(t: SignatureTally | undefined): Segment[] {
  */
 export function signatureState(sig: { status?: string; signer?: string } | null | undefined): BucketState<keyof SignatureTally> {
   const v = !sig ? 'not-checked' : sig.status === 'verified' && !sig.signer ? 'unknown' : sig.status;
-  return SIGNATURE_STATES.find((s) => s.value === v) ?? SIGNATURE_STATES[3];
+  return SIGNATURE_STATES.find((s) => s.value === v) ?? SIGNATURE_STATES.find((s) => s.value === 'unknown')!;
 }
 
 /**
