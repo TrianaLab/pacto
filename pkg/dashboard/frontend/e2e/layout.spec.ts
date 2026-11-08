@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
-import { gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
+import { figureLinkTotals, gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
 
 // G1, the transversal layout gate (SPEC section 12): every route, at 390, 760, 1024 and
 // 1280px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
@@ -10,7 +10,8 @@ import { gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './
 // is not an elision of its title (or an elided one with no title), a lone surrogate,
 // horizontal page scroll, more than one element carrying an err box-shadow ring, and
 // the figure rules once figures exist: at most 20 marks, no mark over text, every
-// number a filter link or data-nofilter. Then it sweeps every 20px from 760 to 1440 for
+// number a filter link or data-nofilter, every "List all N" landing on a list of N and
+// every "N more" on N plus the names shown. Then it sweeps every 20px from 760 to 1440 for
 // horizontal overflow (SPEC 19), since a layout clean at the fixed widths spilled
 // between them.
 //
@@ -111,6 +112,10 @@ for (const theme of ['dark', 'light'] as const) {
           for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px: ${p}`);
         }
         problems.push(...await sweepOverflow(page, PENDING));
+        // Last, because it navigates: every "List all N" / "N more" lands on N (T3).
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await settle(page);
+        problems.push(...await figureLinkTotals(page));
         expect(problems, `${r.name} (${theme})`).toEqual([]);
       });
     }

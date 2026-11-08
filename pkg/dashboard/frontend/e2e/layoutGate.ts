@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
 //
@@ -78,7 +78,7 @@ export function installScaleFixture(): void {
   };
   const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50 };
 
-  const amend = (method: string, path: string, doc: Record<string, unknown>) => {
+  const amend = (method: string, path: string, doc: Record<string, unknown>, body: string | null) => {
     const [route, query = ''] = path.split('?');
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
@@ -142,12 +142,19 @@ export function installScaleFixture(): void {
         };
       };
       const all = names.map(consumer);
+      // One consistent population: byVerdict judges the range alone (6 carry a verdict
+      // this engine does not know); the 5 refused accept the range, so the outcome
+      // tally counts them with the incompatible: 14 + 5 = 19.
+      const byOutcome = [{ key: 'incompatible', count: 19 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1207 }, { key: 'unclassified', count: 6 }];
+      let outcome = '';
+      try { outcome = String(JSON.parse(body ?? '{}').outcome ?? ''); } catch { /* no body */ }
+      const listed = outcome ? all.filter((c) => c.compatibilityVerdict === outcome) : all;
       Object.assign(cs, {
-        items: all.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: 10, offset: 0, limit: 10,
+        items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: Math.min(10, listed.length), offset: 0, limit: 10,
         nextOffset: 10, truncated: true, hidden: 3, refused: 5,
-        byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 61 }, { key: 'compatible', count: 1209 }],
-        // Disjoint: the 5 refused are counted with the incompatible.
-        byOutcome: [{ key: 'incompatible', count: 37 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1189 }, { key: 'unclassified', count: 6 }],
+        outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)!.count : 1284,
+        byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1212 }, { key: 'novel', count: 6 }],
+        byOutcome,
         byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
         beyondRanking: 400, noOwner: 84, owners: 300,
       });
@@ -161,7 +168,7 @@ export function installScaleFixture(): void {
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
-    try { amend(method, path, doc); } catch (e) { console.error('scale fixture', path, e); return res; }
+    try { amend(method, path, doc, body); } catch (e) { console.error('scale fixture', path, e); return res; }
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -409,6 +416,38 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
 
     return [...new Set(out)];
   }, skip);
+}
+
+/**
+ * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
+ * and reads the total of the list it lands on, from the `data-view-total` its pager
+ * carries: "List all N" must land on N, "N more" on N plus the chips its lane names.
+ * A link that lands on no paged list (prose) fails too. It navigates, so call it last.
+ */
+export async function figureLinkTotals(page: Page): Promise<string[]> {
+  const links = await page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
+    .filter((a) => a.getClientRects().length && /^(List all [\d,]+|[\d,]+ more)$/.test((a.textContent ?? '').trim()))
+    .map((a) => {
+      const t = (a.textContent ?? '').trim(), n = Number(t.replace(/[^\d]/g, ''));
+      const lane = a.closest('.lane, .station');
+      const shown = lane ? [...lane.querySelectorAll('.chip')].filter((c) => c.getClientRects().length).length : 0;
+      return { href: a.getAttribute('href') ?? '', text: t, want: t.startsWith('List all') ? n : n + shown };
+    }));
+  const out: string[] = [];
+  for (const l of links) {
+    await page.goto(`/${l.href}`);
+    const total = async () => page.evaluate(() => {
+      const v = document.querySelector('[data-view-total]')?.getAttribute('data-view-total');
+      return v == null ? null : Number(v);
+    });
+    try {
+      await expect.poll(total, { timeout: 20_000 }).toBe(l.want);
+    } catch {
+      const got = await total();
+      out.push(got == null ? `"${l.text}" lands on no paged list: ${l.href}` : `"${l.text}" lands on a list of ${got}, want ${l.want}: ${l.href}`);
+    }
+  }
+  return out;
 }
 
 /**

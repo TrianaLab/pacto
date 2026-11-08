@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { appReady, settle } from './ready';
+import { installScaleFixture } from './layoutGate';
 
 // Browser acceptance for the Change analysis figure (SPEC 7, flagship) and its narration
 // (SPEC 6, G2), and for the isometric backdrop behind the Overview header and the idle
@@ -41,6 +42,12 @@ async function analyse(page: Page) {
 
 const narrations = (page: Page) => page.evaluate(() => document.getAnimations()
   .filter((a) => String(a.id).startsWith('narr:') && a.playState !== 'finished').length);
+// Every narr: animation the document still holds, finished or paused included.
+const anyNarration = (page: Page) => page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).length);
+// Every visible mark of the figure at full opacity and in place: the final frame.
+const atRest = (page: Page) => page.evaluate((sel) => [...document.querySelectorAll(`${sel} .mk`)]
+  .filter((m) => m.getClientRects().length)
+  .every((m) => { const cs = getComputedStyle(m); return cs.opacity === '1' && cs.transform === 'none'; }), FIGURE);
 const state = (page: Page) => page.locator(FIGURE).getAttribute('data-narration');
 
 for (const theme of ['dark', 'light'] as const) {
@@ -109,7 +116,122 @@ for (const theme of ['dark', 'light'] as const) {
       await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
       await page.evaluate(() => { location.hash = '#/fleet'; });
       await expect(page.locator(FIGURE)).toHaveCount(0);
+      expect(await anyNarration(page)).toBe(0);
+    });
+
+    // G2 (r5): a figure waiting for autoplay shows its final frame and holds no paused
+    // animation; it plays only once it is in view.
+    test('does not autoplay off-screen, and waits on its final frame', async ({ page }) => {
+      await page.addInitScript(() => sessionStorage.clear());
+      await page.setViewportSize({ width: 1280, height: 320 });
+      await pick(page);
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
+      // The answer lands under the fold: the browser does not scroll to it.
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(300);
+      expect(await page.locator(FIGURE).evaluate((f) => f.getBoundingClientRect().top >= window.innerHeight)).toBe(true);
+      expect(await state(page)).toBe('pending');
+      expect(await anyNarration(page)).toBe(0);
+      expect(await atRest(page)).toBe(true);
+      await page.locator(FIGURE).scrollIntoViewIfNeeded();
+      await expect.poll(() => state(page), { timeout: 10_000 }).toMatch(/playing|done/);
+      await expect.poll(() => state(page), { timeout: 10_000 }).toBe('done');
       expect(await narrations(page)).toBe(0);
+    });
+
+    test('does not autoplay while the tab is hidden', async ({ page }) => {
+      await page.addInitScript(() => {
+        sessionStorage.clear();
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      });
+      await pick(page);
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
+      await page.locator(FIGURE).scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+      expect(await state(page)).toBe('pending');
+      expect(await anyNarration(page)).toBe(0);
+      expect(await atRest(page)).toBe(true);
+    });
+
+    // C8a and G3 (r5): on the G1 scale fixture (1,284 consumers, names up to 200
+    // characters) the flagship at 1280 names at least 4 consumers, every lane with
+    // highlights names one, and each "N more" counts what its lane does not name.
+    test('names at least 4 consumers at 1280 on the scale fixture', async ({ page }) => {
+      await page.addInitScript(installScaleFixture);
+      await analyse(page);
+      await page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).forEach((a) => a.finish()));
+      await settle(page);
+      const lanes = await page.locator(`${FIGURE} .lane:not(.ghost)`).evaluateAll((ls) => ls.map((l) => ({
+        name: l.querySelector('.lane-name')?.textContent ?? '',
+        shown: [...l.querySelectorAll('.chip')].filter((c) => c.getClientRects().length).length,
+        more: l.querySelector('.lane-more')?.textContent ?? '',
+        n: Number(l.querySelector('.lane-count b')?.textContent?.replace(/[^\d]/g, '') ?? 0),
+        candidates: l.querySelectorAll('.chip').length,
+      })));
+      expect(lanes.reduce((a, l) => a + l.shown, 0), JSON.stringify(lanes)).toBeGreaterThanOrEqual(4);
+      for (const l of lanes) {
+        if (l.candidates) expect(l.shown, l.name).toBeGreaterThanOrEqual(1);
+        expect(l.more, l.name).toBe(l.shown ? (l.n > l.shown ? `${(l.n - l.shown).toLocaleString('en-US')} more` : '') : `List all ${l.n.toLocaleString('en-US')}`);
+      }
+    });
+
+    // G6 (r5): a pattern is not a colour, so each hatched and open-capped mark is
+    // rendered on the drawing's face and on the page, and the pixels of its solid edge
+    // are sampled: they must reach 3:1 against the ground.
+    test('pattern edges reach 3:1 on the face and the page', async ({ page }) => {
+      await appReady(page);
+      await page.goto('/#/fleet/changes/payments-service');
+      await expect(page.locator('h1').first()).toBeVisible({ timeout: 20_000 });
+      const boxes = await page.evaluate(() => {
+        const host = document.createElement('div');
+        host.id = 'g6';
+        host.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;margin:0;padding:0;border:0;border-radius:0;display:flex';
+        for (const ground of ['--c-iso-face', '--c-bg']) {
+          const g = document.createElement('div');
+          g.dataset.ground = ground;
+          g.style.cssText = `background:var(${ground});padding:12px;display:flex;gap:16px;align-items:center`;
+          g.innerHTML = '<span class="mbar" style="width:64px"><i class="hatch" style="width:48px"></i></span>'
+            + '<span class="nd unk t-neutral"><svg width="28" height="28" viewBox="0 0 28 28"><circle class="f" cx="14" cy="14" r="9"></circle></svg></span>'
+            + '<svg class="opencap" width="12" height="16" viewBox="0 0 12 16"><path d="M4 1 L1.5 15 M10.5 1 L8 15"></path></svg>';
+          host.appendChild(g);
+        }
+        document.documentElement.appendChild(host);
+        const o = host.getBoundingClientRect();
+        const rel = (el: Element) => { const r = el.getBoundingClientRect(); return { x: r.left - o.left, y: r.top - o.top, w: r.width, h: r.height }; };
+        return [...host.children].map((g) => ({
+          ground: (g as HTMLElement).dataset.ground!, g: rel(g),
+          // Where each edge is: the hatch's left edge column, the node's top arc, the cap's strokes.
+          hatch: rel(g.querySelector('.mbar i')!), node: rel(g.querySelector('.nd svg')!), cap: rel(g.querySelector('.opencap')!),
+        }));
+      });
+      const png = (await page.locator('#g6').screenshot()).toString('base64');
+      const results = await page.evaluate(async ({ b64, boxes }) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const cv = document.createElement('canvas');
+        cv.width = bmp.width; cv.height = bmp.height;
+        const cx = cv.getContext('2d')!;
+        cx.drawImage(bmp, 0, 0);
+        const px = (x: number, y: number) => Array.from(cx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data.slice(0, 3));
+        const lum = ([r, g, b]: number[]) => { const l = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4); return 0.2126 * l(r) + 0.7152 * l(g) + 0.0722 * l(b); };
+        const ratio = (a: number[], b: number[]) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+        const best = (pts: [number, number][], ground: number[]) => Math.max(...pts.map(([x, y]) => ratio(px(x, y), ground)));
+        const out: { ground: string; mark: string; ratio: number }[] = [];
+        for (const b of boxes) {
+          const ground = px(b.g.x + 2, b.g.y + 2);
+          out.push({ ground: b.ground, mark: 'hatch edge', ratio: ratio(px(b.hatch.x + 0.5, b.hatch.y + b.hatch.h / 2), ground) });
+          const top: [number, number][] = [];
+          for (let y = 0; y < 9; y++) top.push([b.node.x + 14, b.node.y + y]);
+          out.push({ ground: b.ground, mark: 'hatched node edge', ratio: best(top, ground) });
+          const cap: [number, number][] = [];
+          for (let x = 0; x < b.cap.w; x++) for (let y = 0; y < b.cap.h; y++) cap.push([b.cap.x + x, b.cap.y + y]);
+          out.push({ ground: b.ground, mark: 'open cap', ratio: best(cap, ground) });
+        }
+        return out;
+      }, { b64: png, boxes });
+      for (const r of results) expect(r.ratio, `${r.mark} on ${r.ground}`).toBeGreaterThanOrEqual(3);
     });
 
     test('steps instead of moving under reduced motion, and rests with every mark in place', async ({ page }) => {
