@@ -215,6 +215,29 @@ func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // ── replay at load ──────────────────────────────────────────────────────
 
+// ownPaths adds Stages whose paths differ from test then prod (SPEC 21: each
+// Stage declares its own path).
+func (d *demoDelivery) ownPaths() {
+	// checkout forks from test into two more regions beside prod; audit-log has
+	// one prod Stage fed straight by new artifacts; notification-worker's one
+	// prod Stage is fed from another cluster's signed records. None of them takes
+	// part in the story.
+	ready := []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready"}}
+	for _, region := range []string{"prod-eu", "prod-us"} {
+		s := newStage("checkout", region)
+		s.Status.Conditions = slices.Clone(ready)
+		d.stages = append(d.stages, s)
+	}
+	audit := newStage("audit-log", story.Prod)
+	audit.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "audit-log-candidates"}}
+	notify := newStage("notification-worker", story.Prod)
+	notify.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "registry.example/edge/records", Stream: "edge-cluster/staging/notification-worker"}}
+	for _, s := range []*delivery.StageObject{audit, notify} {
+		s.Status.Conditions = slices.Clone(ready)
+		d.stages = append(d.stages, s)
+	}
+}
+
 // replay builds the world the guided path starts from: every Stage, what
 // pacto publish published, and the story's beats up to B4 played through the
 // same plan and lifecycle as a live change, then the agent beat. fraud is new:
@@ -252,10 +275,12 @@ func (d *demoDelivery) replay(start time.Time) error {
 			d.stages = append(d.stages, s)
 		}
 	}
+	d.ownPaths()
 	// Placed before the story starts.
 	for _, p := range []struct{ svc, env, v string }{
 		{"payments", story.Test, "2.3.0"}, {"payments", story.Prod, "2.3.0"},
 		{"checkout", story.Test, "1.8.0"}, {"checkout", story.Prod, "1.8.0"}, {"orders", story.Prod, "1.4.0"},
+		{"checkout", "prod-eu", "1.8.0"}, {"checkout", "prod-us", "1.8.0"},
 	} {
 		s, dg := d.stage(p.env, p.svc), story.ArtifactDigest(p.svc, p.v)
 		s.Status.Pointer, s.Status.Verified, s.Status.Offered = dg, []string{dg}, []string{dg}
