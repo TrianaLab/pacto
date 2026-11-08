@@ -11,6 +11,9 @@
   border: 1px solid var(--c-border); border-radius: var(--radius);
   padding: var(--sp-4);
 }
+/* SPEC 2: the iso plane (.iso-backdrop) behind every figure, glow on the drawing's side. */
+.fig.iso-backdrop { --iso-at: 30% 45%; }
+.fig.iso-backdrop::before { border-radius: inherit; }
 .fig--explain { border-style: dashed; border-color: var(--c-accent-border); }
 .fig-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-4); }
 .fig-kind { font: var(--role-label-font); font-variant-caps: all-small-caps; letter-spacing: 0.05em; color: var(--c-text-3); white-space: nowrap; }
@@ -51,6 +54,7 @@
 .nd .f { fill: color-mix(in srgb, var(--tone) 18%, var(--c-iso-face)); stroke: var(--tone); stroke-width: 1.5; }
 .nd .gp { fill: none; stroke: var(--tone); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .nd.unk .f { fill: url(#fig-hatch); stroke: var(--c-neutral); }
+.nd.unk .fc { fill: var(--c-iso-face); stroke: none; }
 .nd.unk .gp { stroke: var(--c-text); }
 
 /* Slabs (iso): the Stack's layers. Sides mix the tone into a neutral side. */

@@ -1,7 +1,7 @@
 <script>
   // A flat pin (SPEC 3): circle for a state, square for an entity, diamond for a gate.
-  // One glyph, drawn as geometry (C15); no words. Unknown is the grey hatch with a solid
-  // neutral edge. `a` names the anchor wires attach to; `m` names the mark a narration
+  // One glyph, drawn as geometry (C15); no words. Unknown is a grey hatched ring with a
+  // solid neutral edge around a plain face, so the glyph never sits on the stripes. `a` names the anchor wires attach to; `m` names the mark a narration
   // reveals. A diamond also anchors on its vertices (`a-t`, `a-l`, `a-r`, `a-b`), so a
   // wire ends on the shape, never on its box (C13).
   import { GLYPH_PATH } from '../../lib/figure.ts';
@@ -22,6 +22,15 @@
       <rect class="f" x={c - r} y={c - r} width={2 * r} height={2 * r} rx="3" />
     {:else}
       <circle class="f" cx={c} cy={c} r={r} />
+    {/if}
+    {#if hatch}
+      {#if shape === 'diamond'}
+        <path class="fc" d="M{c} {c - d + 4} L{c + d - 4} {c} L{c} {c + d - 4} L{c - d + 4} {c} Z" />
+      {:else if shape === 'square'}
+        <rect class="fc" x={c - r + 3} y={c - r + 3} width={2 * r - 6} height={2 * r - 6} rx="2" />
+      {:else}
+        <circle class="fc" cx={c} cy={c} r={r - 3} />
+      {/if}
     {/if}
     {#if glyph}<path class="gp" transform="translate({c} {c}) scale({big ? 1.2 : 0.95})" d={GLYPH_PATH[glyph]} />{/if}
     {#if shape === 'diamond' && a}

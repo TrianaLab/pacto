@@ -110,7 +110,7 @@
   });
 </script>
 
-<figure class="fig fig--{kind}" id="fig-{id}" data-fig data-w={w} data-narration={narration} data-testid={testid}
+<figure class="fig fig--{kind} iso-backdrop" id="fig-{id}" data-fig data-w={w} data-narration={narration} data-testid={testid}
   aria-labelledby="fig-{id}-q" bind:this={el}>
   <div class="fig-head">
     <span class="fig-kind">{kind === 'explain' ? 'How this works' : 'Data figure'}</span>
