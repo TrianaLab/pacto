@@ -295,14 +295,12 @@ export async function gateMode(page: Page): Promise<void> {
 
 /**
  * layoutProblems runs every G1 check on the page as it is and returns one line per
- * problem. `skip` names subtrees owned by a later phase (the figure it rewrites);
- * nothing else is ever excluded.
+ * problem. Nothing is excluded.
  */
-export async function layoutProblems(page: Page, skip: string[] = []): Promise<string[]> {
-  return page.evaluate((skipSel) => {
+export async function layoutProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
     const out: string[] = [];
     const root = document.querySelector('#app') ?? document.body;
-    const skipped = (el: Element) => skipSel.some((s) => el.closest(s));
     const say = (el: Element | null) => {
       if (!el) return '?';
       const id = el.id ? `#${el.id}` : '';
@@ -337,7 +335,7 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       const el = n.parentElement;
       if (!el || !(n.textContent ?? '').trim()) continue;
       if (el.closest('script, style, noscript, template, option, canvas, [popover]:not(:popover-open), dialog:not([open])')) continue;
-      if (skipped(el) || hiddenByA11y(el)) continue;
+      if (hiddenByA11y(el)) continue;
       const range = document.createRange();
       range.selectNodeContents(n);
       const rects = [...range.getClientRects()].filter((r) => r.width > 0.5 && r.height > 0.5);
@@ -390,7 +388,7 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
 
     // SPEC 22 r2: no table column holding words is narrower than 6ch.
     for (const cell of root.querySelectorAll('th, td')) {
-      if (skipped(cell) || hiddenByA11y(cell) || !cell.getClientRects().length) continue;
+      if (hiddenByA11y(cell) || !cell.getClientRects().length) continue;
       if ((cell.textContent ?? '').trim().length < 3) continue;
       const cs = getComputedStyle(cell);
       const ctx = document.createElement('canvas').getContext('2d');
@@ -459,7 +457,7 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     // Innermost first, so a spill is reported once, on the box it leaves.
     const spilt = new Set<Text>();
     for (const el of [...root.querySelectorAll('*')].reverse()) {
-      if (el instanceof SVGElement || skipped(el)) continue;
+      if (el instanceof SVGElement) continue;
       const cs = getComputedStyle(el);
       if (cs.display === 'inline' || cs.display === 'none' || el.clientWidth === 0) continue;
       const over = el.scrollWidth - el.clientWidth;
@@ -486,7 +484,7 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     // A bdi marked data-format is a deliberate rendering (a short digest, an account
     // as namespace/name), not a cut name.
     for (const bdi of root.querySelectorAll('bdi:not([data-format])')) {
-      if (skipped(bdi) || hiddenByA11y(bdi)) continue;
+      if (hiddenByA11y(bdi)) continue;
       const t = bdi.textContent ?? '';
       const parts = t.split('…');
       const elided = parts.length > 1;
@@ -522,7 +520,7 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     if (window.innerWidth >= 1200 && window.innerWidth <= 1440) {
       for (const f of root.querySelectorAll('[data-fig].fig--data:not([data-compact]):not([data-w="col"])')) {
         const body = f.querySelector('.fig-body');
-        if (!body || skipped(f) || !body.getClientRects().length) continue;
+        if (!body || !body.getClientRects().length) continue;
         const q = body.getBoundingClientRect();
         let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
         const take = (x: DOMRect) => { if (x.width < 0.5 || x.height < 0.5) return; l = Math.min(l, x.left); t = Math.min(t, x.top); r = Math.max(r, x.right); b = Math.max(b, x.bottom); };
@@ -542,7 +540,6 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     // Figures (the [data-fig] drawings): at most 20 marks, and every number in a lane,
     // station or aside is a filter link or says it has none.
     for (const f of root.querySelectorAll('[data-fig]')) {
-      if (skipped(f)) continue;
       const marks = [...f.querySelectorAll('.mk')].filter((m) => m.getClientRects().length);
       if (marks.length > 20) out.push(`${say(f)} draws ${marks.length} marks, more than 20`);
       // A mark never covers text (a "+N" count chip is itself the mark).
@@ -590,11 +587,11 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       .some((one) => !/\binset\b/.test(one) && rgbOf(one) === errRgb);
     const rings = [...root.querySelectorAll('*')].filter((el) =>
       (el.matches('.is-alarm, .ring, [data-ring]') || [null, '::before', '::after'].some((pe) => errRing(getComputedStyle(el, pe).boxShadow)))
-      && !skipped(el) && el.getClientRects().length > 0 && !hiddenByA11y(el));
+      && el.getClientRects().length > 0 && !hiddenByA11y(el));
     if (rings.length > 1) out.push(`${rings.length} err rings on one page, more than 1: ${rings.slice(0, 3).map(say).join(', ')}`);
 
     return [...new Set(out)];
-  }, skip);
+  });
 }
 
 /**
@@ -656,12 +653,12 @@ export async function figureLinkTotals(page: Page): Promise<string[]> {
  * a layout clean at 1024 and 1280 spilled at 840 to 900, 1040 to 1100 and 1140 to
  * 1160. Only overflow is checked here; the full gate runs at the fixed widths.
  */
-export async function sweepOverflow(page: Page, skip: string[] = []): Promise<string[]> {
+export async function sweepOverflow(page: Page): Promise<string[]> {
   const out: string[] = [];
   for (let w = 760; w <= 1920; w += w < 1440 ? 20 : 40) {
     await page.setViewportSize({ width: w, height: 900 });
     await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
-    const found = await page.evaluate((skipSel) => {
+    const found = await page.evaluate(() => {
       const doc = document.documentElement;
       const msgs: string[] = [];
       if (doc.scrollWidth > doc.clientWidth + 1) msgs.push(`the page scrolls sideways by ${doc.scrollWidth - doc.clientWidth}px`);
@@ -678,7 +675,6 @@ export async function sweepOverflow(page: Page, skip: string[] = []): Promise<st
           return false;
         };
         for (const el of main.querySelectorAll('*')) {
-          if (skipSel.some((s) => el.closest(s))) continue;
           const r = el.getBoundingClientRect();
           if (!r.width || r.right <= edge + 1) continue;
           const cs = getComputedStyle(el);
@@ -689,7 +685,7 @@ export async function sweepOverflow(page: Page, skip: string[] = []): Promise<st
         }
       }
       return msgs;
-    }, skip);
+    });
     for (const m of found) out.push(`${w}px: ${m}`);
   }
   return out;
@@ -705,7 +701,7 @@ export async function chooseRevision(page: Page, sel: string, version: string) {
 }
 
 /** Opens the first entity link of a kind on a list route: keys come from the engine. */
-export const firstLink = (list: string, href: string) => async (page: Page) => {
+const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${list}`);
   const a = page.locator(`main a[href*="${href}"]`).first();
   await expect(a).toBeVisible({ timeout: 20_000 });
@@ -713,7 +709,7 @@ export const firstLink = (list: string, href: string) => async (page: Page) => {
 };
 
 /** Opens a service created from a golden path, through the path's own created count. */
-export const createdService = async (page: Page) => {
+const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
   const created = page.locator('[data-testid="path-created"]').first();
   await expect(created).toBeVisible({ timeout: 20_000 });

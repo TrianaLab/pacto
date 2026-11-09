@@ -19,10 +19,6 @@ import { ROUTES, densityProblems, figureLinkTotals, gateMode, installScaleFixtur
 // are gated (SPEC 20): from 1200px each fixed width is checked with the sidebar as it
 // starts and again with it toggled, and the sweep runs once with the default states
 // (collapsed under 1440px) and once with the sidebar expanded from 1200px.
-//
-// PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
-// nothing else is excluded.
-const PENDING: string[] = [];
 
 const WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 
@@ -49,17 +45,17 @@ for (const theme of ['dark', 'light'] as const) {
           await page.setViewportSize({ width: w, height: 900 });
           await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
           await settle(page);
-          for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px: ${p}`);
+          for (const p of await layoutProblems(page)) problems.push(`${w}px: ${p}`);
           if (w >= 1200) {
             const state = await toggleSidebar(page);
-            for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px, sidebar ${state}: ${p}`);
+            for (const p of await layoutProblems(page)) problems.push(`${w}px, sidebar ${state}: ${p}`);
             await toggleSidebar(page);
           }
         }
-        problems.push(...await sweepOverflow(page, PENDING));
+        problems.push(...await sweepOverflow(page));
         await page.setViewportSize({ width: 1280, height: 900 });
         if (await toggleSidebar(page) !== 'open') await toggleSidebar(page);
-        for (const p of await sweepOverflow(page, PENDING)) problems.push(`sidebar expanded: ${p}`);
+        for (const p of await sweepOverflow(page)) problems.push(`sidebar expanded: ${p}`);
         // Last, because it navigates: every "List all N" / "N more" lands on N (T3).
         await page.setViewportSize({ width: 1280, height: 900 });
         await settle(page);
