@@ -23,9 +23,11 @@
   // that travels them (`token`). `rowMin` is the width under which a row of steps turns
   // vertical (S1 r3, data-minw): each step keeps at least 150px. `compact` offers the
   // L3 (r5) Compact toggle of a list view's figure: it folds the drawing away, keeps
-  // the aside and caption, and is remembered per figure.
-  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], walk?: boolean, token?: import('../../lib/narrate.ts').TokenWalk | null, rowMin?: number, autoplay?: boolean, autoKey?: unknown, compact?: boolean, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
-  let { id, question, kind = 'data', alt = '', wires = [], steps = [], walk = false, token = null, rowMin = 0, autoplay = false, autoKey = null, compact = false, testid = undefined, stage, aside = null, foot = null, caption } = $props();
+  // the aside and caption, and is remembered per figure. `narrow` marks a drawing that
+  // needs little width (a stack, a posture column): its aside sits beside it whenever
+  // both fit, so the card's right half is never left empty (L1).
+  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], walk?: boolean, token?: import('../../lib/narrate.ts').TokenWalk | null, rowMin?: number, autoplay?: boolean, autoKey?: unknown, compact?: boolean, narrow?: boolean, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
+  let { id, question, kind = 'data', alt = '', wires = [], steps = [], walk = false, token = null, rowMin = 0, autoplay = false, autoKey = null, compact = false, narrow = false, testid = undefined, stage, aside = null, foot = null, caption } = $props();
 
   const COMPACT = 'pacto-fig-compact';
   /** @returns {string[]} */
@@ -140,7 +142,7 @@
   });
 </script>
 
-<figure class="fig fig--{kind} iso-backdrop" id="fig-{id}" data-fig data-w={w} data-narration={narration} data-compact={folded || undefined} data-testid={testid}
+<figure class="fig fig--{kind} iso-backdrop" class:fig--narrow={narrow} id="fig-{id}" data-fig data-w={w} data-narration={narration} data-compact={folded || undefined} data-testid={testid}
   aria-labelledby="fig-{id}-q" bind:this={el}>
   <div class="fig-head">
     <span class="fig-kind">{kind === 'explain' ? 'How this works' : 'Data figure'}</span>

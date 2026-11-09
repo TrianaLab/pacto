@@ -252,3 +252,5 @@ tbody tr:hover { background: var(--c-surface-hover); }
    link-in-text-block). Block/card/nav links (tiles, chips, buttons) style themselves and
    are not inline prose, so this only affects genuine in-sentence links. */
 p a { text-decoration: underline; }
+/* The same in a fact's value, where a link sits inside words ("3 of 7 revisions"). */
+dd a { text-decoration: underline; }

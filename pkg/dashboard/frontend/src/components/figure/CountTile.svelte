@@ -8,7 +8,7 @@
   let { more, href, parts = [], hidden = 0 } = $props();
 </script>
 
-<p class="count-tile">
+<p class="count-tile go">
   {#if more > 0}<a {href}>+{formatCount(more)} more</a>{/if}
   {#each parts as p (p)}<span class="count-tile-part">{p}</span>{/each}
   {#if hidden > 0}<span class="count-tile-part" data-nofilter>{formatCount(hidden)} you may not see</span>{/if}

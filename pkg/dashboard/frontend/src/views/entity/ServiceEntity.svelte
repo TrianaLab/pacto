@@ -355,7 +355,7 @@
         {:else if !hiddenReqs}
           <p class="se-none">It consumes no offering.</p>
         {/if}
-        {#if hiddenReqs}<p class="se-hidden t-body-2">{hiddenReqs === 1 ? '1 requirement' : `${hiddenReqs} requirements`} on services you may not see.</p>{/if}
+        {#if hiddenReqs}<p class="se-hidden t-body-2 go">{hiddenReqs === 1 ? '1 requirement' : `${hiddenReqs} requirements`} on services you may not see.</p>{/if}
       </div>
     </section>
 

@@ -15,7 +15,7 @@
   const m = $derived(serviceStackModel(revisions, current?.key ?? '', label, current));
 </script>
 
-<Figure id="revisions" testid="service-revisions-figure" question="Which revisions exist?" alt={m.alt} wires={m.wires}>
+<Figure id="revisions" testid="service-revisions-figure" narrow question="Which revisions exist?" alt={m.alt} wires={m.wires}>
   {#snippet stage()}<StackRows layers={m.layers} rows={m.rows} earlier={m.earlier} earlierHref={allHref} earlierNote={m.currentFolded ? `the current ${m.current} is among them` : ''} />{/snippet}
   {#snippet aside()}
     <dl class="facts">

@@ -204,8 +204,11 @@
      version is cut short (whole on hover) instead of pushing the rest along. */
   @media (min-width: 769px) {
     .pv-row { min-height: 0; }
-    .pv-head { display: grid; grid-template-columns: minmax(0, 13rem) auto minmax(0, 1fr) auto; column-gap: var(--sp-3); }
-    .pv-head.pv-sigcol { grid-template-columns: minmax(0, 13rem) 12rem auto minmax(0, 1fr) auto; }
+    /* The digest and contract columns keep room for a 12-character short form and its
+       copy button: as auto columns they shrank to one character per line once the
+       environments button grew to a 44px touch target. */
+    .pv-head { display: grid; grid-template-columns: minmax(0, 13rem) minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto; column-gap: var(--sp-3); }
+    .pv-head.pv-sigcol { grid-template-columns: minmax(0, 13rem) 12rem minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto; }
     .pv-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pv-envs { justify-self: end; min-height: 26px; padding: 0 var(--sp-2); }
   }

@@ -213,7 +213,7 @@
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tip={lead.tip} tipLabel="History" />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-history" />
-  {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
+  {#if stage}<p class="t-body-2 go"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
   <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until, timed: tm })} />
   {#if windowText}
     <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show all changes</a></p>

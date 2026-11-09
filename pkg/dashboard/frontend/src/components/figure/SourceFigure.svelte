@@ -18,7 +18,7 @@
     : `${countOf(source.revisionCount ?? 0, 'contract revision')} and ${countOf(source.targetCount ?? 0, 'operational target')}`);
 </script>
 
-<Figure id="source" testid="source-figure" question="What does this source report, and is it current?"
+<Figure id="source" testid="source-figure" narrow question="What does this source report, and is it current?"
   alt={`${name}: ${m.words}. ${reports}.`} wires={m.wires}>
   {#snippet stage()}
     <div class="srcfig">

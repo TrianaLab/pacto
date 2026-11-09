@@ -15,7 +15,7 @@
   const said = $derived(segments.filter((s) => s.value).map((s) => `${formatCount(s.value)} ${s.label.toLowerCase()}`).join(', '));
 </script>
 
-<Figure {id} {testid} {question} {compact} {wires} {aside} alt={`${scope}: ${said || 'none'}, of ${formatCount(total)}.`}>
+<Figure {id} {testid} {question} {compact} {wires} {aside} narrow alt={`${scope}: ${said || 'none'}, of ${formatCount(total)}.`}>
   {#snippet stage()}<PostureColumn {segments} {total} />{/snippet}
   {#snippet caption()}{scope}: {said || 'none'}. Unknown means no evidence; it is never counted as compliant.<ProvenanceStrip {meta} />{/snippet}
 </Figure>

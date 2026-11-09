@@ -19,7 +19,7 @@
   const stamp = $derived(STAMP[statusTone(status)] ?? 'neutral');
 </script>
 
-<Figure id="target" testid="target-figure" question="Is this running thing compliant, and on what link?"
+<Figure id="target" testid="target-figure" narrow question="Is this running thing compliant, and on what link?"
   alt={`${statusLabel(status)}. ${m.words}`} wires={m.wires}>
   {#snippet stage()}
     <div class="tgtfig">

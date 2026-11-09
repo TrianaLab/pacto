@@ -34,7 +34,7 @@
 
 {#snippet links()}
   {#if state === 'enabled'}
-    <p class="t-body-2 sd-links">
+    <p class="t-body-2 sd-links go">
       <a href={deliveryHistoryUrl({ service, domain })}>Delivery history</a>
       <a href={deliveryEnvironmentsUrl({ service, domain })}>Open in Delivery</a>
     </p>

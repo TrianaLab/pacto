@@ -253,6 +253,8 @@
 </div>
 
 <style>
+  /* The service link sits in words ("checkout in prod"), so it is underlined (axe link-in-text-block). */
+  .au-table tbody th a { text-decoration: underline; }
   .au-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--sp-3); margin: 0; }
   .au-metric { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); }
   .au-metric dt { color: var(--c-text-3); font-size: var(--text-sm); font-weight: 600; }

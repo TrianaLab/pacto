@@ -36,7 +36,7 @@
   </Figure>
 {/if}
 
-<Figure id="around" testid="revision-around-figure" question="What is around this revision?" alt={s.alt} wires={s.wires}>
+<Figure id="around" testid="revision-around-figure" narrow question="What is around this revision?" alt={s.alt} wires={s.wires}>
   {#snippet stage()}<StackRows layers={s.layers} rows={s.rows} />{/snippet}
   {#snippet aside()}
     <dl class="facts">
@@ -54,7 +54,7 @@
 </Figure>
 
 {#if ev.total}
-  <Figure id="evidence" testid="revision-evidence-figure" question="Where does the evidence about it come from?"
+  <Figure id="evidence" testid="revision-evidence-figure" narrow question="Where does the evidence about it come from?"
     alt={`${countOf(ev.total, 'source')} report about ${version}: ${formatCount(evc.available ?? 0)} current, ${formatCount((evc.stale ?? 0) + (evc.partial ?? 0))} stale or partial, ${formatCount(evc.unavailable ?? 0)} unavailable.`} wires={ev.wires}>
     {#snippet stage()}
       <div class="evfig">

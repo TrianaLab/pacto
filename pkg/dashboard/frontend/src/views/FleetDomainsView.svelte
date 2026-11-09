@@ -158,7 +158,7 @@
         <button type="button" class="btn btn-sm" onclick={() => c.loader.refresh()}>Retry</button>
       </p>
     {:else if (c.loader.data?.total ?? 0) > 0}
-      <p class="dv-none" data-testid={c.testid}>
+      <p class="dv-none go" data-testid={c.testid}>
         <a href={fleetServicesUrl({ businessDomain: c.key })}>{businessDomainLabel(c.key)}: {plural(c.loader.data.total, 'service', 'services')}</a>
         <span class="dv-none-note">{c.note}</span>
       </p>

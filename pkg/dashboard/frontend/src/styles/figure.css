@@ -26,6 +26,13 @@
   .fig-body.has-aside { grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem); align-items: center; }
   .fig-aside { border-left: 1px solid var(--c-border); padding-left: var(--sp-5); }
 }
+/* A narrow drawing (a stack, a posture column) and its aside share a row whenever both
+   fit at their own sizes, and the aside wraps under the drawing otherwise: intrinsic, so
+   no breakpoint guesses the drawing's width and the card's right half is never left
+   empty (L1). Wide drawings keep the 1000px rule above. */
+.fig--narrow > .fig-body.has-aside { display: flex; flex-wrap: wrap; align-items: center; }
+.fig--narrow > .fig-body.has-aside > .fig-stage { flex: 1 1 auto; }
+.fig--narrow > .fig-body.has-aside > .fig-aside { flex: 1 1 17rem; border-left: 0; padding-left: 0; }
 .fig-aside { display: grid; gap: var(--sp-3); align-content: start; min-width: 0; font-size: var(--text-sm); }
 .fig-stage { position: relative; min-width: 0; }
 .fig-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
@@ -125,12 +132,17 @@ a.lane-count:hover b, .lane-more:hover { text-decoration: underline; }
 .opencap { display: block; fill: none; stroke: var(--c-neutral); stroke-width: 1.6; stroke-linecap: round; }
 .lane-list { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .lane-chips { display: flex; gap: var(--sp-2); flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 4px; margin: -4px 0; }
+/* A lane with no names to show (a rank lane) keeps no padded box that pushes its link out. */
+.lane-chips:empty { display: none; }
 .lane-more { flex: none; white-space: nowrap; font-size: var(--text-sm); color: var(--c-accent); text-decoration: none; }
 .lane.ghost { border-top: 1px dashed var(--c-border); padding-top: var(--sp-2); }
 .lane-sub { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; margin: -6px 0 0; overflow-wrap: anywhere; }
 .lane-sub .nd { width: 16px; height: 16px; }
 .lane-sub .nd svg { width: 16px; height: 16px; }
 .lane-gate { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); margin-left: -6px; min-width: 0; }
+/* The reason stays beside the diamond and wraps there: wrapped under it, at 320px it ran
+   over the trunk the diamond hangs from. */
+.lane-gate > .t-meta { flex: 1 1 8rem; max-width: max-content; min-width: 0; }
 /* S1 by the figure's own width (Figure sets data-w): the share bar goes under 800px, the
    chips under 560px, and under 480px each lane is one column of words beside its node. */
 .fig:not([data-w="wide"]) .lane .mbar, .fig:not([data-w="wide"]) .lane .opencap-cell { display: none; }
@@ -297,6 +309,9 @@ a.tl-n:hover { text-decoration: underline; }
 .keyl li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2); }
 .keyl .sw { display: block; width: 14px; height: 10px; border-radius: 2px; background: var(--tone); }
 .keyl b { font-variant-numeric: tabular-nums; }
+/* A note in place of a count is words, so it takes its own line under the label: beside
+   it, at 320px, the two squeezed each other into one overlapping line. */
+.keyl li > .t-meta { grid-column: 2 / -1; }
 .gapk path:first-child { stroke: var(--c-neutral); stroke-width: 2; stroke-dasharray: 3 2; fill: none; }
 .gapk circle { fill: var(--c-surface); stroke: var(--c-neutral); stroke-width: 1.5; }
 .gapk path:last-child { stroke: var(--c-text); stroke-width: 1.5; fill: none; }
@@ -446,13 +461,16 @@ a.prow-n:hover b { text-decoration: underline; }
 /* Rank figure (r5): a neutral hub fanned into lanes that partition its population. */
 .rank { display: grid; grid-template-columns: minmax(7rem, max-content) 40px minmax(0, 1fr); grid-template-areas: "hub . lanes"; align-items: center; min-width: 0; }
 .rank-hub { grid-area: hub; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+/* The wires leave the hub's box, so the box keeps a clear 8px past its label (C4). */
+.fig:not([data-w="col"]) .rank:not(.rank--in) > .rank-hub { padding-inline-end: var(--sp-2); }
+.fig:not([data-w="col"]) .rank--in > .rank-hub { padding-inline-start: var(--sp-2); }
 .rank-hl { display: grid; gap: 2px; font-size: var(--text-sm); line-height: 1.35; min-width: 0; }
 .rank-hl .stat { font: 700 1.5rem/1.15 var(--font-display); font-variant-numeric: tabular-nums; }
 .rank-lanes { grid-area: lanes; display: grid; gap: var(--sp-2); min-width: 0; }
 .rank-h { margin: 0; }
 .lane-note { grid-column: 2 / -1; justify-self: start; min-width: 0; overflow-wrap: break-word; }
 a.lane-note { color: var(--c-accent); font-size: var(--text-sm); }
-.fig .lane-name.id { display: block; width: max-content; max-width: 14rem; min-width: 0; }
+.fig .lane-name.id { display: block; width: max-content; max-width: min(14rem, 100%); min-width: 0; }
 .fig[data-w="col"] .rank { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "hub hub" ". lanes"; row-gap: var(--sp-4); }
 /* Lanes that flow in (Golden paths): the lanes lead and the population hub closes the row;
    in the vertical layout the hub still heads the trunk. */
