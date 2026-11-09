@@ -185,7 +185,7 @@ for (const theme of ['dark', 'light'] as const) {
       }
     });
 
-    // G6 (r5): a pattern is not a colour, so each hatched and open-capped mark is
+    // G6 (r5): a pattern is not a colour, so each hatched, frosted and open-capped mark is
     // rendered on the drawing's face and on the page, and the pixels of its solid edge
     // are sampled: they must reach 3:1 against the ground.
     test('pattern edges reach 3:1 on the face and the page', async ({ page }) => {
@@ -202,7 +202,10 @@ for (const theme of ['dark', 'light'] as const) {
           g.style.cssText = `background:var(${ground});padding:12px;display:flex;gap:16px;align-items:center`;
           g.innerHTML = '<span class="mbar" style="width:64px"><i class="hatch" style="width:48px"></i></span>'
             + '<span class="nd unk t-neutral"><svg width="28" height="28" viewBox="0 0 28 28"><circle class="f" cx="14" cy="14" r="9"></circle></svg></span>'
-            + '<svg class="opencap" width="12" height="16" viewBox="0 0 12 16"><path d="M4 1 L1.5 15 M10.5 1 L8 15"></path></svg>';
+            + '<svg class="opencap" width="12" height="16" viewBox="0 0 12 16"><path d="M4 1 L1.5 15 M10.5 1 L8 15"></path></svg>'
+            // Frost (SPEC 2.2 r4), frozen only: a queue bar and a node.
+            + '<span class="qbar" style="width:64px;flex:none"><i class="t-frost" style="width:48px"></i></span>'
+            + '<span class="nd t-frost" style="--tone:var(--c-info)"><svg width="28" height="28" viewBox="0 0 28 28"><circle class="f" cx="14" cy="14" r="9"></circle></svg></span>';
           host.appendChild(g);
         }
         document.documentElement.appendChild(host);
@@ -211,7 +214,8 @@ for (const theme of ['dark', 'light'] as const) {
         return [...host.children].map((g) => ({
           ground: (g as HTMLElement).dataset.ground!, g: rel(g),
           // Where each edge is: the hatch's left edge column, the node's top arc, the cap's strokes.
-          hatch: rel(g.querySelector('.mbar i')!), node: rel(g.querySelector('.nd svg')!), cap: rel(g.querySelector('.opencap')!),
+          hatch: rel(g.querySelector('.mbar i')!), node: rel(g.querySelector('.nd.unk svg')!), cap: rel(g.querySelector('.opencap')!),
+          frost: rel(g.querySelector('.qbar i')!), frostNode: rel(g.querySelector('.nd.t-frost svg')!),
         }));
       });
       const png = (await page.locator('#g6').screenshot()).toString('base64');
@@ -236,6 +240,10 @@ for (const theme of ['dark', 'light'] as const) {
           const cap: [number, number][] = [];
           for (let x = 0; x < b.cap.w; x++) for (let y = 0; y < b.cap.h; y++) cap.push([b.cap.x + x, b.cap.y + y]);
           out.push({ ground: b.ground, mark: 'open cap', ratio: best(cap, ground) });
+          out.push({ ground: b.ground, mark: 'frost edge', ratio: ratio(px(b.frost.x + 0.5, b.frost.y + b.frost.h / 2), ground) });
+          const ftop: [number, number][] = [];
+          for (let y = 0; y < 9; y++) ftop.push([b.frostNode.x + 14, b.frostNode.y + y]);
+          out.push({ ground: b.ground, mark: 'frost node edge', ratio: best(ftop, ground) });
         }
         return out;
       }, { b64: png, boxes });
