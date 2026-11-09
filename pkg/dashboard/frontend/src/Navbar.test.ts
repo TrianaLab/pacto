@@ -1,22 +1,32 @@
 /**
- * Navbar capability gating (section 12): the navbar must not expose a capability the
- * running host has not registered. The Operational graph tab requires the fleet
- * capability; it shows when unknown (null) or enabled, and hides when disabled.
+ * The top bar (SPEC 20, B2): brand, search, controls and, under 768px, the Menu drawer
+ * that carries the same grouped list as the sidebar. A Fleet host (or one whose
+ * capabilities are not known yet) has no tabs in the bar; a legacy host keeps its own
+ * four items there.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 
 // @ts-expect-error — Svelte component has no declaration file
 import Navbar from './Navbar.svelte';
 
-function navLabels(cap: { fleet: boolean; impact: boolean; delivery?: boolean } | null): string[] {
+type Caps = { fleet: boolean; impact: boolean; delivery?: boolean } | null;
+
+/** The destinations a host offers: the drawer's list on a Fleet host, the bar on a legacy one. */
+function navLabels(cap: Caps): string[] {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(Navbar, {
     target,
     props: { services: [], sourcesInfo: [], capabilities: cap, view: 'list', version: 'x' },
   });
-  const labels = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link')).map((a) => a.textContent?.trim() || '');
+  let links = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link'));
+  if (!links.length) {
+    (target.querySelector('.hamburger') as HTMLButtonElement).click();
+    flushSync();
+    links = Array.from(target.querySelectorAll('#mobile-drawer nav[aria-label="Primary"] a'));
+  }
+  const labels = links.map((a) => (a.querySelector('.nav-label')?.firstChild?.textContent ?? a.textContent ?? '').trim());
   unmount(component);
   document.body.removeChild(target);
   return labels;
@@ -114,8 +124,9 @@ describe('Navbar — the Pacto brand is the HOME affordance', () => {
       target, props: { services: [], sourcesInfo: [], capabilities: cap, view: 'list', version: 'x' },
     });
     const brand = (target.querySelector('.navbar-brand') as HTMLAnchorElement).getAttribute('href') || '';
-    const overview = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link'))
-      .find((a) => a.textContent?.trim() === 'Overview')?.getAttribute('href') ?? null;
+    (target.querySelector('.hamburger') as HTMLButtonElement).click();
+    flushSync();
+    const overview = target.querySelector('#mobile-drawer a[data-nav="overview"]')?.getAttribute('href') ?? null;
     unmount(component); document.body.removeChild(target);
     return { brand, overview };
   }
@@ -143,102 +154,69 @@ describe('Navbar — the Pacto brand is the HOME affordance', () => {
   });
 });
 
-describe('Navbar — primary destinations (product IA)', () => {
-  // state -> inventory -> relationships -> change. Needs attention and Owners are pages a
-  // reader lands on, so each gets its own tab next to the workflow it belongs to; data
-  // sources has its own control and readiness is a cut of the revision inventory.
-  it('a fleet host has the primary destinations, in order', () => {
-    expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Operational graph', 'Change analysis']);
-  });
-
-  it('does not promote readiness, compare or data sources to a tab', () => {
-    const labels = navLabels({ fleet: true, impact: true });
-    for (const dimension of ['Readiness', 'Compare', 'Data sources']) {
-      expect(labels).not.toContain(dimension);
-    }
-  });
-
-  it('the mobile drawer offers the same destinations in the same order as the desktop nav', async () => {
+describe('Navbar — primary destinations (SPEC 20, B2)', () => {
+  it('a Fleet host has no tabs in the bar: its destinations are the grouped list', () => {
     const { target, component } = mountNavbar();
+    expect(target.querySelector('.navbar-nav-desktop')).toBeNull();
     (target.querySelector('.hamburger') as HTMLButtonElement).click();
-    await Promise.resolve();
-    const desktop = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link')).map((a) => a.textContent?.trim());
-    const mobile = Array.from(target.querySelectorAll('.mobile-nav-link')).map((a) => a.textContent?.trim());
-    expect(mobile).toEqual(desktop);
+    flushSync();
+    const groups = Array.from(target.querySelectorAll('#mobile-drawer .nav-group')).map((g) => ({
+      label: g.querySelector('.nav-group-h')?.textContent ?? '',
+      items: Array.from(g.querySelectorAll('a')).map((a) => a.getAttribute('data-nav')),
+    }));
+    expect(groups).toEqual([
+      { label: '', items: ['overview', 'attention'] },
+      { label: 'Organization', items: ['services', 'owners', 'domains', 'offerings', 'golden-paths'] },
+      { label: 'Change and delivery', items: ['changes'] },
+      { label: 'System', items: ['graph', 'sources'] },
+    ]);
     unmount(component); document.body.removeChild(target);
   });
-});
 
-describe('Navbar — capability gating', () => {
-  it('shows the Operational graph tab when capabilities are unknown (null)', () => {
+  it('names every destination by its label, in sidebar order', () => {
+    expect(navLabels({ fleet: true, impact: true }))
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Operational graph', 'Data sources']);
+  });
+
+  it('offers the same list while capabilities are unknown, so a Fleet host never flashes the legacy bar', () => {
     expect(navLabels(null)).toContain('Operational graph');
   });
 
-  it('shows the Operational graph tab when the fleet capability is enabled', () => {
-    expect(navLabels({ fleet: true, impact: true })).toContain('Operational graph');
+  it('keeps the legacy host\'s own four items in the bar', () => {
+    expect(navLabels({ fleet: false, impact: false })).toEqual(['Services', 'Owners', 'Readiness', 'Compare']);
   });
 
-  it('hides the Operational graph tab when the host has no fleet capability', () => {
-    const labels = navLabels({ fleet: false, impact: false });
-    expect(labels).not.toContain('Operational graph');
-    // Capability-free tabs remain.
-    expect(labels).toEqual(expect.arrayContaining(['Services', 'Owners', 'Readiness', 'Compare']));
-  });
-});
-
-describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
-  it('lights Golden paths, not Services, on a golden path page', async () => {
-    const { currentEntity } = await import('./lib/currentEntity.svelte.ts');
-    currentEntity.template = true;
-    try {
-      expect(activeLabel('fleet-entity', 'service')).toBe('Golden paths');
-    } finally {
-      currentEntity.template = false;
-    }
-  });
-
-  // Every entity page shares one view id, so without the kind the nav lit "Services"
-  // while the trail underneath read "Overview > Data sources > edge-cluster".
-  function activeLabel(view: string, entityKind = ''): string | null {
+  it('lights the legacy item of the current view', () => {
     const target = document.createElement('div');
     document.body.appendChild(target);
-    const component = mount(Navbar, {
-      target,
-      props: { services: [], sourcesInfo: [], capabilities: { fleet: true, impact: true }, view, entityKind, version: 'x' },
-    });
-    const active = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link'))
-      .filter((a) => a.getAttribute('aria-current') === 'page')
-      .map((a) => a.textContent?.trim() || '');
+    const component = mount(Navbar, { target, props: { services: [], sourcesInfo: [], capabilities: { fleet: false, impact: false }, view: 'readiness', version: 'x' } });
+    const cur = Array.from(target.querySelectorAll('.navbar-nav-desktop [aria-current="page"]')).map((a) => a.textContent?.trim());
+    expect(cur).toEqual(['Readiness']);
     unmount(component); document.body.removeChild(target);
-    expect(active.length).toBeLessThanOrEqual(1); // never two tabs claiming the page
-    return active[0] ?? null;
-  }
-
-  it.each([
-    ['service', 'Services'],
-    ['revision', 'Services'],
-    ['target', 'Services'],
-    ['owner', 'Owners'],
-    ['domain', 'Domains'],
-    ['offering', 'Offerings'],
-    ['source', 'Overview'],
-  ])('lights %s entity pages under %s', (kind, label) => {
-    expect(activeLabel('fleet-entity', kind)).toBe(label);
   });
 
-  it.each([
-    ['fleet-services', 'Services'],
-    ['fleet-owners', 'Owners'],
-    ['fleet-domains', 'Domains'],
-    ['fleet-offerings', 'Offerings'],
-    ['fleet-golden-paths', 'Golden paths'],
-    ['fleet-sources', 'Overview'],
-    ['fleet-attention', 'Needs attention'],
-    ['fleet', 'Operational graph'],
-    ['changes', 'Change analysis'],
-  ])('lights the %s list view under %s', (view, label) => {
-    expect(activeLabel(view)).toBe(label);
+  it('the legacy drawer lists the same four items and closes on a link', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(Navbar, { target, props: { services: [], sourcesInfo: [], capabilities: { fleet: false, impact: false }, view: 'list', version: 'x' } });
+    (target.querySelector('.hamburger') as HTMLButtonElement).click();
+    flushSync();
+    const links = Array.from(target.querySelectorAll('#mobile-drawer .mobile-nav-link')) as HTMLAnchorElement[];
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['Services', 'Owners', 'Readiness', 'Compare']);
+    links[1].click();
+    flushSync();
+    expect(target.querySelector('#mobile-drawer')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('the Fleet drawer closes when a destination is followed', () => {
+    const { target, component } = mountNavbar();
+    (target.querySelector('.hamburger') as HTMLButtonElement).click();
+    flushSync();
+    (target.querySelector('#mobile-drawer a[data-nav="owners"]') as HTMLAnchorElement).click();
+    flushSync();
+    expect(target.querySelector('#mobile-drawer')).toBeNull();
+    unmount(component); document.body.removeChild(target);
   });
 });
 
@@ -255,11 +233,11 @@ describe('Navbar — data sources', () => {
   function mountWith(props: Record<string, unknown>) {
     const target = document.createElement('div');
     document.body.appendChild(target);
-    const component = mount(Navbar, { target, props: { services: [], capabilities: { fleet: true, impact: true }, view: 'list', version: 'x', ...props } });
+    const component = mount(Navbar, { target, props: { services: [], capabilities: { fleet: false, impact: false }, view: 'list', version: 'x', ...props } });
     return { target, done: () => { unmount(component); document.body.removeChild(target); } };
   }
 
-  it('groups every source behind one Data sources control, so the search keeps its room', () => {
+  it('a legacy host groups every source behind one Data sources control, so the search keeps its room', () => {
     const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'oci', enabled: true }, { type: 'local', enabled: false }] });
     const trigger = target.querySelector('[data-testid="navbar-sources"]') as HTMLButtonElement;
     expect(trigger.textContent?.trim()).toBe('Data sources');
@@ -268,11 +246,18 @@ describe('Navbar — data sources', () => {
     expect(panel.hasAttribute('popover')).toBe(true);
     expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes', 'OCI Registry']);
     expect(panel.querySelector('li .sources-pop-desc')?.textContent).toBe('live cluster runtime data');
-    expect(panel.querySelector('a')?.getAttribute('href')).toBe('#/fleet/sources');
     done();
   });
 
-  it('closes the sources popover on any navigation, including its own link', () => {
+  // The sidebar carries source health on a Fleet host; the control comes back only
+  // where there is no sidebar.
+  it('a Fleet host has no sources control in the bar', () => {
+    const { target, done } = mountWith({ capabilities: { fleet: true, impact: true }, sourcesInfo: [{ type: 'kubernetes', enabled: true }] });
+    expect(target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
+    done();
+  });
+
+  it('closes the sources popover on any navigation', () => {
     const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }] });
     const panel = target.querySelector('#navbar-sources') as HTMLElement & { hidePopover?: () => void };
     let hidden = 0;
@@ -287,7 +272,7 @@ describe('Navbar — data sources', () => {
     expect(m.target.querySelector('[data-testid="navbar-sources"]')?.textContent).toContain('discovering');
     expect(m.target.querySelector('#navbar-sources')?.textContent).toContain('Still discovering');
     m.done();
-    m = mountWith({ sourcesInfo: [], capabilities: { fleet: false, impact: false } });
+    m = mountWith({ sourcesInfo: [] });
     expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
     m.done();
   });

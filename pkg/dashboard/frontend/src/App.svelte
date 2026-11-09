@@ -14,6 +14,8 @@
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
+  import Sidebar from './components/Sidebar.svelte';
+  import { navGroups } from './lib/nav.ts';
   import LazyView from './components/LazyView.svelte';
   import DeliveryUnavailable from './components/DeliveryUnavailable.svelte';
   import EmptyState from './components/EmptyState.svelte';
@@ -71,6 +73,10 @@
   // The capabilities probe failed and none is known yet: every gated route would
   // otherwise wait on "Loading…" for ever, so they say so and offer a retry.
   let capError = $state(false);
+  // What the sidebar counts (SPEC 20): the attention backlog and source health, from
+  // the overview the poll reads anyway. null = not known, so no badge and no dot.
+  let navAttention = $state(null);
+  let navSourceCounts = $state(null);
 
   // A dashboard people sign in to shows nothing but its sign-in screen until
   // they do; the server answers no API call before that. A failed session read
@@ -134,11 +140,16 @@
          route.view === 'owner-detail' || route.view === 'diff' || route.view === 'readiness');
 
       let servicesFailed = false;
-      const [svcList, srcData, health] = await Promise.all([
+      const [svcList, srcData, health, overview] = await Promise.all([
         needsServices ? api.services().catch(() => { servicesFailed = true; return null; }) : Promise.resolve(null),
         api.sources().catch(() => null),
         api.health().catch(() => null),
+        capabilities?.fleet === true ? Promise.resolve().then(() => api.fleetOverview()).catch(() => null) : Promise.resolve(null),
       ]);
+      if (overview) {
+        navAttention = overview.attention?.total ?? null;
+        navSourceCounts = overview.meta?.sourceCounts ?? null;
+      }
       // A failed services fetch means the backend is unreachable or erroring — not
       // that the fleet is genuinely empty. Keep any stale data and flag the error
       // so views show "can't reach backend" instead of the "no sources" setup screen.
@@ -316,6 +327,8 @@
   onToggleTheme={toggleTheme}
   {fleetSearch}
   onOpenSearch={openSearch}
+  attentionTotal={navAttention}
+  sourceCounts={navSourceCounts}
 />
 
 <CommandPalette
@@ -329,6 +342,17 @@
 
 <EntitySearch open={searchOpen} initial={searchInitial} onClose={() => { searchOpen = false; searchInitial = ''; }} />
 
+{/if}
+
+<!-- The shell (SPEC 20, 22-24): the sidebar column, then the page column. The page
+     column always takes the second track, so with no sidebar the first one is empty. -->
+<div class="shell">
+{#if auth.loaded && !gated && capabilities?.fleet !== false}
+  <Sidebar groups={navGroups(capabilities)} view={route.view} entityKind={route.params.kind || ''}
+    attentionTotal={navAttention} sourceCounts={navSourceCounts} blocked={paletteOpen || searchOpen} />
+{/if}
+<div class="shell-col">
+{#if auth.loaded && !gated}
 {#if loadError && services.length > 0}
   <div class="backend-banner" role="alert">
     <span>{loadError} Showing the last known data and retrying…</span>
@@ -564,6 +588,8 @@
     {/if}
   {/if}
 </main>
+</div>
+</div>
 
 <style>
   .backend-banner {
@@ -579,6 +605,11 @@
     color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
   }
   .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
+  .shell {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start;
+    min-block-size: calc(100vh - var(--navbar-h)); min-block-size: calc(100dvh - var(--navbar-h));
+  }
+  .shell-col { grid-column: 2; min-inline-size: 0; }
   .fig-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
   .app-loading { color: var(--c-text-3); padding: var(--sp-4) 0; }
   .permissions-note {
