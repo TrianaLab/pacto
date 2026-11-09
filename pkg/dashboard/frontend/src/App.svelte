@@ -21,8 +21,6 @@
   import EmptyState from './components/EmptyState.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
-  import ServiceListView from './views/ServiceListView.svelte';
-  import OwnersView from './views/OwnersView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
@@ -52,6 +50,9 @@
   const loadFleetSourcesView = once(() => import('./views/FleetSourcesView.svelte'));
   const loadFleetDomainsView = once(() => import('./views/FleetDomainsView.svelte'));
   const loadFleetOwnersView = once(() => import('./views/FleetOwnersView.svelte'));
+  // The legacy list views serve only the offline `pacto doc` export, never a Fleet host.
+  const loadServiceListView = once(() => import('./views/ServiceListView.svelte'));
+  const loadOwnersView = once(() => import('./views/OwnersView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -562,7 +563,7 @@
     <!-- Owners: product owners on a Fleet host (redirected via the effect); legacy list
          only on a non-Fleet host. -->
     {#if legacyHost}
-      <OwnersView {services} {initialLoading} />
+      <LazyView load={loadOwnersView} {services} {initialLoading} />
     {:else}
       {@render migrating()}
     {/if}
@@ -582,7 +583,7 @@
     <!-- Catch-all legacy list: the only UI on a non-Fleet host; a Fleet host redirects
          it (and any unknown hash) to the operational overview via the effect. -->
     {#if legacyHost}
-      <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
+      <LazyView load={loadServiceListView} {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
     {:else}
       {@render migrating()}
     {/if}

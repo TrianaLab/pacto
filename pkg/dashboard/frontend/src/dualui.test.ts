@@ -118,7 +118,9 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
     const readiness = import('./views/ReadinessView.svelte');
     // @ts-expect-error — Svelte components have no declaration file
     const diff = import('./views/DiffView.svelte');
-    await Promise.all([readiness, diff]);
+    // @ts-expect-error — Svelte components have no declaration file
+    const list = import('./views/ServiceListView.svelte');
+    await Promise.all([readiness, diff, list]);
   }, 120_000);
 
   beforeEach(() => {
@@ -132,7 +134,7 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
     const { target, app } = await mountAt('#/');
     expect(location.hash).toBe('#/'); // no product IA to redirect to
     expect(q(target, '.app-loading')).toBeNull();
-    expect(target.querySelector('h1')?.textContent).toContain('Services');
+    await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toContain('Services'));
     unmount(app); document.body.removeChild(target);
   });
 
