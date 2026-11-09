@@ -500,7 +500,7 @@ func TestPublished(t *testing.T) {
 	versions := payments["versions"].([]any)
 	first := versions[0].(map[string]any)
 	expect(t, payments["service"] == "payments" && len(versions) == 2, "published %v", payments)
-	expect(t, first["version"] == "1.0.0" && first["signed"] == true && first["contract"] == "oci://r/payments@sha256:c", "published %v", first)
+	expect(t, first["version"] == "1.0.0" && first["signature"] == "signed" && first["contract"] == "oci://r/payments@sha256:c", "published %v", first)
 	expect(t, first["stages"].([]any)[0].(map[string]any)["running"] == true, "published %v", first)
 }
 

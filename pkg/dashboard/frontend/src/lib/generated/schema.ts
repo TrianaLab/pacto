@@ -4152,18 +4152,28 @@ export interface components {
             version: string;
         };
         PublishedCounts: {
-            /** @description Up to 4 of those services, by name */
+            /** @description Up to 4 of the services with an unsigned version, by name */
             firstUnsigned: string[] | null;
             /**
              * Format: int64
-             * @description Services with a version the Stages know; unsignedServices and the rest partition them
+             * @description Services with a version the Stages know; unsignedServices, unknownServices and the rest partition them
              */
             services: number;
             /** Format: int64 */
             signed: number;
             /**
              * Format: int64
-             * @description Versions Flux never verified a signature on: who built them cannot be traced
+             * @description Versions whose signature Pacto cannot tell from the Stages the caller lists
+             */
+            unknown: number;
+            /**
+             * Format: int64
+             * @description Services with no unsigned version and at least one version whose signature Pacto cannot tell
+             */
+            unknownServices: number;
+            /**
+             * Format: int64
+             * @description Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced
              */
             unsigned: number;
             /**
@@ -4205,7 +4215,8 @@ export interface components {
             /** @description The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract) */
             contract?: string;
             digest: string;
-            signed: boolean;
+            /** @enum {string} */
+            signature: "signed" | "unsigned" | "unknown";
             stages: components["schemas"]["PublishedOnStages"][] | null;
             version?: string;
         };
@@ -5581,8 +5592,8 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
-                /** @description yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions */
-                signed?: "yes" | "no";
+                /** @description yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions */
+                signed?: "yes" | "no" | "unknown";
             };
             header?: never;
             path?: never;

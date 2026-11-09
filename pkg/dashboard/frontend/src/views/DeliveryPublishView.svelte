@@ -22,8 +22,9 @@
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
-  // signed narrows the list to the services whose every version is signed (yes) or
-  // that have an unsigned version (no): the figure's two lanes.
+  // signed narrows the list to the services whose every version is signed (yes),
+  // that have an unsigned version (no) or a signature not known here (unknown):
+  // the figure's three lanes.
   let { offset = '', limit = '', q = '', signed = '', refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.deliveryPublished({
@@ -66,15 +67,20 @@
     : !refused.recorded ? { head: 'Refused publishes are not recorded here.', rest: '' }
     : refusedTotal ? { head: `${countOf(refusedTotal, 'publish', 'publishes')} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
     : { head: 'Nothing refused lately.', rest: refused.completeness === 'partial' ? 'The list may be incomplete.' : '' });
-  // Whether a signature was checked, said once for the page: a version is
-  // marked only where it differs from most of the others.
+  // Each version's signature, said once for the page: a version is marked only
+  // where its state differs from the most common one (a tie leaves the
+  // unsigned ones marked). Unknown is its own state,
+  // never drawn as unsigned.
+  const SIG = {
+    signed: { tone: 'badge-ok', mark: 'Signature checked', line: 'Signature checked on every version shown' },
+    unknown: { tone: 'badge-neutral', mark: 'Signature not known here', line: 'Signature not known here for the versions shown' },
+    unsigned: { tone: 'badge-warn', mark: 'Not signed', line: 'No signature verified on the versions shown' },
+  };
   const shown = $derived(services.flatMap((svc) => svc.versions ?? []));
-  const signedCount = $derived(shown.filter((v) => v.signed).length);
-  const sigCommon = $derived(signedCount * 2 >= shown.length);
-  const sigMixed = $derived(signedCount > 0 && signedCount < shown.length);
-  const sigLine = $derived(!shown.length ? ''
-    : sigCommon ? `Signature checked on every version shown${sigMixed ? ', except where marked' : ''}.`
-    : `Signature not checked here on the versions shown${sigMixed ? ', except where marked' : ''}.`);
+  const sigOf = (v) => (SIG[v.signature] ? v.signature : 'unknown');
+  const sigCommon = $derived(Object.keys(SIG).reduce((best, k) => (shown.filter((v) => sigOf(v) === k).length > shown.filter((v) => sigOf(v) === best).length ? k : best), 'signed'));
+  const sigMixed = $derived(new Set(shown.map(sigOf)).size > 1);
+  const sigLine = $derived(!shown.length ? '' : `${SIG[sigCommon].line}${sigMixed ? ', except where marked' : ''}.`);
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
@@ -141,7 +147,7 @@
   </section>
 
   <h2 class="t-section-title" data-view-total={data ? serviceTotal : undefined}>Versions by service</h2>
-  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q })}>Show every service</a></p>{/if}
+  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : signed === 'unknown' ? 'Services with a version whose signature is not known here, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q })}>Show every service</a></p>{/if}
   <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v, signed })} label="Filter services by name" placeholder="Service" testid="published-filter" />
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
@@ -167,7 +173,7 @@
                      count that opens the per-environment list. -->
                 <div class="pv-head" class:pv-sigcol={sigMixed}>
                   <strong class="pv-ver" title={v.version || undefined}>{v.version ?? ''}</strong>
-                  {#if sigMixed}<span class="pv-sig">{#if v.signed !== sigCommon}{#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}{/if}</span>{/if}
+                  {#if sigMixed}<span class="pv-sig">{#if sigOf(v) !== sigCommon}<span class="badge {SIG[sigOf(v)].tone}">{SIG[sigOf(v)].mark}</span>{/if}</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
                   {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{:else}<span></span>{/if}
                   {#if stages.length}

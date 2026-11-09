@@ -1511,10 +1511,10 @@ describe('history and published', () => {
 
   it('lists published versions with their signature state and where they run', async () => {
     fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
-      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signed: true, stages: [
+      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signature: 'signed', stages: [
         { namespace: 'test', stage: 'pay', environment: 'test', running: false, verified: true, failed: false },
         { namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
-      { digest: D1, signed: false, contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
+      { digest: D1, signature: 'unknown', contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
     ] }] });
     let r = render(DeliveryPublishView);
     await settle();
@@ -1522,7 +1522,7 @@ describe('history and published', () => {
     const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
     expect(rows).toEqual([
       '2.0.0 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
-      'Signature not checked here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
+      'Signature not known here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
     ]);
     // The signature state is said once; only the version that differs carries a badge.
     expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature checked on every version shown, except where marked.');
@@ -1536,6 +1536,16 @@ describe('history and published', () => {
     // Running and failed first.
     expect([...r.target.querySelectorAll('[data-testid="published-stages"]')].map((p) => text(p as HTMLElement).trim()))
       .toEqual(['prod: running, verified test: known, verified', 'prod: known, failed']);
+    r.destroy();
+    // An unsigned version is told apart from one whose signature is not known here.
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
+      { digest: D2, version: '2.0.0', signature: 'unknown', stages: [] },
+      { digest: D1, version: '1.0.0', signature: 'unsigned', stages: [] },
+    ] }] });
+    r = render(DeliveryPublishView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature not known here for the versions shown, except where marked.');
+    expect([...r.target.querySelectorAll('.pv-sig .badge')].map((b) => [b.textContent, b.classList.contains('badge-warn')])).toEqual([['Not signed', true]]);
     r.destroy();
     fns.published.mockResolvedValue({ ...listing, services: [] });
     r = render(DeliveryPublishView);

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -372,14 +373,51 @@ func TestPublishedCountsAndSignedFilter(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=1", nil)
-	want := "map[firstUnsigned:[ledger] services:2 signed:2 unsigned:1 unsignedServices:1 versions:3]"
-	expect(t, fmt.Sprint(pub["counts"]) == want, "payments' two published digests are signed, ledger's failed one is not: %v", pub["counts"])
-	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=no", nil)
+	want := "map[firstUnsigned:[] services:2 signed:2 unknown:1 unknownServices:1 unsigned:0 unsignedServices:0 versions:3]"
+	expect(t, fmt.Sprint(pub["counts"]) == want, "payments' two published digests are signed; ledger's Stage has no candidate source, so its failed one is unknown: %v", pub["counts"])
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=unknown", nil)
 	svcs := pub["services"].([]any)
-	expect(t, len(svcs) == 1 && page(svcs[0])["service"] == "ledger" && fmt.Sprint(pub["counts"]) == want, "only unsigned versions: %v", svcs)
+	expect(t, len(svcs) == 1 && page(svcs[0])["service"] == "ledger" && fmt.Sprint(pub["counts"]) == want, "only unknown versions: %v", svcs)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=no", nil)
+	expect(t, len(pub["services"].([]any)) == 0, "no version is known unsigned: %v", pub["services"])
 	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=yes", nil)
 	svcs = pub["services"].([]any)
 	expect(t, len(svcs) == 1 && len(page(svcs[0])["versions"].([]any)) == 2 && page(pub["page"])["total"] == float64(1), "only services whose every version is signed: %v", svcs)
+}
+
+// A version is unsigned only where an entry Stage can say Flux never
+// verified it; a downstream Stage, one fed by records or a published list at
+// its cap leaves it unknown, and status.offered makes it signed.
+func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
+	full := make([]string, delivery.MaxPublished)
+	for i := range full {
+		full[i] = fmt.Sprintf("sha256:%064d", i)
+	}
+	st := func(svc string, c delivery.Candidates, s delivery.StageStatus) delivery.StageObject {
+		o := stage("prod", svc, svc, s)
+		o.Spec.Candidates = c
+		return o
+	}
+	oci := delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "oci"}}
+	stages := []delivery.StageObject{
+		st("entry", oci, delivery.StageStatus{Pointer: dRun, Published: []string{dNext}}),
+		st("capped", oci, delivery.StageStatus{Pointer: dRun, Published: full}),
+		st("downstream", delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "staging"}}, delivery.StageStatus{Pointer: dRun, Verified: []string{dNext}, Offered: []string{dNext}}),
+		st("records", delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{}}, delivery.StageStatus{Pointer: dRun}),
+	}
+	by, _ := publishedDigests(stages, "")
+	got := map[string]string{}
+	for svc, vs := range by {
+		got[svc+"/run"] = vs[dRun].Signature
+		if v := vs[dNext]; v != nil {
+			got[svc+"/next"] = v.Signature
+		}
+	}
+	want := map[string]string{"entry/run": "unsigned", "entry/next": "signed", "capped/run": "unknown",
+		"downstream/run": "unknown", "downstream/next": "signed", "records/run": "unknown"}
+	expect(t, maps.Equal(got, want), "%v", got)
+	c := countPublished(by)
+	expect(t, c.UnsignedServices == 1 && c.UnknownServices == 3 && c.Unsigned == 1 && c.Unknown == 3 && fmt.Sprint(c.FirstUnsigned) == "[entry]", "%+v", c)
 }
 
 // Autonomy: Stages per level over every page, every level present, a level

@@ -330,5 +330,16 @@ describe('PublishFigure', () => {
     const all = render(PublishFigure, { counts: { ...counts, unsigned: 0, unsignedServices: 0, firstUnsigned: [] }, href, serviceHref: (n: string) => n }, false);
     await settle();
     expect(all.target.querySelector('figcaption')?.textContent).toContain('Every version of the 40 services is signed.');
+    expect(all.target.querySelectorAll('.lane').length).toBe(2);
+    unmount(all.c);
+    // A signature Pacto cannot tell is its own neutral lane, never counted as unsigned.
+    const unk = render(PublishFigure, { counts: { ...counts, signed: 117, unsigned: 0, unknown: 3, unsignedServices: 0, unknownServices: 2, firstUnsigned: [] }, href, serviceHref: (n: string) => n }, false);
+    await settle();
+    const ul = [...unk.target.querySelectorAll('.lane')];
+    expect(ul.map((l) => l.querySelector('.lane-name')?.textContent)).toEqual(['Every version signed', 'An unsigned version', 'Signature not known here']);
+    expect(ul.map((l) => l.querySelector('.lane-count b')?.textContent)).toEqual(['38', '0', '2']);
+    expect(ul[2].querySelector('a.lane-count')?.getAttribute('href')).toBe(href('unknown'));
+    expect(unk.target.querySelector('figcaption')?.textContent).toContain('No version is known to be unsigned; the signature of 3 versions of 2 services is not known here.');
+    expect(unk.target.querySelector('figcaption')?.textContent).not.toContain('cannot be traced');
   });
 });

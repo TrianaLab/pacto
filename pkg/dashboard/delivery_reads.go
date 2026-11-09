@@ -606,10 +606,16 @@ type PublishedVersion struct {
 	Digest   string `json:"digest"`
 	Version  string `json:"version,omitempty"`
 	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract)"`
-	// Signed: Flux verified its signature on a candidate source, so pacto
-	// publish published it.
-	Signed bool                `json:"signed"`
-	Stages []PublishedOnStages `json:"stages"`
+	// Signature is signed when a Stage the caller lists names the digest in
+	// status.published (Flux verified its signature on the candidate
+	// OCIRepository) or status.offered (it passed pacto.published there).
+	// It is unsigned only when an entry Stage, fed by an OCIRepository and
+	// whose published list never reached its cap, holds the digest and no
+	// Stage names it signed. Otherwise Pacto cannot tell: a downstream Stage,
+	// one fed by another cluster's records or a published list that may have
+	// dropped it says nothing about the signature.
+	Signature string              `json:"signature" enum:"signed,unsigned,unknown"`
+	Stages    []PublishedOnStages `json:"stages"`
 }
 
 // PublishedOnStages is where one version stands on one Stage.
@@ -633,7 +639,7 @@ const publishedPage = 10
 
 type publishedInput struct {
 	PageQuery
-	Signed string `query:"signed" enum:"yes,no" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions"`
+	Signed string `query:"signed" enum:"yes,no,unknown" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions"`
 }
 
 type publishedOutput struct {
@@ -647,12 +653,14 @@ type publishedOutput struct {
 
 // PublishedCounts is how many of the versions the Stages know are signed.
 type PublishedCounts struct {
-	Services         int      `json:"services" doc:"Services with a version the Stages know; unsignedServices and the rest partition them"`
+	Services         int      `json:"services" doc:"Services with a version the Stages know; unsignedServices, unknownServices and the rest partition them"`
 	Versions         int      `json:"versions" doc:"Distinct digests per service the Stages know"`
 	Signed           int      `json:"signed"`
-	Unsigned         int      `json:"unsigned" doc:"Versions Flux never verified a signature on: who built them cannot be traced"`
+	Unsigned         int      `json:"unsigned" doc:"Versions an entry Stage holds that Flux never verified a signature on: who built them cannot be traced"`
+	Unknown          int      `json:"unknown" doc:"Versions whose signature Pacto cannot tell from the Stages the caller lists"`
 	UnsignedServices int      `json:"unsignedServices" doc:"Services with at least one unsigned version"`
-	FirstUnsigned    []string `json:"firstUnsigned" doc:"Up to 4 of those services, by name"`
+	UnknownServices  int      `json:"unknownServices" doc:"Services with no unsigned version and at least one version whose signature Pacto cannot tell"`
+	FirstUnsigned    []string `json:"firstUnsigned" doc:"Up to 4 of the services with an unsigned version, by name"`
 }
 
 // deliveryPublished reads the versions from what the Stages remember:
@@ -674,13 +682,14 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	out := &publishedOutput{}
 	out.Body.Counts = countPublished(byService)
 	for svc, vs := range byService {
-		switch in.Signed {
-		case "no":
-			maps.DeleteFunc(vs, func(_ string, v *PublishedVersion) bool { return v.Signed })
-		case "yes":
-			if slices.ContainsFunc(slices.Collect(maps.Values(vs)), func(v *PublishedVersion) bool { return !v.Signed }) {
+		if in.Signed != "" {
+			// The figure's three lanes: the service's lane, then only the
+			// versions that put it there.
+			lane, keep := signatureLane(vs), map[string]string{"yes": sigSigned, "no": sigUnsigned, "unknown": sigUnknown}[in.Signed]
+			if lane != keep {
 				clear(vs)
 			}
+			maps.DeleteFunc(vs, func(_ string, v *PublishedVersion) bool { return v.Signature != keep })
 		}
 		if len(vs) == 0 && in.Signed != "" {
 			delete(byService, svc)
@@ -712,29 +721,58 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	return out, nil
 }
 
-// countPublished counts the versions of byService by whether they are signed.
+// The three signature states of a published version.
+const (
+	sigSigned   = "signed"
+	sigUnsigned = "unsigned"
+	sigUnknown  = "unknown"
+)
+
+// signatureLane is the figure's lane of a service with versions vs: unsigned
+// when one version is, else unknown when one version's signature cannot be
+// told, else signed.
+func signatureLane(vs map[string]*PublishedVersion) string {
+	lane := sigSigned
+	for _, v := range vs {
+		if v.Signature == sigUnsigned {
+			return sigUnsigned
+		}
+		if v.Signature == sigUnknown {
+			lane = sigUnknown
+		}
+	}
+	return lane
+}
+
+// countPublished counts the versions of byService by their signature.
 func countPublished(byService map[string]map[string]*PublishedVersion) PublishedCounts {
 	c := PublishedCounts{FirstUnsigned: []string{}}
 	for _, svc := range slices.Sorted(maps.Keys(byService)) {
-		if len(byService[svc]) > 0 {
-			c.Services++
+		vs := byService[svc]
+		if len(vs) == 0 {
+			continue
 		}
-		unsigned := 0
-		for _, v := range byService[svc] {
+		c.Services++
+		for _, v := range vs {
 			c.Versions++
-			if !v.Signed {
-				unsigned++
+			switch v.Signature {
+			case sigUnsigned:
+				c.Unsigned++
+			case sigUnknown:
+				c.Unknown++
 			}
 		}
-		c.Unsigned += unsigned
-		if unsigned > 0 {
+		switch signatureLane(vs) {
+		case sigUnsigned:
 			c.UnsignedServices++
 			if len(c.FirstUnsigned) < 4 {
 				c.FirstUnsigned = append(c.FirstUnsigned, svc)
 			}
+		case sigUnknown:
+			c.UnknownServices++
 		}
 	}
-	c.Signed = c.Versions - c.Unsigned
+	c.Signed = c.Versions - c.Unsigned - c.Unknown
 	return c
 }
 
@@ -743,6 +781,7 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 func publishedDigests(stages []delivery.StageObject, q string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
 	byService = map[string]map[string]*PublishedVersion{}
 	readFrom = map[*PublishedVersion]*delivery.StageObject{}
+	signed, unsigned := map[*PublishedVersion]bool{}, map[*PublishedVersion]bool{}
 	for i := range stages {
 		st := &stages[i]
 		ss := st.Status
@@ -762,12 +801,23 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
 				byService[svc][d], readFrom[v] = v, st
 			}
-			v.Signed = v.Signed || slices.Contains(ss.Published, d)
+			signed[v] = signed[v] || slices.Contains(ss.Published, d) || slices.Contains(ss.Offered, d)
+			// Only an entry Stage whose published list never dropped a
+			// digest can say Flux never verified this one.
+			unsigned[v] = unsigned[v] || (st.Spec.Candidates.OCIRepositoryRef != nil && len(ss.Published) < delivery.MaxPublished)
 			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
 				Running: ss.Pointer == d, Verified: slices.Contains(ss.Verified, d), Failed: slices.Contains(ss.FailedDigests, d)}
 			if !slices.Contains(v.Stages, on) {
 				v.Stages = append(v.Stages, on)
 			}
+		}
+	}
+	for v := range readFrom {
+		v.Signature = sigUnknown
+		if signed[v] {
+			v.Signature = sigSigned
+		} else if unsigned[v] {
+			v.Signature = sigUnsigned
 		}
 	}
 	return byService, readFrom

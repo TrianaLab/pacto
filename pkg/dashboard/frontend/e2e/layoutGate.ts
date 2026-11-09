@@ -223,10 +223,10 @@ export function installScaleFixture(): void {
       const c = doc.counts as Record<string, unknown> | undefined;
       if (c) {
         const names = (c.firstUnsigned as string[] | undefined) ?? [];
-        Object.assign(c, { services: 5000, unsignedServices: 1800, versions: 41000, signed: 38000, unsigned: 3000,
+        Object.assign(c, { services: 5000, unsignedServices: 1800, unknownServices: 700, versions: 41000, signed: 37000, unsigned: 3000, unknown: 1000,
           firstUnsigned: Array.from({ length: 4 }, (_, i) => longName(names[i] ?? `unsigned-${i}`)) });
         const pg = doc.page as { total: number; offset: number; limit: number; nextOffset?: number };
-        pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'yes' ? 3200 : 5000;
+        pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'unknown' ? 700 : q.get('signed') === 'yes' ? 2500 : 5000;
         if (pg.offset + pg.limit < pg.total) pg.nextOffset = pg.offset + pg.limit;
       }
     }
