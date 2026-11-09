@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { spills } from './figureLayout.ts';
 
-// jsdom lays nothing out, so each box states the widths a browser would measure.
+// jsdom lays nothing out, so each box states the widths a browser would measure. The
+// stage joins the document because a disconnected element has no computed style.
 function box(html: string, sizes: Record<string, [number, number]>) {
   const stage = document.createElement('div');
   stage.innerHTML = html;
+  document.body.replaceChildren(stage);
   for (const [sel, [client, scroll]] of Object.entries(sizes)) {
     const el = stage.querySelector(sel)!;
     Object.defineProperty(el, 'clientWidth', { value: client });
