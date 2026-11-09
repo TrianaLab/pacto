@@ -18,11 +18,16 @@ import (
 // of its Stages names as candidates.upstreamStage. Environments the links do
 // not order keep name order (env-2 before env-10). upstream maps each
 // environment to every environment that feeds it, directly or through
-// others; cycle holds the environments on a cycle of links, which the Stages
-// give no place: they are placed by name, and the caller says so.
-func promotionOrder(stages []delivery.StageObject) (order []string, upstream map[string][]string, cycle map[string]bool) {
+// others. cycle holds the environments of Stages on a cycle of Stage links
+// (a Stage that names itself included), which the Stages give no place.
+// unordered holds the environments the links of different services order
+// both ways (one service's eu feeds its us, another's us feeds its eu): no
+// Stage cycle exists, but no one order fits every service. Both are placed by
+// name, and the caller says why.
+func promotionOrder(stages []delivery.StageObject) (order []string, upstream map[string][]string, cycle, unordered map[string]bool) {
 	byStage := stagesByName(stages)
-	feeds := map[string]map[string]bool{} // environment -> environments it is fed by directly
+	feeds := map[string]map[string]bool{}      // environment -> environments it is fed by directly
+	stageFeeds := map[string]map[string]bool{} // Stage -> the Stage it is fed by
 	envs := map[string]bool{}
 	for _, st := range stages {
 		env := st.Spec.Environment
@@ -32,22 +37,36 @@ func promotionOrder(stages []delivery.StageObject) (order []string, upstream map
 			continue
 		}
 		ns := cmp.Or(u.Namespace, st.Metadata.Namespace)
-		if up := byStage[ns+"/"+u.Name]; up != nil && up.Spec.Environment != env {
+		up := byStage[ns+"/"+u.Name]
+		if up == nil {
+			continue
+		}
+		stageFeeds[st.Metadata.Namespace+"/"+st.Metadata.Name] = map[string]bool{ns + "/" + u.Name: true}
+		if up.Spec.Environment != env {
 			if feeds[env] == nil {
 				feeds[env] = map[string]bool{}
 			}
 			feeds[env][up.Spec.Environment] = true
 		}
 	}
-	upstream, cycle = map[string][]string{}, map[string]bool{}
+	upstream, cycle, unordered = map[string][]string{}, map[string]bool{}, map[string]bool{}
+	for k := range stageFeeds {
+		if _, on := closure(k, stageFeeds); on {
+			cycle[byStage[k].Spec.Environment] = true
+		}
+	}
+	envCycle := map[string]bool{}
 	for env := range envs {
 		up, onCycle := closure(env, feeds)
 		upstream[env] = up
 		if onCycle {
-			cycle[env] = true
+			envCycle[env] = true
+		}
+		if onCycle && !cycle[env] {
+			unordered[env] = true
 		}
 	}
-	return kahn(sortedNames(envs), feeds, cycle), upstream, cycle
+	return kahn(sortedNames(envs), feeds, envCycle), upstream, cycle, unordered
 }
 
 // kahn orders left (already in name order) so each name comes after every
@@ -113,7 +132,8 @@ type InboxEnvironment struct {
 	Frozen      int      `json:"frozen" doc:"Frozen Stages in this environment"`
 	Errored     int      `json:"errored" doc:"Errored changes on Stages in this environment that are still frozen"`
 	Upstream    []string `json:"upstream" doc:"Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares"`
-	Cycle       bool     `json:"cycle,omitempty" doc:"The environment is on a cycle of candidates.upstreamStage links, so the Stages give it no place in the order: it is placed by name"`
+	Cycle       bool     `json:"cycle,omitempty" doc:"A Stage here is on a cycle of candidates.upstreamStage links, so the Stages give the environment no place in the order: it is placed by name"`
+	Unordered   bool     `json:"unordered,omitempty" doc:"Different services order this environment both before and after another, with no Stage cycle: no one order fits them all, so it is placed by name"`
 }
 
 // inboxByEnvironment counts the inbox's sections by the environment of the
@@ -144,14 +164,14 @@ func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem
 	for _, st := range frozen {
 		at(st.Spec.Environment).Frozen++
 	}
-	order, upstream, cycle := promotionOrder(stages)
+	order, upstream, cycle, unordered := promotionOrder(stages)
 	out := []InboxEnvironment{}
 	for _, env := range append(order, "") {
 		if c := counts[env]; c != nil {
 			if up := upstream[env]; up != nil {
 				c.Upstream = up
 			}
-			c.Cycle = cycle[env]
+			c.Cycle, c.Unordered = cycle[env], unordered[env]
 			out = append(out, *c)
 			delete(counts, env)
 		}
@@ -185,7 +205,7 @@ type Upstream struct {
 	Namespace   string `json:"namespace,omitempty" doc:"kind stage: the upstream Stage's namespace"`
 	Stage       string `json:"stage,omitempty" doc:"kind stage: the upstream Stage's name"`
 	Environment string `json:"environment,omitempty" doc:"kind stage: the upstream Stage's environment, when it could be read"`
-	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope,unverified" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes"`
+	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope,self,unverified" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes"`
 	Stream      string `json:"stream,omitempty" doc:"kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name>"`
 	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name"`
 	Trust       string `json:"trust,omitempty" enum:"trusted,untrusted,unreadable,unknown" doc:"kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet"`
@@ -227,7 +247,11 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, 
 	switch {
 	case c.UpstreamStage != nil:
 		u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
-		if scope != "" && u.Namespace != scope {
+		switch {
+		case u.Namespace == st.Metadata.Namespace && u.Stage == st.Metadata.Name:
+			u.Problem = "self"
+			return u
+		case scope != "" && u.Namespace != scope:
 			u.Problem = "outOfScope"
 			return u
 		}
@@ -269,6 +293,8 @@ func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.Stage
 	}
 	u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
 	switch up := byStage[u.Namespace+"/"+u.Stage]; {
+	case u.Namespace == st.Metadata.Namespace && u.Stage == st.Metadata.Name:
+		u.Problem = "self"
 	case up != nil:
 		u.Environment = up.Spec.Environment
 	case l.read(u.Namespace):
@@ -316,7 +342,8 @@ type EnvironmentCount struct {
 	Empty       int      `json:"empty" doc:"Stages that run nothing yet"`
 	Verified    int      `json:"verified" doc:"Stages whose running digest is verified here, and in no state above"`
 	Upstream    []string `json:"upstream" doc:"Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares"`
-	Cycle       bool     `json:"cycle,omitempty" doc:"The environment is on a cycle of candidates.upstreamStage links, so it is placed by name"`
+	Cycle       bool     `json:"cycle,omitempty" doc:"A Stage here is on a cycle of candidates.upstreamStage links, so the environment is placed by name"`
+	Unordered   bool     `json:"unordered,omitempty" doc:"Different services order this environment both before and after another, with no Stage cycle: no one order fits them all, so it is placed by name"`
 }
 
 // countByEnvironment counts stages by environment and state, in the
@@ -348,14 +375,14 @@ func countByEnvironment(stages []delivery.StageObject, held map[string]int) []En
 			c.Verified++
 		}
 	}
-	order, upstream, cycle := promotionOrder(stages)
+	order, upstream, cycle, unordered := promotionOrder(stages)
 	out := []EnvironmentCount{}
 	for _, env := range order {
 		c := counts[env]
 		if up := upstream[env]; up != nil {
 			c.Upstream = up
 		}
-		c.Cycle = cycle[env]
+		c.Cycle, c.Unordered = cycle[env], unordered[env]
 		out = append(out, *c)
 	}
 	return out
@@ -444,7 +471,8 @@ func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.
 	}
 	cycle := map[string]bool{}
 	for _, k := range keys {
-		if _, on := closure(k, feeds); on {
+		// A Stage that names itself waits on itself: a cycle of one.
+		if _, on := closure(k, feeds); on || nodes[k].Upstream.Problem == "self" {
 			cycle[k] = true
 		}
 	}

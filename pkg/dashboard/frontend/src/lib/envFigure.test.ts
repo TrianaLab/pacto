@@ -48,7 +48,10 @@ describe('fleetEnvModel', () => {
   });
 
   it('says when a cycle places environments by name', () => {
-    expect(fleetEnvModel([{ ...env('a', { verified: 1 }), cycle: true }]).caption).toContain('The Stages of a feed each other in a cycle, so it is placed by name.');
+    expect(fleetEnvModel([{ ...env('a', { verified: 1 }), cycle: true }]).caption).toContain('A Stage in a is on a cycle of upstream links, so it is placed by name.');
+    const both = fleetEnvModel([{ ...env('eu', { verified: 1 }), unordered: true }, { ...env('us', { verified: 1 }), unordered: true }]).caption;
+    expect(both).toContain('Services order eu and us both ways, so they are placed by name.');
+    expect(both).not.toContain('cycle');
   });
 });
 
@@ -108,6 +111,10 @@ describe('promotionModel', () => {
     expect(m.stations[0].source!.sub).toBe('the Stage declares no candidates, so it never promotes');
     expect(m.stations[1].source!.sub).toBe('the Stage x/gone does not exist');
     const away = promotionModel('svc', { nodes: [node('qa', 0, { kind: 'stage', namespace: 'x', stage: 'away', problem: 'outOfScope' })], edges: [] }, []);
+    // A Stage that names itself is a cycle of one, never a feed from another service.
+    const self = promotionModel('svc', { nodes: [{ ...node('prod', 0, { kind: 'stage', namespace: 'prod', stage: 'svc', problem: 'self' }), cycle: true }], edges: [] }, []);
+    expect(self.stations[0].source).toMatchObject({ kind: 'unknown', label: 'Waits on itself' });
+    expect(self.wires).toEqual([]);
     expect(away.stations[0].source).toMatchObject({ kind: 'unknown', label: 'Upstream out of scope', sub: 'the Stage x/away is in a namespace this dashboard does not show' });
     expect(m.stations[3].source).toMatchObject({ label: 'test', sub: 'the Stage o/other, of another service' });
     expect(m.wires.map((w) => w.to)).toEqual(['s2-l', 's3-l']);

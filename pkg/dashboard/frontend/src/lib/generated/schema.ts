@@ -1715,7 +1715,7 @@ export interface components {
              * @description Stages on auto-hold, and neither failed nor frozen
              */
             autoHold: number;
-            /** @description The environment is on a cycle of candidates.upstreamStage links, so it is placed by name */
+            /** @description A Stage here is on a cycle of candidates.upstreamStage links, so the environment is placed by name */
             cycle?: boolean;
             /**
              * Format: int64
@@ -1740,6 +1740,8 @@ export interface components {
              * @enum {string}
              */
             tier?: "dev" | "test" | "prod";
+            /** @description Different services order this environment both before and after another, with no Stage cycle: no one order fits them all, so it is placed by name */
+            unordered?: boolean;
             /**
              * Format: int64
              * @description Stages whose running digest is not verified here, and in no state above
@@ -3163,7 +3165,7 @@ export interface components {
             toRevisionKey: string;
         };
         InboxEnvironment: {
-            /** @description The environment is on a cycle of candidates.upstreamStage links, so the Stages give it no place in the order: it is placed by name */
+            /** @description A Stage here is on a cycle of candidates.upstreamStage links, so the Stages give the environment no place in the order: it is placed by name */
             cycle?: boolean;
             /** @description The environment the Stages deliver to; empty for held changes on a Stage the caller cannot read */
             environment: string;
@@ -3182,6 +3184,8 @@ export interface components {
              * @description Held changes on Stages in this environment
              */
             held: number;
+            /** @description Different services order this environment both before and after another, with no Stage cycle: no one order fits them all, so it is placed by name */
+            unordered?: boolean;
             /** @description Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares */
             upstream: string[] | null;
         };
@@ -4579,10 +4583,10 @@ export interface components {
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
              * @enum {string}
              */
-            problem?: "missing" | "unreadable" | "outOfScope" | "unverified";
+            problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
             /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
             repository?: string;
             /** @description kind stage: the upstream Stage's name */

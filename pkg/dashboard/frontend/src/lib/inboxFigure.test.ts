@@ -73,7 +73,11 @@ describe('inboxModel narration (G2)', () => {
   it('says when a cycle of upstream links leaves environments placed by name (SPEC 21)', () => {
     const cyc = (e: ReturnType<typeof env>) => ({ ...e, cycle: true });
     expect(inboxModel([env('test', 1), cyc(env('a', 1, 0, 0, ['b'])), cyc(env('b', 1, 0, 0, ['a']))]).caption)
-      .toBe('3 errored changes, 0 held changes and 0 frozen Stages wait for you. The Stages of a and b feed each other in a cycle, so they are placed by name.');
-    expect(inboxModel([cyc(env('a', 1, 0, 0, ['a']))]).caption).toContain('The Stages of a feed each other in a cycle, so it is placed by name.');
+      .toBe('3 errored changes, 0 held changes and 0 frozen Stages wait for you. A Stage in a and b is on a cycle of upstream links, so they are placed by name.');
+    expect(inboxModel([cyc(env('a', 1, 0, 0, ['a']))]).caption).toContain('A Stage in a is on a cycle of upstream links, so it is placed by name.');
+    // Two services in opposite orders make no cycle: it is never called one.
+    const both = inboxModel([{ ...env('eu', 1, 0, 0, ['us']), unordered: true }, { ...env('us', 1, 0, 0, ['eu']), unordered: true }]).caption;
+    expect(both).toContain('Services order eu and us both ways, so they are placed by name.');
+    expect(both).not.toContain('cycle');
   });
 });

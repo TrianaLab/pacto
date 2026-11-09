@@ -11,7 +11,7 @@
  */
 import type { DeliveryInbox } from './api.ts';
 import { countOf, formatCount } from './format.ts';
-import { andList } from './delivery.ts';
+import { andList, placedByName } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step } from './narrate.ts';
 
@@ -80,10 +80,9 @@ export function inboxModel(byEnv: Env[]) {
       dur: 240, show: at.map((i) => `[data-m="qb${i}${k.key}"]`),
     });
   }
-  // SPEC 21: a cycle of upstream links gives its environments no place; say so.
-  const cyc = byEnv.filter((e) => e.cycle).map((e) => e.environment);
+  // SPEC 21: say why an environment the links give no place is placed by name.
   const caption = [`${countOf(total('errored'), 'errored change')}, ${countOf(total('held'), 'held change')} and ${countOf(total('frozen'), 'frozen Stage')} wait for you.`,
-    cyc.length ? `The Stages of ${andList(cyc, 3)} feed each other in a cycle, so ${cyc.length === 1 ? 'it is' : 'they are'} placed by name.` : ''].filter(Boolean).join(' ');
+    placedByName(byEnv)].filter(Boolean).join(' ');
   return {
     stations, max, wires, steps, caption,
     figRef: [wires.length ? 'An arrow joins two environments when the Stages of the second are fed by the first.' : '',

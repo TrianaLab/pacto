@@ -16,7 +16,7 @@
  */
 import type { DeliveryEnvironments } from './api.ts';
 import { countOf, formatCount } from './format.ts';
-import { andList } from './delivery.ts';
+import { andList, placedByName } from './delivery.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step } from './narrate.ts';
 
@@ -86,10 +86,9 @@ export function fleetEnvModel(byEnv: Counts[]) {
   }] : []);
   const total = (k: EnvState) => byEnv.reduce((n, e) => n + Number(e[ENV_STATES.find((s) => s.key === k)!.field] ?? 0), 0);
   const stages = byEnv.reduce((n, e) => n + e.stages, 0);
-  const cyc = byEnv.filter((e) => e.cycle).map((e) => e.environment);
   const caption = [
     `${countOf(stages, 'Stage')} in ${countOf(byEnv.length, 'environment')}: ${formatCount(total('failed'))} failed, ${formatCount(total('waiting'))} waiting for a person and ${formatCount(total('frozen'))} frozen.`,
-    cyc.length ? `The Stages of ${andList(cyc, 3)} feed each other in a cycle, so ${cyc.length === 1 ? 'it is' : 'they are'} placed by name.` : '',
+    placedByName(byEnv),
   ].filter(Boolean).join(' ');
   return {
     stations, wires, caption, stages,
@@ -146,6 +145,7 @@ function sourceOf(n: GNode, fedInGraph: boolean, ownStage = false): PromoSource 
       return { kind: 'records', label: 'Another cluster', sub: u.trust === 'trusted' ? 'verified there, read from its signed records' : 'verified there; the promoter has not said yet whether it trusts the records' };
     case 'stage':
       if (u.problem === 'missing') return { kind: 'unknown', label: 'Missing upstream', sub: `the Stage ${u.namespace}/${u.stage} does not exist` };
+      if (u.problem === 'self') return { kind: 'unknown', label: 'Waits on itself', sub: `the Stage ${u.namespace}/${u.stage} names itself as its upstream, so it never promotes` };
       if (u.problem === 'outOfScope') return { kind: 'unknown', label: 'Upstream out of scope', sub: `the Stage ${u.namespace}/${u.stage} is in a namespace this dashboard does not show` };
       if (u.problem === 'unreadable') return { kind: 'unknown', label: 'Unreadable upstream', sub: `the Stage ${u.namespace}/${u.stage} cannot be read` };
       return { kind: 'stage', label: u.environment || `${u.namespace}/${u.stage}`, sub: `the Stage ${u.namespace}/${u.stage}${ownStage ? '' : ', of another service'}` };

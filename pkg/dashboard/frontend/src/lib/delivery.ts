@@ -451,6 +451,21 @@ export function andList(names: string[], max = Infinity, word = 'and'): string {
 }
 
 /**
+ * placedByName says why some environments of a fleet figure are placed by name
+ * (SPEC 21): a Stage there is on a cycle of upstream links, or different services
+ * order them both ways, which is no cycle. Empty when the links place them all.
+ */
+export function placedByName(byEnv: { environment: string; cycle?: boolean; unordered?: boolean }[]): string {
+  const cyc = byEnv.filter((e) => e.cycle).map((e) => e.environment);
+  const both = byEnv.filter((e) => e.unordered).map((e) => e.environment);
+  const placed = (n: number) => (n === 1 ? 'it is' : 'they are');
+  return [
+    cyc.length ? `A Stage in ${andList(cyc, 3)} is on a cycle of upstream links, so ${placed(cyc.length)} placed by name.` : '',
+    both.length ? `Services order ${andList(both, 3)} both ways, so ${placed(both.length)} placed by name.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+/**
  * The `except` URL parameter: the environments a figure draws, which its folded
  * station leaves out so its counts open exactly what they count. It travels as one
  * JSON array, so any environment name (commas included) survives the round trip.

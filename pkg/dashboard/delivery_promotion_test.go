@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -23,11 +24,12 @@ func fed(env, name, upNS, upName string) delivery.StageObject {
 
 func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
 	cases := []struct {
-		name     string
-		stages   []delivery.StageObject
-		order    string
-		upstream map[string][]string
-		cycle    string
+		name      string
+		stages    []delivery.StageObject
+		order     string
+		upstream  map[string][]string
+		cycle     string
+		unordered string
 	}{
 		{
 			// Names alone would put prod before staging's "s" and qa first.
@@ -56,9 +58,29 @@ func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
 			upstream: map[string][]string{"0": {"a", "b"}, "a": {"b"}, "b": {"a"}, "c": {}},
 			cycle:    "map[a:true b:true]",
 		},
+		{
+			// Each service's path is acyclic; only together do they order eu
+			// and us both ways. That is no cycle: it is placed by name.
+			name:      "two services in opposite orders",
+			stages:    []delivery.StageObject{fed("eu", "a", "", ""), fed("us", "a", "eu", "a"), fed("us", "b", "", ""), fed("eu", "b", "us", "b")},
+			order:     "[eu us]",
+			upstream:  map[string][]string{"eu": {"us"}, "us": {"eu"}},
+			cycle:     "map[]",
+			unordered: "map[eu:true us:true]",
+		},
+		{
+			name:     "a Stage that names itself is on a cycle",
+			stages:   []delivery.StageObject{fed("prod", "s", "prod", "s")},
+			order:    "[prod]",
+			upstream: map[string][]string{"prod": {}},
+			cycle:    "map[prod:true]",
+		},
 	}
 	for _, c := range cases {
-		order, up, cycle := promotionOrder(c.stages)
+		order, up, cycle, unordered := promotionOrder(c.stages)
+		if fmt.Sprint(unordered) != cmp.Or(c.unordered, "map[]") {
+			t.Errorf("%s: unordered %v, want %s", c.name, unordered, c.unordered)
+		}
 		for k, v := range up {
 			if len(v) == 0 {
 				up[k] = []string{}
@@ -128,6 +150,10 @@ func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
 	scoped.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}}
 	if got := *upstreamOf(context.Background(), f, &scoped, "prod"); got.Problem != "outOfScope" || got.Environment != "" {
 		t.Errorf("out of scope: %+v", got)
+	}
+	scoped.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: "pay"}
+	if got := *upstreamOf(context.Background(), f, &scoped, ""); got.Problem != "self" {
+		t.Errorf("self: %+v", got)
 	}
 	f.stageErr = errors.New("boom")
 	cases[at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}})] = "{Kind:stage Namespace:test Stage:pay Environment: Problem:unreadable Stream: Repository: Trust:}"
@@ -262,6 +288,11 @@ func TestPromotionGraph(t *testing.T) {
 	other := fed("test", "other", "", "")
 	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, stagesByName([]delivery.StageObject{other}), Listing{everywhere: true})
 	expect(t, g.Nodes[0].Upstream.Environment == "test" && len(g.Edges) == 0, "outside the graph: %+v", g)
+	// A Stage that names itself waits on itself: a cycle, never a feed from
+	// another service.
+	self := []delivery.StageObject{node("prod", "prod", "svc")}
+	g = promotionGraph(self, stagesByName(self), Listing{everywhere: true})
+	expect(t, g.Nodes[0].Upstream.Problem == "self" && g.Nodes[0].Cycle && len(g.Edges) == 0, "self: %+v", g)
 }
 
 // The newest succeeded promote on a service's Stages, with the Stage that

@@ -597,7 +597,7 @@ func environmentColumns(stages []delivery.StageObject) ([]string, map[string]str
 			tiers[st.Spec.Environment] = tier
 		}
 	}
-	envs, _, _ := promotionOrder(stages)
+	envs, _, _, _ := promotionOrder(stages)
 	return envs, tiers
 }
 
