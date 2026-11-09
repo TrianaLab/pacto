@@ -243,13 +243,19 @@ func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
 		inventoryRevision{service: "a2", owner: contract.Owner{Team: "alpha"}},
 		inventoryRevision{service: "b1", owner: contract.Owner{Team: "beta"}},
 		inventoryRevision{service: "n1", owner: contract.Owner{Team: "beta"}},
+		inventoryRevision{service: "b2", owner: contract.Owner{Team: "beta"}},
 		inventoryRevision{service: "gp", owner: contract.Owner{Team: "alpha"}},
+		inventoryRevision{service: "gp2", owner: contract.Owner{Team: "alpha"}},
 	)
 	setService(t, q, "gp", StatusCompliant, "gpdomain", false)
+	// gp2 sits in a domain only beta populates, so the domain is listed and
+	// only the golden-path skip keeps it out of alpha's domains.
+	setService(t, q, "gp2", StatusCompliant, "risk", false)
+	setService(t, q, "b2", StatusCompliant, "risk", false)
 	for _, s := range q.snap.Services {
 		// A golden path is no service of its owner's estate: it relates alpha to
 		// no domain, and gpdomain to no owner.
-		s.Template = s.Name == "gp"
+		s.Template = s.Name == "gp" || s.Name == "gp2"
 	}
 	setService(t, q, "a1", StatusCompliant, "pay", false)
 	setService(t, q, "a2", StatusCompliant, "ops", false)
@@ -275,8 +281,11 @@ func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
 	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:alpha", Sort: SortName}); got != "[ops pay]" {
 		t.Errorf("domains of alpha = %s", got)
 	}
-	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:beta"}); got != "[pay]" {
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:beta", Sort: SortName}); got != "[pay risk]" {
 		t.Errorf("domains of beta = %s, want no row for the service with no domain", got)
+	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: "risk"}); got != "[team:beta]" {
+		t.Errorf("owners in risk = %s, want no row for the golden path's owner", got)
 	}
 	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: "gpdomain"}); got != "[]" {
 		t.Errorf("owners in a golden path's domain = %s", got)
