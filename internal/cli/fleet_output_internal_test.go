@@ -291,3 +291,20 @@ func TestPrintNonCompliantRanking(t *testing.T) {
 		t.Errorf("ranking text = %q, want %q", buf.String(), want)
 	}
 }
+
+func TestPrintOriginRanking(t *testing.T) {
+	var buf bytes.Buffer
+	printOriginRanking(&buf, &fleet.OriginTally{None: fleet.OriginCount{Services: 4}})
+	if buf.Len() != 0 {
+		t.Errorf("a fleet with no origin printed %q", buf.String())
+	}
+	printOriginRanking(&buf, &fleet.OriginTally{
+		ByPath: []fleet.PathCount{{Key: "acme/http", Services: 5, NonCompliant: 1, Hidden: 2}},
+		Beyond: fleet.OriginCount{Services: 3}, Unresolved: fleet.OriginCount{Services: 1}, None: fleet.OriginCount{Services: 7}, Hidden: 2,
+	})
+	want := "Services by golden path: acme/http 5 (1 non-compliant), 3 from other golden paths, 1 from an origin that resolves to no golden path, 7 with no declared origin\n" +
+		"Plus 2 created from a golden path and hidden by your permissions\n"
+	if buf.String() != want {
+		t.Errorf("origin text = %q, want %q", buf.String(), want)
+	}
+}

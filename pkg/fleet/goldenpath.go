@@ -147,24 +147,52 @@ func (q *Query) deployedTemplateAttention() []AttentionItem {
 	return out
 }
 
+// Created-from filter values that name no golden path (see
+// [EntityFilter.CreatedFrom]): services that declare no origin, and services
+// whose declared origin resolves to no golden path in this view. A golden
+// path's name is a DNS label, so neither names one.
+const (
+	NoOrigin         = "(none)"
+	UnresolvedOrigin = "(unresolved)"
+)
+
+// validCreatedFrom reports whether s is a created-from filter value.
+func validCreatedFrom(s string) bool {
+	return s == NoOrigin || s == UnresolvedOrigin || validServiceKey(s)
+}
+
+// originBucket is the created-from bucket of s: the golden path its origin
+// resolves to, NoOrigin or UnresolvedOrigin.
+func originBucket(s *ServiceRecord) string {
+	switch {
+	case s.Origin == nil:
+		return NoOrigin
+	case s.Origin.GoldenPath == "":
+		return UnresolvedOrigin
+	}
+	return string(s.Origin.GoldenPath)
+}
+
 // createdCounts is, per golden path, how many services of the snapshot
-// declare an origin that resolves to it. A golden path derived from another
-// is left out, like the Services list the count opens leaves it out.
-func (q *Query) createdCounts() map[ServiceKey]int {
-	out := map[ServiceKey]int{}
+// declare an origin that resolves to it and how many of those are
+// non-compliant. A golden path derived from another is left out, like the
+// Services list the count opens leaves it out.
+func (q *Query) createdCounts() map[ServiceKey]OriginCount {
+	out := map[ServiceKey]OriginCount{}
 	for _, s := range q.snap.Services {
 		if !s.Template && s.Origin != nil && s.Origin.GoldenPath != "" {
-			out[s.Origin.GoldenPath]++
+			c := out[s.Origin.GoldenPath]
+			c.add(s)
+			out[s.Origin.GoldenPath] = c
 		}
 	}
 	return out
 }
 
-// createdFrom reports whether the service k declares an origin that resolves
-// to the golden path path.
-func (q *Query) createdFrom(k, path ServiceKey) bool {
-	o := q.snap.Services[k].Origin
-	return o != nil && o.GoldenPath == path
+// createdFrom reports whether the service k is in the created-from bucket
+// want: a golden path key, NoOrigin or UnresolvedOrigin.
+func (q *Query) createdFrom(k ServiceKey, want string) bool {
+	return originBucket(q.snap.Services[k]) == want
 }
 
 // pathSignature is the signature status of the newest readable revision of
@@ -201,7 +229,7 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 	reqs, _ := q.offeringUsesIn(edges, func(*ServiceRecord) bool { return true }, s.Key, false)
 	createdRefs := []EntityRef{}
 	for _, c := range q.snap.Services {
-		if !c.Template && q.createdFrom(c.Key, s.Key) {
+		if !c.Template && q.createdFrom(c.Key, string(s.Key)) {
 			createdRefs = append(createdRefs, serviceEntityRef(c))
 		}
 	}

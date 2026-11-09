@@ -141,7 +141,8 @@ type EntityRef struct {
 	// NonCompliant counts the NonCompliant services of an OWNER or DOMAIN
 	// reference, set only on list answers: every service of a domain, and only
 	// the services an owner owns outright (Owned), the ones the non-compliant
-	// owner ranking counts, so a row and the rank figure agree.
+	// owner ranking counts, so a row and the rank figure agree. On a golden path
+	// reference it counts the non-compliant services among Created.
 	NonCompliant int `json:"nonCompliant,omitempty"`
 	// Owned counts the services an OWNER reference owns outright: every revision
 	// that names an owner names this one alone. It is the denominator of the

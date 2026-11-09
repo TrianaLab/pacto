@@ -50,8 +50,8 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
-	f.String("created-from", "", "services created from this golden path, by key")
-	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) or rate (owners and domains with the highest share of non-compliant services first)")
+	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
+	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
@@ -60,7 +60,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated))
 	return cmd
 }
 
@@ -245,6 +245,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
 		}
 		printNonCompliantRanking(w, &res.Aggregate)
+		printOriginRanking(w, &res.Aggregate.Origins)
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
@@ -272,6 +273,26 @@ func printNonCompliantRanking(w io.Writer, a *fleet.EntityAggregate) {
 	parts = appendCount(parts, a.NonCompliantNoDomain, "with no domain")
 	parts = appendCount(parts, a.NonCompliantDomainUnknown, "whose domain is unknown")
 	_, _ = fmt.Fprintf(w, "Non-compliant services by domain (%d): %s\n", total, strings.Join(parts, ", "))
+}
+
+// printOriginRanking renders which golden paths created the matched services,
+// the rows and counts summing to every one of them; hidden services are counted
+// apart and never named.
+func printOriginRanking(w io.Writer, o *fleet.OriginTally) {
+	if len(o.ByPath) == 0 && o.Unresolved.Services == 0 && o.Hidden == 0 {
+		return
+	}
+	parts := make([]string, 0, len(o.ByPath)+3)
+	for _, p := range o.ByPath {
+		parts = append(parts, fmt.Sprintf("%s %d (%d non-compliant)", p.Key, p.Services, p.NonCompliant))
+	}
+	parts = appendCount(parts, o.Beyond.Services, "from other golden paths")
+	parts = appendCount(parts, o.Unresolved.Services, "from an origin that resolves to no golden path")
+	parts = appendCount(parts, o.None.Services, "with no declared origin")
+	_, _ = fmt.Fprintf(w, "Services by golden path: %s\n", strings.Join(parts, ", "))
+	if o.Hidden > 0 {
+		_, _ = fmt.Fprintf(w, "Plus %d created from a golden path and hidden by your permissions\n", o.Hidden)
+	}
 }
 
 // appendCount adds "N words" when N is not zero.

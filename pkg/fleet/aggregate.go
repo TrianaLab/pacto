@@ -390,6 +390,100 @@ type EntityAggregate struct {
 	Offerings     []TypeCount `json:"offerings,omitempty"`
 	OfferingTypes int         `json:"offeringTypes,omitempty"`
 	OfferingCount int         `json:"offeringCount"`
+	// Origins partitions the matched services that are no golden path by the
+	// golden path they were created from.
+	Origins OriginTally `json:"origins"`
+}
+
+// maxPathRanking bounds OriginTally.ByPath.
+const maxPathRanking = 10
+
+// OriginTally partitions the matched services that are no golden path by their
+// declared origin, over the whole population before paging:
+//
+//	Sum(ByPath.Services) + Beyond.Services + Unresolved.Services + None.Services ==
+//	    matched services that are no golden path
+//
+// and the NonCompliant counts partition the non-compliant ones the same way.
+// Hidden services are in no count: Hidden counts, over the whole view whatever
+// the filter, the services created from a visible golden path that the caller's
+// permissions hide, never naming them.
+type OriginTally struct {
+	// ByPath ranks the golden paths by the services created from them, most
+	// first, bounded to maxPathRanking; Paths is how many golden paths created
+	// at least one matched service.
+	ByPath []PathCount `json:"byPath,omitempty"`
+	Paths  int         `json:"paths,omitempty"`
+	// Beyond counts the services created from golden paths past the ranking,
+	// Unresolved those whose declared origin resolves to no golden path in this
+	// view (the UnresolvedOrigin filter) and None those that declare no origin
+	// (the NoOrigin filter).
+	Beyond     OriginCount `json:"beyond"`
+	Unresolved OriginCount `json:"unresolved"`
+	None       OriginCount `json:"none"`
+	Hidden     int         `json:"hidden,omitempty"`
+}
+
+// OriginCount is a number of services and how many of them are non-compliant.
+type OriginCount struct {
+	Services     int `json:"services"`
+	NonCompliant int `json:"nonCompliant"`
+}
+
+// add counts s.
+func (c *OriginCount) add(s *ServiceRecord) {
+	c.Services++
+	c.NonCompliant += b2i(s.Status == StatusNonCompliant)
+}
+
+// PathCount is one golden path of the origin ranking: its services created
+// among the matched population, and Hidden, the services created from it that
+// the caller's permissions hide (in neither count).
+type PathCount struct {
+	Key          string `json:"key"`
+	Label        string `json:"label"`
+	Services     int    `json:"services"`
+	NonCompliant int    `json:"nonCompliant"`
+	Hidden       int    `json:"hidden,omitempty"`
+}
+
+// tallyOrigin counts one matched service under its origin bucket.
+func (o *OriginTally) tallyOrigin(byPath map[string]*OriginCount, s *ServiceRecord) {
+	switch b := originBucket(s); b {
+	case NoOrigin:
+		o.None.add(s)
+	case UnresolvedOrigin:
+		o.Unresolved.add(s)
+	default:
+		if byPath[b] == nil {
+			byPath[b] = &OriginCount{}
+		}
+		byPath[b].add(s)
+	}
+}
+
+// rankPaths orders the golden paths most created first (ties by label, then
+// key), cuts the ranking at maxPathRanking into Beyond and counts what the
+// view hides.
+func (q *Query) rankPaths(o *OriginTally, byPath map[string]*OriginCount) {
+	for k, c := range byPath {
+		path := q.snap.Services[ServiceKey(k)]
+		o.ByPath = append(o.ByPath, PathCount{Key: k, Label: serviceEntityRef(path).Label, Services: c.Services, NonCompliant: c.NonCompliant, Hidden: path.HiddenCreated})
+	}
+	slices.SortFunc(o.ByPath, func(a, b PathCount) int {
+		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Label, b.Label), cmp.Compare(a.Key, b.Key))
+	})
+	o.Paths = len(o.ByPath)
+	if len(o.ByPath) > maxPathRanking {
+		for _, c := range o.ByPath[maxPathRanking:] {
+			o.Beyond.Services += c.Services
+			o.Beyond.NonCompliant += c.NonCompliant
+		}
+		o.ByPath = o.ByPath[:maxPathRanking]
+	}
+	for _, s := range q.snap.Services {
+		o.Hidden += s.HiddenCreated
+	}
 }
 
 // TypeCount is one type (a capability or a platform offering) and how many
@@ -458,6 +552,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	byDomain := map[string]*DomainCount{}
 	present := map[string]bool{}
 	capabilities, offerings := map[string]int{}, map[string]int{}
+	byPath := map[string]*OriginCount{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
@@ -473,6 +568,9 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 				offerings[s.Offering]++
 			}
 			agg.tallyOwner(q.ownerClaimsOf(s), s, nc, byOwner, present)
+			if !s.Template {
+				agg.Origins.tallyOrigin(byPath, s)
+			}
 		case KindRevision:
 			agg.Revisions++
 			agg.Readiness.add(q.snap.Revisions[RevisionKey(r.Key)].Readiness)
@@ -497,6 +595,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg.NonCompliantByDomain, agg.NonCompliantDomainsBeyond, agg.NonCompliantDomains = rankNonCompliantDomains(byDomain)
 	agg.Capabilities, agg.CapabilityTypes = typeFacet(capabilities)
 	agg.Offerings, agg.OfferingTypes = typeFacet(offerings)
+	q.rankPaths(&agg.Origins, byPath)
 	return agg
 }
 

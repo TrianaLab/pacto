@@ -838,7 +838,7 @@ pacto fleet entities [text] [flags]
 ```
       --business-domain string     exact business domain, (none) for none or (unknown) for unknown
       --consumes string            services that depend on or reference a provider of this platform offering
-      --created-from string        services created from this golden path, by key
+      --created-from string        services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --has-non-compliant          owners and domains with at least one non-compliant service only
   -h, --help                       help for entities
       --kind string                entity kind (service, owner, domain, offering; empty lists all four)
@@ -849,7 +849,7 @@ pacto fleet entities [text] [flags]
       --owner-key string           exact owner key, such as team:platform or dri:alice
       --ownership string           how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
       --phase string               with --consumes: only the consumers with a provisioning status of that offering in this phase
-      --sort string                order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) or rate (owners and domains with the highest share of non-compliant services first)
+      --sort string                order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)
       --source-kind string         sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string              canonical compliance status
       --template string[="only"]   golden paths only, or exclude to leave them out

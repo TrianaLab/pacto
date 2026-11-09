@@ -2082,6 +2082,7 @@ export interface components {
             /** Format: int64 */
             offeringTypes?: number;
             offerings?: components["schemas"]["Fleet.TypeCount"][] | null;
+            origins: components["schemas"]["Fleet.OriginTally"];
             /** Format: int64 */
             owners: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
@@ -2298,6 +2299,22 @@ export interface components {
             lastSeen?: string;
             source: string;
         };
+        "Fleet.OriginCount": {
+            /** Format: int64 */
+            nonCompliant: number;
+            /** Format: int64 */
+            services: number;
+        };
+        "Fleet.OriginTally": {
+            beyond: components["schemas"]["Fleet.OriginCount"];
+            byPath?: components["schemas"]["Fleet.PathCount"][] | null;
+            /** Format: int64 */
+            hidden?: number;
+            none: components["schemas"]["Fleet.OriginCount"];
+            /** Format: int64 */
+            paths?: number;
+            unresolved: components["schemas"]["Fleet.OriginCount"];
+        };
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
@@ -2403,6 +2420,16 @@ export interface components {
             consistent: number;
             /** Format: int64 */
             unowned: number;
+        };
+        "Fleet.PathCount": {
+            /** Format: int64 */
+            hidden?: number;
+            key: string;
+            label: string;
+            /** Format: int64 */
+            nonCompliant: number;
+            /** Format: int64 */
+            services: number;
         };
         "Fleet.PhaseTally": {
             /** Format: int64 */
@@ -5899,14 +5926,14 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
-                /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list */
+                /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list */
                 createdFrom?: string;
                 /** @description Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities) */
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) or rate (owners and domains with the highest share of non-compliant services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

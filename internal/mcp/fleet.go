@@ -415,7 +415,9 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
 			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
-			"starting points for pacto_create from. created_from lists the services created from one. Over services, the aggregate ranks owners " +
+			"starting points for pacto_create from; sort=created orders them by the services created from them. created_from lists the services created from one " +
+			"((none): no declared origin; (unresolved): an origin that resolves to no golden path), and over services aggregate.origins " +
+			"ranks golden paths by the services created from them and counts the rest, hidden services in a count of their own. Over services, the aggregate ranks owners " +
 			"and business domains by non-compliant services (nonCompliantByOwner, nonCompliantByDomain) and counts " +
 			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Owner and domain rows carry nonCompliant " +
 			"(an owner's: the services it owns outright, 'owned'); has_non_compliant keeps the ones with at least one and " +
@@ -433,8 +435,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
-			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key"},
-			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate}},
+			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
+			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, or golden paths that created the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
 			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},

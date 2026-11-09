@@ -33,7 +33,7 @@ func TestEntityFilterTemplate(t *testing.T) {
 		t.Errorf("exclude kinds = %v", kinds)
 	}
 	q.snap.Revisions[q.snap.Services[path].Revisions[0]].Provenance = nil
-	if got := q.serviceListRef(q.snap.Services[path], 0).Signature; got != SignatureNotChecked {
+	if got := q.serviceListRef(q.snap.Services[path], OriginCount{}).Signature; got != SignatureNotChecked {
 		t.Errorf("unchecked signature = %q", got)
 	}
 }

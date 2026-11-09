@@ -72,8 +72,10 @@ type EntityFilter struct {
 	// golden paths marked.
 	Template string
 	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
-	// path service key. Only the key's syntax is checked: a hidden, absent or
-	// non-path key answers an empty list, so the answer never reveals a hidden path.
+	// path service key; NoOrigin keeps those that declare no origin and
+	// UnresolvedOrigin those whose origin resolves to no golden path in this view.
+	// Only the key's syntax is checked: a hidden, absent or non-path key answers an
+	// empty list, so the answer never reveals a hidden path.
 	CreatedFrom string
 	Scope       string
 	// Status filters compliance-bearing entities (service/revision/target) by
@@ -123,6 +125,9 @@ const (
 	// SortNonCompliant puts the owners and domains with the most non-compliant
 	// services first, then the most services, then by name.
 	SortNonCompliant = "nonCompliant"
+	// SortCreated puts the golden paths that created the most services first,
+	// then the most non-compliant of those, then by name.
+	SortCreated = "created"
 	// SortRate puts the owners and domains with the highest share of non-compliant
 	// services first ([EntityRef.NonCompliant] of its rate base), then the most
 	// non-compliant, then by name.
@@ -243,6 +248,17 @@ func sortEntityList(filtered []EntityRef, order string) {
 			}
 			return naturalLess(a.Label, b.Label)
 		})
+	case SortCreated:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := filtered[i], filtered[j]
+			if a.Created != b.Created {
+				return a.Created > b.Created
+			}
+			if a.NonCompliant != b.NonCompliant {
+				return a.NonCompliant > b.NonCompliant
+			}
+			return naturalLess(a.Label, b.Label)
+		})
 	case SortRate:
 		sort.SliceStable(filtered, func(i, j int) bool {
 			a, b := filtered[i], filtered[j]
@@ -352,7 +368,7 @@ func validateEntityFilter(f EntityFilter) error {
 		return err
 	}
 	if err := validateFields([]fieldCheck{
-		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate)", validSort},
+		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created)", validSort},
 		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
@@ -360,7 +376,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
-		{"createdFrom", f.CreatedFrom, "not a service key", validServiceKey},
+		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
 		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 	}); err != nil {
 		return err
@@ -385,7 +401,7 @@ func boolValue(b bool) string {
 }
 
 func validSort(s string) bool {
-	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate
+	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated
 }
 
 // validSourceHealth reports whether s is a known source-health value.
@@ -552,11 +568,11 @@ func (q *Query) offeringListRefs() []EntityRef {
 
 // serviceListRef is a service row with its target count and owner summary,
 // and on a golden path the services created from it and its signature.
-func (q *Query) serviceListRef(s *ServiceRecord, created int) EntityRef {
+func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
 	if s.Template {
-		ref.Created, ref.Signature = created, q.pathSignature(s)
+		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
 	}
 	switch n, key := q.ownershipState(s); {
 	case n == 1 && key != "":
@@ -654,7 +670,7 @@ func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
 		golden = q.goldenPath(ServiceKey(r.ParentService))
 	}
 	return templateMatches(f.Template, golden) &&
-		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), ServiceKey(f.CreatedFrom)))
+		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), f.CreatedFrom))
 }
 
 // matchOrganization applies the business-domain, offering, capability and
