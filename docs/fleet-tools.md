@@ -48,7 +48,9 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 - `pacto fleet entities --template` lists golden paths, and
   `--template=exclude` leaves them out;
 - `pacto fleet entities --created-from <key>` lists the services created from
-  one golden path;
+  one golden path, `(none)` those that declare no origin and `(unresolved)`
+  those whose origin resolves to no golden path; `--sort created` ranks golden
+  paths by the services created from them;
 - `pacto fleet search --template` filters a search the same way;
 - the MCP tools take `template` and `created_from`, and the dashboard lists
   golden paths on its Golden paths tab.
