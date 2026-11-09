@@ -123,17 +123,22 @@ let ctx: CanvasRenderingContext2D | null | undefined;
  * no layout thrash) and elides the ones that overflow their box. The full name is read
  * back from the nearest `[title]`, so a second pass starts from the whole name again.
  * It returns the identities that overflow with no readable elision, for the caller to fold.
+ * An elided name is hidden from assistive technology and followed by a visually hidden
+ * twin holding the whole name, so the accessible name is never the cut one.
  * A lane's only shown chip has nothing left to fold into, so it takes its whole-segment head.
  */
 export function fitIdents(root: Element): HTMLElement[] {
   if (ctx === undefined) {
     try { ctx = document.createElement('canvas').getContext('2d'); } catch { ctx = null; }
   }
-  const els = [...root.querySelectorAll<HTMLElement>('.fit')].filter((e) => e.getClientRects().length);
-  for (const e of els) {
+  const all = [...root.querySelectorAll<HTMLElement>('.fit')];
+  for (const e of all) {
     const full = e.closest<HTMLElement>('[title]')?.title;
     if (full && e.textContent !== full) e.textContent = full;
+    e.removeAttribute('aria-hidden');
+    if (e.nextElementSibling?.classList.contains('fit-full')) e.nextElementSibling.remove();
   }
+  const els = all.filter((e) => e.getClientRects().length);
   if (!ctx) return [];
   const c = ctx, unfit: HTMLElement[] = [];
   const groups = new Map<Element, HTMLElement[]>();
@@ -155,6 +160,15 @@ export function fitIdents(root: Element): HTMLElement[] {
     list.forEach((e, i) => {
       const r = res[i] ?? (lone ? fitHead(names[i], (s) => fits(names[i], s)) : null);
       if (r) e.textContent = r;
+      // A title is a hover tooltip only: an elided name keeps its whole value for a
+      // screen reader (and a link's accessible name) in a visually hidden twin.
+      if (r && r !== names[i]) {
+        const twin = document.createElement('span');
+        twin.className = 'visually-hidden fit-full';
+        twin.textContent = names[i];
+        e.setAttribute('aria-hidden', 'true');
+        e.after(twin);
+      }
       if (!res[i]) unfit.push(e);
     });
   }

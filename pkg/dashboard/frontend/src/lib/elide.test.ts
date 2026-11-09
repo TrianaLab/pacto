@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { fitName, fitSiblings, fitHead, elidable } from './elide.ts';
+import { describe, it, expect, vi } from 'vitest';
+import { fitName, fitSiblings, fitHead, elidable, fitIdents } from './elide.ts';
 
 const within = (n: number) => (s: string) => Array.from(s).length <= n;
 
@@ -58,5 +58,31 @@ describe('fitSiblings (C6 siblings)', () => {
   });
   it('leaves names that do not collide alone', () => {
     expect(fitSiblings(['a-b', 'c-d'], () => true)).toEqual(['a-b', 'c-d']);
+  });
+});
+
+describe('fitIdents', () => {
+  it('keeps an elided name whole for assistive technology, and undoes it once the name fits', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ font: '', measureText: (s: string) => ({ width: [...s].length * 10 }) } as never);
+    const full = 'risk-us-eu-west-1-partner-feed-compliance';
+    const root = document.createElement('div');
+    root.innerHTML = `<a href="#/x" title="${full}"><bdi class="fit">${full}</bdi></a>`;
+    document.body.appendChild(root);
+    const bdi = root.querySelector('bdi') as HTMLElement;
+    let width = 300;
+    Object.defineProperty(bdi, 'getClientRects', { value: () => [{}] });
+    Object.defineProperty(bdi, 'clientWidth', { get: () => width });
+    Object.defineProperty(bdi, 'scrollWidth', { get: () => (bdi.textContent ?? '').length * 10 });
+    fitIdents(root);
+    expect(bdi.textContent).toContain('…');
+    expect(bdi.getAttribute('aria-hidden')).toBe('true');
+    expect(root.querySelector('a .fit-full.visually-hidden')?.textContent).toBe(full);
+    width = 1000;
+    fitIdents(root);
+    expect(bdi.textContent).toBe(full);
+    expect(bdi.hasAttribute('aria-hidden')).toBe(false);
+    expect(root.querySelector('.fit-full')).toBeNull();
+    root.remove();
+    vi.restoreAllMocks();
   });
 });
