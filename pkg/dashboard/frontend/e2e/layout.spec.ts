@@ -15,8 +15,10 @@ import { densityProblems, figureLinkTotals, gateMode, installScaleFixture, layou
 // of the top or a Compact toggle on the figure, and (SPEC 22 r2) no word squeezed to one
 // or two characters per line and no table column under 6ch. Then it sweeps every 20px
 // from 760 to 1440 and every 40px on to 1920 for horizontal overflow (SPEC 19, 22),
-// since a layout clean at the fixed widths spilled between them. The shell has a top
-// navbar and no sidebar yet, so there is no sidebar state to vary.
+// since a layout clean at the fixed widths spilled between them. Both sidebar states
+// are gated (SPEC 20): from 1200px each fixed width is checked with the sidebar as it
+// starts and again with it toggled, and the sweep runs once with the default states
+// (collapsed under 1440px) and once with the sidebar expanded from 1200px.
 //
 // PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
 // nothing else is excluded.
@@ -96,6 +98,17 @@ const ROUTES: Route[] = [
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
 ];
 
+/** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
+async function toggleSidebar(page: Page): Promise<string> {
+  const side = page.locator('[data-testid="sidebar"]');
+  const before = await side.getAttribute('data-rail');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.()); // "[" is ignored in a field
+  await page.keyboard.press('[');
+  await expect(side).not.toHaveAttribute('data-rail', before ?? '');
+  await settle(page);
+  return (await side.getAttribute('data-rail')) ?? 'none';
+}
+
 /** The route has drawn its answer: a heading, and nothing still loading. */
 async function loaded(page: Page) {
   await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
@@ -129,8 +142,16 @@ for (const theme of ['dark', 'light'] as const) {
           await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
           await settle(page);
           for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px: ${p}`);
+          if (w >= 1200) {
+            const state = await toggleSidebar(page);
+            for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px, sidebar ${state}: ${p}`);
+            await toggleSidebar(page);
+          }
         }
         problems.push(...await sweepOverflow(page, PENDING));
+        await page.setViewportSize({ width: 1280, height: 900 });
+        if (await toggleSidebar(page) !== 'open') await toggleSidebar(page);
+        for (const p of await sweepOverflow(page, PENDING)) problems.push(`sidebar expanded: ${p}`);
         // Last, because it navigates: every "List all N" / "N more" lands on N (T3).
         await page.setViewportSize({ width: 1280, height: 900 });
         await settle(page);

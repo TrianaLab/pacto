@@ -233,7 +233,7 @@ test.describe('Delivery views', () => {
   test('the inbox shows what waits on my team, and the keyboard reaches the change', async ({ page }) => {
     await as(page, 'carol');
     await page.goto('/#/fleet');
-    await page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Delivery' }).click();
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Delivery' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible({ timeout: T });
     const held = page.getByTestId('inbox-held');
     await expect(held).toContainText('Breaks checkout');

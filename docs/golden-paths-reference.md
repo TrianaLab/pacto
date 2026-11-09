@@ -87,7 +87,7 @@ origin, over the whole population before paging:
 The `services` of `byPath`, `beyond`, `unresolved` and `none` sum to the
 matched services, and their `nonCompliant` counts sum to the non-compliant
 ones. `pacto fleet entities` prints the ranking under the list, and the
-dashboard's Golden paths tab draws it.
+dashboard's Golden paths page draws it.
 
 ## Creation checklist
 

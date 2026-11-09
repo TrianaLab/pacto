@@ -100,10 +100,10 @@ it had shipped and the question was about a later Unknown check, the Stage
 freezes instead, so a person looks at it. The person
 who asked can withdraw it at any time with `pacto delivery cancel -n prod <change>`.
 
-In the dashboard (`pacto dashboard`), the **Delivery** tab's **Inbox** lists
-the changes **Waiting for your decision**. Changes another team may answer
-too sit behind a **Shared with other teams** count, and frozen Stages and
-changes that could not finish behind their own counts. Open a change: the
+In the dashboard (`pacto dashboard`), **Delivery** in the sidebar opens the
+**Inbox**, which lists the changes **Waiting for your decision**. Changes
+another team may answer too sit behind a **Shared with other teams** count, and
+frozen Stages and changes that could not finish behind their own counts. Open a change: the
 page leads with the question and two cards, **If you approve** and **If you
 reject**, each saying what happens and each with its own button. Write your
 note, then press **Approve shipping** (or **Accept the unknown**) or

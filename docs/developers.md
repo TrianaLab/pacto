@@ -112,7 +112,7 @@ reports about your resource. See
 
 Your platform team may publish golden paths: contracts a new service starts
 from. List them with `pacto fleet entities --template` or on the dashboard's
-Golden paths tab, then create your service with
+Golden paths page, then create your service with
 `pacto init <dir> --from <path> --owner <team>`. See
 [Create a service from a golden path](golden-paths.md).
 

@@ -9,18 +9,18 @@ const WIDE_FONT = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}
 const noSideScroll = (page: Page) => page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1));
 
 test.describe('WASM demo — platform offerings', () => {
-  test('the Offerings tab opens the list and the page never scrolls sideways', async ({ page }) => {
+  test('the Offerings item opens the list and the page never scrolls sideways', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet');
     await page.addStyleTag({ content: WIDE_FONT });
-    const nav = page.locator('.navbar-nav-desktop');
+    const nav = page.getByRole('navigation', { name: 'Primary' });
     const tab = nav.getByRole('link', { name: 'Offerings' });
     await tab.scrollIntoViewIfNeeded();
     await tab.click();
     await expect(page).toHaveURL(/#\/fleet\/offerings$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Platform offerings' })).toBeVisible({ timeout: T });
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    // The tabs scroll inside the bar: the menu button stays on screen.
+    // The bar's controls stay on screen beside the sidebar.
     await expect(page.getByRole('button', { name: 'Toggle theme' })).toBeInViewport();
     expect(await noSideScroll(page)).toBe(true);
   });

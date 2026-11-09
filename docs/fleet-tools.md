@@ -53,7 +53,7 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
   paths by the services created from them;
 - `pacto fleet search --template` filters a search the same way;
 - the MCP tools take `template` and `created_from`, and the dashboard lists
-  golden paths on its Golden paths tab.
+  golden paths on its Golden paths page.
 
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
