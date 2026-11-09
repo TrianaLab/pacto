@@ -39,8 +39,9 @@ describe('fitName (C6)', () => {
 });
 
 describe('fitHead (C6 last resort)', () => {
-  it('keeps the longest whole-segment head that fits', () => {
-    expect(fitHead('fraud-scoring-realtime-event', within(15))).toBe('fraud-scoring-…');
+  it('keeps the longest whole-segment head that fits beside a tail of 8 to 5 characters', () => {
+    expect(fitHead('fraud-scoring-realtime-event', within(18))).toBe('fraud-…me-event');
+    expect(fitHead('fraud-scoring-realtime-event', within(12))).toBe('fraud-…event');
     expect(fitHead('fraud-scoring-realtime-event', within(4))).toBeNull();
     expect(fitHead('averyveryverylongsinglewordname', within(40))).toBeNull();
   });

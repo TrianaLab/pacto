@@ -76,14 +76,18 @@ export function fitName(name: string, fits: (s: string) => boolean, pin?: number
 
 /**
  * fitHead is the last resort for an identity that must be shown (a lane's only chip) and
- * has no readable elision: its longest whole-segment head (at least 4 characters) and
- * "…", so it still never ends mid-word. Null when not even that fits.
+ * has no readable elision: its longest whole-segment head (at least 4 characters), "…"
+ * and the last 8 to 5 characters of its end, so the reader still sees both ends (C6: a
+ * tail of at least 5). Null when not even that fits.
  */
 export function fitHead(name: string, fits: (s: string) => boolean): string | null {
-  const parts = segsOf(name);
-  for (let h = parts.length - 1; h >= 1; h--) {
-    const head = parts.slice(0, h).join('');
-    if (Array.from(head).length >= 4 && fits(head + '…')) return head + '…';
+  const parts = segsOf(name), cp = Array.from(name);
+  for (let t = 8; t >= 5; t--) {
+    const tail = cp.slice(-t).join('');
+    for (let h = parts.length - 1; h >= 1; h--) {
+      const head = parts.slice(0, h).join('');
+      if (Array.from(head).length >= 4 && Array.from(head).length + t < cp.length && fits(head + '…' + tail)) return head + '…' + tail;
+    }
   }
   return null;
 }
