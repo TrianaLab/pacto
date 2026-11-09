@@ -346,7 +346,6 @@
   .sources-pop-list li > span:last-child { display: flex; flex-direction: column; min-width: 0; }
   .sources-pop-desc { overflow-wrap: anywhere; }
   .sources-pop-note { margin: var(--sp-2) 0 0; }
-  .sources-pop-link { display: inline-block; margin-top: var(--sp-3); font-size: var(--text-sm); }
   .navbar-right :global(.btn-ghost) {
     display: inline-flex;
     align-items: center;
