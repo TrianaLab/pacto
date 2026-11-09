@@ -953,6 +953,13 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 		expect(t, code == http.StatusNotFound && out["code"] == "OutOfScope", "%s %s: %d %v", c.method, c.path, code, out)
 	}
 	expect(t, len(f.approved)+len(f.cancelled)+len(f.proposed) == 0, "nothing acted outside the scope")
+	// A change in scope whose Stage promotes from a Stage outside it names
+	// that upstream without reading it.
+	f.stages[0].Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "books", Name: "ledger"}}
+	f.stages[1].Spec.Environment = "staging"
+	_, op := call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
+	up, _ := op["upstream"].(map[string]any)
+	expect(t, up["problem"] == "outOfScope" && up["environment"] == nil, "the change view reads no upstream out of scope: %v", op["upstream"])
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
 	expect(t, code == http.StatusOK, "history in scope: %d", code)
 }
