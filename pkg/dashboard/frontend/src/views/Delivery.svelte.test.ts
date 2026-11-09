@@ -428,15 +428,31 @@ describe('environments', () => {
     narrowed.destroy();
   });
 
+  it('caps a row at eight marks of its own path and counts the rest in a chip to that service', async () => {
+    const envs = Array.from({ length: 11 }, (_, i) => `e${i + 1}`);
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: envs.map((environment) => ({
+      namespace: environment, stage: 's', service: 'payments', environment, pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [] })) });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
+    expect([...pay.querySelectorAll('button[data-testid="env-dot"]')].map((d) => (d as HTMLElement).dataset.env)).toEqual(envs.slice(0, 8));
+    const more = pay.querySelector('[data-testid="env-more"]') as HTMLAnchorElement;
+    expect(more.textContent).toBe('+3');
+    expect(more.getAttribute('aria-label')).toBe('3 more environments of payments');
+    expect(more.getAttribute('href')).toBe('#/delivery/environments?service=payments');
+    destroy();
+  });
+
   it('shows many environments as a strip of dots that open the full cell, with no sideways scroll', async () => {
     const envs = ['dev', 'test', 'qa', 'staging', 'preprod', 'prod-eu', 'prod-us', 'books'];
     const tiers = { dev: 'dev', test: 'test', qa: 'test', staging: 'test', preprod: 'test', 'prod-eu': 'prod', 'prod-us': 'prod' };
     const r = (service: string, environment: string, over = {}) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, pointer: D1, version: '1.0.0',
       verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], ...over });
+    const up = (environment: string) => ({ kind: 'stage', namespace: environment, stage: `payments-${environment}`, environment });
     fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: tiers, page: { total: 2, offset: 0, limit: 25 }, environments: [
-      r('payments', 'dev'), r('payments', 'test', { held: 2 }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
-      r('payments', 'prod-eu', { frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
-      r('payments', 'prod-us', { failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
+      r('payments', 'dev'), r('payments', 'test', { held: 2, upstream: up('dev') }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
+      r('payments', 'prod-eu', { upstream: up('test'), frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
+      r('payments', 'prod-us', { upstream: up('test'), failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
       r('ledger', 'staging', { verified: false }),
     ] });
     fns.plan.mockResolvedValue({ intentDigest: 'sha256:u', type: 'delivery.pacto.trianalab.io/unfreeze', predicted: 'Proceeds' });
@@ -445,26 +461,25 @@ describe('environments', () => {
     const board = target.querySelector('[data-testid="environments-board"]') as HTMLElement;
     expect(board.classList.contains('ev-strip')).toBe(true);
     expect(board.style.minWidth).toBe('');
-    expect([...board.querySelectorAll('thead .ev-group-head')].map((g) => g.textContent)).toEqual(['dev', 'test', 'prod', 'other']);
+    // No shared columns: the header names no order, and each row is its service's own path.
+    expect(board.querySelectorAll('[data-testid="env-column"]').length).toBe(0);
+    expect([...board.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Service', "Path as each service's Stages declare it", 'State in 8 environments']);
     // How to read the strip is one (?) away, not a sentence on the page.
     const legend = target.querySelector('[data-testid="environments-legend"]') as HTMLElement;
-    expect(text(legend)).not.toContain('One column per environment');
-    (legend.querySelector('button[aria-label="About the dots"]') as HTMLButtonElement).click();
+    expect(text(legend)).not.toContain('own path');
+    (legend.querySelector('button[aria-label="About the paths"]') as HTMLButtonElement).click();
     flushSync();
-    expect(text(legend)).toContain('One column per environment, grouped dev, test, prod and other.');
-    // Every dot column is named in the header, the full name in its title.
-    const cols = [...board.querySelectorAll('[data-testid="env-column"]')] as HTMLElement[];
-    expect(cols.map((c) => c.textContent)).toEqual(envs);
-    expect(cols.map((c) => c.title)).toEqual(envs);
-    // The dots column fits its dots: groups of 1, 4, 2 and 1 dots are 36 + 76 + 36 + 36 px, 12px apart.
-    expect((board.querySelectorAll('col')[1] as HTMLElement).style.width).toBe('calc(220px + 2 * var(--sp-3))');
+    expect(text(legend)).toContain("Each row is its service's own path, in the order its Stages declare their upstreams.");
     const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
     const dots = [...pay.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
-    expect(dots.map((d) => `${d.dataset.env}:${d.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
-      ['dev:verified', 'test:waiting', 'qa:empty', 'prod-eu:frozen', 'prod-us:failed', 'books:autohold']);
-    expect(pay.querySelectorAll('.ev-dot.s-none').length).toBe(2);
-    expect(dots[5].getAttribute('aria-label')).toBe('books: 1.0.0, 1.0.0. Auto-hold (2 Stages)');
-    expect(dots[2].title).toBe('qa: Nothing yet');
+    // dev feeds test and test feeds prod-eu, declared; the rest follow by name, unlinked.
+    expect(dots.map((d) => `${d.dataset.env}:${d.querySelector('.ev-dot')!.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
+      ['books:autohold', 'dev:verified', 'test:waiting', 'prod-eu:frozen', 'prod-us:failed', 'qa:empty']);
+    expect([...pay.querySelectorAll('[data-testid="env-mark"]')].map((m) => m.classList.contains('linked'))).toEqual([false, false, true, true, false, false]);
+    expect(dots[0].getAttribute('aria-label')).toBe('books: 1.0.0, 1.0.0. Auto-hold (2 Stages)');
+    expect(dots[5].title).toBe('qa (named like test): Nothing yet');
+    expect(dots[4].title).toBe('prod-us (named like prod): 1.0.0. Failed. Fed by test');
+    expect(pay.querySelector('[data-testid="env-more"]')).toBeNull();
     expect(dots.map((d) => d.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
     expect(text(pay.querySelector('[data-testid="env-summary"]') as HTMLElement).trim()).toBe('1 failed1 frozen1 auto-hold1 waiting1 nothing yet1 verified');
     const ledger = target.querySelector('[data-testid="env-row-ledger"]') as HTMLElement;
@@ -498,7 +513,7 @@ describe('environments', () => {
     dots[3].click();
     await settle();
     expect(target.querySelector('[data-testid="env-detail"]')).toBeNull();
-    dots[5].click();
+    dots[0].click();
     await settle();
     detail = target.querySelector('[data-testid="env-detail"]') as HTMLElement;
     expect([...detail.querySelectorAll('.ev-stage')].map((e) => e.textContent)).toEqual(['books/payments-books', 'books/other']);
@@ -508,6 +523,7 @@ describe('environments', () => {
     // Tier and environment filters ask the server, and clear each other.
     const [tierPick, envPick] = [...target.querySelectorAll('.ev-tools select')] as HTMLSelectElement[];
     expect([...tierPick.options].map((o) => o.value)).toEqual(['', 'dev', 'test', 'prod']);
+    expect([...tierPick.options].map((o) => o.textContent)).toEqual(['Every tier', 'Named like dev', 'Named like test', 'Named like prod']);
     tierPick.value = 'prod';
     tierPick.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/delivery/environments?tier=prod');

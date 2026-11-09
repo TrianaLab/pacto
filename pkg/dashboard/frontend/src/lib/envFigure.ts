@@ -232,3 +232,42 @@ export function promotionModel(service: string, graph: Graph, rows: Row[]) {
     alt: stations.map((s) => `${s.env}${s.version ? ` runs ${s.version}` : ''}${s.state ? `, ${s.state.word}` : ''}${s.source ? `; fed by ${s.source.label}` : ''}`).join('; '),
   };
 }
+
+/** Marks per board row (SPEC 21 r3): past these, a "+N" count chip. */
+export const MAX_PATH_MARKS = 8;
+
+export interface PathMark {
+  env: string;
+  /** The environments feeding this one, from its Stages' declared upstreams. */
+  fedBy: string[];
+  /** Whether the mark before it feeds it, so the row draws a link between them. */
+  linked: boolean;
+}
+
+/**
+ * servicePath is one service's own promotion path over the environments it has a
+ * Stage in (SPEC 21 r3): topological by the upstream each Stage declares, a chain kept
+ * together, names only breaking ties. A cycle's environments follow by name with no link;
+ * an undeclared or missing upstream is never drawn as a link (r4).
+ */
+export function servicePath(rows: Row[], envs: string[]): PathMark[] {
+  const set = new Set(envs);
+  const fedBy = new Map(envs.map((e) => [e, new Set<string>()]));
+  for (const r of rows) {
+    const u = r.upstream;
+    if (set.has(r.environment) && u?.kind === 'stage' && !u.problem && u.environment && set.has(u.environment) && u.environment !== r.environment) fedBy.get(r.environment)!.add(u.environment);
+  }
+  const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  const order: string[] = [];
+  const left = new Set(envs);
+  for (;;) {
+    const ready = [...left].filter((e) => [...fedBy.get(e)!].every((f) => !left.has(f))).sort(byName);
+    if (!ready.length) break;
+    // A chain stays together: the environment fed by the last one placed goes next.
+    const next = ready.find((e) => fedBy.get(e)!.has(order.at(-1)!)) ?? ready[0];
+    order.push(next);
+    left.delete(next);
+  }
+  order.push(...[...left].sort(byName));
+  return order.map((env, i) => ({ env, fedBy: [...fedBy.get(env)!].sort(byName), linked: i > 0 && fedBy.get(env)!.has(order[i - 1]) && !left.has(env) }));
+}

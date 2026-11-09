@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fleetEnvModel, promotionModel, rowState, ENV_STATES, MAX_ENV_STATIONS } from './envFigure.ts';
+import { fleetEnvModel, promotionModel, rowState, servicePath, ENV_STATES, MAX_ENV_STATIONS } from './envFigure.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -136,5 +136,23 @@ describe('promotionModel', () => {
     expect(m.wires.map((w) => `${w.from}>${w.to}`)).toEqual(['s1-r>s0-l', 's0-r>s1-l']);
     expect(m.caption).toContain('Some Stages feed each other in a cycle');
     expect(promotionModel('svc', { nodes: [node('prod', 0, art)], edges: null } as Any, []).caption).toContain('1 Stage, one Stage');
+  });
+});
+
+describe('servicePath', () => {
+  const up = (environment: string, over = {}) => ({ kind: 'stage' as const, namespace: environment, stage: 's', environment, ...over });
+  const row = (environment: string, upstream?: object) => ({ namespace: environment, stage: 's', service: 'a', environment, held: 0, upstream }) as never;
+  it('orders a service by its declared upstreams, never by name, and links only declared neighbours', () => {
+    const rows = [row('prod-us', up('staging')), row('prod-eu', up('staging')), row('staging', up('alpha')), row('alpha', { kind: 'artifact' })];
+    expect(servicePath(rows, ['prod-us', 'prod-eu', 'staging', 'alpha'])).toEqual([
+      { env: 'alpha', fedBy: [], linked: false },
+      { env: 'staging', fedBy: ['alpha'], linked: true },
+      { env: 'prod-eu', fedBy: ['staging'], linked: true },
+      { env: 'prod-us', fedBy: ['staging'], linked: false },
+    ]);
+  });
+  it('never links a missing upstream, an environment out of the set or a cycle', () => {
+    const rows = [row('b', up('a', { problem: 'missing' })), row('c', up('elsewhere')), row('x', up('y')), row('y', up('x'))];
+    expect(servicePath(rows, ['c', 'b', 'x', 'y']).map((m) => `${m.env}:${m.linked}`)).toEqual(['b:false', 'c:false', 'x:false', 'y:false']);
   });
 });

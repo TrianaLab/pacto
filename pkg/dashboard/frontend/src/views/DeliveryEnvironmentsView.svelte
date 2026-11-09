@@ -24,14 +24,14 @@
   import { cap } from '../lib/cap.svelte.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
-  import { ENV_STATES } from '../lib/envFigure.ts';
+  import { ENV_STATES, servicePath, MAX_PATH_MARKS } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
   // from here, through a plan. The board pages by service on the server and
   // keeps every environment as a column on every page. Past a few columns
-  // each service is one row of status dots, one per environment, under its
-  // name and the tier its name says; a dot opens the full cell. Above it, a
+  // each service is one row: its own path of status marks, in the order its
+  // Stages declare (SPEC 21 r3); a mark opens the full cell. Above it, a
   // figure: every environment's Stages by state, or with one service, that
   // service's own promotion path (SPEC 21).
   let { offset = '', limit = '', q = '', environment = '', tier = '', state: stateFilter = '', service = '', domain = '', except = '', refreshTick = 0, miraURL = '' } = $props();
@@ -66,21 +66,14 @@
   // station's, on every environment but the ones the figure draws.
   const stateHref = (st, env, ex) => deliveryEnvironmentsUrl({ q, service, domain, state: st || undefined, environment: env || undefined, except: exceptParam(ex) });
   // A column a person can read is 12rem: past four the board becomes the strip.
-  // The strip's columns are one dot wide and fit their content, so the State
-  // column takes the rest; 50 environments scroll sideways like the board does.
   const BOARD_MAX = 4;
   const strip = $derived(shown.length > BOARD_MAX);
-  // The strip's groups: consecutive environments whose names say one tier, in
-  // the server's declared order.
-  const groups = $derived(shown.reduce((gs, e) => {
-    const t = tiers[e] ?? '';
-    if (gs.at(-1)?.tier === t) gs.at(-1).envs.push(e); else gs.push({ tier: t, envs: [e] });
-    return gs;
-  }, []));
-  // The dots column fits its dots, so the State column takes what is left. The
-  // sizes match the CSS: 16px dots 4px apart, 12px between groups, a group no
-  // narrower than its 36px tier label.
-  const dotsWidth = $derived(groups.reduce((w, g) => w + Math.max(36, g.envs.length * 20 - 4), 0) + (groups.length - 1) * 12);
+  // The strip has no shared columns (SPEC 21 r3): services promote along their own
+  // paths, so each row is its service's own chain of marks in the order its Stages
+  // declare, up to MAX_PATH_MARKS, then a count chip to the service's whole path.
+  const pathOf = (svc) => servicePath(rows.filter((r) => r.service === svc), shown.filter((e) => cell(svc, e).length));
+  // A tier is inferred from the name only, so it reads as a guess, never as the order.
+  const named = (env) => (tiers[env] ? ` (named like ${tiers[env]})` : '');
   // One state per dot, the first that holds for any Stage in the cell: the
   // worst wins. The legend and the summary column read the same list.
   const STATES = [
@@ -98,9 +91,9 @@
     for (const e of shown) { const here = cell(svc, e); if (here.length) { const k = stateOf(here).key; n.set(k, (n.get(k) ?? 0) + 1); } }
     return STATES.filter((s) => n.has(s.key)).map((s) => ({ ...s, n: n.get(s.key) }));
   };
-  const dotTitle = (env, here) => {
+  const dotTitle = (env, here, fedBy = []) => {
     const vs = here.filter((r) => r.pointer).map((r) => r.version || shortDigest(r.pointer)).join(', ');
-    return `${env}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${formatCount(here.length)} Stages)` : ''}`;
+    return `${env}${named(env)}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${formatCount(here.length)} Stages)` : ''}${fedBy.length ? `. Fed by ${andList(fedBy, 3)}` : ''}`;
   };
   // The cell a dot opened, under its service's row.
   let opened = $state(null);
@@ -209,7 +202,7 @@
     <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, state: stateFilter, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
     <span class="ev-picks">
       {#if tierOptions.length > 1 || tier}
-        <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '', except: '' })} />
+        <Select label="Tier, inferred from names" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions.map((t) => ({ value: t, label: `Named like ${t}` }))]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '', except: '' })} />
       {/if}
       {#if environments.length > 1 || environment}
         <Select label="Environment" value={environment} options={[{ value: '', label: 'Every environment' }, ...environments]} onchange={(e) => go({ environment: e.currentTarget.value, tier: '', except: '' })} />
@@ -244,58 +237,44 @@
       {#if strip}
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
           {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
-          {#if anyMissing}<span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>{/if}
-          <HelpTip label="the dots" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
+          <span><span class="ev-link" aria-hidden="true"></span>Fed by the one before</span>
+          <HelpTip label="the paths" text="Each row is its service's own path, in the order its Stages declare their upstreams. A line joins two environments when the second is fed by the first. A tier is only what a name says. Point at a dot or tab to it for its version, press it for the rest." />
         </div>
         <!-- The strip is as wide as what it holds: a full-width table left its right half empty
              while the names in it were cut. -->
         <div class="ev-cq"><div class="ev-board ev-board-fit">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
-            <caption class="visually-hidden">Services by environment, one dot per environment</caption>
-            <colgroup><col /><col style:width={`calc(${dotsWidth}px + 2 * var(--sp-3))`} /><col /></colgroup>
+            <caption class="visually-hidden">Services by environment, each along its own promotion path</caption>
             <thead>
               <tr>
                 <th scope="col">Service</th>
-                <th scope="col">
-                  <span class="visually-hidden">Environments</span>
-                  <div class="ev-dots ev-heads" aria-hidden="true">
-                    {#each groups as g, i (i)}
-                      <span class="ev-head-group">
-                        <span class="ev-group-head" title={`${g.tier || 'other'}: ${g.envs.join(', ')}`}>{g.tier || 'other'}</span>
-                        <span class="ev-group">
-                          {#each g.envs as env (env)}<span class="ev-env" data-testid="env-column" title={env}>{env}</span>{/each}
-                        </span>
-                      </span>
-                    {/each}
-                  </div>
-                </th>
+                <th scope="col">Path <span class="t-meta">as each service's Stages declare it</span></th>
                 <th scope="col">State <span class="t-meta">in {formatCount(shown.length)} environments</span></th>
               </tr>
             </thead>
             <tbody>
               {#each services as svc (svc)}
                 {@const sum = summaryOf(svc)}
-                {@const first = shown.find((e) => cell(svc, e).length)}
+                {@const path = pathOf(svc)}
                 <tr data-testid={`env-row-${svc}`}>
                   <th scope="row"><a class="ev-name" href={deliveryServiceUrl(svc)}>{svc}</a></th>
                   <td>
-                    <div class="ev-dots" role="toolbar" aria-label={`Environments of ${svc}`} tabindex="-1" onkeydown={roam}>
-                      {#each groups as g, i (i)}
-                        <span class="ev-group">
-                          {#each g.envs as env (env)}
-                            {@const here = cell(svc, env)}
-                            {#if here.length}
-                              {@const st = stateOf(here)}
-                              {@const open = opened?.svc === svc && opened.env === env}
-                              <button type="button" class={`ev-dot s-${st.key}`} class:open data-testid="env-dot" data-env={env}
-                                tabindex={env === first ? 0 : -1} title={dotTitle(env, here)} aria-label={dotTitle(env, here)}
-                                aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, env)}></button>
-                            {:else}
-                              <span class="ev-dot s-none" title={`${env}: not delivered here`} aria-hidden="true"></span>
-                            {/if}
-                          {/each}
+                    <div class="ev-path" role="toolbar" aria-label={`Path of ${svc}`} tabindex="-1" onkeydown={roam}>
+                      {#each path.slice(0, MAX_PATH_MARKS) as m, i (m.env)}
+                        {@const here = cell(svc, m.env)}
+                        {@const st = stateOf(here)}
+                        {@const open = opened?.svc === svc && opened.env === m.env}
+                        {@const fedBy = m.linked ? [] : m.fedBy}
+                        <span class:linked={m.linked} data-testid="env-mark">
+                          <button type="button" class="ev-mark" class:open data-testid="env-dot" data-env={m.env}
+                            tabindex={i === 0 ? 0 : -1} title={dotTitle(m.env, here, fedBy)} aria-label={dotTitle(m.env, here, fedBy)}
+                            aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, m.env)}><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span><bdi class="ev-env">{m.env}</bdi></button>
                         </span>
                       {/each}
+                      {#if path.length > MAX_PATH_MARKS}
+                        {@const more = path.length - MAX_PATH_MARKS}
+                        <span><a class="ev-more" href={deliveryEnvironmentsUrl({ service: svc, domain })} aria-label={`${formatCount(more)} more environments of ${svc}`} data-testid="env-more">+{formatCount(more)}</a></span>
+                      {/if}
                     </div>
                   </td>
                   <td data-testid="env-summary"><div class="ev-sum">
@@ -432,24 +411,19 @@
   .ev-picks { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
   .ev-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); }
   .ev-key > span { display: inline-flex; align-items: center; gap: var(--sp-1); }
-  /* The strip: every row and the header share one dot size, worked out from
-     the column's width, so dots line up down the page and never scroll. */
-  /* The strip: every row and the header share one column width, so each dot sits under its environment's name. */
-  .ev-dots { display: flex; gap: var(--ev-gg); --ev-d: 16px; --ev-g: 4px; --ev-gg: 12px; }
-  /* A group is never narrower than its tier label; the header and the rows share the floor, so they still line up. */
-  .ev-group { display: flex; gap: var(--ev-g); flex: none; min-width: 36px; }
-  .ev-strip .ev-dots.ev-heads { align-items: stretch; }
-  .ev-head-group { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 36px; }
-  /* Tier labels share the top line; the names hang from them down to the dots. */
-  .ev-head-group > .ev-group { flex: 1; align-items: flex-end; }
-  .ev-group-head { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    border-bottom: 2px solid var(--c-border); padding-bottom: 2px; font-size: var(--text-xs); text-transform: none; letter-spacing: normal; font-variant: normal; }
-  /* An environment's name reads bottom to top above its dots, whole. */
-  .ev-env { flex: none; width: var(--ev-d); writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
-    line-height: var(--ev-d); font-size: var(--text-xs); font-weight: 500; text-transform: none; letter-spacing: normal; font-variant: normal; color: var(--c-text-2); }
+  /* The strip: each row is its service's own path, marks in the order its Stages declare.
+     The marks wrap within the cell, so a long path never scrolls the page. */
+  .ev-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); min-height: 1.5rem; max-inline-size: 48rem; }
+  .ev-path > span { display: inline-flex; align-items: center; min-inline-size: 0; }
+  /* A declared upstream draws a line from the mark before; anything else is a gap. */
+  .ev-path > span.linked::before, .ev-link { content: ''; display: inline-block; inline-size: var(--sp-3); block-size: 2px; margin-inline-start: calc(-1 * var(--sp-3)); background: var(--c-text-3); }
+  .ev-link { margin-inline-start: 0; }
+  .ev-mark { display: inline-flex; align-items: center; gap: var(--sp-1); min-inline-size: 0; min-block-size: 1.5rem; padding: 0 var(--sp-1); border: 0; border-radius: var(--radius-sm); background: none; color: var(--c-text-2); font: inherit; cursor: pointer; }
+  .ev-mark:hover, .ev-mark.open { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+  .ev-env { font-size: var(--text-xs); overflow-wrap: anywhere; text-align: start; }
+  .ev-more { font-size: var(--text-xs); }
   .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px);
-    padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; cursor: pointer; box-sizing: border-box; }
-  .ev-key .ev-dot { width: 12px; height: 12px; cursor: default; }
+    padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; box-sizing: border-box; }
   .s-verified { background: var(--c-ok); }
   .s-waiting { background: var(--c-warn); }
   .s-failed { background: var(--c-err); border-radius: 2px; transform: rotate(45deg) scale(0.85); }
@@ -457,12 +431,9 @@
   .s-autohold { background: var(--c-info); border-radius: 2px; }
   .s-unverified { border-color: var(--c-text-3); }
   .s-empty { border: 2px dashed var(--c-text-3); }
-  .s-none { cursor: default; border: none; border-radius: 0; background: linear-gradient(var(--c-border), var(--c-border)) center / 70% 2px no-repeat; }
-  button.ev-dot:hover, button.ev-dot.open { outline: 2px solid var(--c-accent); outline-offset: 1px; }
   .ev-sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-height: 1.5rem; }
-  /* Rows line up on their first line: the name, the dots and the first chips share one 1.5rem line, however far the chips wrap. */
+  /* Rows line up on their first line: the name, the path and the first chips share one 1.5rem line, however far they wrap. */
   .ev-strip tbody th { line-height: 1.5rem; }
-  .ev-strip .ev-dots { min-height: 1.5rem; align-items: center; }
   .ev-strip thead th { vertical-align: bottom; }
   .ev-detail { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 40rem; }
   .ev-detail .ev-ready { display: block; overflow: visible; }
@@ -481,10 +452,6 @@
     .ev-board .ev-table { min-width: 0 !important; }
     .ev-board-fit { width: auto; }
     .ev-board .ev-table tbody th { position: static; }
-    /* A phone stacks the rows into cards with no header to line up with: the dots wrap at a size a finger can hit. */
-    .ev-dots, .ev-group { flex-wrap: wrap; max-width: 100%; }
-    .ev-group-head, .ev-env { display: none; }
-    .ev-dots { --ev-d: 14px; --ev-g: 6px; --ev-gg: 12px; }
   }
   .ev-table th a, .ev-version { color: var(--c-accent); }
   .ev-cell { display: flex; flex-direction: column; gap: var(--sp-1); }
