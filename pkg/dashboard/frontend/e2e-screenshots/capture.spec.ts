@@ -63,6 +63,10 @@ for (const theme of ['light', 'dark'] as const) {
         const dismiss = page.getByRole('button', { name: 'Dismiss this notice' });
         if (await dismiss.isVisible()) await dismiss.click();
         await s.open(page);
+        // Chromium on macOS draws the page scrollbar, and so its stable gutter, only while the
+        // system shows scrollbars (a mouse attached, or the setting), so the page width would
+        // follow the machine. With no scrollbar the shot uses the full 1600px everywhere.
+        await page.addStyleTag({ content: 'html { scrollbar-gutter: auto; scrollbar-width: none; } ::-webkit-scrollbar { display: none; }' });
         await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
         await loaded(page);
         await finish(page);
