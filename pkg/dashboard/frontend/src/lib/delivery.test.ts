@@ -119,6 +119,11 @@ describe('delivery routes', () => {
     expect(parseHash(deliveryEnvironmentsUrl({ service: 'pay', domain: 'ghcr.io/a' })).params).toEqual({ service: 'pay', domain: 'ghcr.io/a' });
     expect(parseHash(deliveryHistoryUrl({ service: 'pay' })).params).toEqual({ service: 'pay' });
     expect(parseHash('#/delivery/history?domain=ghcr.io%2Fa').params).toEqual({});
+    // A figure's links carry the Autonomy level and the folded station's except.
+    expect(parseHash(deliveryAutonomyUrl({ level: 'advise' })).params).toEqual({ level: 'advise' });
+    const except = exceptParam(['prod', 'a,b']);
+    expect(parseHash(deliveryEnvironmentsUrl({ except })).params).toEqual({ except });
+    expect(parseHash(deliveryInboxUrl({ except })).params).toEqual({ except });
   });
 });
 
