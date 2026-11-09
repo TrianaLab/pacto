@@ -22,7 +22,7 @@
       <span class="rl-l">
         <b><bdi>{s.label}</bdi></b>
         <span class="t-meta">{s.sub}</span>
-        {#if s.here}<span class="badge {BADGE[token?.tone ?? 'accent']} here">{s.here}</span>{/if}
+        {#if s.here}<span class="badge wrap {BADGE[token?.tone ?? 'accent']} here">{s.here}</span>{/if}
       </span>
     </li>
   {/each}

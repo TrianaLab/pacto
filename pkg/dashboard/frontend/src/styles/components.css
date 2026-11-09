@@ -70,6 +70,13 @@
   min-width: max-content;
 }
 .badge.wrap { white-space: normal; overflow-wrap: break-word; min-width: 0; }
+/* In a table cell a free-text badge wraps inside its column: a fixed-layout table
+   cannot widen a column for it, and at max-content it painted over the next one.
+   A status badge is a short fixed word and keeps its line. `break-word`, NOT
+   `anywhere`: once a word exceeds the column the two break alike, but `anywhere`
+   lets the word stop counting toward min-content, so an auto table layout could
+   squeeze the column to one character ("incompatibl"/"e"). */
+td .badge:not(.status-badge), td .pill { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: break-word; }
 
 /* The grey hatch (unknown, partial, hidden) on any HTML mark, with its solid edge. */
 .hatch {

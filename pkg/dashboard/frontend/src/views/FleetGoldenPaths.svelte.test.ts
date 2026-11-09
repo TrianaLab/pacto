@@ -48,6 +48,11 @@ describe('FleetGoldenPathsView', () => {
     expect(target.querySelector('h1')?.textContent).toBe('Golden paths');
     const rows = target.querySelectorAll('[data-testid="golden-path-list"] tbody tr');
     expect(rows[0].textContent).toContain('http-service');
+    // The label takes the ellipsis, with its whole name in its title: an ellipsis on a
+    // box around the inline-flex link hid the whole link in a narrow name column.
+    const name = rows[0].querySelector('th .gp-name') as HTMLElement;
+    expect(name.closest('.cell-clip')).toBeNull();
+    expect(name.querySelector('.ei-label')?.getAttribute('title')).toBe('http-service');
     expect(rows[0].textContent).toContain('An HTTP API on the platform runtime');
     expect(rows[0].textContent).toContain('platform');
     expect(rows[0].textContent).toContain('ghcr.io/acme');

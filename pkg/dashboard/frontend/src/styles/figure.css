@@ -179,7 +179,8 @@ a.lane-count:hover b, .lane-more:hover { text-decoration: underline; }
 .rl-l { display: grid; gap: 2px; justify-items: center; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .rl-l .t-meta { overflow-wrap: anywhere; }
 .rl-off > .nd { opacity: 0.75; }
-.badge.here { font-weight: 600; white-space: normal; }
+/* A sentence ("<version> is here"): .badge.wrap (C10), so a long version wraps inside its station. */
+.badge.here { font-weight: 600; }
 .fig[data-w="col"] .rail { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 .fig[data-w="col"] .rl-st { grid-template-columns: 48px 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; gap: var(--sp-3); }
 .fig[data-w="col"] .rail:not(.has-tok) .rl-st { grid-template-columns: 40px minmax(0, 1fr); }

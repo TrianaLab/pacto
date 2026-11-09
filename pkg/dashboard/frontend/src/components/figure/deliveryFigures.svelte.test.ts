@@ -50,6 +50,8 @@ describe('ChangeFigure', () => {
     expect(a.target.querySelectorAll('.tok')).toHaveLength(1);
     expect(a.target.querySelector('[data-tok="4"] .tok.t-warn')).toBeTruthy();
     expect(a.target.querySelector('.badge.here')?.textContent).toBe('2.0.1 is here');
+    // A sentence badge wraps inside its station (C10): never forced to its one-line width.
+    expect(a.target.querySelector('.badge.here')?.classList.contains('wrap')).toBe(true);
     expect(a.target.querySelectorAll('.rl-off')).toHaveLength(2);
     expect(a.target.querySelector('figure svg text')).toBeNull();
     expect(a.target.querySelector('figcaption')?.textContent).toContain('“2.0.1 is here”');

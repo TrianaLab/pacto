@@ -137,7 +137,7 @@
             {@const source = ref.secondary || ref.domain || ''}
             <tr>
               <th scope="row">
-                <span class="cell-clip" title={ref.key}><EntityLink {ref} showStatus={false} showKind={false} /></span>
+                <span class="gp-name"><EntityLink {ref} showStatus={false} showKind={false} /></span>
                 {#if source}<span class="cell-clip t-meta" title={source}>{source}</span>{/if}
               </th>
               <td data-label="Summary">{ref.summary || ''}</td>
@@ -161,6 +161,12 @@
 </div>
 
 <style>
+  /* The name column is what the fixed columns leave, so it can be narrow: the label
+     itself takes the ellipsis (its title holds the whole name). An ellipsis on a box
+     around the inline-flex link hid the whole link or cut it with no ellipsis. */
+  .gp-name { display: flex; min-width: 0; }
+  .gp-name :global(.entity-link), .gp-name :global(.entity-link .entity-identity) { min-width: 0; max-width: 100%; flex-wrap: nowrap; }
+  .gp-name :global(.entity-identity .ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gp-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .gp-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
   .gp-search .input { flex: 1; }

@@ -838,6 +838,16 @@ describe('responsive by construction', () => {
     expect(decls.length).toBeGreaterThan(200);
   });
 
+  it('lets a free-text badge wrap inside a table cell, over the one-line rule for badges elsewhere', () => {
+    // A fixed-layout column cannot widen for a badge: at max-content it paints over the
+    // next column. The cell rule must outrank `.badge:not(.wrap)` (0,2,0).
+    const css = readFileSync(join(SRC, 'styles/components.css'), 'utf8');
+    const rule = css.match(/td \.badge:not\(\.status-badge\)[^{]*\{([^}]*)\}/);
+    expect(rule?.[1]).toMatch(/white-space: normal/);
+    expect(rule?.[1]).toMatch(/min-width: 0/);
+    expect(rule?.[1]).toMatch(/max-width: 100%/);
+  });
+
   it('sizes no box in a page from the viewport: beside the sidebar the viewport is wider than the page', () => {
     // Overlays (dialogs, popovers) live in components and may; a view's in-flow box
     // sizes from its container (cqi or %), as the propose panel on the board does.
