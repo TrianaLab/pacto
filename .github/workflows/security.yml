@@ -30,22 +30,6 @@ on:
 permissions:
   contents: read
 
-# The ONE accepted govulncheck advisory, read by the gate and the PR summary.
-# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained and has no fixed
-# version. It reaches Pacto only via sigstore-go/pkg/sign -> rekor/pkg/pki ->
-# rekor/pkg/pki/pgp, and Pacto never parses PGP. The exception is scoped, not
-# module-wide: the gate accepts a trace only when it ends in a package init or in
-# a Read or Error method (an io.Reader or error interface call govulncheck cannot
-# resolve), meaning a receiver type sits between the package and the name. A trace
-# ending anywhere else, such as a direct openpgp call or the package-level
-# packet.Read parser, fails.
-# Removal is enforced, not remembered: the gate fails once govulncheck stops
-# reporting the ID, so the stale exception has to be deleted in that same run.
-# Every other reachable advisory still fails the job.
-# tests/release/govulncheck_exception_test.go pins this to exactly one ID.
-env:
-  IGNORED_VULN: GO-2026-5932
-
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -77,13 +61,13 @@ jobs:
           (cd integrations/kubernetes && govulncheck -format sarif -tags kms ./...) > govulncheck-k8s.sarif
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
       - name: Upload operator module SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: govulncheck-k8s.sarif
           category: govulncheck-k8s
@@ -100,22 +84,8 @@ jobs:
           # are imported-but-unused and must not fail the build. Every
           # govulncheck*.sarif (one per module) is read as one report.
           sarifs=(govulncheck*.sarif)
-          ids=$(jq -rs '[.[].runs[].results[]? | select(.level == "error") | .ruleId] | unique | .[]' "${sarifs[@]}")
-          if ! grep -qxF "$IGNORED_VULN" <<<"$ids"; then
-            echo "::error::$IGNORED_VULN is no longer reported by govulncheck; delete the stale exception (IGNORED_VULN) from security.yml"
-            exit 1
-          fi
-          # The exception covers only traces ending in an init or a Read/Error
-          # interface call. Any other terminal frame is a real call into the
-          # vulnerable package and fails like any other advisory.
-          bad=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId == $ign) | (.codeFlows // []) as $cf | if ($cf | length) == 0 then "(no trace)" else ($cf[].threadFlows[].locations[-1].location.message.text | select(test("/[^/]+\\.(init|[^./]+\\.(Read|Error))$") | not)) end] | unique | .[]' "${sarifs[@]}")
-          if [ -n "$bad" ]; then
-            echo "::error::$IGNORED_VULN is reached outside the accepted init and interface traces:"
-            echo "$bad"
-            exit 1
-          fi
-          n=$(jq -s --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' "${sarifs[@]}")
-          echo "govulncheck reachable (error-level) vulnerabilities, excluding $IGNORED_VULN: $n"
+          n=$(jq -s '[.[].runs[].results[]? | select(.level == "error")] | length' "${sarifs[@]}")
+          echo "govulncheck reachable (error-level) vulnerabilities: $n"
           [ "$n" -eq 0 ]
 
   # One leg per shipped image: the CLI image (root Dockerfile) and both images
@@ -169,7 +139,7 @@ jobs:
             "local/scan:${{ github.sha }}"
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: trivy.sarif
           category: ${{ matrix.image == 'cli' && 'trivy-image' || format('trivy-image-{0}', matrix.image) }}
@@ -246,11 +216,11 @@ jobs:
             echo "## 🔒 Security scan"
             echo
             if [ -f "${gvs[0]}" ]; then
-              n=$(jq -s --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' "${gvs[@]}")
+              n=$(jq -s '[.[].runs[].results[]? | select(.level == "error")] | length' "${gvs[@]}")
               if [ "$n" -eq 0 ]; then
-                echo "- **govulncheck (Go, both modules):** ✅ no reachable vulnerabilities (accepted exception: $IGNORED_VULN)"
+                echo "- **govulncheck (Go, both modules):** ✅ no reachable vulnerabilities"
               else
-                ids=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign) | .ruleId] | unique | join(", ")' "${gvs[@]}")
+                ids=$(jq -rs '[.[].runs[].results[]? | select(.level == "error") | .ruleId] | unique | join(", ")' "${gvs[@]}")
                 echo "- **govulncheck (Go, both modules):** ❌ $n reachable — $ids"
               fi
             else
