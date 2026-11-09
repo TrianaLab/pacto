@@ -31,7 +31,7 @@ export const KINDS: { key: Kind; tone: FigTone; glyph: GlyphName; word: string }
  */
 export const MAX_STATIONS = 7;
 
-export interface InboxStation {
+interface InboxStation {
   key: string;
   label: string;
   /** The environment this station filters the lists to; '' when no filter lists it. */

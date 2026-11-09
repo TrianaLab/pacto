@@ -32,7 +32,7 @@ export function classificationLabel(c: string | undefined | null): string {
 }
 
 /** The release gate `pacto impact` exits on: blocked (1), unverified (2), clear (0). */
-export const IMPACT_GATE: Record<string, { cls: string; label: string; tone: FigTone; stamp: string; glyph: GlyphName; says: string }> = {
+const IMPACT_GATE: Record<string, { cls: string; label: string; tone: FigTone; stamp: string; glyph: GlyphName; says: string }> = {
   blocked: { cls: 'badge-err', label: 'Blocked', tone: 'err', stamp: 'Blocked', glyph: 'err', says: 'The release gate blocks it' },
   unverified: { cls: 'badge-warn', label: 'Unverified', tone: 'warn', stamp: 'Needs a person', glyph: 'held', says: 'The release gate waits for a person' },
   clear: { cls: 'badge-ok', label: 'Clear', tone: 'ok', stamp: 'Clears', glyph: 'ok', says: 'The release gate lets it through' },
@@ -40,7 +40,7 @@ export const IMPACT_GATE: Record<string, { cls: string; label: string; tone: Fig
 const CLASS_TONE: Record<string, FigTone> = { BREAKING: 'err', POTENTIAL_BREAKING: 'warn', NON_BREAKING: 'ok' };
 const GLYPH: Record<Outcome, GlyphName> = { incompatible: 'err', unknown: 'unknown', compatible: 'ok', unclassified: 'none' };
 
-export interface LaneChip { key: string; label: string; href: string; ring: boolean }
+interface LaneChip { key: string; label: string; href: string; ring: boolean }
 export interface ImpactLane {
   key: Outcome | 'hidden';
   label: string;

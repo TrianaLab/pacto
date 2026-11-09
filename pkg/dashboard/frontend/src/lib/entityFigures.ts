@@ -12,7 +12,7 @@ import { countOf, formatCount } from './format.ts';
 
 type Ref = { key?: string; label?: string; href?: string };
 
-export interface RailStation {
+interface RailStation {
   key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph?: GlyphName | ''; reached: boolean;
 }
 
@@ -65,7 +65,7 @@ export function validationModel(stages: Stage[]) {
 
 // ── Revisions as a Stack ───────────────────────────────────────────────────────────
 
-export interface StackRow { a: string; ref: Ref | null; label: string; note: string; dash?: boolean; current?: boolean }
+interface StackRow { a: string; ref: Ref | null; label: string; note: string; dash?: boolean; current?: boolean }
 
 /** Wires from each layer's right corner to its row, and from the plinth to its row. */
 const rowWires = (rows: { a: string; dash?: boolean }[]): WireDef[] => rows.map((r) => ({
@@ -123,7 +123,7 @@ export function revisionStackModel(self: Ref & { version?: string }, prev: Ref |
 // ── Target: where it runs, and on what link ────────────────────────────────────────
 
 /** SPEC 2.1: an exact match is observed, an inferred one projected, an ambiguous one dotted, none missing. */
-export const LINK_WIRE: Record<string, WireStyle> = { exact: 'obs', inferred: 'proj', ambiguous: 'stale', unresolved: 'broken' };
+const LINK_WIRE: Record<string, WireStyle> = { exact: 'obs', inferred: 'proj', ambiguous: 'stale', unresolved: 'broken' };
 const LINK_WORDS: Record<string, string> = {
   exact: 'Its digest matches this revision: the link is observed.',
   inferred: 'Matched by name and version only: the link is inferred.',
@@ -188,7 +188,7 @@ export function evidenceModel(sources: { total?: number; items?: (Ref & { status
 
 export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; failed?: number; deleting?: number; unknown?: number }
 
-export interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
+interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
 
 const PHASES: [keyof PhaseTally, string, string, FigTone, GlyphName | '', boolean?][] = [
   ['requested', 'Requested', 'asked for, not started', 'info', 'progress'],

@@ -35,7 +35,7 @@ export function knowsModel() {
  * The three dependency-edge styles the graph canvas draws (lib/graph.ts), labelled as its
  * legend labels them. The canvas has no stale or missing edge, so neither appears here.
  */
-export const EDGE_STYLES: { style: WireStyle; label: string; sub: string }[] = [
+const EDGE_STYLES: { style: WireStyle; label: string; sub: string }[] = [
   { style: 'obs', label: 'Observed', sub: 'a target reported the call' },
   { style: 'proj', label: 'Expected, not observed', sub: 'the contract declares it; nothing reported it yet' },
   { style: 'stale', label: 'Insufficient evidence', sub: 'declared, with nothing to check it against' },

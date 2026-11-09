@@ -66,7 +66,7 @@ export const CHIP_CAP: Record<WidthClass, number> = { wide: 4, mid: 2, narrow: 0
 
 /** C8a: a chip elided to share a lane's room keeps at least 8rem; a lone first chip 90px. */
 export const CHIP_FLOOR = 128;
-export const FIRST_CHIP_FLOOR = 90;
+const FIRST_CHIP_FLOOR = 90;
 
 /**
  * planChips decides how many of a lane's chips to name and how wide each may be (C8a):
@@ -216,7 +216,7 @@ export const KIND_GLYPH = {
   environment: 'M3 18 H21 M5 18 V10 L12 6 L19 10 V18 M10 18 V13 H14 V18',
   snapshot: 'M4 8 H20 V19 H4 Z M9 8 L10.5 5 H13.5 L15 8 M12 16.5 A3 3 0 1 0 12 10.5 A3 3 0 1 0 12 16.5 Z',
 } as const;
-export type KindGlyph = keyof typeof KIND_GLYPH;
+type KindGlyph = keyof typeof KIND_GLYPH;
 
 /** sharePct prints a share of a total: "<1%" for a non-zero share under 1%, never "0%". */
 export function sharePct(n: number, total: number): string {

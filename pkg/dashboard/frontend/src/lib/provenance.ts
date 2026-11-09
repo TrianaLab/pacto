@@ -4,7 +4,7 @@
  */
 import { countOf, formatCount } from './format.ts';
 
-export interface SourceTally { total?: number; available?: number; partial?: number; stale?: number; unavailable?: number }
+interface SourceTally { total?: number; available?: number; partial?: number; stale?: number; unavailable?: number }
 
 export interface MetaLike { asOf?: string; completeness?: string; sourceCounts?: SourceTally | null; limitations?: { code?: string }[] | null }
 

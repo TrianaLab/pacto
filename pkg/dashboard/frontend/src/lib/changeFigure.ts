@@ -13,7 +13,7 @@ import { AUTONOMY_TYPE, changeSummary, levelLabel, versionLabel } from './delive
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step, TokenWalk } from './narrate.ts';
 
-export interface ChangeStation {
+interface ChangeStation {
   key: string;
   label: string;
   sub: string;

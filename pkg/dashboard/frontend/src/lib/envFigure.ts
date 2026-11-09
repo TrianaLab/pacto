@@ -47,7 +47,7 @@ export function rowState(r: Row): (typeof ENV_STATES)[number] {
 /** Stations per fleet figure: 7 and their 6 arrows stay under 20 marks (S2); the eighth is "N more". */
 export const MAX_ENV_STATIONS = 7;
 
-export interface EnvStation {
+interface EnvStation {
   key: string;
   label: string;
   /** The environment its counts filter the board to; '' for the folded station. */
@@ -105,7 +105,7 @@ export function fleetEnvModel(byEnv: Counts[]) {
  * from a shown feeder and, for an entry, a source marker and its wire. Stages join in
  * topological order until the next one would pass 20 marks (S2).
  */
-export const MAX_STAGES = 8;
+const MAX_STAGES = 8;
 
 export interface PromoSource {
   kind: 'artifact' | 'records' | 'stage' | 'unknown';
@@ -113,7 +113,7 @@ export interface PromoSource {
   sub: string;
 }
 
-export interface PromoStation {
+interface PromoStation {
   key: string;
   env: string;
   stage: string;

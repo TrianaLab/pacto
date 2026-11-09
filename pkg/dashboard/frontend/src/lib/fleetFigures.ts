@@ -13,9 +13,10 @@ import { sharePct } from './figure.ts';
 // ─── PostureColumn ────────────────────────────────────────────────────────────
 
 /** Column height for a whole population, the floor of a non-empty stratum and the gap between strata. */
-export const POSTURE_H = 150, POSTURE_FLOOR = 5, POSTURE_GAP = 2, POSTURE_W = 44;
+const POSTURE_H = 150, POSTURE_GAP = 2;
+export const POSTURE_FLOOR = 5, POSTURE_W = 44;
 
-export interface PostureStratum { i: number; y: number; h: number; tone: Segment['tone']; hatch: boolean }
+interface PostureStratum { i: number; y: number; h: number; tone: Segment['tone']; hatch: boolean }
 
 /**
  * postureColumn stacks the strata worst on top (the segments arrive in the canonical
@@ -40,7 +41,7 @@ export function postureColumn(segments: Segment[], total: number) {
 
 // ─── Rank figure (Owners, Domains) ───────────────────────────────────────────
 
-export interface RankLane {
+interface RankLane {
   key: string;
   label: string;
   /** The label is an identity: isolated, elided in its middle and titled (C6). */
@@ -204,7 +205,7 @@ export interface NamedSource { key: string; label: string; href?: string; second
 /** At most this many rows, named sources and tallies together (S2). */
 export const SOURCE_ROWS = 8;
 /** Named non-current sources, at most (S2 r5). */
-export const SOURCE_NAMED = 5;
+const SOURCE_NAMED = 5;
 
 const stateOf = (status: string | undefined): SourceState =>
   status === 'unavailable' || status === 'stale' || status === 'partial' ? status : 'available';

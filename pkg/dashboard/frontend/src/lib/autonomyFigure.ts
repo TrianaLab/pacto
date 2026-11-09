@@ -13,7 +13,7 @@ type Level = NonNullable<DeliveryAutonomy['byLevel']>[number];
 
 /** What happens to one change on each level, in one sentence. */
 /** The fleet default: a Stage with no spec.startLevel starts on observe (delivery.CurrentLevel). */
-export const DEFAULT_LEVEL = 'observe';
+const DEFAULT_LEVEL = 'observe';
 
 const SAYS: Record<string, string> = {
   observe: 'GitOps promotes every change; Pacto plans it and moves nothing.',

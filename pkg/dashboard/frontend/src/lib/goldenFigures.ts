@@ -26,7 +26,7 @@ export interface OriginHrefs {
   paths: string;
 }
 
-export interface OriginLane {
+interface OriginLane {
   key: string;
   label: string;
   ident: boolean;
