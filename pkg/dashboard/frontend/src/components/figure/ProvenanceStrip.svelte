@@ -19,6 +19,7 @@
     <Glyph kind="source" />
     <span>From <a href={fleetSourcesUrl()}>{countOf(p.sources, 'source')}</a>{#if p.asOf}, as of {formatDate(p.asOf)}{/if}.</span>
     <span class="badge wrap" class:t-unk={p.partial}>{p.text}</span>
+    {#if p.hidden}<span data-testid="provenance-hidden">Some services are hidden by your access and are not counted here.</span>{/if}
   </span>
 {/if}
 

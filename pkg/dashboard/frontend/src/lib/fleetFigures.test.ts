@@ -44,7 +44,7 @@ describe('rankModel', () => {
     expect(m.lanes[4]).toMatchObject({ hatch: true, href: '#/s?g=' });
     expect(m.lanes[0].note?.text).toBe('7% of their 297 services');
     // The highest rate among groups large enough to say anything.
-    expect(m.rate).toEqual({ label: 'b', text: '75% of 12 services', scope: '4 owners' });
+    expect(m.rate).toEqual({ label: 'b', text: '75% of 12 services', scope: '4 owners', one: false });
     expect(m.wires).toHaveLength(5);
   });
   it('ranks domains with their own tails', () => {
@@ -165,11 +165,13 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
 
 describe('provenance', () => {
   it('says how complete the snapshot is, never complete when it is not', () => {
-    expect(provenance({ asOf: 't', sourceCounts: { total: 50, available: 47, unavailable: 2, stale: 1 } })).toEqual({ asOf: 't', sources: 50, partial: true, text: 'Partial: 2 of 50 sources unavailable, 1 stale' });
+    expect(provenance({ asOf: 't', sourceCounts: { total: 50, available: 47, unavailable: 2, stale: 1 } })).toEqual({ asOf: 't', sources: 50, partial: true, text: 'Partial: 2 of 50 sources unavailable, 1 stale', hidden: false });
     expect(provenance({ sourceCounts: { total: 1, available: 1 } }).text).toBe('Complete: its one source is current');
     expect(provenance({ sourceCounts: { total: 4, available: 4 } }).text).toBe('Complete: all 4 sources are current');
     expect(provenance({ completeness: 'partial', sourceCounts: { total: 4, available: 4 } })).toMatchObject({ partial: true, text: 'Partial: some knowledge is missing' });
-    expect(provenance(null)).toMatchObject({ sources: 0, asOf: '' });
+    expect(provenance(null)).toMatchObject({ sources: 0, asOf: '', hidden: false });
+    // Restricted by the caller's access: said, never counted.
+    expect(provenance({ completeness: 'partial', limitations: [{ code: 'STALE_SOURCE' }, { code: 'HIDDEN_BY_PERMISSIONS' }] }).hidden).toBe(true);
   });
 });
 

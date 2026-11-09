@@ -38,7 +38,7 @@
     </div>
   {/snippet}
   {#snippet caption()}
-    Ranked by count, so large {m.word}s rank high.{#if m.rate}{' '}Among the {m.rate.scope} with the most non-compliant services, the highest rate in {m.word === 'owner' ? 'an' : 'a'} {m.word} of at least {RATE_MIN_SERVICES} services is <bdi>{m.rate.label}</bdi>: {m.rate.text}. Sort the table by Rate to compare every {m.word}.{/if}
+    Ranked by count, so large {m.word}s rank high.{#if m.rate?.one}{' '}The {m.word} with the most non-compliant services, <bdi>{m.rate.label}</bdi>, has {m.rate.text} non-compliant.{:else if m.rate}{' '}Among the {m.rate.scope} with the most non-compliant services, the highest rate in {m.word === 'owner' ? 'an' : 'a'} {m.word} of at least {RATE_MIN_SERVICES} services is <bdi>{m.rate.label}</bdi>: {m.rate.text}.{/if}{#if m.rate}{' '}Sort the table by Rate to compare every {m.word}.{/if}
     <ProvenanceStrip {meta} />
   {/snippet}
 </Figure>

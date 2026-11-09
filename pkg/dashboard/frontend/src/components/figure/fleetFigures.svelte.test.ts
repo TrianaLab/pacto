@@ -48,7 +48,7 @@ describe('RankFigure', () => {
     expect(t.querySelector('.lane .mbar i')?.classList.contains('t-err')).toBe(true);
     expect(Array.from(t.querySelectorAll('.lane-more')).map((a) => a.getAttribute('href'))).toEqual(['#/s?o=team:a', '#/s?o=']);
     expect(t.querySelector('a.lane-note')?.getAttribute('href')).toBe('#/owners?sort=nonCompliant');
-    expect(t.querySelector('figcaption')?.textContent).toContain('Among the 1 owner with the most non-compliant services, the highest rate in an owner of at least 10 services is a: 30% of 20 services. Sort the table by Rate to compare every owner.');
+    expect(t.querySelector('figcaption')?.textContent).toContain('The owner with the most non-compliant services, a, has 30% of 20 services non-compliant. Sort the table by Rate to compare every owner.');
   });
 });
 

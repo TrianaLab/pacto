@@ -96,7 +96,7 @@ export function rankModel(kind: 'owner' | 'domain', agg: RankAggregate | null | 
     groups = agg?.nonCompliantOwners ?? rows.length;
     // An empty bucket keeps its place and shows 0 (SPEC 2.2).
     const none = agg?.nonCompliantUnidentified ?? 0;
-    tails.push({ key: '-none', label: 'No identified owner', ident: false, n: none, hatch: true, glyph: 'unknown', href: hrefs.services(''), note: none ? { text: 'Nobody is accountable for these yet' } : null });
+    tails.push({ key: '-none', label: 'No identified owner', ident: false, n: none, hatch: true, glyph: 'unknown', href: hrefs.services(''), note: none ? { text: 'No single owner: none declared, revisions that disagree or contacts only' } : null });
   } else {
     rows = (agg?.nonCompliantByDomain ?? []).map((d) => ({ key: d.domain, label: d.domain, n: d.nonCompliant, size: d.services }));
     groups = agg?.nonCompliantDomains ?? rows.length;
@@ -120,7 +120,7 @@ export function rankModel(kind: 'owner' | 'domain', agg: RankAggregate | null | 
   const rated = rows.filter((r) => r.size >= RATE_MIN_SERVICES).sort((a, b) => b.n / b.size - a.n / a.size || a.label.localeCompare(b.label))[0];
   // ponytail: the rate is scoped to the ranked rows the backend sends (top by count), and
   // the caption says so; a backend rate ranking would let it name the fleet-wide highest.
-  const rate = rated ? { label: rated.label, text: `${sharePct(rated.n, rated.size)} of ${countOf(rated.size, 'service')}`, scope: countOf(rows.length, word) } : null;
+  const rate = rated ? { label: rated.label, text: `${sharePct(rated.n, rated.size)} of ${countOf(rated.size, 'service')}`, scope: countOf(rows.length, word), one: rows.length === 1 } : null;
   const wires: WireDef[] = lanes.map((l, k) => ({ id: `wr${k}`, from: 'hub', to: `ln-${k}`, style: 'obs', tone: 'neutral', col: { from: 'hub-n', fs: 'b', ts: 'l' } }));
   const alt = `${countOf(total, 'non-compliant service')} of ${formatCount(services)}: ${lanes.map((l) => `${l.label} ${formatCount(l.n)}`).join(', ')}.`;
   return { total, services, lanes, rate, wires, alt, word };
