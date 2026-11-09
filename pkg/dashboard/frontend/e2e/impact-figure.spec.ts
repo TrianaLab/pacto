@@ -160,8 +160,16 @@ for (const theme of ['dark', 'light'] as const) {
     // C8a and G3 (r5): on the G1 scale fixture (1,284 consumers, names up to 200
     // characters) the flagship at 1280 names at least 4 consumers, every lane with
     // highlights names one, and each "N more" counts what its lane does not name.
-    test('names at least 4 consumers at 1280 on the scale fixture', async ({ page }) => {
+    // Verdana (DejaVu on CI) is wider than the default font, so both are checked.
+    for (const font of ['default', 'Verdana']) test(`names at least 4 consumers at 1280 on the scale fixture (${font} font)`, async ({ page }) => {
       await page.addInitScript(installScaleFixture);
+      if (font === 'Verdana') {
+        await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+          const s = document.createElement('style');
+          s.textContent = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}';
+          document.head.append(s);
+        }));
+      }
       await analyse(page);
       await page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).forEach((a) => a.finish()));
       await settle(page);
