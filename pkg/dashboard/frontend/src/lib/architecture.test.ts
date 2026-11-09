@@ -286,8 +286,8 @@ describe('product design system', () => {
     // and '--ease-' a typo'd var(--dur-2s) would be treated as component-owned and
     // never checked, which is exactly how a motion value gets re-invented.
     '--dur-', '--ease-', '--motion-', '--stagger-',
-    // Figures and their narration (SPEC 3.1).
-    '--fig-', '--narrate-',
+    // Figures (SPEC 3.1).
+    '--fig-',
   ];
   const isGlobalToken = (t: string) => GLOBAL_TOKEN_FAMILIES.some((p) => t.startsWith(p));
 
@@ -317,6 +317,14 @@ describe('product design system', () => {
       }
     }
     expect(offenders, `undeclared global design token:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  it('declares no global design token that nothing reads', () => {
+    // A token nothing references is a value a reader would trust and nobody renders.
+    const read = new Set(STYLED.flatMap((f) => [...references(f.body)]));
+    const code = files.filter((f) => !f.rel.endsWith('.svelte')).map((f) => f.body).join('\n');
+    const unread = [...DECLARED].filter((t) => isGlobalToken(t) && !read.has(t) && !code.includes(`'${t}'`));
+    expect(unread, `global design tokens nothing reads:\n  ${unread.join('\n  ')}`).toEqual([]);
   });
 
   it('scopes the token rule to the shared vocabulary, not to component-local variables', () => {

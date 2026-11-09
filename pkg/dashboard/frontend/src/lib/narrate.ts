@@ -10,7 +10,7 @@
  */
 import { dur, prefersReducedMotion } from './motion.ts';
 
-/** --narrate-step, --narrate-hold and --narrate-max in styles/tokens.css, mirrored. */
+/** Narration timing: each step's length, the hold between steps, the cap on the whole story and the step counts. */
 export const NARRATE = { step: 240, hold: 120, max: 1200, steps: 5, walkSteps: 8 } as const;
 
 export interface Step {

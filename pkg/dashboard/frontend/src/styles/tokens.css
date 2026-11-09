@@ -184,9 +184,6 @@
   --motion-feedback: var(--dur-1) var(--ease-in-place);
   --motion-flip:     var(--dur-2) var(--ease-in-place);
   --motion-reveal:   var(--dur-3) var(--ease-arrive);
-  /* The travel of an err entrance (the isometric impact's consumer rise): transform
-     only, so contrast never dips mid-flight. Reduced motion zeroes it. */
-  --motion-rise: 6px;
 
   /* What a control is allowed to transition. Eight of the most-clicked controls in the
      product said `transition: all`, which animates every property a rule declares now AND
@@ -240,10 +237,6 @@
   --motion-alarm-period: 1.2s;
   --motion-alarm-count: 3;
 
-  /* Isometric identity: the landing hero's plane, as dashboard tokens. Slab faces and
-     sides (the side is tinted toward a tone with color-mix), the shadow under a lifted
-     drawing, and the faint 2:1 grid with its accent glow. Decorative only: no text
-     sits on --c-iso-side or --c-iso-grid. */
   /* The grey hatch: unknown, partial and hidden, and nothing else. A pattern, so it
      never reads as the flat grey of a benign neutral bucket; the element that wears it
      also draws a solid 1px --c-neutral edge, which carries the contrast. */
@@ -251,10 +244,10 @@
   /* Frost: frozen, and nothing else (SPEC 2.2 r4). Small diamonds on the info tone, so
      it never reads as the unknown hatch; its wearer also draws a solid info edge. */
   --c-frost: repeating-linear-gradient(45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px);
+  /* Isometric identity: the landing hero's plane, as dashboard tokens. The slab face,
+     and the faint 2:1 grid with its accent glow. Decorative only: no text sits on
+     --c-iso-grid. */
   --c-iso-face: #141b2d;
-  --c-iso-side: #1b2340;
-  --c-iso-side-2: #121933;
-  --c-iso-shadow: rgba(0, 0, 0, 0.55);
   --c-iso-grid: rgba(129, 140, 248, 0.09);
   --c-iso-glow: rgba(129, 140, 248, 0.14);
   /* Toned slab sides mix the tone into a NEUTRAL side, not the lavender iso side, so
@@ -262,27 +255,17 @@
   --c-fig-side: #182033;
   --c-fig-side-2: #10162a;
 
-  /* Figures (SPEC 3.1): explanatory drawings. Marks only; words are HTML. One stroke,
-     one node and one lane height for every figure, so two drawings read as one
-     language. */
+  /* Figures (SPEC 3.1): explanatory drawings. Marks only; words are HTML. One stroke
+     and one lane height for every figure, so two drawings read as one language. */
   --fig-line: color-mix(in srgb, var(--c-text-3) 55%, transparent);
   --fig-line-strong: var(--c-text-3);
   --fig-tone-mix-top: 6%;
   --fig-tone-mix-side: 24%;
   --fig-tone-mix-side-2: 36%;
   --fig-stroke: 1.25px;
-  --fig-node: 14px;
   --fig-lane-h: 2.5rem;
-  --fig-signal-len: 18px;
   --fig-glyph-sm: 20px;
   --fig-glyph-md: 32px;
-  --fig-label-col-min: 9rem;
-  /* Narration (SPEC 6): a finite retelling inside one figure. Each step is at most
-     --dur-3, steps are --narrate-hold apart, and the whole story is at most
-     --narrate-max. lib/narrate.ts mirrors these and asserts the cap. */
-  --narrate-step: 240ms;
-  --narrate-hold: 120ms;
-  --narrate-max: 1200ms;
 
   /* Layout */
   --navbar-h: 56px;
@@ -338,9 +321,6 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   /* The hero's default (light) isometric plane. */
   --c-iso-face: #ffffff;
-  --c-iso-side: #e0e4fb;
-  --c-iso-side-2: #c7cdf6;
-  --c-iso-shadow: rgba(49, 46, 129, 0.22);
   --c-iso-grid: rgba(79, 70, 229, 0.1);
   --c-iso-glow: rgba(79, 70, 229, 0.1);
   --c-fig-side: #eceff4;
@@ -373,6 +353,5 @@
     --stagger-step: 0ms;
     --motion-alarm-period: 0s;
     --motion-alarm-count: 0;
-    --motion-rise: 0px;
   }
 }
