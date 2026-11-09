@@ -20,6 +20,14 @@ browser keeps a copy afterwards.
 ![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
 ![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
+The sidebar groups the pages: **Overview** and **Needs attention** first,
+then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
+folds it to a rail of icons, and the dashboard remembers the choice. On a
+phone, **Menu** in the top bar opens the same list.
+
+![The dashboard sidebar: Overview and Needs attention, then the "Organization", "Change and delivery" and "System" groups, with an attention count and a data source health dot](../assets/screenshots/dashboard-sidebar-light.png#only-light)
+![The dashboard sidebar: Overview and Needs attention, then the "Organization", "Change and delivery" and "System" groups, with an attention count and a data source health dot](../assets/screenshots/dashboard-sidebar-dark.png#only-dark)
+
 ## What to look at
 
 - **Fleet overview**: thirty-nine made-up services and who calls whom: the
