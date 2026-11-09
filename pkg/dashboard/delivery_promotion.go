@@ -185,7 +185,7 @@ type Upstream struct {
 	Namespace   string `json:"namespace,omitempty" doc:"kind stage: the upstream Stage's namespace"`
 	Stage       string `json:"stage,omitempty" doc:"kind stage: the upstream Stage's name"`
 	Environment string `json:"environment,omitempty" doc:"kind stage: the upstream Stage's environment, when it could be read"`
-	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows"`
+	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope,unverified" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes"`
 	Stream      string `json:"stream,omitempty" doc:"kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name>"`
 	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name"`
 	Trust       string `json:"trust,omitempty" enum:"trusted,untrusted,unreadable,unknown" doc:"kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet"`
@@ -199,9 +199,9 @@ func recordsTrust(st *delivery.StageObject) string {
 	switch {
 	case i < 0:
 		return "unknown"
-	case st.Status.Conditions[i].Reason == "UpstreamUntrusted":
+	case readyReason(st) == "UpstreamUntrusted":
 		return "untrusted"
-	case st.Status.Conditions[i].Reason == "UpstreamUnreadable":
+	case readyReason(st) == "UpstreamUnreadable":
 		return "unreadable"
 	case st.Status.Conditions[i].Status == "True":
 		return "trusted"
@@ -210,13 +210,27 @@ func recordsTrust(st *delivery.StageObject) string {
 	return "unknown"
 }
 
+// readyReason is the reason of st's Ready condition, empty when it has none.
+func readyReason(st *delivery.StageObject) string {
+	if i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == "Ready" }); i >= 0 {
+		return st.Status.Conditions[i].Reason
+	}
+	return ""
+}
+
 // upstreamOf reads where st's candidates come from; an upstream Stage is
-// read for its environment.
-func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) *Upstream {
+// read for its environment. One outside scope (the dashboard's namespace,
+// empty for every namespace) is never read: it is out of scope, as the board
+// and every other read say.
+func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, scope string) *Upstream {
 	c := st.Spec.Candidates
 	switch {
 	case c.UpstreamStage != nil:
 		u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
+		if scope != "" && u.Namespace != scope {
+			u.Problem = "outOfScope"
+			return u
+		}
 		up, err := api.Stage(ctx, u.Namespace, u.Stage)
 		var de *DeliveryError
 		switch {
@@ -231,7 +245,14 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) 
 	case c.UpstreamRecords != nil:
 		return &Upstream{Kind: "records", Stream: c.UpstreamRecords.Stream, Repository: c.UpstreamRecords.Repository, Trust: recordsTrust(st)}
 	case c.OCIRepositoryRef != nil:
-		return &Upstream{Kind: "artifact", Repository: c.OCIRepositoryRef.Name}
+		u := &Upstream{Kind: "artifact", Repository: c.OCIRepositoryRef.Name}
+		switch readyReason(st) {
+		case "CandidateNotFound":
+			u.Problem = "missing"
+		case "CandidateUnverified":
+			u.Problem = "unverified"
+		}
+		return u
 	}
 	return &Upstream{Kind: "none"}
 }
@@ -244,7 +265,7 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) 
 func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.StageObject, l Listing) *Upstream {
 	c := st.Spec.Candidates
 	if c.UpstreamStage == nil {
-		return upstreamOf(context.Background(), nil, st)
+		return upstreamOf(context.Background(), nil, st, "")
 	}
 	u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
 	switch up := byStage[u.Namespace+"/"+u.Stage]; {

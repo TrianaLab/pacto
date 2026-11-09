@@ -59,7 +59,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
 	if err == nil {
 		out.Body.Level, published = ladderOf(*stage).Level, stage.Status.AuthFreshness
-		out.Body.Upstream, out.Body.Environment = upstreamOf(ctx, api, stage), stage.Spec.Environment
+		out.Body.Upstream, out.Body.Environment = upstreamOf(ctx, api, stage, s.opts.DeliveryNamespace), stage.Spec.Environment
 	} else {
 		stage = nil
 	}

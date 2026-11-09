@@ -4579,10 +4579,10 @@ export interface components {
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
              * @enum {string}
              */
-            problem?: "missing" | "unreadable" | "outOfScope";
+            problem?: "missing" | "unreadable" | "outOfScope" | "unverified";
             /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
             repository?: string;
             /** @description kind stage: the upstream Stage's name */

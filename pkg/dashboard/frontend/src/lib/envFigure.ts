@@ -134,7 +134,11 @@ function sourceOf(n: GNode, fedInGraph: boolean, ownStage = false): PromoSource 
   const u = n.upstream;
   if (fedInGraph) return null;
   switch (u.kind) {
-    case 'artifact': return { kind: 'artifact', label: 'New artifacts', sub: u.repository ? `from ${u.repository}` : 'published to the registry' };
+    case 'artifact':
+      // SPEC 21 r4: an OCIRepository that is gone, or verifies no publisher, feeds nothing.
+      if (u.problem === 'missing') return { kind: 'unknown', label: 'Missing artifacts', sub: `the OCIRepository ${u.repository} does not exist, so the Stage never promotes` };
+      if (u.problem === 'unverified') return { kind: 'unknown', label: 'Unverified artifacts', sub: `the OCIRepository ${u.repository} verifies no publisher's signature, so the Stage never promotes` };
+      return { kind: 'artifact', label: 'New artifacts', sub: u.repository ? `from ${u.repository}` : 'published to the registry' };
     case 'records':
       // SPEC 21 r1: records the promoter does not trust, or cannot verify, feed nothing.
       if (u.trust === 'untrusted') return { kind: 'unknown', label: 'Untrusted records', sub: "the promoter trusts no key for another cluster's records, so the Stage never promotes" };

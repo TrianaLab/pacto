@@ -105,10 +105,13 @@ func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
 	up := stage("test", "pay", "pay", delivery.StageStatus{})
 	up.Spec.Environment = "staging"
 	f := &fakeDelivery{stages: []delivery.StageObject{up}}
-	at := func(c delivery.Candidates) string {
+	at := func(c delivery.Candidates, ready ...string) string {
 		st := stage("prod", "pay", "pay", delivery.StageStatus{})
 		st.Spec.Candidates = c
-		return fmt.Sprintf("%+v", *upstreamOf(context.Background(), f, &st))
+		for _, r := range ready {
+			st.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "False", Reason: r}}
+		}
+		return fmt.Sprintf("%+v", *upstreamOf(context.Background(), f, &st, ""))
 	}
 	cases := map[string]string{
 		at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}}):          "{Kind:stage Namespace:test Stage:pay Environment:staging Problem: Stream: Repository: Trust:}",
@@ -116,6 +119,15 @@ func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
 		at(delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "r/s", Stream: "c/n/s"}}): "{Kind:records Namespace: Stage: Environment: Problem: Stream:c/n/s Repository:r/s Trust:unknown}",
 		at(delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "pay-candidates"}}):               "{Kind:artifact Namespace: Stage: Environment: Problem: Stream: Repository:pay-candidates Trust:}",
 		at(delivery.Candidates{}): "{Kind:none Namespace: Stage: Environment: Problem: Stream: Repository: Trust:}",
+		// SPEC 21 r4: a dead entry is never drawn as a live source.
+		at(delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "gone"}}, "CandidateNotFound"):       "{Kind:artifact Namespace: Stage: Environment: Problem:missing Stream: Repository:gone Trust:}",
+		at(delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "noverify"}}, "CandidateUnverified"): "{Kind:artifact Namespace: Stage: Environment: Problem:unverified Stream: Repository:noverify Trust:}",
+	}
+	// Outside the dashboard's namespace the upstream is never read.
+	scoped := stage("prod", "pay", "pay", delivery.StageStatus{})
+	scoped.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}}
+	if got := *upstreamOf(context.Background(), f, &scoped, "prod"); got.Problem != "outOfScope" || got.Environment != "" {
+		t.Errorf("out of scope: %+v", got)
 	}
 	f.stageErr = errors.New("boom")
 	cases[at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}})] = "{Kind:stage Namespace:test Stage:pay Environment: Problem:unreadable Stream: Repository: Trust:}"

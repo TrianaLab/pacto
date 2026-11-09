@@ -115,6 +115,13 @@ describe('promotionModel', () => {
     expect(m.stations.every((s) => s.state === null)).toBe(true);
   });
 
+  it('draws an OCIRepository that is gone or verifies no publisher as unknown, never as a live source (SPEC 21 rule 4)', () => {
+    const m = promotionModel('svc', { nodes: [node('dev', 0, { ...art, problem: 'missing' }), node('qa', 0, { ...art, problem: 'unverified' })], edges: [] }, []);
+    expect(m.stations.map((s) => [s.source?.kind, s.source?.label])).toEqual([['unknown', 'Missing artifacts'], ['unknown', 'Unverified artifacts']]);
+    expect(m.stations[1].source!.sub).toBe("the OCIRepository svc-candidates verifies no publisher's signature, so the Stage never promotes");
+    expect(m.wires).toEqual([]);
+  });
+
   it('stays within 20 marks however many Stages a service has, and says how many more (S2)', () => {
     for (const n of [1, 8, 40]) {
       const nodes = Array.from({ length: n }, (_, i) => node(`e${i}`, i, i ? { kind: 'stage', namespace: `e${i - 1}`, stage: 'svc' } : art));
