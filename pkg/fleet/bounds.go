@@ -1,6 +1,9 @@
 package fleet
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 // This file holds the hard bounds every product answer applies to snapshot-owned
 // collections carried in the completeness envelope, so ProductMeta never becomes
@@ -60,9 +63,18 @@ func boundSources(ss []SourceState) ([]SourceState, bool) {
 // the impact answer carries the same snapshot-owned slice and must apply the same
 // cap; a second, differently-sized bound in another package is how two answers
 // from one snapshot start disagreeing about how much they left out.
+//
+// HIDDEN_BY_PERMISSIONS is about the whole answer, not one entity, so the cap
+// never drops it: past the cap it takes the last kept place.
 func BoundLimitations(ls []Limitation) ([]Limitation, bool) {
 	if len(ls) <= MaxMetaLimitations {
 		return ls, false
 	}
-	return ls[:MaxMetaLimitations], true
+	kept := ls[:MaxMetaLimitations:MaxMetaLimitations]
+	if i := slices.IndexFunc(ls, isHidden); i >= MaxMetaLimitations {
+		kept = append(slices.Clone(kept[:MaxMetaLimitations-1]), ls[i])
+	}
+	return kept, true
 }
+
+func isHidden(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }

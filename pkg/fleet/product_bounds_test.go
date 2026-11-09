@@ -52,6 +52,15 @@ func TestBoundLimitations_Caps(t *testing.T) {
 	if !trunc || len(capped) != MaxMetaLimitations {
 		t.Errorf("limitations not capped: len=%d trunc=%v", len(capped), trunc)
 	}
+	// The answer-wide hidden-services limitation survives the cap, in the last place.
+	hidden := append(append([]Limitation(nil), many...), Limitation{Code: LimitationHiddenByPermissions})
+	capped, trunc = BoundLimitations(hidden)
+	if !trunc || len(capped) != MaxMetaLimitations || capped[MaxMetaLimitations-1].Code != LimitationHiddenByPermissions {
+		t.Errorf("hidden limitation dropped by the cap: len=%d last=%q", len(capped), capped[len(capped)-1].Code)
+	}
+	if many[MaxMetaLimitations-1].Code != "L" {
+		t.Error("BoundLimitations wrote into its input")
+	}
 }
 
 func TestProductMeta_UnderCapNotTruncated(t *testing.T) {

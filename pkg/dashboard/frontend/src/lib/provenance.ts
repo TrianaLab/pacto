@@ -30,8 +30,7 @@ export function provenance(meta: MetaLike | null | undefined) {
   }
   // Query.Restrict marks the answer with this limitation when the caller's access hides
   // services. It carries no count: hidden services are never counted into a total.
-  // ponytail: read off the bounded limitations list, so it can miss when more than
-  // MaxMetaLimitations codes sort before it; a meta flag would make it exact.
+  // The meta's limitation cap always keeps it (fleet.BoundLimitations).
   const hidden = !!meta?.limitations?.some((l) => l.code === 'HIDDEN_BY_PERMISSIONS');
   return { asOf: meta?.asOf ?? '', sources: n, partial, text, hidden };
 }
