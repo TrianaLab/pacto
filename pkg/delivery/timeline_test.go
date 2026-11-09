@@ -35,7 +35,10 @@ func TestTimeline(t *testing.T) {
 		{Outcome: Failed, Phase: PhaseHeld, Finished: at(1)},
 		{Phase: PhaseHeld, Since: at(0)},
 		{Verification: AcceptedUnknown, Outcome: Succeeded, Pointer: moved, Applied: at(5)},
-		{Outcome: Succeeded, Pointer: moved, Finished: at(5)},
+		{Outcome: Succeeded, Verification: Verified, Pointer: moved, Finished: at(5)},
+		// An override, or a promote a rollback preempted, moved the Stage
+		// unverified: never counted as released.
+		{Outcome: Succeeded, Verification: Unverified, Pointer: moved, Finished: at(5)},
 		{Outcome: Succeeded, Finished: at(5)},
 		{Outcome: Cancelled, Finished: at(30)},
 		{Outcome: Succeeded, Finished: "yesterday"},
@@ -45,7 +48,7 @@ func TestTimeline(t *testing.T) {
 	if tl.Untimed != 2 || len(tl.Buckets) != TimelineBuckets || tl.Start != start.Format(time.RFC3339) || tl.End != end.Format(time.RFC3339) {
 		t.Fatalf("shape: %+v", tl)
 	}
-	if got := fmt.Sprintf("%+v", tl.Totals); got != "{Missing:2 Failed:2 Held:1 AcceptedUnknown:1 Released:1 Other:1}" {
+	if got := fmt.Sprintf("%+v", tl.Totals); got != "{Missing:2 Failed:2 Held:1 AcceptedUnknown:1 Unverified:1 Released:1 Other:1}" {
 		t.Errorf("totals: %s", got)
 	}
 	if sum := sumBuckets(tl.Buckets); sum != tl.Totals {
@@ -63,7 +66,7 @@ func checkSlices(t *testing.T, tl HistoryTimeline, at func(int) string) {
 	if b := tl.Buckets[TimelineBuckets-1]; b.Failed != 2 || b.Held != 1 || b.End != tl.End {
 		t.Errorf("the last slice holds the end: %+v", b)
 	}
-	if b := tl.Buckets[9]; b.Released != 1 || b.AcceptedUnknown != 1 || b.Other != 1 {
+	if b := tl.Buckets[9]; b.Released != 1 || b.Unverified != 1 || b.AcceptedUnknown != 1 || b.Other != 1 {
 		t.Errorf("five hours ago: %+v", b)
 	}
 }
@@ -83,6 +86,7 @@ func sumBuckets(bs []TimelineBucket) TimelineCounts {
 		sum.Failed += b.Failed
 		sum.Held += b.Held
 		sum.AcceptedUnknown += b.AcceptedUnknown
+		sum.Unverified += b.Unverified
 		sum.Released += b.Released
 		sum.Other += b.Other
 	}

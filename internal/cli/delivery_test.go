@@ -208,7 +208,7 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"json", []string{"explain", "-n", "prod", "held"}, false, []string{`"summary"`, `"rerun"`, `"moveFirst"`}},
 		{"text", []string{"explain", "-n", "prod", "missing"}, true, nil},
 		{"text", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{"SEQ", "held", "promote", "Held",
-			"partial: read from the Operation objects", "with the record missing"}},
+			"partial: read from the Operation objects", "released unverified", "with the record missing"}},
 		{"json", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"completeness": "partial"`, `"timeline"`, `"buckets"`}},
 		{"text", []string{"history", "-n", "prod", "--stage", "missing"}, true, nil},
 	})

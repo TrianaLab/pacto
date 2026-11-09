@@ -8,9 +8,9 @@
   import { historyModel, tickLabel, TL_KINDS, TL_HEIGHT } from '../../lib/historyFigure.ts';
   import { formatCount } from '../../lib/format.ts';
 
-  /** @type {{ timeline: import('../../lib/generated/schema.ts').components['schemas']['Delivery.HistoryTimeline'], href: (since: string, until: string) => string, source: 'records' | 'status' | 'cluster', live: boolean, question?: string }} */
-  let { timeline, href, source, live, question = 'What happened in the last 24 hours, and where is the record missing?' } = $props();
-  const m = $derived(historyModel(timeline, { source, live }));
+  /** @type {{ timeline: import('../../lib/generated/schema.ts').components['schemas']['Delivery.HistoryTimeline'], href: (since: string, until: string) => string, source: 'records' | 'status' | 'cluster', live: boolean, question?: string, problems?: number }} */
+  let { timeline, href, source, live, question = 'What happened in the last 24 hours, and where is the record missing?', problems = 0 } = $props();
+  const m = $derived(historyModel(timeline, { source, live, problems }));
 </script>
 
 <Figure id="hist" testid="history-figure" {question} alt={m.alt} compact={true} rowMin={768}>

@@ -1456,7 +1456,7 @@ describe('history and published', () => {
   });
 
   it("opens a timeline column on the changes it counts, timed inside its slice (T3)", async () => {
-    const z = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
+    const z = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, unverified: 0, released: 0, other: 0 };
     const at = (h: number) => `2026-11-08T${String(h).padStart(2, '0')}:00:00Z`;
     const buckets = Array.from({ length: 12 }, (_, i) => ({ start: at(i * 2), end: i === 11 ? '2026-11-09T00:00:00Z' : at(i * 2 + 2), ...z, other: 1 }));
     const timeline = { start: at(0), end: '2026-11-09T00:00:00Z', buckets, totals: { ...z, other: 12 } };
@@ -1469,6 +1469,13 @@ describe('history and published', () => {
     // The window ends now, so its last column stays open at the end.
     expect(cols[11]).toBe('#/delivery/history?namespace=prod&stage=pay&since=2026-11-08T22%3A00%3A00Z&timed=1');
     r.destroy();
+    // A record problem no line stands for keeps the figure from calling the record whole.
+    fns.history.mockResolvedValue({ ...listing, histories: [{ ...h, problems: ['seq 41 concluded with no record'], unreadable: ['sha256:bad: not trusted here'] }] });
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="history-figure"] figcaption') as HTMLElement)).toContain('2 record problems are listed below and drawn in no column');
+    r.destroy();
+    fns.history.mockResolvedValue({ ...listing, histories: [h] });
     r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: at(2), until: at(4), timed: '1' });
     await settle();
     expect(fns.history).toHaveBeenLastCalledWith('prod', 'pay', expect.objectContaining({ since: at(2), until: at(4), timed: true }));

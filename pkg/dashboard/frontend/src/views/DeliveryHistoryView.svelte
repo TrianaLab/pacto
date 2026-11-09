@@ -110,6 +110,8 @@
   // Stages the changes still in the cluster, which cannot see a missing record.
   const timeline = $derived(one ? histories[0]?.timeline : data?.timeline);
   const tlSource = $derived(!one ? 'cluster' : histories[0]?.source === 'records' ? 'records' : 'status');
+  // What one Stage's records lack that no timeline line stands for.
+  const tlProblems = $derived(one && histories[0] ? (histories[0].problemCount ?? histories[0].problems?.length ?? 0) + (histories[0].unreadableCount ?? histories[0].unreadable?.length ?? 0) : 0);
   // A column opens the changes it counts (T3): those timed in its slice. The last
   // column of a window that ends now is left open, so a change at the end stays in it.
   const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1' });
@@ -228,7 +230,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={!until} question={figQuestion} />{/if}
+    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={!until} question={figQuestion} problems={tlProblems} />{/if}
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited only on an Unknown check (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how to fix</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}

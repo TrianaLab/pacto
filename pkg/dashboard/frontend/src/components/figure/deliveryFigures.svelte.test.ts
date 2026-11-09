@@ -263,7 +263,7 @@ describe('PromotionFigure', () => {
 });
 
 describe('HistoryFigure', () => {
-  const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
+  const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, unverified: 0, released: 0, other: 0 };
   const buckets = Array.from({ length: 12 }, (_, i) => ({ start: `2026-11-08T${String(i * 2).padStart(2, '0')}:00:00Z`, end: `2026-11-08T${String(i * 2 + 1).padStart(2, '0')}:59:00Z`, ...zero,
     ...(i === 3 ? { missing: 1, failed: 2 } : i === 5 ? { released: 3 } : {}) }));
   const timeline = { start: buckets[0].start, end: '2026-11-08T23:59:00Z', buckets, totals: { ...zero, missing: 1, failed: 2, released: 3 }, untimed: 0 };
@@ -273,7 +273,8 @@ describe('HistoryFigure', () => {
     const { target, c } = render(HistoryFigure, { timeline, href, source: 'records', live: true }, false);
     await settle();
     expect(target.querySelectorAll('.tl-bar.mk')).toHaveLength(12);
-    expect([...target.querySelectorAll('a.tl-n')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['2', href(buckets[3].start, buckets[3].end)], ['3', href(buckets[5].start, buckets[5].end)]]);
+    // The gap counts in its column too: the count is the length of the list it opens.
+    expect([...target.querySelectorAll('a.tl-n')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['3', href(buckets[3].start, buckets[3].end)], ['3', href(buckets[5].start, buckets[5].end)]]);
     expect(target.querySelectorAll('.tl-n[data-nofilter]')).toHaveLength(10);
     expect(target.querySelectorAll('.tl-c.gap .tl-x')).toHaveLength(1);
     expect(target.querySelector('.tl-gaps')?.textContent).toBe('Missing: one record between 06:00 and 07:59.');

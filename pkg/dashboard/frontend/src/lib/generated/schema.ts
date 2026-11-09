@@ -1580,10 +1580,15 @@ export interface components {
             other: number;
             /**
              * Format: int64
-             * @description Changes that succeeded and moved what the Stage runs: a promotion, rollback or override
+             * @description Changes that succeeded, moved what the Stage runs and verified: a promotion or rollback
              */
             released: number;
             start: string;
+            /**
+             * Format: int64
+             * @description Changes that succeeded and moved what the Stage runs but were never verified: an override, or a promote a rollback or override preempted
+             */
+            unverified: number;
         };
         "Delivery.TimelineCounts": {
             /**
@@ -1613,9 +1618,14 @@ export interface components {
             other: number;
             /**
              * Format: int64
-             * @description Changes that succeeded and moved what the Stage runs: a promotion, rollback or override
+             * @description Changes that succeeded, moved what the Stage runs and verified: a promotion or rollback
              */
             released: number;
+            /**
+             * Format: int64
+             * @description Changes that succeeded and moved what the Stage runs but were never verified: an override, or a promote a rollback or override preempted
+             */
+            unverified: number;
         };
         "Delivery.Times": {
             admitted?: string;

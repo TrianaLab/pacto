@@ -20,7 +20,8 @@ type TimelineCounts struct {
 	Failed          int `json:"failed" doc:"Changes that failed or errored"`
 	Held            int `json:"held" doc:"Changes held for a person"`
 	AcceptedUnknown int `json:"acceptedUnknown" doc:"Changes whose verification ended unknown and a person accepted it"`
-	Released        int `json:"released" doc:"Changes that succeeded and moved what the Stage runs: a promotion, rollback or override"`
+	Unverified      int `json:"unverified" doc:"Changes that succeeded and moved what the Stage runs but were never verified: an override, or a promote a rollback or override preempted"`
+	Released        int `json:"released" doc:"Changes that succeeded, moved what the Stage runs and verified: a promotion or rollback"`
 	Other           int `json:"other" doc:"Every other line: in flight, cancelled, rejected, expired, superseded, or a change that moved nothing"`
 }
 
@@ -144,8 +145,10 @@ func (e HistoryEntry) count(c *TimelineCounts) {
 		c.Held++
 	case e.Verification == AcceptedUnknown:
 		c.AcceptedUnknown++
-	case e.Outcome == Succeeded && e.Pointer != nil:
+	case e.Outcome == Succeeded && e.Pointer != nil && e.Verification == Verified:
 		c.Released++
+	case e.Outcome == Succeeded && e.Pointer != nil:
+		c.Unverified++
 	default:
 		c.Other++
 	}

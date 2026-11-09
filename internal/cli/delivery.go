@@ -711,8 +711,8 @@ func printHistory(out io.Writer, h *delivery.History) {
 // in -o json.
 func printTimeline(out io.Writer, t *delivery.HistoryTimeline) {
 	c := t.Totals
-	_, _ = fmt.Fprintf(out, "%s to %s: %d failed, %d held, %d accepted unknown, %d released, %d other, %d with the record missing",
-		t.Start, t.End, c.Failed, c.Held, c.AcceptedUnknown, c.Released, c.Other, c.Missing)
+	_, _ = fmt.Fprintf(out, "%s to %s: %d failed, %d held, %d accepted unknown, %d released unverified, %d released, %d other, %d with the record missing",
+		t.Start, t.End, c.Failed, c.Held, c.AcceptedUnknown, c.Unverified, c.Released, c.Other, c.Missing)
 	if t.Untimed > 0 {
 		_, _ = fmt.Fprintf(out, "; %d with no time", t.Untimed)
 	}

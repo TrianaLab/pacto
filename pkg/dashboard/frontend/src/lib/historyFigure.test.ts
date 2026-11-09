@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { historyModel, segHeights, tickLabel, TL_KINDS, TL_HEIGHT } from './historyFigure.ts';
 
-const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
+const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, unverified: 0, released: 0, other: 0 };
 const end = '2026-11-08T14:04:00Z';
 function timeline(per: (i: number) => Partial<typeof zero>) {
   const start = Date.parse(end) - 24 * 3600_000;
@@ -30,9 +30,11 @@ describe('historyModel', () => {
     expect(m.columns[11].segs.map((s) => s.k.key)).toEqual(['failed', 'held', 'acceptedUnknown', 'released']);
     expect(m.columns[11].segs.map((s) => s.h)).toEqual([4, 4, 4, 73]);
     expect(m.columns[0].missing).toBe(2);
+    // A column's count is the length of the list it opens, gaps included.
+    expect(m.columns[0].n).toBe(3);
     expect(m.gapWords).toEqual(['2 records between yesterday 14:04 and yesterday 16:04']);
     expect(m.ticks).toEqual({ first: 'yesterday 14:04', mid: '02:04', last: 'now, 14:04' });
-    expect(m.caption).toBe('1 failed and 2 held for a person, of 45 changes from yesterday 14:04 to now, 14:04 UTC. The record is missing in 1 slice, 2 records in all.');
+    expect(m.caption).toBe('1 failed and 2 held for a person, of 47 changes from yesterday 14:04 to now, 14:04 UTC. The record is missing in 1 slice, 2 records in all.');
     expect(TL_KINDS.find((k) => k.key === 'acceptedUnknown')).toMatchObject({ tone: 'neutral', hatch: true });
   });
 
@@ -58,5 +60,19 @@ describe('historyModel', () => {
     expect(cluster.ticks.last).toBe('14:04');
     expect(historyModel(t, { source: 'status', live: true }).caption).toContain('this Stage keeps no signed records');
     expect(historyModel(timeline(() => ({})), { source: 'records', live: true }).caption).toContain('No record is missing in this window.');
+    // Record problems no line stands for (a missing seq, an unreadable record) are
+    // in no column: the caption never calls the record whole.
+    const prob = historyModel(timeline(() => ({})), { source: 'records', live: true, problems: 2 });
+    expect(prob.caption).not.toContain('No record is missing');
+    expect(prob.caption).toContain('2 record problems are listed below and drawn in no column, so the record may be incomplete.');
+    expect(prob.alt).toContain('2 more record problems');
+  });
+
+  it('counts a column of gaps only, and never draws an unverified release as released', () => {
+    const m = historyModel(timeline((i) => (i === 3 ? { missing: 2 } : i === 4 ? { unverified: 1, released: 1 } : {})), { source: 'records', live: true });
+    expect(m.columns[3].n).toBe(2);
+    expect(m.columns[3].segs).toEqual([]);
+    expect(m.columns[4].segs.map((s) => [s.k.key, s.k.tone, !!s.k.hatch])).toEqual([['unverified', 'neutral', true], ['released', 'ok', false]]);
+    expect(m.total).toBe(4);
   });
 });
