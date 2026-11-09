@@ -32,12 +32,12 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
 ## Global flags
 
 ```
-      --config string          config file path
-  -h, --help                   help for pacto
-      --no-anim                disable animations
-      --no-cache               disable OCI bundle cache
-      --output-format string   output format (text, json, markdown) (default "text")
-  -v, --verbose                enable verbose output
+      --config string           config file path
+  -h, --help[=true|false]       help for pacto
+      --no-anim[=true|false]    disable animations
+      --no-cache[=true|false]   disable OCI bundle cache
+      --output-format string    output format (text, json, markdown) (default "text")
+  -v, --verbose[=true|false]    enable verbose output
 ```
 
 ---
@@ -133,14 +133,14 @@ pacto agent [flags]
 ```
       --bindings string                   with --sink local or evidence: YAML file binding workloads to contracts
       --cgroup-root string                where the host cgroup v2 hierarchy is mounted; empty attributes by network namespace only (default "/sys/fs/cgroup")
-      --docker                            with --sink local or evidence: check running containers labelled dev.pacto.contract (Docker Engine API on /var/run/docker.sock)
+      --docker[=true|false]               with --sink local or evidence: check running containers labelled dev.pacto.contract (Docker Engine API on /var/run/docker.sock)
       --docker-label-filter stringArray   with --docker: only check containers that also carry this label (key=value or key; repeatable, all must match), e.g. com.docker.compose.project=demo
-      --enable-probing                    also probe the wire protocol of every interface found listening
+      --enable-probing[=true|false]       also probe the wire protocol of every interface found listening
       --evidence-key string               with --sink evidence: private key file envelopes are signed with
       --evidence-key-id string            with --sink evidence: key id (must match the server's trust entry)
       --evidence-producer string          with --sink evidence: producer id
       --evidence-url string               with --sink evidence: Evidence Server base URL
-  -h, --help                              help for agent
+  -h, --help[=true|false]                 help for agent
       --namespace string                  namespace the NodeRuntimeObservation is written to with --sink kubernetes (default $POD_NAMESPACE)
       --node-name string                  name of this host; with --sink kubernetes also the NodeRuntimeObservation name (default $NODE_NAME)
       --proc-root string                  where the host /proc is mounted (a pod needs hostPID, a container --pid=host) (default "/proc")
@@ -165,7 +165,7 @@ pacto completion [flags]
 **Flags:**
 
 ```
-  -h, --help   help for completion
+  -h, --help[=true|false]   help for completion
 ```
 
 ---
@@ -231,7 +231,7 @@ pacto dashboard [sources...] [flags]
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
-  -h, --help                              help for dashboard
+  -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
@@ -250,7 +250,7 @@ pacto dashboard [sources...] [flags]
       --port int                          port for the dashboard server (default 3000)
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
-      --token-login                       let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
+      --token-login[=true|false]          let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
       --trace-source stringArray          named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
       --traces stringArray                OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
@@ -275,7 +275,7 @@ pacto delivery [flags]
 
 ```
       --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-  -h, --help                        help for delivery
+  -h, --help[=true|false]           help for delivery
   -n, --namespace string            namespace of the Stage and its Operations (default "default")
       --trust string                the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
 ```
@@ -292,7 +292,7 @@ pacto delivery approve <operation> [flags]
 
 ```
       --decision string             approve, reject or accept-unknown (default "approve")
-  -h, --help                        help for approve
+  -h, --help[=true|false]           help for approve
       --note string                 why, for the record
       --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
@@ -312,9 +312,9 @@ pacto delivery blame [flags]
 **Flags:**
 
 ```
-      --digest string   the version to blame (defaults to the one the Stage runs)
-  -h, --help            help for blame
-      --stage string    the Stage (required)
+      --digest string       the version to blame (defaults to the one the Stage runs)
+  -h, --help[=true|false]   help for blame
+      --stage string        the Stage (required)
 ```
 
 ### `pacto delivery cancel`
@@ -328,7 +328,7 @@ pacto delivery cancel <operation> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for cancel
+  -h, --help[=true|false]   help for cancel
 ```
 
 ### `pacto delivery candidates`
@@ -342,8 +342,8 @@ pacto delivery candidates [flags]
 **Flags:**
 
 ```
-  -h, --help           help for candidates
-      --stage string   the Stage (required)
+  -h, --help[=true|false]   help for candidates
+      --stage string        the Stage (required)
 ```
 
 ### `pacto delivery describe`
@@ -357,7 +357,7 @@ pacto delivery describe <type> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for describe
+  -h, --help[=true|false]   help for describe
 ```
 
 ### `pacto delivery explain`
@@ -371,7 +371,7 @@ pacto delivery explain <operation> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for explain
+  -h, --help[=true|false]   help for explain
 ```
 
 ### `pacto delivery get`
@@ -385,7 +385,7 @@ pacto delivery get <operation> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for get
+  -h, --help[=true|false]   help for get
 ```
 
 ### `pacto delivery history`
@@ -399,13 +399,13 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
-      --all              walk every Stage in the namespace given with -n, or in every namespace you can list
-      --domain string    with --service, its registry domain; a Stage that names none matches any
-  -h, --help             help for history
-      --service string   with --all, only the Stages of this service
-      --since string     only changes at or after this RFC 3339 time, or this long before now (2h)
-      --stage string     the Stage (this or --all)
-      --until string     only changes at or before this RFC 3339 time, or this long before now (30m)
+      --all[=true|false]    walk every Stage in the namespace given with -n, or in every namespace you can list
+      --domain string       with --service, its registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for history
+      --service string      with --all, only the Stages of this service
+      --since string        only changes at or after this RFC 3339 time, or this long before now (2h)
+      --stage string        the Stage (this or --all)
+      --until string        only changes at or before this RFC 3339 time, or this long before now (30m)
 ```
 
 ### `pacto delivery plan`
@@ -421,7 +421,7 @@ pacto delivery plan [flags]
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
-  -h, --help                                                        help for plan
+  -h, --help[=true|false]                                           help for plan
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
@@ -444,7 +444,7 @@ pacto delivery propose [flags]
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
-  -h, --help                                                        help for propose
+  -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
@@ -467,7 +467,7 @@ pacto delivery record [flags]
 **Flags:**
 
 ```
-  -h, --help   help for record
+  -h, --help[=true|false]   help for record
 ```
 
 #### `pacto delivery record verify`
@@ -481,9 +481,9 @@ pacto delivery record verify [flags]
 **Flags:**
 
 ```
-      --all            verify every Stage's stream in the namespace given with -n, or in every namespace you can list
-  -h, --help           help for verify
-      --stage string   the Stage (this or --all)
+      --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
+  -h, --help[=true|false]   help for verify
+      --stage string        the Stage (this or --all)
 ```
 
 ### `pacto delivery types`
@@ -497,7 +497,7 @@ pacto delivery types [flags]
 **Flags:**
 
 ```
-  -h, --help   help for types
+  -h, --help[=true|false]   help for types
 ```
 
 ### `pacto delivery undo`
@@ -511,8 +511,8 @@ pacto delivery undo <operation> [flags]
 **Flags:**
 
 ```
-  -h, --help           help for undo
-      --stage string   the operation's Stage, needed only when the Operation was deleted and must be found in the records
+  -h, --help[=true|false]   help for undo
+      --stage string        the operation's Stage, needed only when the Operation was deleted and must be found in the records
 ```
 
 ---
@@ -538,7 +538,7 @@ pacto diff <old> <new> [flags]
 **Flags:**
 
 ```
-  -h, --help                     help for diff
+  -h, --help[=true|false]        help for diff
       --new-set stringArray      set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray   values file to merge into the new contract (can be repeated)
       --old-set stringArray      set a value on the old contract (e.g. --old-set service.version=1.0.0)
@@ -596,11 +596,11 @@ pacto doc [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for doc
+  -h, --help[=true|false]    help for doc
       --interface string     interface name to display (used with --ui)
   -o, --output string        output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead
       --port int             port for the documentation server (used with --serve or --ui) (default 8484)
-      --serve                serve the offline dashboard-grade documentation site over a local HTTP server
+      --serve[=true|false]   serve the offline dashboard-grade documentation site over a local HTTP server
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
       --ui string            UI type for the interactive API explorer (one of: swagger)
@@ -630,7 +630,7 @@ pacto evidence [flags]
 **Flags:**
 
 ```
-  -h, --help   help for evidence
+  -h, --help[=true|false]   help for evidence
 ```
 
 ### `pacto evidence keygen`
@@ -644,11 +644,11 @@ pacto evidence keygen [flags]
 **Flags:**
 
 ```
-      --force             overwrite existing key files instead of failing
-  -h, --help              help for keygen
-      --key-id string     key id (defaults to a fingerprint of the public key)
-      --out string        directory to write the keypair into (default ".")
-      --producer string   producer id to bind the key to (writes <producer>__<keyId>.pub)
+      --force[=true|false]   overwrite existing key files instead of failing
+  -h, --help[=true|false]    help for keygen
+      --key-id string        key id (defaults to a fingerprint of the public key)
+      --out string           directory to write the keypair into (default ".")
+      --producer string      producer id to bind the key to (writes <producer>__<keyId>.pub)
 ```
 
 ### `pacto evidence provisioned`
@@ -668,7 +668,7 @@ pacto evidence provisioned [flags]
       --dependency string      consumer dependency that asked for the resource
       --environment string     consumer environment the resource serves
       --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
-  -h, --help                   help for provisioned
+  -h, --help[=true|false]      help for provisioned
       --observed-at string     observation timestamp (RFC3339; defaults to now)
       --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase (default "Observed")
       --phase string           provisioning phase: Requested, Provisioning, Ready, Failed or Deleting
@@ -687,8 +687,8 @@ pacto evidence send <envelope.json> [flags]
 **Flags:**
 
 ```
-  -h, --help         help for send
-      --url string   ingestion host envelope endpoint URL
+  -h, --help[=true|false]   help for send
+      --url string          ingestion host envelope endpoint URL
 ```
 
 ### `pacto evidence serve`
@@ -702,7 +702,7 @@ pacto evidence serve [flags]
 **Flags:**
 
 ```
-  -h, --help                    help for serve
+  -h, --help[=true|false]       help for serve
       --listen-address string   host:port to listen on (supersedes --port)
       --port int                port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
       --producer stringArray    advertised trusted producer id (repeatable)
@@ -721,7 +721,7 @@ pacto evidence sign <evidence.json> [flags]
 **Flags:**
 
 ```
-  -h, --help                      help for sign
+  -h, --help[=true|false]         help for sign
       --id string                 envelope id (defaults to a hash over the API version, producer id, sequence and evidence, so two producers reporting identical evidence never collide)
       --issued-at string          issued-at timestamp (RFC3339; defaults to now)
       --key string                path to the private key file
@@ -743,8 +743,8 @@ pacto evidence verify <envelope.json> [flags]
 **Flags:**
 
 ```
-  -h, --help           help for verify
-      --trust string   trust store: a public-key file or a directory of <keyId>.pub files
+  -h, --help[=true|false]   help for verify
+      --trust string        trust store: a public-key file or a directory of <keyId>.pub files
 ```
 
 ---
@@ -767,7 +767,7 @@ pacto explain [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for explain
+  -h, --help[=true|false]    help for explain
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
@@ -789,11 +789,11 @@ pacto fleet [flags]
 **Flags:**
 
 ```
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for fleet
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+  -h, --help[=true|false]          help for fleet
+      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
@@ -816,7 +816,7 @@ pacto fleet attention [flags]
 ```
       --business-domain string   exact business domain, (none) for none or (unknown) for unknown
       --category string          attention category
-  -h, --help                     help for attention
+  -h, --help[=true|false]        help for attention
       --limit int                maximum results (0 = 200, capped at 500)
       --offset int               result offset for paging
       --owner string             free-text owner search over team, DRI and contacts
@@ -839,7 +839,7 @@ pacto fleet entities [text] [flags]
       --business-domain string     exact business domain, (none) for none or (unknown) for unknown
       --consumes string            services that depend on or reference a provider of this platform offering
       --created-from string        services created from this golden path, by key
-  -h, --help                       help for entities
+  -h, --help[=true|false]          help for entities
       --kind string                entity kind (service, owner, domain, offering; empty lists all four)
       --limit int                  maximum results (0 = 100, capped at 500)
       --offering string            services that provide this platform offering, and the offering itself
@@ -863,7 +863,7 @@ pacto fleet entity <kind> <key> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for entity
+  -h, --help[=true|false]   help for entity
 ```
 
 ### `pacto fleet explain`
@@ -877,7 +877,7 @@ pacto fleet explain <subject> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for explain
+  -h, --help[=true|false]   help for explain
 ```
 
 ### `pacto fleet get`
@@ -891,8 +891,8 @@ pacto fleet get [service] [flags]
 **Flags:**
 
 ```
-  -h, --help            help for get
-      --target string   inspect an operational target by key or name
+  -h, --help[=true|false]   help for get
+      --target string       inspect an operational target by key or name
 ```
 
 ### `pacto fleet graph`
@@ -906,12 +906,12 @@ pacto fleet graph <service> [flags]
 **Flags:**
 
 ```
-      --direction string   traversal direction (dependencies, dependents) (default "dependencies")
-  -h, --help               help for graph
-      --max-depth int      maximum transitive depth (0 = unlimited)
-      --revision string    root an exact contract revision key
-      --target string      root the revision linked to this target key or name
-      --transitive         traverse transitively (cycle-safe)
+      --direction string          traversal direction (dependencies, dependents) (default "dependencies")
+  -h, --help[=true|false]         help for graph
+      --max-depth int             maximum transitive depth (0 = unlimited)
+      --revision string           root an exact contract revision key
+      --target string             root the revision linked to this target key or name
+      --transitive[=true|false]   traverse transitively (cycle-safe)
 ```
 
 ### `pacto fleet neighborhood`
@@ -925,12 +925,12 @@ pacto fleet neighborhood <service> [flags]
 **Flags:**
 
 ```
-      --depth int          how many hops to walk (0 = 1, at most 6)
-      --direction string   which side to walk (dependencies, dependents, both) (default "both")
-  -h, --help               help for neighborhood
-      --max-edges int      maximum edges (0 = 120, at most 1000)
-      --max-nodes int      maximum services (0 = 60, at most 500)
-      --views string       comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
+      --depth int           how many hops to walk (0 = 1, at most 6)
+      --direction string    which side to walk (dependencies, dependents, both) (default "both")
+  -h, --help[=true|false]   help for neighborhood
+      --max-edges int       maximum edges (0 = 120, at most 1000)
+      --max-nodes int       maximum services (0 = 60, at most 500)
+      --views string        comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
 ```
 
 ### `pacto fleet reconcile`
@@ -950,8 +950,8 @@ pacto fleet reconcile [flags]
 **Flags:**
 
 ```
-  -h, --help            help for reconcile
-      --traces string   OTLP/JSON trace file supplying observed dependencies (required)
+  -h, --help[=true|false]   help for reconcile
+      --traces string       OTLP/JSON trace file supplying observed dependencies (required)
 ```
 
 ### `pacto fleet search`
@@ -965,23 +965,23 @@ pacto fleet search [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string     filter by business domain, (none) for none or (unknown) for unknown
-      --compliance string          filter to services with a target of this compliance
-      --has-capability             only services declaring a capability
-      --has-dependency             only services declaring a dependency
-  -h, --help                       help for search
-      --label stringArray          filter by label key=value (repeatable)
-      --limit int                  maximum results (0 = 100, capped at 500)
-      --not-ready                  only services whose readiness gate does not pass (below minScore, expired or undeclared)
-      --offering string            filter by the platform offering a service provides (service.offering)
-      --offset int                 result offset for paging
-      --owner string               filter by owner (team, DRI or contact)
-      --ready                      only services whose readiness gate passes (score >= minScore, not expired)
-      --scope string               correlate to a target with this scope
-      --source string              filter by observing source
-      --status string              filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
-      --template string[="only"]   golden paths only, or exclude to leave them out
-      --workload string            filter by workload (service, job, scheduled)
+      --business-domain string        filter by business domain, (none) for none or (unknown) for unknown
+      --compliance string             filter to services with a target of this compliance
+      --has-capability[=true|false]   only services declaring a capability
+      --has-dependency[=true|false]   only services declaring a dependency
+  -h, --help[=true|false]             help for search
+      --label stringArray             filter by label key=value (repeatable)
+      --limit int                     maximum results (0 = 100, capped at 500)
+      --not-ready[=true|false]        only services whose readiness gate does not pass (below minScore, expired or undeclared)
+      --offering string               filter by the platform offering a service provides (service.offering)
+      --offset int                    result offset for paging
+      --owner string                  filter by owner (team, DRI or contact)
+      --ready[=true|false]            only services whose readiness gate passes (score >= minScore, not expired)
+      --scope string                  correlate to a target with this scope
+      --source string                 filter by observing source
+      --status string                 filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
+      --template string[="only"]      golden paths only, or exclude to leave them out
+      --workload string               filter by workload (service, job, scheduled)
 ```
 
 ### `pacto fleet snapshot`
@@ -995,7 +995,7 @@ pacto fleet snapshot [flags]
 **Flags:**
 
 ```
-  -h, --help   help for snapshot
+  -h, --help[=true|false]   help for snapshot
 ```
 
 ### `pacto fleet status`
@@ -1009,19 +1009,19 @@ pacto fleet status [flags]
 **Flags:**
 
 ```
-      --golden-path-deployed   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
-  -h, --help                   help for status
-      --invalid                report structurally invalid contracts
-      --limit int              maximum results (0 = 200)
-      --missing-readiness      report revisions without a readiness assessment
-      --needs-attention        report every attention category
-      --non-compliant          report non-compliant targets
-      --stale                  report targets with stale evidence
-      --undeclared             report runtime calls no contract declares and callers with no contract
-      --unknown                report targets with unknown compliance
-      --unowned                report services with no declared owner
-      --unresolved-deps        report unresolved declared dependencies
-      --unsatisfied-ranges     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
+      --golden-path-deployed[=true|false]   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
+  -h, --help[=true|false]                   help for status
+      --invalid[=true|false]                report structurally invalid contracts
+      --limit int                           maximum results (0 = 200)
+      --missing-readiness[=true|false]      report revisions without a readiness assessment
+      --needs-attention[=true|false]        report every attention category
+      --non-compliant[=true|false]          report non-compliant targets
+      --stale[=true|false]                  report targets with stale evidence
+      --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
+      --unknown[=true|false]                report targets with unknown compliance
+      --unowned[=true|false]                report services with no declared owner
+      --unresolved-deps[=true|false]        report unresolved declared dependencies
+      --unsatisfied-ranges[=true|false]     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
 
 ### `pacto fleet versions`
@@ -1035,9 +1035,9 @@ pacto fleet versions <offering> [flags]
 **Flags:**
 
 ```
-  -h, --help              help for versions
-      --provider string   only this provider: its key, or a name only one domain uses
-      --range string      semver range to check each version against, such as ^16.0.0
+  -h, --help[=true|false]   help for versions
+      --provider string     only this provider: its key, or a name only one domain uses
+      --range string        semver range to check each version against, such as ^16.0.0
 ```
 
 ---
@@ -1059,7 +1059,7 @@ pacto generate <plugin> [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for generate
+  -h, --help[=true|false]    help for generate
       --option stringArray   plugin option as key=value (can be repeated)
   -o, --output string        output directory (default: <plugin>-output/)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
@@ -1089,11 +1089,11 @@ pacto graph [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for graph
-      --only-references      Show only config/policy reference edges (no dependencies)
-      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
-  -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
-      --with-references      Include config/policy reference edges alongside dependencies
+  -h, --help[=true|false]              help for graph
+      --only-references[=true|false]   Show only config/policy reference edges (no dependencies)
+      --set stringArray                set a contract value (e.g. --set service.version=2.0.0)
+  -f, --values stringArray             values file to merge into the contract (can be repeated; last wins)
+      --with-references[=true|false]   Include config/policy reference edges alongside dependencies
 ```
 
 Dependencies resolved from local paths are annotated with `[local]`. Shared dependencies (referenced by multiple parents) are annotated with `(shared)`.
@@ -1135,23 +1135,23 @@ pacto impact <old> <new> [flags]
 **Flags:**
 
 ```
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for impact
-      --include-observed           let observed (runtime) relationships raise consumer confidence
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
-      --new-values stringArray     values file to merge into the new contract (can be repeated)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
-      --old-values stringArray     values file to merge into the old contract (can be repeated)
-      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
+      --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration              mark target evidence older than this as stale (0 disables)
+  -h, --help[=true|false]               help for impact
+      --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
+      --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string                namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --new-set stringArray             set a value on the new contract (e.g. --new-set service.version=2.0.0)
+      --new-values stringArray          values file to merge into the new contract (can be repeated)
+      --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
+      --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
+      --old-values stringArray          values file to merge into the old contract (can be repeated)
+      --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
 
 ---
@@ -1238,27 +1238,27 @@ pacto init [dir...] [flags]
 **Flags:**
 
 ```
-      --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
-      --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
-      --describe-only            write a contract that only describes the service: no publish section, so no signing key
-      --domain string            business domain, such as payments
-      --env strings              environments for --delivery, in promotion order (default [test,prod])
-      --fleet strings            folders of other services' contracts to find the services that use this one
-      --from string              a golden path to create the service from: an oci:// reference or a directory
-  -h, --help                     help for init
-      --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
-      --name string              service name (default: the workload's name, then the folder's)
-      --namespace strings        with --cluster: a namespace to read; repeat it for more (default: every namespace)
-      --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
-      --out string               with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
-      --owner string             the team that owns the service, as a bare name such as billing (default: the workload's team label)
-      --plan                     show what would be added and change nothing
-      --registry string          where to publish, as host/path (default: read from the workload's image)
-      --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
-      --run-plugins strings      run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
-      --set stringArray          set a contract value (e.g. --set service.version=2.0.0)
-      --trust string             the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
-  -f, --values stringArray       values file to merge into the contract (can be repeated; last wins)
+      --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
+      --delivery[=true|false]              also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
+      --domain string                      business domain, such as payments
+      --env strings                        environments for --delivery, in promotion order (default [test,prod])
+      --fleet strings                      folders of other services' contracts to find the services that use this one
+      --from string                        a golden path to create the service from: an oci:// reference or a directory
+  -h, --help[=true|false]                  help for init
+      --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --name string                        service name (default: the workload's name, then the folder's)
+      --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
+      --no-transparency-log[=true|false]   write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --out string                         with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
+      --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
+      --plan[=true|false]                  show what would be added and change nothing
+      --registry string                    where to publish, as host/path (default: read from the workload's image)
+      --registry-secret string             with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --run-plugins strings                run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
+      --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
+      --trust string                       the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
+  -f, --values stringArray                 values file to merge into the contract (can be repeated; last wins)
 ```
 
 In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.
@@ -1293,10 +1293,10 @@ pacto lock [dir] [flags]
 **Flags:**
 
 ```
-      --check                     verify pacto.lock is up to date without writing (non-zero exit on drift)
-  -h, --help                      help for lock
+      --check[=true|false]        verify pacto.lock is up to date without writing (non-zero exit on drift)
+  -h, --help[=true|false]         help for lock
       --set stringArray           set a contract value (e.g. --set service.version=2.0.0)
-      --update                    re-resolve dependencies to the newest version within their constraint
+      --update[=true|false]       re-resolve dependencies to the newest version within their constraint
       --update-name stringArray   re-resolve only the named dependency, preserving all other pins (repeatable)
   -f, --values stringArray        values file to merge into the contract (can be repeated; last wins)
 ```
@@ -1322,9 +1322,9 @@ pacto login <registry> [flags]
 **Flags:**
 
 ```
-  -h, --help              help for login
-  -p, --password string   registry password
-  -u, --username string   registry username
+  -h, --help[=true|false]   help for login
+  -p, --password string     registry password
+  -u, --username string     registry username
 ```
 
 Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.
@@ -1372,7 +1372,7 @@ pacto logout <registry> [flags]
 **Flags:**
 
 ```
-  -h, --help   help for logout
+  -h, --help[=true|false]   help for logout
 ```
 
 ---
@@ -1422,24 +1422,24 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes                  expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --allow-writes[=true|false]     expose mutating operations (POST/PUT/PATCH/DELETE) as tools
       --audience string               with --auth-issuer: the audience incoming tokens must carry (default --resource)
       --auth stringArray              credential for a security scheme as name=value (repeatable)
       --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
       --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                         include every bundle in the local OCI cache as an offline baseline revision
+      --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
-      --delivery                      expose the Pacto delivery tools over the ambient cluster
+      --delivery[=true|false]         expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string         the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
-      --fleet                         expose read-only operational-graph (fleet) query tools
+      --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (0 disables)
-  -h, --help                          help for mcp
+  -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
-      --k8s                           include live Pacto CRs from the current Kubernetes cluster as targets
+      --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
@@ -1449,7 +1449,7 @@ pacto mcp [bundle-ref] [flags]
       --oidc-username-claim string    ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string   prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
       --port int                      port for HTTP transport (default 8585)
-      --publish                       expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
@@ -1520,7 +1520,7 @@ pacto otel [flags]
 **Flags:**
 
 ```
-  -h, --help   help for otel
+  -h, --help[=true|false]   help for otel
 ```
 
 ### `pacto otel observe`
@@ -1541,9 +1541,9 @@ pacto otel observe <traces.json> [flags]
 **Flags:**
 
 ```
-      --evidence        emit signable EvidenceSets instead of raw edges
-  -h, --help            help for observe
-      --source string   collector/source name recorded as provenance (default "otel")
+      --evidence[=true|false]   emit signable EvidenceSets instead of raw edges
+  -h, --help[=true|false]       help for observe
+      --source string           collector/source name recorded as provenance (default "otel")
 ```
 
 ---
@@ -1565,7 +1565,7 @@ pacto pack [dir] [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for pack
+  -h, --help[=true|false]    help for pack
   -o, --output string        output file path (default: <name>-<version>.tar.gz)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
@@ -1603,9 +1603,9 @@ pacto publish [dir] [flags]
 **Flags:**
 
 ```
-  -h, --help                       help for publish
+  -h, --help[=true|false]          help for publish
   -p, --path string                path to contract directory, the same as [dir] (default: current directory)
-      --plan                       show what is missing and what refuses it; change nothing
+      --plan[=true|false]          show what is missing and what refuses it; change nothing
       --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
       --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
       --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
@@ -1636,8 +1636,8 @@ pacto pull <ref> [flags]
 **Flags:**
 
 ```
-  -h, --help            help for pull
-  -o, --output string   output directory (default: service name)
+  -h, --help[=true|false]   help for pull
+  -o, --output string       output directory (default: service name)
 ```
 
 ---
@@ -1666,8 +1666,8 @@ pacto push <ref> [flags]
 **Flags:**
 
 ```
-  -f, --force                overwrite existing artifact in registry
-  -h, --help                 help for push
+  -f, --force[=true|false]   overwrite existing artifact in registry
+  -h, --help[=true|false]    help for push
   -p, --path string          path to contract directory (default: current directory)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
@@ -1711,13 +1711,13 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
       --cgroup-root string              cgroup v2 directory the session cgroup is created in (default: the caller's own cgroup under /sys/fs/cgroup)
       --contract string                 contract bundle directory or oci:// reference (required)
       --dep stringArray                 dependency=host:port the command reaches the dependency at (repeatable)
-      --enable-probing                  also probe the wire protocol of every interface found listening
+      --enable-probing[=true|false]     also probe the wire protocol of every interface found listening
       --evidence-key string             private key file envelopes are signed with
       --evidence-key-id string          key id (must match the server's trust entry)
       --evidence-producer string        producer id
       --evidence-url string             Evidence Server base URL
       --fail-on string                  exit 1 when the command exits 0 but the final verdict is this bad or worse: one of [none noncompliant unknown] (default "none")
-  -h, --help                            help for run
+  -h, --help[=true|false]               help for run
       --host string                     address capability and protocol probes dial (default "127.0.0.1")
       --interval duration               how often a round is evaluated and printed (whole seconds) (default 10s)
       --proc-root string                where /proc is mounted (default "/proc")
@@ -1753,16 +1753,16 @@ pacto tui [flags]
 **Flags:**
 
 ```
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for tui
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+  -h, --help[=true|false]          help for tui
+      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --read-only                  hide every write verb
+      --read-only[=true|false]     hide every write verb
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
@@ -1791,7 +1791,7 @@ pacto update [version] [flags]
 **Flags:**
 
 ```
-  -h, --help   help for update
+  -h, --help[=true|false]   help for update
 ```
 
 !!! note
@@ -1851,11 +1851,11 @@ pacto validate [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved and warns about deprecated interfaces of direct dependencies. Fetches each dependency once
-  -h, --help                 help for validate
-      --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
-      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
-  -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
+      --closure[=true|false]     also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved and warns about deprecated interfaces of direct dependencies. Fetches each dependency once
+  -h, --help[=true|false]        help for validate
+      --readiness[=true|false]   also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
+      --set stringArray          set a contract value (e.g. --set service.version=2.0.0)
+  -f, --values stringArray       values file to merge into the contract (can be repeated; last wins)
 ```
 
 The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment. Individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation checks the contract's structure and rules. It still checks the shape of readiness claims and skips the freshness gate. See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.
@@ -1901,7 +1901,7 @@ pacto version [flags]
 **Flags:**
 
 ```
-  -h, --help   help for version
+  -h, --help[=true|false]   help for version
 ```
 
 ---
