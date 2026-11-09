@@ -39,7 +39,8 @@
       </div>
     </div>
   {/snippet}
-  {#snippet aside()}
+  <!-- In the foot, not an aside: the lanes need the full width for their links. -->
+  {#snippet foot()}
     <CountTile more={m.more} href={hrefs.paths} hidden={m.hidden}
       parts={[`${countOf(m.paths, 'golden path')} created at least one`, `${sharePct(m.created, m.total)} of the fleet from a golden path`]} />
   {/snippet}

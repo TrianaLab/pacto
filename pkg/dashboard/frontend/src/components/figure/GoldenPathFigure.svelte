@@ -30,7 +30,7 @@
   const total = $derived(agg?.services ?? 0);
   const segments = $derived(complianceSegments(agg?.serviceCompliance, statusHrefs((status) => fleetServicesUrl({ createdFrom: path, status }))));
   /** @type {import('../../lib/figure.ts').WireDef[]} */
-  const lead = [{ id: 'wgp', from: 'gp-hub', fs: 'r', to: 'gp-col', ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'accent', head: true }];
+  const lead = [{ id: 'wgp', from: 'gp-hub', fs: 'r', to: 'pcol', ts: 'l', col: { from: 'gp-hub-n', fs: 'b', ts: 't' }, style: 'obs', tone: 'accent', head: true }];
   const wires = $derived([...lead, ...postureColumn(segments, total).wires]);
   const said = $derived(segments.filter((s) => s.value).map((s) => `${formatCount(s.value)} ${s.label.toLowerCase()}`).join(', '));
 </script>
@@ -40,8 +40,9 @@
     alt={`${name} created ${countOf(total, 'service')} you can see: ${said || 'none'}.`}>
     {#snippet stage()}
       <div class="gpfig">
-        <div class="gpfig-hub">
-          <HubNode tone="accent" kind="golden-path" a="gp-hub" />
+        <!-- The wire leaves the hub's label block, so it never crosses its words. -->
+        <div class="gpfig-hub" data-a="gp-hub">
+          <HubNode tone="accent" kind="golden-path" a="gp-hub-n" />
           <span class="gpfig-hl">
             <b class="id" title={name}><bdi class:fit={elidable(name)}>{name}</bdi></b>
             {#if version}<span class="t-meta">Template {version}</span>{/if}
@@ -49,7 +50,7 @@
           </span>
         </div>
         <span></span>
-        <div class="gpfig-col" data-a="gp-col"><PostureColumn {segments} {total} /></div>
+        <div class="gpfig-col"><PostureColumn {segments} {total} /></div>
       </div>
     {/snippet}
     {#snippet aside()}

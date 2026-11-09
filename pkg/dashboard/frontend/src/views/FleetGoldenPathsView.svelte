@@ -123,29 +123,39 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="golden paths" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <div class="data-scroll">
+    <!-- T1/T2 (SPEC 22-24): short values get fixed rem columns, the name and summary share
+         the rest, and under 56rem of table width (a container query, so the sidebar or a
+         split view counts) every row becomes a card. The source sits under the name. -->
+    <div class="cq-cards"><div class="data-scroll">
       <table class="data-table" data-testid="golden-path-list">
         <caption class="visually-hidden">Golden paths</caption>
-        <colgroup><col style="width: 18%" /><col style="width: 24%" /><col /><col /><col /><col /><col style="width: 8rem" /><col style="width: 8rem" /></colgroup>
-        <thead><tr><th scope="col">Name</th><th scope="col">Summary</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Signature</th><th scope="col">Source</th><th scope="col">Services created</th><th scope="col">Non-compliant</th></tr></thead>
+        <colgroup><col /><col style="width: 26%" /><col style="width: 9rem" /><col style="width: 10rem" /><col style="width: 7rem" /><col style="width: 7.5rem" /></colgroup>
+        <thead><tr><th scope="col">Name and source</th><th scope="col">Summary</th><th scope="col">Owner</th><th scope="col">Status and signature</th><th scope="col">Services created</th><th scope="col">Non-compliant</th></tr></thead>
         <tbody>
           {#each list.entities as ref (ref.key)}
             {@const s = sig(ref.signature)}
             {@const source = ref.secondary || ref.domain || ''}
             <tr>
-              <th scope="row"><span class="cell-clip" title={ref.key}><EntityLink {ref} showStatus={false} showKind={false} /></span></th>
+              <th scope="row">
+                <span class="cell-clip" title={ref.key}><EntityLink {ref} showStatus={false} showKind={false} /></span>
+                {#if source}<span class="cell-clip t-meta" title={source}>{source}</span>{/if}
+              </th>
               <td data-label="Summary">{ref.summary || ''}</td>
               <td data-label="Owner"><span class="cell-clip" title={ref.owner || undefined}>{ref.owner || 'No owner declared'}</span></td>
-              <td data-label="Status"><EntityStatusBadge kind="service" status={ref.status} /></td>
-              <td data-label="Signature"><span data-testid="path-signature" title={s.value === 'verified' ? SIGNATURE_NOTE : ''}><IdentityBadge label={s.label} tone={s.value === 'verified' ? 'neutral' : s.tone} /></span>{#if s.value === 'verified'}<span class="visually-hidden">{SIGNATURE_NOTE}</span>{/if}</td>
-              <td data-label="Source"><span class="cell-clip" title={source}>{source}</span></td>
+              <td data-label="Status and signature">
+                <span class="cell-badges">
+                  <EntityStatusBadge kind="service" status={ref.status} />
+                  <span data-testid="path-signature" title={s.value === 'verified' ? SIGNATURE_NOTE : undefined}><IdentityBadge label={s.label} tone={s.value === 'verified' ? 'neutral' : s.tone} /></span>
+                </span>
+                {#if s.value === 'verified'}<span class="visually-hidden">{SIGNATURE_NOTE}</span>{/if}
+              </td>
               <td data-label="Services created"><a data-testid="path-created" href={fleetServicesUrl({ createdFrom: ref.key })}>{formatCount(ref.created ?? 0)}</a></td>
               <td data-label="Non-compliant">{#if ref.nonCompliant}<a data-testid="path-noncompliant" href={fleetServicesUrl({ createdFrom: ref.key, status: 'NonCompliant' })}>{formatCount(ref.nonCompliant)}</a>{:else}0{/if}</td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </div>
+    </div></div>
     <Pager page={list} href={pageHref} label="Golden path pages" noun="golden paths" testid="golden-path" />
   {/if}
 </div>

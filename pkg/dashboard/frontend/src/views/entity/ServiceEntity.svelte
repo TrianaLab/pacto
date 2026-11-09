@@ -651,4 +651,6 @@
   .se-reqs, .se-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .se-reqs li, .se-steps li { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .se-step { font-weight: 600; min-width: 9rem; }
+  /* A detail can carry a registry URL: it breaks anywhere rather than spill (SPEC 24.5). */
+  .se-steps .se-note, .se-reqs .se-note { min-width: 0; overflow-wrap: anywhere; }
 </style>

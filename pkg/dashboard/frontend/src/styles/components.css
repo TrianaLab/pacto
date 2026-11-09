@@ -789,6 +789,20 @@ button.detail-card-header {
 .cell-clip:focus-visible, .cell-clip:focus-within { white-space: normal; overflow-wrap: anywhere; }
 .cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
 .cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+/* Opt-in container-query card form (SPEC 24.2): the table turns into cards by the width
+   it gets, not the window's, so a sidebar or a split view counts. 56rem fits the fixed
+   columns of the widest table that opts in plus two shared ones. */
+.cq-cards { container: dtable / inline-size; }
+@container dtable (max-width: 56rem) {
+  .cq-cards .data-scroll { border: none; background: none; }
+  .cq-cards .data-table, .cq-cards tbody, .cq-cards tr, .cq-cards td, .cq-cards tbody th { display: block; width: 100%; }
+  .cq-cards colgroup { display: none; }
+  .cq-cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .cq-cards tr { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); margin-bottom: var(--sp-2); padding: var(--sp-2) 0; }
+  .cq-cards td, .cq-cards tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
+  .cq-cards td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  .cq-cards td:empty { display: none; }
+}
 @media (max-width: 768px) {
   .data-scroll { border: none; background: none; }
   .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
