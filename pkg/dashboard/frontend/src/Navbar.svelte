@@ -162,7 +162,6 @@
           {/each}
         </ul>
         {#if discovering}<p class="t-meta sources-pop-note">Still discovering services.</p>{/if}
-        
       </div>
     {/if}
 
