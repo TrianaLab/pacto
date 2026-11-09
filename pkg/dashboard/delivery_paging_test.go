@@ -350,7 +350,7 @@ func TestDeliveryHistoryTimeline(t *testing.T) {
 	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Failed,
 		Times: delivery.Times{Finished: ago(1)}}))
 	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: []delivery.HistoryEntry{
-		{Operation: "a", Kind: delivery.RecordGap, Finished: ago(2)}, {Operation: "b", Outcome: delivery.Succeeded, Pointer: &delivery.PointerChange{After: dRun}, Finished: ago(3)}}}
+		{Operation: "a", Kind: delivery.RecordGap, Finished: ago(2)}, {Operation: "b", Outcome: delivery.Succeeded, Verification: delivery.Verified, Pointer: &delivery.PointerChange{After: dRun}, Finished: ago(3)}}}
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
 	tl := page(h["timeline"])

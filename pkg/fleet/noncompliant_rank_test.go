@@ -281,8 +281,14 @@ func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
 	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: "gpdomain"}); got != "[]" {
 		t.Errorf("owners in a golden path's domain = %s", got)
 	}
-	// The CLI and MCP default names every product kind: a domain query gains no
-	// owner rows, and an owner query no domain rows.
+	checkEveryKindKeepsCrossKindOff(t, q)
+}
+
+// checkEveryKindKeepsCrossKindOff: the CLI and MCP default names every product
+// kind, and then a domain query gains no owner rows and an owner query no
+// domain rows.
+func checkEveryKindKeepsCrossKindOff(t *testing.T, q *Query) {
+	t.Helper()
 	for _, f := range []EntityFilter{{BusinessDomain: "pay"}, {OwnerKey: "team:alpha"}} {
 		f.Kinds, f.Sort = productKinds(), SortName
 		l, err := q.Entities(f)

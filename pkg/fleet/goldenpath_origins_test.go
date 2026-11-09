@@ -50,10 +50,14 @@ func TestAggregateOrigins(t *testing.T) {
 	if ref := paths.Entities[0]; ref.Created != 1 || ref.NonCompliant != 1 {
 		t.Errorf("path row = %+v", ref)
 	}
-	// has-non-compliant is about owners and domains: a golden path whose created
-	// services include a non-compliant one never passes it, on the CLI and MCP
-	// default of every product kind.
-	nc, err := q.Entities(EntityFilter{HasNonCompliant: true, Kinds: productKinds()})
+
+}
+
+// has-non-compliant is about owners and domains: a golden path whose created
+// services include a non-compliant one never passes it, on the CLI and MCP
+// default of every product kind.
+func TestHasNonCompliantSkipsGoldenPaths(t *testing.T) {
+	nc, err := originsFleet(t).Entities(EntityFilter{HasNonCompliant: true, Kinds: productKinds()})
 	if err != nil {
 		t.Fatal(err)
 	}
