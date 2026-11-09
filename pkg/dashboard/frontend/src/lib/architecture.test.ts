@@ -838,6 +838,13 @@ describe('responsive by construction', () => {
     expect(decls.length).toBeGreaterThan(200);
   });
 
+  it('sizes no box in a page from the viewport: beside the sidebar the viewport is wider than the page', () => {
+    // Overlays (dialogs, popovers) live in components and may; a view's in-flow box
+    // sizes from its container (cqi or %), as the propose panel on the board does.
+    const views = styleFiles(join(SRC, 'views')).filter((f) => /\d\s*vw\b/.test(readFileSync(f, 'utf8').replace(/<script[\s\S]*?<\/script>/g, '')));
+    expect(views.map((f) => relative(SRC, f))).toEqual([]);
+  });
+
   it('gives no text container a fixed pixel width beyond the reviewed ones', () => {
     const found = [...new Set(decls.filter((d) => d.prop !== 'grid-template-columns' && /^\d{3,}px$/.test(d.value)).map(key))];
     expect(found.filter((k) => !FIXED_WIDTH_REVIEWED.includes(k))).toEqual([]);

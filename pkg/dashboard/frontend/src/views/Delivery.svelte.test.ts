@@ -443,6 +443,30 @@ describe('environments', () => {
     destroy();
   });
 
+  it('marks a Stage with no source Pacto can follow on the strip and on the column board (SPEC 21 r4)', async () => {
+    const row = (environment: string, upstream: object) => ({ namespace: environment, stage: 's', service: 'payments', environment, pointer: D1, version: '1.0.0',
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], upstream });
+    const envs = ['e1', 'e2', 'e3', 'e4', 'prod-us'];
+    const rows = [...envs.slice(0, 4).map((e) => row(e, { kind: 'artifact', repository: 'oci' })), row('prod-us', { kind: 'stage', namespace: 'staging-us', stage: 's', problem: 'missing' })];
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: rows });
+    let r = render(DeliveryEnvironmentsView);
+    await settle();
+    const dots = [...r.target.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
+    const prod = dots.find((d) => d.dataset.env === 'prod-us')!;
+    expect(prod.getAttribute('aria-label')).toBe('prod-us: 1.0.0. Verified. Missing upstream: the Stage staging-us/s does not exist');
+    expect(prod.querySelector('.ev-nosrc')).not.toBeNull();
+    expect(dots.filter((d) => d.querySelector('.ev-nosrc')).length).toBe(1);
+    r.destroy();
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: ['prod-us'], environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: [rows[4]] });
+    r = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="env-no-source"]') as HTMLElement)).toBe('Missing upstream: the Stage staging-us/s does not exist');
+    // SPEC 24.2: the board scrolls sideways, so it is a named region a keyboard can focus.
+    const region = r.target.querySelector('[data-testid="environments-board"]')!.parentElement!;
+    expect([region.getAttribute('role'), region.getAttribute('aria-label'), region.tabIndex]).toEqual(['region', 'Services by environment', 0]);
+    r.destroy();
+  });
+
   it('shows many environments as a strip of dots that open the full cell, with no sideways scroll', async () => {
     const envs = ['dev', 'test', 'qa', 'staging', 'preprod', 'prod-eu', 'prod-us', 'books'];
     const tiers = { dev: 'dev', test: 'test', qa: 'test', staging: 'test', preprod: 'test', 'prod-eu': 'prod', 'prod-us': 'prod' };

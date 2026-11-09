@@ -24,7 +24,7 @@
   import { cap } from '../lib/cap.svelte.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
-  import { ENV_STATES, servicePath, MAX_PATH_MARKS } from '../lib/envFigure.ts';
+  import { ENV_STATES, servicePath, sourceProblem, MAX_PATH_MARKS } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
@@ -91,9 +91,12 @@
     for (const e of shown) { const here = cell(svc, e); if (here.length) { const k = stateOf(here).key; n.set(k, (n.get(k) ?? 0) + 1); } }
     return STATES.filter((s) => n.has(s.key)).map((s) => ({ ...s, n: n.get(s.key) }));
   };
+  // SPEC 21 r4: a Stage with no source Pacto can follow says so, with the reason.
+  const deadOf = (here) => here.map(sourceProblem).filter(Boolean);
   const dotTitle = (env, here, fedBy = []) => {
     const vs = here.filter((r) => r.pointer).map((r) => r.version || shortDigest(r.pointer)).join(', ');
-    return `${env}${named(env)}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${formatCount(here.length)} Stages)` : ''}${fedBy.length ? `. Fed by ${andList(fedBy, 3)}` : ''}`;
+    const dead = deadOf(here);
+    return `${env}${named(env)}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${formatCount(here.length)} Stages)` : ''}${fedBy.length ? `. Fed by ${andList(fedBy, 3)}` : ''}${dead.length ? `. ${dead.join('. ')}` : ''}`;
   };
   // The cell a dot opened, under its service's row.
   let opened = $state(null);
@@ -166,7 +169,8 @@
         <DeliveryBadges row={r} />
         {#if r.frozen && r.frozenReason}<span class="t-meta ev-frozen">Frozen: {sentence(r.frozenReason)}</span>{/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
-        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>{/if}
+        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>
+        {:else if sourceProblem(r)}<!-- svelte-ignore a11y_no_noninteractive_tabindex (as above) --><span class="t-meta ev-ready" title={sourceProblem(r)} tabindex="0" data-testid="env-no-source">{sourceProblem(r)}</span>{/if}
         {#if r.actions?.length}
           <span class="ev-actions">
             {#if r.actions.includes('promote')}
@@ -242,7 +246,8 @@
         </div>
         <!-- The strip is as wide as what it holds: a full-width table left its right half empty
              while the names in it were cut. -->
-        <div class="ev-cq"><div class="ev-board ev-board-fit">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (SPEC 24.2: a region that scrolls sideways takes focus so the arrow keys scroll it) -->
+        <div class="ev-cq"><div class="ev-board ev-board-fit" role="region" aria-label="Services by environment, each along its own promotion path" tabindex="0">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
             <caption class="visually-hidden">Services by environment, each along its own promotion path</caption>
             <thead>
@@ -268,7 +273,7 @@
                         <span class:linked={m.linked} data-testid="env-mark">
                           <button type="button" class="ev-mark" class:open data-testid="env-dot" data-env={m.env}
                             tabindex={i === 0 ? 0 : -1} title={dotTitle(m.env, here, fedBy)} aria-label={dotTitle(m.env, here, fedBy)}
-                            aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, m.env)}><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span><bdi class="ev-env">{m.env}</bdi></button>
+                            aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, m.env)}><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span><bdi class="ev-env">{m.env}</bdi>{#if deadOf(here).length}<span class="ev-nosrc" aria-hidden="true">?</span>{/if}</button>
                         </span>
                       {/each}
                       {#if path.length > MAX_PATH_MARKS}
@@ -308,7 +313,8 @@
         </div></div>
       {:else}
         {#if anyMissing}<p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>{/if}
-        <div class="ev-cq"><div class="ev-board">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (SPEC 24.2: a region that scrolls sideways takes focus so the arrow keys scroll it) -->
+        <div class="ev-cq"><div class="ev-board" role="region" aria-label="Services by environment" tabindex="0">
           <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
             <caption class="visually-hidden">Services by environment</caption>
             <colgroup><col style="width: 13rem" />{#each shown as env (env)}<col style={shown.length > 1 ? 'width: 12rem' : undefined} />{/each}</colgroup>
@@ -395,7 +401,9 @@
      top: var(--navbar-h) would push the header down over the first row. */
   .ev-board .ev-table thead th { top: 0; }
   .ev-plan-row td { background: var(--c-surface-inset); }
-  .ev-plan { position: sticky; left: var(--sp-3); max-width: min(60rem, calc(100vw - 4 * var(--sp-4))); }
+  /* Sized from the board's own container (.ev-cq), never the viewport: beside the
+     sidebar the viewport is wider than the board, and the panel's actions fell outside it. */
+  .ev-plan { position: sticky; left: var(--sp-3); max-width: min(60rem, calc(100cqi - 2 * var(--sp-3))); }
   .ev-stage { color: var(--c-text-2); font-family: var(--font-mono); }
   .ev-tools { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; justify-content: space-between; }
   .ev-legend { margin: 0; }
@@ -422,6 +430,8 @@
   .ev-mark:hover, .ev-mark.open { outline: 2px solid var(--c-accent); outline-offset: 1px; }
   .ev-env { font-size: var(--text-xs); overflow-wrap: anywhere; text-align: start; }
   .ev-more { font-size: var(--text-xs); }
+  /* A Stage with no source Pacto can follow: unknown, never drawn as a valid entry. */
+  .ev-nosrc { color: var(--c-text-3); font-size: var(--text-xs); font-weight: 600; }
   .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px);
     padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; box-sizing: border-box; }
   .s-verified { background: var(--c-ok); }

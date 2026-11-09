@@ -153,6 +153,17 @@ function sourceOf(n: GNode, fedInGraph: boolean, ownStage = false): PromoSource 
   return { kind: 'unknown', label: 'No source', sub: 'the Stage declares no candidates, so it never promotes' };
 }
 
+/**
+ * sourceProblem is why a board row's Stage has no source Pacto can follow (SPEC 21 r4):
+ * a missing, unreadable, out-of-scope or self upstream, untrusted or unreadable records,
+ * a dead OCIRepository or no source at all. Empty when it has one.
+ */
+export function sourceProblem(r: Pick<Row, 'namespace' | 'stage' | 'upstream'>): string {
+  if (!r.upstream) return '';
+  const s = sourceOf({ namespace: r.namespace, stage: r.stage, upstream: r.upstream } as GNode, false, true);
+  return s?.kind === 'unknown' ? `${s.label}: ${s.sub}` : '';
+}
+
 export function promotionModel(service: string, graph: Graph, rows: Row[]) {
   const nodes = graph.nodes ?? [], edges = graph.edges ?? [];
   const byKey = new Map(rows.map((r) => [`${r.namespace}/${r.stage}`, r]));
