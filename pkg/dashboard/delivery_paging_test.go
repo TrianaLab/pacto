@@ -31,12 +31,12 @@ func TestPageOf(t *testing.T) {
 
 // Names give a tier label only; with no declared upstream they order by name,
 // numbers in number order, never prod after test because of the words (SPEC 21).
-func TestEnvironmentColumnsNeverOrderByTier(t *testing.T) {
+func TestEnvironmentsListedNeverOrderByTier(t *testing.T) {
 	var stages []delivery.StageObject
 	for _, e := range []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"} {
 		stages = append(stages, stage(e, "x", "x", delivery.StageStatus{}))
 	}
-	envs, tiers := environmentColumns(stages)
+	envs, tiers := environmentsListed(stages)
 	expect(t, strings.Join(envs, ",") == "Development,a1,a1b,env-02,env-2,env-10,preprod,prod-eu,prod-us,staging,test", "name order: %v", envs)
 	expect(t, tiers["preprod"] == "test" && tiers["Development"] == "dev" && tiers["a1"] == "", "inferred tiers: %v", tiers)
 	expect(t, envTier("PROD") == "prod" && envTier("books") == "", "tiers by name")

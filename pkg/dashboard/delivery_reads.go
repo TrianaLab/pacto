@@ -476,8 +476,9 @@ type environmentsOutput struct {
 		Environments []EnvironmentRow `json:"environments" doc:"The Stages of the services on this page"`
 		// Page counts services, not Stages: a page is whole rows of the board.
 		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
-		// EnvironmentNames are the board's columns on every page, so paging
-		// never moves a column.
+		// EnvironmentNames are the same on every page, so paging never moves
+		// the environment filter or the count. The board shares no column by
+		// them: each row follows its own service's path (SPEC 21 r3).
 		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match q, over every page, in the promotion order the Stages declare (candidates.upstreamStage), then by name"`
 		// EnvironmentTiers names the tier of each environment whose name says it.
 		EnvironmentTiers map[string]string `json:"environmentTiers" doc:"dev, test or prod for each environment whose name says which, inferred from the name only; an environment it cannot tell is left out"`
@@ -532,7 +533,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	})
 	out := &environmentsOutput{}
 	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
-	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)
+	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentsListed(stages)
 	byEnv := countByEnvironment(stages, held)
 	if in.Service != "" {
 		out.Body.Promotion = promotionGraph(stages, byStage, l)
@@ -588,9 +589,9 @@ func countStages(stages []delivery.StageObject, held map[string]int) ([]string, 
 	return services, c
 }
 
-// environmentColumns is the board's columns for stages, in the promotion
-// order the Stages declare, and the tier each environment's name says.
-func environmentColumns(stages []delivery.StageObject) ([]string, map[string]string) {
+// environmentsListed is every environment of stages, in the promotion order
+// the Stages declare, and the tier each environment's name says.
+func environmentsListed(stages []delivery.StageObject) ([]string, map[string]string) {
 	tiers := map[string]string{}
 	for _, st := range stages {
 		if tier := envTier(st.Spec.Environment); tier != "" {

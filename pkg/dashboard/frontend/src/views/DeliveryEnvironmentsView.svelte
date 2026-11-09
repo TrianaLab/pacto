@@ -28,10 +28,11 @@
 
   // Every service in every environment: the version it runs and whether that
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
-  // from here, through a plan. The board pages by service on the server and
-  // keeps every environment as a column on every page. Past a few columns
-  // each service is one row: its own path of status marks, in the order its
-  // Stages declare (SPEC 21 r3); a mark opens the full cell. Above it, a
+  // from here, through a plan. The board pages by service on the server. Each
+  // service is one row along its own path, in the order its Stages declare
+  // (SPEC 21 r3), so no column claims an order the services do not share: up
+  // to four environments the row holds the whole cells, past four a strip of
+  // status marks, each opening its full cell. Above it, a
   // figure: every environment's Stages by state, or with one service, that
   // service's own promotion path (SPEC 21).
   let { offset = '', limit = '', q = '', environment = '', tier = '', state: stateFilter = '', service = '', domain = '', except = '', refreshTick = 0, miraURL = '' } = $props();
@@ -65,12 +66,12 @@
   // A figure count lands on the board filtered to its state and environment; the folded
   // station's, on every environment but the ones the figure draws.
   const stateHref = (st, env, ex) => deliveryEnvironmentsUrl({ q, service, domain, state: st || undefined, environment: env || undefined, except: exceptParam(ex) });
-  // A column a person can read is 12rem: past four the board becomes the strip.
+  // A cell a person can read is 12rem: past four environments the cells become the strip.
   const BOARD_MAX = 4;
   const strip = $derived(shown.length > BOARD_MAX);
-  // The strip has no shared columns (SPEC 21 r3): services promote along their own
-  // paths, so each row is its service's own chain of marks in the order its Stages
-  // declare, up to MAX_PATH_MARKS, then a count chip to the service's whole path.
+  // Neither form has shared columns (SPEC 21 r3): services promote along their own
+  // paths, so each row is its service's own chain in the order its Stages declare.
+  // The strip shows up to MAX_PATH_MARKS marks, then a count chip to the whole path.
   const pathOf = (svc) => servicePath(rows.filter((r) => r.service === svc), shown.filter((e) => cell(svc, e).length));
   // A tier is inferred from the name only, so it reads as a guess, never as the order.
   const named = (env) => (tiers[env] ? ` (named like ${tiers[env]})` : '');
@@ -120,8 +121,6 @@
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
   const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, state: stateFilter, service, domain, except: except || undefined, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
-  // The '–' key is only worth reading when a '–' cell is on the page.
-  const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
@@ -182,8 +181,6 @@
           </span>
         {/if}
       </div>
-    {:else}
-      <span class="ev-none" title="Not delivered here"><span aria-hidden="true">–</span><span class="visually-hidden">Not delivered here</span></span>
     {/each}
 {/snippet}
 
@@ -312,28 +309,31 @@
           </table>
         </div></div>
       {:else}
-        {#if anyMissing}<p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>{/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (SPEC 24.2: a region that scrolls sideways takes focus so the arrow keys scroll it) -->
-        <div class="ev-cq"><div class="ev-board" role="region" aria-label="Services by environment" tabindex="0">
-          <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
-            <caption class="visually-hidden">Services by environment</caption>
-            <colgroup><col style="width: 13rem" />{#each shown as env (env)}<col style={shown.length > 1 ? 'width: 12rem' : undefined} />{/each}</colgroup>
+        <div class="ev-cq"><div class="ev-board" role="region" aria-label="Services by environment, each along its own promotion path" tabindex="0">
+          <table class="data-table ev-table" data-testid="environments-board">
+            <caption class="visually-hidden">Services by environment, each along its own promotion path</caption>
+            <colgroup><col style="width: 13rem" /><col /></colgroup>
             <thead>
-              <tr><th scope="col">Service</th>{#each shown as env (env)}<th scope="col"><span class="ev-name">{env}</span></th>{/each}</tr>
+              <tr><th scope="col">Service</th><th scope="col">Path <span class="t-meta">as each service's Stages declare it</span></th></tr>
             </thead>
             <tbody>
               {#each services as svc (svc)}
                 <tr data-testid={`env-row-${svc}`}>
                   <th scope="row"><a class="ev-name" href={deliveryServiceUrl(svc)}>{svc}</a></th>
-                  {#each shown as env (env)}
-                    {@const here = cell(svc, env)}
-                    <td data-label={env}>
-                      {@render stack(svc, env)}
-                    </td>
-                  {/each}
+                  <td>
+                    <ol class="ev-steps" aria-label={`Path of ${svc}`}>
+                      {#each pathOf(svc) as m (m.env)}
+                        <li class="ev-step" data-testid="env-step" data-env={m.env}>
+                          <span class="t-meta ev-step-env"><bdi class="ev-name">{m.env}</bdi>{named(m.env)}{m.fedBy.length ? `, fed by ${andList(m.fedBy, 3)}` : ''}</span>
+                          {@render stack(svc, m.env)}
+                        </li>
+                      {/each}
+                    </ol>
+                  </td>
                 </tr>
                 {#if proposing && proposingService === svc}
-                  <tr class="ev-plan-row"><td colspan={shown.length + 1}>
+                  <tr class="ev-plan-row"><td colspan="2">
                     <div class="ev-plan">
                       {#key proposing}
                         <ProposePanel request={proposing} toVersion={proposingVersion} {miraURL} onClose={closePlan} />
@@ -410,7 +410,12 @@
   /* Page scroll down, sideways scroll only when the columns need it: no inner box that hides rows. */
   /* relative: the visually hidden labels in off-screen cells are absolute and would widen the page. */
   .ev-board { position: relative; overflow-x: auto; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
-  .ev-none { color: var(--c-text-3); }
+  /* Up to four environments, each row is its service's own path as whole cells, in the
+     order its Stages declare (SPEC 21 r3): no column is shared, so none claims an order. */
+  .ev-steps { display: flex; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); margin: 0; padding: 0; list-style: none; }
+  .ev-step { display: flex; flex-direction: column; gap: var(--sp-1); flex: 1 1 12rem; min-inline-size: min(12rem, 100%); max-inline-size: 20rem; }
+  .ev-step-env { overflow-wrap: anywhere; }
+  .ev-step-env .ev-name { display: inline; font-weight: 600; color: var(--c-text-2); }
   /* Names wrap rather than clip: the whole name is on the page. */
   .ev-name { display: block; overflow-wrap: anywhere; }
   .ev-board-fit { width: fit-content; max-width: 100%; }
