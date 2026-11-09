@@ -99,10 +99,11 @@
 
 <style>
   /* The rail and its rule run the full dynamic viewport height under the top bar, on
-     pages shorter than the window too (SPEC 22.4, 24.4). */
+     pages shorter than the window too (SPEC 22.4, 24.4). --shell-top-inset is the height
+     of a host band above the top bar while it is on screen (the WASM demo's notice). */
   .side {
     position: sticky; top: var(--navbar-h); align-self: start; z-index: 20;
-    block-size: calc(100vh - var(--navbar-h)); block-size: calc(100dvh - var(--navbar-h));
+    block-size: calc(100vh - var(--navbar-h) - var(--shell-top-inset, 0px)); block-size: calc(100dvh - var(--navbar-h) - var(--shell-top-inset, 0px));
     inline-size: 232px;
   }
   .side.anim, .side.anim .side-in { transition: inline-size var(--dur-3) var(--ease-in-place); }
