@@ -202,6 +202,18 @@
     const is = (value, label) => v === value || v.toLowerCase() === label.toLowerCase();
     apply({ businessDomain: is(NO_DOMAIN, businessDomainLabel('')) ? NO_DOMAIN : is(UNKNOWN_DOMAIN, businessDomainLabel(UNKNOWN_DOMAIN)) ? UNKNOWN_DOMAIN : v });
   }
+  // Created from (T3): a search over the golden paths, plus the two origins no path names,
+  // typed in words ("None declared", "Origin not resolved") as the filter chip says them.
+  const createdBox = $derived(createdFrom ? (ORIGIN_WORDS[createdFrom] ?? createdFrom) : '');
+  let createdCommitted = $state('');
+  $effect(() => { createdCommitted = createdBox; });
+  function pickCreated(ref) { createdCommitted = ref.label ?? ''; apply({ createdFrom: ref.key ?? '' }); }
+  function typeCreated(v) {
+    if (v === createdCommitted) return;
+    createdCommitted = v;
+    const word = Object.entries(ORIGIN_WORDS).find(([k, w]) => v === k || v.toLowerCase() === w.toLowerCase());
+    apply({ createdFrom: word ? word[0] : v });
+  }
   // The capability types come from the backend aggregate over every matched service,
   // so the options never describe only the page on screen. A selected type the current
   // match no longer holds stays listed, so the select never silently shows "Any".
@@ -345,6 +357,20 @@
         testid="svc-domain"
         onselect={pickDomain}
         oncommit={typeDomain}
+      />
+    </div>
+    <div class="sv-field">
+      <label for="svc-created">Created from</label>
+      <EntityCombobox
+        id="svc-created"
+        value={createdBox}
+        kinds={['service']}
+        filters={{ template: 'only' }}
+        placeholder="golden path or None declared"
+        label="Filter by the golden path a service was created from"
+        testid="svc-created"
+        onselect={pickCreated}
+        oncommit={typeCreated}
       />
     </div>
     <label class="sv-field">

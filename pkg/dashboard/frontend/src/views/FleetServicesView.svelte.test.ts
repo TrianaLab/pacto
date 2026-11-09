@@ -410,6 +410,26 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('picks the golden path a service was created from in a search over the golden paths, or none declared', async () => {
+    vi.useFakeTimers();
+    try {
+      entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+      const { target, component } = mountView();
+      await vi.waitFor(() => expect(rows(target).length).toBe(1));
+      const box = target.querySelector('#svc-created') as HTMLInputElement;
+      // Suggestions come from the golden paths only, as the reader types.
+      box.value = 'http'; box.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ text: 'http', kinds: ['service'], template: 'only' }));
+      // The words the chip uses commit the origin no path names.
+      box.value = 'None declared'; box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      flushSync();
+      expect(location.hash).toBe('#/fleet/services?createdFrom=%28none%29');
+      unmount(component); document.body.removeChild(target);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('lists the consumers of an offering from the URL, with a chip that removes the filter', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ consumes: 'postgresql', status: 'Compliant' });

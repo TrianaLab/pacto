@@ -17,6 +17,8 @@ export interface EntitySuggestOptions {
   limit?: number;
   /** Quiet period before a keystroke becomes a request. */
   debounceMs?: number;
+  /** Further Entities query filters every request carries (golden paths: template only). */
+  query?: { template?: 'only' | 'exclude' };
 }
 
 export interface EntitySuggest {
@@ -34,7 +36,7 @@ export interface EntitySuggest {
 }
 
 export function createEntitySuggest(opts: EntitySuggestOptions = {}): EntitySuggest {
-  const { kinds, limit = 25, debounceMs = 140 } = opts;
+  const { kinds, limit = 25, debounceMs = 140, query } = opts;
 
   let results = $state<ProductEntityRef[]>([]);
   let total = $state(0);
@@ -71,7 +73,7 @@ export function createEntitySuggest(opts: EntitySuggestOptions = {}): EntitySugg
     if (!q) { timer = null; loading = false; reset(); return; }
     loading = true;
     timer = setTimeout(() => {
-      api.fleetEntities({ text: q, limit, ...(kinds ? { kinds } : {}) })
+      api.fleetEntities({ ...query, text: q, limit, ...(kinds ? { kinds } : {}) })
         .then((res) => {
           if (mySeq !== seq) return;
           results = res.entities ?? [];

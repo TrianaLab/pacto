@@ -21,6 +21,8 @@
     id,
     value = $bindable(''),
     kinds = undefined,
+    // Further filters every suggestion request carries (golden paths: { template: 'only' }).
+    filters = undefined,
     limit = 8,
     placeholder = '',
     label = 'Search',
@@ -35,7 +37,7 @@
   // The searched kinds and the bound are fixed for the life of one combobox -- a field
   // that suggests services does not become a field that suggests owners -- so the
   // suggester is built once, deliberately outside reactivity.
-  const suggest = untrack(() => createEntitySuggest({ kinds, limit }));
+  const suggest = untrack(() => createEntitySuggest({ kinds, limit, query: filters }));
   onDestroy(() => suggest.destroy());
 
   let openList = $state(false);
