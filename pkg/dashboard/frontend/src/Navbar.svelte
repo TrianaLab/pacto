@@ -19,7 +19,7 @@
   // (Cmd/Ctrl-K) otherwise. Its label and shortcut hint communicate the actual action.
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.includes('Mac');
   const searchLabel = $derived(fleetSearch ? 'Search services, revisions and targets' : 'Search: open command palette');
-  const searchPlaceholder = $derived(fleetSearch ? 'Search services, revisions and targets…' : 'Search...');
+  const searchPlaceholder = $derived(fleetSearch ? 'Search services, revisions and targets…' : 'Search services, owners and pages');
   const searchKbd = $derived(fleetSearch ? '/' : (isMac ? '⌘K' : 'Ctrl+K'));
 
   // SPEC 20 (B2): a Fleet host -- or one whose capabilities are not known yet, the
