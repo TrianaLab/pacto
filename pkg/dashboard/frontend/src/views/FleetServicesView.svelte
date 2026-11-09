@@ -45,6 +45,8 @@
   let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
+  // The created-from values that name no golden path (B5), in words.
+  const ORIGIN_WORDS = { '(none)': 'None declared', '(unresolved)': 'Origin not resolved' };
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
@@ -183,7 +185,7 @@
     offering ? { key: 'offering', label: 'Offering', value: offering } : null,
     consumes ? { key: 'consumes', label: 'Consumes', value: consumes } : null,
     consumes && phase ? { key: 'phase', label: 'Provisioning phase', value: PHASE_WORDS[phase] ?? phase } : null,
-    createdFrom ? { key: 'createdFrom', label: 'Created from', value: createdFrom } : null,
+    createdFrom ? { key: 'createdFrom', label: 'Created from', value: ORIGIN_WORDS[createdFrom] ?? createdFrom } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
 

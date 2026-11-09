@@ -11,3 +11,7 @@ export const loadPostureFigure = once(() => import('../components/figure/Posture
 export const loadRankFigure = once(() => import('../components/figure/RankFigure.svelte'));
 // @ts-expect-error — Svelte component has no declaration file
 export const loadKnowsExplainer = once(() => import('../components/figure/explain/KnowsExplainer.svelte'));
+// @ts-expect-error — Svelte component has no declaration file
+export const loadOriginFigure = once(() => import('../components/figure/OriginFigure.svelte'));
+// @ts-expect-error — Svelte component has no declaration file
+export const loadCreationExplainer = once(() => import('../components/figure/explain/CreationExplainer.svelte'));

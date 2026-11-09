@@ -454,6 +454,9 @@ a.prow-n:hover b { text-decoration: underline; }
 a.lane-note { color: var(--c-accent); font-size: var(--text-sm); }
 .fig .lane-name.id { display: block; width: max-content; max-width: 14rem; min-width: 0; }
 .fig[data-w="col"] .rank { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "hub hub" ". lanes"; row-gap: var(--sp-4); }
+/* Lanes that flow in (Golden paths): the lanes lead and the population hub closes the row;
+   in the vertical layout the hub still heads the trunk. */
+.rank--in { grid-template-columns: minmax(0, 1fr) 40px minmax(7rem, max-content); grid-template-areas: "lanes . hub"; }
 
 /* Trust figures (r5): source rows fan into a Bus (distinct endpoints, so wires never
    meet in one point) and the bus feeds the snapshot. */
@@ -474,3 +477,11 @@ a.lane-note { color: var(--c-accent); font-size: var(--text-sm); }
 .fig[data-w="col"] .bus { margin: var(--sp-3) var(--sp-4) var(--sp-3) 0; }
 .fig[data-w="col"] .trust-hub { grid-column: 1 / -1; flex-direction: row-reverse; justify-content: flex-start; padding-top: var(--sp-5); }
 .fig[data-w="col"] .trust-hl { justify-items: end; text-align: right; }
+
+/* Golden path (r5): the template hub leads an arrow into the posture of what it created. */
+.gpfig { display: grid; grid-template-columns: minmax(7rem, 14rem) 48px minmax(0, 1fr); align-items: center; min-width: 0; }
+.gpfig-hub { display: grid; justify-items: start; gap: var(--sp-2); min-width: 0; }
+.gpfig-hl { display: grid; gap: 2px; font-size: var(--text-sm); line-height: 1.35; min-width: 0; max-width: 100%; }
+.gpfig-hl .id { display: block; overflow: hidden; white-space: nowrap; }
+.gpfig-col { min-width: 0; }
+.fig[data-w="col"] .gpfig { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 32px auto; }

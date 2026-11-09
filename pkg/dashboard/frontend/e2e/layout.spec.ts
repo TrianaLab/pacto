@@ -39,6 +39,17 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens a service created from a golden path, through the path's own created count. */
+const createdService = async (page: Page) => {
+  await page.goto('/#/fleet/golden-paths');
+  const created = page.locator('[data-testid="path-created"]').first();
+  await expect(created).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await created.getAttribute('href')}`);
+  const a = page.locator('[data-testid="service-list"] a[href*="/fleet/services/"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+};
+
 // `list` marks list views, where L3 holds the list within 600px or the figure folds.
 type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
 const ROUTES: Route[] = [
@@ -71,6 +82,9 @@ const ROUTES: Route[] = [
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
+  { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
+  { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
+  { name: 'service created from a golden path', open: createdService },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },

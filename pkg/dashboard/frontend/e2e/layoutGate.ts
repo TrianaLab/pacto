@@ -84,6 +84,10 @@ export function installScaleFixture(): void {
   const NC_DOMAINS: [string, number, number][] = [[longName('load-domain-a'), 45, 310], [longName('load-domain-b'), 30, 90], [longName('load-domain-c'), 25, 40], [longName('load-domain-d'), 15, 700]];
   const NC_LISTS = new Map<string, number>([...NC_OWNERS, ...NC_DOMAINS].map(([k, n]) => [k, n] as [string, number])
     .concat([['-unidentified', 84], ['(none)', 40], ['(unknown)', 14]]));
+  // The origin tally at fleet scale (B5): 5,000 services across 14 golden paths with
+  // names up to 200 characters, 80 whose origin resolves to none and 3 hidden.
+  const ORIGIN_PATHS: [string, number, number][] = [['load/path-a', 1800, 120], ['load/path-b', 900, 40], ['load/path-c', 320, 50]];
+  const ORIGIN_LISTS = new Map<string, number>([...ORIGIN_PATHS.map(([k, n]) => [k, n] as [string, number]), ['(unresolved)', 80], ['(none)', 1300]]);
 
   const amend = (method: string, path: string, doc: Record<string, unknown>, body: string | null) => {
     const [route, query = ''] = path.split('?');
@@ -93,8 +97,9 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text'].some((k) => q.get(k));
-    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed) {
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom'].some((k) => q.get(k));
+    // The golden path list keeps the engine's paths: a fleet has a handful.
+    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
       if (total) {
         page(doc, total);
@@ -122,7 +127,23 @@ export function installScaleFixture(): void {
           nonCompliantBeyondRanking: 389 - 105 - 84, nonCompliantUnidentified: 84, nonCompliantOwners: 120,
           nonCompliantByDomain: NC_DOMAINS.map(([domain, n, size]) => ({ domain, services: size, nonCompliant: n })),
           nonCompliantDomainsBeyond: 389 - 115 - 40 - 14, nonCompliantDomains: 140, nonCompliantNoDomain: 40, nonCompliantDomainUnknown: 14,
+          origins: {
+            byPath: ORIGIN_PATHS.map(([key, n, nc]) => ({ key, label: longName(key.slice(5)), services: n, nonCompliant: nc, hidden: key.endsWith('a') ? 3 : 0 })),
+            paths: 14, beyond: { services: 600, nonCompliant: 30 }, unresolved: { services: 80, nonCompliant: 9 }, none: { services: 1300, nonCompliant: 140 }, hidden: 3,
+          },
         });
+      }
+      const from = q.get('createdFrom') || '';
+      const listed = !q.get('status') && ORIGIN_LISTS.get(from);
+      if (listed) {
+        // The made-up paths created nothing the engine lists: stand-ins fill the page.
+        const ents = doc.entities as Record<string, unknown>[];
+        if (!ents.length && q.get('limit') !== '1') {
+          const lim = Math.min(listed, Number(q.get('limit') || 25));
+          doc.entities = Array.from({ length: lim }, (_, i) => ({ kind: 'service', key: `load/from-${i}`, label: `from-${i}`, status: 'Compliant', href: `/fleet/services/load%2Ffrom-${i}` }));
+          doc.count = lim;
+        }
+        if (q.get('limit') !== '1') page(doc, listed);
       }
       if (q.get('status') === 'NonCompliant') {
         const n = NC_LISTS.get(q.get('ownerKey') || q.get('businessDomain') || (q.get('ownership') === 'unidentified' ? '-unidentified' : ''));
