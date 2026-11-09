@@ -13,7 +13,7 @@
   // gets a step-through (Previous / Next) whose last step is the same DOM.
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { widthClass, CHIP_CAP } from '../../lib/figure.ts';
-  import { layoutLanes, wirePaths } from '../../lib/figureLayout.ts';
+  import { layoutLanes, wirePaths, spills } from '../../lib/figureLayout.ts';
   import { fitIdents } from '../../lib/elide.ts';
   import { play, resolve, claimAutoplay, finalMode, sessionKey, tokenOffsets } from '../../lib/narrate.ts';
   import { prefersReducedMotion } from '../../lib/motion.ts';
@@ -58,13 +58,21 @@
   /** @type {IntersectionObserver | undefined} */ let io;
   let first = true;
 
+  // The width classes from widest to narrowest: a layout whose text spills steps down
+  // to the next (SPEC 24.3), since a font, a touch screen's 44px targets or a long count
+  // can need more room than the figure's width alone predicts.
+  const CLASSES = /** @type {const} */ (['wide', 'mid', 'narrow', 'col']);
+
   async function layout() {
     if (!el?.isConnected) return;
-    w = el.clientWidth < rowMin ? 'col' : widthClass(el.clientWidth);
-    await tick();
-    if (!stageEl?.isConnected) return;
-    layoutLanes(stageEl, CHIP_CAP[w]);
-    fitIdents(el); // the stage's names, and the aside's and foot's
+    for (let i = CLASSES.indexOf(el.clientWidth < rowMin ? 'col' : widthClass(el.clientWidth)); ; i++) {
+      w = CLASSES[i];
+      await tick();
+      if (!stageEl?.isConnected) return;
+      layoutLanes(stageEl, CHIP_CAP[w]);
+      fitIdents(el); // the stage's names, and the aside's and foot's
+      if (w === 'col' || !spills(stageEl)) break;
+    }
     paths = wirePaths(stageEl, wires, w);
     if (first) { first = false; await tick(); if (stageEl?.isConnected) start(); }
   }

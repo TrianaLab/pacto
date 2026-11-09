@@ -60,6 +60,22 @@ export function layoutLanes(stage: Element, cap: number): void {
   }
 }
 
+/**
+ * spills says whether any box in a figure's stage holds more text than its width: it
+ * spills past its edge, or a box that clips cuts it with no ellipsis. An identity that
+ * ends in an ellipsis is elided on purpose (C6), and a visually hidden label is not
+ * laid out, so neither counts.
+ */
+export function spills(stage: Element): boolean {
+  for (const el of stage.querySelectorAll<HTMLElement>('*')) {
+    if (el instanceof SVGElement || el.clientWidth < 2 || el.scrollWidth - el.clientWidth <= 1) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'inline' || cs.position === 'absolute' || cs.textOverflow === 'ellipsis' || /auto|scroll/.test(cs.overflowX)) continue;
+    return true;
+  }
+  return false;
+}
+
 export interface DrawnWire {
   id: string; d: string; off: boolean; style: string; tone: string;
   /** The ✕ of a broken wire (C12), and the arrowhead of a "moves to" wire (C13b). */
