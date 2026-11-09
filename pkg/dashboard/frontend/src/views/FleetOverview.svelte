@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { sourceHealthTally, splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
+  import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs } from '../lib/distributions.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
@@ -79,11 +79,6 @@
 
   const knowledge = $derived(snapshotKnowledge(overview?.meta));
   const attentionTotal = $derived(overview?.attention?.total ?? 0);
-  // Band 4. Fleet-wide source health from the backend's complete-population tally, not
-  // from meta.sources -- that list is capped at MaxMetaSources and keeps the least
-  // healthy when it cuts, so counting it would report a fleet of sixty healthy sources
-  // and one outage as sixty-one problems.
-  const sourceTally = $derived(sourceHealthTally(overview?.meta?.sourceCounts));
   // Page-level state: loading/error gate the whole view; once loaded, the overview
   // always has a summary to render (itemCount 1).
   const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
@@ -358,9 +353,8 @@
         <div class="ov-title"><h2 id="ov-sources" class="t-section-title">Data sources</h2><HelpTip label="data sources" text="Where everything above came from. A degraded source makes the counts on this page incomplete." /></div>
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
-      <!-- The tally is over the COMPLETE source population; the chips below it are the
-           bounded, least-healthy-first list from the meta. -->
-      <p class="ov-tally t-body-2">{sourceTally}</p>
+      <!-- The trust figure at the top of the page counts the sources by state (one
+           carrier per fact, L3); this section names them, least healthy first. -->
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 

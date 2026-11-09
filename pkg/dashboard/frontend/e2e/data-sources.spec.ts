@@ -53,14 +53,15 @@ test.describe('the overview leads to the data sources', () => {
     await expect(primary.getByRole('link', { name: /data source/i })).toHaveCount(0);
   });
 
-  test('the overview states the whole source population, not the chips it drew', async ({ page }) => {
+  test('the overview counts the whole source population once, and names the sources', async ({ page }) => {
     await boot(page, '#/fleet');
     const band = await overviewSources(page);
-    // The claim that matters is that the SENTENCE and the CHIPS agree with each other and
-    // with the inventory -- three surfaces, one population. Each source that needs a look
-    // keeps its own chip; more than three healthy ones fold into one "4 available" chip.
-    const tally = flat(await band.locator('.ov-tally').textContent());
-    expect(tally).toBe(`${DEMO_SOURCES} data sources — 1 unavailable, 1 partial, 4 available.`);
+    // The trust figure counts the sources by state (one carrier per fact, L3), so the
+    // section states no second tally; its chips name the sources and agree with the
+    // inventory. Each source that needs a look keeps its own chip; more than three
+    // healthy ones fold into one "4 available" chip.
+    await expect(band.locator('.ov-tally')).toHaveCount(0);
+    await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES - 2));
 
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
@@ -124,9 +125,11 @@ test.describe('overview to inventory to source and back', () => {
 
   test('the inventory summary counts every source and filters to the bucket you pick', async ({ page }) => {
     await boot(page, '#/fleet/sources');
+    // The figure's state bar: each legend item is "<state> <count>" and links to its filter.
     const tally = page.getByTestId('source-tally');
-    const links = tally.getByRole('link');
-    await expect(links).toHaveText(['1 unavailable', '1 partial', '4 available']);
+    const links = tally.locator('.dist-item a');
+    const legend = () => links.evaluateAll((as) => as.map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`));
+    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', 'Current 4']);
 
     // The bucket IS the filter. Following it must leave exactly that many rows.
     await links.first().click();
@@ -136,8 +139,8 @@ test.describe('overview to inventory to source and back', () => {
 
     // The summary is over the COMPLETE population, so a filter does not shrink it --
     // it only marks where you are.
-    await expect(tally.getByRole('link')).toHaveText(['1 unavailable', '1 partial', '4 available']);
-    await expect(tally.locator('a[aria-current="true"]')).toHaveText('1 unavailable');
+    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', 'Current 4']);
+    await expect(tally.locator('a[aria-current="true"] .dist-label')).toHaveText('Unavailable');
   });
 });
 

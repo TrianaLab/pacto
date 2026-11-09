@@ -450,15 +450,15 @@ describe('FleetOverview — data sources are a findable section, not a caption',
     unmount(component); document.body.removeChild(target);
   });
 
-  it('states the complete source population, not the length of the capped chip list', async () => {
+  it('names the sources and leaves their counts to the trust figure', async () => {
     overviewFn.mockResolvedValue(baseOverview(true));
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
     const band = target.querySelector('#sec-sources') as HTMLElement;
     const text = (band.textContent || '').replace(/\s+/g, ' ');
-    // 7 sources exist; 2 chips are rendered. Reading "2 data sources" off the chips
-    // would be a smaller, wronger number in the one place a reader checks coverage.
-    expect(text).toContain('7 data sources — 1 unavailable, 1 partial, 5 available.');
+    // One carrier per fact (L3): the figure at the top counts the 7 sources by state, so
+    // this section states no second population total to reconcile with it.
+    expect(text).not.toContain('7 data sources');
     expect(band.querySelectorAll('a.sh-chip')).toHaveLength(2);
     unmount(component); document.body.removeChild(target);
   });
@@ -481,7 +481,6 @@ describe('FleetOverview — data sources are a findable section, not a caption',
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
     const text = ((target.querySelector('#sec-sources') as HTMLElement).textContent || '').replace(/\s+/g, ' ');
-    expect(text).toContain('4 data sources, all available.');
     // A healthy fleet gets a sentence, never a row of zeroes to scan.
     expect(text).not.toMatch(/0 (unavailable|stale|partial)/);
     unmount(component); document.body.removeChild(target);

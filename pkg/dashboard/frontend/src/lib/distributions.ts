@@ -126,6 +126,20 @@ export const COMPLIANCE_STATES: BucketState<keyof ComplianceTally>[] = [
   { value: '', field: 'other', label: 'Other', tone: 'neutral' } as BucketState<keyof ComplianceTally>,
 ];
 
+/** Source health as counted on every answer's meta (SourceCounts), worst first. */
+export interface SourceStateTally { unavailable?: number; stale?: number; partial?: number; available?: number }
+export const SOURCE_STATES: BucketState<keyof SourceStateTally>[] = [
+  { value: 'unavailable', field: 'unavailable', label: 'Unavailable', tone: 'err' },
+  { value: 'stale', field: 'stale', label: 'Stale', tone: 'warn' },
+  { value: 'partial', field: 'partial', label: 'Partial', tone: 'warn' },
+  { value: 'available', field: 'available', label: 'Current', tone: 'ok' },
+];
+
+/** sourceSegments is the Sources figure's state bar (SPEC 7 r5): every bucket links to its filter. */
+export function sourceSegments(t: SourceStateTally | undefined, url: (state: string) => string): Segment[] {
+  return stateSegments(SOURCE_STATES, t, Object.fromEntries(SOURCE_STATES.map((s) => [s.field, url(s.value)])));
+}
+
 export function complianceSegments(t: ComplianceTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
   return stateSegments(COMPLIANCE_STATES, t, hrefs);
 }

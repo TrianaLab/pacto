@@ -446,26 +446,25 @@ describe('FleetSourcesView (G)', () => {
   const sourceRows = (n: number) => Array.from({ length: n }, (_, i) => (
     { kind: 'source', key: `src-${i}`, label: `src-${i}`, href: `/fleet/sources/src-${i}` }));
 
+  // The state bar's legend: "<label> <count>" per bucket, each a link to its filter.
+  const legend = (tally: HTMLElement) => Array.from(tally.querySelectorAll('.dist-item a'))
+    .map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`);
+
   it('summarises source health over the complete population, with each bucket as its filter', async () => {
     const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
     resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView);
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
     // Worst first, and about all 60 -- not the 25 rows on this page.
-    const links = Array.from(tally.querySelectorAll('a'));
-    expect(links.map((a) => a.textContent)).toEqual(['1 unavailable', '5 stale', '4 partial', '50 available']);
-    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+    expect(legend(tally)).toEqual(['Unavailable 1', 'Stale 5', 'Partial 4', 'Current 50']);
+    expect(Array.from(tally.querySelectorAll('.dist-item a')).map((a) => a.getAttribute('href'))).toEqual([
       '#/fleet/sources?sourceHealth=unavailable',
       '#/fleet/sources?sourceHealth=stale',
       '#/fleet/sources?sourceHealth=partial',
       '#/fleet/sources?sourceHealth=available',
     ]);
-    // No second population total to reconcile against the header's.
-    expect(tally.textContent).not.toContain('60');
-    // The parts are a sentence: a space after each comma, never "1 unavailable,5 stale".
-    expect(tally.textContent?.replace(/\s+/g, ' ')).toContain('1 unavailable, 5 stale, 4 partial, 50 available.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -475,28 +474,28 @@ describe('FleetSourcesView (G)', () => {
     resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'stale' });
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    // The filtered page shows 5 rows; the tally still describes all 60 sources.
-    expect(tally.textContent).toContain('50 available');
+    // The filtered page shows 5 rows; the bar still describes all 60 sources.
+    expect(legend(tally)).toContain('Current 50');
     const current = tally.querySelector('a[aria-current="true"]') as HTMLAnchorElement;
-    expect(current.textContent).toBe('5 stale');
+    expect(current.querySelector('.dist-label')?.textContent).toBe('Stale');
     unmount(component); document.body.removeChild(target);
   });
 
   it('offers no filter link for a health state the backend cannot be asked about', async () => {
     // total 60 against 59 classified: one source reported a status with no bucket. It
-    // is named rather than folded into "available", and it is NOT a link, because
-    // sourceHealth= has no value that would select it.
+    // is drawn as its own unclassified slice rather than folded into "Current", and it
+    // is NOT a link, because sourceHealth= has no value that would select it.
     const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
     resp.meta.sourceCounts = { total: 60, available: 59 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView);
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    expect(tally.textContent).toContain('1 unclassified');
-    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['59 available']);
-    expect((tally.querySelector('.lv-unclassified') as HTMLElement).title).toContain('cannot be filtered');
+    expect(tally.textContent).toContain('Unclassified');
+    expect(legend(tally)).toContain('Current 59');
+    expect(Array.from(tally.querySelectorAll('.dist-item:not(:has(a)) .dist-label')).map((e) => e.textContent)).toContain('Unclassified');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -524,8 +523,8 @@ describe('FleetSourcesView (G)', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
 
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent))
-      .toEqual(['60 unavailable', '1 available']);
+    await vi.waitFor(() => expect(tally.querySelector('.dist-item')).toBeTruthy());
+    expect(legend(tally)).toEqual(['Unavailable 60', 'Current 1']);
 
     const banner = target.querySelector('.knowledge') as HTMLElement;
     const caveat = (banner.textContent ?? '').replace(/\s+/g, ' ').trim();

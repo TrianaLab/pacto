@@ -285,16 +285,6 @@ export function sourceHealthTallyParts(c: SourceCounts | null | undefined): Sour
   }
   return parts;
 }
-/** sourceHealthTally is [sourceHealthTallyParts] as one sentence, for a surface with
- *  no room (or no need) for a per-bucket drill-down. */
-export function sourceHealthTally(c: SourceCounts | null | undefined): string {
-  const total = c?.total ?? 0;
-  if (total === 0) return 'No data sources reported.';
-  const noun = `${formatCount(total)} data source${total === 1 ? '' : 's'}`;
-  const parts = sourceHealthTallyParts(c);
-  if (parts.length === 1 && parts[0].status === 'available') return `${noun}, all available.`;
-  return `${noun} — ${parts.map((p) => p.text).join(', ')}.`;
-}
 /**
  * sourceHealthSentence says what a source's health MEANS for the records around it,
  * in a sentence rather than a badge.

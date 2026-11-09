@@ -3,6 +3,8 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import { sourceHealthLabel, sourceHealthTallyParts } from '../lib/entityLabels.ts';
+  import { SOURCE_STATES, bucketLabel, sourceSegments } from '../lib/distributions.ts';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -117,14 +119,13 @@
     <LazyView load={loadTrustFigure} mode="sources" counts={list?.meta?.sourceCounts} meta={list?.meta} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
       stateHref={(st, kind) => urlWith({ text: '', sourceHealth: st, sourceKind: kind ?? '' })}>
       {#snippet aside()}
-          <p class="lv-tally t-body-2" data-testid="source-tally">
-            Across every data source:
-            {#each tallyParts as p, i (p.status || 'unclassified')}{#if i > 0}{', '}{/if}{#if p.status}<a
-                href={urlWith({ sourceHealth: p.status })}
-                aria-current={sourceHealth === p.status ? 'true' : undefined}>{p.text}</a>{:else}<span
-                class="lv-unclassified"
-                title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
-          </p>
+        <!-- The state bar (SPEC 7 r5): one carrier for the counts, over every source,
+             whatever the list is filtered to; each legend item is its filter. -->
+        <div class="lv-tally" data-testid="source-tally" data-nofilter>
+          <DistributionBar title="Every data source by state" level={2} total={list?.meta?.sourceCounts?.total ?? 0}
+            segments={sourceSegments(list?.meta?.sourceCounts, (st) => urlWith({ sourceHealth: st }))}
+            selected={bucketLabel(SOURCE_STATES, sourceHealth)} emptyLabel="No data sources reported." />
+        </div>
       {/snippet}
     </LazyView>
   {/if}
@@ -171,9 +172,6 @@
   .lv-tally { margin: 0; }
   /* Inline links inside a sentence, so they are underlined rather than only accent-
      coloured -- the same rule the overview's "See all" follows (WCAG 1.4.1). */
-  .lv-tally a { color: var(--c-accent); text-decoration: underline; }
-  .lv-tally a[aria-current='true'] { font-weight: 700; }
-  .lv-unclassified { color: var(--c-text-3); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   /* On a phone the search takes its own row, so its button is never squeezed to 'Searc'. */
