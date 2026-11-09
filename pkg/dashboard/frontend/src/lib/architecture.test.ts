@@ -774,3 +774,73 @@ describe('figures', () => {
     for (const f of explain) expect(f.body, f.rel).not.toMatch(/--c-(ok|warn|err)\b|\bt-(ok|warn|err)\b/);
   });
 });
+
+// Responsive by construction (SPEC 24.1, 24.6): a text container never takes a fixed
+// pixel width (it overflows the moment the font or the column changes), and a grid
+// never lays a bare `auto` track beside a squeezable one (an auto column of identifiers
+// shrank to one character per line on Publish). Each needs a minimum a person chose:
+// `minmax(<n>ch, auto)`, `max-content`, rem or ch. The lists below are the reviewed
+// exceptions (the sidebar's own 232px, a counts column beside a 1fr label); a new
+// occurrence fails here, and a fixed one is taken off the list.
+describe('responsive by construction', () => {
+  const styleFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'generated' ? [] : styleFiles(full);
+    return /\.(svelte|css)$/.test(e.name) ? [full] : [];
+  });
+  const decls = styleFiles(SRC).flatMap((f) => {
+    const rel = relative(SRC, f);
+    const body = readFileSync(f, 'utf8');
+    return [...body.matchAll(/(?<![\w-])(width|inline-size|min-width|min-inline-size|grid-template-columns)\s*:\s*([^;}\n]+)/g)]
+      .map((m) => ({ rel, prop: m[1], value: m[2].trim() }));
+  });
+  const key = (d: { rel: string; prop: string; value: string }) => `${d.rel}: ${d.prop}: ${d.value}`;
+
+  const FIXED_WIDTH_REVIEWED = [
+    'StatsBar.svelte: width: 120px',
+    'sections/OverviewSection.svelte: min-width: 240px',
+    'styles/base.css: min-width: 560px',
+    'styles/components.css: width: 120px',
+    'components/Sidebar.svelte: inline-size: 232px',
+    'components/FilterBar.svelte: min-width: 180px',
+    'views/FleetDomainsView.svelte: min-width: 220px',
+    'views/FleetServicesView.svelte: min-width: 220px',
+    'views/FleetOwnersView.svelte: min-width: 220px',
+    'views/FleetSourcesView.svelte: min-width: 220px',
+    'views/FleetGoldenPathsView.svelte: min-width: 220px',
+    'views/FleetEntityListView.svelte: min-width: 220px',
+    'views/FleetEntityListView.svelte: min-width: 180px',
+    'views/FleetOfferingsView.svelte: min-width: 220px',
+    'views/ServiceListView.svelte: min-width: 220px',
+  ];
+  const AUTO_TRACK_REVIEWED = [
+    'App.svelte: grid-template-columns: auto minmax(0, 1fr)',
+    'styles/figure.css: grid-template-columns: 14px minmax(0, 1fr) auto',
+    'styles/components.css: grid-template-columns: auto 1fr',
+    'styles/components.css: grid-template-columns: minmax(0, 1fr) auto',
+    'components/viz/HorizontalBars.svelte: grid-template-columns: minmax(6ch, 20ch) 1fr auto',
+    'components/viz/HorizontalBars.svelte: grid-template-columns: 1fr auto',
+    'views/DeliveryPublishView.svelte: grid-template-columns: minmax(0, 13rem) minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto',
+    'views/DeliveryPublishView.svelte: grid-template-columns: minmax(0, 13rem) 12rem minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto',
+    'views/DeliveryAutonomyView.svelte: grid-template-columns: auto minmax(0, 16rem) 6rem minmax(0, 1fr) auto',
+    'views/DeliveryAutonomyView.svelte: grid-template-columns: auto minmax(0, 1fr) auto',
+  ];
+
+  it('scans the style rules', () => {
+    expect(decls.length).toBeGreaterThan(200);
+  });
+
+  it('gives no text container a fixed pixel width beyond the reviewed ones', () => {
+    const found = [...new Set(decls.filter((d) => d.prop !== 'grid-template-columns' && /^\d{3,}px$/.test(d.value)).map(key))];
+    expect(found.filter((k) => !FIXED_WIDTH_REVIEWED.includes(k))).toEqual([]);
+    expect(FIXED_WIDTH_REVIEWED.filter((k) => !found.includes(k)), 'fixed: take it off the list').toEqual([]);
+  });
+
+  it('lays no bare auto grid track beyond the reviewed ones', () => {
+    // A bare `auto` track: not the max of a minmax() someone gave a floor.
+    const bare = (v: string) => /(^|[\s(,])auto(?=[\s),]|$)/.test(v.replace(/minmax\([^()]*(\([^()]*\)[^()]*)*\)/g, 'M'));
+    const found = [...new Set(decls.filter((d) => d.prop === 'grid-template-columns' && bare(d.value)).map(key))];
+    expect(found.filter((k) => !AUTO_TRACK_REVIEWED.includes(k))).toEqual([]);
+    expect(AUTO_TRACK_REVIEWED.filter((k) => !found.includes(k)), 'fixed: take it off the list').toEqual([]);
+  });
+});
