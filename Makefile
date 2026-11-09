@@ -19,7 +19,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
 
 .PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
-        test-browser test-browser-layout-full test-browser-live test-browser-compose \
+        test-browser test-browser-layout-full test-browser-live test-browser-compose docs-screenshots \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
@@ -193,6 +193,12 @@ test-browser-layout-full:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo doc-export
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop
+
+# The dashboard screenshots in docs/assets/screenshots, captured from the built WASM
+# demo at 1600x1000 in both themes, so they are reproducible rather than hand-made.
+docs-screenshots:
+	$(MAKE) -C examples/demo build
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --config playwright.screenshots.config.ts
 
 e2e-dashboard-kind: test-acceptance-kind-dashboard
 e2e-evidence-kind: test-acceptance-kind-evidence
