@@ -22,7 +22,7 @@ browser keeps a copy afterwards.
 
 The sidebar groups the pages: **Overview** and **Needs attention** first,
 then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
-folds it to a rail of icons, and the dashboard remembers the choice. On a
+folds it to a rail of icons, and on a wide screen the dashboard remembers the choice. On a
 phone, **Menu** in the top bar opens the same list.
 
 ![The dashboard sidebar: Overview and Needs attention, then the "Organization", "Change and delivery" and "System" groups, with an attention count and a data source health dot](../assets/screenshots/dashboard-sidebar-light.png#only-light)
