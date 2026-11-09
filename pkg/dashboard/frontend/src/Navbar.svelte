@@ -133,7 +133,7 @@
     </nav>
   {/if}
 
-  <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} data-testid="navbar-search">
+  <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} aria-keyshortcuts={fleetSearch ? '/' : 'Control+K Meta+K'} data-testid="navbar-search">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <span class="search-trigger-text" title={searchPlaceholder}>{searchPlaceholder}</span>
     <kbd class="search-kbd" aria-hidden="true">{searchKbd}</kbd>
@@ -178,21 +178,17 @@
     <IdentityBar />
   </div>
 
-  <!-- Mobile hamburger -->
+  <!-- Under 768px the sidebar gives way to one Menu button and its drawer (SPEC 20). -->
   <button
     type="button"
-    class="hamburger"
+    class="btn hamburger"
     id="nav-menu"
-    class:open={mobileMenuOpen}
     bind:this={hamburgerEl}
     onclick={toggleMenu}
-    aria-label="Menu"
     aria-haspopup="true"
     aria-expanded={mobileMenuOpen}
     aria-controls="mobile-drawer"
-  >
-    <span data-motion></span><span data-motion></span><span data-motion></span>
-  </button>
+  >Menu</button>
 </header>
 
 <!-- Mobile drawer: an overlay with a focus trap, Escape-to-close and focus
@@ -379,22 +375,8 @@
   .theme-moon { display: none; }
   .theme-sun { display: block; }
 
-  /* Hamburger — hidden on desktop */
-  .hamburger {
-    display: none;
-    flex-direction: column; justify-content: center; gap: 4px;
-    width: 36px; height: 36px;
-    background: none; border: none; cursor: pointer; padding: 8px;
-    margin-left: auto; flex-shrink: 0;
-  }
-  .hamburger span {
-    display: block; width: 100%; height: 2px;
-    background: var(--c-text-2); border-radius: 1px;
-    transition: transform var(--motion-feedback), opacity var(--motion-feedback);
-  }
-  .hamburger.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
-  .hamburger.open span:nth-child(2) { opacity: 0; }
-  .hamburger.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  /* The Menu button: a labelled button, hidden on desktop. */
+  .hamburger { display: none; margin-left: auto; flex-shrink: 0; }
 
   /* Mobile drawer — hidden on desktop */
   .mobile-drawer {
@@ -447,7 +429,7 @@
     }
     .navbar-right-desktop { display: none; }
     .navbar-nav-desktop { display: none; }
-    .hamburger { display: flex; }
+    .hamburger { display: inline-flex; align-items: center; }
     .mobile-drawer { display: block; }
     .search-kbd { display: none; }
     /* At 390px a flex:1 text field between the brand and the hamburger had no room for
@@ -467,7 +449,8 @@
   }
   /* SPEC 23, 24.4: 44px targets on a touch screen; the padding grows, not the font. */
   @media (pointer: coarse) {
-    .hamburger, .navbar-right :global(.btn-ghost) { width: 44px; height: 44px; }
+    .hamburger { min-height: 44px; }
+    .navbar-right :global(.btn-ghost) { width: 44px; height: 44px; }
     .search-trigger, .sources-trigger, .mobile-nav-link { min-height: 44px; }
     .search-trigger { min-width: 44px; }
   }

@@ -49,6 +49,10 @@ describe('Navbar — mobile drawer accessibility', () => {
     const hamburger = target.querySelector('.hamburger') as HTMLButtonElement;
     expect(hamburger.getAttribute('aria-expanded')).toBe('false');
     expect(hamburger.getAttribute('aria-controls')).toBe('mobile-drawer');
+    // The mockup's labelled Menu button: its name is its text (SPEC 20).
+    expect(hamburger.textContent).toBe('Menu');
+    expect(hamburger.hasAttribute('aria-label')).toBe(false);
+    expect((target.querySelector('[data-testid="navbar-search"]') as HTMLElement).getAttribute('aria-keyshortcuts')).toBe('Control+K Meta+K');
     unmount(component);
     document.body.removeChild(target);
   });
