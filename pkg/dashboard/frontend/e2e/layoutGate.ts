@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { settle } from './ready';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
 //
@@ -499,8 +500,43 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
         continue;
       }
       const title = owner.title;
-      const ok = title.includes(t) || (elided && title.startsWith(parts[0]) && title.endsWith(parts[parts.length - 1]));
-      if (!ok) out.push(`identity "${t.slice(0, 40)}" is not an elision of its title "${title.slice(0, 40)}"`);
+      // C6: whole, or head + … + tail (with the siblings' distinguishing middle between two
+      // ellipses): the head is the title's start (4 or more characters), the tail its end
+      // (5 or more), each middle piece sits in order between them, and a name of 12 code
+      // points or fewer is never elided.
+      let ok = t === title;
+      if (elided) {
+        const cp = (x: string) => [...x].length;
+        const head = parts[0], tail = parts[parts.length - 1];
+        let at = head.length;
+        ok = cp(title) > 12 && cp(head) >= 4 && cp(tail) >= 5 && title.startsWith(head) && title.endsWith(tail)
+          && parts.slice(1, -1).every((m) => { const i = title.indexOf(m, at); if (i < 0 || !m) return false; at = i + m.length; return true; })
+          && at < title.length - tail.length;
+      }
+      if (!ok) out.push(`identity "${t.slice(0, 40)}" is neither its title nor a head, middle and tail elision of it: "${title.slice(0, 40)}"`);
+    }
+
+    // L1 (r2), at 1280: a data figure's drawing and aside together fill at least 60% of
+    // its body; a fixed-width drawing that left the right half of the card empty failed.
+    // A row of steps turned vertical (S1 r3, data-w="col") is narrow by that rule.
+    if (window.innerWidth >= 1200 && window.innerWidth <= 1440) {
+      for (const f of root.querySelectorAll('[data-fig].fig--data:not([data-compact]):not([data-w="col"])')) {
+        const body = f.querySelector('.fig-body');
+        if (!body || skipped(f) || !body.getClientRects().length) continue;
+        const q = body.getBoundingClientRect();
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        const take = (x: DOMRect) => { if (x.width < 0.5 || x.height < 0.5) return; l = Math.min(l, x.left); t = Math.min(t, x.top); r = Math.max(r, x.right); b = Math.max(b, x.bottom); };
+        for (const m of body.querySelectorAll('.mk')) take(m.getBoundingClientRect());
+        const tw = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+          if (!(n.textContent ?? '').trim() || !n.parentElement || hiddenByA11y(n.parentElement)) continue;
+          const rg = document.createRange(); rg.selectNodeContents(n);
+          for (const x of rg.getClientRects()) take(x);
+        }
+        if (r < l || q.width * q.height === 0) continue;
+        const filled = ((Math.min(r, q.right) - Math.max(l, q.left)) * (Math.min(b, q.bottom) - Math.max(t, q.top))) / (q.width * q.height);
+        if (filled < 0.6) out.push(`${say(f)} leaves ${Math.round((1 - filled) * 100)}% of its card empty, more than 40% (L1)`);
+      }
     }
 
     // Figures (the [data-fig] drawings): at most 20 marks, and every number in a lane,
@@ -657,4 +693,174 @@ export async function sweepOverflow(page: Page, skip: string[] = []): Promise<st
     for (const m of found) out.push(`${w}px: ${m}`);
   }
   return out;
+}
+
+// The routes the layout specs walk (G1 and the SPEC 24.6 matrix), and the waits they share.
+
+export async function chooseRevision(page: Page, sel: string, version: string) {
+  const read = () => page.locator(`${sel} option`).evaluateAll(
+    (os, v) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${v} `))?.value ?? '', version);
+  await expect.poll(read, { message: `no ${version} revision in ${sel}`, timeout: 20_000 }).not.toBe('');
+  await page.locator(sel).selectOption(await read());
+}
+
+/** Opens the first entity link of a kind on a list route: keys come from the engine. */
+export const firstLink = (list: string, href: string) => async (page: Page) => {
+  await page.goto(`/${list}`);
+  const a = page.locator(`main a[href*="${href}"]`).first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+};
+
+/** Opens a service created from a golden path, through the path's own created count. */
+export const createdService = async (page: Page) => {
+  await page.goto('/#/fleet/golden-paths');
+  const created = page.locator('[data-testid="path-created"]').first();
+  await expect(created).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await created.getAttribute('href')}`);
+  const a = page.locator('[data-testid="service-list"] a[href*="/fleet/services/"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/${await a.getAttribute('href')}`);
+};
+
+// `list` marks list views, where L3 holds the list within 600px or the figure folds.
+export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
+export const ROUTES: Route[] = [
+  { name: 'overview', hash: '#/fleet' },
+  { name: 'services', list: true, hash: '#/fleet/services' },
+  { name: 'owners', list: true, hash: '#/fleet/owners' },
+  { name: 'domains', list: true, hash: '#/fleet/domains' },
+  { name: 'offerings', list: true, hash: '#/fleet/offerings' },
+  { name: 'sources', list: true, hash: '#/fleet/sources' },
+  { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'graph discovery', hash: '#/fleet/graph' },
+  { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
+  { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },
+  {
+    name: 'change analysis answered',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes/payments-service');
+      await chooseRevision(page, '#impact-old-rev', '1.0.0');
+      await chooseRevision(page, '#impact-new-rev', '2.0.1');
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  { name: 'service entity', hash: '#/fleet/services/payments-service' },
+  { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
+  { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
+  { name: 'target list', list: true, hash: '#/fleet/targets' },
+  { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
+  { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
+  { name: 'domain entity', hash: '#/fleet/domains/commerce' },
+  { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
+  { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
+  { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
+  { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
+  { name: 'service created from a golden path', open: createdService },
+  { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
+  { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
+  { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
+  { name: 'delivery history', list: true, hash: '#/delivery/history' },
+  { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
+  { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
+  { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
+  { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
+  { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+];
+
+/** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
+export async function toggleSidebar(page: Page): Promise<string> {
+  const side = page.locator('[data-testid="sidebar"]');
+  const before = await side.getAttribute('data-rail');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.()); // "[" is ignored in a field
+  await page.keyboard.press('[');
+  await expect(side).not.toHaveAttribute('data-rail', before ?? '');
+  await settle(page);
+  return (await side.getAttribute('data-rail')) ?? 'none';
+}
+
+/** The route has drawn its answer: a heading, and nothing still loading. */
+export async function loaded(page: Page) {
+  await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() =>
+    !document.querySelector('[aria-busy="true"]') &&
+    ![...document.querySelectorAll('main *')].some((el) => /^Loading\b/.test((el.textContent ?? '').trim()) && (el as HTMLElement).offsetParent !== null && el.children.length === 0)),
+  { timeout: 30_000 }).toBe(true);
+}
+
+/**
+ * shellProblems checks the shell at the current viewport (SPEC 22.4, 23, 24.4): the
+ * sidebar and its background run to the window bottom at scroll top and at the foot of
+ * the page; under 768px the Menu drawer does. It scrolls, then returns to the top.
+ */
+export async function shellProblems(page: Page): Promise<string[]> {
+  const out: string[] = [];
+  const side = page.locator('[data-testid="sidebar"]');
+  const bottom = (sel: string) => page.evaluate((s) => {
+    const el = document.querySelector(s);
+    const r = el?.getBoundingClientRect();
+    return r && r.height ? { b: Math.round(r.bottom), h: window.innerHeight } : null;
+  }, sel);
+  if (await side.isVisible()) {
+    for (const where of ['top', 'foot'] as const) {
+      await page.evaluate((w) => window.scrollTo(0, w === 'top' ? 0 : document.documentElement.scrollHeight), where);
+      await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+      const got = await bottom('[data-testid="sidebar"] .side-in');
+      if (got && Math.abs(got.b - got.h) > 1) out.push(`the sidebar ends at ${got.b}px, not at the window bottom (${got.h}px), at the page ${where}`);
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    return out;
+  }
+  const menu = page.getByRole('button', { name: 'Menu' });
+  if (await menu.isVisible()) {
+    await menu.click();
+    await expect(page.locator('#mobile-drawer')).toBeVisible();
+    const got = await bottom('#mobile-drawer');
+    if (got && got.b < got.h - 1) out.push(`the menu drawer ends at ${got.b}px, short of the window bottom (${got.h}px)`);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#mobile-drawer')).toBeHidden();
+  }
+  return out;
+}
+
+/**
+ * touchProblems is the SPEC 23 touch rule: on a coarse pointer every visible control and
+ * every link outside running text is at least 44x44px. A link inside a sentence keeps its
+ * line (WCAG 2.5.8 exempts inline targets). It reports nothing on a fine pointer.
+ */
+export async function touchProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    if (!matchMedia('(pointer: coarse)').matches) return [];
+    const out: string[] = [];
+    const hidden = (el: Element) => {
+      for (let p: Element | null = el; p && p !== document.body; p = p.parentElement) {
+        const cs = getComputedStyle(p);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+        if (cs.position === 'absolute' && (cs.clip === 'rect(0px, 0px, 0px, 0px)' || cs.clipPath === 'inset(50%)')) return true;
+        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && !el.closest('summary')) return true;
+      }
+      return false;
+    };
+    // In a sentence: an inline link whose nearest block also holds words of its own, or
+    // a link in running text (a paragraph that is not a .go row of links, a caption).
+    const inSentence = (a: Element) => {
+      if (a.closest('p:not(.go), figcaption, .t-meta, .lead, .dist-scope')) return true;
+      if (!/^inline$/.test(getComputedStyle(a).display)) return false;
+      let blk = a.parentElement;
+      while (blk && /^inline/.test(getComputedStyle(blk).display)) blk = blk.parentElement;
+      return !!blk && (blk.textContent ?? '').replace(/\s+/g, '').length > (a.textContent ?? '').replace(/\s+/g, '').length;
+    };
+    const sel = 'a[href], button, select, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), summary, [role=button]';
+    for (const el of document.querySelectorAll(`#app :is(${sel})`)) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || hidden(el) || el.closest('[popover]:not(:popover-open), dialog:not([open])')) continue;
+      if (el.tagName === 'A' && inSentence(el)) continue;
+      if (r.width < 43.5 || r.height < 43.5) {
+        const t = (el.textContent || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 32);
+        out.push(`a ${Math.round(r.width)}x${Math.round(r.height)}px touch target, under 44x44: <${el.tagName.toLowerCase()}> "${t}"`);
+      }
+    }
+    return [...new Set(out)];
+  });
 }

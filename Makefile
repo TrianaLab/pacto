@@ -19,7 +19,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
 
 .PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
-        test-browser test-browser-live test-browser-compose \
+        test-browser test-browser-layout-full test-browser-live test-browser-compose \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
@@ -184,6 +184,15 @@ test-browser:
 	$(MAKE) -C examples/demo smoke
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
 e2e-dashboard-wasm: test-browser
+
+# The full SPEC 23 resolution matrix: every named viewport from a 320px phone to a
+# 3840px screen, the 40px width sweep, DPR 2 and 3 on phones and tablets, and the
+# default font beside Verdana. The PR suite (test-browser) runs the SPEC 24.6 subset of
+# the same spec; the final gate and the docs screenshot job run this one.
+test-browser-layout-full:
+	$(MAKE) -C examples/demo build
+	$(MAKE) -C examples/demo doc-export
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop
 
 e2e-dashboard-kind: test-acceptance-kind-dashboard
 e2e-evidence-kind: test-acceptance-kind-evidence
