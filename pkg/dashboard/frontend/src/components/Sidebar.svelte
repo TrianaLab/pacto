@@ -137,7 +137,7 @@
   .side[data-rail='rail'] :global(.nav-item) { justify-content: center; padding: var(--sp-2) 0; }
   .side[data-rail='rail'] :global(.nav-cnt), .side[data-rail='rail'] :global(.nav-meta) { display: none; }
   .side[data-rail='rail'] :global(.nav-bdg) {
-    display: block; position: absolute; top: 0; right: 2px;
+    display: block; position: absolute; top: 1px; right: 0;
     font: 700 var(--text-xs)/1.2 var(--font-sans); color: var(--c-err);
     background: var(--c-err-bg); border: 1px solid var(--c-err-border); border-radius: 999px; padding: 0 3px;
   }

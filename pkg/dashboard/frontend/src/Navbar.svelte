@@ -466,4 +466,10 @@
   @media (max-width: 480px) {
     .version-tag { display: none; }
   }
+  /* SPEC 23, 24.4: 44px targets on a touch screen; the padding grows, not the font. */
+  @media (pointer: coarse) {
+    .hamburger, .navbar-right :global(.btn-ghost) { width: 44px; height: 44px; }
+    .search-trigger, .sources-trigger, .mobile-nav-link { min-height: 44px; }
+    .search-trigger { min-width: 44px; }
+  }
 </style>
