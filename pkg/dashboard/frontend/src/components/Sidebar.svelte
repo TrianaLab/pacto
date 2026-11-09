@@ -3,8 +3,10 @@
   //   >= 1200px  it pushes the content; the reader's choice is stored per browser, and
   //              with none it starts expanded from 1440px and collapsed below.
   //   768-1199   it always starts collapsed; expanding opens a sheet over the content
-  //              that is never stored, and Escape, a click outside, a link, leaving it
-  //              with Tab or a route change closes it (Escape returns focus).
+  //              that is never stored. "[" moves focus into it, so nothing it covers
+  //              keeps focus (WCAG 2.4.11). Escape with focus inside it, a click outside,
+  //              a link, leaving it with Tab or a route change closes it (Escape returns
+  //              focus); an Escape meant for a widget elsewhere is left to that widget.
   //   < 768      it is gone; "[" opens the top bar's Menu drawer instead.
   import NavList from './NavList.svelte';
 
@@ -54,10 +56,11 @@
   }
 
   function onKeydown(e) {
-    if (e.key === 'Escape' && mode === 'over') { closeOver(true); return; }
+    if (e.key === 'Escape' && mode === 'over' && sideEl?.contains(document.activeElement)) { closeOver(true); return; }
     if (e.key !== '[' || e.ctrlKey || e.metaKey || e.altKey || blocked || isTyping(e.target)) return;
     e.preventDefault();
     toggle();
+    if (over) toggleEl?.focus();
   }
 
   function onPointerdown(e) {
@@ -151,6 +154,15 @@
     font-size: var(--text-sm); font-weight: 500; line-height: 1.4; color: var(--c-text);
     background: var(--c-surface-raised); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     padding: var(--sp-1) var(--sp-2); box-shadow: var(--shadow-md);
+  }
+  /* A touch screen keeps :hover on the last tapped item, and the sidebar outlives the
+     route: without a real hover the tip shows on keyboard focus only. */
+  @media (hover: none) {
+    .side[data-rail='rail'] :global(.nav-item:hover:not(:focus-visible) .nav-label),
+    .side-toggle:hover:not(:focus-visible) .side-tip {
+      position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+      transform: none; padding: 0; border: 0; box-shadow: none;
+    }
   }
   @media (pointer: coarse) { .side-toggle { width: 44px; height: 44px; } }
 </style>

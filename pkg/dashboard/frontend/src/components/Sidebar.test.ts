@@ -140,6 +140,34 @@ describe('Sidebar — the overlay sheet from 768 to 1199px', () => {
     expect(document.activeElement).toBe(toggle());
   });
 
+  it('"[" moves focus into the sheet it opens', () => {
+    render(1024);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    key('[');
+    expect(side()?.dataset.rail).toBe('over');
+    expect(document.activeElement).toBe(toggle());
+    outside.remove();
+  });
+
+  it('leaves an Escape meant for a widget outside it alone', () => {
+    openSheet();
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    outside.focus();
+    key('Escape', {}, outside);
+    expect(side()?.dataset.rail).toBe('over');
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('shows its rail tooltips on hover only where a real hover exists', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(`${process.cwd()}/src/components/Sidebar.svelte`, 'utf8'); // vitest runs from the package root
+    expect(css).toMatch(/@media \(hover: none\) \{\s*\.side\[data-rail='rail'\] :global\(\.nav-item:hover:not\(:focus-visible\) \.nav-label\)/);
+  });
+
   it('a click outside closes it, a click inside does not', () => {
     openSheet();
     side()!.dispatchEvent(new Event('pointerdown', { bubbles: true })); flushSync();
