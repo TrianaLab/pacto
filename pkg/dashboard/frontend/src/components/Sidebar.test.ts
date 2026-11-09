@@ -221,6 +221,12 @@ describe('Sidebar — items', () => {
     const src = target.querySelector('a[data-nav="sources"]') as HTMLElement;
     expect(src.querySelector('.nav-dot')?.classList.contains('nav-part')).toBe(true);
     expect(document.getElementById(src.getAttribute('aria-describedby')!)?.textContent).toBe('3 of 4 sources reporting');
+    unmount(component!); component = null; target.remove();
+    // A stale or partial source still reports: the ring is put into words.
+    render(1280, { sourceCounts: { total: 5, available: 5, stale: 2, partial: 1 } });
+    const s2 = target.querySelector('a[data-nav="sources"]') as HTMLElement;
+    expect(s2.querySelector('.nav-dot')?.classList.contains('nav-part')).toBe(true);
+    expect(document.getElementById(s2.getAttribute('aria-describedby')!)?.textContent).toBe('5 of 5 sources reporting, 2 stale, 1 partial');
   });
 
   it('shows no badge and no dot while the counts are unknown', () => {

@@ -129,11 +129,13 @@ export interface SourceCounts { total?: number; available?: number; partial?: nu
 
 /**
  * sourceHealth is the Data sources dot: a disc when every source reports, a ring when
- * some do not (the shape carries the state, never only the colour). null = not known.
+ * some do not or report stale or partial data (the shape carries the state, never only
+ * the colour, and the stale and incomplete counts put it in words). null = not known.
  */
-export function sourceHealth(c: SourceCounts | null | undefined): { total: number; reporting: number; partial: boolean } | null {
+export function sourceHealth(c: SourceCounts | null | undefined): { total: number; reporting: number; stale: number; incomplete: number; partial: boolean } | null {
   const total = c?.total ?? 0;
   if (!total) return null;
   const reporting = total - (c?.unavailable ?? 0);
-  return { total, reporting, partial: reporting < total || (c?.stale ?? 0) > 0 || (c?.partial ?? 0) > 0 };
+  const stale = c?.stale ?? 0, incomplete = c?.partial ?? 0;
+  return { total, reporting, stale, incomplete, partial: reporting < total || stale > 0 || incomplete > 0 };
 }

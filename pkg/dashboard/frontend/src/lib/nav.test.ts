@@ -77,8 +77,8 @@ describe('counts and health', () => {
   it('is a disc when every source reports, a ring otherwise, and unknown with no sources', () => {
     expect(sourceHealth(null)).toBeNull();
     expect(sourceHealth({ total: 0 })).toBeNull();
-    expect(sourceHealth({ total: 4, available: 4 })).toEqual({ total: 4, reporting: 4, partial: false });
-    expect(sourceHealth({ total: 4, available: 3, unavailable: 1 })).toEqual({ total: 4, reporting: 3, partial: true });
+    expect(sourceHealth({ total: 4, available: 4 })).toEqual({ total: 4, reporting: 4, stale: 0, incomplete: 0, partial: false });
+    expect(sourceHealth({ total: 4, available: 3, unavailable: 1 })).toEqual({ total: 4, reporting: 3, stale: 0, incomplete: 0, partial: true });
     expect(sourceHealth({ total: 4, available: 3, stale: 1 })?.partial).toBe(true);
     expect(sourceHealth({ total: 4, available: 3, partial: 1 })?.partial).toBe(true);
   });

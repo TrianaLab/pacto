@@ -15,7 +15,12 @@
 
   function describe(key) {
     if (key === 'attention' && attention) return `${countOf(attention, 'item')} to look at`;
-    if (key === 'sources' && health) return `${formatCount(health.reporting)} of ${countOf(health.total, 'source')} reporting`;
+    // Every state the ring shows is said: a stale or partial source reports, so the
+    // reporting count alone read as all healthy.
+    if (key === 'sources' && health) {
+      return [`${formatCount(health.reporting)} of ${countOf(health.total, 'source')} reporting`,
+        health.stale && `${formatCount(health.stale)} stale`, health.incomplete && `${formatCount(health.incomplete)} partial`].filter(Boolean).join(', ');
+    }
     return '';
   }
 </script>
