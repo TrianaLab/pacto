@@ -272,7 +272,7 @@
                     </div>
                   {:else}<span class="hv-none">{windowText ? 'None in this window' : 'None kept'}</span>{/if}
                 </td>
-                <td data-label="How it ended">{#if en}<span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
+                <td data-label="How it ended">{#if en}<span class="badge status-badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
                 <td data-label="When">{@render when(en)}</td>
                 <td data-label="Changes">
                   <div class="cell-stack">
@@ -343,7 +343,7 @@
                       <td data-label="Decided by" data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}<ul class="hv-deciders">{#each deciders(en) as a, j (j)}<li><Person user={a.by} people={data.people} /> <span class="badge badge-neutral">{decisionLabel(a.decision)}</span></li>{/each}</ul>{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td data-label="How it ended" data-testid="history-end">
                         <div class="cell-stack">
-                          <span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>
+                          <span class="badge status-badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>
                           {#if en.verification}{' '}<span>{verificationLabel(en.verification)}</span>{/if}
                           <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
                           {#if reason}{' '}<span class="hv-reason" tabindex="0"><DigestText text={reason} {known} /></span>{/if}
