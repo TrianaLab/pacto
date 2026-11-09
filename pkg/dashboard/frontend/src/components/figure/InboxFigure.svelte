@@ -9,6 +9,7 @@
   import { inboxModel, KINDS } from '../../lib/inboxFigure.ts';
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { formatCount } from '../../lib/format.ts';
+  import { elidable } from '../../lib/elide.ts';
 
   /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryInbox['byEnvironment']>, href: (env: string, kind: string, except?: string[]) => string, partial?: boolean }} */
   let { byEnvironment, href, partial = false } = $props();
@@ -28,7 +29,7 @@
         <li class="pst station">
           <Station a="p{i}" m="p{i}" {w} />
           <div class="pst-l">
-            {#if s.except}<a class="pst-name" href={href('', '', s.except)}>{s.label}</a>{:else}<b class="pst-name"><bdi>{s.label}</bdi></b>{/if}
+            {#if s.except}<a class="pst-name" href={href('', '', s.except)}>{s.label}</a>{:else if s.env}<b class="pst-name id" title={s.label}><bdi class:fit={elidable(s.label)}>{s.label}</bdi></b>{:else}<b class="pst-name"><bdi>{s.label}</bdi></b>{/if}
             <div class="queue">
               <span class="queue-h">Waiting to enter <bdi>{s.label}</bdi></span>
               {#each KINDS.filter((k) => s[k.key]) as k (k.key)}

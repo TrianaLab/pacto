@@ -78,6 +78,8 @@ describe('InboxFigure', () => {
     await settle();
     expect([...target.querySelectorAll('.stn')].map((s) => s.getAttribute('class'))).toEqual(['stn mk t-neutral', 'stn mk t-neutral', 'stn mk t-neutral']);
     expect([...target.querySelectorAll('.pst-name')].map((n) => n.textContent)).toEqual(['test', 'prod', 'Stages you cannot read']);
+    // An environment's name is an identity: one line, elided by segment, the whole name in its title.
+    expect([...target.querySelectorAll('.pst-name')].map((n) => n.getAttribute('title'))).toEqual(['test', 'prod', null]);
     const rows = [...target.querySelectorAll('.qrow')];
     expect(rows.map((r) => r.textContent!.trim())).toEqual(['1 errored', '2 held', '1 held', '1 frozen', '3 held']);
     expect(rows.map((r) => r.getAttribute('href'))).toEqual([href('test', 'errored'), href('test', 'held'), href('prod', 'held'), href('prod', 'frozen'), null]);
