@@ -33,6 +33,10 @@
 .fig--narrow > .fig-body.has-aside { display: flex; flex-wrap: wrap; align-items: center; }
 .fig--narrow > .fig-body.has-aside > .fig-stage { flex: 1 1 auto; }
 .fig--narrow > .fig-body.has-aside > .fig-aside { flex: 1 1 17rem; border-left: 0; padding-left: 0; }
+/* An aside that wraps under its narrow drawing spans the card, so its facts take two
+   columns once there is room: one tall thin column left the card's right side empty on
+   touch screens, where every link is a 44px target (L1). */
+.fig--narrow > .fig-body.has-aside > .fig-aside { container: fig-aside / inline-size; }
 .fig-aside { display: grid; gap: var(--sp-3); align-content: start; min-width: 0; font-size: var(--text-sm); }
 .fig-stage { position: relative; min-width: 0; }
 .fig-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
@@ -239,6 +243,16 @@ dl.facts { display: grid; grid-template-columns: minmax(8rem, max-content) minma
 dl.facts dt { color: var(--c-text-3); }
 dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 @container (max-width: 440px) { dl.facts { grid-template-columns: minmax(0, 1fr); gap: 0; } dl.facts dd { margin-bottom: var(--sp-2); } }
+/* Facts in a narrow figure's aside follow the figure's width as everywhere else, though
+   the aside is now their nearest container, and take two columns when the aside spans
+   the card. */
+.fig--narrow > .fig-body > .fig-aside dl.facts { grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr); gap: 6px var(--sp-4); }
+.fig--narrow > .fig-body > .fig-aside dl.facts dd { margin-bottom: 0; }
+@container fig (max-width: 440px) {
+  .fig--narrow > .fig-body > .fig-aside dl.facts { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .fig--narrow > .fig-body > .fig-aside dl.facts dd { margin-bottom: var(--sp-2); }
+}
+@container fig-aside (min-width: 36rem) { .fig--narrow > .fig-body > .fig-aside dl.facts { grid-template-columns: repeat(2, minmax(8rem, max-content) minmax(0, 1fr)); } }
 .ac-owners { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 2px; }
 .ac-owners li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; }
 .ac-owners bdi { flex: 1 1 10rem; min-width: 0; max-width: max-content; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
