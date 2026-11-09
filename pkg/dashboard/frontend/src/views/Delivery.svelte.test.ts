@@ -603,7 +603,14 @@ describe('change detail', () => {
     const first = target.querySelector('.cd-timeline time') as HTMLElement;
     expect(first.textContent).toBe('2026-10-21 10:00 UTC');
     expect(first.title).toBe('2026-10-21T10:00:00Z');
+    // Without the Stage's environment the details name the Stage only.
+    expect(text(target.querySelector('[data-testid="change-environment"]') as HTMLElement)).toBe('prod/pay (frozen: Errored)');
     destroy();
+    fns.operation.mockResolvedValue({ ...heldOperation(), environment: 'production' });
+    const named = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(named.target.querySelector('[data-testid="change-environment"]') as HTMLElement)).toBe('production, the Stage prod/pay (frozen: Errored)');
+    named.destroy();
   });
 
   it('leads with the decision and folds the affected services, the checks and the details, opening the checks on a problem', async () => {
