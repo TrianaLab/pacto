@@ -45,7 +45,7 @@ const FLEET_HEAD: Command[] = [
   { kind: 'view', label: 'Services', hint: ORG, href: fleetServicesUrl() },
   { kind: 'view', label: 'Owners', hint: ORG, href: fleetOwnersUrl() },
   { kind: 'view', label: 'Domains', hint: ORG, href: fleetDomainsUrl(), keywords: ['business domain'] },
-  { kind: 'view', label: 'Platform offerings', hint: ORG, href: fleetOfferingsUrl(), keywords: ['offering', 'platform', 'provider'] },
+  { kind: 'view', label: 'Offerings', hint: ORG, href: fleetOfferingsUrl(), keywords: ['offering', 'platform', 'provider'] },
   { kind: 'view', label: 'Golden paths', hint: ORG, href: fleetGoldenPathsUrl(), keywords: ['template', 'golden path', 'create'] },
   // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
   // as its own row it listed the identical href twice, which is the same "two buttons,

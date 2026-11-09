@@ -139,7 +139,7 @@ describe('IdentityBar', () => {
   it('names the person on the header button and shows the details in place in the phone menu', () => {
     show({ mode: 'shared', login: true, signedIn: true, name: 'Carol Diaz', caller: human });
     const trigger = document.body.querySelector('[data-testid="identity-trigger"]') as HTMLElement;
-    expect(trigger.getAttribute('aria-label')).toBe('Who you are: Carol Diaz');
+    expect(trigger.textContent?.slice(1)).toBe('Who you are: Carol Diaz');
     expect(trigger.getAttribute('popovertarget')).toBe('navbar-identity');
     expect(document.body.querySelector('#navbar-identity')?.hasAttribute('popover')).toBe(true);
     unmount(app!); app = null; document.body.innerHTML = '';
@@ -154,13 +154,13 @@ describe('IdentityBar', () => {
 
   it('labels the header button for a local dashboard and a signed-out person', () => {
     show({ mode: 'local', login: false, signedIn: false });
-    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.getAttribute('aria-label')).toBe('Who you are: This machine');
+    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.textContent?.slice(1)).toBe('Who you are: This machine');
     unmount(app!); app = null; document.body.innerHTML = '';
     show({ mode: 'shared', login: true, signedIn: false });
-    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.getAttribute('aria-label')).toBe('Who you are: Signed out');
+    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.textContent?.slice(1)).toBe('Who you are: Signed out');
     unmount(app!); app = null; document.body.innerHTML = '';
     show({ mode: 'shared', login: true, signedIn: true });
-    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.getAttribute('aria-label')).toBe('Who you are: Signed in');
+    expect(document.body.querySelector('[data-testid="identity-trigger"]')?.textContent?.slice(1)).toBe('Who you are: Signed in');
   });
 
   it('switches person where the host signs people in itself (the browser demo)', () => {

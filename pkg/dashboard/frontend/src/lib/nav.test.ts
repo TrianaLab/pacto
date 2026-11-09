@@ -61,7 +61,7 @@ describe('navGroups', () => {
     const i = views.findIndex((v) => v.label === 'Change analysis');
     expect(views[i + 1]).toMatchObject({ label: 'Delivery inbox', hint: 'Change and delivery' });
     expect(buildCommands('organization', [], true)[0].items.map((v) => v.label))
-      .toEqual(['Services', 'Owners', 'Domains', 'Platform offerings', 'Golden paths']);
+      .toEqual(['Services', 'Owners', 'Domains', 'Offerings', 'Golden paths']);
   });
 });
 

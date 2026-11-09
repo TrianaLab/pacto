@@ -47,8 +47,8 @@ describe('platform-offering labels and navigation', () => {
 
   it('the command palette finds the offerings list', () => {
     const cmds = flattenCommands(buildCommands('platform', [], true));
-    expect(cmds.find((c) => c.label === 'Platform offerings')?.href).toBe('#/fleet/offerings');
-    expect(flattenCommands(buildCommands('provider', [], true)).map((c) => c.label)).toContain('Platform offerings');
+    expect(cmds.find((c) => c.label === 'Offerings')?.href).toBe('#/fleet/offerings');
+    expect(flattenCommands(buildCommands('provider', [], true)).map((c) => c.label)).toContain('Offerings');
   });
 
   it('narrows an offering detail', () => {
