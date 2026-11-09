@@ -315,10 +315,10 @@
           {#if (h.entries ?? []).length === 0}
             <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : windowText ? 'No change in this window.' : 'No change kept for this Stage.'}</p>
           {:else}
-            <div class="data-scroll">
+            <div class="data-scroll cq-cards">
               <table class="data-table hv-table">
                 <caption class="visually-hidden">Changes on {h.namespace}/{h.stage.name}, newest first</caption>
-                <colgroup><col style="width: 9%" /><col style="width: 14%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 15%" /><col style="width: 16%" /><col style="width: 13%" /></colgroup>
+                <colgroup><col style="width: 6.5rem" /><col style="width: 14%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 15%" /><col style="width: 16%" /><col /></colgroup>
                 <thead><tr><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th></tr></thead>
                 <tbody>
                   {#each h.entries as en, i (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}/${i}`)}

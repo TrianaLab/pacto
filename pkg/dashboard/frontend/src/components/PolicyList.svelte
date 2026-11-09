@@ -9,7 +9,9 @@
 </script>
 
 <!-- The shared table rules: fixed columns so a long reference can no longer squeeze
-     Name to one word per line or push Target off the card. -->
+     Name to one word per line or push Target off the card. In a narrow column
+     (SPEC 24.2) every policy becomes a card instead. -->
+<div class="cq-cards">
 <table class="data-table">
   <colgroup><col style="width:26%" /><col style="width:11ch" /><col /><col style="width:22%" /></colgroup>
   <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Definition</th><th scope="col">Target</th></tr></thead>
@@ -32,6 +34,7 @@
     {/each}
   </tbody>
 </table>
+</div>
 
 <style>
   .pl-wrap { overflow-wrap: anywhere; }
