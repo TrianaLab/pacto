@@ -93,3 +93,23 @@ for (const theme of ['dark', 'light'] as const) {
     }
   }
 }
+
+// The case the reader reported (SPEC 22): at about 1900px with the sidebar expanded, the
+// History table squeezed a column until its header read one letter per line.
+test('the History table at 1900px beside the expanded sidebar keeps every column readable', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await page.addInitScript(() => { try { localStorage.setItem('pacto-nav', 'expanded'); } catch { /* private mode */ } });
+  await page.setViewportSize({ width: 1900, height: 1000 });
+  await appReady(page);
+  await page.goto('/#/delivery/history');
+  await loaded(page);
+  await gateMode(page);
+  await expect(page.locator('[data-testid="sidebar"]')).toHaveAttribute('data-rail', 'open');
+  await expect(page.locator('main table').first()).toBeVisible();
+  const narrow = await page.locator('main thead th').evaluateAll((ths) => ths
+    .filter((th) => (th.textContent ?? '').trim().length >= 4)
+    .filter((th) => th.getBoundingClientRect().height > 2.5 * (parseFloat(getComputedStyle(th).lineHeight) || 20))
+    .map((th) => (th.textContent ?? '').trim()));
+  expect(narrow, 'column headers wrapped past two lines').toEqual([]);
+  expect([...await layoutProblems(page), ...await shellProblems(page)]).toEqual([]);
+});

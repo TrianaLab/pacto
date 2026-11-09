@@ -790,12 +790,21 @@ export async function loaded(page: Page) {
 }
 
 /**
- * shellProblems checks the shell at the current viewport (SPEC 22.4, 23, 24.4): the
- * sidebar and its background run to the window bottom at scroll top and at the foot of
- * the page; under 768px the Menu drawer does. It scrolls, then returns to the top.
+ * shellProblems checks the shell at the current viewport (SPEC 22.3, 22.4, 23, 24.4):
+ * the content stops at its capped width; the sidebar and its background run to the
+ * window bottom at scroll top and at the foot of the page; under 768px the Menu drawer
+ * does. It scrolls, then returns to the top.
  */
 export async function shellProblems(page: Page): Promise<string[]> {
   const out: string[] = [];
+  // SPEC 22.3: the content stops at its capped width, however wide the window.
+  const cap = await page.evaluate(() => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--container-max').trim();
+    const max = v.endsWith('px') ? parseFloat(v) : 0; // under 768px the cap is 100%
+    const w = document.querySelector('main')?.getBoundingClientRect().width ?? 0;
+    return { max, w: Math.round(w) };
+  });
+  if (cap.max > 0 && cap.w > cap.max + 1) out.push(`the content is ${cap.w}px wide, past its ${cap.max}px cap`);
   const side = page.locator('[data-testid="sidebar"]');
   const bottom = (sel: string) => page.evaluate((s) => {
     const el = document.querySelector(s);
