@@ -239,7 +239,7 @@
     {#if histories.length === 0}
       <div class="state-box"><h2>{q || svc ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'Stage'} you can see matches “${q}”.` : svc ? `No Stage you can see belongs to ${svc}.` : 'No Stage you can see has a change on record.'}</p></div>
     {:else if !one}
-      <div class="data-scroll">
+      <div class="data-scroll cq-cards">
         <table class="data-table hv-table" data-testid="history-summary">
           <caption class="visually-hidden">Every Stage's newest change, by namespace and Stage name</caption>
           <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
