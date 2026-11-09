@@ -118,7 +118,9 @@
 .btn-primary:hover { opacity: 0.9; background: var(--c-accent); border-color: var(--c-accent); }
 .btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
 /* A button that cannot be pressed yet looks it: a primary one too, so an empty required note reads as the reason. */
-.btn:disabled, .btn:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
+/* aria-disabled: a control that goes idle while it has focus keeps it (a native
+   disabled button drops focus to the body), so it looks the same and ignores the click. */
+.btn:disabled, .btn:disabled:hover, .btn[aria-disabled="true"], .btn[aria-disabled="true"]:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
 .btn-ghost {
   background: none;
   border: 1px solid transparent;

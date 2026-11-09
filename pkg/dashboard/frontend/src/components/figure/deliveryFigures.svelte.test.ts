@@ -96,6 +96,25 @@ describe('InboxFigure', () => {
     unmount(p.c);
   });
 
+  it('keeps the reduced-motion step-through inside a narration a revalidation shrinks, and its controls focusable', async () => {
+    const props = $state({ byEnvironment, href });
+    const { target, c } = render(InboxFigure, props, true);
+    await settle();
+    expect(target.textContent).toContain('Step 2 of 2');
+    const btn = (name: string) => [...target.querySelectorAll('button')].find((x) => x.textContent === name) as HTMLButtonElement;
+    // At the last step Next is idle but keeps focus: aria-disabled, never disabled.
+    expect([btn('Next').disabled, btn('Next').getAttribute('aria-disabled')]).toEqual([false, 'true']);
+    btn('Next').click();
+    flushSync();
+    expect(target.textContent).toContain('Step 2 of 2');
+    // The poll clears the held changes: one step left, and nothing points past it.
+    props.byEnvironment = [{ environment: 'test', errored: 1, held: 0, frozen: 0, upstream: [] }];
+    await settle();
+    expect(target.textContent).toContain('Step 1 of 1');
+    expect(target.querySelector('.step-now')?.textContent).toContain('errored');
+    unmount(c);
+  });
+
   it('links the folded station to the lists of every environment it folds (S2, T3)', async () => {
     const many = Array.from({ length: 9 }, (_, i) => ({ environment: `e${i}`, errored: i + 1, held: 0, frozen: 0, upstream: [] }));
     const { target, c } = render(InboxFigure, { byEnvironment: many, href }, false);

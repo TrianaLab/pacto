@@ -46,9 +46,10 @@ describe('ImpactFigure', () => {
     expect(b.target.querySelector('.nar-hid')).toBeNull();
     expect(b.target.textContent).toContain('Step 4 of 4');
     expect(a.target.querySelector('[data-narration]')?.getAttribute('data-narration')).not.toBe('playing');
-    // Skip is disabled whenever nothing plays; reduced motion steps instead of replaying.
+    // Skip is idle whenever nothing plays, and stays focusable (aria-disabled, not
+    // disabled, so pressing it never drops focus to the body); reduced motion steps instead.
     const skip = [...a.target.querySelectorAll('button')].find((x) => x.textContent === 'Skip to final frame') as HTMLButtonElement;
-    expect(skip.disabled).toBe(true);
+    expect([skip.disabled, skip.getAttribute('aria-disabled')]).toEqual([false, 'true']);
     expect([...b.target.querySelectorAll('button')].map((x) => x.textContent)).toEqual(expect.arrayContaining(['Previous', 'Next']));
     unmount(a.c); unmount(b.c);
   });

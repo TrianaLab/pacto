@@ -110,6 +110,17 @@
   function done() { narration = 'done'; ring(true); }
   function skip() { for (const a of anims) a.finish(); done(); }
 
+  // A revalidation can change how many steps the narration has: the step-through goes
+  // back to its last step, the final frame, so it never points past the narration.
+  $effect(() => {
+    const n = steps.length;
+    untrack(() => {
+      if (!reduced || k === n) return;
+      k = n;
+      if (n) tick().then(() => { if (stageEl?.isConnected && steps.length === n) setStep(n); });
+    });
+  });
+
   // Reduced motion: discrete steps at duration 0; step n is the final frame.
   function setStep(/** @type {number} */ to) {
     k = Math.max(1, Math.min(steps.length, to));
@@ -161,12 +172,13 @@
         {#if !steps.length || folded}
           <!-- a folded figure has no narration to drive -->
         {:else if reduced}
-          <button type="button" class="btn btn-sm" disabled={k <= 1} onclick={() => setStep(k - 1)}>Previous</button>
+          <!-- aria-disabled, never disabled: the control a reader just pressed keeps focus at either end (SPEC 6.2). -->
+          <button type="button" class="btn btn-sm" aria-disabled={k <= 1} onclick={() => { if (k > 1) setStep(k - 1); }}>Previous</button>
           <span class="t-meta" data-nofilter>Step {k} of {steps.length}</span>
-          <button type="button" class="btn btn-sm" disabled={k >= steps.length} onclick={() => setStep(k + 1)}>Next</button>
+          <button type="button" class="btn btn-sm" aria-disabled={k >= steps.length} onclick={() => { if (k < steps.length) setStep(k + 1); }}>Next</button>
         {:else}
           <button type="button" class="btn btn-sm" onclick={run}>Replay</button>
-          <button type="button" class="btn btn-sm" disabled={narration !== 'playing'} onclick={skip}>Skip to final frame</button>
+          <button type="button" class="btn btn-sm" aria-disabled={narration !== 'playing'} onclick={() => { if (narration === 'playing') skip(); }}>Skip to final frame</button>
         {/if}
       </div>
     {/if}
@@ -186,7 +198,7 @@
     <ol class="visually-hidden" aria-label="What the drawing shows, in order">
       {#each steps as s, i (i)}<li aria-current={reduced && i === k - 1 ? 'step' : undefined}>{s.cap}</li>{/each}
     </ol>
-    {#if reduced && k}<p class="step-now t-meta">{steps[k - 1].cap}</p>{/if}
+    {#if reduced && k}<p class="step-now t-meta">{steps[k - 1]?.cap ?? ''}</p>{/if}
   {/if}
   {#if foot}<div class="fig-foot">{@render foot()}</div>{/if}
   <figcaption>{@render caption()}</figcaption>
