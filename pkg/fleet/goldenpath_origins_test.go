@@ -50,6 +50,18 @@ func TestAggregateOrigins(t *testing.T) {
 	if ref := paths.Entities[0]; ref.Created != 1 || ref.NonCompliant != 1 {
 		t.Errorf("path row = %+v", ref)
 	}
+	// has-non-compliant is about owners and domains: a golden path whose created
+	// services include a non-compliant one never passes it, on the CLI and MCP
+	// default of every product kind.
+	nc, err := q.Entities(EntityFilter{HasNonCompliant: true, Kinds: productKinds()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range nc.Entities {
+		if e.Kind != KindOwner && e.Kind != KindDomain {
+			t.Errorf("has-non-compliant listed %s %s", e.Kind, e.Key)
+		}
+	}
 }
 
 // checkOriginFilters: each bucket's filter lists exactly what it counts.

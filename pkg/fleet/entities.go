@@ -286,29 +286,34 @@ func (r EntityRef) RateBase() int {
 
 // crossKind holds the owners and domains a filter of the OTHER kind relates to,
 // computed once per answer: the owners with a service in the BusinessDomain
-// filter, and the domains with a service the OwnerKey filter's owner claims. Each
-// is nil when its filter is absent or the query does not name the kind: on an
-// every-kind query the two filters keep narrowing to what belongs to a service.
+// filter, and the domains with a service the OwnerKey filter's owner claims. A
+// golden path is no service of its owner's estate, so it relates neither. Each
+// set is nil when its filter is absent, or the query does not name the kind, or
+// names services too: an every-kind query (the CLI and MCP default, which name
+// every product kind) keeps the two filters narrowing to what belongs to a
+// service, so a domain query never gains owner rows and an owner query never
+// gains domain rows.
 type crossKind struct {
 	ownersInDomain, domainsOfOwner map[string]bool
 }
 
 func (q *Query) crossKindSets(f EntityFilter) crossKind {
 	var x crossKind
-	if f.BusinessDomain != "" && slices.Contains(f.Kinds, KindOwner) {
+	only := func(k EntityKind) bool { return slices.Contains(f.Kinds, k) && !slices.Contains(f.Kinds, KindService) }
+	if f.BusinessDomain != "" && only(KindOwner) {
 		x.ownersInDomain = map[string]bool{}
 		for k, s := range q.snap.Services {
-			if q.serviceInBusinessDomain(string(k), f.BusinessDomain) {
+			if !s.Template && q.serviceInBusinessDomain(string(k), f.BusinessDomain) {
 				for _, o := range q.ownerClaimsOf(s).keys {
 					x.ownersInDomain[o] = true
 				}
 			}
 		}
 	}
-	if f.OwnerKey != "" && slices.Contains(f.Kinds, KindDomain) {
+	if f.OwnerKey != "" && only(KindDomain) {
 		x.domainsOfOwner = map[string]bool{}
 		for _, s := range q.snap.Services {
-			if s.BusinessDomain != "" && q.matchOwnerKey(s, f.OwnerKey) {
+			if !s.Template && s.BusinessDomain != "" && q.matchOwnerKey(s, f.OwnerKey) {
 				x.domainsOfOwner[s.BusinessDomain] = true
 			}
 		}
@@ -676,7 +681,9 @@ func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
 // matchOrganization applies the business-domain, offering, capability and
 // has-non-compliant filters.
 func (q *Query) matchOrganization(r EntityRef, f EntityFilter, x crossKind) bool {
-	return (!f.HasNonCompliant || r.NonCompliant > 0) &&
+	// HasNonCompliant is about owners and domains: a golden path's NonCompliant
+	// counts the services created from it, and never lets it through.
+	return (!f.HasNonCompliant || (r.Kind == KindOwner || r.Kind == KindDomain) && r.NonCompliant > 0) &&
 		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain, x)) &&
 		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))

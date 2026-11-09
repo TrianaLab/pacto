@@ -243,7 +243,14 @@ func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
 		inventoryRevision{service: "a2", owner: contract.Owner{Team: "alpha"}},
 		inventoryRevision{service: "b1", owner: contract.Owner{Team: "beta"}},
 		inventoryRevision{service: "n1", owner: contract.Owner{Team: "beta"}},
+		inventoryRevision{service: "gp", owner: contract.Owner{Team: "alpha"}},
 	)
+	setService(t, q, "gp", StatusCompliant, "gpdomain", false)
+	for _, s := range q.snap.Services {
+		// A golden path is no service of its owner's estate: it relates alpha to
+		// no domain, and gpdomain to no owner.
+		s.Template = s.Name == "gp"
+	}
 	setService(t, q, "a1", StatusCompliant, "pay", false)
 	setService(t, q, "a2", StatusCompliant, "ops", false)
 	setService(t, q, "b1", StatusCompliant, "pay", false)
@@ -271,6 +278,23 @@ func TestEntities_OwnersOfADomainAndDomainsOfAnOwner(t *testing.T) {
 	if got := keys(EntityFilter{Kinds: []EntityKind{KindDomain}, OwnerKey: "team:beta"}); got != "[pay]" {
 		t.Errorf("domains of beta = %s, want no row for the service with no domain", got)
 	}
+	if got := keys(EntityFilter{Kinds: []EntityKind{KindOwner}, BusinessDomain: "gpdomain"}); got != "[]" {
+		t.Errorf("owners in a golden path's domain = %s", got)
+	}
+	// The CLI and MCP default names every product kind: a domain query gains no
+	// owner rows, and an owner query no domain rows.
+	for _, f := range []EntityFilter{{BusinessDomain: "pay"}, {OwnerKey: "team:alpha"}} {
+		f.Kinds, f.Sort = productKinds(), SortName
+		l, err := q.Entities(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range l.Entities {
+			if f.BusinessDomain != "" && e.Kind == KindOwner || f.OwnerKey != "" && e.Kind == KindDomain {
+				t.Errorf("%+v listed %s %s", f, e.Kind, e.Key)
+			}
+		}
+	}
 }
 
 // sourceKind keeps the sources of one kind, and the source counts split the
@@ -295,4 +319,13 @@ func TestEntities_SourceKind(t *testing.T) {
 	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceKind: "Not A Kind"}); err == nil {
 		t.Error("a malformed source kind was accepted")
 	}
+}
+
+// productKinds is every product kind, as the CLI and MCP send them by default.
+func productKinds() []EntityKind {
+	var out []EntityKind
+	for _, k := range ProductKinds() {
+		out = append(out, EntityKind(k))
+	}
+	return out
 }
