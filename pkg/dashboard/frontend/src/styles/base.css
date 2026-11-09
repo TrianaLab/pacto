@@ -232,6 +232,16 @@ tbody tr:hover { background: var(--c-surface-hover); }
   pre { max-width: 100%; }
 }
 
+/* The first focusable control on every page: out of view until it has focus. */
+.skip-link {
+  position: fixed; top: var(--sp-2); left: var(--sp-2); z-index: 1000;
+  transform: translateY(calc(-100% - 2 * var(--sp-2)));
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-accent); border-radius: var(--radius-sm);
+  background: var(--c-surface); color: var(--c-accent); font: inherit; cursor: pointer;
+}
+.skip-link:focus-visible { transform: none; }
+main:focus { outline: none; }
+
 /* Visually-hidden but present in the accessibility tree: a page-level heading or a
    status label a screen reader must announce while the visual design uses a richer
    custom component. Standard clip technique. */

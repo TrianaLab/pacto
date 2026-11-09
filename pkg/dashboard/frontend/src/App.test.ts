@@ -142,3 +142,26 @@ describe('App — services hidden by Kubernetes permissions', () => {
     expect(await noteFor('#/delivery/inbox', true)).toBeNull();
   });
 });
+
+describe('App — the skip link (WCAG 2.4.1)', () => {
+  it('is the first focusable control and moves focus to the page, never the location', async () => {
+    for (const f of [servicesFn, sourcesFn, healthFn, capabilitiesFn]) f.mockReset();
+    servicesFn.mockResolvedValue([]);
+    sourcesFn.mockResolvedValue({ sources: [], discovering: false });
+    healthFn.mockResolvedValue({ version: 'x' });
+    capabilitiesFn.mockResolvedValue({ fleet: false, impact: false });
+    location.hash = '#/';
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(App, { target });
+    await vi.waitFor(() => expect(capabilitiesFn).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    const first = target.querySelector('button, a[href], input, select, textarea, [tabindex="0"]') as HTMLButtonElement;
+    expect(first.textContent).toBe('Skip to content');
+    first.click();
+    expect(document.activeElement).toBe(target.querySelector('main'));
+    expect(location.hash).toBe('#/');
+    unmount(app);
+    document.body.removeChild(target);
+  });
+});

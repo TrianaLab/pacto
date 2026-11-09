@@ -312,6 +312,9 @@
     <pattern id="fig-frost" width="5" height="5" patternUnits="userSpaceOnUse">
     <rect width="5" height="5" fill="var(--c-iso-face)" /><path d="M2.5 0.8 L4.2 2.5 L2.5 4.2 L0.8 2.5 Z" fill="var(--c-info)" /></pattern></defs>
 </svg>
+<!-- WCAG 2.4.1: the first stop skips the header and the sidebar. A button, since the
+     hash router owns the URL: it moves focus to the page, never the location. -->
+<button type="button" class="skip-link" onclick={() => mainEl?.focus()}>Skip to content</button>
 {#if auth.loaded && !gated}
 <Navbar
   {services}
@@ -381,7 +384,7 @@
   {/if}
 {/snippet}
 
-<main class="container" bind:this={mainEl}>
+<main class="container" tabindex="-1" bind:this={mainEl}>
   {#if gated}
     <SignInScreen />
   {:else if !auth.loaded}
