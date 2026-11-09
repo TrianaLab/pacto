@@ -18,6 +18,8 @@ describe('originModel', () => {
       // Canonical tails: the named paths, Other, then Origin not resolved and None declared.
       expect(m.lanes.slice(-3).map((l) => l.label)).toEqual(['Other paths', 'Origin not resolved', 'None declared']);
       expect(m.lanes.every((l) => l.note?.text.includes('non-compliant'))).toBe(true);
+      // An unresolved origin may be missing or ambiguous as well as hidden: the note never blames access alone.
+      expect(m.lanes.at(-2)?.note?.text).toBe('1 of 3 non-compliant; their origin digest names no single golden path you can see');
     }
   });
 

@@ -56,7 +56,9 @@ export function originModel(agg: OriginAggregate | null | undefined, hrefs: Orig
   const unresolved = o.unresolved?.services ?? 0;
   if (unresolved) {
     tails.push({ key: '-unresolved', label: 'Origin not resolved', ident: false, n: unresolved, hatch: true, glyph: 'unknown', href: hrefs.services('(unresolved)'),
-      note: { text: `${ncNote(o.unresolved)}; the golden path they name is not one you can see` } });
+      // The origin's digest matches no golden path in the snapshot, matches more than
+      // one, or names one hidden from this view: only the last is about access.
+      note: { text: `${ncNote(o.unresolved)}; their origin digest names no single golden path you can see` } });
   }
   // None declared keeps its place at 0 (SPEC 2.2).
   tails.push({ key: '-none', label: 'None declared', ident: false, n: o.none?.services ?? 0, hatch: true, glyph: 'none', href: hrefs.services('(none)'), note: { text: ncNote(o.none) } });
