@@ -249,7 +249,7 @@
         </div>
         <!-- The strip is as wide as what it holds: a full-width table left its right half empty
              while the names in it were cut. -->
-        <div class="ev-board ev-board-fit">
+        <div class="ev-cq"><div class="ev-board ev-board-fit">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
             <caption class="visually-hidden">Services by environment, one dot per environment</caption>
             <colgroup><col /><col style:width={`calc(${dotsWidth}px + 2 * var(--sp-3))`} /><col /></colgroup>
@@ -326,10 +326,10 @@
               {/each}
             </tbody>
           </table>
-        </div>
+        </div></div>
       {:else}
         {#if anyMissing}<p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>{/if}
-        <div class="ev-board">
+        <div class="ev-cq"><div class="ev-board">
           <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
             <caption class="visually-hidden">Services by environment</caption>
             <colgroup><col style="width: 13rem" />{#each shown as env (env)}<col style={shown.length > 1 ? 'width: 12rem' : undefined} />{/each}</colgroup>
@@ -359,7 +359,7 @@
               {/each}
             </tbody>
           </table>
-        </div>
+        </div></div>
       {/if}
       <!-- One page needs no footer: the header already counts the services. -->
       {#if onPage || (data.page?.offset ?? 0) > 0}<Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />{/if}
@@ -474,7 +474,10 @@
   .ev-shadow-title { margin: 0; }
   .ev-detail-head .ev-shadow-title { font-size: var(--text-sm); font-weight: 600; }
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
-  @media (max-width: 720px) {
+  /* The board's frame is the container (SPEC 24.2), so the card form follows the width
+     the board gets beside the sidebar, as every data table's does. */
+  .ev-cq { container: dtable / inline-size; }
+  @container dtable (max-width: 48rem) {
     .ev-board .ev-table { min-width: 0 !important; }
     .ev-board-fit { width: auto; }
     .ev-board .ev-table tbody th { position: static; }

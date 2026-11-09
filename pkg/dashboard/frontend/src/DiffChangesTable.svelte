@@ -32,7 +32,7 @@
 {#if !changes?.length}
   <p class="text-2">No changes detected</p>
 {:else}
-  <div class="table-wrap">
+  <div class="data-scroll">
     <table class="data-table diff-table" class:diff-table-compact={compact}>
       <colgroup>
         <col class="dc-path" />

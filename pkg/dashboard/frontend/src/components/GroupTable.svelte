@@ -57,5 +57,5 @@
   .gt .num { text-align: right; font-variant-numeric: tabular-nums; }
   .gt-sort { color: inherit; text-decoration: none; }
   .gt-sort:hover, .gt-sort:focus-visible { text-decoration: underline; }
-  @media (max-width: 768px) { .gt .num { text-align: left; } }
+  @container dtable (max-width: 48rem) { .gt .num { text-align: left; } }
 </style>

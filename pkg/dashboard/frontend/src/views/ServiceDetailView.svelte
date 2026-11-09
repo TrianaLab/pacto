@@ -495,7 +495,7 @@
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{formatCount(versions.length)}</span></div>
       <VersionTimeline data={versionTimelineData(versions)} onSelect={(v) => location.hash = serviceVersionUrl(name, v)} />
-      <div class="table-wrap">
+      <div class="data-scroll">
         <table class="data-table version-history">
           <colgroup>
             <col class="vh-version" />
