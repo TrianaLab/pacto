@@ -82,7 +82,11 @@ func ProgressOf(in ProgressInput) Progress {
 	ss := in.Stage.Status
 	p := &progress{in: in, reasons: []ProgressReason{}, ns: in.Stage.Metadata.Namespace, name: in.Stage.Metadata.Name}
 	ready := p.readyReasons()
-	upToDate := ss.Candidate != "" && ss.Candidate == ss.Pointer
+	// The promoter clears the candidate once the Stage runs the newest one it
+	// may take (NewestCandidate), so a running Stage offered nothing, with no
+	// change open on it, is up to date.
+	upToDate := ss.Pointer != "" && (ss.Candidate == "" || ss.Candidate == ss.Pointer) &&
+		!slices.ContainsFunc(in.Ops, func(o OperationObject) bool { return o.Status.Phase != PhaseConcluded })
 	if !upToDate {
 		p.candidateReasons()
 		p.freezeReasons()
@@ -124,8 +128,10 @@ func (p *progress) readyReasons() bool {
 	return false
 }
 
+// candidateReasons: only a Stage that runs nothing has no candidate to wait
+// for; a running one is offered nothing newer.
 func (p *progress) candidateReasons() {
-	if p.in.Stage.Status.Candidate != "" {
+	if ss := p.in.Stage.Status; ss.Candidate != "" || ss.Pointer != "" {
 		return
 	}
 	fix := ""

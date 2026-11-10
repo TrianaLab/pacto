@@ -97,7 +97,7 @@ func TestProgressOf(t *testing.T) {
 	cases := []progressCase{
 		{name: "ready false unverified", state: "blocked", codes: []string{"NotReady", "NoCandidate"},
 			in: ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) {
-				s.Candidate = ""
+				s.Candidate, s.Pointer = "", ""
 				s.Conditions = []Condition{{Type: ConditionReady, Status: "False", Reason: ReadyReasonCandidateUnverified, Message: "no verify"}}
 			})},
 			fix: map[string]string{"NotReady": "spec.verify"}},
@@ -108,8 +108,12 @@ func TestProgressOf(t *testing.T) {
 				s.Conditions = []Condition{{Type: ConditionReady, Status: "Unknown", Message: "reading"}}
 			})}},
 		{name: "no candidate", state: "blocked", codes: []string{"NoCandidate"},
-			in:  ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate = "" })},
+			in:  ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate, s.Pointer = "", "" })},
 			fix: map[string]string{"NoCandidate": "pacto delivery candidates -n prod --stage payments"}},
+		{name: "runs the newest, so no candidate", state: "up-to-date", codes: nil, auto: "-",
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = "" })}},
+		{name: "runs the newest with a held change", state: "needs-person", codes: []string{"Held"},
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = "" }), Ops: []OperationObject{heldOp("op-1", "team-checkout")}}},
 		{name: "up to date", state: "up-to-date", codes: nil, auto: "-",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = rowRun })}},
 		{name: "frozen with a held promote", state: "blocked", codes: []string{"Frozen", "Held", "PlanHeld"}, auto: "frozen",
