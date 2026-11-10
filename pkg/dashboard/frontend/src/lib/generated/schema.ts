@@ -383,7 +383,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze impact by canonical identity
-         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents.
+         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
         delete?: never;
@@ -3276,8 +3276,13 @@ export interface components {
             key: string;
         };
         ImpactRequest: {
-            /** @description Canonical revision key of the old revision */
-            fromRevisionKey: string;
+            /**
+             * @description Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions
+             * @enum {string}
+             */
+            event?: "unavailable" | "removed" | "regressed";
+            /** @description Canonical revision key of the old revision. Required unless event is set */
+            fromRevisionKey?: string;
             includeObserved?: boolean;
             /**
              * Format: int64
@@ -3290,15 +3295,17 @@ export interface components {
              */
             offset?: number;
             /**
-             * @description List only the consumers of this outcome; the tallies still cover every consumer
+             * @description List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown
              * @enum {string}
              */
-            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified";
+            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified" | "breaks" | "may-degrade";
+            /** @description With event regressed: the artifact digest (sha256:...) or version that regressed; a digest lets the answer cite delivery's recorded failures */
+            revision?: string;
             serviceKey?: string;
             /** @description The snapshot the client analyzed; a mismatch with the published snapshot is rejected */
             snapshotId?: string;
-            /** @description Canonical revision key of the new revision */
-            toRevisionKey: string;
+            /** @description Canonical revision key of the new revision. Required unless event is set */
+            toRevisionKey?: string;
         };
         InboxEnvironment: {
             /** @description A Stage here is on a cycle of candidates.upstreamStage links, so the Stages give the environment no place in the order: it is placed by name */
@@ -3729,8 +3736,7 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
-            /** @description A reference to the changed service's owner */
-            changedOwner?: components["schemas"]["Fleet.EntityRef"];
+            changedOwner?: components["schemas"]["ProductRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
@@ -3769,8 +3775,7 @@ export interface components {
             owner?: string;
             /** @description The canonical owner key (for example team:shop); owner is the display label */
             ownerKey?: string;
-            /** @description A reference to the owner's page */
-            ownerRef?: components["schemas"]["Fleet.EntityRef"];
+            ownerRef?: components["schemas"]["ProductRef"];
             path: components["schemas"]["ProductRef"][] | null;
             /** Format: int64 */
             pathTotal: number;
@@ -3787,8 +3792,7 @@ export interface components {
              */
             resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
-            /** @description The targets the consumer runs on, at most 20 */
-            targets?: components["schemas"]["Fleet.EntityRef"][] | null;
+            targets?: components["schemas"]["ProductRef"][] | null;
             /**
              * Format: int64
              * @description How many targets the consumer runs on, including those beyond the bound
