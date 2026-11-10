@@ -3188,7 +3188,7 @@ export interface components {
             revisions?: {
                 [key: string]: string;
             };
-            /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline */
+            /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline. It counts the changes left after cause and correlationID */
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
@@ -4725,6 +4725,10 @@ export interface components {
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
+            /** @description For each change on this page that moved the Stage, by its operation name, whether the caller may undo it and why. Offers only describe: GET /api/delivery/undo decides between a rollback and a promote back */
+            undoOffers?: {
+                [key: string]: components["schemas"]["Delivery.Offer"];
+            };
             unreadable?: string[] | null;
             /**
              * Format: int64
@@ -5198,6 +5202,10 @@ export interface operations {
                 until?: string;
                 /** @description With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out */
                 timed?: boolean;
+                /** @description Keep only changes whose cause (reason, operation or cited verdict) names this text, ignoring case. A line with no record carries an unsigned cause. It narrows the timeline too */
+                cause?: string;
+                /** @description Keep only changes with exactly this correlation id. It narrows the timeline too */
+                correlationID?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

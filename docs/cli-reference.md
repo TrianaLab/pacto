@@ -399,13 +399,15 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
-      --all[=true|false]    walk every Stage in the namespace given with -n, or in every namespace you can list
-      --domain string       with --service, its registry domain; a Stage that names none matches any
-  -h, --help[=true|false]   help for history
-      --service string      with --all, only the Stages of this service
-      --since string        only changes at or after this RFC 3339 time, or this long before now (2h)
-      --stage string        the Stage (this or --all)
-      --until string        only changes at or before this RFC 3339 time, or this long before now (30m)
+      --all[=true|false]        walk every Stage in the namespace given with -n, or in every namespace you can list
+      --cause string            only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too
+      --correlation-id string   only changes with exactly this correlation id; it narrows the timeline too
+      --domain string           with --service, its registry domain; a Stage that names none matches any
+  -h, --help[=true|false]       help for history
+      --service string          with --all, only the Stages of this service
+      --since string            only changes at or after this RFC 3339 time, or this long before now (2h)
+      --stage string            the Stage (this or --all)
+      --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
 ```
 
 ### `pacto delivery plan`

@@ -227,5 +227,7 @@ it and why. With `why` it also plans the promote of each candidate (at most 16
 per answer) and proposes nothing. On a person's server, which registers no
 propose tool, the `note` says so.
 
-`pacto_delivery_history` takes a window (`since`, `until`) and, without a
-`stage`, a `service` and `domain` filter.
+`pacto_delivery_history` takes a window (`since`, `until`, each an RFC 3339
+time or a duration before now such as `2h`), `cause` and `correlation_id`
+filters that narrow the timeline too and, without a `stage`, a `service` and
+`domain` filter.

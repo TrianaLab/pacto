@@ -147,9 +147,12 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
 			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Leave stage " +
 			"empty to walk every Stage in the namespace (or, with no namespace, every Stage you can list) for a fleet audit; that " +
-			"answer is complete only when every Stage was read and every history is complete. Pass since and until to list the " +
-			"changes around a time, such as the hour before a problem started; a change running across that time, or whose time " +
-			"is unknown, is always listed. Read-only." + noApprove,
+			"answer is complete only when every Stage was read and every history is complete. Pass since and until (an RFC 3339 " +
+			"time or a duration before now such as 2h) to list the changes around a time, such as the hour before a problem " +
+			"started; a change running across that time, or whose time is unknown, is always listed. Pass cause (text in the " +
+			"cause's reason, operation or cited verdict, ignoring case) or correlation_id (exact) to keep only the changes tied " +
+			"to an incident; both narrow the timeline too. A line with no record carries a cause read from the Operation, " +
+			"unsigned. Read-only." + noApprove,
 		InputSchema: historySchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 		return historyTool(ctx, api, a)
@@ -359,12 +362,14 @@ func stageSchema(extra ...string) map[string]any {
 }
 
 type historyArgs struct {
-	Namespace string `json:"namespace"`
-	Stage     string `json:"stage"`
-	Since     string `json:"since"`
-	Until     string `json:"until"`
-	Service   string `json:"service"`
-	Domain    string `json:"domain"`
+	Namespace     string `json:"namespace"`
+	Stage         string `json:"stage"`
+	Since         string `json:"since"`
+	Until         string `json:"until"`
+	Service       string `json:"service"`
+	Domain        string `json:"domain"`
+	Cause         string `json:"cause"`
+	CorrelationID string `json:"correlation_id"`
 }
 
 // historySchema is the audit schema plus a time window and, for a walk, a
@@ -373,21 +378,25 @@ func historySchema() map[string]any {
 	return inputSchema(map[string]property{
 		"namespace": {Type: "string", Description: "Namespace of the Stage; empty with no stage walks every namespace you can list"},
 		"stage":     {Type: "string", Description: "Stage name; empty walks every Stage"},
-		"since":     {Type: "string", Description: "RFC 3339 time; only changes at or after it"},
-		"until":     {Type: "string", Description: "RFC 3339 time; only changes at or before it"},
-		"service":   {Type: "string", Description: "Without a stage: only the Stages of this service"},
-		"domain":    {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
+		"since":     {Type: "string", Description: "RFC 3339 time, or a duration before now such as 2h; only changes at or after it"},
+		"until":     {Type: "string", Description: "RFC 3339 time, or a duration before now such as 30m; only changes at or before it"},
+		"cause": {Type: "string", Description: "Only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; " +
+			"it narrows the timeline too"},
+		"correlation_id": {Type: "string", Description: "Only changes with exactly this correlation id; it narrows the timeline too"},
+		"service":        {Type: "string", Description: "Without a stage: only the Stages of this service"},
+		"domain":         {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
 	}, nil)
 }
 
 // historyTool answers pacto_delivery_history: one Stage's history, or a walk
 // of every Stage, with only the changes in the window a asks for.
 func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
-	since, err := rfc3339("since", a.Since)
+	now := time.Now()
+	since, err := when("since", a.Since, now)
 	if err != nil {
 		return errorResult(err), nil, nil
 	}
-	until, err := rfc3339("until", a.Until)
+	until, err := when("until", a.Until, now)
 	if err == nil {
 		err = delivery.CheckWindow(since, until)
 	}
@@ -397,15 +406,16 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 	if err != nil {
 		return errorResult(err), nil, nil
 	}
+	f := delivery.EntryFilter{Cause: a.Cause, CorrelationID: a.CorrelationID}
 	if a.Stage == "" {
 		hs, err := api.HistoryAll(ctx, a.Namespace, delivery.ServiceRef{Name: a.Service, Domain: a.Domain})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		start, end := delivery.TimelineWindow(since, until, time.Now())
+		start, end := delivery.TimelineWindow(since, until, now)
 		var all []delivery.HistoryEntry
 		for i := range hs.Histories {
-			hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+			hs.Histories[i].History = delivery.FilterEntries(delivery.WindowEntries(hs.Histories[i].History, since, until), f)
 			all = append(all, hs.Histories[i].Entries...)
 		}
 		hs.Timeline = new(delivery.Timeline(all, start, end))
@@ -416,21 +426,19 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 	}
 	h, err := api.History(ctx, a.Namespace, a.Stage)
 	if err == nil {
-		*h = delivery.WindowEntries(*h, since, until)
-		start, end := delivery.TimelineWindow(since, until, time.Now())
+		*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
+		start, end := delivery.TimelineWindow(since, until, now)
 		h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 	}
 	return resultOrError(h, err)
 }
 
-// rfc3339 reads the tool argument name as an RFC 3339 time; empty is none.
-func rfc3339(name, v string) (time.Time, error) {
-	if v == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse(time.RFC3339, v)
+// when reads the tool argument name: an RFC 3339 time or a duration before
+// now; empty is none.
+func when(name, v string, now time.Time) (time.Time, error) {
+	t, err := delivery.ParseWhen(v, now)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("%s is not an RFC 3339 time: %q", name, v)
+		return t, fmt.Errorf("%s %w", name, err)
 	}
 	return t, nil
 }

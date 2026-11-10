@@ -3,7 +3,9 @@ package delivery
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,66 @@ func WindowEntries(h History, since, until time.Time) History {
 		h.Note += "; only changes " + windowWords(since, until) + " are listed"
 	}
 	return h
+}
+
+// EntryFilter keeps only some changes of a history. Cause matches, ignoring
+// case, a part of the cause's reason, operation, cited verdict gate or
+// verdict message; CorrelationID matches exactly. An empty field keeps all.
+type EntryFilter struct{ Cause, CorrelationID string }
+
+// Keeps reports whether f keeps e.
+func (f EntryFilter) Keeps(e HistoryEntry) bool {
+	if f.CorrelationID != "" && e.CorrelationID != f.CorrelationID {
+		return false
+	}
+	if f.Cause == "" {
+		return true
+	}
+	if e.Cause == nil {
+		return false
+	}
+	text := []string{e.Cause.Reason, e.Cause.Operation}
+	if v := e.Cause.Verdict; v != nil {
+		text = append(text, v.Gate, v.Message)
+	}
+	want := strings.ToLower(f.Cause)
+	return slices.ContainsFunc(text, func(t string) bool { return strings.Contains(strings.ToLower(t), want) })
+}
+
+// FilterEntries keeps the changes of h that f keeps and says so in the note.
+// Like WindowEntries it narrows only the entries: completeness, problems and
+// what was unreadable stay as they are. Entries is never nil once a filter
+// is set, so an answer says [] for "none kept". h is not changed.
+func FilterEntries(h History, f EntryFilter) History {
+	if f == (EntryFilter{}) {
+		return h
+	}
+	h.Entries = slices.DeleteFunc(slices.Clone(h.Entries), func(e HistoryEntry) bool { return !f.Keeps(e) })
+	if h.Entries == nil {
+		h.Entries = []HistoryEntry{}
+	}
+	if f.Cause != "" {
+		h.Note += "; only changes whose cause names " + f.Cause
+	}
+	if f.CorrelationID != "" {
+		h.Note += "; only changes with correlation id " + f.CorrelationID
+	}
+	return h
+}
+
+// ParseWhen reads a time bound: an RFC 3339 time, or a duration that long
+// before now; empty is no bound (the zero time).
+func ParseWhen(v string, now time.Time) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		return now.Add(-d), nil
+	}
+	return time.Time{}, fmt.Errorf("takes an RFC 3339 time or a duration before now, such as 2h: %q", v)
 }
 
 // CheckWindow refuses a window that ends before it starts: it would drop every

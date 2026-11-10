@@ -1399,3 +1399,140 @@ func TestLabelsRevisionsRestricted(t *testing.T) {
 		expect(t, h["revisions"] == nil, "%s: labels %v", name, h["revisions"])
 	}
 }
+
+// historyFake is payments in prod running dRun, which the change ship put
+// there, and two older lines: one tied to INC-1 by a latency alert, one with
+// no cause.
+func historyFake(caller delivery.Caller) *fakeDelivery {
+	at := func(h int) string { return time.Date(2026, 11, 5, h, 0, 0, 0, time.UTC).Format(time.RFC3339) }
+	return &fakeDelivery{caller: caller,
+		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun})},
+		history: &delivery.History{Stage: delivery.StageNow{Name: "payments", Pointer: dRun}, Completeness: "complete", Note: "n",
+			Entries: []delivery.HistoryEntry{
+				{Seq: 1, Operation: "old", Type: delivery.TypePromote, Finished: at(8), Pointer: &delivery.PointerChange{Before: "", After: dOld}},
+				{Seq: 2, Operation: "tied", Type: delivery.TypePromote, Finished: at(9), CorrelationID: "INC-1",
+					Cause: &delivery.Cause{Reason: "Latency alert"}, Pointer: &delivery.PointerChange{Before: dOld, After: dNext}},
+				{Seq: 3, Operation: "ship", Type: delivery.TypePromote, Finished: at(10), Pointer: &delivery.PointerChange{Before: dNext, After: dRun}},
+			}}}
+}
+
+// entryOps is the operation of each entry of the first history of body.
+func entryOps(body map[string]any) []string {
+	var out []string
+	for _, e := range body["histories"].([]any)[0].(map[string]any)["entries"].([]any) {
+		out = append(out, e.(map[string]any)["operation"].(string))
+	}
+	return out
+}
+
+// TestHistoryCauseAndCorrelation: cause and correlationID keep only the
+// changes they name, in both modes, and the note says so.
+func TestHistoryCauseAndCorrelation(t *testing.T) {
+	f := historyFake(person())
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	for _, q := range []string{"namespace=prod&stage=payments&correlationID=INC-1", "cause=LATENCY"} {
+		_, body := call(t, http.MethodGet, base+"/api/delivery/history?"+q, nil)
+		h := body["histories"].([]any)[0].(map[string]any)
+		expect(t, slices.Equal(entryOps(body), []string{"tied"}) && strings.Contains(h["note"].(string), "; only changes "), "%s: %v", q, h)
+	}
+	_, body := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=INC-1", nil)
+	expect(t, slices.Equal(entryOps(body), []string{"tied"}), "q matches the correlation id: %v", entryOps(body))
+	_, body = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=latency", nil)
+	expect(t, slices.Equal(entryOps(body), []string{"tied"}), "q matches the cause: %v", entryOps(body))
+	_, body = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&cause=nothing", nil)
+	expect(t, len(entryOps(body)) == 0, "nothing kept: %v", body)
+}
+
+// historyUndo is the undo offer of op on the first history of body, nil
+// when none.
+func historyUndo(body map[string]any, op string) map[string]any {
+	offers, _ := body["histories"].([]any)[0].(map[string]any)["undoOffers"].(map[string]any)
+	o, _ := offers[op].(map[string]any)
+	return o
+}
+
+// TestHistoryUndoOffers: each change on the page that moved the Stage says
+// whether the caller may undo it, gated like the service page's offer.
+func TestHistoryUndoOffers(t *testing.T) {
+	f := historyFake(person())
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	one := base + "/api/delivery/history?namespace=prod&stage=payments"
+	_, body := call(t, http.MethodGet, one, nil)
+	ship := historyUndo(body, "ship")
+	expect(t, ship["available"] == true && ship["to"] == dNext && ship["action"] == "undo", "ship %v", ship)
+	old := historyUndo(body, "old")
+	expect(t, old["available"] == false && old["reason"] != "", "old %v", old)
+	// An agent never undoes a rollback the Stage runs.
+	f.history.Entries[2].Type = delivery.TypeRollback
+	f.caller = delivery.Caller{Identity: delivery.Identity{User: "system:serviceaccount:a:bot"}, Class: delivery.ClassAgent}
+	_, body = call(t, http.MethodGet, one, nil)
+	ship = historyUndo(body, "ship")
+	expect(t, ship["available"] == false && strings.Contains(ship["reason"].(string), "only a person or break-glass"), "agent %v", ship)
+	f.history.Entries[2].Type, f.caller = delivery.TypePromote, person()
+	f.deny = map[string]bool{"create operations prod": true}
+	_, body = call(t, http.MethodGet, one, nil)
+	for _, op := range []string{"ship", "tied", "old"} {
+		o := historyUndo(body, op)
+		expect(t, o["available"] == false && o["reason"] != "", "denied %s: %v", op, o)
+	}
+	expect(t, historyUndo(body, "ship")["reason"] == "your Kubernetes RBAC does not let you create Operations in prod", "denied %v", historyUndo(body, "ship"))
+	f.deny, f.stageErr = nil, nil
+	f.stages = nil
+	_, body = call(t, http.MethodGet, one, nil)
+	h := body["histories"].([]any)[0].(map[string]any)
+	expect(t, h["undoOffers"] == nil && strings.Contains(h["note"].(string), "undo offers need the Stage, which could not be read"), "unread Stage %v", h)
+	f.stages, f.callerErr = historyFake(person()).stages, errors.New("whoami down")
+	_, body = call(t, http.MethodGet, one, nil)
+	h = body["histories"].([]any)[0].(map[string]any)
+	expect(t, h["undoOffers"] == nil && strings.Contains(h["note"].(string), "whoami down"), "unread caller %v", h)
+}
+
+// TestHistoryUndoOffersEveryStage: without a stage each paged Stage's newest
+// change carries its offer, with one review per namespace.
+func TestHistoryUndoOffersEveryStage(t *testing.T) {
+	f := historyFake(person())
+	f.stages = append(f.stages, stage("prod", "payments-eu", "payments", delivery.StageStatus{Pointer: dRun}))
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	before := f.cans.Load()
+	_, body := call(t, http.MethodGet, base+"/api/delivery/history?service=payments", nil)
+	hs := body["histories"].([]any)
+	expect(t, len(hs) == 2, "two Stages: %v", hs)
+	for _, h := range hs {
+		o := h.(map[string]any)["undoOffers"].(map[string]any)["ship"].(map[string]any)
+		expect(t, o["available"] == true, "every-Stage offer %v", o)
+	}
+	expect(t, f.cans.Load()-before == 1, "one review for prod, got %d", f.cans.Load()-before)
+}
+
+// TestHistoryTimelineFiltered: the timeline counts only the changes the
+// filter keeps, in both modes.
+func TestHistoryTimelineFiltered(t *testing.T) {
+	f := historyFake(person())
+	f.ops = []delivery.OperationObject{
+		{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "tied"}, Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "payments",
+			CorrelationID: "INC-1"}, Status: delivery.OperationStatus{Phase: delivery.PhaseConcluded, Times: delivery.Times{Finished: "2026-11-05T09:00:00Z"}}},
+		{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "ship"}, Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "payments"},
+			Status: delivery.OperationStatus{Phase: delivery.PhaseConcluded, Times: delivery.Times{Finished: "2026-11-05T10:00:00Z"}}},
+	}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	total := func(tl map[string]any) float64 {
+		var n float64
+		for _, v := range tl["totals"].(map[string]any) {
+			n += v.(float64)
+		}
+		u, _ := tl["untimed"].(float64)
+		return n + u
+	}
+	window := "&since=2026-11-05T07:00:00Z&until=2026-11-05T11:00:00Z"
+	for _, timed := range []string{"", "&timed=true"} {
+		_, all := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments"+window+timed, nil)
+		_, kept := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&correlationID=INC-1"+window+timed, nil)
+		a := total(all["histories"].([]any)[0].(map[string]any)["timeline"].(map[string]any))
+		k := total(kept["histories"].([]any)[0].(map[string]any)["timeline"].(map[string]any))
+		expect(t, a == 3 && k == 1, "one Stage%s: %v unfiltered, %v kept", timed, a, k)
+	}
+	_, all := call(t, http.MethodGet, base+"/api/delivery/history?"+window[1:], nil)
+	_, kept := call(t, http.MethodGet, base+"/api/delivery/history?correlationID=INC-1"+window, nil)
+	a, k := total(all["timeline"].(map[string]any)), total(kept["timeline"].(map[string]any))
+	expect(t, a == 2 && k == 1, "every Stage: %v unfiltered, %v kept", a, k)
+}

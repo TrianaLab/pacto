@@ -603,6 +603,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			f := entryFilter(cmd)
 			if all {
 				hs, err := c.HistoryAll(cmd.Context(), ns, of)
 				if err != nil {
@@ -611,7 +612,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 				start, end := delivery.TimelineWindow(since, until, c.Now())
 				var all []delivery.HistoryEntry
 				for i := range hs.Histories {
-					hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+					hs.Histories[i].History = delivery.FilterEntries(delivery.WindowEntries(hs.Histories[i].History, since, until), f)
 					all = append(all, hs.Histories[i].Entries...)
 				}
 				hs.Timeline = new(delivery.Timeline(all, start, end))
@@ -631,7 +632,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			*h = delivery.WindowEntries(*h, since, until)
+			*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
 			start, end := delivery.TimelineWindow(since, until, c.Now())
 			h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
@@ -647,7 +648,17 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("until", "", "only changes at or before this RFC 3339 time, or this long before now (30m)")
 	cmd.Flags().String("service", "", "with --all, only the Stages of this service")
 	cmd.Flags().String("domain", "", "with --service, its registry domain; a Stage that names none matches any")
+	cmd.Flags().String("cause", "", "only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too")
+	cmd.Flags().String("correlation-id", "", "only changes with exactly this correlation id; it narrows the timeline too")
 	return cmd
+}
+
+// entryFilter reads --cause and --correlation-id.
+func entryFilter(cmd *cobra.Command) delivery.EntryFilter {
+	var f delivery.EntryFilter
+	f.Cause, _ = cmd.Flags().GetString("cause")
+	f.CorrelationID, _ = cmd.Flags().GetString("correlation-id")
+	return f
 }
 
 // historyFilters reads --since, --until, --service and --domain; a duration
@@ -674,16 +685,11 @@ func historyFilters(cmd *cobra.Command, all bool, now time.Time) (since, until t
 // now; empty is no bound.
 func whenFlag(cmd *cobra.Command, name string, now time.Time) (time.Time, error) {
 	v, _ := cmd.Flags().GetString(name)
-	if v == "" {
-		return time.Time{}, nil
+	t, err := delivery.ParseWhen(v, now)
+	if err != nil {
+		return t, fmt.Errorf("--%s %w", name, err)
 	}
-	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t, nil
-	}
-	if d, err := time.ParseDuration(v); err == nil {
-		return now.Add(-d), nil
-	}
-	return time.Time{}, fmt.Errorf("--%s takes an RFC 3339 time or a duration before now, such as 2h: %q", name, v)
+	return t, nil
 }
 
 // stageOrAll reads --stage and --all: exactly one must be set. With --all and
@@ -703,13 +709,19 @@ func stageOrAll(cmd *cobra.Command, ns *string) (string, bool, error) {
 func printHistory(out io.Writer, h *delivery.History) {
 	printStageNow(out, h.Stage)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
+	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
+	unsigned := false
 	for _, e := range h.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
-			orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, recordCell(e))
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
+			orNone([]string{e.To}), actorCell(e), cmp.Or(result, string(e.Phase)), cmp.Or(e.Applied, "-"), causeCell(e.Cause),
+			cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
+		unsigned = unsigned || e.Record == ""
 	}
 	_ = w.Flush()
+	if unsigned {
+		_, _ = fmt.Fprintln(out, "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed")
+	}
 	printAnswerNotes(out, h.Problems, h.Unreadable)
 	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
 }
@@ -733,6 +745,33 @@ func shortRecord(id string) string {
 		return "-"
 	}
 	return id[:min(len(id), 19)]
+}
+
+// actorCell is who made a change and their class: user (class).
+func actorCell(e delivery.HistoryEntry) string {
+	switch {
+	case e.Actor == "":
+		return cmp.Or(string(e.ActorClass), "-")
+	case e.ActorClass == "":
+		return e.Actor
+	}
+	return e.Actor + " (" + string(e.ActorClass) + ")"
+}
+
+// causeCell is why a change was raised, in a few words: its reason, else the
+// verdict it cites, else the operation that caused it.
+func causeCell(c *delivery.Cause) string {
+	switch {
+	case c == nil:
+		return "-"
+	case c.Reason != "":
+		return c.Reason
+	case c.Verdict != nil:
+		return "verdict " + c.Verdict.Gate + " " + string(c.Verdict.Result)
+	case c.Operation != "":
+		return "operation " + c.Operation[:min(len(c.Operation), 8)]
+	}
+	return "-"
 }
 
 // recordCell is a history line's record: its id, "unverified" for a record

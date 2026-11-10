@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -23,7 +24,8 @@ type stubDelivery struct {
 
 // stubEntries are a change that finished at ten and one with no time.
 func stubEntries() []delivery.HistoryEntry {
-	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z"}, {Operation: "timeless"}}
+	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z",
+		CorrelationID: "INC-1", Cause: &delivery.Cause{Reason: "Latency alert"}}, {Operation: "timeless"}}
 }
 
 func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
@@ -373,14 +375,65 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	}
 	for args, want := range map[string]map[string]any{
 		"service filters the walk; leave stage empty": {"namespace": "prod", "stage": "s", "service": "payments"},
-		"since is not an RFC 3339 time":               {"namespace": "prod", "stage": "s", "since": "yesterday"},
-		"until is not an RFC 3339 time":               {"until": "2h"},
+		"since takes an RFC 3339 time or a duration":  {"namespace": "prod", "stage": "s", "since": "yesterday"},
+		"until takes an RFC 3339 time or a duration":  {"until": "soon"},
 		"domain needs service":                        {"domain": "d"},
 		"since is after until":                        {"since": "2026-11-05T11:00:00Z", "until": "2026-11-05T09:00:00Z"},
 	} {
 		if res := callToolOn(t, server, "pacto_delivery_history", want); !res.IsError || !strings.Contains(resultText(t, res), args) {
 			t.Fatalf("%v: %s", want, resultText(t, res))
 		}
+	}
+}
+
+// TestHistoryToolDurations: since and until take a duration before now, as
+// the CLI flags do, and the schema says so.
+func TestHistoryToolDurations(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s", "since": "2h"}), &h)
+	if len(h.Entries) != 1 || h.Entries[0].Operation != "timeless" || !strings.Contains(h.Note, "at or after") {
+		t.Fatalf("history of the last two hours: %+v", h)
+	}
+	props := historySchema()["properties"].(map[string]any)
+	for _, k := range []string{"since", "until"} {
+		if d := props[k].(map[string]any)["description"].(string); !strings.Contains(d, "duration before now") {
+			t.Fatalf("%s schema: %q", k, d)
+		}
+	}
+}
+
+// TestHistoryToolCorrelation: cause and correlation_id keep only the changes
+// tied to an incident, in both modes, and the timeline counts only those.
+func TestHistoryToolCorrelation(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	window := map[string]any{"since": "2026-11-05T09:00:00Z", "until": "2026-11-05T11:00:00Z"}
+	args := func(extra map[string]any) map[string]any {
+		out := map[string]any{"namespace": "prod", "stage": "s"}
+		maps.Copy(out, window)
+		maps.Copy(out, extra)
+		return out
+	}
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(nil)), &h)
+	if len(h.Entries) != 2 || h.Timeline.Untimed != 1 {
+		t.Fatalf("unfiltered: %+v", h)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(map[string]any{"correlation_id": "INC-1"})), &h)
+	if len(h.Entries) != 1 || h.Entries[0].Operation != "at-ten" || h.Timeline.Untimed != 0 || h.Timeline.Totals == (delivery.TimelineCounts{}) ||
+		!strings.Contains(h.Note, "only changes with correlation id INC-1") {
+		t.Fatalf("correlation INC-1: %+v", h)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(map[string]any{"cause": "nothing like it"})), &h)
+	if len(h.Entries) != 0 || h.Timeline.Untimed != 0 || h.Timeline.Totals != (delivery.TimelineCounts{}) {
+		t.Fatalf("no cause matches: %+v", h)
+	}
+	var hs delivery.Histories
+	walk := map[string]any{"cause": "LATENCY"}
+	maps.Copy(walk, window)
+	decode(t, callToolOn(t, server, "pacto_delivery_history", walk), &hs)
+	if len(hs.Histories[0].Entries) != 1 || hs.Timeline.Untimed != 0 || hs.Timeline.Totals == (delivery.TimelineCounts{}) {
+		t.Fatalf("walk by cause: %+v", hs)
 	}
 }
 

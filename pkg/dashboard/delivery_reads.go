@@ -776,13 +776,15 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 }
 
 type historyInput struct {
-	Namespace string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
-	Stage     string `query:"stage" doc:"One Stage's name"`
-	Service   string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
-	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
-	Since     string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
-	Until     string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
-	Timed     bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
+	Namespace     string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
+	Stage         string `query:"stage" doc:"One Stage's name"`
+	Service       string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
+	Domain        string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Since         string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
+	Until         string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
+	Timed         bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
+	Cause         string `query:"cause" doc:"Keep only changes whose cause (reason, operation or cited verdict) names this text, ignoring case. A line with no record carries an unsigned cause. It narrows the timeline too"`
+	CorrelationID string `query:"correlationID" doc:"Keep only changes with exactly this correlation id. It narrows the timeline too"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -808,6 +810,8 @@ type StageHistory struct {
 	// what they are: the lists stay on the Stage's own page.
 	ProblemCount    int `json:"problemCount,omitempty" doc:"How many problems the records show. Without a stage, problems and unreadable are left out and only these counts are sent"`
 	UnreadableCount int `json:"unreadableCount,omitempty" doc:"How many things could not be read or verified"`
+	// UndoOffers are keyed by the change's operation name.
+	UndoOffers map[string]delivery.Offer `json:"undoOffers,omitempty" doc:"For each change on this page that moved the Stage, by its operation name, whether the caller may undo it and why. Offers only describe: GET /api/delivery/undo decides between a rollback and a promote back"`
 }
 
 type historyOutput struct {
@@ -819,7 +823,7 @@ type historyOutput struct {
 		Counts *HistoryCounts `json:"counts,omitempty" doc:"Without a stage: Stages that wait for a person and frozen Stages, over every page"`
 		// Timeline is over every page; without a stage only (one Stage's is on
 		// its history).
-		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline"`
+		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline. It counts the changes left after cause and correlationID"`
 		Labels
 	}
 }
@@ -848,6 +852,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	if err != nil {
 		return nil, err
 	}
+	keep := delivery.EntryFilter{Cause: in.Cause, CorrelationID: in.CorrelationID}
 	out := &historyOutput{}
 	out.Body.Listing = Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}}
 	var targets []delivery.StageObject
@@ -874,7 +879,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 				delivery.OfService(st, in.Service, in.Domain)
 		})
 		out.Body.Counts = historyCounts(stages, ops)
-		out.Body.Timeline = clusterTimeline(stages, ops, since, until)
+		out.Body.Timeline = clusterTimeline(stages, ops, since, until, keep)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
 			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
 		})
@@ -896,7 +901,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if in.Timed {
 			window = delivery.SliceEntries
 		}
-		h := new(window(*hs[i], since, until))
+		h := new(delivery.FilterEntries(window(*hs[i], since, until), keep))
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
@@ -904,7 +909,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			start, end := delivery.TimelineWindow(since, until, time.Now())
 			sh.Timeline = new(delivery.Timeline(entries, start, end))
 			entries = filter(entries, func(e delivery.HistoryEntry) bool {
-				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason)
+				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason,
+					e.CorrelationID, causeReason(e.Cause))
 			})
 			sh.Entries, sh.EntriesPage = pageOf(entries, in.Offset, in.Limit, historyEntriesPage)
 		} else {
@@ -920,11 +926,59 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		out.Body.Histories = append(out.Body.Histories, sh)
 	}
+	historyUndoOffers(ctx, api, targets, out.Body.Histories, describe)
 	read := describedAll(ctx, api, nil, on...)
 	versionsIn(out.Body.Versions, read)
 	out.Body.Revisions = s.revisionLabels(ctx, read, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// causeReason is the reason of c, empty when there is none.
+func causeReason(c *delivery.Cause) string {
+	if c == nil {
+		return ""
+	}
+	return c.Reason
+}
+
+// historyUndoOffers says, for each change on each history's page that moved
+// its Stage, whether the caller may undo it (UndoOffer), then narrows the
+// offers with one RBAC review per namespace that has one available. It reads
+// no history: hs[i] is the page of targets[i]. read false means the Stage
+// could not be read, so there is no status to judge an undo against.
+func historyUndoOffers(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, hs []StageHistory, read bool) {
+	if !read {
+		for i := range hs {
+			hs[i].Note += "; undo offers need the Stage, which could not be read"
+		}
+		return
+	}
+	caller, err := api.WhoAmI(ctx)
+	if err != nil {
+		for i := range hs {
+			hs[i].Note += "; undo offers need who you are, which could not be read: " + err.Error()
+		}
+		return
+	}
+	rows := make([]*delivery.StageRow, len(hs))
+	for i := range hs {
+		rows[i] = &delivery.StageRow{Namespace: hs[i].Namespace}
+		for _, e := range hs[i].Entries {
+			if e.Operation != "" && e.Pointer != nil && e.Pointer.After != "" {
+				rows[i].Offers = append(rows[i].Offers, delivery.UndoOffer(targets[i].Status, e, caller))
+			}
+		}
+	}
+	delivery.NarrowOffers(ctx, rows, delivery.CreateOperations(api.Can))
+	for i, r := range rows {
+		for _, o := range r.Offers {
+			if hs[i].UndoOffers == nil {
+				hs[i].UndoOffers = map[string]delivery.Offer{}
+			}
+			hs[i].UndoOffers[o.Operation] = o
+		}
+	}
 }
 
 // queryWindow reads the since and until query parameters and refuses a window
@@ -974,15 +1028,15 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 	return c
 }
 
-// clusterTimeline counts the Operations still in the cluster on stages by
-// time and kind (B7): reading every Stage's signed records for a fleet figure
-// would read every record stream on every poll.
-func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time) *delivery.HistoryTimeline {
+// clusterTimeline counts the Operations still in the cluster on stages that
+// keep keeps, by time and kind (B7): reading every Stage's signed records for
+// a fleet figure would read every record stream on every poll.
+func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time, keep delivery.EntryFilter) *delivery.HistoryTimeline {
 	byStage := stagesByName(stages)
 	var entries []delivery.HistoryEntry
 	for _, o := range ops {
-		if byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil {
-			entries = append(entries, delivery.StatusEntry(o))
+		if e := delivery.StatusEntry(o); byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil && keep.Keeps(e) {
+			entries = append(entries, e)
 		}
 	}
 	start, end := delivery.TimelineWindow(since, until, time.Now())
