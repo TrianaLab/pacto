@@ -190,7 +190,8 @@ func runRecorder(args []string) error {
 	trustFile := fs.String("trust-config", "",
 		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, "+
 			"such as the old key during a rotation.")
-	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written, best effort.")
+	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written and when a Stage "+
+		"is created or deleted (environment.created, environment.deleted), best effort.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)

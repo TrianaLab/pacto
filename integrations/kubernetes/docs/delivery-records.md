@@ -228,7 +228,21 @@ A recorded Operation is deleted after `delivery.recorder.operationTTL` (a week),
 the one a Stage runs. Nothing in Pacto deletes a record, but registry retention
 rules can, leaving history partial: keep the streams repository and the
 referrers out of them. With `delivery.recorder.cdeventsSink` set, the recorder posts a
-[CDEvent](https://cdevents.dev) for every record, best effort.
+[CDEvent](https://cdevents.dev) for every record, best effort. It also posts one
+when a Stage is created or deleted:
+
+| Event | Sent when | `time` |
+|-------|-----------|--------|
+| `environment.created` | the promoter first gives the Stage its stream id | the Stage's `creationTimestamp` |
+| `environment.deleted` | the Stage is deleted | its `deletionTimestamp`; absent when the deleted Stage has none, with `customData.observedAt` holding when the recorder saw the delete |
+
+The CloudEvent id is `<stage uid>/created` or `<stage uid>/deleted`, so a sink
+can deduplicate. The subject id is the Stage's stream id, unique per Stage, and
+its `content.name` is the environment. `customData` carries `service`, `domain`,
+`stage`, `stageUID`, `createdAt` and, on a delete with no `deletionTimestamp`,
+`observedAt`. A recorder restart sends neither again. A Stage whose status was
+reset sends `environment.created` again with its original `createdAt`. Each
+event names one Stage; other Stages for the same environment are unaffected.
 
 ## Limits
 

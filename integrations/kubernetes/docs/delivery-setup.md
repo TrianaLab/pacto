@@ -85,6 +85,13 @@ The promoter emits a Kubernetes Event on an operation when it waits on a person
 (`Held`) and when it concludes (its outcome). It emits one on a Stage when it
 raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
 (`RecheckUnknown`, `RecheckFailed`).
+It emits `EnvironmentCreated` on a Stage the first time it reconciles it, with
+the Stage's creation time, and `EnvironmentDeleted` when the Stage is deleted.
+Each names one Stage, such as "Stage test/payments-pr-482 for payments in
+pr-482 was deleted"; other Stages for the same environment are unaffected. A
+promoter restart emits neither again, a Stage whose status was reset emits
+`EnvironmentCreated` again with its original creation time, and a Stage deleted
+while the promoter is down emits nothing.
 
 ## Upgrading
 

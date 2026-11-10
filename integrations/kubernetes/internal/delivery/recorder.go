@@ -20,9 +20,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cevent "sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -76,7 +78,8 @@ type Recorder struct {
 	// Trust is the digest of the trust config Store verifies with; every
 	// record cites it.
 	Trust string
-	// Events, when set, receives a CDEvent for every record written.
+	// Events, when set, receives a CDEvent for every record written and when
+	// a Stage is created or deleted.
 	Events    *Events
 	ClusterID string
 	Now       func() time.Time
@@ -103,7 +106,23 @@ type gapKey struct {
 func (r *Recorder) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-recorder").For(&dv1.Stage{}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
+		Watches(&dv1.Stage{}, handler.Funcs{UpdateFunc: r.stageStreamSeeded, DeleteFunc: r.stageGone}).
 		Complete(r)
+}
+
+// stageStreamSeeded posts environment.created when the promoter first gives a
+// Stage its stream id (or gives it again after its status was lost). Informer
+// replays on restart are creates, so a restart posts nothing.
+func (r *Recorder) stageStreamSeeded(ctx context.Context, e cevent.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	old, stage := e.ObjectOld.(*dv1.Stage), e.ObjectNew.(*dv1.Stage)
+	if old.Status.Stream.ID == "" && stage.Status.Stream.ID != "" {
+		r.Events.emitEnvironment(ctx, stage, true, r.Now())
+	}
+}
+
+// stageGone posts environment.deleted for a deleted Stage.
+func (r *Recorder) stageGone(ctx context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	r.Events.emitEnvironment(ctx, e.Object.(*dv1.Stage), false, r.Now())
 }
 
 // item is one local seq to record: an operation, or a gap where none is. A

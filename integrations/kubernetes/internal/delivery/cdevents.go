@@ -24,12 +24,16 @@ import (
 // CDEvents the recorder emits (spec v0.5.1). The CloudEvent id is the record
 // digest; the concluded event has its own source, so (source, id) stays unique.
 const (
-	cdeventsVersion   = "0.5.1"
-	eventDeployed     = "dev.cdevents.service.deployed.0.3.0"
-	eventUpgraded     = "dev.cdevents.service.upgraded.0.3.0"
-	eventRolledBack   = "dev.cdevents.service.rolledback.0.3.0"
-	eventConcluded    = "dev.cdeventsx.pacto-operation.concluded.0.1.0"
-	eventPostDeadline = 5 * time.Second
+	cdeventsVersion = "0.5.1"
+	eventDeployed   = "dev.cdevents.service.deployed.0.3.0"
+	eventUpgraded   = "dev.cdevents.service.upgraded.0.3.0"
+	eventRolledBack = "dev.cdevents.service.rolledback.0.3.0"
+	eventConcluded  = "dev.cdeventsx.pacto-operation.concluded.0.1.0"
+	// A Stage created (its stream seeded) or deleted. The id is
+	// <stage uid>/created|deleted and the subject the Stage's stream id.
+	eventEnvironmentCreated = "dev.cdevents.environment.created.0.3.0"
+	eventEnvironmentDeleted = "dev.cdevents.environment.deleted.0.3.0"
+	eventPostDeadline       = 5 * time.Second
 )
 
 // Events posts CDEvents for the records the recorder writes, best effort: a
@@ -58,6 +62,49 @@ func (e *Events) emit(ctx context.Context, stage *dv1.Stage, st delivery.Stateme
 			}
 		}
 	}()
+}
+
+// emitEnvironment posts the environment event of one Stage created or
+// deleted, in the background, best effort.
+func (e *Events) emitEnvironment(ctx context.Context, stage *dv1.Stage, created bool, now time.Time) {
+	if e == nil {
+		return
+	}
+	ev := environmentEvent(e.Source, stage, created, now)
+	log := ctrl.LoggerFrom(ctx)
+	go func() {
+		if err := e.post(ev); err != nil {
+			log.Info("CDEvent not delivered", "stage", stage.Namespace+"/"+stage.Name, "type", ev["type"], "error", err.Error())
+		}
+	}()
+}
+
+// environmentEvent is the environment.created or environment.deleted event of
+// one Stage. The subject is the Stage's stream id, unique per Stage, so two
+// Stages of one environment or two services of one name never collide; the
+// CDEvents environment content holds only its name, so the service, domain and
+// Stage go in customData. A delete with no deletionTimestamp has no time and
+// carries observedAt, the moment the recorder saw it, instead.
+func environmentEvent(source string, stage *dv1.Stage, created bool, now time.Time) map[string]any {
+	typ, suffix, at := eventEnvironmentCreated, "/created", stage.CreationTimestamp.UTC().Format(time.RFC3339)
+	custom := map[string]any{"stage": stage.Namespace + "/" + stage.Name, "stageUID": string(stage.UID),
+		"service": stage.Spec.Service.Name, "domain": stage.Spec.Service.Domain, "createdAt": at}
+	if !created {
+		typ, suffix, at = eventEnvironmentDeleted, "/deleted", ""
+		if t := stage.DeletionTimestamp; t != nil {
+			at = t.UTC().Format(time.RFC3339)
+		} else {
+			custom["observedAt"] = now.UTC().Format(time.RFC3339)
+		}
+	}
+	ev := cloudEvent(source, string(stage.UID)+suffix, typ, at, map[string]any{
+		"id": stage.Status.Stream.ID, "source": source, "content": map[string]any{"name": stage.Spec.Environment},
+	})
+	ev["data"].(map[string]any)["customData"] = custom
+	if at == "" {
+		delete(ev, "time") // an absent CloudEvent time, never a made-up one
+	}
+	return ev
 }
 
 func (e *Events) post(ev map[string]any) error {

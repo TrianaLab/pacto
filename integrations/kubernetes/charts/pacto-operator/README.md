@@ -292,7 +292,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.promoter.resync | string | `"1m"` | How often a Stage is looked at when nothing it watches changed (a Go duration). A change to its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once |
 | delivery.promoter.upstreamTrust | string | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
 | delivery.promoter.workers | int | `4` | How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest |
-| delivery.recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
+| delivery.recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record and when a Stage is created or deleted (environment.created, environment.deleted), best effort. Empty sends none. |
 | delivery.recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
 | delivery.recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |
 | delivery.recorder.leaderElect | bool | `true` | Elect one active recorder |

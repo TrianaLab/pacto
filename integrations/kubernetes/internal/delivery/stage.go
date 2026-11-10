@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,8 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cevent "sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
@@ -166,9 +169,7 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		})
 	}
 	if stage.Status.Stream.ID == "" {
-		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
-			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
-		})
+		return reconcile.Result{RequeueAfter: immediately}, r.seedStream(ctx, stage)
 	}
 	if err := r.streamConflict(ctx, stage); err != nil {
 		return reconcile.Result{}, err
@@ -212,6 +213,29 @@ func (r *StageReconciler) resync(stage *dv1.Stage) time.Duration {
 		after = min(after, UpstreamPoll)
 	}
 	return after
+}
+
+// seedStream gives a Stage its stream id, the first time it reconciles or
+// after its status was lost, and says so in an EnvironmentCreated Event. The
+// message carries the creationTimestamp, so a reseed reads as the old Stage.
+func (r *StageReconciler) seedStream(ctx context.Context, stage *dv1.Stage) error {
+	if err := r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
+	}); err != nil {
+		return err
+	}
+	event(r.Events, stage, false, "EnvironmentCreated", fmt.Sprintf("Stage %s/%s for %s in %s was created at %s; other Stages for the same environment are unaffected",
+		stage.Namespace, stage.Name, stage.Spec.Service.Name, stage.Spec.Environment, stage.CreationTimestamp.UTC().Format(time.RFC3339)))
+	return nil
+}
+
+// stageDeleted says EnvironmentDeleted for a deleted Stage, a missed delete
+// (DeleteStateUnknown) too, and enqueues nothing.
+// ponytail: in-process watch; a delete while the promoter is down emits no Event (the CDEvent from the recorder has the same gap)
+func (r *StageReconciler) stageDeleted(_ context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	stage := e.Object.(*dv1.Stage)
+	event(r.Events, stage, false, "EnvironmentDeleted", fmt.Sprintf("Stage %s/%s for %s in %s was deleted; other Stages for the same environment are unaffected",
+		stage.Namespace, stage.Name, stage.Spec.Service.Name, stage.Spec.Environment))
 }
 
 func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn func(*dv1.Stage)) error {

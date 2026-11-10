@@ -643,8 +643,9 @@ delivery:
     # signed. The recorder's own key is always trusted. A record no listed key signed is skipped as
     # untrusted.
     trust: ""
-    # -- A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best
-    # effort. Empty sends none.
+    # -- A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record and when
+    # a Stage is created or deleted (environment.created, environment.deleted), best effort. Empty
+    # sends none.
     cdeventsSink: ""
     monitoring:
       # -- Scrape the recorder's metrics and alert when records fall behind: a metrics Service, a
