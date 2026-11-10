@@ -163,17 +163,27 @@ func (f *fakeDelivery) History(_ context.Context, ns, stage string, _ *delivery.
 	return &delivery.History{Stage: delivery.StageNow{Name: ns + "/" + stage}, Completeness: "partial"}, f.historyErr
 }
 
-func (f *fakeDelivery) Plan(_ context.Context, req delivery.Request) (delivery.Plan, error) {
-	return delivery.Plan{IntentDigest: "sha256:i", To: req.To, Predicted: delivery.PredictProceeds}, f.actErr
+// fullPlan sets every delivery.Plan field, so a test can tell one the
+// answer drops.
+func fullPlan(to string) delivery.Plan {
+	return delivery.Plan{IntentDigest: "sha256:i", Type: delivery.TypePromote, From: dRun, To: to, ToVersion: "2.0.0",
+		Verdicts: []delivery.Verdict{{Gate: delivery.GateDiff, Result: delivery.Pass}}, Floor: delivery.Floor{Human: true},
+		Question: "Approve?", Conflicts: []string{"StageFrozen: hold"}, Predicted: delivery.PredictHeld, ImpactDigest: "sha256:m",
+		Order: &delivery.Order{}, Precedent: &delivery.Precedent{}}
 }
 
-func (f *fakeDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
+func (f *fakeDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	return delivery.PlanAnswer{Plan: fullPlan(req.To), Next: []string{"a person approves it"}}, f.actErr
+}
+
+func (f *fakeDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
 	if req.IntentDigest == "stale" {
-		p := delivery.Plan{IntentDigest: "sha256:fresh"}
+		p := delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:fresh"}, Next: []string{"fresh next"}}
 		return nil, p, &DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: "moved", Plan: &p}
 	}
 	f.proposed = append(f.proposed, req)
-	return &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "op-1"}}, delivery.Plan{IntentDigest: "sha256:i"}, f.actErr
+	return &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "op-1"}},
+		delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i"}, Next: []string{"proposed next"}}, f.actErr
 }
 
 func (f *fakeDelivery) Approve(_ context.Context, ns, name string, d delivery.Decision, _ string) (string, error) {
@@ -781,6 +791,38 @@ func TestPlanProposeCancel(t *testing.T) {
 	}
 }
 
+// TestPlanAnswerKeepsPlanFields: /plan answers every delivery.Plan key the
+// promoter fills, plus next.
+func TestPlanAnswerKeepsPlanFields(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, p := call(t, http.MethodPost, base+"/api/delivery/plan", delivery.Request{Namespace: "prod", Stage: "payments", To: dNext})
+	expect(t, code == http.StatusOK, "plan %d %v", code, p)
+	var want map[string]any
+	b, _ := json.Marshal(fullPlan(dNext))
+	_ = json.Unmarshal(b, &want)
+	for k := range want {
+		expect(t, p[k] != nil, "plan dropped %q: %v", k, p)
+	}
+	expect(t, len(p) == len(want)+1 && p["next"].([]any)[0] == "a person approves it", "plan adds only next: %v", p)
+}
+
+func TestProposeAnswersNext(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", delivery.Request{Namespace: "prod", Stage: "payments", To: dNext, IntentDigest: "sha256:i"})
+	expect(t, code == http.StatusCreated && out["plan"].(map[string]any)["next"].([]any)[0] == "proposed next", "propose %d %v", code, out)
+}
+
+func TestPlanStaleCarriesNext(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", delivery.Request{IntentDigest: "stale"})
+	p, _ := out["plan"].(map[string]any)
+	expect(t, code == http.StatusConflict && p["intentDigest"] == "sha256:fresh" && p["next"].([]any)[0] == "fresh next",
+		"the fresh plan of a PlanStale refusal says what proposing it leads to: %d %v", code, out)
+}
+
 // checkDecideFollowsThePromoter: a decision the promoter would not count is
 // refused with its reason, a Stage the caller cannot read refuses it, and the
 // sign-in margin follows the login freshness the Stage publishes.
@@ -1069,7 +1111,7 @@ func TestUndo(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	f := sampleCluster("acme:team-checkout")
 	f.undo = &delivery.Undo{Operation: "prod/done", Kind: "promote", Note: "the Stage changed since",
-		Plan: &delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}, Command: "pacto delivery propose"}
+		Plan: &delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}}, Command: "pacto delivery propose"}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	code, u := call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done&stage=payments", nil)
 	expect(t, code == http.StatusOK && u["kind"] == "promote" && u["plan"].(map[string]any)["to"] == dRun &&
@@ -1324,7 +1366,7 @@ func TestLabelsRevisions(t *testing.T) {
 	base := startDeliveryWith(t, f, Options{Fleet: fl, Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true)}, true, nil)
 	f.history = &delivery.History{Stage: delivery.StageNow{Pointer: dRun}, Entries: []delivery.HistoryEntry{{Operation: "ship", From: dOld, To: dRun}}}
 	f.blame = &delivery.Blame{Digest: dRun, Stage: delivery.StageNow{Pointer: dRun}}
-	f.undo = &delivery.Undo{Plan: &delivery.Plan{From: dRun, To: dOld}}
+	f.undo = &delivery.Undo{Plan: &delivery.PlanAnswer{Plan: delivery.Plan{From: dRun, To: dOld}}}
 	for _, path := range []string{"history?namespace=prod&stage=payments", "history", "blame?namespace=prod&stage=payments",
 		"undo?namespace=prod&name=ship&stage=payments", "operations/prod/for-checkout"} {
 		_, out := call(t, http.MethodGet, base+"/api/delivery/"+path, nil)

@@ -162,9 +162,10 @@ func TestDashDeliveryAdapterActions(t *testing.T) {
 	_, api := localAPI(t)
 	ctx := context.Background()
 	p, err := api.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB})
-	expect(t, err == nil && p.IntentDigest != "", "plan %v %v", p, err)
+	expect(t, err == nil && p.IntentDigest != "" && len(p.Next) > 0, "plan answers what proposing leads to: %v %v", p, err)
 	_, _, err = api.Propose(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB, IntentDigest: "sha256:old"})
-	expect(t, isRefusal(err, http.StatusConflict), "a stale plan is a 409 with the fresh plan: %v", err)
+	expect(t, isRefusal(err, http.StatusConflict) && len(err.(*dashboard.DeliveryError).Plan.Next) > 0,
+		"a stale plan is a 409 with the fresh plan and its next: %v", err)
 	n, err := api.Approve(ctx, "prod", "held", delivery.Approve, "")
 	expect(t, err == nil && n == "held-1", "approve %q %v", n, err)
 	err = api.Cancel(ctx, "prod", "missing")

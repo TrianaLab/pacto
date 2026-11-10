@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -417,5 +418,27 @@ func TestDemoPathsDiffer(t *testing.T) {
 	}
 	if g := read("notification-worker"); len(g.Promotion.Nodes) != 1 || g.Promotion.Nodes[0].Upstream.Kind != "records" || g.Promotion.Nodes[0].Upstream.Trust != "trusted" {
 		t.Fatalf("notification-worker: one Stage fed by trusted records: %+v", g.Promotion)
+	}
+}
+
+// TestDemoPlanHasNext: the demo answers a plan, a propose and an undo with
+// what proposing leads to, as the cluster dashboard does.
+func TestDemoPlanHasNext(t *testing.T) {
+	d, h := demoServer(t)
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 || p.IntentDigest == "" || len(p.Next) == 0 {
+		t.Fatalf("plan %d %+v", code, p)
+	}
+	var out struct {
+		Plan delivery.PlanAnswer `json:"plan"`
+	}
+	if code := call(t, h, "POST", "/api/delivery/operations", req, &out); code != 201 || len(out.Plan.Next) == 0 {
+		t.Fatalf("propose %d %+v", code, out)
+	}
+	_, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), IntentDigest: "stale"})
+	var refused *dashboard.DeliveryError
+	if !errors.As(err, &refused) || refused.Plan == nil || len(refused.Plan.Next) == 0 {
+		t.Fatalf("a stale propose carries the fresh plan with next: %v", err)
 	}
 }

@@ -29,8 +29,8 @@ type DeliveryAPI interface {
 	// History reads a Stage's history. listed, when not nil, is the Stage as
 	// the caller just read it, so the host need not read it again.
 	History(ctx context.Context, namespace, stage string, listed *delivery.StageObject) (*delivery.History, error)
-	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
-	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
+	Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error)
+	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error)
 	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)
 	Cancel(ctx context.Context, namespace, name string) error
 	// Describe reads what a Stage's artifact digest carries: its contract and
@@ -62,7 +62,7 @@ type DeliveryError struct {
 	Code   string `json:"code"`
 	Detail string `json:"detail"`
 	// Plan is the fresh plan of a PlanStale refusal.
-	Plan *delivery.Plan `json:"plan,omitempty"`
+	Plan *delivery.PlanAnswer `json:"plan,omitempty"`
 }
 
 func (e *DeliveryError) Error() string { return e.Code + ": " + e.Detail }
@@ -176,7 +176,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-plan", Method: http.MethodPost, Path: "/api/delivery/plan",
-		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question."}), s.deliveryPlan)
+		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you."}), s.deliveryPlan)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",
 		DefaultStatus: http.StatusCreated, Summary: "Propose a change",
 		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)

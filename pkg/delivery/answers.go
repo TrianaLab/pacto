@@ -263,7 +263,7 @@ func UndoOf(op *OperationObject, gone bool, st *StageObject) (*Undo, *Request) {
 
 // Planned completes u with the plan of its request and the command that
 // proposes it.
-func (u *Undo) Planned(req Request, plan Plan) {
+func (u *Undo) Planned(req Request, plan PlanAnswer) {
 	u.Plan = &plan
 	u.Command = fmt.Sprintf("pacto delivery propose -n %s --stage %s --type %s", req.Namespace, req.Stage, strings.TrimPrefix(req.Type, "delivery.pacto.trianalab.io/"))
 	if req.Undoes != "" {

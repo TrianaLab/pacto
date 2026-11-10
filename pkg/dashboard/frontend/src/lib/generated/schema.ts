@@ -219,7 +219,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a change
-         * @description What the promoter would do: verdicts, whether a person must decide, who and the question.
+         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you.
          */
         post: operations["delivery-plan"];
         delete?: never;
@@ -1472,6 +1472,22 @@ export interface components {
             from?: string;
             impactDigest?: string;
             intentDigest: string;
+            order?: components["schemas"]["Delivery.Order"];
+            precedent?: components["schemas"]["Delivery.Precedent"];
+            predicted: string;
+            question?: string;
+            to?: string;
+            toVersion?: string;
+            type: string;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.PlanAnswer": {
+            conflicts?: string[] | null;
+            floor?: components["schemas"]["Delivery.Floor"];
+            from?: string;
+            impactDigest?: string;
+            intentDigest: string;
+            next?: string[] | null;
             order?: components["schemas"]["Delivery.Order"];
             precedent?: components["schemas"]["Delivery.Precedent"];
             predicted: string;
@@ -4207,7 +4223,7 @@ export interface components {
         };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
-            plan: components["schemas"]["Delivery.Plan"];
+            plan: components["schemas"]["Delivery.PlanAnswer"];
         };
         PublishRefusal: {
             /** @description Who ran the publish, as the cluster or the record names them */
@@ -4632,7 +4648,7 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
-            plan?: components["schemas"]["Delivery.Plan"];
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
             /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
             revisions?: {
                 [key: string]: string;
@@ -5608,7 +5624,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Delivery.Plan"];
+                    "application/json": components["schemas"]["Delivery.PlanAnswer"];
                 };
             };
             /** @description Unauthorized */

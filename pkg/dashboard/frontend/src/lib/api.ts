@@ -87,7 +87,7 @@ export type DeliveryQuery<P extends keyof paths> =
   paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
 /** Which slice of a list an answer holds. */
 export type DeliveryPage = components['schemas']['Page'];
-export type DeliveryPlan = components['schemas']['Delivery.Plan'];
+export type DeliveryPlan = components['schemas']['Delivery.PlanAnswer'];
 export type DeliveryRequest = components['schemas']['Delivery.Request'];
 export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
 export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict'];

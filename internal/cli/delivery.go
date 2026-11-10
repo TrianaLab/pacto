@@ -816,7 +816,7 @@ func newDeliveryUndoCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "undo %s: %s: %s\n", u.Operation, u.Kind, u.Note)
 				if u.Plan != nil {
-					printPlan(w, delivery.PlanAnswer{Plan: *u.Plan})
+					printPlan(w, *u.Plan)
 					_, _ = fmt.Fprintf(w, "nothing was proposed; to propose it:\n  %s\n", u.Command)
 				}
 				return nil

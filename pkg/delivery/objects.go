@@ -238,10 +238,10 @@ type Blame struct {
 type Undo struct {
 	Operation string `json:"operation"`
 	// Kind is rollback, promote or none.
-	Kind    string `json:"kind"`
-	Note    string `json:"note"`
-	Plan    *Plan  `json:"plan,omitempty"`
-	Command string `json:"command,omitempty"`
+	Kind    string      `json:"kind"`
+	Note    string      `json:"note"`
+	Plan    *PlanAnswer `json:"plan,omitempty"`
+	Command string      `json:"command,omitempty"`
 }
 
 // RecordCheck is one record a verification read.

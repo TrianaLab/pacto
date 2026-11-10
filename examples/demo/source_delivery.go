@@ -631,7 +631,8 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	}
 	if req.IntentDigest != "" && req.IntentDigest != p.IntentDigest {
 		e := dashboard.Refuse(http.StatusConflict, "PlanStale", "the Stage moved since you planned; review the fresh plan and propose again")
-		e.Plan = &p
+		fresh := d.answer(p, req, actor)
+		e.Plan = &fresh
 		return nil, p, e
 	}
 	st := d.stage(req.Namespace, req.Stage)
@@ -1023,23 +1024,35 @@ func (d *demoDelivery) Undo(ctx context.Context, ns, name, _ string) (*delivery.
 	return u, nil
 }
 
-func (d *demoDelivery) Plan(_ context.Context, req delivery.Request) (delivery.Plan, error) {
+func (d *demoDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	p, _, err := d.plan(req, personas[d.persona])
-	return p, err
+	actor := personas[d.persona]
+	p, _, err := d.plan(req, actor)
+	if err != nil {
+		return delivery.PlanAnswer{Plan: p}, err
+	}
+	return d.answer(p, req, actor), nil
 }
 
-func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
+func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	o, p, err := d.propose(req, personas[d.persona])
+	actor := personas[d.persona]
+	o, p, err := d.propose(req, actor)
 	d.changed()
 	if err != nil {
-		return nil, p, err
+		return nil, delivery.PlanAnswer{Plan: p}, err
 	}
 	c := clone(*o)
-	return &c, p, nil
+	return &c, d.answer(p, req, actor), nil
+}
+
+// answer is p with what proposing it leads to for actor, as the cluster
+// dashboard answers it. The caller holds the lock and planned req, so its
+// Stage is there.
+func (d *demoDelivery) answer(p delivery.Plan, req delivery.Request, actor story.Persona) delivery.PlanAnswer {
+	return delivery.AnswerPlan(p, actor.Class(), d.stage(req.Namespace, req.Stage).Spec)
 }
 
 // Approve is the promoter consuming a person's decision; the dashboard
