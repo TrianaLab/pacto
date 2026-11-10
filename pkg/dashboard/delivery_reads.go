@@ -23,9 +23,7 @@ import (
 // Listing is how complete a list of delivery objects is: a namespace the
 // caller may not list is left out and named.
 type Listing struct {
-	AsOf         string   `json:"asOf"`
-	Completeness string   `json:"completeness" enum:"complete,partial"`
-	Unreadable   []string `json:"unreadable,omitempty" doc:"Namespaces the caller may not list, or * when the namespaces could not be known"`
+	delivery.Listing
 
 	// everywhere is set when every namespace was listed at once; else listed
 	// names the namespaces read in full. scope is the dashboard's namespace.
@@ -51,7 +49,7 @@ func forbidden(err error) bool {
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
-	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete", scope: s.opts.DeliveryNamespace}
+	l := Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}, scope: s.opts.DeliveryNamespace}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
 		// Both at once: for a new person each waits on a permission check.
@@ -296,16 +294,15 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for i := range page {
 		on = append(on, digestsOn{&page[i], []string{page[i].Status.Pointer, page[i].Status.Candidate}})
 	}
-	teams := map[string]string{}
-	vers := versionsAll(ctx, api, nil, teams, on...)
+	read := describedAll(ctx, api, nil, on...)
 	for i, it := range b.Held {
 		if byStage[it.Namespace+"/"+it.Stage] != nil {
-			b.Held[i].FromVersion, b.Held[i].ToVersion = vers[it.From], vers[it.To]
+			b.Held[i].FromVersion, b.Held[i].ToVersion = read[it.From].Version, read[it.To].Version
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
+		b.Frozen = append(b.Frozen, environmentRowOf(st, nil, caller, read, false))
 	}
 	mayRaise(ctx, api, b.Frozen)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
@@ -364,78 +361,29 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 	return out
 }
 
-// EnvironmentRow is one Stage: one service in one environment.
+// EnvironmentRow is one Stage: one service in one environment, as the
+// shared row (delivery.StageRow) plus what only the board shows.
 type EnvironmentRow struct {
-	Namespace        string    `json:"namespace"`
-	Stage            string    `json:"stage"`
-	Service          string    `json:"service"`
-	Domain           string    `json:"domain,omitempty" doc:"The registry domain the Stage names for its service; empty when it names none"`
-	Environment      string    `json:"environment"`
-	Pointer          string    `json:"pointer,omitempty" doc:"The digest the environment runs"`
-	Version          string    `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
-	Verified         bool      `json:"verified" doc:"The running digest passed its verify gates here"`
-	Failed           bool      `json:"failed" doc:"The running digest failed here"`
-	Frozen           bool      `json:"frozen"`
-	FrozenReason     string    `json:"frozenReason,omitempty"`
-	AutoHold         bool      `json:"autoHold"`
-	Held             int       `json:"held" doc:"Operations on this Stage waiting for a person"`
-	Candidate        string    `json:"candidate,omitempty" doc:"The newest eligible candidate"`
-	CandidateVersion string    `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
-	Ready            string    `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
-	ReadyMessage     string    `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
-	Actions          []string  `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
-	Level            string    `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
-	Upstream         *Upstream `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on the board's rows only"`
+	delivery.StageRow
+	Upstream *Upstream `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on the board's rows only"`
 	// Shadow is set on an observe Stage only: newest first.
-	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
+	Shadow   []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
+	Revision string           `json:"revision,omitempty" doc:"The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it"`
 }
 
-// environmentRow is one Stage as the board shows it; held counts the held
-// operations by namespace/Stage, vers names the versions of digests and teams
-// the owner their contracts declare.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
-	ss := st.Status
-	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Domain: st.Spec.Service.Domain, Environment: st.Spec.Environment,
-		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
-		Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold, Candidate: ss.Candidate, Actions: []string{}}
+// environmentRowOf is one Stage as the board shows it; held counts the held
+// operations by namespace/Stage and read says what each digest carries. The
+// level and shadow come from ladderOf, so tests can supply a ladder.
+func environmentRowOf(st delivery.StageObject, held map[string]int, caller delivery.Caller, read map[string]delivery.Described, withService bool) EnvironmentRow {
+	row := EnvironmentRow{StageRow: delivery.RowOf(st, delivery.RowInput{Held: held[st.Metadata.Namespace+"/"+st.Metadata.Name],
+		Caller: caller, Read: read, WithService: withService})}
 	if lad := ladderOf(st); lad.Level != "" {
 		row.Level = lad.Level
 		if lad.Level == "observe" {
 			row.Shadow = lad.Shadow
 		}
 	}
-	for _, c := range ss.Conditions {
-		if c.Type == delivery.ConditionReady {
-			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")
-			if c.Status != "True" {
-				row.ReadyMessage = c.Message
-			}
-		}
-	}
-	row.Version, row.CandidateVersion = vers[ss.Pointer], vers[ss.Candidate]
-	row.Held = held[row.Namespace+"/"+row.Stage]
-	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
-		row.Actions = append(row.Actions, "promote")
-	}
-	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) && mayUnfreeze(caller, teams[ss.Pointer]) {
-		row.Actions = append(row.Actions, "unfreeze")
-	}
 	return row
-}
-
-// mayUnfreeze is the promoter's admission rule for an unfreeze, so the board
-// never offers one it would refuse: a person unfreezes only a Stage whose
-// running contract names their team (Policy.InTeams); with no team named or
-// readable, anyone, or nobody with RequireOwnerTeam. Break-glass may always.
-func mayUnfreeze(caller delivery.Caller, team string) bool {
-	if caller.Class != delivery.ClassHuman {
-		return true
-	}
-	var teams []string
-	if team != "" {
-		teams = []string{team}
-	}
-	return caller.Policy.InTeams(caller.Groups, teams)
 }
 
 // environmentsPage is how many services one page of the board holds.
@@ -555,10 +503,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	for i := range shown {
 		on = append(on, digestsOn{&shown[i], []string{shown[i].Status.Pointer, shown[i].Status.Candidate}})
 	}
-	teams := map[string]string{}
-	vers := versionsAll(ctx, api, nil, teams, on...)
+	read := describedAll(ctx, api, nil, on...)
 	for _, st := range shown {
-		row := environmentRow(st, held, caller, vers, teams)
+		row := environmentRowOf(st, held, caller, read, in.Service != "")
 		row.Upstream = upstreamListed(&st, byStage, l)
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
@@ -896,7 +843,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		return nil, err
 	}
 	out := &historyOutput{}
-	out.Body.Listing = Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
+	out.Body.Listing = Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}}
 	var targets []delivery.StageObject
 	// describe: the Stages were read, so their artifacts can be asked for
 	// versions. A Stage that cannot be read still has a history to ask for.
@@ -967,7 +914,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		out.Body.Histories = append(out.Body.Histories, sh)
 	}
-	versionsAll(ctx, api, out.Body.Versions, nil, on...)
+	versionsIn(out.Body.Versions, describedAll(ctx, api, nil, on...))
 	out.Body.People = s.named(actors...)
 	return out, nil
 }
@@ -1062,7 +1009,20 @@ func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageO
 // ponytail: a digest that cannot be read is asked again each time it is
 // named; the host caches only what it read.
 func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject, into map[string]string, digests ...string) map[string]string {
-	return versionsAll(ctx, api, into, nil, digestsOn{stage, digests})
+	return versionsIn(into, describedAll(ctx, api, nil, digestsOn{stage, digests}))
+}
+
+// versionsIn adds to into (a new map when nil) every version read names.
+func versionsIn(into map[string]string, read map[string]delivery.Described) map[string]string {
+	if into == nil {
+		into = map[string]string{}
+	}
+	for d, r := range read {
+		if r.Version != "" {
+			into[d] = r.Version
+		}
+	}
+	return into
 }
 
 // digestsOn are digests to read from one Stage's artifacts.
@@ -1071,12 +1031,13 @@ type digestsOn struct {
 	digests []string
 }
 
-// versionsAll is versions for the digests of many Stages, all read at once:
-// a page that asked Stage by Stage read two artifacts at a time. A non-nil
-// teams gets the owner each read contract declares (Owner.DisplayString).
-func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]string, on ...digestsOn) map[string]string {
+// describedAll adds to into (a new map when nil) what the digests of many
+// Stages carry, all read at once: a page that asked Stage by Stage read two
+// artifacts at a time. A digest keeps its entry when its version is empty,
+// so a contract named by an artifact whose bundle failed still counts.
+func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery.Described, on ...digestsOn) map[string]delivery.Described {
 	if into == nil {
-		into = map[string]string{}
+		into = map[string]delivery.Described{}
 	}
 	var ask []string
 	from := map[string]*delivery.StageObject{}
@@ -1091,36 +1052,25 @@ func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]st
 	}
 	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
-		if v := version(ctx, revs[i]); v != "" {
-			into[d] = v
-			if teams != nil {
-				teams[d] = revs[i].Bundle.Contract.Service.Owner.DisplayString()
-			}
+		r := revs[i]
+		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Err: r.Err}
+		if r.Bundle != nil {
+			desc.Team = r.Bundle.Contract.Service.Owner.DisplayString()
 		}
+		into[d] = desc
 	}
 	return into
 }
 
-// describeParallel is how many digests are described at once. A Describe
-// reads a registry, so a page of fifty read one after another took fifty
-// round trips; the host caches what it read, so a refresh is cheap either way.
+// describeParallel is how many reads run at once: a Describe reads a
+// registry, so a page of fifty read one after another took fifty round
+// trips; the host caches what it read, so a refresh is cheap either way.
 const describeParallel = 8
 
-// describeAll describes n digests, describeParallel at once; at(i) names the
-// Stage to read the i-th from and its digest. out[i] answers at(i).
+// describeAll describes n digests at once (delivery.DescribeAll); at(i)
+// names the Stage to read the i-th from and its digest. out[i] answers at(i).
 func describeAll(ctx context.Context, api DeliveryAPI, n int, at func(int) (*delivery.StageObject, string)) []delivery.Revision {
-	out := make([]delivery.Revision, n)
-	var g errgroup.Group
-	g.SetLimit(describeParallel)
-	for i := range n {
-		g.Go(func() error {
-			st, d := at(i)
-			out[i] = api.Describe(ctx, st, d)
-			return nil
-		})
-	}
-	_ = g.Wait()
-	return out
+	return delivery.DescribeAll(ctx, n, at, api.Describe)
 }
 
 // version is the version a revision's contract declares; "" when it has

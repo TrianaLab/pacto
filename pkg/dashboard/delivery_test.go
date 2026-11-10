@@ -369,7 +369,7 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 func sampleCluster(groups ...string) *fakeDelivery {
 	return &fakeDelivery{caller: person(groups...),
 		stages: []delivery.StageObject{
-			stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
+			stage("prod", "payments", "payments", delivery.StageStatus{Level: delivery.LevelAdvise, Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
 				Candidate: dNext, Frozen: true, FrozenReason: "Errored", Conditions: []delivery.Condition{{Type: "Ready", Status: "True"}}}),
 			stage("books", "ledger", "ledger", delivery.StageStatus{Frozen: true, FailedDigests: []string{dNext}}),
 			stage("other", "orphan", "orphan", delivery.StageStatus{AutoHold: true, Frozen: true}),
@@ -1108,4 +1108,81 @@ func TestRefusals(t *testing.T) {
 	f.refusalsErr = Refuse(http.StatusForbidden, "Forbidden", "no")
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
 	expect(t, code == http.StatusForbidden, "refused: %d", code)
+}
+
+// TestEnvironmentRowJSONKeepsFields: the shared row keeps every key the
+// board's row had before it moved to pkg/delivery, upstream included.
+func TestEnvironmentRowJSONKeepsFields(t *testing.T) {
+	row := EnvironmentRow{StageRow: delivery.StageRow{Namespace: "n", Stage: "s", Service: "svc", Domain: "d", Environment: "e", Pointer: dRun,
+		Version: "1", Verified: true, Failed: true, Frozen: true, FrozenReason: "r", AutoHold: true, Held: 1, Candidate: dNext,
+		CandidateVersion: "2", Ready: "False: x", ReadyMessage: "m", Actions: []string{}, Level: "advise", State: "failed",
+		ContractRef: "oci://r/c@sha256:c", ReadyFix: "f", Watched: &delivery.Watch{Status: "True"}, LastCheck: &delivery.CheckSummary{},
+		HeldUnknown: true, Offers: []delivery.Offer{}},
+		Upstream: &Upstream{}, Shadow: []ShadowDecision{{}}, Revision: "svc@1"}
+	b, _ := json.Marshal(row)
+	var got map[string]any
+	_ = json.Unmarshal(b, &got)
+	for _, k := range []string{"namespace", "stage", "service", "domain", "environment", "pointer", "version", "verified", "failed", "frozen",
+		"frozenReason", "autoHold", "held", "candidate", "candidateVersion", "ready", "readyMessage", "actions", "level", "upstream", "shadow",
+		"state", "contractRef", "readyFix", "watched", "lastCheck", "heldUnknown", "offers", "revision"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("%s missing from %s", k, b)
+		}
+	}
+}
+
+// TestListingJSONUnchanged: the dashboard's Listing marshals to the shared
+// fields only, and still answers read from its unexported scope.
+func TestListingJSONUnchanged(t *testing.T) {
+	l := Listing{Listing: delivery.Listing{AsOf: "t", Completeness: "partial", Unreadable: []string{"books"}}, listed: []string{"prod"}, scope: "prod"}
+	b, _ := json.Marshal(l)
+	if string(b) != `{"asOf":"t","completeness":"partial","unreadable":["books"]}` {
+		t.Fatalf("listing %s", b)
+	}
+	if !l.read("prod") || l.read("books") || !(Listing{everywhere: true}).read("x") {
+		t.Fatal("read answers from the scope")
+	}
+}
+
+// TestDescribedKeepsContractWithoutVersion: an artifact that names a
+// contract whose bundle could not be read keeps its entry, with why.
+func TestDescribedKeepsContractWithoutVersion(t *testing.T) {
+	st := stage("prod", "payments", "payments", delivery.StageStatus{})
+	f := &fakeDelivery{owner: "team-payments"}
+	got := describedAll(context.Background(), f, nil, digestsOn{&st, []string{dRun, "sha256:unreadable", "advise"}})
+	if got[dRun] != (delivery.Described{Version: "1.0.0", Team: "team-payments", Contract: "oci://r/payments@sha256:c"}) {
+		t.Errorf("dRun %+v", got[dRun])
+	}
+	if r, ok := got["sha256:unreadable"]; !ok || r.Version != "" || r.Err != "registry down" {
+		t.Errorf("unreadable %+v %v", r, ok)
+	}
+	if _, ok := got["advise"]; ok {
+		t.Error("a level name is never described")
+	}
+	if v := versionsIn(nil, got); len(v) != 1 || v[dRun] != "1.0.0" {
+		t.Errorf("versions %v", v)
+	}
+}
+
+// TestDeliveryRoutesAreReadsExceptExisting: every delivery route that is not
+// a GET is one of the four writes that existed before offers: offers only
+// describe, and nothing new can change what runs.
+func TestDeliveryRoutesAreReadsExceptExisting(t *testing.T) {
+	base := startDelivery(t, sampleCluster(), (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, doc := call(t, http.MethodGet, base+"/openapi.json", nil)
+	var writes []string
+	for path, ops := range doc["paths"].(map[string]any) {
+		if !strings.HasPrefix(path, "/api/delivery") {
+			continue
+		}
+		for method, op := range ops.(map[string]any) {
+			if method != "get" {
+				writes = append(writes, op.(map[string]any)["operationId"].(string))
+			}
+		}
+	}
+	slices.Sort(writes)
+	if strings.Join(writes, ",") != "delivery-cancel,delivery-decide,delivery-plan,delivery-propose" {
+		t.Fatalf("delivery writes: %v", writes)
+	}
 }

@@ -735,3 +735,25 @@ func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 	_, _, err = d.Propose(ctx, req)
 	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of ""`)
 }
+
+// TestWhoAmIPolicyNotFoundHint: a policy that could not be read is carried
+// on the caller, and a missing one says which flag points at it.
+func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
+	ctx := context.Background()
+	hint := "; the ConfigMap pacto-delivery-identities is not in pacto-delivery: pass --delivery-namespace with the namespace the chart's delivery.namespace names"
+	d, _, _ := deliveryFixture(t, "carol", nil, nil)
+	d.PolicyNamespace = "pacto-delivery"
+	if who, err := d.WhoAmI(ctx); err != nil || !strings.HasPrefix(who.PolicyErr, `configmaps "pacto-delivery-identities" not found`) || !strings.HasSuffix(who.PolicyErr, hint) {
+		t.Fatalf("missing policy: %q %v", who.PolicyErr, err)
+	}
+	d, _, _ = deliveryFixture(t, "carol", nil, nil, obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
+		"data": map[string]any{delivery.PolicyKey: "{"}}))
+	d.PolicyNamespace = "pacto-delivery"
+	if who, err := d.WhoAmI(ctx); err != nil || who.PolicyErr == "" || strings.Contains(who.PolicyErr, "--delivery-namespace") {
+		t.Fatalf("broken policy: %q %v", who.PolicyErr, err)
+	}
+	d.PolicyNamespace = ""
+	if who, err := d.WhoAmI(ctx); err != nil || who.PolicyErr != "" {
+		t.Fatalf("a client given its policy: %q %v", who.PolicyErr, err)
+	}
+}

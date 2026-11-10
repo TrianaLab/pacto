@@ -158,13 +158,16 @@ func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns 
 }
 
 // mayRaise drops the actions of each row whose namespace the caller's RBAC
-// refuses an Operation in. Only namespaces with something to offer are
-// asked, describeParallel at once, so a reader's board costs no review; a
-// review that fails says no.
+// refuses an Operation in, and makes its offers unavailable with the reason.
+// Only namespaces with something to offer are asked, describeParallel at
+// once, so a reader's board costs no review; a review that fails says no.
 func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
+	offers := func(r EnvironmentRow) bool {
+		return len(r.Actions) > 0 || slices.ContainsFunc(r.Offers, func(o delivery.Offer) bool { return o.Available })
+	}
 	var asked []string
 	for _, r := range rows {
-		if len(r.Actions) > 0 && !slices.Contains(asked, r.Namespace) {
+		if offers(r) && !slices.Contains(asked, r.Namespace) {
 			asked = append(asked, r.Namespace)
 		}
 	}
@@ -183,8 +186,14 @@ func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
 	}
 	_ = g.Wait()
 	for i := range rows {
-		if len(rows[i].Actions) > 0 && !allowed[rows[i].Namespace] {
+		if offers(rows[i]) && !allowed[rows[i].Namespace] {
 			rows[i].Actions = []string{}
+			for j := range rows[i].Offers {
+				if rows[i].Offers[j].Available {
+					rows[i].Offers[j].Available = false
+					rows[i].Offers[j].Reason = "your Kubernetes RBAC does not let you create Operations in " + rows[i].Namespace
+				}
+			}
 		}
 	}
 }

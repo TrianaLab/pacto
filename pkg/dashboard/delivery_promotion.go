@@ -310,22 +310,7 @@ func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.Stage
 // stageState is the one state st is counted in; held counts the held
 // operations by namespace/Stage.
 func stageState(st delivery.StageObject, held map[string]int) string {
-	ss := st.Status
-	switch {
-	case slices.Contains(ss.FailedDigests, ss.Pointer):
-		return "failed"
-	case ss.Frozen:
-		return "frozen"
-	case ss.AutoHold:
-		return "autohold"
-	case held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0:
-		return "waiting"
-	case ss.Pointer == "":
-		return "empty"
-	case !slices.Contains(ss.Verified, ss.Pointer):
-		return "unverified"
-	}
-	return "verified"
+	return delivery.StageState(st, held[st.Metadata.Namespace+"/"+st.Metadata.Name], false)
 }
 
 // EnvironmentCount is how the Stages of one environment stand, over every

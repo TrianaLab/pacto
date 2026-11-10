@@ -216,11 +216,17 @@ func TestOperationUndoneBy(t *testing.T) {
 // none; a namespace RBAC refuses loses its actions.
 func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
 	f := &fakeDelivery{deny: map[string]bool{"create operations team-b": true}}
-	rows := []EnvironmentRow{{Namespace: "team-a", Actions: []string{"promote"}}, {Namespace: "team-b", Actions: []string{"unfreeze"}},
-		{Namespace: "team-c", Actions: []string{}}}
+	freeze := []delivery.Offer{{Action: "freeze", Available: true, Reason: "freezes the Stage on 1.0.0"}}
+	rows := []EnvironmentRow{{StageRow: delivery.StageRow{Namespace: "team-a", Actions: []string{"promote"}}},
+		{StageRow: delivery.StageRow{Namespace: "team-b", Actions: []string{"unfreeze"}, Offers: freeze}},
+		{StageRow: delivery.StageRow{Namespace: "team-c", Actions: []string{}}},
+		{StageRow: delivery.StageRow{Namespace: "team-d", Actions: []string{}, Offers: []delivery.Offer{{Action: "promote", Reason: "no"}}}}}
 	mayRaise(context.Background(), f, rows)
 	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
+	}
+	if o := rows[1].Offers[0]; o.Available || o.Reason != "your Kubernetes RBAC does not let you create Operations in team-b" {
+		t.Errorf("a refused namespace's offers say why: %+v", o)
 	}
 }
 

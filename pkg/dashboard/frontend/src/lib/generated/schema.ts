@@ -892,7 +892,7 @@ export interface components {
             /** @description Counted over every Stage, not only this page */
             promotionsWithoutPerson: components["schemas"]["PromotionCount"];
             stages: components["schemas"]["AutonomyStage"][] | null;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         AutonomyProposal: {
@@ -1278,6 +1278,19 @@ export interface components {
             reason?: string;
             verdict?: components["schemas"]["Delivery.Verdict"];
         };
+        "Delivery.CheckSummary": {
+            /** @description When the gates ran (RFC 3339) */
+            at: string;
+            /** @description The check is about the digest the Stage runs now and the operation that shipped it */
+            current: boolean;
+            digest: string;
+            /**
+             * @description The worst verdict
+             * @enum {string}
+             */
+            result: "Pass" | "Fail" | "Unknown";
+            verdicts: components["schemas"]["Delivery.Verdict"][] | null;
+        };
         "Delivery.Deadlines": {
             approval?: string;
             execution?: string;
@@ -1385,6 +1398,17 @@ export interface components {
             name: string;
             namespace?: string;
             uid?: string;
+        };
+        "Delivery.Offer": {
+            /** @enum {string} */
+            action: "promote" | "unfreeze" | "freeze" | "undo";
+            available: boolean;
+            /** @description undo: the operation it undoes; open GET /api/delivery/undo or pacto delivery undo for the plan, which says rollback, promote back or nothing */
+            operation?: string;
+            /** @description Why it is offered, or why not */
+            reason: string;
+            /** @description promote: the candidate digest; undo: the digest it goes back to */
+            to?: string;
         };
         "Delivery.OperationObject": {
             metadata: components["schemas"]["Delivery.ObjectMeta"];
@@ -1651,6 +1675,15 @@ export interface components {
             recheck?: string;
             window?: string;
         };
+        "Delivery.Watch": {
+            message?: string;
+            /** @description Rechecked, RecheckFailed or RecheckUnknown from the Watched condition, or NotRechecked when the running version has not been re-checked since it shipped */
+            reason?: string;
+            /** @description When the condition last changed (RFC 3339) */
+            since?: string;
+            /** @enum {string} */
+            status: "True" | "False" | "Unknown";
+        };
         "Delivery.WorkloadRef": {
             kind: string;
             name: string;
@@ -1768,6 +1801,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The digest-pinned contract the running artifact names (delivery.pacto.trianalab.io/contract), when its artifact could be read */
+            contractRef?: string;
             /** @description The registry domain the Stage names for its service; empty when it names none */
             domain?: string;
             environment: string;
@@ -1780,25 +1815,42 @@ export interface components {
              * @description Operations on this Stage waiting for a person
              */
             held: number;
+            /** @description The Stage's operations could not be read, so held is not known */
+            heldUnknown?: boolean;
+            /** @description The newest re-check of the running version after it shipped (status.lastCheck) */
+            lastCheck?: components["schemas"]["Delivery.CheckSummary"];
             /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
             level?: string;
             namespace: string;
+            /** @description Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides */
+            offers: components["schemas"]["Delivery.Offer"][] | null;
             /** @description The digest the environment runs */
             pointer?: string;
             /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
             ready?: string;
+            /** @description What to change so the Stage can promote, when Ready is False with a known reason */
+            readyFix?: string;
             /** @description Why the Stage cannot promote, in words, when Ready is not True */
             readyMessage?: string;
+            /** @description The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it */
+            revision?: string;
             service: string;
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
             stage: string;
+            /**
+             * @description The one state the Stage is counted in, as the board's state filter and counts.byEnvironment count it. unknown appears only on status rows whose operations could not be read; the board never emits it
+             * @enum {string}
+             */
+            state: "failed" | "frozen" | "autohold" | "waiting" | "empty" | "unverified" | "verified" | "unknown";
             /** @description Where the Stage's candidates come from, as its spec declares; on the board's rows only */
             upstream?: components["schemas"]["Upstream"];
             /** @description The running digest passed its verify gates here */
             verified: boolean;
             /** @description The version its contract declares, when the artifact could be read */
             version?: string;
+            /** @description Whether the newest re-check of the running version passed: the Watched condition when lastCheck is about the running digest and the operation that shipped it, else Unknown with reason NotRechecked */
+            watched?: components["schemas"]["Delivery.Watch"];
         };
         EnvironmentsOutputBody: {
             asOf: string;
@@ -1818,7 +1870,7 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
             promotion?: components["schemas"]["PromotionGraph"];
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         EvaluationCoverage: {
@@ -3041,7 +3093,7 @@ export interface components {
             };
             /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline */
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
@@ -3231,7 +3283,7 @@ export interface components {
              * @description How many held changes, over every page, more than one team may answer
              */
             heldShared: number;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         Insight: {
@@ -4218,7 +4270,7 @@ export interface components {
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         PublishedService: {
