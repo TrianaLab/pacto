@@ -1,6 +1,36 @@
 package contract
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestEnvironmentExpiresAt(t *testing.T) {
+	if at, ok := (Environment{Expires: "2026-11-20T00:00:00Z"}).ExpiresAt(); !ok || !at.Equal(time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("valid: %v %v", at, ok)
+	}
+	for _, s := range []string{"", "2026-11-20", "soon"} {
+		if _, ok := (Environment{Expires: s}).ExpiresAt(); ok {
+			t.Errorf("%q parsed", s)
+		}
+	}
+}
+
+func TestEnvironmentSummary(t *testing.T) {
+	for _, tc := range []struct {
+		env  Environment
+		want string
+	}{
+		{Environment{Name: "prod", File: "p.yaml"}, "prod: p.yaml, lifetime not declared"},
+		{Environment{Name: "prod", File: "p.yaml", Lifetime: EnvironmentPersistent}, "prod: p.yaml, lifetime persistent"},
+		{Environment{Name: "pr-1", File: "e.yaml", Lifetime: EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: &Owner{Team: "perf"}},
+			"pr-1: e.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, owner perf"},
+	} {
+		if got := tc.env.Summary(); got != tc.want {
+			t.Errorf("got %q, want %q", got, tc.want)
+		}
+	}
+}
 
 func TestDeepMerge(t *testing.T) {
 	dst := map[string]any{

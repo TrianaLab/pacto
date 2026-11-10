@@ -1,8 +1,11 @@
 package contract
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -10,10 +13,42 @@ import (
 // Environment names one environment the service runs in and the bundle file
 // holding the configuration values it uses there (pactoVersion 2.3). The file
 // maps a configuration name to that configuration's values, which validation
-// checks against the configuration's schema.
+// checks against the configuration's schema. Lifetime, Expires and Owner are
+// pactoVersion 2.4: Lifetime is temporary or persistent ("" when not declared,
+// which is never read as persistent), Expires the RFC 3339 time a temporary
+// environment is meant to end, and Owner the team that owns it when that is
+// not the service owner.
 type Environment struct {
-	Name string `yaml:"name" json:"name"`
-	File string `yaml:"file" json:"file"`
+	Name     string `yaml:"name" json:"name"`
+	File     string `yaml:"file" json:"file"`
+	Lifetime string `yaml:"lifetime,omitempty" json:"lifetime,omitempty"`
+	Expires  string `yaml:"expires,omitempty" json:"expires,omitempty"`
+	Owner    *Owner `yaml:"owner,omitempty" json:"owner,omitempty"`
+}
+
+// The lifetimes an environment declares.
+const (
+	EnvironmentTemporary  = "temporary"
+	EnvironmentPersistent = "persistent"
+)
+
+// ExpiresAt is Expires parsed, and false when it is empty or not RFC 3339.
+func (e Environment) ExpiresAt() (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, e.Expires)
+	return t, err == nil
+}
+
+// Summary is the one-line text form: name, file and the declared fields, an
+// undeclared lifetime written as such.
+func (e Environment) Summary() string {
+	parts := []string{e.Name + ": " + e.File, "lifetime " + cmp.Or(e.Lifetime, "not declared")}
+	if e.Expires != "" {
+		parts = append(parts, "expires "+e.Expires)
+	}
+	if e.Owner != nil && e.Owner.DisplayString() != "" {
+		parts = append(parts, "owner "+e.Owner.DisplayString())
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ParseEnvironmentValues decodes an environment's file, YAML or JSON, into

@@ -499,7 +499,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		"      values: {\"size\":\"medium\"}\n      production: {\"size\":\"large\"}\n") {
 		t.Errorf("expected configurations with effective values, got %q", out)
 	}
-	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
+	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml, lifetime not declared\n") {
 		t.Errorf("expected environments, got %q", out)
 	}
 	if !strings.Contains(out, "Service: svc@1.0.0") {
@@ -1533,5 +1533,18 @@ Dependencies (2):
 `
 	if out := buf.String(); !strings.Contains(out, want) {
 		t.Errorf("got %q\nwant it to contain %q", out, want)
+	}
+}
+
+func TestPrintEnvironmentsDeclaredFields(t *testing.T) {
+	var buf bytes.Buffer
+	printEnvironments(&buf, []contract.Environment{
+		{Name: "production", File: "environments/production.yaml"},
+		{Name: "pr-482", File: "environments/pr-482.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: &contract.Owner{Team: "perf"}},
+	})
+	want := "\nEnvironments (2):\n  - production: environments/production.yaml, lifetime not declared\n" +
+		"  - pr-482: environments/pr-482.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, owner perf\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

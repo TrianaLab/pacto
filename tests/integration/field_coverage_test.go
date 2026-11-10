@@ -92,7 +92,7 @@ var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0"), del("service.template"), del("service.origin")),
 	valid("pactoVersion=2.4", set("pactoVersion", "2.4")),
-	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
+	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
@@ -105,16 +105,16 @@ var fieldCoverageCases = []fcCase{
 	invalid("service.version/invalid", "INVALID_SEMVER", set("service.version", "abc")),
 	valid("service.domain/valid", set("service.domain", "payments")),
 	invalid("service.domain/invalid", schemaViolation, set("service.domain", "Pay Ments")),
-	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.offering"), del("service.summary")),
+	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.offering"), del("service.summary")),
 	valid("service.offering/valid", set("service.offering", "postgresql")),
 	invalid("service.offering/invalid", schemaViolation, set("service.offering", "Shared Config")),
-	invalid("service.offering/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.summary")),
+	invalid("service.offering/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.summary")),
 	valid("service.summary/valid", set("service.summary", "Primary database for the storefront")),
 	invalid("service.summary/invalid", schemaViolation, set("service.summary", "line\nbreak")),
-	invalid("service.summary/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering")),
+	invalid("service.summary/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering")),
 	valid("service.lifecycle/valid", del("service.lifecycle.sunset"), del("service.lifecycle.successor")),
 	invalid("service.lifecycle/invalid", "INVALID_SERVICE_LIFECYCLE", set("service.lifecycle.sunset", "2025-01-01")),
-	invalid("service.lifecycle/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.domain"), del("service.offering"), del("service.summary")),
+	invalid("service.lifecycle/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("service.lifecycle.deprecated/valid", set("service.lifecycle.deprecated", "2026-06-30")),
 	invalid("service.lifecycle.deprecated/invalid", "INVALID_SERVICE_LIFECYCLE", set("service.lifecycle.deprecated", "2026-13-01")),
 	valid("service.lifecycle.sunset/valid", del("service.lifecycle.sunset")),
@@ -123,7 +123,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("service.lifecycle.successor/invalid", "SERVICE_SUCCESSOR_INVALID", set("service.lifecycle.successor", "orders-v2")),
 	valid("service.template/valid", set("service.template", map[string]any{})),
 	invalid("service.template/invalid", parseError, set("service.template", "x")),
-	invalid("service.template/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
+	invalid("service.template/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("service.template.plugins/valid", set("service.template.plugins", manyPlugins(32))),
 	invalid("service.template.plugins/invalid", schemaViolation, set("service.template.plugins", []any{})),
 	invalid("service.template.plugins/invalid-max", schemaViolation, set("service.template.plugins", manyPlugins(33))),
@@ -138,7 +138,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("service.template.plugins[].options/invalid", parseError, set("service.template.plugins.1.options.go-version", map[string]any{"major": "1"})),
 	valid("service.origin/valid", set("service.origin.ref", "oci://ghcr.io/acme/paths/http-service:1.1.0")),
 	invalid("service.origin/invalid", schemaViolation, del("service.origin.digest")),
-	invalid("service.origin/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
+	invalid("service.origin/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("service.origin.ref/valid", set("service.origin.ref", "../paths/http-service")),
 	invalid("service.origin.ref/invalid", "INVALID_ORIGIN_REF", set("service.origin.ref", "https://x/y")),
 	invalid("service.origin.ref/invalid-empty-oci", "INVALID_ORIGIN_REF", set("service.origin.ref", "oci://")),
@@ -242,7 +242,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("configurations[].ref/unresolved", "CONFIG_REF_UNRESOLVED", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
 	invalid("configurations[].ref/invalid", "INVALID_CONFIG_REF", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://")),
 	invalid("configurations[].configuration/invalid", schemaViolation, set("configurations.0.configuration", "provisioning")),
-	invalid("configurations[].configuration/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), set("configurations.0.configuration", "provisioning")),
+	invalid("configurations[].configuration/needs-2.4", needs24, set("pactoVersion", "2.3"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), set("configurations.0.configuration", "provisioning")),
 	valid("configurations[].values/valid", set("configurations.0.values.port", 9090)),
 	invalid("configurations[].values/invalid", "CONFIG_VALUES_VALIDATION_FAILED", set("configurations.0.values.port", "eighty")),
 	valid("configurations[].required/valid", set("configurations.0.required", false)),
@@ -260,6 +260,44 @@ var fieldCoverageCases = []fcCase{
 	invalid("environments[].file/invalid", "ENVIRONMENT_VALUES_INVALID", set("environments.0.file", "environments/broken.yaml")),
 	invalid("environments[].file/missing", "FILE_NOT_FOUND", set("environments.0.file", "environments/qa.yaml")),
 	invalid("environments[].file/unknown-configuration", "ENVIRONMENT_UNKNOWN_CONFIGURATION", set("environments.0.file", "environments/typo.yaml")),
+	valid("environments[].lifetime/valid", set("environments.0.lifetime", "persistent"), del("environments.0.expires")),
+	invalid("environments[].lifetime/invalid", schemaViolation, set("environments.0.lifetime", "forever")),
+	invalid("environments[].lifetime/needs-2.4", needs24, envNeeds24("lifetime")...),
+	valid("environments[].lifetime=temporary", set("environments.0.lifetime", "temporary")),
+	valid("environments[].lifetime=persistent", set("environments.0.lifetime", "persistent"), del("environments.0.expires")),
+	valid("environments[].expires/valid", set("environments.0.expires", "2099-06-30T12:00:00+02:00")),
+	invalid("environments[].expires/invalid", "INVALID_ENVIRONMENT_EXPIRES", set("environments.0.expires", "2099-06-30")),
+	invalid("environments[].expires/not-temporary", "ENVIRONMENT_EXPIRES_NOT_TEMPORARY", set("environments.0.lifetime", "persistent")),
+	invalid("environments[].expires/needs-2.4", needs24, envNeeds24("expires")...),
+	valid("environments[].owner/valid", del("environments.0.owner")),
+	invalid("environments[].owner/invalid", schemaViolation, set("environments.0.owner", map[string]any{})),
+	invalid("environments[].owner/unknown-key", parseError, set("environments.0.owner.group", "perf")),
+	invalid("environments[].owner/needs-2.4", needs24, envNeeds24("owner")...),
+	valid("environments[].owner.team/valid", del("environments.0.owner.dri")),
+	invalid("environments[].owner.team/invalid", schemaViolation, set("environments.0.owner.team", "per f")),
+	valid("environments[].owner.dri/valid", del("environments.0.owner.team")),
+	invalid("environments[].owner.dri/invalid", schemaViolation, set("environments.0.owner.dri", "bob smith")),
+	valid("environments[].owner.contacts/valid", del("environments.0.owner.contacts")),
+	invalid("environments[].owner.contacts/invalid", parseError, set("environments.0.owner.contacts", "perf@example.com")),
+	valid("environments[].owner.contacts[]/valid"),
+	invalid("environments[].owner.contacts[]/invalid", parseError, set("environments.0.owner.contacts.0", "perf@example.com")),
+	valid("environments[].owner.contacts[].type/valid"),
+	invalid("environments[].owner.contacts[].type/invalid", schemaViolation, set("environments.0.owner.contacts.0.type", "fax")),
+	valid("environments[].owner.contacts[].type=email", set("environments.0.owner.contacts.0.type", "email")),
+	valid("environments[].owner.contacts[].type=url", set("environments.0.owner.contacts.0.type", "url")),
+	valid("environments[].owner.contacts[].type=group", set("environments.0.owner.contacts.0.type", "group")),
+	valid("environments[].owner.contacts[].type=oncall", set("environments.0.owner.contacts.0.type", "oncall")),
+	valid("environments[].owner.contacts[].type=chat", set("environments.0.owner.contacts.0.type", "chat")),
+	valid("environments[].owner.contacts[].type=other", set("environments.0.owner.contacts.0.type", "other")),
+	valid("environments[].owner.contacts[].value/valid", set("environments.0.owner.contacts.0.value", "#perf-oncall")),
+	invalid("environments[].owner.contacts[].value/invalid", schemaViolation, del("environments.0.owner.contacts.0.value")),
+	valid("environments[].owner.contacts[].purpose/valid", del("environments.0.owner.contacts.0.purpose")),
+	invalid("environments[].owner.contacts[].purpose/invalid", schemaViolation, set("environments.0.owner.contacts.0.purpose", "billing")),
+	valid("environments[].owner.contacts[].purpose=ownership", set("environments.0.owner.contacts.0.purpose", "ownership")),
+	valid("environments[].owner.contacts[].purpose=support", set("environments.0.owner.contacts.0.purpose", "support")),
+	valid("environments[].owner.contacts[].purpose=escalation", set("environments.0.owner.contacts.0.purpose", "escalation")),
+	valid("environments[].owner.contacts[].purpose=oncall", set("environments.0.owner.contacts.0.purpose", "oncall")),
+	valid("environments[].owner.contacts[].purpose=notifications", set("environments.0.owner.contacts.0.purpose", "notifications")),
 
 	valid("policies/valid", del("policies")),
 	invalid("policies/invalid", parseError, set("policies", "base")),
@@ -504,6 +542,19 @@ var fieldCoverageCases = []fcCase{
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
+// envNeeds24 turns the base contract into 2.3, keeping key alone of the
+// environment fields 2.4 adds.
+func envNeeds24(key string) []fcOp {
+	ops := []fcOp{set("pactoVersion", "2.3"), del("service.template"), del("service.origin"), del("service.lifecycle"),
+		del("service.domain"), del("service.offering"), del("service.summary")}
+	for _, k := range []string{"lifetime", "expires", "owner"} {
+		if k != key {
+			ops = append(ops, del("environments.0."+k))
+		}
+	}
+	return ops
+}
+
 // manyPlugins returns n distinct service.template plugins.
 func manyPlugins(n int) []any {
 	out := make([]any, n)
@@ -572,6 +623,15 @@ configurations:
 environments:
   - name: staging
     file: environments/staging.yaml
+    lifetime: temporary
+    expires: 2099-01-01T00:00:00Z
+    owner:
+      team: perf
+      dri: bob
+      contacts:
+        - type: chat
+          value: "#perf"
+          purpose: support
 policies:
   - name: base
     schema: policy/schema.json

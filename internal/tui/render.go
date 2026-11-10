@@ -190,7 +190,7 @@ func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
 	if len(r.Environments) > 0 {
 		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
 		for _, env := range r.Environments {
-			fmt.Fprintf(b, "  %s: %s\n", safeText(env.Name), safeText(env.File))
+			fmt.Fprintf(b, "  %s\n", safeText(env.Summary()))
 		}
 	}
 }

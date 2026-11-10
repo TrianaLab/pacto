@@ -614,3 +614,23 @@ func TestEditTool_ReferenceOps(t *testing.T) {
 		t.Errorf("contract %+v", c)
 	}
 }
+
+// TestEditKeepsEnvironmentFields: an environment's lifetime, expiry and owner
+// survive an edit that does not touch them.
+func TestEditKeepsEnvironmentFields(t *testing.T) {
+	want := []contract.Environment{{Name: "pr-482", File: "environments/pr-482.yaml", Lifetime: contract.EnvironmentTemporary,
+		Expires: "2026-11-20T00:00:00Z", Owner: &contract.Owner{Team: "perf", Contacts: []contract.OwnerContact{{Type: "chat", Value: "#perf"}}}}}
+	runEditCases(t, []editCase{{
+		name: "set values keeps the declared fields",
+		pacto: orders24 + "environments:\n  - name: pr-482\n    file: environments/pr-482.yaml\n    lifetime: temporary\n" +
+			"    expires: 2026-11-20T00:00:00Z\n    owner:\n      team: perf\n      contacts:\n        - {type: chat, value: \"#perf\"}\n",
+		files:   map[string]string{"environments/pr-482.yaml": "{}\n"},
+		input:   EditInput{SetEnvironmentValues: []EnvironmentValuesInput{{Environment: "pr-482", Configuration: "db", Values: map[string]any{"size": "large"}}}},
+		changes: []string{`set values for configuration "db" in environment "pr-482"`},
+		check: func(t *testing.T, dir string) {
+			if got := readContract(t, dir).Environments; !reflect.DeepEqual(got, want) {
+				t.Errorf("environments %+v, want %+v", got, want)
+			}
+		},
+	}})
+}

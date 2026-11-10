@@ -1230,3 +1230,32 @@ func TestValidateEnvironmentFiles(t *testing.T) {
 		t.Fatalf("got %+v", result.Errors)
 	}
 }
+
+func TestEnvironmentLifetimeChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name, lifetime, expires, code string
+	}{
+		{"temporary with expires", "temporary", "2026-11-20T00:00:00Z", ""},
+		{"temporary without expires", "temporary", "", ""},
+		{"persistent", "persistent", "", ""},
+		{"persistent with expires", "persistent", "2026-11-20T00:00:00Z", "ENVIRONMENT_EXPIRES_NOT_TEMPORARY"},
+		{"no lifetime with expires", "", "2026-11-20T00:00:00Z", "ENVIRONMENT_EXPIRES_NOT_TEMPORARY"},
+		{"malformed expires", "temporary", "2026-11-20", "INVALID_ENVIRONMENT_EXPIRES"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := validV20Contract()
+			c.Environments = []contract.Environment{{Name: "ok", File: "a.yaml"}, {Name: "x", File: "a.yaml", Lifetime: tc.lifetime, Expires: tc.expires}}
+			var result ValidationResult
+			validateEnvironmentFiles(c, fstest.MapFS{"a.yaml": {}}, &result)
+			if tc.code == "" {
+				if len(result.Errors) != 0 {
+					t.Fatalf("got %+v", result.Errors)
+				}
+				return
+			}
+			if len(result.Errors) != 1 || result.Errors[0].Code != tc.code || result.Errors[0].Path != "environments[1].expires" {
+				t.Fatalf("got %+v", result.Errors)
+			}
+		})
+	}
+}

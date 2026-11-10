@@ -178,39 +178,55 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 
 // needs24 records a NEEDS_PACTO_2_4 error for each field only pactoVersion 2.4
 // has (service.domain, service.offering, service.summary, service.lifecycle,
-// service.template and service.origin,
-// and values or a configuration selector beside a configuration ref) in an older contract, in place of the older schema's
-// generic error, and returns data without them for that schema to check the
-// rest. Every configuration stays in place so its other errors keep their
+// service.template and service.origin, values or a configuration selector
+// beside a configuration ref, and an environment's lifetime, expires and owner)
+// in an older contract, in place of the older schema's generic error, and
+// returns data without them for that schema to check the rest. Every
+// configuration and environment stays in place so its other errors keep their
 // index.
 func needs24(result *ValidationResult, data any) any {
-	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
 	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle", "template", "origin")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
-	items, ok := m["configurations"].([]any)
+	m = needs24Items(result, m, "configurations", func(im map[string]any) []needs24Key {
+		_, ref := im["ref"]
+		return []needs24Key{{"values", "values beside a ref need ", ref}, {"configuration", "a configuration selector needs ", true}}
+	})
+	return needs24Items(result, m, "environments", func(map[string]any) []needs24Key {
+		return []needs24Key{{"lifetime", "lifetime on an environment needs ", true}, {"expires", "expires on an environment needs ", true}, {"owner", "owner on an environment needs ", true}}
+	})
+}
+
+// needs24Key is one key an item of a 2.4 array may only hold in 2.4, the
+// start of its message, and whether it counts on that item at all.
+type needs24Key struct {
+	key, what string
+	applies   bool
+}
+
+// needs24Items records NEEDS_PACTO_2_4 for each 2.4-only key keys names on an
+// item of the array m[section] and returns m with those keys removed, every
+// item kept at its index. Without the array m is returned as is.
+func needs24Items(result *ValidationResult, m map[string]any, section string, keys func(map[string]any) []needs24Key) map[string]any {
+	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
+	items, ok := m[section].([]any)
 	if !ok {
-		return data
+		return m
 	}
 	kept := slices.Clone(items)
 	for i, it := range items {
 		im, _ := it.(map[string]any)
-		_, ref := im["ref"]
-		for _, s := range []struct{ key, what string }{
-			{"values", "values beside a ref need "},
-			{"configuration", "a configuration selector needs "},
-		} {
-			_, has := im[s.key]
-			if !has || (s.key == "values" && !ref) {
+		for _, k := range keys(im) {
+			if _, has := im[k.key]; !has || !k.applies {
 				continue
 			}
-			result.AddError(fmt.Sprintf("configurations.%d.%s", i, s.key), string(finding.CodeNeedsPacto24), s.what+fix)
+			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(finding.CodeNeedsPacto24), k.what+fix)
 			im = maps.Clone(im)
-			delete(im, s.key)
+			delete(im, k.key)
 			kept[i] = im
 		}
 	}
 	out := maps.Clone(m)
-	out["configurations"] = kept
+	out[section] = kept
 	return out
 }
 

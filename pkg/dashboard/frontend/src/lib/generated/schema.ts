@@ -1064,8 +1064,11 @@ export interface components {
             platforms?: string[] | null;
         };
         "Contract.Environment": {
+            expires?: string;
             file: string;
+            lifetime?: string;
             name: string;
+            owner?: components["schemas"]["Contract.Owner"];
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;

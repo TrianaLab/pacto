@@ -7,59 +7,61 @@ import (
 
 const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
-	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
-	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
-	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
-	CodeNeedsPacto23                 Code = "NEEDS_PACTO_2_3" // an older contract declares environments
-	CodeNeedsPacto24                 Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, or values or a configuration selector beside a configuration ref
-	CodeSchemaError                  Code = "SCHEMA_ERROR"
-	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
-	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
-	CodeInvalidSemver                Code = "INVALID_SEMVER"
-	CodeInvalidConfigRef             Code = "INVALID_CONFIG_REF"
-	CodeInvalidPolicyRef             Code = "INVALID_POLICY_REF"
-	CodeInvalidOciRef                Code = "INVALID_OCI_REF"
-	CodeTagNotDigest                 Code = "TAG_NOT_DIGEST"
-	CodeDuplicateInterfaceName       Code = "DUPLICATE_INTERFACE_NAME"
-	CodeDuplicateConfigurationName   Code = "DUPLICATE_CONFIGURATION_NAME"
-	CodeDuplicatePolicyName          Code = "DUPLICATE_POLICY_NAME"
-	CodeDuplicateDependencyName      Code = "DUPLICATE_DEPENDENCY_NAME"
-	CodeDuplicateTemplatePlugin      Code = "DUPLICATE_TEMPLATE_PLUGIN"
-	CodeInvalidOriginRef             Code = "INVALID_ORIGIN_REF"
-	CodeEmptyCompatibility           Code = "EMPTY_COMPATIBILITY"
-	CodeInvalidCompatibility         Code = "INVALID_COMPATIBILITY"
-	CodeValuesWithoutSchema          Code = "VALUES_WITHOUT_SCHEMA"
-	CodeConfigValuesValidationFailed Code = "CONFIG_VALUES_VALIDATION_FAILED"
-	CodeInvalidInterfaceSpec         Code = "INVALID_INTERFACE_SPEC"
-	CodeInvalidConfigJson            Code = "INVALID_CONFIG_JSON"
-	CodeInvalidConfigSchema          Code = "INVALID_CONFIG_SCHEMA"
-	CodeInvalidPolicyJson            Code = "INVALID_POLICY_JSON"
-	CodeInvalidPolicySchema          Code = "INVALID_POLICY_SCHEMA"
-	CodeFileNotFound                 Code = "FILE_NOT_FOUND"
-	CodeInvalidReadinessExpires      Code = "INVALID_READINESS_EXPIRES"
-	CodeInvalidReadinessRevision     Code = "INVALID_READINESS_REVISION"
-	CodeDuplicateReadinessId         Code = "DUPLICATE_READINESS_ID"
-	CodeEmptyReadinessEvidence       Code = "EMPTY_READINESS_EVIDENCE"
-	CodeEmptyReadinessDescription    Code = "EMPTY_READINESS_DESCRIPTION"
-	CodePolicyEnforcementError       Code = "POLICY_ENFORCEMENT_ERROR"
-	CodePolicyViolation              Code = "POLICY_VIOLATION"
-	CodePolicyRefNotEnforced         Code = "POLICY_REF_NOT_ENFORCED"
-	CodePolicyRefUnresolved          Code = "POLICY_REF_UNRESOLVED"
-	CodePolicyRefCycle               Code = "POLICY_REF_CYCLE"
-	CodeConfigRefUnresolved          Code = "CONFIG_REF_UNRESOLVED"            // a configuration ref something depends on cannot be resolved (strict callers)
-	CodeConfigRefUnverified          Code = "CONFIG_REF_UNVERIFIED"            // a configuration ref could not be resolved, so its values stay unchecked
-	CodeConfigRefNotEnforced         Code = "CONFIG_REF_NOT_ENFORCED"          // no resolver: values for a configuration ref are not checked
-	CodeConfigRefAmbiguous           Code = "CONFIG_REF_AMBIGUOUS"             // the referenced contract declares several configurations and no selector names one
-	CodeConfigRefUnknownConfig       Code = "CONFIG_REF_UNKNOWN_CONFIGURATION" // the selector names no configuration of the referenced contract, or it declares none
-	CodeConfigRefCycle               Code = "CONFIG_REF_CYCLE"
-	CodeConfigRefVersionOutsideRange Code = "CONFIG_REF_VERSION_OUTSIDE_RANGE" // the referenced revision is outside the compatibility of a dependency on the same repository
-	CodeCapabilityRefInvalid         Code = "CAPABILITY_REF_INVALID"
-	CodeDuplicateCapability          Code = "DUPLICATE_CAPABILITY"
-	CodeDuplicateEnvironmentName     Code = "DUPLICATE_ENVIRONMENT_NAME"
-	CodeEnvironmentUnknownConfig     Code = "ENVIRONMENT_UNKNOWN_CONFIGURATION" // an environment file names a configuration the contract does not declare
-	CodeEnvironmentValuesInvalid     Code = "ENVIRONMENT_VALUES_INVALID"
-	CodeEnvironmentValuesMissing     Code = "ENVIRONMENT_VALUES_MISSING"    // a required configuration an environment leaves out fails its schema on its defaults
-	CodeEnvironmentValuesUnverified  Code = "ENVIRONMENT_VALUES_UNVERIFIED" // no schema file in the bundle to check an environment's values against
+	CodeUnsupportedPactoVersion        Code = "UNSUPPORTED_PACTO_VERSION"
+	CodeNeedsPacto21                   Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
+	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
+	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3" // an older contract declares environments
+	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
+	CodeSchemaError                    Code = "SCHEMA_ERROR"
+	CodeSchemaViolation                Code = "SCHEMA_VIOLATION"
+	CodeYamlParseError                 Code = "YAML_PARSE_ERROR"
+	CodeInvalidSemver                  Code = "INVALID_SEMVER"
+	CodeInvalidConfigRef               Code = "INVALID_CONFIG_REF"
+	CodeInvalidPolicyRef               Code = "INVALID_POLICY_REF"
+	CodeInvalidOciRef                  Code = "INVALID_OCI_REF"
+	CodeTagNotDigest                   Code = "TAG_NOT_DIGEST"
+	CodeDuplicateInterfaceName         Code = "DUPLICATE_INTERFACE_NAME"
+	CodeDuplicateConfigurationName     Code = "DUPLICATE_CONFIGURATION_NAME"
+	CodeDuplicatePolicyName            Code = "DUPLICATE_POLICY_NAME"
+	CodeDuplicateDependencyName        Code = "DUPLICATE_DEPENDENCY_NAME"
+	CodeDuplicateTemplatePlugin        Code = "DUPLICATE_TEMPLATE_PLUGIN"
+	CodeInvalidOriginRef               Code = "INVALID_ORIGIN_REF"
+	CodeEmptyCompatibility             Code = "EMPTY_COMPATIBILITY"
+	CodeInvalidCompatibility           Code = "INVALID_COMPATIBILITY"
+	CodeValuesWithoutSchema            Code = "VALUES_WITHOUT_SCHEMA"
+	CodeConfigValuesValidationFailed   Code = "CONFIG_VALUES_VALIDATION_FAILED"
+	CodeInvalidInterfaceSpec           Code = "INVALID_INTERFACE_SPEC"
+	CodeInvalidConfigJson              Code = "INVALID_CONFIG_JSON"
+	CodeInvalidConfigSchema            Code = "INVALID_CONFIG_SCHEMA"
+	CodeInvalidPolicyJson              Code = "INVALID_POLICY_JSON"
+	CodeInvalidPolicySchema            Code = "INVALID_POLICY_SCHEMA"
+	CodeFileNotFound                   Code = "FILE_NOT_FOUND"
+	CodeInvalidReadinessExpires        Code = "INVALID_READINESS_EXPIRES"
+	CodeInvalidReadinessRevision       Code = "INVALID_READINESS_REVISION"
+	CodeDuplicateReadinessId           Code = "DUPLICATE_READINESS_ID"
+	CodeEmptyReadinessEvidence         Code = "EMPTY_READINESS_EVIDENCE"
+	CodeEmptyReadinessDescription      Code = "EMPTY_READINESS_DESCRIPTION"
+	CodePolicyEnforcementError         Code = "POLICY_ENFORCEMENT_ERROR"
+	CodePolicyViolation                Code = "POLICY_VIOLATION"
+	CodePolicyRefNotEnforced           Code = "POLICY_REF_NOT_ENFORCED"
+	CodePolicyRefUnresolved            Code = "POLICY_REF_UNRESOLVED"
+	CodePolicyRefCycle                 Code = "POLICY_REF_CYCLE"
+	CodeConfigRefUnresolved            Code = "CONFIG_REF_UNRESOLVED"            // a configuration ref something depends on cannot be resolved (strict callers)
+	CodeConfigRefUnverified            Code = "CONFIG_REF_UNVERIFIED"            // a configuration ref could not be resolved, so its values stay unchecked
+	CodeConfigRefNotEnforced           Code = "CONFIG_REF_NOT_ENFORCED"          // no resolver: values for a configuration ref are not checked
+	CodeConfigRefAmbiguous             Code = "CONFIG_REF_AMBIGUOUS"             // the referenced contract declares several configurations and no selector names one
+	CodeConfigRefUnknownConfig         Code = "CONFIG_REF_UNKNOWN_CONFIGURATION" // the selector names no configuration of the referenced contract, or it declares none
+	CodeConfigRefCycle                 Code = "CONFIG_REF_CYCLE"
+	CodeConfigRefVersionOutsideRange   Code = "CONFIG_REF_VERSION_OUTSIDE_RANGE" // the referenced revision is outside the compatibility of a dependency on the same repository
+	CodeCapabilityRefInvalid           Code = "CAPABILITY_REF_INVALID"
+	CodeDuplicateCapability            Code = "DUPLICATE_CAPABILITY"
+	CodeDuplicateEnvironmentName       Code = "DUPLICATE_ENVIRONMENT_NAME"
+	CodeInvalidEnvironmentExpires      Code = "INVALID_ENVIRONMENT_EXPIRES"       // an environment's expires is not an RFC 3339 time
+	CodeEnvironmentExpiresNotTemporary Code = "ENVIRONMENT_EXPIRES_NOT_TEMPORARY" // expires on an environment whose lifetime is not temporary
+	CodeEnvironmentUnknownConfig       Code = "ENVIRONMENT_UNKNOWN_CONFIGURATION" // an environment file names a configuration the contract does not declare
+	CodeEnvironmentValuesInvalid       Code = "ENVIRONMENT_VALUES_INVALID"
+	CodeEnvironmentValuesMissing       Code = "ENVIRONMENT_VALUES_MISSING"    // a required configuration an environment leaves out fails its schema on its defaults
+	CodeEnvironmentValuesUnverified    Code = "ENVIRONMENT_VALUES_UNVERIFIED" // no schema file in the bundle to check an environment's values against
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -103,60 +105,62 @@ type codeMeta struct {
 
 var registry = map[Code]codeMeta{
 	// Durable v2
-	CodeUnsupportedPactoVersion:      {CategoryInvalidVersion, SeverityError},
-	CodeNeedsPacto21:                 {CategoryInvalidVersion, SeverityError},
-	CodeNeedsPacto22:                 {CategoryInvalidVersion, SeverityError},
-	CodeNeedsPacto23:                 {CategoryInvalidVersion, SeverityError},
-	CodeNeedsPacto24:                 {CategoryInvalidVersion, SeverityError},
-	CodeSchemaError:                  {CategorySchemaViolation, SeverityError},
-	CodeSchemaViolation:              {CategorySchemaViolation, SeverityError},
-	CodeYamlParseError:               {CategorySchemaViolation, SeverityError},
-	CodeInvalidSemver:                {CategoryInvalidVersion, SeverityError},
-	CodeInvalidConfigRef:             {CategoryInvalidReference, SeverityError},
-	CodeInvalidPolicyRef:             {CategoryInvalidReference, SeverityError},
-	CodeInvalidOciRef:                {CategoryInvalidReference, SeverityError},
-	CodeTagNotDigest:                 {CategoryInvalidReference, SeverityWarning},
-	CodeDuplicateInterfaceName:       {CategoryDuplicateName, SeverityError},
-	CodeDuplicateConfigurationName:   {CategoryDuplicateName, SeverityError},
-	CodeDuplicatePolicyName:          {CategoryDuplicateName, SeverityError},
-	CodeDuplicateDependencyName:      {CategoryDuplicateName, SeverityError},
-	CodeDuplicateTemplatePlugin:      {CategoryDuplicateName, SeverityError},
-	CodeInvalidOriginRef:             {CategoryInvalidReference, SeverityError},
-	CodeEmptyCompatibility:           {CategoryInvalidDependency, SeverityError},
-	CodeInvalidCompatibility:         {CategoryInvalidDependency, SeverityError},
-	CodeValuesWithoutSchema:          {CategoryMissingConfiguration, SeverityError},
-	CodeConfigValuesValidationFailed: {CategoryConfigurationViolation, SeverityError},
-	CodeInvalidInterfaceSpec:         {CategoryInvalidFile, SeverityError},
-	CodeInvalidConfigJson:            {CategoryInvalidFile, SeverityError},
-	CodeInvalidConfigSchema:          {CategorySchemaViolation, SeverityError},
-	CodeInvalidPolicyJson:            {CategoryInvalidFile, SeverityError},
-	CodeInvalidPolicySchema:          {CategorySchemaViolation, SeverityError},
-	CodeFileNotFound:                 {CategoryInvalidFile, SeverityError},
-	CodeStatelessPersistent:          {CategoryStateMismatch, SeverityError},
-	CodeInvalidReadinessExpires:      {CategoryInvalidReadiness, SeverityError},
-	CodeInvalidReadinessRevision:     {CategoryInvalidReadiness, SeverityError},
-	CodeDuplicateReadinessId:         {CategoryDuplicateName, SeverityError},
-	CodeEmptyReadinessEvidence:       {CategoryMissingEvidence, SeverityError},
-	CodeEmptyReadinessDescription:    {CategoryMissingEvidence, SeverityError},
-	CodePolicyEnforcementError:       {CategoryPolicyViolation, SeverityError},
-	CodePolicyViolation:              {CategoryPolicyViolation, SeverityError},
-	CodePolicyRefNotEnforced:         {CategoryUnresolvedReference, SeverityWarning},
-	CodePolicyRefUnresolved:          {CategoryUnresolvedReference, SeverityError},
-	CodePolicyRefCycle:               {CategoryReferenceCycle, SeverityError},
-	CodeConfigRefUnresolved:          {CategoryUnresolvedReference, SeverityError},
-	CodeConfigRefUnverified:          {CategoryUnresolvedReference, SeverityWarning},
-	CodeConfigRefNotEnforced:         {CategoryUnresolvedReference, SeverityWarning},
-	CodeConfigRefAmbiguous:           {CategoryInvalidReference, SeverityError},
-	CodeConfigRefUnknownConfig:       {CategoryInvalidReference, SeverityError},
-	CodeConfigRefCycle:               {CategoryReferenceCycle, SeverityError},
-	CodeConfigRefVersionOutsideRange: {CategoryInvalidReference, SeverityError},
-	CodeCapabilityRefInvalid:         {CategoryInvalidCapability, SeverityError},
-	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
-	CodeDuplicateEnvironmentName:     {CategoryDuplicateName, SeverityError},
-	CodeEnvironmentUnknownConfig:     {CategoryInvalidReference, SeverityError},
-	CodeEnvironmentValuesInvalid:     {CategoryConfigurationViolation, SeverityError},
-	CodeEnvironmentValuesMissing:     {CategoryMissingConfiguration, SeverityError},
-	CodeEnvironmentValuesUnverified:  {CategoryUnresolvedReference, SeverityWarning},
+	CodeUnsupportedPactoVersion:        {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto21:                   {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto22:                   {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto23:                   {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto24:                   {CategoryInvalidVersion, SeverityError},
+	CodeSchemaError:                    {CategorySchemaViolation, SeverityError},
+	CodeSchemaViolation:                {CategorySchemaViolation, SeverityError},
+	CodeYamlParseError:                 {CategorySchemaViolation, SeverityError},
+	CodeInvalidSemver:                  {CategoryInvalidVersion, SeverityError},
+	CodeInvalidConfigRef:               {CategoryInvalidReference, SeverityError},
+	CodeInvalidPolicyRef:               {CategoryInvalidReference, SeverityError},
+	CodeInvalidOciRef:                  {CategoryInvalidReference, SeverityError},
+	CodeTagNotDigest:                   {CategoryInvalidReference, SeverityWarning},
+	CodeDuplicateInterfaceName:         {CategoryDuplicateName, SeverityError},
+	CodeDuplicateConfigurationName:     {CategoryDuplicateName, SeverityError},
+	CodeDuplicatePolicyName:            {CategoryDuplicateName, SeverityError},
+	CodeDuplicateDependencyName:        {CategoryDuplicateName, SeverityError},
+	CodeDuplicateTemplatePlugin:        {CategoryDuplicateName, SeverityError},
+	CodeInvalidOriginRef:               {CategoryInvalidReference, SeverityError},
+	CodeEmptyCompatibility:             {CategoryInvalidDependency, SeverityError},
+	CodeInvalidCompatibility:           {CategoryInvalidDependency, SeverityError},
+	CodeValuesWithoutSchema:            {CategoryMissingConfiguration, SeverityError},
+	CodeConfigValuesValidationFailed:   {CategoryConfigurationViolation, SeverityError},
+	CodeInvalidInterfaceSpec:           {CategoryInvalidFile, SeverityError},
+	CodeInvalidConfigJson:              {CategoryInvalidFile, SeverityError},
+	CodeInvalidConfigSchema:            {CategorySchemaViolation, SeverityError},
+	CodeInvalidPolicyJson:              {CategoryInvalidFile, SeverityError},
+	CodeInvalidPolicySchema:            {CategorySchemaViolation, SeverityError},
+	CodeFileNotFound:                   {CategoryInvalidFile, SeverityError},
+	CodeStatelessPersistent:            {CategoryStateMismatch, SeverityError},
+	CodeInvalidReadinessExpires:        {CategoryInvalidReadiness, SeverityError},
+	CodeInvalidReadinessRevision:       {CategoryInvalidReadiness, SeverityError},
+	CodeDuplicateReadinessId:           {CategoryDuplicateName, SeverityError},
+	CodeEmptyReadinessEvidence:         {CategoryMissingEvidence, SeverityError},
+	CodeEmptyReadinessDescription:      {CategoryMissingEvidence, SeverityError},
+	CodePolicyEnforcementError:         {CategoryPolicyViolation, SeverityError},
+	CodePolicyViolation:                {CategoryPolicyViolation, SeverityError},
+	CodePolicyRefNotEnforced:           {CategoryUnresolvedReference, SeverityWarning},
+	CodePolicyRefUnresolved:            {CategoryUnresolvedReference, SeverityError},
+	CodePolicyRefCycle:                 {CategoryReferenceCycle, SeverityError},
+	CodeConfigRefUnresolved:            {CategoryUnresolvedReference, SeverityError},
+	CodeConfigRefUnverified:            {CategoryUnresolvedReference, SeverityWarning},
+	CodeConfigRefNotEnforced:           {CategoryUnresolvedReference, SeverityWarning},
+	CodeConfigRefAmbiguous:             {CategoryInvalidReference, SeverityError},
+	CodeConfigRefUnknownConfig:         {CategoryInvalidReference, SeverityError},
+	CodeConfigRefCycle:                 {CategoryReferenceCycle, SeverityError},
+	CodeConfigRefVersionOutsideRange:   {CategoryInvalidReference, SeverityError},
+	CodeCapabilityRefInvalid:           {CategoryInvalidCapability, SeverityError},
+	CodeDuplicateCapability:            {CategoryDuplicateName, SeverityError},
+	CodeDuplicateEnvironmentName:       {CategoryDuplicateName, SeverityError},
+	CodeInvalidEnvironmentExpires:      {CategorySchemaViolation, SeverityError},
+	CodeEnvironmentExpiresNotTemporary: {CategorySchemaViolation, SeverityError},
+	CodeEnvironmentUnknownConfig:       {CategoryInvalidReference, SeverityError},
+	CodeEnvironmentValuesInvalid:       {CategoryConfigurationViolation, SeverityError},
+	CodeEnvironmentValuesMissing:       {CategoryMissingConfiguration, SeverityError},
+	CodeEnvironmentValuesUnverified:    {CategoryUnresolvedReference, SeverityWarning},
 
 	// Family 1 — confirmed violations
 	CodeWorkloadMismatch:            {CategoryRuntimeDrift, SeverityError},

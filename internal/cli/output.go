@@ -342,14 +342,15 @@ func printExplainConfigurations(w io.Writer, configs []app.ExplainConfiguration)
 	}
 }
 
-// printEnvironments lists each environment and its file, when there are any.
+// printEnvironments lists each environment with its file and declared
+// fields, when there are any.
 func printEnvironments(w io.Writer, envs []contract.Environment) {
 	if len(envs) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "\nEnvironments (%d):\n", len(envs))
 	for _, env := range envs {
-		_, _ = fmt.Fprintf(w, "  - %s: %s\n", env.Name, env.File)
+		_, _ = fmt.Fprintf(w, "  - %s\n", env.Summary())
 	}
 }
 
