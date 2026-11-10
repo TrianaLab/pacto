@@ -212,15 +212,25 @@ func TestEntryFilterKeeps(t *testing.T) {
 	}
 }
 
-func TestFilterEntries(t *testing.T) {
-	h := History{Completeness: "partial", Note: "n", Problems: []string{"p"}, Unreadable: []string{"u"}, Entries: []HistoryEntry{
+func filterEntriesHistory() History {
+	return History{Completeness: "partial", Note: "n", Problems: []string{"p"}, Unreadable: []string{"u"}, Entries: []HistoryEntry{
 		{Operation: "a", CorrelationID: "INC-1", Cause: &Cause{Reason: "rollback after alert"}},
 		{Operation: "b", Cause: &Cause{Verdict: &Verdict{Gate: "pacto.metrics"}}},
 		{Operation: "c"},
 	}}
-	if got := FilterEntries(h, EntryFilter{}); len(got.Entries) != 3 || got.Note != "n" {
+}
+
+func TestFilterEntriesEmpty(t *testing.T) {
+	if got := FilterEntries(filterEntriesHistory(), EntryFilter{}); len(got.Entries) != 3 || got.Note != "n" {
 		t.Fatalf("no filter changed the history: %+v", got)
 	}
+	if got := FilterEntries(History{}, EntryFilter{CorrelationID: "INC-1"}); got.Entries == nil {
+		t.Fatal("a filtered history with no entries must say [], not null")
+	}
+}
+
+func TestFilterEntries(t *testing.T) {
+	h := filterEntriesHistory()
 	got := FilterEntries(h, EntryFilter{Cause: "ALERT"})
 	if len(got.Entries) != 1 || got.Entries[0].Operation != "a" || got.Note != "n; only changes whose cause names ALERT" {
 		t.Fatalf("cause filter = %+v", got)
@@ -237,9 +247,6 @@ func TestFilterEntries(t *testing.T) {
 	}
 	if len(h.Entries) != 3 || h.Note != "n" {
 		t.Fatalf("the input history was mutated: %+v", h)
-	}
-	if got := FilterEntries(History{}, EntryFilter{CorrelationID: "INC-1"}); got.Entries == nil {
-		t.Fatal("a filtered history with no entries must say [], not null")
 	}
 }
 
