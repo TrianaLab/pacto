@@ -215,13 +215,13 @@ type Upstream struct {
 // its Ready condition says: the promoter sets UpstreamUntrusted when it holds
 // no upstream key and UpstreamUnreadable when the records fail to verify.
 func recordsTrust(st *delivery.StageObject) string {
-	i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == "Ready" })
+	i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == delivery.ConditionReady })
 	switch {
 	case i < 0:
 		return "unknown"
-	case readyReason(st) == "UpstreamUntrusted":
+	case readyReason(st) == delivery.ReadyReasonUpstreamUntrusted:
 		return "untrusted"
-	case readyReason(st) == "UpstreamUnreadable":
+	case readyReason(st) == delivery.ReadyReasonUpstreamUnreadable:
 		return "unreadable"
 	case st.Status.Conditions[i].Status == "True":
 		return "trusted"
@@ -232,7 +232,7 @@ func recordsTrust(st *delivery.StageObject) string {
 
 // readyReason is the reason of st's Ready condition, empty when it has none.
 func readyReason(st *delivery.StageObject) string {
-	if i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == "Ready" }); i >= 0 {
+	if i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == delivery.ConditionReady }); i >= 0 {
 		return st.Status.Conditions[i].Reason
 	}
 	return ""
@@ -271,9 +271,9 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, 
 	case c.OCIRepositoryRef != nil:
 		u := &Upstream{Kind: "artifact", Repository: c.OCIRepositoryRef.Name}
 		switch readyReason(st) {
-		case "CandidateNotFound":
+		case delivery.ReadyReasonCandidateNotFound:
 			u.Problem = "missing"
-		case "CandidateUnverified":
+		case delivery.ReadyReasonCandidateUnverified:
 			u.Problem = "unverified"
 		}
 		return u

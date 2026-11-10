@@ -462,3 +462,16 @@ func TestPrintCandidatesNote(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+func TestPrintPlanLabelsEvidenceGates(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Verdicts: []delivery.Verdict{
+		{Gate: delivery.GateImpact, Result: delivery.Pass, Message: "breaks ledger"},
+		{Gate: delivery.GateContract, Result: delivery.Pass, Message: "readable"},
+	}}})
+	for _, want := range []string{"  pacto.impact      Checked  breaks ledger\n", "  pacto.contract    Pass     readable\n"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
+}

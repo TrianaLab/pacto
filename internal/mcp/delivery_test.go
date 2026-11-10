@@ -387,3 +387,40 @@ func TestRecordVerifySchemaHasNoWindow(t *testing.T) {
 		}
 	}
 }
+
+// TestDeliveryDescriptionsExplainCheckedPass: an agent reading a plan, an
+// operation or an explanation learns that an evidence gate's Pass only says
+// the gate ran, as the CLI and the dashboard label it Checked.
+func TestDeliveryDescriptionsExplainCheckedPass(t *testing.T) {
+	const checked = "A pacto.diff, pacto.impact or pacto.environment verdict passes once it ran"
+	if !strings.Contains(deliveryInstructions, checked) || !strings.Contains(deliveryInstructions, "show it as Checked") {
+		t.Fatal("the delivery instructions must explain a checked Pass")
+	}
+	ctx := context.Background()
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
+	t1, t2 := mcpsdk.NewInMemoryTransports()
+	if _, err := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{}).Connect(ctx, t1, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	res, err := s.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"pacto_delivery_operation_plan": true, "pacto_delivery_get": true, "pacto_delivery_explain": true}
+	for _, tool := range res.Tools {
+		if want[tool.Name] {
+			delete(want, tool.Name)
+			if !strings.Contains(tool.Description, checked) {
+				t.Errorf("%s does not explain a checked Pass", tool.Name)
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("tools not found: %v", want)
+	}
+}

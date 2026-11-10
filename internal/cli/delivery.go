@@ -288,12 +288,18 @@ func printCandidates(out io.Writer, c *delivery.CandidateVersions) {
 	}
 }
 
+// printVerdict prints one verdict as a person reads it: an evidence gate's
+// Pass reads Checked, as the dashboard shows it (delivery.VerdictLabel).
+func printVerdict(w io.Writer, indent string, v delivery.Verdict) {
+	_, _ = fmt.Fprintf(w, "%s%-17s %-8s %s\n", indent, v.Gate, delivery.VerdictLabel(v), v.Message)
+}
+
 func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "intent:    %s\n", p.IntentDigest)
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
 	for _, v := range p.Verdicts {
-		_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", v.Gate, v.Result, v.Message)
+		printVerdict(w, "  ", v)
 	}
 	if p.Question != "" {
 		_, _ = fmt.Fprintf(w, "question:  %s\n", p.Question)
@@ -394,7 +400,7 @@ func newDeliveryGetCommand(v *viper.Viper, d deps) *cobra.Command {
 					_, _ = fmt.Fprintf(w, "reason:    %s: %s\n", s.Reason, s.Message)
 				}
 				for _, v := range s.Verdicts {
-					_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", v.Gate, v.Result, v.Message)
+					printVerdict(w, "  ", v)
 				}
 				if s.Question != "" {
 					_, _ = fmt.Fprintf(w, "question:  %s\n", s.Question)
@@ -542,7 +548,7 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "%s\n%s\n", e.Operation, e.Summary)
 				for _, x := range e.Verdicts {
-					_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, x.Result, x.Message)
+					_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, delivery.VerdictLabel(x.Verdict), x.Message)
 					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
 						if k == "runnerBundle" { // the runner's signed answer: -o json shows it
 							continue
@@ -573,7 +579,7 @@ func printStageNow(w io.Writer, s delivery.StageNow) {
 	if lc := s.LastCheck; lc != nil {
 		_, _ = fmt.Fprintf(w, "last re-check %s of %s:\n", lc.At, lc.Digest)
 		for _, x := range lc.Verdicts {
-			_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", x.Gate, x.Result, x.Message)
+			printVerdict(w, "  ", x)
 		}
 	}
 }
@@ -776,7 +782,7 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 						_, _ = fmt.Fprintf(w, "decided:   %s %s %s\n", a.By, a.Decision, a.Note)
 					}
 					for _, x := range b.Verdicts {
-						_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", x.Gate, x.Result, x.Message)
+						printVerdict(w, "  ", x)
 					}
 				}
 				printAnswerNotes(w, nil, b.Unreadable)

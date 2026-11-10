@@ -309,12 +309,16 @@ func predict(in PlanInput, p *Plan) Prediction {
 			return PredictRejected
 		}
 	}
-	if p.Floor.Human {
-		return PredictHeld
-	}
-	exempt := in.Spec.Type != TypePromote
-	if in.Status.Frozen && !exempt {
+	// The freeze is recorded even when a person must decide first: once
+	// approved, a frozen Stage still waits until a person unfreezes it.
+	frozen := in.Status.Frozen && in.Spec.Type == TypePromote
+	if frozen {
 		p.Conflicts = append(p.Conflicts, "StageFrozen: "+in.Status.FrozenReason)
+	}
+	switch {
+	case p.Floor.Human:
+		return PredictHeld
+	case frozen:
 		return PredictWaits
 	}
 	return PredictProceeds

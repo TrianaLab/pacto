@@ -405,7 +405,7 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 		}
 	}
 	for _, c := range ss.Conditions {
-		if c.Type == "Ready" {
+		if c.Type == delivery.ConditionReady {
 			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")
 			if c.Status != "True" {
 				row.ReadyMessage = c.Message

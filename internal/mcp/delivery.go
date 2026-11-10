@@ -36,6 +36,11 @@ type DeliveryAPI interface {
 // looking for a way around it.
 const noApprove = " There is no approve tool: when a person must decide, the plan names who, and they approve themselves."
 
+// checkedPass explains an evidence gate's Pass, which the dashboard and the
+// CLI label Checked (delivery.VerdictLabel): Verdict.Result stays Pass.
+const checkedPass = " A pacto.diff, pacto.impact or pacto.environment verdict passes once it ran; read its message (for example " +
+	"breaks payments) and the plan's floor to learn whether it holds the change. The dashboard and the CLI show it as Checked."
+
 const deliveryInstructions = "Pacto delivery decides which version each environment (a Stage) runs. Use " +
 	"pacto_delivery_operation_types to learn what you may propose (with a type, what it checks), " +
 	"pacto_delivery_candidates to list the versions a Stage may take with their digests, " +
@@ -52,7 +57,7 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"When a consumer running in the environment does not accept the new version, the plan's order.moveFirst names that " +
 	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
-	"service for you, and order.unknown says what it could not see." + noApprove
+	"service for you, and order.unknown says what it could not see." + checkedPass + noApprove
 
 // NewDeliveryServer builds a server with the authoring tools and the delivery
 // tools. writes registers propose and cancel; the command layer passes true
@@ -89,7 +94,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 			"running there does not accept the new version, the order: which consumer must move first and the verified " +
 			"version of it to promote. next says in plain words what proposing it leads to: which teams must sign, that an " +
 			"agent cannot answer and the operation is then Held, and what happens at the approval deadline. A Rejected plan " +
-			"asks nobody anything; its failing verdict says what to do first. Read-only." + noApprove,
+			"asks nobody anything; its failing verdict says what to do first. Read-only." + checkedPass + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -102,7 +107,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_get",
 		Description: "Read an operation: phase, outcome, verdicts and the question a person is asked while it is held. While it " +
-			"is held, next says what happens if nobody decides by the approval deadline. Read-only." + noApprove,
+			"is held, next says what happens if nobody decides by the approval deadline. Read-only." + checkedPass + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		op, err := api.Get(ctx, a.Namespace, a.Name)
@@ -125,7 +130,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		Name: "pacto_delivery_explain",
 		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
 			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now, " +
-			"its last re-check and what must move first when the plan found one. Read-only." + noApprove,
+			"its last re-check and what must move first when the plan found one. Read-only." + checkedPass + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		e, err := api.Explain(ctx, a.Namespace, a.Name)
