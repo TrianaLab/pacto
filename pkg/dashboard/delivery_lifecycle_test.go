@@ -51,6 +51,10 @@ func TestDeliveryLifecycle(t *testing.T) {
 	f.listErr = errors.New("apiserver down")
 	code, _ = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
 	expect(t, code >= 500, "a list that fails: %d", code)
+
+	off := startDeliveryWith(t, f, Options{Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true)}, false, nil)
+	code, b = call(t, http.MethodGet, off+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
+	expect(t, code == http.StatusNotFound && b["code"] == "DeliveryNotInstalled", "not installed: %d %v", code, b)
 }
 
 func TestDeliveryLifecycleAmbiguous(t *testing.T) {
