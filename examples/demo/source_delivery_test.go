@@ -508,3 +508,149 @@ func TestDemoLifecycle(t *testing.T) {
 	}
 	t.Logf("checkout %s: %s %v, %s: %s", l.Version, byVersion.Signature, byVersion.SignedOn, byVersion.Completeness, byVersion.Note)
 }
+
+// environments is the board's rows, for one service or ("") every one.
+func environments(t *testing.T, h http.Handler, service string) []dashboard.EnvironmentRow {
+	t.Helper()
+	var out struct {
+		Environments []dashboard.EnvironmentRow `json:"environments"`
+	}
+	path := "/api/delivery/environments?limit=200"
+	if service != "" {
+		path += "&service=" + service
+	}
+	if code := call(t, h, "GET", path, "", &out); code != 200 {
+		t.Fatalf("environments %s: %d", service, code)
+	}
+	return out.Environments
+}
+
+// rowOf is the row of namespace/stage among rows.
+func rowOf(t *testing.T, rows []dashboard.EnvironmentRow, ns, stage string) dashboard.EnvironmentRow {
+	t.Helper()
+	i := slices.IndexFunc(rows, func(r dashboard.EnvironmentRow) bool { return r.Namespace == ns && r.Stage == stage })
+	if i < 0 {
+		t.Fatalf("no row %s/%s", ns, stage)
+	}
+	return rows[i]
+}
+
+// TestDemoLastCheckAndWatched: the promoter re-checked each version that
+// shipped verified, so its row is watched; once payments moves to 3.0.0 in
+// prod, the re-check speaks of the version before and the row says the
+// running one was not re-checked.
+func TestDemoLastCheckAndWatched(t *testing.T) {
+	d, h := demoServer(t)
+	watchedOnlyWhenCurrent(t, h)
+	for _, r := range environments(t, h, "payments") {
+		if r.LastCheck == nil || !r.LastCheck.Current || r.LastCheck.Result != delivery.Pass ||
+			r.Watched == nil || r.Watched.Status != "True" || r.Watched.Reason != "Rechecked" || len(r.Offers) == 0 {
+			t.Errorf("payments %s: lastCheck %+v watched %+v offers %+v", r.Namespace, r.LastCheck, r.Watched, r.Offers)
+		}
+	}
+	_, decide := storyHeld(t, d, h)
+	storyApproved(t, d, h, decide)
+	prod := rowOf(t, environments(t, h, "payments"), story.Prod, "payments")
+	if prod.LastCheck == nil || prod.LastCheck.Current || prod.Watched == nil || prod.Watched.Status != "Unknown" || prod.Watched.Reason != "NotRechecked" {
+		t.Fatalf("payments prod after 3.0.0 shipped: lastCheck %+v watched %+v", prod.LastCheck, prod.Watched)
+	}
+}
+
+// watchedOnlyWhenCurrent: no row reads watched about a version it does not run.
+func watchedOnlyWhenCurrent(t *testing.T, h http.Handler) {
+	t.Helper()
+	for _, r := range environments(t, h, "") {
+		if r.Watched != nil && r.Watched.Status == "True" && (r.LastCheck == nil || !r.LastCheck.Current) {
+			t.Errorf("%s/%s reads watched about a version it does not run: %+v %+v", r.Namespace, r.Stage, r.Watched, r.LastCheck)
+		}
+	}
+}
+
+// TestDemoLastCheckOnlyAfterVerified: a re-check is only ever about the
+// operation that shipped the running version, concluded Succeeded and
+// verified, and runs after that operation finished.
+func TestDemoLastCheckOnlyAfterVerified(t *testing.T) {
+	d, _ := demoServer(t)
+	stages, _ := d.Stages(t.Context(), "")
+	checked := 0
+	for _, st := range stages {
+		lc := st.Status.LastCheck
+		if lc == nil {
+			continue
+		}
+		checked++
+		i := slices.IndexFunc(d.ops, func(o *delivery.OperationObject) bool { return o.Metadata.UID == lc.Operation })
+		if i < 0 {
+			t.Errorf("%s/%s: re-check of %s, which is not here", st.Metadata.Namespace, st.Metadata.Name, lc.Operation)
+			continue
+		}
+		o := d.ops[i]
+		at, _ := time.Parse(time.RFC3339, lc.At)
+		done, _ := time.Parse(time.RFC3339, o.Status.Times.Finished)
+		if o.Status.Outcome != delivery.Succeeded || o.Status.Verification != delivery.Verified || o.Spec.Params.To != lc.Digest ||
+			lc.Digest != st.Status.Pointer || !at.After(done) {
+			t.Errorf("%s/%s: re-check %+v of %s %+v", st.Metadata.Namespace, st.Metadata.Name, lc, o.Metadata.Name, o.Status)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no Stage was re-checked")
+	}
+}
+
+// TestDemoNotReadyStage: every Stage reports Ready; audit-log's candidate
+// OCIRepository verifies no publisher, so it is not ready and says the fix.
+func TestDemoNotReadyStage(t *testing.T) {
+	d, h := demoServer(t)
+	stages, _ := d.Stages(t.Context(), "")
+	for _, st := range stages {
+		if !slices.ContainsFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == delivery.ConditionReady }) {
+			t.Errorf("%s/%s reports no Ready", st.Metadata.Namespace, st.Metadata.Name)
+		}
+	}
+	r := rowOf(t, environments(t, h, "audit-log"), story.Prod, "audit-log")
+	if r.Ready != "False: "+delivery.ReadyReasonCandidateUnverified || r.ReadyFix != delivery.ReadyFix(delivery.ReadyReasonCandidateUnverified) ||
+		!strings.Contains(r.ReadyMessage, "spec.verify") {
+		t.Fatalf("audit-log: ready %q fix %q message %q", r.Ready, r.ReadyFix, r.ReadyMessage)
+	}
+}
+
+// TestDemoProgressStates: through the dashboard's own handler the demo shows
+// a Stage up to date, one blocked and one waiting for a person, the frozen
+// Stage names its freeze, its held promote and the plan a person decides, and
+// no Stage that reports Ready True reads unknown.
+func TestDemoProgressStates(t *testing.T) {
+	d, h := demoServer(t)
+	stages, _ := d.Stages(t.Context(), "")
+	states := map[string]bool{}
+	for _, st := range stages {
+		var p delivery.Progress
+		url := "/api/delivery/progress?namespace=" + st.Metadata.Namespace + "&stage=" + st.Metadata.Name
+		if code := call(t, h, "GET", url, "", &p); code != 200 {
+			t.Fatalf("%s: %d", url, code)
+		}
+		states[p.State] = true
+		ready := slices.ContainsFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == delivery.ConditionReady && c.Status == "True" })
+		if ready && p.State == "unknown" {
+			t.Errorf("%s/%s is ready and reads unknown: %+v", st.Metadata.Namespace, st.Metadata.Name, p.Reasons)
+		}
+		if st.Status.Frozen {
+			var codes []string
+			for _, r := range p.Reasons {
+				codes = append(codes, r.Code)
+			}
+			for _, want := range []string{"Frozen", "Held", "PlanHeld"} {
+				if !slices.Contains(codes, want) {
+					t.Errorf("frozen %s/%s: reasons %v lack %s", st.Metadata.Namespace, st.Metadata.Name, codes, want)
+				}
+			}
+		}
+	}
+	for _, want := range []string{"up-to-date", "blocked", "needs-person"} {
+		if !states[want] {
+			t.Errorf("no Stage reads %s: %v", want, states)
+		}
+	}
+	if !slices.ContainsFunc(stages, func(st delivery.StageObject) bool { return st.Status.Frozen }) {
+		t.Error("no Stage is frozen")
+	}
+}

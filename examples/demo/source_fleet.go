@@ -5,8 +5,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
+	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -48,7 +50,7 @@ func demoNow() time.Time { return demoClock }
 // demo's operational targets, and returns a ref→bundle index so the impact
 // provider can resolve the two revisions to compare from memory.
 //
-// It deliberately uses FOUR sources rather than one, because the source list, the
+// It deliberately uses several sources rather than one, because the source list, the
 // per-target provenance and the completeness semantics are product surfaces in their
 // own right and a single source leaves all three blank: the bundle registry and the
 // cluster collector that observes it are not the same thing (section 0b, Data source
@@ -75,6 +77,16 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return out
 	}
 	col.Revisions = revisions(src, demoRegistry)
+
+	// One more registry, the payments story's own domain: the contracts the
+	// simulated delivery's Stages run (source_story_fleet.go), so each Stage row
+	// links to its revision and a story service page lists its Stages.
+	storyRevs, storyRefs, err := storyRevisions()
+	if err != nil {
+		return nil, nil, err
+	}
+	maps.Copy(byRef, storyRefs)
+	storySource := fleet.NewMemorySource("story-registry", "oci", &fleet.Collection{Revisions: storyRevs})
 
 	// A second registry, in a second DOMAIN. It publishes its own platform-app-config
 	// — the same NAME as the default domain's, and not the same service — plus the
@@ -134,7 +146,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	})
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, cluster, telemetry, mirror, unavailable)
+		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, telemetry, mirror, unavailable)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -255,9 +267,14 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 		{Scope: "prod", Kind: "Deployment", Name: "notification-worker", Service: "notification-worker",
 			Compliance: fleet.StatusUnknown,
 			Labels:     prod(map[string]string{"app.kubernetes.io/name": "notification-worker"})},
+		// notification-worker also runs in staging, an environment none of its
+		// delivery Stages covers (its one Stage is in prod).
+		{Scope: "staging", Kind: "Deployment", Name: "notification-worker", Service: "notification-worker",
+			Compliance: fleet.StatusUnknown,
+			Labels:     map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "notification-worker", fleet.TargetEnvironmentLabel: "staging"}},
 		{Scope: "prod", Kind: "CronJob", Name: "audit-log", Service: "audit-log", Compliance: fleet.StatusCompliant,
 			Coverage: cov(2, 2), EvidenceAt: at(older), ReconciledAt: at(older),
-			Labels:          prod(map[string]string{"app.kubernetes.io/name": "audit-log"}),
+			Labels:          prod(map[string]string{"app.kubernetes.io/name": "audit-log", fleet.TargetEnvironmentLabel: story.Prod}),
 			ObservedRuntime: map[string]any{"schedule": "*/15 * * * *", "lastSuccessful": older.Format(time.RFC3339)}},
 		// The synthetic catalog and logistics domains. fulfillment-service running in
 		// prod is what makes inventory-service 3.0.0, which stops promising the dedupe
@@ -273,9 +290,11 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},
-		// The one target whose Pacto carries the environment label, so its page names
-		// the environment it runs in and checks it against the revision's declared
-		// production values. Every other target reads Unknown.
+		// One of the three targets whose Pacto carries the environment label, so its
+		// page names the environment it runs in and checks it against the revision's
+		// declared production values. audit-log in prod (the environment of its
+		// delivery Stage, matched by exact name) and notification-worker in staging
+		// carry it too; every other target reads Unknown.
 		{Scope: "prod", Kind: "Deployment", Name: "storefront-web", Service: "storefront-web", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "production"}),

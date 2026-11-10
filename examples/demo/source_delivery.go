@@ -221,26 +221,31 @@ func (d *demoDelivery) ownPaths() {
 	// checkout forks from test into two more regions beside prod; audit-log has
 	// one prod Stage fed straight by new artifacts; notification-worker's one
 	// prod Stage is fed from another cluster's signed records. None of them takes
-	// part in the story.
-	ready := []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready"}}
+	// part in the story. audit-log's candidate OCIRepository verifies no
+	// publisher, so the promoter reports it not ready, with the fix.
 	for _, region := range []string{"prod-eu", "prod-us"} {
 		s := newStage("checkout", region)
-		s.Status.Conditions = slices.Clone(ready)
+		s.Status.Conditions = []delivery.Condition{ready}
 		d.stages = append(d.stages, s)
 	}
 	audit := newStage("audit-log", story.Prod)
 	audit.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "audit-log-candidates"}}
+	audit.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "False", Reason: delivery.ReadyReasonCandidateUnverified,
+		Message: "the candidate OCIRepository audit-log-candidates sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes"}}
 	notify := newStage("notification-worker", story.Prod)
 	notify.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "registry.example/edge/records", Stream: "edge-cluster/staging/notification-worker"}}
-	for _, s := range []*delivery.StageObject{audit, notify} {
-		s.Status.Conditions = slices.Clone(ready)
-		d.stages = append(d.stages, s)
-	}
+	notify.Status.Conditions = []delivery.Condition{ready}
+	d.stages = append(d.stages, audit, notify)
 }
+
+// ready is the Ready condition the stage reconciler writes on a Stage that
+// can promote (candidateReady).
+var ready = delivery.Condition{Type: delivery.ConditionReady, Status: "True", Reason: delivery.ConditionReady, Message: "the Stage can promote published versions"}
 
 // replay builds the world the guided path starts from: every Stage, what
 // pacto publish published, and the story's beats up to B4 played through the
-// same plan and lifecycle as a live change, then the agent beat. fraud is new:
+// same plan and lifecycle as a live change, then the agent beat, the re-checks
+// after release and a held promote on a frozen Stage. fraud is new:
 // its Stages observe and its history is read from status only, as on a
 // cluster without the recorder. The payments test stream holds a deliberate
 // gap and a record signed by a key nobody trusts.
@@ -252,14 +257,14 @@ func (d *demoDelivery) replay(start time.Time) error {
 			s := newStage(svc, env)
 			if svc != "fraud" {
 				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env}
-				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}}
+				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}, ready}
 				d.streams[stageKey(env, svc)] = &stream{}
 			} else {
 				// pacto init starts a new Stage on observe. On test, fraud's
 				// team labelled the applyRef and asks for a proposal after one
 				// verified version (the default is 10), so the demo can show one.
 				s.Status.Level = delivery.LevelObserve
-				s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: delivery.ReasonObserving}}
+				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "True", Reason: delivery.ReasonObserving}}
 				if env == story.Test {
 					s.Status.Conditions[0].Reason = delivery.ReasonObservingGuarded
 					s.Spec.Autonomy.ProposeAfter = 1
@@ -314,10 +319,69 @@ func (d *demoDelivery) replay(start time.Time) error {
 			d.gapAndStranger(d.stage(s.env, s.svc))
 		}
 	}
+	d.recheck()
+	if err := d.frozenHeld(); err != nil {
+		return err
+	}
 	for _, s := range d.stages {
 		s.Status.Proposal = d.proposal(s)
 	}
 	return nil
+}
+
+// recheck is the promoter's re-check after release (the operator's
+// StageReconciler.recheck), once, a tick after the replay: on each Stage
+// whose running version an operation shipped that concluded Succeeded and
+// verified, with nothing in flight, the checks run again and the Stage
+// records them as lastCheck with the Watched condition. Every re-check in the
+// story passes; a failed one would roll back or freeze (recheckFailed).
+func (d *demoDelivery) recheck() {
+	for _, st := range d.stages {
+		s, ns, name := st.Status, st.Metadata.Namespace, st.Metadata.Name
+		i := slices.IndexFunc(d.ops, func(o *delivery.OperationObject) bool { return o.Metadata.UID == s.LastOp })
+		inFlight := slices.ContainsFunc(d.ops, func(o *delivery.OperationObject) bool {
+			return o.Metadata.Namespace == ns && o.Spec.Stage == name && o.Status.Phase != delivery.PhaseConcluded
+		})
+		if s.Frozen || i < 0 || inFlight {
+			continue
+		}
+		if o := d.ops[i]; o.Status.Outcome != delivery.Succeeded || o.Status.Verification != delivery.Verified || o.Spec.Params.To != s.Pointer {
+			continue
+		}
+		at := d.clock()
+		check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: stamp(at),
+			Verdicts: d.checks(ns, name, s.Pointer, delivery.GateInput{OperationUID: s.LastOp, Facet: delivery.FacetPointer}, at)}
+		st.Status.LastCheck = check
+		st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check), at)
+	}
+}
+
+// watched is the Watched condition a re-check sets, as the operator words it.
+func watched(check *delivery.Recheck) delivery.Condition {
+	c := delivery.Condition{Type: delivery.ConditionWatched, Status: "True", Reason: "Rechecked", Message: "the running version passed its re-check at " + check.At}
+	if delivery.Worst(check.Verdicts) != delivery.Pass {
+		var why []string
+		for _, v := range check.Verdicts {
+			if v.Result != delivery.Pass {
+				why = append(why, v.Gate+": "+v.Message)
+			}
+		}
+		c.Status, c.Reason, c.Message = "False", "RecheckUnknown", "nothing watches the running version: its re-check is Unknown: "+strings.Join(why, "; ")
+	}
+	return c
+}
+
+// frozenHeld freezes checkout in prod-us, a region that advises, and raises
+// the promote of the version test offers there: a person of team checkout
+// approves it, and once approved it still waits until a person unfreezes the
+// Stage.
+func (d *demoDelivery) frozenHeld() error {
+	st := d.stage("prod-us", "checkout")
+	st.Status.Level = delivery.LevelAdvise
+	st.Status.Frozen, st.Status.FrozenReason = true, "frozen by alice@example.com while the prod-us payment database fails over"
+	_, _, err := d.propose(delivery.Request{Namespace: "prod-us", Stage: "checkout", To: story.ArtifactDigest("checkout", "1.9.0"),
+		Reason: "checkout 1.9.0 passed test"}, story.PayAgent)
+	return err
 }
 
 // decideHeld is alice's answer to a replayed change the plan held.
