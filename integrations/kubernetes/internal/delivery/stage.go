@@ -77,7 +77,7 @@ type StageReconciler struct {
 // ConditionWatched is True while the newest re-check of the running version
 // passed. False says nothing watches it for Pacto: the re-check failed, or it
 // came back Unknown (a health provider down, too many spans, no coverage).
-const ConditionWatched = "Watched"
+const ConditionWatched = delivery.ConditionWatched
 
 // watched is the Watched condition check sets.
 func watched(check *delivery.Recheck, gen int64) delivery.Condition {
@@ -287,11 +287,11 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	return r.raise(ctx, stage, "witnessed", spec)
 }
 
-// autoPromote raises a promote of the newest eligible candidate on an
-// automatic level, unless the Stage is frozen, on auto-hold or already has an
-// operation in flight.
+// autoPromote raises a promote of the newest eligible candidate unless
+// delivery.AutoPromoteHold gives a reason (not automatic, frozen, on
+// auto-hold, no candidate) or the Stage already has an operation in flight.
 func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) error {
-	if !delivery.CurrentLevel(stage.Spec, stage.Status).Automatic() || stage.Status.Frozen || stage.Status.AutoHold {
+	if delivery.AutoPromoteHold(stage.Spec, stage.Status) != "" {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
@@ -303,13 +303,9 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 			return nil
 		}
 	}
-	cand := stage.Status.Candidate
-	if cand == "" {
-		return nil
-	}
 	spec := delivery.OperationSpec{
 		Type: delivery.TypePromote, Stage: stage.Name, Facet: delivery.FacetPointer,
-		Params: delivery.Params{From: stage.Status.Pointer, To: cand},
+		Params: delivery.Params{From: stage.Status.Pointer, To: stage.Status.Candidate},
 		Reason: "automatic promote of the newest eligible candidate",
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
 	}
@@ -406,28 +402,28 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
 		switch {
 		case apierrors.IsNotFound(err):
-			want = notReady("CandidateNotFound", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
+			want = notReady(delivery.ReadyReasonCandidateNotFound, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
 		case err != nil:
 			return nil, nil, want, err
 		case !pinsIdentity(a.obj.Object):
-			want = notReady("CandidateUnverified", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
+			want = notReady(delivery.ReadyReasonCandidateUnverified, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
 				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
 		}
 		return a, nil, want, nil
 	case c.UpstreamRecords != nil && r.Cluster.Upstream == nil:
-		return nil, nil, notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes"), nil
+		return nil, nil, notReady(delivery.ReadyReasonUpstreamUntrusted, noUpstreamTrust+", so the Stage never promotes"), nil
 	case c.UpstreamRecords != nil:
 		up, why := r.remote(ctx, stage)
 		switch {
 		case up == nil:
-			want = notReady("UpstreamUnreadable", "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
+			want = notReady(delivery.ReadyReasonUpstreamUnreadable, "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
 				" cannot be read or verified ("+why+"), so the Stage promotes nothing until they can")
 		case why != "": // read, with referrers it could not verify
 			want.Message += "; " + why
 		}
 		return nil, up, want, nil
 	case c.UpstreamStage == nil:
-		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
+		want = notReady(delivery.ReadyReasonNoCandidateSource, "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
 	return nil, nil, want, nil
 }
@@ -469,10 +465,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	a, err := r.Cluster.applier(ctx, stage.Namespace, ref)
 	switch {
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
-		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: "+err.Error())
+		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: "+err.Error())
 		return &c, nil, nil
 	case meta.IsNoMatchError(err):
-		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
+		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
 		return &c, nil, nil
 	case err != nil:
 		return nil, nil, err
@@ -491,11 +487,11 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	case !a.argo:
 		return nil, a, nil
 	case multi:
-		c = notReady("ApplierMultiSource", what+" sets spec.sources; the promoter writes only the one OCI spec.source")
+		c = notReady(delivery.ReadyReasonApplierMultiSource, what+" sets spec.sources; the promoter writes only the one OCI spec.source")
 	case !strings.HasPrefix(url, "oci://"):
-		c = notReady("ApplierNotOCI", what+" has no OCI spec.source.repoURL (oci://...), so it cannot fetch a version by digest")
+		c = notReady(delivery.ReadyReasonApplierNotOCI, what+" has no OCI spec.source.repoURL (oci://...), so it cannot fetch a version by digest")
 	case !automated:
-		c = notReady("ApplierNotAutomated", what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
+		c = notReady(delivery.ReadyReasonApplierNotAutomated, what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
 	default:
 		return nil, a, nil
 	}
@@ -504,7 +500,7 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 
 // reasonApplierUnlabelled is the Ready reason of an applyRef without
 // ApplyRefLabel, which is no fault while the Stage observes.
-const reasonApplierUnlabelled = "ApplierUnlabelled"
+const reasonApplierUnlabelled = delivery.ReadyReasonApplierUnlabelled
 
 func labelled(o *unstructured.Unstructured) bool {
 	_, ok := o.GetLabels()[ApplyRefLabel]

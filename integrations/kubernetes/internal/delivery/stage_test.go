@@ -10,6 +10,9 @@ package delivery
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -639,5 +642,82 @@ func TestLoadClassPolicy(t *testing.T) {
 		if _, err := LoadClassPolicy(path, "me"); err == nil {
 			t.Fatalf("%s must be an error", path)
 		}
+	}
+}
+
+// TestAutoPromoteUsesSharedHold: the promoter raises an automatic promote
+// exactly when delivery.AutoPromoteHold gives no reason.
+func TestAutoPromoteUsesSharedHold(t *testing.T) {
+	for name, mut := range map[string]func(*dv1.Stage){
+		"observe":      func(s *dv1.Stage) { s.Status.Level = delivery.LevelObserve },
+		"advise":       func(s *dv1.Stage) { s.Status.Level = delivery.LevelAdvise },
+		"frozen":       func(s *dv1.Stage) { s.Status.Frozen, s.Status.FrozenReason = true, "held by a person" },
+		"auto-hold":    func(s *dv1.Stage) { s.Status.AutoHold = true },
+		"no candidate": func(s *dv1.Stage) { s.Status.Candidate = "" },
+	} {
+		s := stageObj(dA)
+		s.Status.Level, s.Status.Candidate = delivery.LevelAutoNonBreaking, dB
+		mut(s)
+		if delivery.AutoPromoteHold(s.Spec, s.Status) == "" {
+			t.Fatalf("%s: want a hold reason", name)
+		}
+		e := newEnv(t, s)
+		if err := e.st.autoPromote(context.Background(), s); err != nil || len(e.ops()) != 0 {
+			t.Fatalf("%s raises nothing: %v %d", name, err, len(e.ops()))
+		}
+	}
+	s := stageObj(dA)
+	s.Status.Level, s.Status.Candidate = delivery.LevelAutoNonBreaking, dB
+	e := newEnv(t, s)
+	if err := e.st.autoPromote(context.Background(), s); err != nil || len(e.ops()) != 1 || e.ops()[0].Spec.Params.To != dB {
+		t.Fatalf("an auto-nonbreaking Stage with a candidate raises one promote: %v %+v", err, e.ops())
+	}
+}
+
+// TestReadyReasonsMatchOperator: every reason the operator writes on a Ready
+// condition is one of the shared delivery.ReadyReason* values, so ReadyFix
+// and the clients know it.
+func TestReadyReasonsMatchOperator(t *testing.T) {
+	shared := map[string]bool{}
+	for _, r := range []string{delivery.ReadyReasonUnguarded, delivery.ReadyReasonCandidateNotFound,
+		delivery.ReadyReasonCandidateUnverified, delivery.ReadyReasonUpstreamUntrusted, delivery.ReadyReasonUpstreamUnreadable,
+		delivery.ReadyReasonNoCandidateSource, delivery.ReadyReasonApplierUnreadable, delivery.ReadyReasonApplierUnlabelled,
+		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated} {
+		shared[r] = delivery.ReadyFix(r) != ""
+	}
+	// The reasons named by an identifier in the operator.
+	named := map[string]string{"ReasonUnguarded": ReasonUnguarded, "reasonApplierUnlabelled": reasonApplierUnlabelled}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "stage.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "notReady" {
+			return true
+		}
+		calls++
+		at := fset.Position(call.Pos())
+		switch a := call.Args[0].(type) {
+		case *ast.SelectorExpr:
+			if x, ok := a.X.(*ast.Ident); !ok || x.Name != "delivery" || !strings.HasPrefix(a.Sel.Name, "ReadyReason") {
+				t.Errorf("%s: notReady with %s.%s, want a delivery.ReadyReason* constant", at, x, a.Sel.Name)
+			}
+		case *ast.Ident:
+			if v, ok := named[a.Name]; !ok || !shared[v] {
+				t.Errorf("%s: notReady with %s (%q), want a shared Ready reason", at, a.Name, v)
+			}
+		default:
+			t.Errorf("%s: notReady with a literal or expression, want a delivery.ReadyReason* constant", at)
+		}
+		return true
+	})
+	if calls == 0 {
+		t.Fatal("no notReady call found in stage.go")
 	}
 }
