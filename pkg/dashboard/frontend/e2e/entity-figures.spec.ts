@@ -107,6 +107,8 @@ for (const theme of ['dark', 'light'] as const) {
     test('reach 3:1 where they are drawn', async ({ page }) => {
       if (theme === 'light') await page.addInitScript(() => { try { localStorage.setItem('pacto-theme', 'light'); } catch { /* private mode */ } });
       await appReady(page);
+      // CI renders DejaVu, wider than the fonts on a laptop; the marks must not depend on it.
+      await page.addStyleTag({ content: '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}' });
       const boxes = await page.evaluate(() => {
         const hub = (tone: string) => `<span class="hub t-${tone}"><svg width="44" height="44" viewBox="0 0 44 44"><rect class="hub-f" x="1" y="1" width="42" height="42" rx="9"></rect><path class="hub-g" transform="translate(10 10)" d="M4 9 L12 5 L20 9 L12 13 Z"></path></svg></span>`;
         const host = document.createElement('div');
@@ -149,7 +151,9 @@ for (const theme of ['dark', 'light'] as const) {
         };
         const out: { mark: string; ratio: number }[] = [];
         for (const b of boxes) {
-          const ground = px(b.g.x + 2, b.g.y + 2);
+          // Inside the padding, clear of the .fig's rounded corner: the page shows through
+          // the corner, so a sample there measures whatever text lies under it.
+          const ground = px(b.g.x + 6, b.g.y + b.g.h / 2);
           for (const m of b.marks) {
             out.push({ mark: `${m.name} edge on ${b.ground}`, ratio: best(m.box.x, m.box.y, m.box.w, m.box.h, ground) });
             // The hub glyph on the hub's own fill, sampled just inside its corner.
