@@ -106,7 +106,7 @@ func runEditCases(t *testing.T, tests []editCase) {
 				t.Errorf("changes %q, want %q", result.Changes, tt.changes)
 			}
 			tt.check(t, dir)
-			if check, err := Check(context.Background(), realValidator, dir); err != nil || !check.Valid {
+			if check, err := Check(context.Background(), realValidator, dir, nil); err != nil || !check.Valid {
 				t.Errorf("written bundle does not check: %+v %v", check, err)
 			}
 			assertNoStagingLeft(t, dir)
@@ -547,7 +547,7 @@ func TestEdit_StagingFailures(t *testing.T) {
 func TestRefValuesSuggestions(t *testing.T) {
 	suggest := func(pacto string, files map[string]string) []Suggestion {
 		dir := refRoot(t, pacto, files)
-		check, err := Check(context.Background(), realValidator, dir)
+		check, err := Check(context.Background(), realValidator, dir, nil)
 		if err != nil || !check.Valid {
 			t.Fatalf("check %+v %v", check, err)
 		}

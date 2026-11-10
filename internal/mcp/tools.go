@@ -406,18 +406,39 @@ func checkTool() *mcpsdk.Tool {
 			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
 			"or an external dependency whose compatibility can never be confirmed.",
 		InputSchema: inputSchema(map[string]property{
-			"path": {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
+			"path":         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
+			"environments": {Type: "string", Description: "Comma-separated environment names, such as test,production: the result also lists the configuration values that differ between them (all declared environments when empty and the contract declares two or more)"},
 		}, nil),
 	}
 }
 
 type checkArgs struct {
-	Path string `json:"path"`
+	Path         string `json:"path"`
+	Environments string `json:"environments"`
+}
+
+// environmentNames splits a comma-separated list of environment names; an
+// empty list is none and an empty name is an error.
+func environmentNames(list string) ([]string, error) {
+	if strings.TrimSpace(list) == "" {
+		return nil, nil
+	}
+	names := strings.Split(list, ",")
+	for i, name := range names {
+		if names[i] = strings.TrimSpace(name); names[i] == "" {
+			return nil, fmt.Errorf("environments %q holds an empty name; separate names with one comma, as in test,production", list)
+		}
+	}
+	return names, nil
 }
 
 func checkHandler(validate Validator) mcpsdk.ToolHandlerFor[checkArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args checkArgs) (*mcpsdk.CallToolResult, any, error) {
-		result, err := Check(ctx, validate, args.Path)
+		envs, err := environmentNames(args.Environments)
+		if err != nil {
+			return nil, nil, err
+		}
+		result, err := Check(ctx, validate, args.Path, envs)
 		if err != nil {
 			return nil, nil, err
 		}

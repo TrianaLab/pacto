@@ -235,6 +235,13 @@ type CheckResult struct {
 	// and the one command to run now.
 	Stages []validation.Stage `json:"stages,omitempty"`
 	Next   string             `json:"next,omitempty"`
+	// EnvironmentDifferences are the configuration values the environments
+	// asked for, or every declared one, disagree on; the same rows as
+	// `pacto explain`.
+	EnvironmentDifferences []validation.EnvironmentDifference `json:"environmentDifferences,omitempty"`
+	// EnvironmentDifferencesError says why the environments could not be
+	// compared when none were named.
+	EnvironmentDifferencesError string `json:"environmentDifferencesError,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -1418,11 +1425,15 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 // until Check says valid stops on a contract CI also accepts. A nil validate
 // falls back to local validation with no policy resolver, which fails a
 // ref-based policy closed rather than downgrading it to a warning.
-func Check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
-	return osFileOps().check(ctx, validate, path)
+//
+// envs names the environments whose differing configuration values the
+// result lists; empty compares every declared one. A comparison that cannot
+// run is an error only when envs names some.
+func Check(ctx context.Context, validate Validator, path string, envs []string) (*CheckResult, error) {
+	return osFileOps().check(ctx, validate, path, envs)
 }
 
-func (o fileOps) check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
+func (o fileOps) check(ctx context.Context, validate Validator, path string, envs []string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
@@ -1481,6 +1492,15 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 	}
 
 	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid())
+
+	rows, err := validation.EnvironmentDifferences(c, o.dirFS(dir), envs)
+	switch {
+	case err != nil && len(envs) > 0:
+		return nil, err
+	case err != nil:
+		cr.EnvironmentDifferencesError = err.Error()
+	}
+	cr.EnvironmentDifferences = rows
 
 	return cr, nil
 }

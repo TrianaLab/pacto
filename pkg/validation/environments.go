@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -244,4 +245,120 @@ func MergeValues(dst, src map[string]any) {
 			dst[k] = v
 		}
 	}
+}
+
+// EnvironmentDifference is one configuration value the compared environments
+// disagree on.
+type EnvironmentDifference struct {
+	Configuration string `json:"configuration"`
+	// Path is the dotted path of the value inside the configuration's
+	// effective values; empty when the values are not an object. Arrays
+	// compare whole.
+	Path   string         `json:"path"`
+	Values map[string]any `json:"values" doc:"Each environment's effective value; an absent environment does not set it"`
+}
+
+// EnvironmentDifferences compares the effective values (see [EffectiveValues])
+// of the environments named, or of every declared environment when names is
+// empty, and returns each value they disagree on, sorted by configuration then
+// path. Fewer than two environments compare nothing. An undeclared name, no
+// bundle files or a values file that cannot be read is an error.
+func EnvironmentDifferences(c *contract.Contract, fsys fs.FS, names []string) ([]EnvironmentDifference, error) {
+	envs, err := chosenEnvironments(c, names)
+	if err != nil || len(envs) < 2 {
+		return nil, err
+	}
+	leaves := map[string]map[string]map[string]any{} // configuration, path, environment
+	for _, env := range envs {
+		if fsys == nil {
+			return nil, fmt.Errorf("environment %s: no bundle files to read %s from", env.Name, env.File)
+		}
+		raw, err := fs.ReadFile(fsys, env.File)
+		var values map[string]any
+		if err == nil {
+			values, err = contract.ParseEnvironmentValues(raw)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("environment %s: cannot read %s: %w", env.Name, env.File, err)
+		}
+		for _, cfg := range c.Configurations {
+			if leaves[cfg.Name] == nil {
+				leaves[cfg.Name] = map[string]map[string]any{}
+			}
+			flattenValues(EffectiveValues(cfg.Values, values[cfg.Name]), "", func(path string, v any) {
+				if leaves[cfg.Name][path] == nil {
+					leaves[cfg.Name][path] = map[string]any{}
+				}
+				leaves[cfg.Name][path][env.Name] = v
+			})
+		}
+	}
+	var out []EnvironmentDifference
+	for _, cfg := range slices.Sorted(maps.Keys(leaves)) {
+		for _, path := range slices.Sorted(maps.Keys(leaves[cfg])) {
+			if vals := leaves[cfg][path]; !allEqual(vals, len(envs)) {
+				out = append(out, EnvironmentDifference{Configuration: cfg, Path: path, Values: vals})
+			}
+		}
+	}
+	return out, nil
+}
+
+// chosenEnvironments is the declared environments names picks, in the order
+// given, or every declared one when names is empty.
+func chosenEnvironments(c *contract.Contract, names []string) ([]contract.Environment, error) {
+	if len(names) == 0 {
+		return c.Environments, nil
+	}
+	declared := make([]string, len(c.Environments))
+	for i, env := range c.Environments {
+		declared[i] = env.Name
+	}
+	var out []contract.Environment
+	for _, name := range names {
+		i := slices.Index(declared, name)
+		if i < 0 {
+			return nil, fmt.Errorf("environment %q is not declared; declared: %s", name, strings.Join(declared, ", "))
+		}
+		out = append(out, c.Environments[i])
+	}
+	return out, nil
+}
+
+// flattenValues calls leaf for each value under v by dotted path: objects
+// recurse, while arrays, scalars and empty objects are leaves. Empty values
+// at the top set nothing, so they give no leaf.
+func flattenValues(v any, path string, leaf func(string, any)) {
+	m, ok := v.(map[string]any)
+	if ok && len(m) == 0 && path == "" {
+		return
+	}
+	if !ok || len(m) == 0 {
+		leaf(path, v)
+		return
+	}
+	for k, child := range m {
+		p := k
+		if path != "" {
+			p = path + "." + k
+		}
+		flattenValues(child, p, leaf)
+	}
+}
+
+// allEqual reports whether every one of n environments sets the value and
+// all of them set the same one.
+func allEqual(vals map[string]any, n int) bool {
+	if len(vals) != n {
+		return false
+	}
+	var first any
+	seen := false
+	for _, v := range vals {
+		if seen && !reflect.DeepEqual(first, v) {
+			return false
+		}
+		first, seen = v, true
+	}
+	return true
 }

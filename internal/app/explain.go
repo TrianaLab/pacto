@@ -20,6 +20,9 @@ import (
 type ExplainOptions struct {
 	Path      string
 	Overrides override.Overrides
+	// Environments names the environments to compare; empty compares every
+	// declared one.
+	Environments []string
 }
 
 // ExplainResult holds the result of the explain command.
@@ -47,8 +50,17 @@ type ExplainResult struct {
 	Configurations []ExplainConfiguration `json:"configurations,omitempty"`
 	// Environments lists each environment and the file holding its values.
 	Environments []contract.Environment `json:"environments,omitempty"`
-	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
-	Metadata     map[string]any         `json:"metadata,omitempty"`
+	// ComparedEnvironments are the environments EnvironmentDifferences
+	// compares, set when there are at least two.
+	ComparedEnvironments []string `json:"comparedEnvironments,omitempty"`
+	// EnvironmentDifferences are the configuration values the compared
+	// environments disagree on.
+	EnvironmentDifferences []validation.EnvironmentDifference `json:"environmentDifferences,omitempty"`
+	// EnvironmentDifferencesError says why the environments could not be
+	// compared when none were named.
+	EnvironmentDifferencesError string            `json:"environmentDifferencesError,omitempty"`
+	Readiness                   *ExplainReadiness `json:"readiness,omitempty"`
+	Metadata                    map[string]any    `json:"metadata,omitempty"`
 	// AsOf is the RFC 3339 time of the explain, the time an environment's
 	// expires is compared with.
 	AsOf string `json:"asOf"`
@@ -261,6 +273,9 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		return nil, err
 	}
 	result.Configurations = configs
+	if err := explainDifferences(result, c, bundle.FS, opts.Environments); err != nil {
+		return nil, err
+	}
 
 	if eval := readiness.Evaluate(c.Readiness, s.env().now()); eval != nil {
 		er := &ExplainReadiness{
@@ -339,4 +354,26 @@ func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfi
 		out = append(out, ec)
 	}
 	return out, nil
+}
+
+// explainDifferences compares the named environments, or every declared one,
+// into result. An error fails explain only when names were given; otherwise
+// it is reported and explain still answers.
+func explainDifferences(result *ExplainResult, c *contract.Contract, bundleFS fs.FS, names []string) error {
+	compared := names
+	if len(compared) == 0 {
+		for _, env := range c.Environments {
+			compared = append(compared, env.Name)
+		}
+	}
+	rows, err := validation.EnvironmentDifferences(c, bundleFS, names)
+	switch {
+	case err != nil && len(names) > 0:
+		return err
+	case err != nil:
+		result.EnvironmentDifferencesError = err.Error()
+	case len(compared) > 1:
+		result.ComparedEnvironments, result.EnvironmentDifferences = compared, rows
+	}
+	return nil
 }

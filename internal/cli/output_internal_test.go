@@ -1570,3 +1570,16 @@ func TestExplainMarksExpired(t *testing.T) {
 		t.Fatalf("got %q, want it to contain %q", got, want)
 	}
 }
+
+func TestPrintEnvironmentDifferences(t *testing.T) {
+	var buf bytes.Buffer
+	printEnvironmentDifferences(&buf, &app.ExplainResult{EnvironmentDifferencesError: "environment a: cannot read a.yaml"})
+	printEnvironmentDifferences(&buf, &app.ExplainResult{})
+	printEnvironmentDifferences(&buf, &app.ExplainResult{ComparedEnvironments: []string{"a", "b"},
+		EnvironmentDifferences: []validation.EnvironmentDifference{{Configuration: "x", Values: map[string]any{"a": 3}}}})
+	want := "\nDifferences between environments: environment a: cannot read a.yaml\n" +
+		"\nDifferences between a, b (1):\n  x\n    a  3\n    b  not set\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

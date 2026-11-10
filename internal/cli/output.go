@@ -360,6 +360,38 @@ func printEnvironments(w io.Writer, envs []contract.Environment, asOf time.Time)
 	}
 }
 
+// printEnvironmentDifferences lists each configuration value the compared
+// environments disagree on, one environment per line so many environments
+// never make one long line, or why they could not be compared.
+func printEnvironmentDifferences(w io.Writer, result *app.ExplainResult) {
+	if result.EnvironmentDifferencesError != "" {
+		_, _ = fmt.Fprintf(w, "\nDifferences between environments: %s\n", result.EnvironmentDifferencesError)
+		return
+	}
+	if len(result.ComparedEnvironments) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nDifferences between %s (%d):\n", strings.Join(result.ComparedEnvironments, ", "), len(result.EnvironmentDifferences))
+	if len(result.EnvironmentDifferences) == 0 {
+		_, _ = fmt.Fprintln(w, "  no differences")
+	}
+	for _, d := range result.EnvironmentDifferences {
+		at := d.Configuration
+		if d.Path != "" {
+			at += "." + d.Path
+		}
+		_, _ = fmt.Fprintf(w, "  %s\n", at)
+		for _, env := range result.ComparedEnvironments {
+			value := "not set"
+			if v, ok := d.Values[env]; ok {
+				b, _ := json.Marshal(v) // values decoded from YAML always marshal
+				value = string(b)
+			}
+			_, _ = fmt.Fprintf(w, "    %s  %s\n", env, value)
+		}
+	}
+}
+
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
@@ -410,6 +442,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 
 		asOf, _ := time.Parse(time.RFC3339, result.AsOf) // zero when absent: nothing reads expired
 		printEnvironments(w, result.Environments, asOf)
+		printEnvironmentDifferences(w, result)
 
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)

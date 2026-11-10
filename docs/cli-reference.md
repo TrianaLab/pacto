@@ -751,7 +751,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names.
 
 ```
 pacto explain [dir | oci://ref] [flags]
@@ -762,14 +762,16 @@ pacto explain [dir | oci://ref] [flags]
 ```
   pacto explain my-service
   pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json
+  pacto explain my-service --environments test,production
 ```
 
 **Flags:**
 
 ```
-  -h, --help[=true|false]    help for explain
-      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
-  -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
+      --environments strings   compare the effective configuration values of these environments, such as test,production
+  -h, --help[=true|false]      help for explain
+      --set stringArray        set a contract value (e.g. --set service.version=2.0.0)
+  -f, --values stringArray     values file to merge into the contract (can be repeated; last wins)
 ```
 
 **What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. To read `configurations` and `policies`, use `pacto doc` or open `pacto.yaml`. `metadata` is carried by `--output-format json` only; the text output omits it.
