@@ -549,22 +549,34 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "%s\n%s\n", e.Operation, e.Summary)
 				for _, x := range e.Verdicts {
-					_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, delivery.VerdictLabel(x.Verdict), x.Message)
-					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
-						if k == "runnerBundle" { // the runner's signed answer: -o json shows it
-							continue
-						}
-						_, _ = fmt.Fprintf(w, "      %s: %s\n", k, x.Citation[k])
-					}
-					if x.Rerun != "" {
-						_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
-					}
+					printExplainedVerdict(w, x)
 				}
 				printOrder(w, e.Order)
 				printStageNow(w, e.Stage)
 				return nil
 			}, nil)
 		},
+	}
+}
+
+// printExplainedVerdict prints a verdict with its phase, its citation and
+// how to run it again, as explain and record get show it.
+func printExplainedVerdict(w io.Writer, x delivery.ExplainedVerdict) {
+	_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, delivery.VerdictLabel(x.Verdict), x.Message)
+	printCitations(w, x.Citation, x.Rerun)
+}
+
+// printCitations prints a verdict's citation, sorted by key, then how to run
+// it again. The runner's signed answer is for -o json.
+func printCitations(w io.Writer, citation map[string]string, rerun string) {
+	for _, k := range slices.Sorted(maps.Keys(citation)) {
+		if k == "runnerBundle" {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "      %s: %s\n", k, citation[k])
+	}
+	if rerun != "" {
+		_, _ = fmt.Fprintf(w, "      re-run: %s\n", rerun)
 	}
 }
 
@@ -904,8 +916,65 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 	}
 	verify.Flags().String("stage", "", "the Stage (this or --all)")
 	verify.Flags().Bool("all", false, "verify every Stage's stream in the namespace given with -n, or in every namespace you can list")
-	cmd.AddCommand(verify)
+	cmd.AddCommand(verify, newDeliveryRecordGetCommand(v, d))
 	return cmd
+}
+
+func newDeliveryRecordGetCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			r, err := c.Record(cmd.Context(), ns, stage, args[0])
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), r, func() error {
+				printRecordView(cmd.OutOrStdout(), r)
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the Stage whose stream holds the record (required)")
+	_ = cmd.MarkFlagRequired("stage")
+	return cmd
+}
+
+// printRecordView prints one record: the change it records, who asked, for
+// whom and why, then the verdicts as explain prints them.
+func printRecordView(w io.Writer, r *delivery.RecordView) {
+	e := r.Entry
+	_, _ = fmt.Fprintf(w, "record %s seq %d (%s), %s\n", r.Record, e.Seq, e.Kind, r.Note)
+	result := strings.TrimSuffix(string(e.Outcome)+"/"+string(e.Verification), "/")
+	if e.Reason != "" {
+		result += ": " + e.Reason
+	}
+	_, _ = fmt.Fprintf(w, "operation %s: %s %s -> %s, %s\n", e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"),
+		orNone([]string{e.From}), orNone([]string{e.To}), result)
+	_, _ = fmt.Fprintf(w, "asked by %s\n", actorCell(e))
+	cause := ""
+	if e.Cause != nil {
+		cause = causeCell(e.Cause)
+	}
+	for _, l := range [][3]string{{"for ", r.OnBehalfOf, " (asserted)"}, {"why: ", r.IntentReason}, {"cause: ", cause}, {"correlation: ", e.CorrelationID}} {
+		if l[1] != "" {
+			_, _ = fmt.Fprintf(w, "%s%s%s\n", l[0], l[1], l[2])
+		}
+	}
+	_, _ = fmt.Fprintf(w, "applied %s, finished %s\n", cmp.Or(e.Applied, "-"), cmp.Or(e.Finished, "-"))
+	for _, a := range e.Approvals {
+		_, _ = fmt.Fprintf(w, "decided: %s %s %s\n", a.By, a.Decision, a.Note)
+	}
+	for _, x := range r.Verdicts {
+		printExplainedVerdict(w, x)
+	}
+	_, _ = fmt.Fprintf(w, "as of %s\n", r.AsOf)
 }
 
 func printVerification(w io.Writer, res *delivery.StreamVerification) {

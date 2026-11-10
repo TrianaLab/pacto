@@ -25,6 +25,7 @@ type DeliveryAPI interface {
 	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
 	VerifyRecords(ctx context.Context, namespace, stage string) (*delivery.StreamVerification, error)
+	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
 	// HistoryAll and VerifyAll walk every Stage in namespace, or in every
 	// namespace the caller can list for "".
 	// HistoryAll keeps only the Stages of service of when it names one.
@@ -54,7 +55,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"or a digest; a version or tag must name exactly one version pacto publish published that the Stage may take. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
 	"again, and pacto_delivery_history what happened on a Stage, read from its signed records when the recorder runs. " +
 	"pacto_delivery_blame says who put a version in place, pacto_delivery_undo_plan returns the plan that would undo an operation " +
-	"(it proposes nothing) and pacto_delivery_record_verify checks every record's signature and the chain. Every history answer " +
+	"(it proposes nothing), pacto_delivery_record_get reads one record by the id a history line names and " +
+	"pacto_delivery_record_verify checks every record's signature and the chain. Every history answer " +
 	"carries asOf and completeness: when it is partial, a change missing from it may still have happened. A plan's precedent " +
 	"says what the records attached to the version say happened to it on other Stages. Unknown is never Pass: an operation Pacto cannot " +
 	"judge waits for a person. A verdict you cite as a cause is run again by the promoter and refused if it does not hold. " +
@@ -199,6 +201,24 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		}
 		v, err := api.VerifyRecords(ctx, a.Namespace, a.Stage)
 		return resultOrError(v, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_record_get",
+		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
+			"approved, every verdict with its citation and how to run it again, and whether its signature was checked against " +
+			"the trust config. Read-only." + noApprove,
+		InputSchema: inputSchema(map[string]property{
+			"namespace": {Type: "string", Description: "Namespace of the Stage"},
+			"stage":     {Type: "string", Description: "Stage name"},
+			"record":    {Type: "string", Description: "The record id (sha256:...), as a history line names it"},
+		}, []string{"namespace", "stage", "record"}),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		Namespace string `json:"namespace"`
+		Stage     string `json:"stage"`
+		Record    string `json:"record"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		r, err := api.Record(ctx, a.Namespace, a.Stage, a.Record)
+		return resultOrError(r, err)
 	})
 	registerDeliveryStatus(server, api, writes)
 	if writes {

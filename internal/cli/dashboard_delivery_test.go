@@ -154,6 +154,8 @@ func TestDashDeliveryAdapterReads(t *testing.T) {
 	expect(t, err == nil && st.Metadata.Name == "payments-prod", "stage %v %v", st, err)
 	b, err := api.Blame(ctx, "prod", "payments-prod", "")
 	expect(t, err == nil && b.Stage.Name == "payments-prod", "blame %v %v", b, err)
+	_, err = api.Record(ctx, "prod", "payments-prod", "sha256:r")
+	expect(t, isRefusal(err, http.StatusUnprocessableEntity) && strings.Contains(err.Error(), "has no records"), "record of a Stage with no stream: %v", err)
 	_, err = api.Undo(ctx, "prod", "missing", "")
 	expect(t, isRefusal(err, http.StatusNotFound), "undo of an operation that is not there keeps the 404: %v", err)
 }

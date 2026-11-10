@@ -371,6 +371,29 @@ func TestReplaySignedEvals(t *testing.T) {
 	}
 }
 
+// TestDemoRecord: a history line's record reads back by its id, verified
+// with the tab's key; an id outside the stream and a missing Stage are 404s.
+func TestDemoRecord(t *testing.T) {
+	d, _ := demoServer(t)
+	ctx := t.Context()
+	h, _ := d.History(ctx, story.Prod, "payments", nil)
+	i := slices.IndexFunc(h.Entries, func(e delivery.HistoryEntry) bool { return e.Record != "" })
+	if i < 0 {
+		t.Fatalf("no recorded line: %+v", h.Entries)
+	}
+	v, err := d.Record(ctx, story.Prod, "payments", h.Entries[i].Record)
+	if err != nil || v.Record != h.Entries[i].Record || !v.Verified || !strings.Contains(v.Trust, d.KeyHint()) ||
+		v.Entry.Operation != h.Entries[i].Operation || v.AsOf == "" {
+		t.Fatalf("record = %+v %v", v, err)
+	}
+	if _, err := d.Record(ctx, story.Prod, "payments", "sha256:nothing"); err == nil {
+		t.Fatal("a record outside the stream")
+	}
+	if _, err := d.Record(ctx, story.Prod, "missing", "sha256:nothing"); err == nil {
+		t.Fatal("a record of a missing Stage")
+	}
+}
+
 // TestWasmBuildHasNoKubernetes: the browser demo links no Kubernetes client.
 // The delivery it shows is pkg/delivery over fixed data, never internal/app,
 // which would bring client-go and several times the download.

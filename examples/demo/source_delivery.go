@@ -983,7 +983,7 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 	var r *delivery.RecordsRead
 	if s := d.streams[stageKey(ns, name)]; s != nil {
 		r = &delivery.RecordsRead{Fold: delivery.FoldStream(s.recs), Unreadable: slices.Clone(s.unreadable),
-			Trust: "the key this tab minted at load (" + d.keyHint + ")"}
+			Trust: d.trust()}
 	}
 	stc := clone(*st)
 	h, ops := delivery.AssembleHistory(&stc, ops, r, nil, stamp(d.now()))
@@ -991,6 +991,24 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 		return h, nil, ops, nil
 	}
 	return h, r.Fold.Records, ops, nil
+}
+
+// trust names the key the tab verifies its records with.
+func (d *demoDelivery) trust() string { return "the key this tab minted at load (" + d.keyHint + ")" }
+
+// Record is one record of a Stage's stream, from the records the tab signed.
+func (d *demoDelivery) Record(_ context.Context, ns, name, id string) (*delivery.RecordView, error) {
+	_, recs, _, err := d.history(ns, name)
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		if rec.ID == id {
+			v := delivery.RecordViewOf(ns, name, rec, d.trust(), stamp(d.now()))
+			return &v, nil
+		}
+	}
+	return nil, notFound("record " + id + " of Stage " + stageKey(ns, name))
 }
 
 func (d *demoDelivery) History(_ context.Context, ns, name string, _ *delivery.StageObject) (*delivery.History, error) {

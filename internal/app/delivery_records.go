@@ -201,6 +201,32 @@ func (d *Delivery) recordedOperation(ctx context.Context, ns, stage, name string
 	return nil, fmt.Errorf("operation %s/%s is not in the cluster and no record of Stage %s names it", ns, name, stage)
 }
 
+// Record reads one record of a Stage's stream by its id. Only a record in
+// the stream as it was read (verified when a trust config was given) is
+// shown; a record the recorder wrote that does not verify is never one.
+func (d *Delivery) Record(ctx context.Context, ns, stage, id string) (*delivery.RecordView, error) {
+	st, err := d.Stage(ctx, ns, stage)
+	if err != nil {
+		return nil, err
+	}
+	r, err := d.readStream(ctx, st)
+	switch {
+	case err != nil:
+		return nil, err
+	case r == nil:
+		return nil, fmt.Errorf("Stage %s/%s has no records: the recorder has not written its stream anchor", ns, stage)
+	}
+	if i := slices.IndexFunc(r.Fold.Records, func(x delivery.StoredRecord) bool { return x.ID == id }); i >= 0 {
+		v := delivery.RecordViewOf(ns, stage, r.Fold.Records[i], r.Trust, d.Now().UTC().Format(time.RFC3339))
+		return &v, nil
+	}
+	err = fmt.Errorf("record %s is not in the stream of %s/%s; a record the recorder wrote that does not verify is listed as unverifiedRecord in its history", id, ns, stage)
+	if n := len(r.Unreadable); n > 0 {
+		err = fmt.Errorf("%w; records of the stream that could not be read or verified: %d", err, n)
+	}
+	return nil, err
+}
+
 // VerifyRecords verifies every record of a Stage's stream against the trust
 // config and checks the chain.
 func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delivery.StreamVerification, error) {

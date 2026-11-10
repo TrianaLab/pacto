@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"os"
@@ -193,4 +194,46 @@ func TestDeliveryHistoryAllUnlistable(t *testing.T) {
 		return c, nil
 	}
 	checkDeliveryRuns(t, d, []deliveryRun{{"text", []string{"history", "--all"}, true, []string{"forbidden"}}})
+}
+
+func TestRecordGetText(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	trust := writeTrust(t, pub)
+	d := recordDeps(t, key)
+	out, err := runDelivery(t, d, "json", "blame", "-n", "prod", "--stage", "payments-prod", "--trust", trust)
+	var b struct {
+		Change struct {
+			Record string `json:"record"`
+		} `json:"change"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &b) != nil || b.Change.Record == "" {
+		t.Fatalf("blame: %v\n%s", err, out)
+	}
+	id := b.Change.Record
+	checkDeliveryRuns(t, d, []deliveryRun{
+		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{
+			"record " + id + " seq 1 (operation), read from the signed record in the registry, verified with trust config sha256:",
+			"operation ship: promote none -> " + cliA + ", Succeeded/Verified\n", "asked by bot (agent)\n", "for carol (asserted)\n",
+			"why: ship it\n", "applied -, finished 2026-10-21T10:00:00Z\n", "decided: alice approve fine\n",
+			"  pacto.contract           Pass     compliant\n      re-run: read contractStatus", "as of "}},
+		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod"}, false, []string{"its signature was not checked"}},
+		{"json", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{`"verified": true`, `"rerun"`}},
+		{"text", []string{"record", "get", "sha256:other", "-n", "prod", "--stage", "payments-prod", "--trust", trust}, true, []string{"is not in the stream of prod/payments-prod"}},
+		{"text", []string{"record", "get", id, "-n", "prod"}, true, []string{`"stage" not set`}},
+	})
+
+	// Cause, correlation and a refused outcome's reason each get a line.
+	var w strings.Builder
+	printRecordView(&w, &delivery.RecordView{Record: "sha256:r", Entry: delivery.HistoryEntry{Seq: 3, Kind: delivery.RecordUnrecordable, Operation: "x",
+		Outcome: delivery.Failed, Reason: "Unrecordable: sign: no key", Applied: "2026-11-01T00:00:00Z", Cause: &delivery.Cause{Reason: "Latency alert"},
+		CorrelationID: "INC-1"}})
+	for _, want := range []string{"record sha256:r seq 3 (unrecordable)", ", Failed: Unrecordable: sign: no key\n", "cause: Latency alert\n",
+		"correlation: INC-1\n", "applied 2026-11-01T00:00:00Z, finished -\n"} {
+		if !strings.Contains(w.String(), want) {
+			t.Errorf("lacks %q:\n%s", want, w.String())
+		}
+	}
+	if strings.Contains(w.String(), "for ") || strings.Contains(w.String(), "why:") {
+		t.Errorf("prints a line with nothing in it:\n%s", w.String())
+	}
 }

@@ -369,6 +369,27 @@ func TestHistoryTimelineAfterFilter(t *testing.T) {
 	}
 }
 
+// TestExplainTextUnchanged pins explain's text: record get shares its
+// verdict printers, and sharing them must not move a line of it.
+func TestExplainTextUnchanged(t *testing.T) {
+	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
+	want := "prod/held\n" +
+		"delivery.pacto.trianalab.io/promote on Stage payments-prod, (none) -> (none) waits for a person: Approve? If nobody decides by " +
+		"2026-10-30T09:00:00Z (the approval deadline), the operation concludes Expired and nothing changes on the Stage. Propose again to ask again.\n" +
+		"  pacto.diff        pre    Checked  \n" +
+		"      query: {}\n" +
+		"      re-run: pacto delivery plan computes it again from the same contracts and cluster\n" +
+		"  x                 pre    Pass     \n" +
+		"move first: Ship orders first.\n" +
+		"  may be incomplete: the graph is partial\n" +
+		"stage payments-prod runs " + cliA + ", frozen: a rollback failed, on auto-hold\n" +
+		"last re-check 2026-10-20T10:00:00Z of " + cliA + ":\n" +
+		"  health            Unknown  too few spans\n"
+	if err != nil || out != want {
+		t.Fatalf("explain moved: %v\n%q\nwant\n%q", err, out, want)
+	}
+}
+
 // A verdict with nothing to run again prints no re-run line.
 func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
 	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
@@ -499,6 +520,7 @@ func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"candidates", "--stage", "s"},
 		{"approve", "x", "--oidc-issuer-url", "https://idp"},
 		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
+		{"record", "get", "sha256:r", "--stage", "s"},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
 			t.Fatalf("%v: %v", args, err)

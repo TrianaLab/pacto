@@ -62,6 +62,8 @@ type fakeDelivery struct {
 	blameErr    error
 	undo        *delivery.Undo
 	undoErr     error
+	record      *delivery.RecordView
+	recordErr   error
 	refusals    *PublishRefusals
 	refusalsErr error
 	// deny refuses the caller's access reviews "verb resource namespace"
@@ -89,6 +91,10 @@ func (f *fakeDelivery) Blame(context.Context, string, string, string) (*delivery
 
 func (f *fakeDelivery) Undo(context.Context, string, string, string) (*delivery.Undo, error) {
 	return f.undo, f.undoErr
+}
+
+func (f *fakeDelivery) Record(context.Context, string, string, string) (*delivery.RecordView, error) {
+	return f.record, f.recordErr
 }
 
 func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusals, error) {
@@ -1108,6 +1114,44 @@ func TestBlame(t *testing.T) {
 	expect(t, code == http.StatusForbidden && b["detail"] == "no", "blame refused: %d %v", code, b)
 	code, _ = call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod", nil)
 	expect(t, code == http.StatusUnprocessableEntity, "blame needs a Stage: %d", code)
+}
+
+func TestDeliveryRecord(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
+	f := sampleCluster("acme:team-checkout")
+	f.known = map[string]string{dNext: "2.0.0"}
+	f.record = &delivery.RecordView{Namespace: "prod", Stage: "payments", Record: "sha256:r", Verified: true, Trust: "sha256:t",
+		Entry: delivery.HistoryEntry{Operation: "done", From: dRun, To: dNext, Actor: person().User,
+			Approvals: []delivery.RecordApproval{{By: person().User, Decision: delivery.Approve}}},
+		Verdicts: []delivery.ExplainedVerdict{{Verdict: delivery.Verdict{Gate: delivery.GateDiff, Result: delivery.Pass}, Rerun: "pacto delivery plan"}}}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	call(t, http.MethodGet, base+"/api/session", nil) // carol signs in
+	code, b := call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:r", nil)
+	expect(t, code == http.StatusOK && b["record"] == "sha256:r" && b["verified"] == true && b["entry"].(map[string]any)["operation"] == "done" &&
+		len(b["verdicts"].([]any)) == 1, "record %d %v", code, b)
+	vs := b["versions"].(map[string]any)
+	expect(t, vs[dRun] == "1.0.0" && vs[dNext] == "2.0.0", "record versions: %v", vs)
+	expect(t, b["people"].(map[string]any)[person().User] == "Carol Diaz", "record people: %v", b["people"])
+	f.recordErr = Refuse(http.StatusUnprocessableEntity, "Refused", "record sha256:x is not in the stream")
+	code, b = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:x", nil)
+	expect(t, code == http.StatusUnprocessableEntity && b["detail"] == "record sha256:x is not in the stream", "record refused: %d %v", code, b)
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "record needs an id: %d", code)
+	// The dashboard cannot reach delivery at all.
+	base = startDelivery(t, f, a.auth(false, true), false, nil)
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:r", nil)
+	expect(t, code == http.StatusNotFound, "not installed: %d", code)
+}
+
+// TestDeliveryRecordOutOfScope: a dashboard scoped to one namespace answers
+// a record of another as if it were not there, and never reads it.
+func TestDeliveryRecordOutOfScope(t *testing.T) {
+	f := sampleCluster()
+	f.record = &delivery.RecordView{Record: "sha256:r"}
+	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true),
+		DeliveryNamespace: "prod", Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
+	code, b := call(t, http.MethodGet, base+"/api/delivery/record?namespace=books&stage=ledger&id=sha256:r", nil)
+	expect(t, code == http.StatusNotFound && b["code"] == "OutOfScope", "out of scope: %d %v", code, b)
 }
 
 func TestUndo(t *testing.T) {

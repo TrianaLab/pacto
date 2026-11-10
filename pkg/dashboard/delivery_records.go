@@ -82,6 +82,43 @@ func (s *Server) deliveryUndo(ctx context.Context, in *undoInput) (*undoOutput, 
 	return out, nil
 }
 
+type recordInput struct {
+	Namespace string `query:"namespace" required:"true" doc:"The Stage's namespace"`
+	Stage     string `query:"stage" required:"true" doc:"The Stage's name"`
+	ID        string `query:"id" required:"true" doc:"The record's id (sha256:...), as a history line names it"`
+}
+
+type recordOutput struct {
+	Body struct {
+		delivery.RecordView
+		Labels
+	}
+}
+
+func (s *Server) deliveryRecord(ctx context.Context, in *recordInput) (*recordOutput, error) {
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
+	}
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := api.Record(ctx, in.Namespace, in.Stage, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := &recordOutput{}
+	out.Body.RecordView = *r
+	e := r.Entry
+	digests, people := []string{e.From, e.To}, []string{e.Actor, r.OnBehalfOf}
+	for _, a := range e.Approvals {
+		people = append(people, a.By)
+	}
+	out.Body.Labels = s.stageLabels(ctx, api, in.Namespace, in.Stage, digests...)
+	out.Body.People = s.named(people...)
+	return out, nil
+}
+
 // PublishRefusal is one publish Pacto refused.
 type PublishRefusal struct {
 	Service string `json:"service"`

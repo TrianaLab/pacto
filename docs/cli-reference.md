@@ -472,6 +472,21 @@ pacto delivery record [flags]
   -h, --help[=true|false]   help for record
 ```
 
+#### `pacto delivery record get`
+
+Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict
+
+```
+pacto delivery record get <id> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for get
+      --stage string        the Stage whose stream holds the record (required)
+```
+
 #### `pacto delivery record verify`
 
 Verify every record of a Stage's stream against the trust config and check the chain

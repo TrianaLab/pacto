@@ -268,6 +268,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One signed record
+         * @description One record of a Stage's stream by id: the change it records, who asked and approved, every verdict with its citation and how to run it again, and whether its signature was checked.
+         */
+        get: operations["delivery-record"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/refusals": {
         parameters: {
             query?: never;
@@ -4502,6 +4522,36 @@ export interface components {
             description: string;
             version: string;
         };
+        RecordOutputBody: {
+            /** @description When the stream was read (RFC 3339) */
+            asOf: string;
+            entry: components["schemas"]["Delivery.HistoryEntry"];
+            intentReason?: string;
+            namespace: string;
+            note: string;
+            /** @description Asserted by the actor, not verified */
+            onBehalfOf?: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            record: string;
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            stage: string;
+            /** @description The digest of the trust config it was verified with */
+            trust?: string;
+            /** @description Every gate verdict the record keeps, with how to run its citation again */
+            verdicts: components["schemas"]["Delivery.ExplainedVerdict"][] | null;
+            /** @description Its signature was checked against a trust config */
+            verified: boolean;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         Ref: {
             name: string;
             source?: string;
@@ -5868,6 +5918,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublishedOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-record": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage's name */
+                stage: string;
+                /** @description The record's id (sha256:...), as a history line names it */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordOutputBody"];
                 };
             };
             /** @description Unauthorized */

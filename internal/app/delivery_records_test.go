@@ -888,3 +888,53 @@ func TestVerifyRecordsNeedsTheRunner(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordFound(t *testing.T) {
+	e := newRecordEnv(t)
+	_, r2 := e.twoRecords()
+	v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2)
+	if err != nil || v.Record != r2 || v.Entry.Operation != "ship" || !v.Verified || v.Trust != e.d.Trust.Digest() ||
+		v.OnBehalfOf != "carol" || v.IntentReason != "ship ship" || len(v.Verdicts) != 1 || v.AsOf == "" {
+		t.Fatalf("record = %+v %v", v, err)
+	}
+	e.d.Trust = nil
+	if v, _ := e.d.Record(context.Background(), "prod", "payments-prod", r2); v.Verified || v.Trust != "" {
+		t.Fatalf("record read with no trust config = %+v", v)
+	}
+	if _, err := e.d.Record(context.Background(), "prod", "missing", r2); err == nil {
+		t.Fatal("record of a missing Stage")
+	}
+	e.srv.Close()
+	if _, err := e.d.Record(context.Background(), "prod", "payments-prod", r2); err == nil || !strings.Contains(err.Error(), "reading the records") {
+		t.Fatalf("record with the registry down: %v", err)
+	}
+}
+
+// TestRecordViewOnlyFromStream: a record the recorder wrote that does not
+// verify is never shown as a record; the error points at history.
+func TestRecordViewOnlyFromStream(t *testing.T) {
+	e := newRecordEnv(t, opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(3),
+		"record": map[string]any{"digest": "sha256:unverified", "seq": int64(3)}}))
+	_, r2 := e.twoRecords()
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation, Predicate: move(3, r2, "live", dlA, dlB)}
+	b, _, _ := delivery.SignRecord(context.Background(), edSigner(other), st)
+	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, b, &e.anchor,
+		map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation})
+	if err := ocireferrer.Push(context.Background(), e.repo("delivery/streams"), art); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.d.Record(context.Background(), "prod", "payments-prod", "sha256:unverified")
+	if err == nil || !strings.Contains(err.Error(), "is not in the stream of prod/payments-prod") ||
+		!strings.Contains(err.Error(), "listed as unverifiedRecord") || !strings.Contains(err.Error(), "records of the stream that could not be read or verified: 1") {
+		t.Fatalf("record only named by an Operation: %v", err)
+	}
+}
+
+func TestRecordNoAnchor(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", nil, nil)
+	_, err := d.Record(context.Background(), "prod", "payments-prod", "sha256:r")
+	if err == nil || err.Error() != "Stage prod/payments-prod has no records: the recorder has not written its stream anchor" {
+		t.Fatalf("record with no anchor: %v", err)
+	}
+}

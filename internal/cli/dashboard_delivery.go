@@ -315,6 +315,11 @@ func (a dashDelivery) Blame(ctx context.Context, ns, stage, digest string) (*del
 	return b, refusal(err)
 }
 
+func (a dashDelivery) Record(ctx context.Context, ns, stage, id string) (*delivery.RecordView, error) {
+	r, err := a.d.Record(ctx, ns, stage, id)
+	return r, refusal(err)
+}
+
 func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
 	u, err := a.act.Undo(ctx, ns, name, stage)
 	return u, refusal(err)

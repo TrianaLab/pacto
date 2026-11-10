@@ -200,8 +200,8 @@ only.
 `--delivery` serves the delivery tools over the cluster your kubeconfig
 points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
 `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
-`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan` and
-`pacto_delivery_record_verify` for everyone, plus
+`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`,
+`pacto_delivery_record_get` and `pacto_delivery_record_verify` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
 cluster says the caller is an agent. Delivery mode has no approve tool.
 
@@ -231,3 +231,9 @@ propose tool, the `note` says so.
 time or a duration before now such as `2h`), `cause` and `correlation_id`
 filters that narrow the timeline too and, without a `stage`, a `service` and
 `domain` filter.
+
+`pacto_delivery_record_get` takes a `namespace`, a `stage` and the `record` id
+a history line names, and returns that record: the change, who asked and
+approved, every verdict with its citation and how to run it again, and whether
+its signature was checked. A record the recorder wrote that does not verify is
+never returned; history lists it as `unverifiedRecord`.

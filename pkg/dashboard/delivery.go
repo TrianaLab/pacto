@@ -41,6 +41,8 @@ type DeliveryAPI interface {
 	// finds an operation that is gone from the cluster in the records.
 	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
+	// Record reads one record of a Stage's stream by its id.
+	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
 	// PublishRefusals are the publishes Pacto refused for services with Stages
 	// in namespace ("" for all). Nil with no error means this host keeps no
 	// record of refused publishes.
@@ -168,6 +170,10 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Summary: "How to undo a change",
 		Description: "A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it " +
 			"replaced when something changed since, or nothing. It never acts; propose the plan to carry it out."}), s.deliveryUndo)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-record", Method: http.MethodGet, Path: "/api/delivery/record",
+		Summary: "One signed record",
+		Description: "One record of a Stage's stream by id: the change it records, who asked and approved, every verdict with its citation " +
+			"and how to run it again, and whether its signature was checked."}), s.deliveryRecord)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
 		Summary: "Publishes Pacto refused",
 		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
