@@ -4596,8 +4596,6 @@ export interface components {
         };
         ServiceListEntry: {
             /** Format: int64 */
-            blastRadius?: number;
-            /** Format: int64 */
             checksFailed: number;
             /** Format: int64 */
             checksPassed: number;

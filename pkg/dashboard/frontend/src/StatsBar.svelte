@@ -1,5 +1,5 @@
 <script>
-  import { countHighImpact, formatCount } from './lib/format.ts';
+  import { formatCount } from './lib/format.ts';
   import { ownerMatchesFilter } from './lib/owners.ts';
 
   let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
@@ -31,14 +31,6 @@
     }
     return s;
   });
-
-  // Apply all filters (including status) for metrics that should reflect the visible set
-  let fullyFiltered = $derived.by(() => {
-    if (statusFilter === 'all') return baseFiltered;
-    return baseFiltered.filter((s) => s.contractStatus === statusFilter);
-  });
-
-  let highBlastCount = $derived(countHighImpact(fullyFiltered));
 
   let activeSources = $derived.by(() => {
     const sourceSet = new Set();
@@ -112,13 +104,6 @@
         {/each}
       {/if}
 
-      {#if highBlastCount > 0}
-        <span class="filter-sep"></span>
-        <span class="blast-summary" data-tip="{formatCount(highBlastCount)} service{highBlastCount !== 1 ? 's' : ''} with blast radius of 3 or more">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
-          {formatCount(highBlastCount)} high impact
-        </span>
-      {/if}
       <span class="filter-sep"></span>
       <div class="filter-search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -178,13 +163,6 @@
     font: inherit; font-size: var(--text-xs); color: var(--c-text);
     width: 120px; padding: 2px 0;
   }
-  .blast-summary {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: var(--text-xs); font-weight: 600;
-    color: var(--c-warn);
-    white-space: nowrap;
-  }
-  .blast-summary svg { flex-shrink: 0; }
   .filter-search input::placeholder { color: var(--c-text-3); }
 
   /* ─── Mobile ─── */

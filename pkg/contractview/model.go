@@ -541,11 +541,10 @@ func plural(n int) string {
 }
 
 // ServiceListEntry is an enriched Service for the list view, including
-// blast radius, dependency count, checks summary, compliance, and top insight.
+// dependency count, checks summary, compliance and top insight.
 type ServiceListEntry struct {
 	Service
 	Namespace        string           `json:"namespace,omitempty"`
-	BlastRadius      int              `json:"blastRadius,omitempty"`
 	DependencyCount  int              `json:"dependencyCount,omitempty"`
 	ChecksPassed     int              `json:"checksPassed"`
 	ChecksTotal      int              `json:"checksTotal"`

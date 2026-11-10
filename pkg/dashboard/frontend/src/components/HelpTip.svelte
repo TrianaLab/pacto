@@ -6,9 +6,9 @@
   // by Tab, opened by Enter/Space, targetable by touch -- that hover merely
   // anticipates. Escape closes it, a click outside closes it, and it never traps focus.
   //
-  // What belongs here: a definition of a term the page uses ("Revision match", "Blast
-  // radius"). What does NOT: a warning, an uncertainty, or anything actionable. Those
-  // are page content, and page content never hides behind a hover.
+  // What belongs here: a definition of a term the page uses ("Revision match",
+  // "Uncontracted callers"). What does NOT: a warning, an uncertainty, or anything
+  // actionable. Those are page content, and page content never hides behind a hover.
   let { label = '', text = '', textClass = '' } = $props();
 
   let open = $state(false);

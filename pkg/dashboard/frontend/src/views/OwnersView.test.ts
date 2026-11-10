@@ -6,7 +6,7 @@ import { clearFilters, getFilters } from '../lib/filters.svelte.ts';
 import OwnersView from './OwnersView.svelte';
 
 const services = Array.from({ length: 30 }, (_, i) => ({
-  name: `svc-${i}`, contractStatus: 'Compliant', complianceScore: 100, blastRadius: i % 4, owner: { team: `team-${i}` },
+  name: `svc-${i}`, contractStatus: 'Compliant', complianceScore: 100, owner: { team: `team-${i}` },
 }));
 
 let target: HTMLElement;
@@ -37,10 +37,5 @@ describe('OwnersView', () => {
     (target.querySelector('[data-testid="owners-filter"]') as HTMLFormElement).requestSubmit();
     expect(location.hash).toBe('#/owners?q=team-1');
     expect(getFilters().search).toBe('');
-  });
-
-  it('ranks owners by their widest blast radius, never a sum of overlapping ones', async () => {
-    await render('#/owners?q=team-3');
-    expect(target.textContent).toContain('Largest blast');
   });
 });

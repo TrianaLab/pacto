@@ -133,7 +133,7 @@
 
     {#if depsError}
       <div class="subsection deps-error" role="alert">
-        <span>⚠ Couldn’t load dependents and references, so the "Depended on by" list and blast radius may be incomplete.</span>
+        <span>⚠ Couldn’t load dependents and references, so the "Depended on by" list may be incomplete.</span>
         {#if onRetry}<button type="button" class="deps-retry" onclick={onRetry}>Retry</button>{/if}
       </div>
     {/if}

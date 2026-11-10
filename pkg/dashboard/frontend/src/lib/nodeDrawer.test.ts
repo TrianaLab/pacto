@@ -9,8 +9,8 @@ const graphData = {
   ],
 };
 const services = [
-  { name: 'checkout', version: '1.0.0', owner: { team: 'team/checkout' }, sources: ['k8s'], blastRadius: 0 },
-  { name: 'payments', version: '2.0.0', owner: { team: 'team/payments' }, sources: ['oci'], blastRadius: 1 },
+  { name: 'checkout', version: '1.0.0', owner: { team: 'team/checkout' }, sources: ['k8s'] },
+  { name: 'payments', version: '2.0.0', owner: { team: 'team/payments' }, sources: ['oci'] },
 ];
 
 describe('nodeDrawerData', () => {
@@ -29,7 +29,6 @@ describe('nodeDrawerData', () => {
   it('collects dependents by scanning edges that target the node', () => {
     const d = nodeDrawerData('payments', services, graphData);
     expect(d?.dependents).toEqual(['checkout']);
-    expect(d?.blastRadius).toBe(1);
     expect(d?.status).toBe('Warning');
   });
 });

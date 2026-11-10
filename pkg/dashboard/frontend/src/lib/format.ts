@@ -265,13 +265,6 @@ export function driftBadgeLabel(status: string | null | undefined): string {
 
 // ── Stats helpers ──
 
-const HIGH_IMPACT_THRESHOLD = 3;
-
-/** Count services with blast radius at or above the high-impact threshold. */
-export function countHighImpact(services: Array<{ blastRadius?: number }>): number {
-  return services.filter(s => (s.blastRadius || 0) >= HIGH_IMPACT_THRESHOLD).length;
-}
-
 /** Aggregate services by canonical owner key. */
 export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
   return summarize(services).byOwner;
@@ -316,7 +309,6 @@ export interface Metrics {
   notEvaluated: number;
   needsAttention: number;
   compliancePercent: number;
-  highImpact: number;
   runtimeEvaluated: number;
   conclusive: number;
   // Fleet evaluation coverage: {evaluated, required} summed across services that
@@ -335,7 +327,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   const m: Metrics = {
     total: services.length, assessed: 0, compliant: 0, warning: 0, nonCompliant: 0,
     reference: 0, unknown: 0, invalid: 0, notEvaluated: 0,
-    needsAttention: 0, compliancePercent: -1, highImpact: 0,
+    needsAttention: 0, compliancePercent: -1,
     runtimeEvaluated: 0, conclusive: 0,
     evaluationCoverage: { evaluated: 0, required: 0 },
     readiness: {
@@ -369,9 +361,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
       default: m.unknown++; break;
     }
 
-    // High impact
-    if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) m.highImpact++;
-
     // Fleet evaluation coverage — sum evaluated/required across services that carry it.
     const ec = svc.evaluationCoverage as { evaluated?: number; required?: number } | undefined;
     if (ec) {
@@ -385,7 +374,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || UNOWNED_KEY;
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, maxBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
@@ -397,8 +386,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     else if (status === 'Invalid') agg.invalid++;
     else if (status === 'NotEvaluated') agg.notEvaluated++;
     else agg.unknown++;
-    agg.totalBlast += (svc.blastRadius as number) || 0;
-    agg.maxBlast = Math.max(agg.maxBlast, (svc.blastRadius as number) || 0);
 
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;

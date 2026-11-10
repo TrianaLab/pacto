@@ -23,15 +23,15 @@
   const STATUS_RANK = { Invalid: 0, NonCompliant: 1, Unknown: 2, Warning: 3, Compliant: 4, Reference: 5, NotEvaluated: 6 };
 
   // The order and the page live in the URL, so Back from a service returns to the
-  // same page in the same order. Blast descending by default (highest impact first).
-  const SORTS = ['name', 'status', 'compliance', 'readiness', 'blast'];
-  const sortBy = $derived(SORTS.includes(hashParam('sort')) ? hashParam('sort') : 'blast');
-  const sortAsc = $derived(hashParam('dir') ? hashParam('dir') === 'asc' : sortBy !== 'blast');
+  // same page in the same order. Status ascending by default (worst first).
+  const SORTS = ['name', 'status', 'compliance', 'readiness'];
+  const sortBy = $derived(SORTS.includes(hashParam('sort')) ? hashParam('sort') : 'status');
+  const sortAsc = $derived(hashParam('dir') !== 'desc');
   const list = $derived(listState(PER_PAGE));
 
   function setSort(col) {
-    const asc = sortBy === col ? !sortAsc : col !== 'blast'; // name/status/scores asc, blast desc
-    setHashParams({ sort: col === 'blast' ? null : col, dir: asc === (col !== 'blast') ? null : (asc ? 'asc' : 'desc'), offset: null });
+    const asc = sortBy === col ? !sortAsc : true;
+    setHashParams({ sort: col === 'status' ? null : col, dir: asc ? null : 'desc', offset: null });
   }
   function ariaSort(col) { return sortBy === col ? (sortAsc ? 'ascending' : 'descending') : 'none'; }
   function sortIcon(col) { return sortBy === col ? (sortAsc ? ' ↑' : ' ↓') : ''; }
@@ -44,7 +44,6 @@
         case 'status': return ((STATUS_RANK[a.contractStatus] ?? 99) - (STATUS_RANK[b.contractStatus] ?? 99)) * dir;
         case 'compliance': return compareScoresUnassessedLast(a.complianceScore ?? -1, b.complianceScore ?? -1, dir);
         case 'readiness': return compareScoresUnassessedLast(a.readiness?.score ?? -1, b.readiness?.score ?? -1, dir);
-        case 'blast': return ((a.blastRadius || 0) - (b.blastRadius || 0)) * dir;
         default: return 0;
       }
     });
@@ -65,7 +64,6 @@
         <col class="col-status" />
         <col class="col-compliance" />
         <col class="col-readiness" />
-        <col class="col-blast" />
         <col class="col-checks" />
         <col class="col-source" />
       </colgroup>
@@ -76,7 +74,6 @@
           <th aria-sort={ariaSort('status')}><button type="button" class="col-sort" data-tip="Contract compliance status" onclick={() => setSort('status')}>Contract Status{sortIcon('status')}</button></th>
           <th aria-sort={ariaSort('compliance')}><button type="button" class="col-sort" data-tip="Contract compliance score (0–100%)" onclick={() => setSort('compliance')}>Compliance{sortIcon('compliance')}</button></th>
           <th aria-sort={ariaSort('readiness')}><button type="button" class="col-sort" data-tip="Readiness score and status" onclick={() => setSort('readiness')}>Readiness{sortIcon('readiness')}</button></th>
-          <th aria-sort={ariaSort('blast')}><button type="button" class="col-sort" data-tip="Number of services impacted if this one fails" onclick={() => setSort('blast')}>Blast{sortIcon('blast')}</button></th>
           <th data-tip="Validation checks passed / total">Checks</th>
           <th data-tip="Data source: kubernetes, oci or local">Source</th>
         </tr>
@@ -114,22 +111,6 @@
                 <ReadinessScore readiness={svc.readiness} />
               {:else}
                 <span class="text-dim">—</span>
-              {/if}
-            </td>
-            <td data-label="Blast radius">
-              {#if svc.blastRadius > 0}
-                <span
-                  class="blast-badge"
-                  class:blast-low={svc.blastRadius < 3}
-                  class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5}
-                  class:blast-high={svc.blastRadius >= 5}
-                  data-tip="{svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''} impacted if this one fails"
-                  aria-label="{svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''} impacted if this one fails"
-                >
-                  {svc.blastRadius}
-                </span>
-              {:else}
-                <span class="blast-badge blast-zero" data-tip="No services impacted if this one fails" aria-label="No services impacted if this one fails">0</span>
               {/if}
             </td>
             <td data-label="Checks">
@@ -178,7 +159,6 @@
   .col-status { width: 14%; }
   .col-compliance { width: 11%; }
   .col-readiness { width: 11%; }
-  .col-blast { width: 8%; }
   .col-checks { width: 9%; }
   .col-source { width: 9%; }
 
@@ -215,42 +195,6 @@
 
   .text-err {
     color: var(--c-err);
-  }
-
-  .blast-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 26px;
-    height: 22px;
-    padding: 0 7px;
-    border-radius: var(--radius-xs);
-    font-size: var(--text-xs);
-    font-weight: 600;
-  }
-
-  /* 1-2 impacted is low: neutral, matching the >=3 "high impact" threshold used
-     everywhere else — warn/err colors are reserved for >=3. */
-  .blast-low {
-    background: var(--c-neutral-bg);
-    color: var(--c-text-2);
-  }
-
-  .blast-med {
-    background: var(--c-warn-bg);
-    color: var(--c-warn);
-    border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent);
-  }
-
-  .blast-high {
-    background: var(--c-err-bg);
-    color: var(--c-err);
-    border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent);
-  }
-
-  .blast-zero {
-    background: var(--c-neutral-bg);
-    color: var(--c-text-3);
   }
 
   .eval-badge {

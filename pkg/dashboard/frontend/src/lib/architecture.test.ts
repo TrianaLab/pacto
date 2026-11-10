@@ -174,8 +174,8 @@ describe('product visual coherence', () => {
  * question the data cannot support: a readiness donut (a part-of-whole reading of scores
  * that are not parts of a whole), a heatmap and a treemap (dense colour with no textual
  * equivalent), and a priority quadrant (a synthetic two-axis score nobody can trace back
- * to a finding). They still exist, and legitimately so, on the legacy non-Fleet `pacto
- * doc` surfaces, which keep their own presentation and are out of scope.
+ * to a finding; since deleted). The others still exist, and legitimately so, on the legacy
+ * non-Fleet `pacto doc` surfaces, which keep their own presentation and are out of scope.
  *
  * What must not happen is their quiet return to the product. This guard names the product
  * surfaces explicitly, so adding a Fleet view puts it under the rule automatically, and a
@@ -190,7 +190,7 @@ describe('product visualization system', () => {
   // accessible by construction; see components/viz/viz.test.ts for their contracts.
   const ALLOWED_VIZ = ['DistributionBar.svelte', 'HorizontalBars.svelte', 'PostureBars.svelte'];
   // Retired: a shape whose meaning the product data cannot honestly support.
-  const RETIRED = /\b(ReadinessDonut|ReadinessHeatmap|TreemapChart|PriorityQuadrant)\b|conic-gradient|stroke-dasharray/;
+  const RETIRED = /\b(ReadinessDonut|ReadinessHeatmap|TreemapChart)\b|conic-gradient|stroke-dasharray/;
 
   it('scans the product surfaces', () => {
     expect(PRODUCT.length).toBeGreaterThanOrEqual(10);

@@ -75,11 +75,10 @@ describe('ReadinessView — shared filters + category breakdown', () => {
     unmount(component);
   });
 
-  it('renders a readiness status donut chart in the focal pair', () => {
+  it('renders the readiness distribution in the focal panel', () => {
     const component = mount(ReadinessView, { target, props: { services } });
     const text = target.textContent || '';
     expect(text).toContain('Where we stand'); // donut panel title
-    expect(text).toContain('What to fix first'); // quadrant panel title
     unmount(component);
   });
 

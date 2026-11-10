@@ -325,11 +325,11 @@ func TestAnalyzeServiceNotInFleet(t *testing.T) {
 	}
 }
 
-// TestAnalyzeBlastRadiusTruncated drives the dependents traversal past
+// TestAnalyzeDependentsTruncated drives the dependents traversal past
 // fleet.MaxGraphNodes. The consumer list is then a deterministic prefix, so an
 // answer calling itself complete lets ReleaseBlocking() clear a release on the
 // strength of whichever consumers happened to sort first.
-func TestAnalyzeBlastRadiusTruncated(t *testing.T) {
+func TestAnalyzeDependentsTruncated(t *testing.T) {
 	revs := []fleet.RawRevision{{Bundle: mkBundle(svcContract("auth-service", "1.0.0", contract.Owner{}))}}
 	for i := 0; i <= fleet.MaxGraphNodes; i++ {
 		revs = append(revs, fleet.RawRevision{Bundle: mkBundle(svcContract(

@@ -169,22 +169,6 @@ describe('ServicesTable — columns and click-to-filter', () => {
     unmount(component);
   });
 
-  it('renders blast radius', () => {
-    const component = mount(ServicesTable, {
-      target,
-      props: {
-        services: [
-          { name: 'svc-a', blastRadius: 5 },
-        ],
-      },
-    });
-
-    const text = target.textContent || '';
-    expect(text).toContain('5');
-
-    unmount(component);
-  });
-
   it('renders checks column', () => {
     const component = mount(ServicesTable, {
       target,
@@ -264,7 +248,7 @@ describe('ServicesTable — columns and click-to-filter', () => {
     // column), which is what stops the nowrap columns from over-growing the
     // table and triggering a spurious horizontal scrollbar.
     const cols = target.querySelectorAll('table > colgroup > col');
-    expect(cols).toHaveLength(8);
+    expect(cols).toHaveLength(7);
     // The Name column flexes; the rest are compact fixed-ish widths.
     expect(target.querySelector('col.col-name')).toBeTruthy();
     expect(target.querySelector('col.col-source')).toBeTruthy();
@@ -275,18 +259,18 @@ describe('ServicesTable — columns and click-to-filter', () => {
   const rowNames = () =>
     [...target.querySelectorAll('tbody tr .svc-name')].map((a) => a.textContent?.trim());
 
-  it('defaults to blast radius descending', () => {
+  it('defaults to status ascending, worst first', () => {
     const component = mount(ServicesTable, {
       target,
       props: {
         services: [
-          { name: 'low', contractStatus: 'Compliant', blastRadius: 1 },
-          { name: 'high', contractStatus: 'Compliant', blastRadius: 9 },
-          { name: 'mid', contractStatus: 'Compliant', blastRadius: 4 },
+          { name: 'ok', contractStatus: 'Compliant' },
+          { name: 'broken', contractStatus: 'Invalid' },
+          { name: 'failing', contractStatus: 'NonCompliant' },
         ],
       },
     });
-    expect(rowNames()).toEqual(['high', 'mid', 'low']);
+    expect(rowNames()).toEqual(['broken', 'failing', 'ok']);
     unmount(component);
   });
 
@@ -295,9 +279,9 @@ describe('ServicesTable — columns and click-to-filter', () => {
       target,
       props: {
         services: [
-          { name: 'charlie', contractStatus: 'Compliant', blastRadius: 1 },
-          { name: 'alpha', contractStatus: 'Compliant', blastRadius: 9 },
-          { name: 'bravo', contractStatus: 'Compliant', blastRadius: 4 },
+          { name: 'charlie', contractStatus: 'Compliant' },
+          { name: 'alpha', contractStatus: 'Compliant' },
+          { name: 'bravo', contractStatus: 'Compliant' },
         ],
       },
     });
@@ -310,7 +294,7 @@ describe('ServicesTable — columns and click-to-filter', () => {
   });
 
   it('pages through the URL and keeps the page across a remount', async () => {
-    const services = Array.from({ length: 30 }, (_, i) => ({ name: `s${String(i).padStart(2, '0')}`, contractStatus: 'Compliant', blastRadius: 30 - i }));
+    const services = Array.from({ length: 30 }, (_, i) => ({ name: `s${String(i).padStart(2, '0')}`, contractStatus: 'Compliant' }));
     location.hash = '#/?offset=25';
     await new Promise((r) => setTimeout(r, 0));
     const component = mount(ServicesTable, { target, props: { services } });
