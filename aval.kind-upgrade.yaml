@@ -1,0 +1,39 @@
+# Kind acceptance: builds the operator image from this tree, creates its own kind
+# cluster (kind's pinned node image), installs the packaged chart and drives the scenario.
+# Third-party images are pinned by digest. KIND_CLUSTER (reuse a cluster) is fingerprinted.
+# Scenario: the published v4 chart and CRDs (fixture, image checked by digest) upgraded to this tree's chart.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-kind-upgrade
+runner:
+  command: ["bash", "tests/acceptance/kind/upgrade-v4-v5.sh"]
+scope:
+  source:
+    - "tests/acceptance/kind/upgrade-v4-v5.sh"
+    - "tests/acceptance/kind/fixtures/pacto-operator-v4/**"
+  contracts:
+    - "aval.image-operator.yaml"
+    - "aval.kind-harness.yaml"
+  allowMutable:
+    - file: "tests/acceptance/kind/fixtures/pacto-operator-v4/templates/deployment.yaml"
+      ref: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+      reason: "the chart's image helper; every kind scenario sets each image it renders to one built from this tree and loaded into the node, or to a digest-pinned reference in its script"
+    - file: "tests/acceptance/kind/upgrade-v4-v5.sh"
+      ref: "$"
+      reason: "a chart `helm package`d in this run from the in-scope chart (or the digest-checked v4 fixture), installed from the local .tgz"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    docker-platform: "linux/amd64"
+    kind: "0.30.0"
+    helm: "4.3.1"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+    kind: ["kind", "version"]
+    helm: ["helm", "version", "--short"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, DOCKER_DEFAULT_PLATFORM, KIND_CLUSTER, KIND_POLL]
+cacheability: controlled-environment

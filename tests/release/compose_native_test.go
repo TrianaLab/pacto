@@ -443,7 +443,13 @@ var (
 	composeScriptRE = regexp.MustCompile(`(?:bash|sh)\s+\S*(?:compose-demo|dry-run)\.sh|\./\S*(?:compose-demo|dry-run)\.sh`)
 )
 
-// makeRules reads every root-level makefile fragment into target -> rule.
+// makeAvalRunRE matches a recipe's `$(AVAL_RUN) <suite>`, the one way a target
+// runs a suite (ci.mk). A pattern rule's `$*` suite stays unexpanded.
+var makeAvalRunRE = regexp.MustCompile(`\$\(AVAL_RUN\) ([a-z0-9.-]+)\s*$`)
+
+// makeRules reads every root-level makefile fragment into target -> rule. A
+// recipe line that runs a suite through aval reads as what it runs: run.sh and
+// the contract's runner.command, so the gates that walk recipes see the suite.
 func makeRules(t *testing.T, root string) map[string]makeRule {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(root, "*.mk"))
@@ -460,6 +466,9 @@ func makeRules(t *testing.T, root string) map[string]makeRule {
 		var current []string
 		for _, line := range strings.Split(string(b), "\n") {
 			if strings.HasPrefix(line, "\t") {
+				if m := makeAvalRunRE.FindStringSubmatch(line); m != nil {
+					line += "\n\tbash .github/aval/run.sh " + m[1] + "\n\t" + avalSuiteCommand(t, root, m[1])
+				}
 				for _, tgt := range current {
 					r := rules[tgt]
 					r.recipe += line + "\n"

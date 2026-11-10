@@ -24,7 +24,9 @@ export default defineConfig({
   // a worker needs more than one core to itself. That is 6 on a 12-core laptop and 2 on
   // GitHub's 4-vCPU ubuntu-latest, which is what keeps the CI job fast without starving it.
   workers: '50%',
-  forbidOnly: !!process.env.CI,
+  // Always: a stray .only must fail here too, or a local run that skipped most of
+  // the suite would pass and could be reused for CI (see the aval contracts).
+  forbidOnly: true,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {
@@ -40,13 +42,17 @@ export default defineConfig({
     {
       command: `python3 e2e/serve.py ${APP_PORT} ${DIST}`,
       url: `http://127.0.0.1:${APP_PORT}/index.html`,
-      reuseExistingServer: !process.env.CI,
+      // Never reuse a server already on the port: it may serve an older build than
+      // the one under test.
+      reuseExistingServer: false,
       timeout: 60_000,
     },
     {
       command: `python3 e2e/serve.py ${DOC_PORT} ${DOC_DIST}`,
       url: `http://127.0.0.1:${DOC_PORT}/index.html`,
-      reuseExistingServer: !process.env.CI,
+      // Never reuse a server already on the port: it may serve an older build than
+      // the one under test.
+      reuseExistingServer: false,
       timeout: 60_000,
     },
   ],

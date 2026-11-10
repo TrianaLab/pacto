@@ -47,7 +47,10 @@ KC_ISSUER="https://127.0.0.1:8443/realms/pacto"
 DASH_URL="http://127.0.0.1:3300"
 MCP_URL="http://127.0.0.1:8585"
 DASH_SECRET="dashboard-secret"
-IDP_FIXTURES="$(dirname "${BASH_SOURCE[0]}")/fixtures/identity"
+# IDP_SHARED holds the files every identity run uses as they are; IDP_FIXTURES
+# (the demo points it at its own directory) only supplies dex.yaml.
+IDP_SHARED="$(dirname "${BASH_SOURCE[0]}")/fixtures/identity"
+IDP_FIXTURES="$IDP_SHARED"
 IDP_CONTAINERS=(pacto-e2e-dex pacto-e2e-keycloak pacto-e2e-dashboard pacto-e2e-mcp pacto-e2e-approve)
 
 # A failed run in CI keeps the containers: scripts/ci/kind-diagnostics.sh runs
@@ -100,7 +103,7 @@ $ca
 YAML
     done
   } > "$IDP_DIR/authn.yaml"
-  cp "$IDP_FIXTURES/audit-policy.yaml" "$IDP_DIR/audit-policy.yaml"
+  cp "$IDP_SHARED/audit-policy.yaml" "$IDP_DIR/audit-policy.yaml"
   cat > "$IDP_DIR/kind.yaml" <<YAML
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -140,7 +143,7 @@ in_node() {
 # apiserver trusts both: a token from each authenticates. Keycloak takes a
 # while to start, so the run installs the rest of the cluster in between.
 identity_start() {
-  cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
+  cp "$IDP_FIXTURES/dex.yaml" "$IDP_SHARED/pacto-realm.json" "$IDP_DIR/"
   chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
   in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$DEX_IMG" dex serve /etc/dex/dex.yaml
   in_node pacto-e2e-keycloak -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \

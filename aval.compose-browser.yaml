@@ -1,0 +1,57 @@
+# Level 4: the distributed Compose demo as a stranger meets it: the image built
+# from this tree, the artifact published with `docker compose publish` and run
+# by digest out of a registry, checked against the canonical scenario fixture.
+# Plus the live Playwright journeys against that demo (test-browser-compose).
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-compose-browser
+runner:
+  command: ["bash", "tests/acceptance/local/compose-demo.sh", "browser"]
+scope:
+  source:
+    - "tests/acceptance/local/compose-demo.sh"
+    - "tests/acceptance/scenario/**"
+    - "tests/acceptance/kind/productready/**"
+    - "pkg/dashboard/frontend/e2e-live/**"
+    - "pkg/dashboard/frontend/playwright.live.config.ts"
+    - "pkg/dashboard/frontend/tsconfig.json"
+  dependencies:
+    - "pkg/dashboard/frontend/package.json"
+    - "pkg/dashboard/frontend/package-lock.json"
+  contracts:
+    - "aval.image-pacto.yaml"
+  allowMutable:
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "compose.yaml"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "pacto-demo-netfilter:$"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$@"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$HARNESS_REGISTRY"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$2"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    docker-platform: "linux/amd64"
+    compose: "5.5.0"
+    node: "22.23.4"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+    compose: ["docker", "compose", "version", "--short"]
+    node: ["node", "--version"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PACTO_DEMO_IMAGE, PACTO_DEMO_REGISTRY_IMAGE, PACTO_DEMO_PUBLISH_TO, PW_BASE_URL]
+cacheability: controlled-environment

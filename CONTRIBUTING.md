@@ -62,7 +62,7 @@ To build and test the Go engine:
    Individual targets:
 
    ```bash
-   make test              # unit tests
+   make test              # the unit suites (ci-test, through Aval); tests/ runs under make ci-gates
    make test-integration  # in-process CLI integration suite (build tag `integration`)
    make lint              # gofmt, go vet and the U+00A7 gate, failing as CI does
    make coverage          # coverage report with HTML output
@@ -96,7 +96,8 @@ To build and test the Go engine:
    running the same way, with `-status`, `-logs` and `-down` beside it.
    `make e2e-delivery-demo` plays the
    [Kubernetes delivery demo](docs/examples/kubernetes-demo.md) (about 45
-   minutes); `DELIVERY_DEMO_SHARD=browser` runs one of its CI shards.
+   minutes); `make test-acceptance-kind-delivery-demo-browser` runs one of its
+   CI shards.
 
    **Test the whole product locally.** One command installs the operator,
    dashboard, Evidence Server and a registry with sample contracts, and leaves
@@ -300,9 +301,65 @@ Three more rules once you have picked:
 | `ci-dashboard` | Frontend lint and the Vitest suite |
 | `ci-integration-kubernetes` | The operator's envtest suite and the Helm chart gates (lint, template, unittest, schema, docs drift) |
 | `ci-e2e-envtest` | The operator acceptance matrix against a real API server, with no cluster |
-| `ci-oci` | The public `pkg/oci` tests and the release orchestrator's Node tests |
+| `ci-oci` | The release orchestrator's Node tests (`pkg/oci` runs in the unit suite) |
 
 Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scenarios — are not part of `make ci` and run as their own CI jobs.
+
+Every leg's tests run through Aval ([Test Results Through Aval](#test-results-through-aval)).
+
+### Test Results Through Aval
+
+Every test suite runs through [Aval](https://github.com/TrianaLab/aval): a
+make target runs `.github/aval/run.sh <suite>`, which runs the contract
+`aval.<suite>.yaml` at the repository root. CI runs the same targets.
+
+| Set | What the target does |
+|-----|----------------------|
+| nothing | runs the suite directly, with no lookup |
+| `AVAL_REGISTRY`, `AVAL_POLICY` | reuses a verified passing result for the same inputs, runs the suite on a miss, fails on a verification failure |
+| `AVAL_PUSH=1` too | signs and pushes a passing result from a clean worktree |
+
+Contracts declare the platform `Linux x86_64` and the exact tool versions CI
+installs, so a result from another machine never stands in for CI. On any
+other machine, a target with `AVAL_REGISTRY` set runs the suite and then
+exits 1 (`result not recorded`); leave it unset there. When a
+suite reads a new file, add it to the contract's scope. How CI signs,
+publishes and trusts results: [.github/aval/README.md](.github/aval/README.md).
+
+### Save PR CI time: sign a local run
+
+A maintainer listed in `.github/aval/pr.yaml` can sign suite results from
+their own machine (macOS too) with Docker, from a clean, committed tree:
+
+```sh
+make aval-local SUITES="unit examples-go integration gates"
+```
+
+The suites run from a clean clone of `HEAD` in a pinned `linux/amd64`
+container with the tool versions the contracts declare
+(`.github/aval/local.Dockerfile`), with the same environment variables as CI.
+Then each passing suite that was not reused is signed on the host: Aval opens
+the Sigstore login in the browser once per suite; log in with GitHub. Log in
+to GHCR first with a token that can write `pacto-attestations`. Suites that
+need Docker, kind or a cluster are refused; `.github/aval/local.sh` lists the
+supported ones. Use it only for commits you authored: you sign what the
+container reports.
+
+The pull request's jobs reuse those results while the merge commit has the
+same inputs. `main` never reuses them: it trusts maintainers below its minimum
+level.
+
+### Pull request results on main
+
+`aval-publish` also signs the results of a pull request from a branch of this
+repository that is maintainer-authored and maintainer-triggered (not forks,
+not Dependabot, not someone else's pull request from a maintainer's branch),
+and `main` reuses them. After a squash merge of an up-to-date branch, `main`
+has the same inputs, so suites the pull request proved do not run again. A
+suite the pull request reused from a maintainer's local run is not signed
+again by CI, so `main` runs it once more. This is sound only while everyone
+with push access is a maintainer, because a pull request runs its own workflow
+and could sign anything (`.github/aval/main.yaml`).
 
 ### Documentation
 

@@ -1,0 +1,24 @@
+# Pacto's Aval trust policy for pull requests: the identities main.yaml lists,
+# at the same levels. That is Pacto's ci.yml on main and on same-repository
+# pull requests at runner level (see the trust condition in main.yaml: signed
+# only for maintainer-authored and maintainer-triggered pull requests, sound
+# only while every account with push access is a maintainer), plus maintainers
+# at developer level (a local run signed keyless after the interactive
+# Sigstore login, CONTRIBUTING.md "Save PR CI time: sign a local run").
+# main.yaml lists the maintainers below its minTrustLevel, so main never reuses
+# their results. No allowedCacheability: an external-dependencies suite reads
+# something outside its fingerprint, so it always runs, here too.
+# tests/architecture/aval_test.go fails if the two files differ.
+apiVersion: aval.trianalab.io/v1
+kind: Policy
+minTrustLevel: developer
+identities:
+  - issuer: https://token.actions.githubusercontent.com
+    subjectRegexp: ^https://github\.com/TrianaLab/pacto/\.github/workflows/ci\.yml@refs/heads/main$
+    trustLevel: runner
+  - issuer: https://token.actions.githubusercontent.com
+    subjectRegexp: ^https://github\.com/TrianaLab/pacto/\.github/workflows/ci\.yml@refs/pull/[0-9]+/merge$
+    trustLevel: runner
+  - issuer: https://github.com/login/oauth
+    subjectRegexp: edudiazasencio@gmail\.com
+    trustLevel: developer

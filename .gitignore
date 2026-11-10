@@ -12,9 +12,14 @@
 # OS
 .DS_Store
 
-# Coverage
+# Coverage (coverage-<suite>.out: scripts/ci/cover.sh, one per unit suite)
 coverage.out
+coverage-*.out
 coverage.html
+
+# Aval: the pinned binary (.github/aval/install.sh) and each suite's result,
+# verify report and run record (.github/aval/run.sh). Aval never hashes it.
+.aval/
 
 # Local Go build cache (created when GOCACHE points into the tree)
 .gocache/

@@ -306,9 +306,9 @@ if [ -n "${RUN_BROWSER:-}" ]; then
   echo "== live Product journeys against the LIVE dashboard (Playwright/Chromium) =="
   ( cd "$ROOT/pkg/dashboard/frontend" \
     && npm ci --ignore-scripts >/dev/null 2>&1 \
-    && npx playwright install --with-deps chromium >/dev/null 2>&1 \
+    && ./node_modules/.bin/playwright install --with-deps chromium >/dev/null 2>&1 \
     && PW_BASE_URL="http://127.0.0.1:8080/" PW_FIXTURE="$(cat "$FIXTURE_JSON")" \
-       npx playwright test --config playwright.live.config.ts ) \
+       ./node_modules/.bin/playwright test --config playwright.live.config.ts ) \
     && pass "live dashboard product journeys" || fail "live dashboard product journeys failed"
 fi
 kill "$DASH_PF" 2>/dev/null || true

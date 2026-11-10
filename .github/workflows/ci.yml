@@ -5,6 +5,19 @@ name: CI
 # here through the root Makefile so local `make ci` and this pipeline stay in
 # lockstep. Path filters below only OPTIMIZE the heavy legs — the `required`
 # aggregate job always runs so branch protection has one stable required check.
+#
+# Every test suite runs through Aval, by one path: a job step runs a make
+# target, the target runs .github/aval/run.sh <suite>, and that runs
+# `aval run -f aval.<suite>.yaml` (CONTRIBUTING.md "Test Results Through
+# Aval"). A suite job first takes the trust policy and the registry from main
+# (.github/aval/trust-from-base.sh, main's copy) and installs the pinned,
+# verified aval release. A verified passing result for the same inputs is
+# reused, a miss runs the suite, and a verification failure (exit 5) fails the
+# job. Suite jobs hold no registry write and no OIDC token: on a push to main
+# or a maintainer's same-repository pull request, aval-publish signs keyless
+# and pushes the results they recorded, and aval-record publishes their run
+# records.
+# tests/architecture/aval_test.go enforces this wiring.
 
 on:
   push:
@@ -22,9 +35,18 @@ on:
 permissions:
   contents: read
 
+# Keyed on the event too: a nightly or manual run on main must never replace a
+# pending push run, whose aval-publish signs main's results.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read by .github/aval/run.sh into every run record. AVAL_STATS_REGISTRY is
+# Aval's public stats registry, where aval-record publishes them.
+env:
+  AVAL_CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  AVAL_REPOSITORY: ${{ github.repository }}
+  AVAL_STATS_REGISTRY: ghcr.io/trianalab/aval-stats
 
 jobs:
   changes:
@@ -49,7 +71,13 @@ jobs:
               # Excluding docs/overrides skips the heavy engine leg on docs-only PRs.
               - '!(integrations|docs|overrides)/**'
               - 'go.work'
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
             dashboard:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'pkg/dashboard/**'
               # dashboard-e2e builds the WASM demo and now smokes its engine, so
               # the fixtures and the host that serve it are inputs to this leg. A
@@ -63,6 +91,9 @@ jobs:
               - 'pkg/doc/**'
               - 'internal/cli/doc.go'
             kubernetes:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'integrations/kubernetes/**'
               - 'go.work'
               # The core packages the operator module compiles in, as in the e2e
@@ -96,6 +127,9 @@ jobs:
               - 'pkg/strictjson/**'
               - 'pkg/validation/**'
             release:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'release/**'
               - '.github/workflows/**'
               # A changeset file affects nothing EXCEPT the release, and adding
@@ -113,6 +147,9 @@ jobs:
             # dry-run) run for anything that can affect release execution or the
             # operator, and are skipped only for truly unrelated changes (docs-only).
             e2e:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'release/**'
               - '.github/workflows/**'
               - 'integrations/kubernetes/**'
@@ -176,6 +213,9 @@ jobs:
             # signed in through the real guard. It is heavy, so it runs only for
             # changes to delivery itself, to the guard or to the demo.
             delivery:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'integrations/kubernetes/api/delivery/**'
               - 'integrations/kubernetes/cmd/delivery/**'
               - 'integrations/kubernetes/internal/delivery/**'
@@ -212,6 +252,9 @@ jobs:
             # the promoter against a real apiserver, so it runs for changes to
             # them, to the operator and to the harness (tests/perf/README.md).
             perf:
+              # The Aval contracts and run.sh decide what each suite runs and reads.
+              - 'aval.*.yaml'
+              - '.github/aval/**'
               - 'pkg/dashboard/**'
               - 'pkg/delivery/**'
               - 'pkg/fleet/**'
@@ -244,14 +287,54 @@ jobs:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - uses: ./.github/actions/ci
         with:
           target: ci-engine
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-engine
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+      # A reused unit suite writes no coverage.out: nothing new to report.
       - name: Upload results to Codecov
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && hashFiles('coverage.out') != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -262,15 +345,54 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-dashboard
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-dashboard
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Browser-level acceptance for the redesigned Operational Graph + Impact UI:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
@@ -279,22 +401,60 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the demo build's `git describe` needs tags
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 30
         run: make test-browser
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-dashboard-e2e
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload browser traces
         if: failure()
         timeout-minutes: 5
@@ -311,32 +471,112 @@ jobs:
     needs: changes
     if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.1
       - name: Install helm-docs
         # go install verifies the module checksum via GOSUMDB — no unchecksummed
         # curl | tar of a release tarball. It is also ~20 module fetches with no
         # retry of its own, so it goes through release/scripts/retry.sh.
         run: bash release/scripts/retry.sh go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-integration-kubernetes
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-integration-kubernetes
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   ci-e2e-envtest:
     needs: changes
     if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-e2e-envtest
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-e2e-envtest
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The dashboard's delivery views and the promoter against a real apiserver,
   # with the request and latency budgets of tests/perf/README.md. CI runs the
@@ -346,12 +586,51 @@ jobs:
     needs: changes
     if: needs.changes.outputs.perf == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - uses: ./.github/actions/ci
         with:
           target: ci-perf-envtest
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-perf-envtest
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   ci-oci:
     needs: changes
@@ -360,25 +639,54 @@ jobs:
     # skip it there. Skipped != failure, so the `required` aggregate stays green.
     if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      registry:
-        image: registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
-        ports:
-          - 5001:5000
+    timeout-minutes: 30
+    # The publisher's decision tests (aval.release-detect.yaml) need Node only;
+    # pkg/oci's Go tests run in the unit suite.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version-file: go.mod
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
-      - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+          node-version: '22.23.4'
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-oci
-        env:
-          PACTO_STAGING_REGISTRY: localhost:5001
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-oci
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Operator image build with the EXACT production build-push context + file
   # (context: repo root, file: integrations/kubernetes/Dockerfile) — a dedicated
@@ -408,7 +716,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 80
     # Shard the self-provisioning kind scenarios across parallel runners (each
     # spins up its own cluster) instead of running them serially in one job. The
     # `required` aggregate waits for all matrix legs, so coverage is unchanged.
@@ -419,15 +727,17 @@ jobs:
         scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       # The operational-graph scenario drives the LIVE dashboard in Chromium via
-      # Playwright, so it needs Node (the other scenarios do not).
-      - if: matrix.scenario == 'operational-graph'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # Playwright; the scenarios that compute the release version run Node. The
+      # contracts probe the exact version, so every leg installs it.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
       # The evidence scenario's store is the OCI registry itself, so it needs an
       # INDEPENDENT OCI client: ORAS is the observer that proves a third party
       # discovers what Pacto published, and publishes evidence Pacto reads back.
@@ -441,9 +751,48 @@ jobs:
         run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.1
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - name: Run the scenario
         timeout-minutes: 35
         run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-kind-${{ matrix.scenario }}
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Collect cluster diagnostics
         if: failure()
         timeout-minutes: 10
@@ -477,7 +826,11 @@ jobs:
       # before oras, cosign and helm: installing them costs seconds.
       - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.1
       - name: Build the operator, dashboard and delivery images
         timeout-minutes: 25
         run: |
@@ -502,36 +855,80 @@ jobs:
     needs: [changes, delivery-images]
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
         phase: [core, health, publish, ordering, identity, records, ladder]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # The release version the images are tagged with is computed by Node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22.23.4'
       # Every version a Stage promotes is published as a signed Flux artifact.
       - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
         run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         timeout-minutes: 10
         with:
           name: delivery-images
           path: ${{ runner.temp }}/delivery-images
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
+      # The phase is part of the contract (aval.kind-delivery-<phase>.yaml); the
+      # image archive only carries images built in this run from the same tree.
       - name: Run the ${{ matrix.phase }} phase
         timeout-minutes: 45
-        env:
-          DELIVERY_PHASES: ${{ matrix.phase }}
         run: |
           export DELIVERY_LOAD_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
-          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-delivery
+          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-delivery-${{ matrix.phase }}
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-kind-delivery-${{ matrix.phase }}
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Collect cluster diagnostics
         if: failure()
         timeout-minutes: 10
@@ -574,27 +971,66 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       # The demo's browser leg drives the LIVE dashboard in Chromium via Playwright.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
       # A Compose that owns this artifact type. The runner's own version is not a
       # thing this repository controls, and the floor the demo declares
       # (scenario.ComposeMinVersion) is what the harness enforces against it.
       - uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
         with:
           version: v5.5.0
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-e2e-compose
       # Portable runtime evidence on this runner's kernel: the host agent over
       # labelled containers and `pacto run` in both modes (see ci.mk).
       - run: make test-acceptance-local-runtime-docker
       - run: make test-acceptance-local-runtime-run
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-e2e-compose
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   release-dry-run:
     needs: changes
@@ -620,7 +1056,7 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
@@ -688,13 +1124,52 @@ jobs:
   ci-gates:
     needs: changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-gates
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-ci-gates
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   artifact-drift:
     needs: changes
@@ -708,7 +1183,7 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
       - run: npm ci --ignore-scripts
       - run: make artifact-drift
       # On a Version PR, the core checksum in the operator's go.sum has to describe
@@ -725,19 +1200,194 @@ jobs:
     # feature-PR "committed txn not ready" invariant this asserts does not apply.
     if: needs.changes.outputs.release == 'true' && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '22'
+          node-version: '22.23.4'
       - run: npm ci --ignore-scripts
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      # AVAL_POLICY and AVAL_REGISTRY from main's .github/aval/trust-from-base.sh,
+      # never from this ref: a PR cannot widen what its own CI trusts.
+      - name: Aval trust policy and registry, from main
+        timeout-minutes: 5
+        run: |
+          fetched=
+          for i in 1 2 3; do
+            /usr/bin/git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main && fetched=1 && break
+            [ "$i" = 3 ] || sleep $((i * 10))
+          done
+          if [ -z "$fetched" ]; then
+            echo "::warning::cannot fetch main: no trust policy, nothing is reused"
+          elif /usr/bin/git show origin/main:.github/aval/trust-from-base.sh > "$RUNNER_TEMP/trust-from-base.sh"; then
+            /bin/bash "$RUNNER_TEMP/trust-from-base.sh"
+          else
+            echo "::warning::main has no .github/aval/trust-from-base.sh: no trust policy, nothing is reused"
+          fi
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
       - run: make ci-release-version
+      - name: Aval summary
+        if: always()
+        timeout-minutes: 2
+        run: bash .github/aval/summary.sh
+      - name: Upload Aval results and run records
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aval-release-version-test
+          path: .aval/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # On a push to main or a maintainer's same-repository pull request, sign
+  # keyless and push every passing result the suite jobs recorded and did not
+  # reuse. The only job with `id-token: write`; it and
+  # aval-record are the only jobs with `packages: write`. It runs no suite.
+  # `aval push` recomputes the fingerprint from this checkout (the same commit)
+  # and refuses a result recorded for other inputs. Unlike Aval's own CI, which
+  # waits for every suite, each result is judged on its own (about fifty suites,
+  # many of them kind shards: one flaky shard must not stop the rest from being
+  # published): it must come from the artifact of the job that runs its suite,
+  # must have passed, must be a class a policy reuses (not non-deterministic or
+  # external-dependencies) and must sit beside no security event. A failing result is never pushed, because a
+  # failing result wins ties against a passing one at the same trust level.
+  aval-publish:
+    needs:
+      - ci-gates
+      - ci-engine
+      - ci-dashboard
+      - dashboard-e2e
+      - ci-integration-kubernetes
+      - ci-e2e-envtest
+      - ci-perf-envtest
+      - ci-oci
+      - ci-e2e-kind
+      - ci-e2e-kind-delivery
+      - delivery-demo
+      - ci-e2e-compose
+      - release-version-test
+    # A push to main, or a pull request from a branch of this repository that a
+    # maintainer (edu-diaz, the allowlist main.yaml and pr.yaml name) opened,
+    # pushed and triggered: main reuses what that pull request's CI proved
+    # (trust condition in .github/aval/main.yaml). The head living here is not
+    # enough: anyone can open a pull request from an existing branch. Forks and
+    # Dependabot never match. tests/architecture/aval_test.go pins this condition.
+    if: ${{ !cancelled() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'edu-diaz' && github.actor == 'edu-diaz' && github.triggering_actor == 'edu-diaz') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      # The one registry declaration: trust-from-base.sh reads it for the suite
+      # jobs, from main on pull requests.
+      AVAL_REGISTRY: ghcr.io/trianalab/pacto-attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The suite jobs ran setup-go, which exports Go variables some contracts
+      # fingerprint (environment.env); push recomputes the fingerprint here.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Under .aval/, which Aval never hashes, so the download cannot change a
+      # fingerprint. One directory per artifact, never merged: publish.sh
+      # trusts each artifact only for the suites its job runs.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        timeout-minutes: 5
+        with:
+          pattern: aval-*
+          path: .aval/results
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        timeout-minutes: 5
+        run: make aval-install
+      - name: Sign and push results that were not reused
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/aval/publish.sh .aval/results
+
+  # On a push to main or a maintainer's same-repository pull request (the
+  # condition of aval-publish), publish the run record of every suite run, whatever its
+  # outcome (always(): failed runs count too), to Aval's public stats registry.
+  # The suites wrote the records without credentials; this job has
+  # `packages: write` only and runs no suite. Statistics only: every step is
+  # best effort, so nothing here can fail the job and turn main red. Records
+  # are unsigned and never read by `aval run` or `aval verify`.
+  aval-record:
+    needs:
+      - ci-gates
+      - ci-engine
+      - ci-dashboard
+      - dashboard-e2e
+      - ci-integration-kubernetes
+      - ci-e2e-envtest
+      - ci-perf-envtest
+      - ci-oci
+      - ci-e2e-kind
+      - ci-e2e-kind-delivery
+      - delivery-demo
+      - ci-e2e-compose
+      - release-version-test
+    if: ${{ always() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'edu-diaz' && github.actor == 'edu-diaz' && github.triggering_actor == 'edu-diaz') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          pattern: aval-*
+          path: .aval/results
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+        continue-on-error: true
+      - name: Install the pinned aval release (sha256 and Sigstore verified)
+        continue-on-error: true
+        timeout-minutes: 5
+        run: make aval-install
+      - name: Publish run records
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin \
+            || { echo "::warning title=aval stats::ghcr login failed; run records not published"; exit 0; }
+          aval=".aval/aval-$(sed -n 's/^AVAL_VERSION=//p' .github/aval/install.sh)/aval"
+          shopt -s nullglob
+          for f in .aval/results/*/*-record.json; do
+            "$aval" stats publish --registry "$AVAL_STATS_REGISTRY" "$f" \
+              || echo "::warning title=aval stats::$(basename "$f" -record.json): run record not published"
+          done
 
   # Single required status for branch protection: green only when every leg that
   # ran succeeded. Skipped (path-filtered) legs do not count as failures.
@@ -768,6 +1418,12 @@ jobs:
       # now the demo engine smoke, which is the check whose absence let a fixture
       # rename turn main red.
       - dashboard-e2e
+      # Push to main and maintainers' same-repository pull requests (skipped on
+      # other pull requests and the nightly, which counts as passing): a result
+      # that cannot be signed fails the run, so main never silently loses the
+      # results it reuses.
+      - aval-publish
+      - aval-record
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

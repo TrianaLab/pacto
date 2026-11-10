@@ -27,7 +27,7 @@ case "$REG" in
   localhost:5001|127.0.0.1:5001)
     docker rm -f pacto-dryrun-reg >/dev/null 2>&1 || true
     for c in $(docker ps -q --filter "publish=5001"); do docker rm -f "$c" >/dev/null 2>&1 || true; done
-    docker run -d --name pacto-dryrun-reg -p 5001:5000 registry:2 >/dev/null
+    docker run -d --name pacto-dryrun-reg -p 5001:5000 registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 >/dev/null
     OWNED_REG=1
     for _ in $(seq 1 30); do curl -sf "http://$REG/v2/" >/dev/null 2>&1 && break; sleep 1; done ;;
   *)

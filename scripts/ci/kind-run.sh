@@ -6,6 +6,9 @@
 #   infrastructure failed  the harness's infra helper (tests/acceptance/kind/lib.sh)
 #                          gave up on cluster creation, an image pull or load, or
 #                          a third-party install or rollout. Re-run the job.
+#   aval verification failed  an attestation for the suite's inputs failed
+#                          signature or policy verification (.github/aval/run.sh,
+#                          exit 5): a security event, never a flake to re-run.
 #   a check failed         anything else: a claim the scenario makes did not hold.
 #
 # It reads the INFRASTRUCTURE FAILED line rather than the exit status, because
@@ -23,7 +26,10 @@ mkdir -p "$(dirname "$log")"
 rc=${PIPESTATUS[0]}
 [ "$rc" -eq 0 ] && exit 0
 
-if line="$(grep -m1 'INFRASTRUCTURE FAILED' "$log")"; then
+if line="$(grep -m1 'aval: SECURITY:' "$log")"; then
+  title="aval verification failed"
+  msg="${line#*aval: SECURITY: } — a security event, not a flake; do not re-run, see the uploaded Aval report"
+elif line="$(grep -m1 'INFRASTRUCTURE FAILED' "$log")"; then
   title="infrastructure failed"
   msg="${line#*INFRASTRUCTURE FAILED: } — the environment broke, not a check; re-run the job"
 else

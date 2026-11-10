@@ -1,0 +1,71 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# The non-test build closure of cmd/pacto: it imports every package under
+# pkg/ and internal/ except the test helpers, plus the files they embed
+# (pkg/dashboard/ui, the JSON schemas, the eBPF object).
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-cli-build
+runner:
+  command: ["go", "build", "-o", "/dev/null", "./cmd/pacto"]
+scope:
+  source:
+    - "cmd/pacto/**"
+    - "internal/app/**"
+    - "internal/authn/**"
+    - "internal/cli/**"
+    - "internal/evidenceoci/**"
+    - "internal/fleetsrc/**"
+    - "internal/k8sclient/**"
+    - "internal/mcp/**"
+    - "internal/pactify/**"
+    - "internal/runtimewatch/**"
+    - "internal/tui/**"
+    - "internal/update/**"
+    - "pkg/capability/**"
+    - "pkg/catalog/**"
+    - "pkg/contract/**"
+    - "pkg/contractview/**"
+    - "pkg/delivery/**"
+    - "pkg/deliveryrecord/**"
+    - "pkg/diff/**"
+    - "pkg/doc/**"
+    - "pkg/evidence/**"
+    - "pkg/evidenceenvelope/**"
+    - "pkg/evidenceingest/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/ignore/**"
+    - "pkg/impact/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/ocireferrer/**"
+    - "pkg/openapi/**"
+    - "pkg/otelobserver/**"
+    - "pkg/override/**"
+    - "pkg/plugin/**"
+    - "pkg/probe/**"
+    - "pkg/publish/**"
+    - "pkg/readiness/**"
+    - "pkg/reconcile/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/signing/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+    - "pkg/dashboard/*"
+    - "pkg/dashboard/productview/**"
+    - "pkg/dashboard/ui/**"
+  exclude:
+    - "**/*_test.go"
+    - "**/testdata/**"
+    - "pkg/signing/testutil/**"
+  contracts:
+    - "aval.go-modules.yaml"
+cacheability: hermetic

@@ -1,0 +1,36 @@
+# Kind acceptance: builds the dashboard and operator images from this tree, creates its own kind
+# cluster (kind's pinned node image), installs the packaged chart and drives the scenario.
+# Third-party images are pinned by digest. KIND_CLUSTER (reuse a cluster) is fingerprinted.
+# Scenario: the operator with the dashboard disabled and enabled.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-kind-dashboard
+runner:
+  command: ["bash", "tests/acceptance/kind/dashboard-modes.sh"]
+scope:
+  source:
+    - "tests/acceptance/kind/dashboard-modes.sh"
+  contracts:
+    - "aval.image-pacto.yaml"
+    - "aval.image-operator.yaml"
+    - "aval.kind-harness.yaml"
+  allowMutable:
+    - file: "tests/acceptance/kind/dashboard-modes.sh"
+      ref: "$PACTO_CHART"
+      reason: "a chart `helm package`d in this run from the in-scope chart (or the digest-checked v4 fixture), installed from the local .tgz"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    docker-platform: "linux/amd64"
+    kind: "0.30.0"
+    helm: "4.3.1"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+    kind: ["kind", "version"]
+    helm: ["helm", "version", "--short"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, DOCKER_DEFAULT_PLATFORM, KIND_CLUSTER, KIND_POLL]
+cacheability: controlled-environment

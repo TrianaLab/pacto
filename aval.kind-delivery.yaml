@@ -1,0 +1,50 @@
+# Kind acceptance: builds the dashboard and operator images from this tree, creates its own kind
+# cluster (kind's pinned node image), installs the packaged chart and drives the scenario.
+# Third-party images are pinned by digest. KIND_CLUSTER (reuse a cluster) is fingerprinted.
+# Scenario: Pacto delivery (promoter, Flux, recorder, Mira, identity); see delivery.sh.
+# All phases in one cluster (the local make target). DELIVERY_DRY_RUN and
+# DELIVERY_SAVE_IMAGES exit before testing, so they are fingerprinted.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-kind-delivery
+runner:
+  command: ["bash", "tests/acceptance/kind/delivery.sh"]
+scope:
+  source:
+    - "tests/acceptance/kind/delivery.sh"
+    - "tests/acceptance/kind/delivery-lib.sh"
+    - "tests/acceptance/kind/delivery-identity.sh"
+    - "tests/acceptance/kind/delivery-records.sh"
+    - "tests/acceptance/kind/delivery-ladder.sh"
+    - "tests/acceptance/kind/fixtures/identity/**"
+  contracts:
+    - "aval.image-pacto.yaml"
+    - "aval.image-operator.yaml"
+    - "aval.kind-harness.yaml"
+  allowMutable:
+    - file: "tests/acceptance/kind/delivery-identity.sh"
+      ref: "$@"
+      reason: "an image or package argument built in this run or pinned by digest in a variable; the scanner cannot resolve shell variables"
+    - file: "tests/acceptance/kind/delivery.sh"
+      ref: "$"
+      reason: "a chart `helm package`d in this run from the in-scope chart (or the digest-checked v4 fixture), installed from the local .tgz"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    cosign: "3.1.4"
+    docker-platform: "linux/amd64"
+    kind: "0.30.0"
+    helm: "4.3.1"
+    node: "22.23.4"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    cosign: ["cosign", "version"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+    kind: ["kind", "version"]
+    helm: ["helm", "version", "--short"]
+    node: ["node", "--version"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, DOCKER_DEFAULT_PLATFORM, KIND_CLUSTER, KIND_POLL, DELIVERY_DRY_RUN, DELIVERY_SAVE_IMAGES, DELIVERY_SEQUENTIAL, DELIVERY_PHASES, DELIVERY_SKIP_CORE, DELIVERY_SKIP_HEALTH, DELIVERY_SKIP_PUBLISH, DELIVERY_SKIP_ORDER, DELIVERY_SKIP_IDENTITY, DELIVERY_SKIP_RECORDS, DELIVERY_SKIP_LADDER]
+cacheability: controlled-environment

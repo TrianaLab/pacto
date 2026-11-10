@@ -1,0 +1,108 @@
+# The acceptance layer's own Go code: the scenario fixture, its projector and
+# the kind and local helpers (go test ./tests/acceptance/...). It depends on
+# pkg/ and the payments story, not on the CLI.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-acceptance-go
+runner:
+  command: ["go", "test", "-race", "./tests/acceptance/...", "-count=1", "-timeout", "180s"]
+scope:
+  source:
+    - "tests/acceptance/**/*.go"
+    - "tests/acceptance/scenario/seed.sh"
+    - "examples/story/**"
+    - "pkg/capability/**"
+    - "pkg/catalog/**"
+    - "pkg/contract/**"
+    - "pkg/contractview/**"
+    - "pkg/delivery/**"
+    - "pkg/deliveryrecord/**"
+    - "pkg/diff/**"
+    - "pkg/doc/**"
+    - "pkg/evidence/**"
+    - "pkg/evidenceenvelope/**"
+    - "pkg/evidenceingest/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/ignore/**"
+    - "pkg/impact/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/ocireferrer/**"
+    - "pkg/openapi/**"
+    - "pkg/otelobserver/**"
+    - "pkg/override/**"
+    - "pkg/plugin/**"
+    - "pkg/probe/**"
+    - "pkg/publish/**"
+    - "pkg/readiness/**"
+    - "pkg/reconcile/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/signing/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+    - "pkg/dashboard/*"
+    - "pkg/dashboard/productview/**"
+    - "pkg/dashboard/ui/**"
+  exclude:
+    - "pkg/**/*_test.go"
+    - "pkg/**/testdata/**"
+    - "examples/story/**/*_test.go"
+  contracts:
+    - "aval.go-modules.yaml"
+  allowMutable:
+    - file: "examples/story/contracts/checkout/1.8.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/checkout/1.9.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/orders/1.4.0/deploy/orders.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.0.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.1.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.3.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.1/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.2/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.3/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/3.0.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/Dockerfile"
+      ref: "python:3.13-alpine"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/k8s/deployment.yaml"
+      ref: "registry.example/story/images/fraud:1.0.0"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG]
+cacheability: hermetic

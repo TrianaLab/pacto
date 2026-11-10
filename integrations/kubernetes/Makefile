@@ -319,19 +319,25 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
+HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest-$(HELM_UNITTEST_VERSION)
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 
+# setup-envtest at the tag of the controller-runtime release in go.mod
+# (tools/setup-envtest/vX.Y.Z), not the release-X.Y branch: a branch moves, so two
+# machines with the same go.mod would run different setup-envtest builds.
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
-  printf '%s\n' "$$v" | sed -E 's/^v?([0-9]+)\.([0-9]+).*/release-\1.\2/')
+  printf '%s\n' "$$v")
 
-ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
-  [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
-  printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
+# The envtest apiserver/etcd release, as a full patch version: a minor alone
+# (1.37) makes setup-envtest take the newest patch it finds, so the binaries the
+# operator suites run against would change under an unchanged checkout. Keep the
+# minor equal to k8s.io/api's in go.mod and take
+# the newest patch listed in controller-tools' envtest-releases.yaml.
+ENVTEST_K8S_VERSION ?= 1.37.0
 
 GOLANGCI_LINT_VERSION ?= v2.14.0
 HELM_UNITTEST_VERSION ?= 0.7.2
@@ -381,14 +387,20 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 
 .PHONY: helm-unittest-install
 helm-unittest-install: $(HELM_UNITTEST) ## Download helm-unittest locally if necessary.
+# The binary's path carries its version, so a bump never runs a stale download,
+# and the archive must match the sha256 published with the release.
+HELM_UNITTEST_SHA256_linux-amd64 = 25a9a7867eff63e567511cc488b370f22ea06ae8d2bdb0a418de7ab83a143b9e
+HELM_UNITTEST_SHA256_linux-arm64 = f846181c854d6330b255acb22c8864cd5f1feb79190e3dca5e425428112926e8
+HELM_UNITTEST_SHA256_macos-amd64 = ca51e4bc4377ecbf1589930049af34dbe9ead4e31d0bff0b4c676913d07a0d27
+HELM_UNITTEST_SHA256_macos-arm64 = 9a1d903e7fb1d2cd151c23fdae65ff14079686eab390bfe37c225c6bc50a5681
+HELM_UNITTEST_PLATFORM := $(shell uname -s | sed 's/Darwin/macos/;s/Linux/linux/')-$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 $(HELM_UNITTEST): $(LOCALBIN)
-	@[ -f "$(HELM_UNITTEST)" ] || { \
-		echo "Downloading helm-unittest $(HELM_UNITTEST_VERSION)..." ; \
-		os=$$(uname -s | sed 's/Darwin/macos/' | sed 's/Linux/linux/') ; \
-		arch=$$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') ; \
-		curl -sSL --fail --retry 3 --retry-all-errors "https://github.com/helm-unittest/helm-unittest/releases/download/v$(HELM_UNITTEST_VERSION)/helm-unittest-$${os}-$${arch}-$(HELM_UNITTEST_VERSION).tgz" | \
-			tar xz -C "$(LOCALBIN)" untt ; \
-		mv "$(LOCALBIN)/untt" "$(HELM_UNITTEST)" ; \
-	}
+	@echo "Downloading helm-unittest $(HELM_UNITTEST_VERSION)..."
+	@sha='$(HELM_UNITTEST_SHA256_$(HELM_UNITTEST_PLATFORM))'; \
+	[ -n "$$sha" ] || { echo "no pinned helm-unittest for $(HELM_UNITTEST_PLATFORM)" >&2; exit 1; }; \
+	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	curl -sSL --fail --retry 3 --retry-all-errors -o "$$tmp/h.tgz" "https://github.com/helm-unittest/helm-unittest/releases/download/v$(HELM_UNITTEST_VERSION)/helm-unittest-$(HELM_UNITTEST_PLATFORM)-$(HELM_UNITTEST_VERSION).tgz" && \
+	{ command -v sha256sum >/dev/null && echo "$$sha  $$tmp/h.tgz" | sha256sum -c - || echo "$$sha  $$tmp/h.tgz" | shasum -a 256 -c -; } && \
+	tar xzf "$$tmp/h.tgz" -C "$$tmp" untt && mv "$$tmp/untt" "$@"
 
 include ci.mk

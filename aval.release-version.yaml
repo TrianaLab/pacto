@@ -1,0 +1,48 @@
+# The real `npm run release:version` in a throwaway clone with staged
+# changesets (release/orchestrator/test-release-version.sh). It clones HEAD, so
+# it tests the committed tree (AVAL_PUSH signs only from a clean worktree); its
+# first check reads HEAD^'s release transaction, and apply-release-plan asks
+# proxy.golang.org: both are outside the fingerprint, so it is
+# external-dependencies. Needs the root node_modules (npm ci) first.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-release-version
+runner:
+  command: ["bash", "release/orchestrator/test-release-version.sh"]
+scope:
+  source:
+    - "release/orchestrator/test-release-version.sh"
+    - "release/orchestrator/detect.mjs"
+    - "release/orchestrator/canonical.mjs"
+    - "release/scripts/build-release-plan.mjs"
+    - "release/scripts/apply-release-plan.mjs"
+    - "release/release-manifest.json"
+    - "release/release-plan.json"
+    - "release/release-transaction.json"
+    - "release/units/**"
+    - ".changeset/config.json"
+    - "integrations/kubernetes/integration.yaml"
+    - "integrations/kubernetes/artifacthub-repo.yml"
+    - "integrations/kubernetes/docs/installation.md"
+    - "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+    - "integrations/kubernetes/charts/pacto-operator/values.yaml"
+    - "integrations/kubernetes/charts/pacto-operator/README.md"
+    - "docs/examples/compose-demo.md"
+    - "docs/dashboard-docker.md"
+  dependencies:
+    - "package.json"
+    - "package-lock.json"
+  contracts:
+    - "aval.go-modules.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    node: "22.23.4"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    node: ["node", "--version"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, NODE_OPTIONS]
+cacheability: external-dependencies

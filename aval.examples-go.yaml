@@ -1,0 +1,73 @@
+# The Go tests of examples/ (the wasm demo host, the demo bundle tools and the
+# payments story), with the race detector.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-examples-go
+runner:
+  command: ["go", "test", "-race", "./examples/..."]
+scope:
+  source:
+    - "examples/demo/*"
+    - "examples/demo/bundles/**"
+    - "examples/demo/partners/**"
+    - "examples/demo/pacto-dashboard/**"
+    - "examples/demo/generated/**"
+    - "examples/demo/publishbundles/**"
+    - "examples/demo/validatebundles/**"
+    - "examples/story/**"
+    - "pkg/dashboard/frontend/package.json"
+    - "pkg/dashboard/frontend/package-lock.json"
+  exclude:
+    - "examples/demo/*.html"
+  contracts:
+    - "aval.cli-build.yaml"
+  allowMutable:
+    - file: "examples/story/contracts/checkout/1.8.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/checkout/1.9.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/orders/1.4.0/deploy/orders.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.0.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.1.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.3.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.1/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.2/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.3/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/3.0.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/Dockerfile"
+      ref: "python:3.13-alpine"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/k8s/deployment.yaml"
+      ref: "registry.example/story/images/fraud:1.0.0"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PACTO_NO_CACHE, PACTO_INSECURE_REGISTRIES, PACTO_NO_UPDATE_CHECK, PACTO_DELIVERY_TRUST, NO_COLOR, PACTO_UPDATE_PACTIFY_PLAN]
+cacheability: hermetic

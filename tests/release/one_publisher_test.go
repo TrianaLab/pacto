@@ -157,8 +157,10 @@ func joinContinuations(text string) []string {
 // publishes reports whether a workflow references a coordinate in a
 // publish-capable (non-read-only) way.
 func publishes(w workflow, coord string) bool {
+	// The coordinate as a whole name: ghcr.io/x/pacto is not ghcr.io/x/pacto-attestations.
+	coordRE := regexp.MustCompile(regexp.QuoteMeta(coord) + `(?:[^A-Za-z0-9_.-]|$)`)
 	for _, line := range joinContinuations(w.text) {
-		if !strings.Contains(line, coord) {
+		if !coordRE.MatchString(line) {
 			continue
 		}
 		if readVerbRE.MatchString(line) && !strings.Contains(strings.ToLower(line), "push") {

@@ -1,0 +1,28 @@
+# Level 4, cluster-free: the guided tour's beats (examples/demo/beats.sh)
+# against the demo bundles, asserting what each beat prints.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-demo-arc
+runner:
+  command: ["bash", "tests/acceptance/local/demo-arc.sh"]
+scope:
+  source:
+    - "tests/acceptance/local/demo-arc.sh"
+    - "examples/demo/beats.sh"
+    - "examples/demo/bundles/**"
+    - "examples/demo/pacto-dashboard/**"
+    - "examples/demo/publishbundles/**"
+    - "examples/demo/fleet-targets.yaml"
+    - "examples/demo/traces.json"
+  contracts:
+    - "aval.cli-build.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG]
+cacheability: hermetic

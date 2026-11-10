@@ -1,5 +1,5 @@
 # Build stage — uses Go's native cross-compilation (no QEMU needed)
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23@sha256:5d5113301ffcac84e2bfb20c42648803fecaea6789c89bb9b66884e18cbb30a7 AS build
 
 ARG TARGETARCH
 
@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOARCH=${TARGETARCH} go build \
     -o /pacto ./cmd/pacto
 
 # Runtime stage
-FROM alpine:3.22
+FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
 
 # `apk add` never touches packages the base image already ships, so an openssl
 # CVE fixed in the branch repo (libssl3/libcrypto3 3.5.7-r0 -> 3.5.8-r0) stays in

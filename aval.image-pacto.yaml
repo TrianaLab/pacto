@@ -1,0 +1,24 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# The dashboard/runtime image the root Dockerfile builds: COPY . . then
+# `go build ./cmd/pacto`, so its content is the CLI build closure.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-image-pacto
+runner:
+  command: ["docker", "build", "."]
+scope:
+  source:
+    - "Dockerfile"
+    - ".dockerignore"
+  contracts:
+    - "aval.cli-build.yaml"
+  allowMutable:
+    - file: "Dockerfile"
+      ref: "ca-certificates"
+      reason: "Alpine's CA bundle and tzdata from the digest-pinned 3.22 base's branch, upgraded on purpose so the image carries security fixes; no suite asserts on their content"
+    - file: "Dockerfile"
+      ref: "tzdata"
+      reason: "Alpine's CA bundle and tzdata from the digest-pinned 3.22 base's branch, upgraded on purpose so the image carries security fixes; no suite asserts on their content"
+cacheability: controlled-environment

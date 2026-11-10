@@ -1,0 +1,26 @@
+# Level 2: the CLI in process against an in-process OCI registry and a real
+# plugin binary (tests/integration). It builds cmd/pacto and testplugin and
+# reads the demo bundles, fleet targets and traces.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-integration
+runner:
+  command: ["go", "test", "-tags", "integration", "./tests/integration/", "-v", "-count=1", "-parallel", "16", "-timeout", "120s"]
+scope:
+  source:
+    - "tests/integration/**"
+    - "examples/demo/bundles/**"
+    - "examples/demo/fleet-targets.yaml"
+    - "examples/demo/traces.json"
+  contracts:
+    - "aval.cli-build.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PACTO_NO_CACHE, PACTO_INSECURE_REGISTRIES, PACTO_NO_UPDATE_CHECK, PACTO_DELIVERY_TRUST, NO_COLOR]
+cacheability: hermetic

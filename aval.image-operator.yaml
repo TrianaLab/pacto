@@ -1,0 +1,17 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# The operator and delivery images integrations/kubernetes/Dockerfile builds
+# from the repository root context.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-image-operator
+runner:
+  command: ["docker", "build", "-f", "integrations/kubernetes/Dockerfile", "."]
+scope:
+  source:
+    - "integrations/kubernetes/Dockerfile"
+    - ".dockerignore"
+  contracts:
+    - "aval.operator-build.yaml"
+cacheability: controlled-environment

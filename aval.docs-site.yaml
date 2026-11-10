@@ -1,0 +1,49 @@
+# Level 6 for the documentation site: `mkdocs build --strict` with the real
+# config (mkdocs.test.yml inherits mkdocs.yml), served locally and driven in
+# Chromium. The build reads docs/, the theme overrides, the hooks and what they
+# assemble (integration docs, changelogs), and every --8<-- snippet. The Python
+# packages come from docs/requirements.txt, which pins only the top level, so
+# the transitive ones float: external-dependencies.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-docs-site
+runner:
+  command: ["bash", "-c", "cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --no-audit --no-fund --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run test:e2e:install && npm run test:e2e -- -c playwright.docs-site.config.ts"]
+scope:
+  source:
+    - "mkdocs.yml"
+    - "mkdocs.test.yml"
+    - "docs/**"
+    - "overrides/**"
+    - "MANIFEST.md"
+    - "release/scripts/mkdocs_integration_hook.py"
+    - "release/scripts/mkdocs_mermaid_hook.py"
+    - "release/scripts/mkdocs_livereload_csp_hook.py"
+    - "release/units/*/CHANGELOG.md"
+    - "release/units/*/package.json"
+    - "integrations/kubernetes/integration.yaml"
+    - "integrations/kubernetes/docs/**"
+    - "examples/demo/generated/**"
+    - "tests/acceptance/kind/fixtures/gitops/**"
+    - "pkg/dashboard/frontend/e2e-docs-site/**"
+    - "pkg/dashboard/frontend/e2e/serve.py"
+    - "pkg/dashboard/frontend/playwright.docs-site.config.ts"
+  exclude:
+    - "docs/superpowers/**"
+    - "docs/demo/**"
+  dependencies:
+    - "pkg/dashboard/frontend/package.json"
+    - "pkg/dashboard/frontend/package-lock.json"
+    - "docs/requirements.txt"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    node: "22.23.4"
+    python: "3.12"
+  probe:
+    platform: ["uname", "-sm"]
+    node: ["node", "--version"]
+    python: ["python3", "--version"]
+  env: [NODE_OPTIONS]
+cacheability: external-dependencies

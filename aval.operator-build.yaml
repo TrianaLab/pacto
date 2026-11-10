@@ -1,0 +1,48 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# The non-test build closure of the operator module's binaries (manager and
+# delivery): its api, cmd and internal packages and the core packages they
+# import (go list -deps -tags kms ./integrations/kubernetes/cmd/...).
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-operator-build
+runner:
+  command: ["go", "build", "-tags", "kms", "./integrations/kubernetes/cmd/..."]
+scope:
+  source:
+    - "integrations/kubernetes/api/**"
+    - "integrations/kubernetes/cmd/**"
+    - "integrations/kubernetes/internal/**"
+    - "pkg/capability/**"
+    - "pkg/catalog/**"
+    - "pkg/contract/**"
+    - "pkg/delivery/**"
+    - "pkg/deliveryrecord/**"
+    - "pkg/diff/**"
+    - "pkg/evidence/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/impact/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/ocireferrer/**"
+    - "pkg/openapi/**"
+    - "pkg/probe/**"
+    - "pkg/readiness/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/signing/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+  exclude:
+    - "**/*_test.go"
+    - "**/testdata/**"
+  contracts:
+    - "aval.go-modules.yaml"
+cacheability: hermetic

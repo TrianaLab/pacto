@@ -12,7 +12,9 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
-  forbidOnly: !!process.env.CI,
+  // Always: a stray .only must fail here too, or a local run that skipped most of
+  // the suite would pass and could be reused for CI (see the aval contracts).
+  forbidOnly: true,
   // No retries, here or in CI: these journeys assert facts the live fixture has
   // already been proven to hold (tests/acceptance/kind/productready gates on them), so a
   // second attempt could only ever paper over a race in the product or in the test.

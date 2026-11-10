@@ -1,0 +1,64 @@
+# Level 2: the operator's Pacto 2.0 acceptance matrix against envtest (a real
+# API server, no cluster), without the code generators test-e2e runs first.
+# Inputs: the test, the controllers and core packages it imports (go list -deps
+# -test -tags e2e ./test/e2e/...), the CRDs it installs, and the envtest pins.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-k8s-envtest
+runner:
+  command: ["make", "-C", "integrations/kubernetes", "ci-test-e2e"]
+scope:
+  source:
+    - "integrations/kubernetes/api/v1alpha1/**"
+    - "integrations/kubernetes/test/e2e/**"
+    - "integrations/kubernetes/config/crd/bases/**"
+    - "integrations/kubernetes/internal/component/**"
+    - "integrations/kubernetes/internal/controller/**"
+    - "integrations/kubernetes/internal/credentials/**"
+    - "integrations/kubernetes/internal/loader/**"
+    - "integrations/kubernetes/internal/metrics/**"
+    - "integrations/kubernetes/internal/nodeagent/**"
+    - "integrations/kubernetes/internal/observer/**"
+    - "pkg/capability/**"
+    - "pkg/contract/**"
+    - "pkg/evidence/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/openapi/**"
+    - "pkg/probe/**"
+    - "pkg/readiness/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+    - "integrations/kubernetes/Makefile"
+    - "integrations/kubernetes/ci.mk"
+  exclude:
+    - "integrations/kubernetes/api/**/*_test.go"
+    - "integrations/kubernetes/internal/**/*_test.go"
+    - "integrations/kubernetes/internal/**/testdata/**"
+    - "pkg/**/*_test.go"
+    - "pkg/**/testdata/**"
+  contracts:
+    - "aval.go-modules.yaml"
+  allowMutable:
+    - file: "integrations/kubernetes/Makefile"
+      ref: "charts/pacto-operator"
+      reason: "a developer target of the operator Makefile (`helm install/upgrade` of the in-tree chart) this suite never runs"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, ENVTEST_K8S_VERSION, ENVTEST_VERSION]
+cacheability: controlled-environment

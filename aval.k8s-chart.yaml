@@ -1,0 +1,52 @@
+# The chart's tests: lint, render matrix, the default-render golden,
+# helm-unittest (a sha256-checked download) and the values schema. The drift
+# checks of ci-chart stay outside aval. check-jsonschema is whatever pip installs
+# when it is missing, so this is external-dependencies.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-k8s-chart
+runner:
+  command: ["make", "-C", "integrations/kubernetes", "ci-chart-test"]
+scope:
+  source:
+    - "integrations/kubernetes/charts/**"
+    - "integrations/kubernetes/Makefile"
+    - "integrations/kubernetes/ci.mk"
+  allowMutable:
+    - file: "integrations/kubernetes/Makefile"
+      ref: "charts/pacto-operator"
+      reason: "a developer target of the operator Makefile (`helm install/upgrade` of the in-tree chart) this suite never runs"
+    - file: "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+      ref: "ghcr.io/trianalab/pacto/operator:6.4.1"
+      reason: "Artifact Hub's images annotation: chart metadata, never pulled"
+    - file: "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+      ref: "ghcr.io/trianalab/pacto/delivery:6.4.1"
+      reason: "Artifact Hub's images annotation: chart metadata, never pulled"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/_helpers.tpl"
+      ref: "{{ $ref | quote }}"
+      reason: "the chart's image helper; every kind scenario sets each image it renders to one built from this tree and loaded into the node, or to a digest-pinned reference in its script"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/admission.yaml"
+      ref: "(request.userInfo.username == '{{ $controller }}' ? variables.stepsDown "
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/admission.yaml"
+      ref: "!= 'RecordStoreReady')"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/recorder.yaml"
+      ref: "{{ .key }}"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/dex-credentials.yaml"
+      ref: "{{ $key }}"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/tests/golden/default.yaml"
+      ref: "ghcr.io/trianalab/pacto/operator:VERSION"
+      reason: "a helm-unittest/golden fixture the chart tests compare against; never pulled"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    helm: "4.3.1"
+  probe:
+    platform: ["uname", "-sm"]
+    helm: ["helm", "version", "--short"]
+  env: [HELM_UNITTEST_VERSION]
+cacheability: external-dependencies

@@ -77,6 +77,10 @@ func toolCallRE(tool string) *regexp.Regexp {
 // shScriptRE finds, by basename, the shell scripts a command line runs.
 var shScriptRE = regexp.MustCompile(`([A-Za-z0-9_.-]+)\.sh\b`)
 
+// urlRE drops URLs before scripts are matched: a downloaded upstream install.sh
+// is not the repository's script of the same name.
+var urlRE = regexp.MustCompile(`https?://\S+`)
+
 // gateScripts is every shell script a workflow job can reach, basename -> path.
 func gateScripts(t *testing.T, root string) map[string]string {
 	t.Helper()
@@ -86,6 +90,9 @@ func gateScripts(t *testing.T, root string) map[string]string {
 		{"release", "scripts", "*.sh"},
 		{"tests", "acceptance", "kind", "*.sh"},
 		{"tests", "acceptance", "local", "*.sh"},
+		// run.sh runs every suite and installs aval through install.sh, which
+		// verifies the release with cosign.
+		{".github", "aval", "*.sh"},
 	} {
 		matches, err := filepath.Glob(filepath.Join(append([]string{root}, pat...)...))
 		if err != nil {
@@ -111,7 +118,7 @@ func toolsIn(text string) (tools, scripts map[string]bool) {
 				tools[tool] = true
 			}
 		}
-		for _, m := range shScriptRE.FindAllStringSubmatch(l, -1) {
+		for _, m := range shScriptRE.FindAllStringSubmatch(urlRE.ReplaceAllString(l, ""), -1) {
 			scripts[m[1]+".sh"] = true
 		}
 	}

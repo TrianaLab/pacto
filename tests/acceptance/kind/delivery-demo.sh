@@ -193,7 +193,7 @@ node_pulls_from_registry() {
 }
 
 idp_start() {
-  cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
+  cp "$IDP_FIXTURES/dex.yaml" "$IDP_SHARED/pacto-realm.json" "$IDP_DIR/"
   chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
   in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$(local_ref "$DEX_IMG")" dex serve /etc/dex/dex.yaml
   in_node pacto-e2e-keycloak -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
@@ -793,6 +793,10 @@ story_pactify() {
   local dir="$WORK/fraud"
   rm -rf "$dir"; cp -R "$STORY/plain/fraud" "$dir"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/k8s/deployment.yaml"
+  # buildx pulls the base itself during publish: give it the digest-pinned one, so
+  # the image under test cannot change behind an unchanged checkout.
+  PIN="$PYTHON_IMG" perl -pi -e 's#^FROM python:3\.13-alpine$#FROM $ENV{PIN}#' "$dir/Dockerfile"
+  grep -qx "FROM $PYTHON_IMG" "$dir/Dockerfile" || fail "the fraud Dockerfile no longer starts FROM python:3.13-alpine: update the pin above"
   # A throwaway key stays out of the public transparency log, and the demo's
   # registry speaks plain HTTP: both are init flags.
   echo "  \$ pacto init --delivery --owner risk --no-transparency-log --insecure-registry"
@@ -981,15 +985,15 @@ journeys() {
   local change=""
   [ ! -s "$DEMO/digests/payments-3.0.0" ] || change="$(prod_op 3.0.0)"
   ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_CHANGE="$change" PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
-    timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
+    timeout 600 ./node_modules/.bin/playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
     || fail "the dashboard journeys failed: $1"
 }
 # browser_ready — Chromium for the journeys, installed once per run.
 browser_ready() {
   [ -z "${BROWSER_READY:-}" ] || return 0
   ( cd "$ROOT/pkg/dashboard/frontend" \
-    && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \
-    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
+    && npm ci --ignore-scripts >/dev/null 2>&1 \
+    && timeout 300 ./node_modules/.bin/playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
     || fail "could not install the browser for the dashboard journeys"
   BROWSER_READY=1
 }

@@ -1,0 +1,30 @@
+# The node agent's kernel test: loads and attaches the real eBPF program in a
+# privileged container (make test-ebpf-container). It depends on the host
+# kernel (BTF, cgroup v2), which is not in the fingerprint, and skips without
+# cgroup v2: external-dependencies.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-ebpf
+runner:
+  command: ["make", "test-ebpf-container"]
+scope:
+  source:
+    - "Makefile"
+    - "ci.mk"
+    - "internal/runtimewatch/*.go"
+    - "internal/runtimewatch/ebpf/**"
+    - "pkg/evidence/**"
+    - "pkg/logging/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/strictjson/**"
+  contracts:
+    - "aval.go-modules.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    docker-platform: "linux/amd64"
+  probe:
+    platform: ["uname", "-sm"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+cacheability: external-dependencies

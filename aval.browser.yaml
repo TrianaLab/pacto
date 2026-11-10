@@ -1,0 +1,87 @@
+# Level 6: the WASM dashboard demo built from this tree (examples/demo build:
+# the frontend, the engine compiled to wasm, the bundles it embeds), the offline
+# `pacto doc` export, the engine smoke in Node, then the Playwright suite in
+# Chromium over that fixed data. Chromium is the build @playwright/test in the
+# lockfile pins; the static server is python3.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-browser
+runner:
+  command: ["make", "-C", "examples/demo", "build", "doc-export", "smoke", "e2e"]
+scope:
+  source:
+    - "examples/demo/*"
+    - "examples/demo/bundles/**"
+    - "examples/demo/partners/**"
+    - "examples/story/*"
+    - "examples/story/contracts/**"
+    - "examples/story/plain/**"
+    - "pkg/dashboard/frontend/src/**"
+    - "pkg/dashboard/frontend/e2e/**"
+    - "pkg/dashboard/frontend/public/**"
+    - "pkg/dashboard/frontend/index.html"
+    - "pkg/dashboard/frontend/svelte.config.js"
+    - "pkg/dashboard/frontend/tsconfig.json"
+    - "pkg/dashboard/frontend/vite.config.js"
+    - "pkg/dashboard/frontend/playwright.config.ts"
+  exclude:
+    - "examples/demo/*_test.go"
+    - "examples/demo/demo"
+    - "examples/story/*_test.go"
+  dependencies:
+    - "pkg/dashboard/frontend/package.json"
+    - "pkg/dashboard/frontend/package-lock.json"
+  contracts:
+    - "aval.cli-build.yaml"
+  allowMutable:
+    - file: "examples/story/contracts/checkout/1.8.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/checkout/1.9.0/deploy/checkout.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/orders/1.4.0/deploy/orders.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.0.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/pay-agent/1.1.0/deploy/pay-agent.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.3.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.1/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.2/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/2.4.3/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/contracts/payments/3.0.0/deploy/payments.yaml"
+      ref: "ghcr.io/stefanprodan/podinfo:6.7.1"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/Dockerfile"
+      ref: "python:3.13-alpine"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "examples/story/plain/fraud/k8s/deployment.yaml"
+      ref: "registry.example/story/images/fraud:1.0.0"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    node: "22.23.4"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    node: ["node", "--version"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PW_PORT, PW_DOC_PORT, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
+cacheability: controlled-environment

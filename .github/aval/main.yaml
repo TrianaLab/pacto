@@ -1,0 +1,36 @@
+# Pacto's Aval trust policy for main: reuse only results signed keyless by
+# Pacto's own CI workflow (.github/workflows/ci.yml, job aval-publish), at
+# runner level, on main or on a same-repository pull request. The second
+# identity lets main reuse what a pull request's CI already proved: after a
+# squash merge of an up-to-date branch, main has the same inputs, so the same
+# fingerprint. tests/architecture/aval_test.go enforces this.
+#
+# Trust condition: a pull request runs its own ci.yml, so whoever can push a
+# branch to TrianaLab/pacto can make that workflow sign any statement as
+# ci.yml@refs/pull/<n>/merge. Fork pull requests get no OIDC token, and
+# aval-publish signs only same-repository pull requests that are
+# maintainer-authored and maintainer-triggered (author, actor and triggering
+# actor are edu-diaz); anyone can open a pull request from an existing branch,
+# so where the head lives is not enough. The only workflow_run push to a
+# branch here (ui-rebuild-commit.yml) is bound to Dependabot's own pull
+# request. This is sound only while every account with push access is a
+# maintainer (today only edu-diaz). Revisit before granting push access to
+# anyone else: drop the pull request identity first.
+apiVersion: aval.trianalab.io/v1
+kind: Policy
+minTrustLevel: runner
+identities:
+  - issuer: https://token.actions.githubusercontent.com
+    subjectRegexp: ^https://github\.com/TrianaLab/pacto/\.github/workflows/ci\.yml@refs/heads/main$
+    trustLevel: runner
+  - issuer: https://token.actions.githubusercontent.com
+    subjectRegexp: ^https://github\.com/TrianaLab/pacto/\.github/workflows/ci\.yml@refs/pull/[0-9]+/merge$
+    trustLevel: runner
+  # Maintainers, listed only so main knows them: at developer level, below
+  # minTrustLevel, so a result they signed is never reused here. A fingerprint
+  # with only such a result is a miss (the suite runs and CI publishes its own
+  # result), not a verification failure; an unlisted signer still is one.
+  # Keep in sync with pr.yaml.
+  - issuer: https://github.com/login/oauth
+    subjectRegexp: edudiazasencio@gmail\.com
+    trustLevel: developer

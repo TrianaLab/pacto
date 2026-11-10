@@ -1,6 +1,7 @@
 package release
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,7 +134,42 @@ func makeDryRun(t *testing.T, root, target string) string {
 	if err != nil {
 		t.Fatalf("make -n -B %s: %v\n%s", target, err, out)
 	}
-	return string(out)
+	return withAvalSuites(t, root, string(out))
+}
+
+// avalSuite matches a recipe line that runs a suite through aval.
+var avalSuite = regexp.MustCompile(`bash \.github/aval/run\.sh ([a-z0-9.-]+)`)
+
+// withAvalSuites appends, for every suite a dry run hands to .github/aval/run.sh,
+// the command that runs it: runner.command of aval.<suite>.yaml. make cannot see
+// past run.sh, and the suite's own steps (an npm ci, say) live in that command.
+func withAvalSuites(t *testing.T, root, dryRun string) string {
+	t.Helper()
+	for _, m := range avalSuite.FindAllStringSubmatch(dryRun, -1) {
+		dryRun += "\n" + avalSuiteCommand(t, root, m[1])
+	}
+	return dryRun
+}
+
+// avalSuiteCommand is runner.command of aval.<suite>.yaml at the repository
+// root, joined by spaces: the command .github/aval/run.sh runs for suite.
+func avalSuiteCommand(t *testing.T, root, suite string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "aval."+suite+".yaml")) //nolint:gosec // a contract at the repository root
+	if err != nil {
+		t.Fatalf("suite %s: %v", suite, err)
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if list, ok := strings.CutPrefix(line, "  command: "); ok {
+			var argv []string
+			if err := json.Unmarshal([]byte(list), &argv); err != nil {
+				t.Fatalf("aval.%s.yaml: runner.command is not a one-line list of strings: %v", suite, err)
+			}
+			return strings.Join(argv, " ")
+		}
+	}
+	t.Fatalf("aval.%s.yaml has no one-line runner.command", suite)
+	return ""
 }
 
 func TestEveryDocsEntryPointInstallsTheDiagramRuntime(t *testing.T) {

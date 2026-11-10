@@ -92,10 +92,13 @@ func kindMatrixScenarios(t *testing.T) []string {
 // executes. A script is only a gate if something invokes it: ci.mk needs a target
 // whose recipe runs it, and that target's name has to appear in the ci-e2e-kind
 // matrix (or a job of its own has to run `make test-acceptance-kind-<target>`,
-// as the sharded delivery job does). Miss either half and the pipeline stays green with one fewer thing
+// or one target per shard, `make test-acceptance-kind-<target>-<shard>`, as the
+// sharded delivery and demo jobs do). Miss either half and the pipeline stays green with one fewer thing
 // proved — and nothing in the repository looks wrong, which is the whole problem.
+// A recipe that runs its suite through aval (`$(AVAL_RUN) <suite>`) runs the
+// contract's runner.command, so the calls are read as that command.
 func TestEveryKindScenarioRuns(t *testing.T) {
-	mk := readRepoFile(t, "ci.mk")
+	mk := expandAvalRuns(t, readRepoFile(t, "ci.mk"))
 	// Comment lines dropped: a commented-out `make` line runs nothing.
 	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
 	// The heavy Kubernetes demo runs nightly, in its own workflow, as e2e-<target>.
@@ -123,8 +126,11 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
 			continue
 		}
+		// A sharded suite runs as one target per shard, the shard taken from the
+		// job's matrix (aval_test.go checks each expands to a contract).
+		sharded := "make " + prefix + target + "-${{ matrix."
 		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") &&
-			!strings.Contains(nightly, "make e2e-"+target+"\n") {
+			!strings.Contains(wf, sharded) && !strings.Contains(nightly, sharded) {
 			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}

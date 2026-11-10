@@ -9,6 +9,14 @@ name: Rebuild dashboard UI (commit)
 # pkg/dashboard/ui, and push. There is no `actions/checkout` of the PR head and
 # no build/test step, so the "untrusted checkout in a privileged context" sink
 # does not exist here.
+#
+# A fork pull request can edit ui-rebuild.yml (pull_request runs the merge
+# commit's copy), and its run still completes as "Rebuild dashboard UI" with an
+# artifact of its choosing. So this job runs only for a run Dependabot started
+# on a branch of this repository, and pushes only to a Dependabot pull request
+# whose head is still the commit that run built. A same-repository branch is
+# trusted by main's Aval policy (.github/aval/main.yaml); nothing else may put
+# content there. tests/architecture/aval_test.go pins these checks.
 
 on:
   workflow_run:
@@ -20,7 +28,7 @@ permissions:
 
 jobs:
   commit:
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download the rebuilt UI artifact
@@ -38,15 +46,19 @@ jobs:
         if: steps.dl.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           num=$(cat _ui_artifact/pr-number)
-          head_repo=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq '.head.repo.full_name')
-          head_ref=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq '.head.ref')
-          # Same-repo (Dependabot) branches only — never push to a fork.
-          if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
-            echo "PR head is a fork ($head_repo); skipping."
+          [[ "$num" =~ ^[0-9]+$ ]] || { echo "pr-number is not a number; skipping."; exit 0; }
+          read -r head_repo head_ref head_sha author < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" \
+            --jq '[.head.repo.full_name, .head.ref, .head.sha, .user.login] | @tsv')
+          # Same-repo Dependabot branches only, never a fork, and only the
+          # commit the rebuild ran on: the artifact names the PR, so bind it.
+          if [ "$head_repo" != "$GITHUB_REPOSITORY" ] || [ "$author" != "dependabot[bot]" ] || [ "$head_sha" != "$RUN_HEAD_SHA" ]; then
+            echo "PR #$num is not this run's same-repo Dependabot head ($head_repo, $author, $head_sha); skipping."
             exit 0
           fi
+          echo "sha=$head_sha" >> "$GITHUB_OUTPUT"
           echo "ref=$head_ref" >> "$GITHUB_OUTPUT"
 
       - name: Commit the rebuilt UI to the PR branch
@@ -57,6 +69,7 @@ jobs:
           # for full automation.
           GH_TOKEN: ${{ secrets.UI_REBUILD_TOKEN || secrets.GITHUB_TOKEN }}
           HEAD_REF: ${{ steps.pr.outputs.ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
         run: |
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           # Fetch only the branch tip as data; we run none of its code.
@@ -64,6 +77,10 @@ jobs:
           cd repo
           git remote add origin "$remote"
           git -c protocol.version=2 fetch -q --depth=1 origin "$HEAD_REF"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+            echo "${HEAD_REF} moved past the rebuilt commit; skipping."
+            exit 0
+          fi
           git checkout -q FETCH_HEAD
           rm -rf pkg/dashboard/ui
           tar -C pkg/dashboard -xf ../_ui_artifact/ui.tar

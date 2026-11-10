@@ -41,7 +41,7 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: pactify-plan build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
+.PHONY: pactify-plan build preflight ui wasm wasmexec inject doc-export serve test validate smoke e2e clean diff breaking-change evolution graph explain
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -68,7 +68,7 @@ preflight:
 ## pkg/dashboard/ui (the committed base-/ build used by the real server).
 ui:
 	@rm -rf $(DIST) $(UI_BUILD) && mkdir -p $(DIST)
-	cd $(FRONTEND) && npm ci --no-audit --no-fund && npx vite build --base=$(BASE) --emptyOutDir --outDir $(UI_BUILD)
+	cd $(FRONTEND) && npm ci --no-audit --no-fund && ./node_modules/.bin/vite build --base=$(BASE) --emptyOutDir --outDir $(UI_BUILD)
 	@cp -r $(UI_BUILD)/. $(DIST)/
 	@echo "==> Built UI (base $(BASE))"
 
@@ -159,6 +159,13 @@ validate:
 ## Exercise the built wasm engine end-to-end in Node (needs `make build` first).
 smoke:
 	node smoke.mjs
+
+## The dashboard's Playwright suite against the built demo and the doc export
+## (run build and doc-export first; the root test-browser target runs all four).
+## Installs the frontend's locked dependencies and the Chromium its locked
+## @playwright/test pins.
+e2e:
+	cd $(FRONTEND) && npm ci --ignore-scripts --no-audit --no-fund && npm run test:e2e:install && npm run test:e2e
 
 ## Preview locally under the same base path the site is deployed at.
 serve:

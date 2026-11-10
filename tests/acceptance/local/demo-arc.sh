@@ -40,6 +40,11 @@ assert_contains() {
 
 echo "== build pacto =="
 go build -o "$BIN" "$ROOT/cmd/pacto"
+# The CLI under test gets its own cache and config, so a developer's ~/.cache/pacto
+# or ~/.config/pacto cannot decide the outcome: a local run can be signed and
+# reused for CI (aval.*.yaml). GOCACHE stays where it was for the go runs below.
+export GOCACHE="$(go env GOCACHE)"
+export XDG_CACHE_HOME="$WORK/cache" XDG_CONFIG_HOME="$WORK/config" PACTO_CONFIG="$WORK/no-config.yaml" PACTO_NO_UPDATE_CHECK=1
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"

@@ -1,0 +1,61 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# What every kind scenario shares besides the images: the harness library and
+# its Go helpers, the scenario fixture, the chart as `helm package` ships it
+# (its tests, README and quickstart values are not installed), and the release
+# files lib.sh's release_version reads for the version it stamps.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-kind-harness
+runner:
+  command: ["helm", "lint", "integrations/kubernetes/charts/pacto-operator"]
+scope:
+  source:
+    - "tests/acceptance/kind/lib.sh"
+    - "tests/acceptance/kind/conformancecheck/**"
+    - "tests/acceptance/kind/kindload/**"
+    - "tests/acceptance/kind/obscheck/**"
+    - "tests/acceptance/kind/oidclogin/**"
+    - "tests/acceptance/kind/productready/**"
+    - "tests/acceptance/kind/storybeats/**"
+    - "tests/acceptance/scenario/**"
+    - "release/scripts/retry.sh"
+    - "release/scripts/build-release-plan.mjs"
+    - "release/orchestrator/canonical.mjs"
+    - "release/release-manifest.json"
+    - "release/units/*/package.json"
+    - "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+    - "integrations/kubernetes/charts/pacto-operator/Chart.lock"
+    - "integrations/kubernetes/charts/pacto-operator/values.yaml"
+    - "integrations/kubernetes/charts/pacto-operator/values.schema.json"
+    - "integrations/kubernetes/charts/pacto-operator/.helmignore"
+    - "integrations/kubernetes/charts/pacto-operator/templates/**"
+    - "integrations/kubernetes/charts/pacto-operator/files/**"
+    - "integrations/kubernetes/charts/pacto-operator/charts/**"
+  allowMutable:
+    - file: "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+      ref: "ghcr.io/trianalab/pacto/operator:6.4.1"
+      reason: "Artifact Hub's images annotation: chart metadata, never pulled"
+    - file: "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+      ref: "ghcr.io/trianalab/pacto/delivery:6.4.1"
+      reason: "Artifact Hub's images annotation: chart metadata, never pulled"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/_helpers.tpl"
+      ref: "{{ $ref | quote }}"
+      reason: "the chart's image helper; every kind scenario sets each image it renders to one built from this tree and loaded into the node, or to a digest-pinned reference in its script"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/admission.yaml"
+      ref: "(request.userInfo.username == '{{ $controller }}' ? variables.stepsDown "
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/admission.yaml"
+      ref: "!= 'RecordStoreReady')"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/delivery/recorder.yaml"
+      ref: "{{ .key }}"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "integrations/kubernetes/charts/pacto-operator/templates/dex-credentials.yaml"
+      ref: "{{ $key }}"
+      reason: "not an image: a key the template writes (a CEL expression or a templated map key)"
+    - file: "tests/acceptance/kind/lib.sh"
+      ref: "$@"
+      reason: "`go run` of a package in this repository, not a module download: the scanner reads the shell arguments as a version"
+cacheability: controlled-environment

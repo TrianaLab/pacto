@@ -67,6 +67,9 @@ ART_REPO="${ART_HOST}/${ART_PATH}"
 IMAGE_REPO="${ART_HOST}/pacto/dashboard"
 REG_NAME="pacto-demo-acceptance-registry-$RUN_ID"
 NETFILTER_IMAGE="pacto-demo-netfilter:$RUN_ID"
+# The harness's own registry containers (the artifact store, the self-test decoys),
+# pinned by digest like every image a test pulls (the same pin as ci.yml's service).
+HARNESS_REGISTRY="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 # Empty means "whatever pin the artifact ships with" — the projection's own
 # default, which is the reference a released demo actually runs.
 REGISTRY_IMAGE="${PACTO_DEMO_REGISTRY_IMAGE:-}"
@@ -301,7 +304,7 @@ claim_projects() {
 # the layer cache makes rebuilding it free.
 build_netfilter_image() {
 	refuse_existing image "$NETFILTER_IMAGE" docker image inspect "$NETFILTER_IMAGE"
-	printf 'FROM alpine:3\nRUN apk add --no-cache iptables iproute2 util-linux\n' |
+	printf 'FROM alpine:3@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf\nRUN apk add --no-cache iptables iproute2 util-linux\n' |
 		docker build -q -t "$NETFILTER_IMAGE" - >/dev/null
 	OWNED_IMAGE="$NETFILTER_IMAGE"
 }
@@ -624,7 +627,7 @@ sentinel_project() {
 		--label com.docker.compose.oneoff=False \
 		--label com.docker.compose.config-hash=sentinel \
 		--network "${1}_default" \
-		-v "${1}_sentinel-data:/var/lib/registry" registry:2 >/dev/null
+		-v "${1}_sentinel-data:/var/lib/registry" "$HARNESS_REGISTRY" >/dev/null
 	# Which labels Compose reads is Compose's business and it can change them. So
 	# ask it: a sentinel Compose cannot see is one `down -v` would not have taken
 	# either, and a test that plants one proves nothing without saying so.
@@ -707,7 +710,7 @@ refuses_network_only() {
 own_and_exit() {
 	local reg
 	build_netfilter_image
-	run_owned "$REG_NAME" registry:2
+	run_owned "$REG_NAME" "$HARNESS_REGISTRY"
 	reg="$OWNED_ID"
 	wire_forwarded_route
 	echo "OWNED image=$NETFILTER_IMAGE container=$reg veth=$OWNED_VETH"
@@ -717,7 +720,7 @@ own_and_exit() {
 	# the id in its failure, because the trap is about to be the only one who knows
 	# there is a container at all.
 	[ -z "${PACTO_SELFTEST_STUCK:-}" ] ||
-		run_owned "pacto-demo-stuck-$RUN_ID" --entrypoint /pacto-no-such-entrypoint registry:2
+		run_owned "pacto-demo-stuck-$RUN_ID" --entrypoint /pacto-no-such-entrypoint "$HARNESS_REGISTRY"
 	[ -z "${PACTO_SELFTEST_DIE:-}" ] || fail "induced failure, with everything this invocation created still installed"
 }
 
@@ -790,7 +793,7 @@ run_selftest() {
 	sb="$(proj_state "$PROJ_BYSTANDER")"
 
 	build_netfilter_image
-	run_owned "$REG_NAME" registry:2
+	run_owned "$REG_NAME" "$HARNESS_REGISTRY"
 	reg="$OWNED_ID"
 
 	echo "== S1. a pre-existing interface with this run's candidate name survives =="
@@ -800,9 +803,9 @@ run_selftest() {
 	pass "S1/S4: $VETH_HOST was refused, not deleted, and no filter was touched"
 
 	echo "== S2. a pre-existing endpoint container with this run's name survives =="
-	docker create --name "$HL_NAME" registry:2 >/dev/null
+	docker create --name "$HL_NAME" "$HARNESS_REGISTRY" >/dev/null
 	id="$(docker container inspect -f '{{.Id}}' "$HL_NAME")"
-	refuses_to_touch "the host-local endpoint" run_owned "$HL_NAME" --net host registry:2
+	refuses_to_touch "the host-local endpoint" run_owned "$HL_NAME" --net host "$HARNESS_REGISTRY"
 	[ "$(docker container inspect -f '{{.Id}}' "$HL_NAME")" = "$id" ] ||
 		fail "the sentinel container $HL_NAME was replaced"
 	[ "$(docker container inspect -f '{{.State.Running}}' "$HL_NAME")" = false ] ||
@@ -847,7 +850,7 @@ run_selftest() {
 	# could leave behind to poison the next one, and this run did create it.
 	decoy="pacto-demo-hostlocal-endpoint-000000"
 	refuse_existing container "$decoy" docker container inspect "$decoy"
-	OWNED_CONTAINERS="$OWNED_CONTAINERS $(docker create --name "$decoy" registry:2)"
+	OWNED_CONTAINERS="$OWNED_CONTAINERS $(docker create --name "$decoy" "$HARNESS_REGISTRY")"
 
 	echo "== S5. a run that succeeds gives everything back =="
 	own_and_clean "S5" 0
@@ -867,9 +870,9 @@ run_selftest() {
 	# next caller's for the asking. Whoever takes it is a stranger that a cleanup
 	# list of names would delete. This is the production cleanup path, called here,
 	# not a copy of it.
-	run_owned "$HL_NAME" registry:2
+	run_owned "$HL_NAME" "$HARNESS_REGISTRY"
 	docker rm -f "$HL_NAME" >/dev/null
-	foreign="$(docker create --name "$HL_NAME" registry:2)"
+	foreign="$(docker create --name "$HL_NAME" "$HARNESS_REGISTRY")"
 	release_owned
 	docker container inspect "$foreign" >/dev/null 2>&1 ||
 		fail "S10: cleanup deleted $foreign, which had done nothing but take the freed name $HL_NAME"
@@ -931,7 +934,7 @@ build_netfilter_image
 # Published on every interface because the boundary stage's controls have to reach
 # it from inside a container as genuinely EXTERNAL endpoints, which loopback is
 # not. It is an empty throwaway registry that exists for the length of this run.
-run_owned "$REG_NAME" -p "$ART_PORT:5000" registry:2
+run_owned "$REG_NAME" -p "$ART_PORT:5000" "$HARNESS_REGISTRY"
 wait_http "http://$ART_HOST/v2/" || fail "the artifact registry did not come up"
 pass "product gate built, artifact registry serving"
 
@@ -1149,9 +1152,9 @@ pass "pacto init --plan shows the checkout contract and changes nothing"
 browser_journeys() { # BASE FIXTURE
 	( cd "$ROOT/pkg/dashboard/frontend" &&
 		npm ci --ignore-scripts >/dev/null 2>&1 &&
-		npx playwright install --with-deps chromium >/dev/null 2>&1 &&
+		./node_modules/.bin/playwright install --with-deps chromium >/dev/null 2>&1 &&
 		PW_BASE_URL="$1/" PW_FIXTURE="$(cat "$2")" \
-			npx playwright test --config playwright.live.config.ts )
+			./node_modules/.bin/playwright test --config playwright.live.config.ts )
 }
 if [ -n "${RUN_BROWSER:-}" ]; then
 	echo "== live Product journeys against the published demo (Playwright/Chromium) =="
@@ -1245,7 +1248,7 @@ GW="$(docker network inspect "$NET" --format '{{(index .IPAM.Config 0).Gateway}}
 #               gateway. Delivered locally: INPUT, never FORWARD.
 #   forwarded   the artifact registry, addressed over a point-to-point link.
 #               Routed: FORWARD, and therefore DOCKER-USER, never INPUT.
-run_owned "$HL_NAME" --net host -e REGISTRY_HTTP_ADDR="0.0.0.0:$HL_PORT" registry:2
+run_owned "$HL_NAME" --net host -e REGISTRY_HTTP_ADDR="0.0.0.0:$HL_PORT" "$HARNESS_REGISTRY"
 HL_ID="$OWNED_ID"
 for _ in $(seq 1 100); do
 	docker run --rm --net host "$NETFILTER_IMAGE" nc -w 2 -z 127.0.0.1 "$HL_PORT" >/dev/null 2>&1 && break

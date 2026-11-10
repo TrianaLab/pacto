@@ -1,0 +1,28 @@
+# The release gate that checks the operator's go.sum line for the core module
+# against sum.golang.org. It skips on a 404 or offline, and is meant to catch a
+# bad hash on the first run after a release, so it depends on content outside
+# the fingerprint: external-dependencies, never reused on main.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-gates-sumdb
+runner:
+  command: ["go", "test", "./tests/release/", "-run", "^TestOperatorGoSumMatchesThePublishedCoreModule$"]
+scope:
+  source:
+    - "tests/release/**"
+    - "tests/acceptance/scenario/**"
+    - "release/units/pacto-core/package.json"
+  contracts:
+    # The pkg packages tests/release compiles (go list -deps -test); it
+    # includes aval.go-modules.yaml.
+    - "aval.cli-build.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG]
+cacheability: external-dependencies

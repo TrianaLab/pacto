@@ -1,0 +1,20 @@
+# Building block, not run by a make target: suites name it in scope.contracts,
+# so its inputs count in their fingerprints and are listed once.
+# The Go workspace: both modules' go.mod/go.sum and go.work. The workspace's
+# minimum version selection spans both modules, so every Go suite depends on all of it.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-go-modules
+runner:
+  command: ["go", "mod", "verify"]
+scope:
+  source:
+    - "go.work"
+    - "go.mod"
+    - "integrations/kubernetes/go.mod"
+  dependencies:
+    - "go.sum"
+    - "go.work.sum"
+    - "integrations/kubernetes/go.sum"
+cacheability: hermetic

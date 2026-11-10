@@ -1,0 +1,23 @@
+# The release decision (release/orchestrator/detect.mjs) under node --test,
+# against the committed release transaction. Every *.test.mjs in the
+# directory runs (node expands the glob, no shell), and every module there is
+# in scope, so a new test or module is never left out.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-release-detect
+runner:
+  command: ["node", "--test", "release/orchestrator/*.test.mjs"]
+scope:
+  source:
+    - "release/orchestrator/*.mjs"
+    - "release/release-transaction.json"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    node: "22.23.4"
+  probe:
+    platform: ["uname", "-sm"]
+    node: ["node", "--version"]
+  env: [NODE_OPTIONS]
+cacheability: hermetic

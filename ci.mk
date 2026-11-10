@@ -4,6 +4,21 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
+# ── Aval ─────────────────────────────────────────────────────────────
+# Every test suite runs through `$(AVAL_RUN) <suite>` (.github/aval/run.sh):
+# the suite is runner.command in aval.<suite>.yaml at the repository root, and
+# the target that calls it is never that command (no recursion). Under GitHub
+# Actions, or locally with AVAL_REGISTRY set, it goes through `aval run`: a
+# verified passing result for the same inputs is reused, a miss runs the suite,
+# a verification failure fails (exit 5). With neither set it runs the same
+# command directly, with no lookup and no record. AVAL_POLICY names the trust
+# policy; AVAL_PUSH=1 signs and pushes a passing result from a clean worktree.
+# Results, reports and run records land in .aval/ (gitignored).
+AVAL_VERSION := $(shell sed -n 's/^AVAL_VERSION=//p' .github/aval/install.sh)
+AVAL ?= $(CURDIR)/.aval/aval-$(AVAL_VERSION)/aval
+export AVAL
+AVAL_RUN = bash .github/aval/run.sh
+
 # Pinned Repowise CLI version for the advisory ci-arch architecture-health leg.
 REPOWISE_VERSION ?= 0.36.0
 
@@ -15,7 +30,18 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
-       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
+       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts aval-install aval-local
+
+# The pinned aval release, verified (sha256 + Sigstore) before it is installed
+# into .aval/. $(AVAL_RUN) installs it on first use too; CI runs this first.
+aval-install:
+	bash .github/aval/install.sh
+
+# A maintainer's signed local run on any machine with Docker: the suites run in
+# a linux/amd64 container from a clean clone of HEAD, then each passing result
+# is signed keyless on the host (.github/aval/local.sh lists the suites).
+aval-local:
+	bash .github/aval/local.sh $(SUITES)
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
@@ -29,9 +55,12 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # path stays offline, the U+00A7 checker really rejects the glyph); tests/release
 # holds the one-publisher, demo-ref and release-plan gates. Both live under
 # /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
-# here and an ALWAYS-run CI job — a gate that never runs is not a gate.
+# here and an ALWAYS-run CI job — a gate that never runs is not a gate. The one
+# gate that asks sum.golang.org is its own suite (aval.gates-sumdb.yaml): it
+# depends on the network, so it is never reused on main.
 ci-gates:
-	go test ./tests/architecture/... ./tests/release/...
+	@$(AVAL_RUN) gates
+	@$(AVAL_RUN) gates-sumdb
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine
@@ -77,30 +106,34 @@ ci-e2e-compose: test-acceptance-compose-selftest test-browser-compose
 # daemon, rather than in ci-engine, which has to run on a laptop with nothing
 # installed.
 test-acceptance-local-runtime-docker:
-	bash tests/acceptance/local/runtime-docker.sh
+	@$(AVAL_RUN) runtime-docker
 
 test-acceptance-local-runtime-run:
-	bash tests/acceptance/local/runtime-run.sh
+	@$(AVAL_RUN) runtime-run
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
 
 # Kubernetes integration leg: envtest-backed unit/integration tests + chart CI.
+# The tests run through aval first, on the checked-out tree; the chart's drift
+# checks against committed generated files then run directly (they regenerate
+# files in place).
 ci-integration-kubernetes:
-	$(MAKE) -C integrations/kubernetes ci-test
-	$(MAKE) -C integrations/kubernetes ci-chart
+	@$(AVAL_RUN) k8s-unit
+	@$(AVAL_RUN) k8s-chart
+	$(MAKE) -C integrations/kubernetes ci-chart-drift
 
 # Operator acceptance matrix against envtest — a real API server, no cluster and
 # no kubelet, so this is LEVEL 2 (integration) despite the kubebuilder-standard
 # `test-e2e` name inside the module. The name is kept because it is the
 # convention of the module that owns it; the level is stated here.
 ci-e2e-envtest:
-	$(MAKE) -C integrations/kubernetes test-e2e
+	@$(AVAL_RUN) k8s-envtest
 
 # The perf-envtest budgets at the size CI has time for: the 500-Stage pass of
 # the dashboard and the promoter burst, about 5 minutes. See tests/perf/README.md.
 ci-perf-envtest:
-	PERF_QUICK=1 $(MAKE) perf-envtest
+	@$(AVAL_RUN) perf-envtest
 
 # Kind-backed acceptance — Pacto's formal verification against a real cluster:
 # build the operator image via the monorepo Dockerfile, install the packaged
@@ -128,7 +161,7 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-delivery
 
 test-acceptance-kind-dashboard:
-	bash tests/acceptance/kind/dashboard-modes.sh
+	@$(AVAL_RUN) kind-dashboard
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
@@ -136,7 +169,7 @@ test-acceptance-kind-dashboard:
 # unavailable knowledge instead of a silently empty graph. Narrow by design (no
 # browser leg); the broad live journey is test-acceptance-kind-operational-graph.
 test-acceptance-kind-observation:
-	bash tests/acceptance/kind/observation.sh
+	@$(AVAL_RUN) kind-observation
 
 # Full operational-graph vertical + a LIVE browser acceptance: brings up operator +
 # dashboard + Evidence Server + registry with reconciled CRs and ingested evidence,
@@ -146,23 +179,23 @@ test-acceptance-kind-observation:
 # node's own platform instead of asking containerd to import platforms this host
 # never pulled. See the doc comment of tests/acceptance/kind/kindload.
 test-acceptance-kind-operational-graph:
-	bash tests/acceptance/kind/operational-graph.sh browser
+	@$(AVAL_RUN) kind-operational-graph
 
 test-acceptance-kind-upgrade:
-	bash tests/acceptance/kind/upgrade-v4-v5.sh
+	@$(AVAL_RUN) kind-upgrade
 
 test-acceptance-kind-reconcile:
-	bash tests/acceptance/kind/reconcile.sh
+	@$(AVAL_RUN) kind-reconcile
 
 test-acceptance-kind-evidence:
-	bash tests/acceptance/kind/evidence.sh
+	@$(AVAL_RUN) kind-evidence
 
 # The contract verdict as a DEPLOYMENT GATE: real Flux, real OCIRepository, the
 # two Kustomizations exactly as integrations/kubernetes/docs/gitops.md publishes
 # them. Proves the promotion does not run while the contract is violated and does
 # run once it is satisfied — the claim the docs make, on the surface that makes it.
 test-acceptance-kind-gitops-flux:
-	bash tests/acceptance/kind/gitops-flux.sh
+	@$(AVAL_RUN) kind-gitops-flux
 
 # The same verdict on Argo CD's surface: the health customization the same page
 # publishes, judged first offline against every contract status (the argocd CLI's
@@ -170,7 +203,7 @@ test-acceptance-kind-gitops-flux:
 # Application from an OCI source. Both halves run the documented file itself,
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
-	bash tests/acceptance/kind/gitops-argocd.sh
+	@$(AVAL_RUN) kind-gitops-argocd
 
 # eBPF runtime conformance: the operator-managed node agent attaches to a real
 # kernel, and every runtime contract field's documented verdict is reproduced
@@ -178,7 +211,7 @@ test-acceptance-kind-gitops-argocd:
 # (endpoints ready but nothing listening, refused dependencies, undeclared peers)
 # and the agent's own stale and failed states.
 test-acceptance-kind-runtime-conformance:
-	bash tests/acceptance/kind/runtime-conformance.sh
+	@$(AVAL_RUN) kind-runtime-conformance
 
 # Pacto delivery, phase 1: the opt-in promoter with the Pacto contract check,
 # Flux, the Pacto operator and zot. Proves the vision's first-step list (a good
@@ -197,7 +230,13 @@ test-acceptance-kind-runtime-conformance:
 # the independent phases at the same time (DELIVERY_SEQUENTIAL=1 runs them one
 # at a time), and prints where the time went.
 test-acceptance-kind-delivery:
-	bash tests/acceptance/kind/delivery.sh
+	@$(AVAL_RUN) kind-delivery
+
+# One delivery phase per target, the CI shards: aval.kind-delivery-<phase>.yaml.
+DELIVERY_PHASE_TARGETS := $(addprefix test-acceptance-kind-delivery-,core health publish ordering identity records ladder)
+.PHONY: $(DELIVERY_PHASE_TARGETS)
+$(DELIVERY_PHASE_TARGETS): test-acceptance-kind-delivery-%:
+	@$(AVAL_RUN) kind-delivery-$*
 
 # The Kubernetes delivery demo: the payments story (examples/story) on a real
 # cluster, up, story, the dashboard journeys, B10, the agent beat, a second
@@ -206,7 +245,13 @@ test-acceptance-kind-delivery:
 # on pull requests that change delivery (.github/workflows/delivery-demo.yml),
 # one shard per job: DELIVERY_DEMO_SHARD=<shard> (SHARDS in the script).
 test-acceptance-kind-delivery-demo:
-	bash tests/acceptance/kind/delivery-demo.sh all
+	@$(AVAL_RUN) delivery-demo
+
+# One demo shard per target, the CI shards: aval.delivery-demo-<shard>.yaml.
+DELIVERY_DEMO_SHARD_TARGETS := $(addprefix test-acceptance-kind-delivery-demo-,story browser rollback reach freeze agent)
+.PHONY: $(DELIVERY_DEMO_SHARD_TARGETS)
+$(DELIVERY_DEMO_SHARD_TARGETS): test-acceptance-kind-delivery-demo-%:
+	@$(AVAL_RUN) delivery-demo-$*
 
 # KIND_VERSION is the one kind pin; the kind jobs in ci.yml and delivery-demo.yml
 # install it through this target.
@@ -214,16 +259,16 @@ KIND_VERSION = v0.30.0
 kind-install:
 	bash release/scripts/retry.sh go install sigs.k8s.io/kind@$(KIND_VERSION)
 
-# OCI leg: the public oci package tests + the staging release-publisher tests.
+# OCI leg: the staging release-publisher's decision tests. pkg/oci's Go tests
+# run in the unit suite (aval.unit.yaml, with the race detector).
 ci-oci:
-	go test ./pkg/oci/...
-	node --test release/orchestrator/*.test.mjs
+	@$(AVAL_RUN) release-detect
 
 # Integration test for the version command: runs the REAL `npm run release:version`
 # in a throwaway clone with pending changesets and proves it emits a ready
 # transaction detect.mjs acts on. Needs node_modules (the CI job runs npm ci).
 ci-release-version:
-	bash release/orchestrator/test-release-version.sh
+	@$(AVAL_RUN) release-version
 
 # The guided tour's terminal transcripts (docs/examples/demo-tour.md). Generated
 # rather than transcribed, so docs-check's drift gate holds them to what the CLI
@@ -324,9 +369,9 @@ docs-check: docs-lint mermaid-check $(MERMAID_RUNTIME)
 
 # artifact-drift = one-publisher-per-artifact gate + apply-release-plan
 # idempotency (re-applying the plan must not mutate any tracked release-state file).
+# The one-publisher-per-artifact gate is part of tests/release, which ci-gates
+# runs through aval (aval.gates.yaml) on every change.
 artifact-drift:
-	@echo "==> one-publisher-per-artifact gate..."
-	go test ./tests/release/...
 	@echo "==> apply-release-plan idempotency..."
 	node release/scripts/build-release-plan.mjs
 	node release/scripts/apply-release-plan.mjs
@@ -359,30 +404,24 @@ verify-k8s-standalone:
 # internal/runtimewatch/ebpf is excluded the way the operator excludes its /cmd:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
-# COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
-COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
+# COVER_PKGS is the package set behind the 100% gate for `make coverage`:
+# the patterns aval.unit.yaml hands scripts/ci/cover.sh, filtered the same way.
+COVER_PKGS = $$(go list ./cmd/pacto/... ./internal/... ./pkg/... | grep -v /testutil | grep -v /internal/runtimewatch/ebpf)
+# The unit suites: cmd/pacto, internal/ and pkg/ at 100% coverage
+# (scripts/ci/cover.sh, the gate inside the suite: a reused result writes no
+# coverage.out), the examples' Go tests, and the offline validation of every
+# demo contract.
 ci-test:
-	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
-	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
-	if [ "$$total" != "100.0%" ]; then \
-		echo "FAIL: total coverage is $$total, expected 100.0%"; \
-		go tool cover -func=coverage.out | grep -v '100.0%'; \
-		exit 1; \
-	fi
-	@echo "    total coverage: 100.0%"
-	@echo "==> Running example tests (no coverage gate)..."
-	@go test -race ./examples/...
-	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
-	@$(MAKE) -C examples/demo validate
+	@$(AVAL_RUN) unit
+	@$(AVAL_RUN) examples-go
+	@$(AVAL_RUN) demo-validate
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).
 NPM_CI = npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 ci-ui:
-	@echo "==> Running frontend lint & tests..."
-	cd pkg/dashboard/frontend && $(NPM_CI) && npm run lint && npm test
+	@$(AVAL_RUN) ui
 
 ci-fmt:
 	@echo "==> Checking formatting..."

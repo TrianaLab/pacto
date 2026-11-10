@@ -1,0 +1,117 @@
+# Unit tests of cmd/pacto, internal/ and pkg/ with the race detector and the
+# 100% statement-coverage gate over all of them (scripts/ci/cover.sh; the gate is
+# inside the command because a reused result writes no profile). The eBPF loader
+# is left to make test-ebpf and the kind runtime suites. Inputs beyond the
+# packages and their testdata: the fixtures tests read (demo bundles, the
+# dashboard OpenAPI bundle, docs/contract-reference, the operator CRDs), every
+# pacto.yaml and testdata YAML in the repository (pkg/contract walks them all),
+# and the test files pkg/validation/schema/field-coverage.yaml names.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-unit
+runner:
+  command: ["bash", "scripts/ci/cover.sh", "coverage.out", "./cmd/pacto/...", "./internal/...", "./pkg/..."]
+scope:
+  source:
+    - "cmd/pacto/**"
+    - "internal/**"
+    - "scripts/ci/cover.sh"
+    - "pkg/capability/**"
+    - "pkg/catalog/**"
+    - "pkg/contract/**"
+    - "pkg/contractview/**"
+    - "pkg/delivery/**"
+    - "pkg/deliveryrecord/**"
+    - "pkg/diff/**"
+    - "pkg/doc/**"
+    - "pkg/evidence/**"
+    - "pkg/evidenceenvelope/**"
+    - "pkg/evidenceingest/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/ignore/**"
+    - "pkg/impact/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/ocireferrer/**"
+    - "pkg/openapi/**"
+    - "pkg/otelobserver/**"
+    - "pkg/override/**"
+    - "pkg/plugin/**"
+    - "pkg/probe/**"
+    - "pkg/publish/**"
+    - "pkg/readiness/**"
+    - "pkg/reconcile/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/signing/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+    - "pkg/dashboard/*"
+    - "pkg/dashboard/productview/**"
+    - "pkg/dashboard/ui/**"
+    - "examples/demo/bundles/**"
+    - "examples/demo/pacto-dashboard/interfaces/openapi.json"
+    - "docs/contract-reference/**"
+    - "integrations/kubernetes/config/crd/bases/**"
+    - "docs/**/pacto.yaml"
+    - "examples/**/pacto.yaml"
+    - "integrations/kubernetes/config/**/pacto.yaml"
+    - "internal/**/testdata/**"
+    - "pactos/**/pacto.yaml"
+    - "tests/**/pacto.yaml"
+    - "integrations/kubernetes/internal/controller/reconcile_configref_test.go"
+    - "integrations/kubernetes/internal/loader/resolver_test.go"
+    - "integrations/kubernetes/internal/observer/configurations_test.go"
+    - "integrations/kubernetes/internal/observer/exposure_test.go"
+    - "integrations/kubernetes/internal/observer/regressions_test.go"
+    - "integrations/kubernetes/test/e2e/e2e_test.go"
+    - "internal/app/validate_guarantee_test.go"
+    - "internal/app/validate_test.go"
+    - "internal/cli/run_internal_test.go"
+    - "internal/runtimewatch/evalsink/sink_test.go"
+    - "tests/acceptance/kind/runtime-conformance.sh"
+    - "tests/acceptance/local/runtime-docker.sh"
+    - "tests/acceptance/local/runtime-run.sh"
+    - "tests/integration/field_coverage_test.go"
+  contracts:
+    - "aval.cli-build.yaml"
+  allowMutable:
+    - file: "internal/pactify/testdata/fraud/Dockerfile"
+      ref: "python:3.13-alpine"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "internal/pactify/testdata/fraud/k8s/deployment.yaml"
+      ref: "registry.example/story/images/fraud:1.0.0"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "internal/pactify/testdata/invoices/Dockerfile"
+      ref: "node:22-alpine"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "internal/pactify/testdata/invoices/k8s/deployment.yaml"
+      ref: "ghcr.io/acme/invoices:1.3.0"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "tests/acceptance/kind/runtime-conformance.sh"
+      ref: "$"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "tests/acceptance/local/runtime-docker.sh"
+      ref: "${args[@]+${args[@]}}"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+    - file: "tests/acceptance/local/runtime-run.sh"
+      ref: "${mode[@]}"
+      reason: "read as text by this suite (a fixture, or a file a test parses or checks); nothing in this suite pulls, builds or runs it"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    cosign: "3.1.4"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    cosign: ["cosign", "version"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PACTO_NO_CACHE, PACTO_INSECURE_REGISTRIES, PACTO_NO_UPDATE_CHECK, PACTO_DELIVERY_TRUST, NO_COLOR]
+cacheability: hermetic

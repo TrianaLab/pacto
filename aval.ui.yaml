@@ -1,0 +1,30 @@
+# The dashboard frontend's type check (svelte-check) and unit tests (vitest,
+# jsdom) from its lockfile. demoEntry.test.ts reads README.md and
+# docs/examples/dashboard-demo.md.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-ui
+runner:
+  command: ["bash", "-c", "cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --no-audit --no-fund --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run lint && npm test"]
+scope:
+  source:
+    - "pkg/dashboard/frontend/src/**"
+    - "pkg/dashboard/frontend/index.html"
+    - "pkg/dashboard/frontend/svelte.config.js"
+    - "pkg/dashboard/frontend/tsconfig.json"
+    - "pkg/dashboard/frontend/vite.config.js"
+    - "README.md"
+    - "docs/examples/dashboard-demo.md"
+  dependencies:
+    - "pkg/dashboard/frontend/package.json"
+    - "pkg/dashboard/frontend/package-lock.json"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    node: "22.23.4"
+  probe:
+    platform: ["uname", "-sm"]
+    node: ["node", "--version"]
+  env: [NODE_OPTIONS]
+cacheability: hermetic

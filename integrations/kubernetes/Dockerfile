@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # Monorepo-aware build: context is the repository ROOT so the operator module
 # resolves the engine (github.com/trianalab/pacto/v4) through the workspace
 # (go.work) instead of a published tag — no replace, no unreleased-tag dependency.
@@ -7,7 +7,7 @@
 # emulation for the non-native arch — the arm64 build was the multi-arch release
 # pole. The distroless/static runtime stage has no RUN, so nothing executes under the
 # target platform. Matches the root Dockerfile's cross-compile pattern.
-FROM --platform=$BUILDPLATFORM golang:1.27.3 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a9ce75f0d1e AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
@@ -93,7 +93,7 @@ RUN set -eu; \
         go build -tags "${GO_TAGS}" -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
     fi
 
-FROM gcr.io/distroless/static:nonroot AS operator
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS operator
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

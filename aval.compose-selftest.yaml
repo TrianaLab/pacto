@@ -1,0 +1,42 @@
+# The Compose acceptance harness's self-test: it only destroys resources it
+# created itself. Runs privileged in the host network namespace; no demo, no
+# image build.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-compose-selftest
+runner:
+  command: ["bash", "tests/acceptance/local/compose-demo.sh", "selftest"]
+scope:
+  source:
+    - "tests/acceptance/local/compose-demo.sh"
+  allowMutable:
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "compose.yaml"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "pacto-demo-netfilter:$"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$@"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$HARNESS_REGISTRY"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+    - file: "tests/acceptance/local/compose-demo.sh"
+      ref: "$2"
+      reason: "a `docker compose -p` project command or an image held in a variable: the artifact runs by digest from the registry, the images are built here or pinned by digest (HARNESS_REGISTRY); no compose file exists"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    docker-platform: "linux/amd64"
+    compose: "5.5.0"
+  probe:
+    platform: ["uname", "-sm"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+    compose: ["docker", "compose", "version", "--short"]
+  env: [PACTO_SELFTEST_STUCK, PACTO_SELFTEST_DIE]
+cacheability: controlled-environment

@@ -28,7 +28,7 @@
 # removed on exit.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53"
+AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 RUN_ID="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 RUNTIME_IMG="pacto-runtime-acceptance:$RUN_ID"
 IMG="pacto-run-acceptance:$RUN_ID"

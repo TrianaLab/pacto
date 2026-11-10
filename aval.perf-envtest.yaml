@@ -1,0 +1,70 @@
+# The dashboard and promoter performance budgets against envtest at CI size
+# (PERF_QUICK=1, about 5 minutes; tests/perf/README.md). Latency budgets make it
+# non-deterministic: it runs through aval for the run record and is never
+# reused, so the scope only labels the run.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-perf-envtest
+runner:
+  command: ["env", "PERF_QUICK=1", "make", "perf-envtest"]
+scope:
+  source:
+    - "Makefile"
+    - "ci.mk"
+    - "internal/**"
+    - "integrations/kubernetes/api/**"
+    - "integrations/kubernetes/internal/**"
+    - "integrations/kubernetes/config/crd/bases/**"
+    - "pkg/capability/**"
+    - "pkg/catalog/**"
+    - "pkg/contract/**"
+    - "pkg/contractview/**"
+    - "pkg/delivery/**"
+    - "pkg/deliveryrecord/**"
+    - "pkg/diff/**"
+    - "pkg/doc/**"
+    - "pkg/evidence/**"
+    - "pkg/evidenceenvelope/**"
+    - "pkg/evidenceingest/**"
+    - "pkg/finding/**"
+    - "pkg/fleet/**"
+    - "pkg/graph/**"
+    - "pkg/ignore/**"
+    - "pkg/impact/**"
+    - "pkg/lock/**"
+    - "pkg/logging/**"
+    - "pkg/oci/**"
+    - "pkg/ocireferrer/**"
+    - "pkg/openapi/**"
+    - "pkg/otelobserver/**"
+    - "pkg/override/**"
+    - "pkg/plugin/**"
+    - "pkg/probe/**"
+    - "pkg/publish/**"
+    - "pkg/readiness/**"
+    - "pkg/reconcile/**"
+    - "pkg/runtimefacts/**"
+    - "pkg/sbom/**"
+    - "pkg/schemax/**"
+    - "pkg/semver/**"
+    - "pkg/signing/**"
+    - "pkg/skills/**"
+    - "pkg/strictjson/**"
+    - "pkg/validation/**"
+    - "pkg/dashboard/*"
+    - "pkg/dashboard/productview/**"
+    - "pkg/dashboard/ui/**"
+    - "integrations/kubernetes/Makefile"
+    - "integrations/kubernetes/ci.mk"
+  contracts:
+    - "aval.go-modules.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG, PERF_VIEWS, PERF_REPORT, PERF_CPUPROFILE, PERF_MEMPROFILE, PERF_VERBOSE]
+cacheability: non-deterministic

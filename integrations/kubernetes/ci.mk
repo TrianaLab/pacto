@@ -1,7 +1,7 @@
 # CI-specific targets. Included by the main Makefile.
 # This file is the single source of truth for all CI quality gates.
 
-.PHONY: ci ci-static ci-test ci-chart ci-fmt ci-vet ci-lint
+.PHONY: ci ci-static ci-test ci-test-e2e ci-chart ci-chart-test ci-chart-drift ci-fmt ci-vet ci-lint
 
 ci: ci-static ci-test ci-chart
 
@@ -19,7 +19,19 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: ci-chart-drift ci-chart-test
+
+# The chart's tests (the root aval.k8s-chart.yaml runs this) and its drift
+# checks against committed generated files, which stay outside aval.
+ci-chart-test: helm-lint helm-template helm-golden helm-unittest helm-schema
+ci-chart-drift: crd-sync-check helm-deps-check helm-docs-check docs-generate-check
+
+# The envtest acceptance matrix alone: test-e2e without the code generators and
+# formatters it runs first, which rewrite tracked files. The root
+# aval.k8s-envtest.yaml runs this, so the tree it fingerprints is the tree tested.
+ci-test-e2e: envtest setup-envtest
+	@KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		go test -tags=e2e ./test/e2e/... -count=1 -v
 
 # The chart renders copies of the generated CRDs. helm-golden cannot see a
 # stale delivery copy, because delivery is off by default.
@@ -119,7 +131,7 @@ helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.
 .PHONY: helm-schema
 helm-schema: ## Validate each chart's values.yaml against its values.schema.json.
 	@echo "==> Validating chart schemas..."
-	@command -v check-jsonschema >/dev/null 2>&1 || pip install check-jsonschema --quiet
+	@command -v check-jsonschema >/dev/null 2>&1 || pip install check-jsonschema==0.39.0 --quiet
 	@for c in pacto-operator; do \
 		python3 -c "import json; json.load(open('charts/$$c/values.schema.json'))" || \
 			{ echo "Error: charts/$$c/values.schema.json is not valid JSON." >&2; exit 1; }; \

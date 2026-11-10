@@ -1,0 +1,33 @@
+# Portable runtime evidence on the local Docker daemon, with the runtime image built from the
+# root Dockerfile. Its verdicts come from the daemon's kernel, which is not in the fingerprint:
+# external-dependencies.
+# Scenario: `pacto run` wrapping one command, privileged (eBPF) and unprivileged (/proc).
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-runtime-run
+runner:
+  command: ["bash", "tests/acceptance/local/runtime-run.sh"]
+scope:
+  source:
+    - "tests/acceptance/local/runtime-run.sh"
+    - "tests/acceptance/local/runtime-fixtures/**"
+    - "tests/acceptance/local/runtimecheck/**"
+    - "release/scripts/retry.sh"
+  contracts:
+    - "aval.image-pacto.yaml"
+  allowMutable:
+    - file: "tests/acceptance/local/runtime-run.sh"
+      ref: "${mode[@]}"
+      reason: "the image is a variable: the runtime image built here or agnhost pinned by digest"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+    docker-platform: "linux/amd64"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+    docker-platform: ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG]
+cacheability: external-dependencies

@@ -33,7 +33,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-reach e2e-delivery-demo-down \
         test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
-        bpf-generate test-ebpf
+        bpf-generate test-ebpf test-ebpf-container
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -56,32 +56,38 @@ build:
 # and how to pick the right level for a new test, is the Testing section of
 # CONTRIBUTING.md.
 
-# Level 1 — unit.
-test:
-	go test -race ./... -v
+# Level 1 — unit: the unit suites ci-test runs (each through aval, see ci.mk).
+test: ci-test
 
 # Level 2 — integration. The CLI driven IN PROCESS against a real in-process OCI
 # registry and a real plugin binary on PATH: several real components wired
 # together, but nothing a user could reach over a network. It was called `e2e`
 # for historical reasons only.
+#
+# Every test target runs its suite through `$(AVAL_RUN) <suite>`: the command is
+# runner.command in aval.<suite>.yaml at the repository root (see ci.mk).
 test-integration:
-	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
-	# The acceptance layer's own Go code — the scenario fixture every surface
-	# projects from, its projector, and the kind gates — lives under /tests/,
-	# which ci-test excludes. Without this line the declaration that decides what
-	# the live vertical must prove is itself never tested. The path is the whole
-	# subtree, not the gates alone: a sibling package added beside them was
-	# silently outside CI, which is exactly how the fixture's own tests came to
-	# never run.
-	go test -race ./tests/acceptance/... -count=1 -timeout 180s
+	@$(AVAL_RUN) integration
+	@# The acceptance layer's own Go code — the scenario fixture every surface
+	@# projects from, its projector, and the kind gates — lives under /tests/,
+	@# which ci-test excludes. Without this suite the declaration that decides
+	@# what the live vertical must prove is itself never tested. The path is the
+	@# whole subtree, not the gates alone: a sibling package added beside them
+	@# was silently outside CI, which is how the fixture's own tests came to
+	@# never run.
+	@$(AVAL_RUN) acceptance-go
 
 # Performance — the dashboard's delivery and fleet views, and the promoter,
 # against a real kube-apiserver and etcd (envtest's binaries, fetched by the
 # operator's setup-envtest). Latency, allocations and apiserver requests per
 # request at 1, 10 and 50 callers, with budget assertions; see
 # tests/perf/README.md. PERF_REPORT=<file> also writes the dashboard table.
+# aval.perf-envtest.yaml runs it with PERF_QUICK=1 (ci-perf-envtest). The
+# sub-make is a literal `make`, not $(MAKE): make -n executes every line that
+# names $(MAKE), and this line runs the suite, so a dry run (the aval gates in
+# tests/architecture) would run it.
 perf-envtest:
-	@assets="$$($(MAKE) -s --no-print-directory -C integrations/kubernetes setup-envtest | tail -n 1)"; \
+	@assets="$$(make -s --no-print-directory -C integrations/kubernetes setup-envtest | tail -n 1)"; \
 	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation" -count=1 -timeout 120m -v ./internal/cli/ && \
 	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
 
@@ -90,8 +96,8 @@ perf-envtest:
 # ingestion, OTel observation, reconciliation, impact). Verifiable anywhere Go
 # runs — the live-Kubernetes source is covered by the kind acceptance.
 test-acceptance-local:
-	bash tests/acceptance/local/fleet-graph.sh
-	bash tests/acceptance/local/demo-arc.sh
+	@$(AVAL_RUN) fleet-graph
+	@$(AVAL_RUN) demo-arc
 
 # Level 4 — the distributed Compose demo, proved the way a stranger meets it:
 # the application is published with `docker compose publish` and then executed
@@ -102,14 +108,14 @@ test-acceptance-local:
 # projection declares the floor, and the harness checks it) and a few minutes to
 # build the image.
 test-acceptance-compose:
-	bash tests/acceptance/local/compose-demo.sh
+	@$(AVAL_RUN) compose
 
 # That harness runs privileged in the host's network namespace, so the property
 # that it only ever destroys what it itself created is one the machine it runs on
 # depends on. Cheap (no demo, no images) and first, because the acceptance is the
 # thing being trusted.
 test-acceptance-compose-selftest:
-	bash tests/acceptance/local/compose-demo.sh selftest
+	@$(AVAL_RUN) compose-selftest
 
 # Compatibility alias for the older name. Temporary: it exists so muscle memory
 # and any out-of-tree caller keep working, not as a second name.
@@ -141,7 +147,7 @@ e2e: test-integration
 # dependency edge) and a signed EvidenceEnvelope ingested as an external target —
 # everything a fully-configured install shows. Tears down unless KEEP_E2E_CLUSTER=1.
 e2e-operational-graph:
-	bash tests/acceptance/kind/operational-graph.sh
+	@$(AVAL_RUN) kind-operational-graph-api
 
 # Cluster-free core: the hermetic operational-graph acceptance (graph, evidence,
 # OTel, reconcile, impact) — the same run as test-acceptance-local, verifiable
@@ -167,22 +173,13 @@ e2e-otel: test-acceptance-local
 # ensures Chromium is installed, then runs the Playwright suite against the built
 # app over FIXED data. Deliberately separate from test-browser-live: determinism
 # and liveness are different properties and a merged suite proves neither.
+# The build, the offline doc export (the only host of the legacy non-Fleet views,
+# audited on a second origin), the engine smoke (smoke.mjs: a fixture republish
+# that stops the two compared revisions from differing incompatibly fails here,
+# before Playwright, because a broken engine makes the browser failures noise)
+# and the Playwright suite: examples/demo build doc-export smoke e2e.
 test-browser:
-	$(MAKE) -C examples/demo build
-# The legacy non-Fleet views ship in the same bundle but no live host serves them:
-# their only host is the offline `pacto doc --format html` export. The suite audits
-# them there, on a second origin, so build one.
-	$(MAKE) -C examples/demo doc-export
-# The engine smoke rides the build this target already paid for. Until now it ran
-# only in the post-merge docs workflow: source_embed_test.go covers the same
-# fixtures under a required job, but nothing on a PR ran smoke.mjs itself, so a
-# fixture republish that updated the Go test and missed the smoke went green and
-# turned main red on the way out. The fixture tripwire is smoke.mjs's fleet impact
-# check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
-# stops the two compared revisions from differing incompatibly. Before Playwright,
-# because a broken engine makes the browser failures downstream noise.
-	$(MAKE) -C examples/demo smoke
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
+	@$(AVAL_RUN) browser
 e2e-dashboard-wasm: test-browser
 
 e2e-dashboard-kind: test-acceptance-kind-dashboard
@@ -250,22 +247,21 @@ e2e-runtime-run: test-acceptance-local-runtime-run
 # actually render — on a core page, on a page the integration hook injects, and
 # after Material's instant navigation, with every cross-origin request aborted so
 # the site cannot pass by borrowing someone else's runtime.
-test-browser-docs-site: $(MERMAID_RUNTIME)
-	cd pkg/dashboard/frontend && npx playwright install chromium && npx playwright test -c playwright.docs-site.config.ts
+test-browser-docs-site:
+	@$(AVAL_RUN) docs-site
 
 # Level 7 — live-browser acceptance: the full vertical (operator + dashboard +
 # Evidence Server + registry + reconciled CRs + ingested evidence) plus a
 # Playwright/Chromium run against the LIVE, port-forwarded dashboard over keys
 # DISCOVERED from the real Product API.
-test-browser-live:
-	bash tests/acceptance/kind/operational-graph.sh browser
+test-browser-live: test-acceptance-kind-operational-graph
 
 # Level 7 on the OTHER surface: the same journeys, in the same browser, against
 # the demo a stranger pulled — so what ships as "try Pacto" is held to the product
 # acceptance rather than to a screenshot. The journey that opens an operational
 # target skips here, naming the capability Compose declares it lacks.
 test-browser-compose:
-	bash tests/acceptance/local/compose-demo.sh browser
+	@$(AVAL_RUN) compose-browser
 
 coverage:
 	go test -race $(COVER_PKGS) -coverprofile=coverage.out
@@ -382,6 +378,8 @@ bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docke
 # Linux kernel with BTF; on macOS that is Docker Desktop's VM. It also creates a
 # child cgroup, which --privileged makes writable.
 test-ebpf: ## Run the agent kernel test in a privileged container (needs Docker).
+	@$(AVAL_RUN) ebpf
+test-ebpf-container: ## The command aval.ebpf.yaml runs.
 	docker run --rm --privileged -v "$(CURDIR):/src" -w /src \
 		-e GOFLAGS=-buildvcs=false $(BPF_BUILDER_IMAGE) \
 		go test -tags ebpf -count=1 -v ./$(RUNTIMEWATCH_EBPF_DIR)/

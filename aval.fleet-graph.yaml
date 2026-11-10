@@ -1,0 +1,24 @@
+# Level 4, cluster-free: builds pacto and drives the fleet story (graph, signed
+# evidence, OTel observation, reconcile, impact) against local fixtures and a
+# local registry.
+apiVersion: aval.trianalab.io/v1
+kind: Test
+metadata:
+  name: pacto-fleet-graph
+runner:
+  command: ["bash", "tests/acceptance/local/fleet-graph.sh"]
+scope:
+  source:
+    - "tests/acceptance/local/fleet-graph.sh"
+    - "tests/acceptance/local/localregistry/**"
+  contracts:
+    - "aval.cli-build.yaml"
+environment:
+  toolchain:
+    platform: "Linux x86_64"
+    go: "1.27.3"
+  probe:
+    platform: ["uname", "-sm"]
+    go: ["go", "env", "GOVERSION"]
+  env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOTOOLCHAIN, GOWORK, GODEBUG]
+cacheability: hermetic

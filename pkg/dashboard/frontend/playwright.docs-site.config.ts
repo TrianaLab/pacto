@@ -25,7 +25,9 @@ export default defineConfig({
   // of a large flowchart is comfortably slower than a DOM assertion.
   expect: { timeout: 15_000 },
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
+  // Always: a stray .only must fail here too, or a local run that skipped most of
+  // the suite would pass and could be reused for CI (see the aval contracts).
+  forbidOnly: true,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {
@@ -41,7 +43,9 @@ export default defineConfig({
     command: `mkdocs build --strict --config-file mkdocs.test.yml && python3 pkg/dashboard/frontend/e2e/serve.py ${PORT} site-test`,
     cwd: REPO_ROOT,
     url: `http://127.0.0.1:${PORT}/index.html`,
-    reuseExistingServer: !process.env.CI,
+    // Never reuse a server already on the port: it may serve an older build than
+    // the one under test.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
