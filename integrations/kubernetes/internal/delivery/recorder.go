@@ -120,9 +120,13 @@ func (r *Recorder) stageStreamSeeded(ctx context.Context, e cevent.UpdateEvent, 
 	}
 }
 
-// stageGone posts environment.deleted for a deleted Stage.
+// stageGone posts environment.deleted for a deleted Stage that was given a
+// stream id. One never seeded got no environment.created and has no subject
+// id, which CDEvents requires.
 func (r *Recorder) stageGone(ctx context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	r.Events.emitEnvironment(ctx, e.Object.(*dv1.Stage), false, r.Now())
+	if stage := e.Object.(*dv1.Stage); stage.Status.Stream.ID != "" {
+		r.Events.emitEnvironment(ctx, stage, false, r.Now())
+	}
 }
 
 // item is one local seq to record: an operation, or a gap where none is. A

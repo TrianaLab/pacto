@@ -218,10 +218,16 @@ func (r *StageReconciler) resync(stage *dv1.Stage) time.Duration {
 // seedStream gives a Stage its stream id, the first time it reconciles or
 // after its status was lost, and says so in an EnvironmentCreated Event. The
 // message carries the creationTimestamp, so a reseed reads as the old Stage.
+// The Event fires only when the fresh object had no id: a cache that lags
+// the seed brings Reconcile back here with the id already set.
 func (r *StageReconciler) seedStream(ctx context.Context, stage *dv1.Stage) error {
+	seeded := false
 	if err := r.updateStatus(ctx, stage, func(s *dv1.Stage) {
-		s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
-	}); err != nil {
+		seeded = s.Status.Stream.ID == ""
+		if seeded {
+			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
+		}
+	}); err != nil || !seeded {
 		return err
 	}
 	event(r.Events, stage, false, "EnvironmentCreated", fmt.Sprintf("Stage %s/%s for %s in %s was created at %s; other Stages for the same environment are unaffected",
@@ -230,10 +236,14 @@ func (r *StageReconciler) seedStream(ctx context.Context, stage *dv1.Stage) erro
 }
 
 // stageDeleted says EnvironmentDeleted for a deleted Stage, a missed delete
-// (DeleteStateUnknown) too, and enqueues nothing.
+// (DeleteStateUnknown) too, and enqueues nothing. A Stage never seeded never
+// said EnvironmentCreated, so its delete says nothing either.
 // ponytail: in-process watch; a delete while the promoter is down emits no Event (the CDEvent from the recorder has the same gap)
 func (r *StageReconciler) stageDeleted(_ context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	stage := e.Object.(*dv1.Stage)
+	if stage.Status.Stream.ID == "" {
+		return
+	}
 	event(r.Events, stage, false, "EnvironmentDeleted", fmt.Sprintf("Stage %s/%s for %s in %s was deleted; other Stages for the same environment are unaffected",
 		stage.Namespace, stage.Name, stage.Spec.Service.Name, stage.Spec.Environment))
 }

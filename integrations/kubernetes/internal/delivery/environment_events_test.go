@@ -42,6 +42,14 @@ func TestStageEventsOnlyOnTransitions(t *testing.T) {
 	if ev := drain(rec); len(ev) != 1 || ev[0] != want {
 		t.Fatalf("seed: %v", ev)
 	}
+	stale := e.getStage() // a lagging cache still shows no stream id
+	stale.Status.Stream.ID = ""
+	if err := e.st.seedStream(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	if ev := drain(rec); len(ev) != 0 {
+		t.Fatalf("a stale seed re-emits: %v", ev)
+	}
 	for range 2 {
 		if err := e.reconcileStage("payments-prod"); err != nil {
 			t.Fatal(err)
@@ -62,7 +70,11 @@ func TestStageEventsOnlyOnTransitions(t *testing.T) {
 	if ev := drain(rec); len(ev) != 1 || ev[0] != "Normal EnvironmentDeleted Stage prod/payments-prod for payments in prod was deleted; other Stages for the same environment are unaffected" {
 		t.Fatalf("delete: %v", ev)
 	}
-	(&StageReconciler{}).stageDeleted(context.Background(), cevent.DeleteEvent{Object: s}, nil) // nil recorder: nothing
+	e.st.stageDeleted(context.Background(), cevent.DeleteEvent{Object: s}, nil) // never seeded: nothing
+	if ev := drain(rec); len(ev) != 0 {
+		t.Fatalf("an unseeded delete emits: %v", ev)
+	}
+	(&StageReconciler{}).stageDeleted(context.Background(), cevent.DeleteEvent{Object: e.getStage()}, nil) // nil recorder: nothing
 }
 
 func envStage(ns, name, domain, uid string) *dv1.Stage {
@@ -141,6 +153,7 @@ func TestRecorderEnvironmentEventsOnlyOnTransitions(t *testing.T) {
 	if ev := receive(t, got); ev["type"] != eventEnvironmentDeleted {
 		t.Fatalf("an update with the stream already set posted, or the delete did not: %v", ev)
 	}
+	r.stageGone(ctx, cevent.DeleteEvent{Object: unseeded}, nil)                        // never seeded: nothing
 	(&Recorder{Now: time.Now}).stageGone(ctx, cevent.DeleteEvent{Object: seeded}, nil) // nil Events: nothing
 	srvDown, _ := sink(t, http.StatusInternalServerError)
 	(&Events{Sink: srvDown.URL}).emitEnvironment(ctx, seeded, true, now) // a failing sink is only logged
