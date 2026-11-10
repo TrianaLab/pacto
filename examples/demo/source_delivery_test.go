@@ -442,3 +442,18 @@ func TestDemoPlanHasNext(t *testing.T) {
 		t.Fatalf("a stale propose carries the fresh plan with next: %v", err)
 	}
 }
+
+// TestDemoProgress: the demo says why a Stage can or cannot move through the
+// dashboard's own handler.
+func TestDemoProgress(t *testing.T) {
+	_, h := demoServer(t)
+	var p struct {
+		delivery.Progress
+		Stage string `json:"stage"`
+	}
+	if code := call(t, h, "GET", "/api/delivery/progress?namespace="+story.Prod+"&stage=checkout", "", &p); code != 200 ||
+		p.State == "" || p.Reasons == nil || p.Summary == "" || p.AsOf == "" || p.Stage != "checkout" {
+		t.Fatalf("progress %d %+v", code, p)
+	}
+	t.Logf("checkout: %s %+v", p.State, p.Reasons)
+}

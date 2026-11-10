@@ -53,6 +53,7 @@ type fakeDelivery struct {
 	approved   []string
 	cancelled  []string
 	proposed   []delivery.Request
+	planned    []delivery.Request
 	// history replaces the default answer; known adds digest versions.
 	history     *delivery.History
 	known       map[string]string
@@ -173,6 +174,7 @@ func fullPlan(to string) delivery.Plan {
 }
 
 func (f *fakeDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	f.planned = append(f.planned, req)
 	return delivery.PlanAnswer{Plan: fullPlan(req.To), Next: []string{"a person approves it"}}, f.actErr
 }
 
@@ -998,6 +1000,7 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 		{http.MethodGet, "/api/delivery/history?namespace=books&stage=ledger", nil},
 		{http.MethodGet, "/api/delivery/blame?namespace=books&stage=ledger", nil},
 		{http.MethodGet, "/api/delivery/undo?namespace=books&name=broke", nil},
+		{http.MethodGet, "/api/delivery/progress?namespace=books&stage=ledger", nil},
 		{http.MethodPost, "/api/delivery/operations/books/broke/decision", map[string]string{"decision": "approve"}},
 		{http.MethodDelete, "/api/delivery/operations/books/broke", nil},
 		{http.MethodPost, "/api/delivery/plan", delivery.Request{Namespace: "books", Stage: "ledger"}},

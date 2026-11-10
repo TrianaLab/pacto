@@ -175,6 +175,11 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-progress", Method: http.MethodGet, Path: "/api/delivery/progress",
+		Summary: "Why a Stage can or cannot move",
+		Description: "Whether the Stage can move to its newest candidate and, when not, every reason with what clears it: its Ready condition, " +
+			"the candidate, a freeze or auto-hold, changes waiting for a person, its level and the promote planned for you and not proposed. " +
+			"It never proposes anything."}), s.deliveryProgress)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-plan", Method: http.MethodPost, Path: "/api/delivery/plan",
 		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you."}), s.deliveryPlan)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",

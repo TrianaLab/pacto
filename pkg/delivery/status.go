@@ -46,6 +46,7 @@ type StageRow struct {
 	LastCheck   *CheckSummary `json:"lastCheck,omitempty" doc:"The newest re-check of the running version after it shipped (status.lastCheck)"`
 	HeldUnknown bool          `json:"heldUnknown,omitempty" doc:"The Stage's operations could not be read, so held is not known"`
 	Offers      []Offer       `json:"offers" doc:"Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides"`
+	Progress    *Progress     `json:"progress,omitempty" doc:"Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why"`
 }
 
 // Watch is the Watched condition as a row shows it.

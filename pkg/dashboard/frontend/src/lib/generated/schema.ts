@@ -228,6 +228,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Why a Stage can or cannot move
+         * @description Whether the Stage can move to its newest candidate and, when not, every reason with what clears it: its Ready condition, the candidate, a freeze or auto-hold, changes waiting for a person, its level and the promote planned for you and not proposed. It never proposes anything.
+         */
+        get: operations["delivery-progress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/published": {
         parameters: {
             query?: never;
@@ -1520,6 +1540,28 @@ export interface components {
         "Delivery.Principal": {
             user: string;
         };
+        "Delivery.Progress": {
+            /** @description When the Stage and its operations were read (RFC 3339) */
+            asOf: string;
+            /** @description Why the promoter does not promote the candidate on its own; empty when it would */
+            autoPromote?: string;
+            candidate?: string;
+            /** @description The promote of the candidate, planned for the caller and not proposed */
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
+            /** @description Everything that holds the candidate back, in the order a person clears them */
+            reasons: components["schemas"]["Delivery.ProgressReason"][] | null;
+            /** @enum {string} */
+            state: "up-to-date" | "can-promote" | "needs-person" | "blocked" | "unknown";
+            /** @description One sentence: where the Stage stands against its newest candidate */
+            summary: string;
+        };
+        "Delivery.ProgressReason": {
+            /** @enum {string} */
+            code: "NotReady" | "ReadyUnknown" | "NoCandidate" | "Frozen" | "AutoHold" | "Held" | "InFlight" | "Level" | "OpsUnknown" | "PolicyUnknown" | "NotPermitted" | "RBACUnknown" | "PlanRejected" | "PlanHeld" | "PlanWaits" | "PlanUnknown";
+            /** @description What to do, often a command to copy */
+            fix?: string;
+            message: string;
+        };
         "Delivery.Recheck": {
             at: string;
             digest: string;
@@ -1848,6 +1890,8 @@ export interface components {
             offers: components["schemas"]["Delivery.Offer"][] | null;
             /** @description The digest the environment runs */
             pointer?: string;
+            /** @description Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why */
+            progress?: components["schemas"]["Delivery.Progress"];
             /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
             ready?: string;
             /** @description What to change so the Stage can promote, when Ready is False with a known reason */
@@ -4179,6 +4223,35 @@ export interface components {
             sourceRevision?: string;
             version?: string;
         };
+        ProgressOutputBody: {
+            /** @description When the Stage and its operations were read (RFC 3339) */
+            asOf: string;
+            /** @description Why the promoter does not promote the candidate on its own; empty when it would */
+            autoPromote?: string;
+            candidate?: string;
+            namespace: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The promote of the candidate, planned for the caller and not proposed */
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
+            /** @description Everything that holds the candidate back, in the order a person clears them */
+            reasons: components["schemas"]["Delivery.ProgressReason"][] | null;
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            stage: string;
+            /** @enum {string} */
+            state: "up-to-date" | "can-promote" | "needs-person" | "blocked" | "unknown";
+            /** @description One sentence: where the Stage stands against its newest candidate */
+            summary: string;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         PromotionCount: {
             /** Format: int64 */
             count: number;
@@ -5625,6 +5698,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Delivery.PlanAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-progress": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage */
+                stage: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressOutputBody"];
                 };
             };
             /** @description Unauthorized */
