@@ -23,6 +23,10 @@
   let { impact, autoplay = false, laneHref = null, onlane = null } = $props();
   const m = $derived(impactModel(impact));
   const tallies = $derived(impact.consumers);
+  // Two owners can share a label (team shop and DRI shop): the ranking groups by
+  // canonical key, so a shared label names its namespace.
+  const sharedLabel = (label) => (tallies.byOwner ?? []).filter((o) => o.owner === label).length > 1;
+  const ownerKind = (key) => (key.startsWith('dri:') ? 'DRI' : 'Team');
   const asOf = $derived(impact.meta?.asOf ? formatRelative(impact.meta.asOf) : '');
   const gateLine = $derived.by(() => {
     const r = impact.gateReason ?? '';
@@ -95,8 +99,8 @@
             <!-- A short list, one owner a line, each name elided in its middle (C6) when it
                  does not fit; the full name stays in its title. -->
             <ul class="ac-owners">
-              {#each tallies.byOwner ?? [] as o (o.owner)}
-                <li><bdi class:fit={elidable(o.owner)} title={o.owner}>{o.owner}</bdi><span class="ac-owner-n">{countOf(o.consumers, 'consumer')}{o.incompatible ? `, ${formatCount(o.incompatible)} incompatible` : ''}</span></li>
+              {#each tallies.byOwner ?? [] as o (o.ownerKey || `label:${o.owner}`)}
+                <li><bdi class:fit={elidable(o.owner)} title={o.owner}>{o.owner}</bdi>{#if sharedLabel(o.owner) && o.ownerKey}<span class="t-meta">{` (${ownerKind(o.ownerKey)})`}</span>{/if}<span class="ac-owner-n">{countOf(o.consumers, 'consumer')}{o.incompatible ? `, ${formatCount(o.incompatible)} incompatible` : ''}</span></li>
               {/each}
             </ul>
             {#if tallies.beyondRanking || tallies.noOwner}

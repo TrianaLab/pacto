@@ -297,10 +297,18 @@ func (r *Result) blockingGate() (string, string) {
 		if unmet {
 			accept += " or require a guarantee it does not meet"
 		}
-		why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
+		if r.anyStale(active) {
+			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
+		} else {
+			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
+		}
 	}
 	if len(running) > 0 {
-		why = append(why, r.referrersFail(running)+" and "+plural(len(running), "runs", "run")+" on known targets: "+strings.Join(running, ", "))
+		if r.anyStale(running) {
+			why = append(why, r.referrersFail(running)+": "+r.whereRun(running))
+		} else {
+			why = append(why, r.referrersFail(running)+" and "+plural(len(running), "runs", "run")+" on known targets: "+strings.Join(running, ", "))
+		}
 	}
 	switch {
 	case r.ReleaseBlocking():
@@ -309,6 +317,47 @@ func (r *Result) blockingGate() (string, string) {
 		return GateUnverified, r.referrersFail(failing) + ": " + strings.Join(failing, ", ") + ". Review each"
 	}
 	return "", ""
+}
+
+// anyStale reports whether any named consumer has target evidence older than
+// the recent window (Decision 4).
+func (r *Result) anyStale(names []string) bool {
+	fresh, _ := r.splitStale(names)
+	return len(fresh) < len(names)
+}
+
+// splitStale splits named consumers into those whose every target is fresh and
+// those with a stale target.
+func (r *Result) splitStale(names []string) (fresh, stale []string) {
+	staleSet := map[string]bool{}
+	for _, c := range r.Consumers {
+		if slices.ContainsFunc(c.Evidence, func(e Evidence) bool { return e.Kind == EvidenceTarget && e.Stale }) {
+			staleSet[c.Service] = true
+		}
+	}
+	for _, n := range names {
+		if staleSet[n] {
+			stale = append(stale, n)
+		} else {
+			fresh = append(fresh, n)
+		}
+	}
+	return fresh, stale
+}
+
+// whereRun says where named consumers run, saying only of fresh ones that they
+// run there: "a runs on a known target; b was last seen on a target more than
+// 24h before asOf".
+func (r *Result) whereRun(names []string) string {
+	fresh, stale := r.splitStale(names)
+	var parts []string
+	if len(fresh) > 0 {
+		parts = append(parts, strings.Join(fresh, ", ")+" "+plural(len(fresh), "runs on a known target", "run on known targets"))
+	}
+	if len(stale) > 0 {
+		parts = append(parts, strings.Join(stale, ", ")+" "+plural(len(stale), "was", "were")+" last seen on a target more than 24h before asOf")
+	}
+	return strings.Join(parts, "; ")
 }
 
 // referrersFail says that n services that reference the changed one fail its
@@ -470,7 +519,9 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	// they join the ad-hoc --traces edges directly when observed evidence is opted in.
 	if opts.IncludeObserved {
 		resolvedObserved = append(resolvedObserved, snapshotObservedEdges(snap)...)
-		if len(resolvedObserved) == 0 {
+		// Only when no edge was supplied at all: unresolved trace edges already
+		// carry their own limitation, and traces did see calls.
+		if len(opts.ObservedEdges) == 0 && len(resolvedObserved) == 0 {
 			res.Limitations = append(res.Limitations, fleet.Limitation{Code: "OBSERVED_EVIDENCE_ABSENT", Source: limitationSource,
 				Message: "observed evidence was asked for, but no observation source and no traces file saw any call, so consumers that call " +
 					string(changed) + " without declaring it cannot be found"})

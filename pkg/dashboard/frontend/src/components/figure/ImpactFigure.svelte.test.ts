@@ -36,6 +36,22 @@ function render(reduced: boolean) {
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; });
 
 describe('ImpactFigure', () => {
+  it('keeps two owners that share a label apart and names their namespace', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    im.consumers.byOwner = [
+      { owner: 'shop', ownerKey: 'dri:shop', consumers: 2, incompatible: 0 },
+      { owner: 'shop', ownerKey: 'team:shop', consumers: 1, incompatible: 1 },
+      { owner: 'core', ownerKey: 'team:core', consumers: 1, incompatible: 0 },
+    ];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    const rows = [...target.querySelectorAll('[data-testid="impact-owners"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(rows).toEqual(['shop (DRI)2 consumers', 'shop (Team)1 consumer, 1 incompatible', 'core1 consumer']);
+    unmount(c);
+  });
   it('renders the same drawing as its final frame and under reduced motion (G2)', async () => {
     const a = render(false);
     await vi.waitFor(() => expect(a.target.querySelector('.ring-on')).toBeTruthy());

@@ -115,6 +115,7 @@ func TestImpactCommand_TracesReadError(t *testing.T) {
 
 // TestImpactCommand_BreakingBlocksActiveConsumer proves the non-zero exit when a
 // breaking change lands on a live, incompatible consumer, and the rich text view.
+// The target has no evidence time, so the reason never says webapp runs there.
 func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeOrders(t, oldDir, "1.0.0", "service")
@@ -122,7 +123,7 @@ func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 	root, ev := impactFleet(t, "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev)
-	if err == nil || !strings.Contains(err.Error(), "breaking changes affect active consumers, which run on known targets and do not accept orders 2.0.0: webapp") {
+	if err == nil || !strings.Contains(err.Error(), "breaking changes affect consumers that do not accept orders 2.0.0: webapp was last seen on a target more than 24h before asOf") {
 		t.Fatalf("expected the blocked reason as the error, got %v", err)
 	}
 	if !strings.Contains(out, "Release gate: blocked") {

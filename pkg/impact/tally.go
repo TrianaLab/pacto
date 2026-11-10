@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Consumer outcomes: a DISJOINT partition of the consumers by what the change does
@@ -158,10 +160,19 @@ func (t ConsumerTallies) OutcomeSummary() string {
 
 // OwnerSummary is the owner ranking in words, with what it leaves out: "team-a 4 (4
 // incompatible), team-b 9; 2 more of other owners; 4 with no identified owner".
+// Rows that share a label name their namespace ("shop (Team)", "shop (DRI)").
 func (t ConsumerTallies) OwnerSummary() string {
+	seen := map[string]int{}
+	for _, o := range t.ByOwner {
+		seen[o.Owner]++
+	}
 	parts := make([]string, 0, len(t.ByOwner))
 	for _, o := range t.ByOwner {
-		s := o.Owner + " " + strconv.Itoa(o.Consumers)
+		label := o.Owner
+		if k, err := contract.ParseOwnerKey(o.OwnerKey); err == nil && seen[o.Owner] > 1 {
+			label = k.Label()
+		}
+		s := label + " " + strconv.Itoa(o.Consumers)
 		if o.Incompatible > 0 {
 			s += " (" + strconv.Itoa(o.Incompatible) + " incompatible)"
 		}

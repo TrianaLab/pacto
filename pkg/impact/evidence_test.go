@@ -249,6 +249,36 @@ func TestObservedEvidenceAbsent(t *testing.T) {
 	}
 }
 
+// A traces file whose every edge is unresolved still saw calls: the unresolved
+// limitation says so, and the absent one would be a false claim.
+func TestObservedEvidenceAbsentNotRaisedForUnresolvedTraces(t *testing.T) {
+	snap := evidenceSnap(t, []fleet.RawRevision{gwRev(authDep)}, []fleet.RawTarget{gwTarget(ago(time.Hour))})
+	res := analyzeAuth(snap, Options{IncludeObserved: true, ObservedEdges: []ObservedEdge{{Consumer: "ghost", Provider: "auth-service"}}})
+	if limitation(res, "OBSERVED_EVIDENCE_ABSENT") != nil || limitation(res, ObservedIdentityUnresolved) == nil {
+		t.Errorf("limitations = %+v", res.Limitations)
+	}
+}
+
+func TestOwnerSummaryNamesNamespaceOfSameLabel(t *testing.T) {
+	team := fleet.RawRevision{Bundle: mkBundle(svcContract("a", "1.0.0", contract.Owner{Team: "shop"}, authDep))}
+	dri := fleet.RawRevision{Bundle: mkBundle(svcContract("b", "1.0.0", contract.Owner{DRI: "shop"}, authDep))}
+	other := fleet.RawRevision{Bundle: mkBundle(svcContract("c", "1.0.0", contract.Owner{Team: "core"}, authDep))}
+	got := analyzeAuth(evidenceSnap(t, []fleet.RawRevision{team, dri, other}, nil), Options{}).ConsumerTallies.OwnerSummary()
+	if !strings.Contains(got, "shop (DRI) 1") || !strings.Contains(got, "shop (Team) 1") || !strings.Contains(got, "core 1") {
+		t.Errorf("summary = %q", got)
+	}
+}
+
+// A blocking consumer whose target evidence is stale is never said to run there.
+func TestBlockingGateReasonSaysStaleConsumerWasLastSeen(t *testing.T) {
+	gw := gwRev(contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	res := analyzeAuth(evidenceSnap(t, []fleet.RawRevision{gw}, []fleet.RawTarget{gwTarget(ago(31 * time.Hour))}), Options{})
+	if res.Gate != GateBlocked || strings.Contains(res.GateReason, "run on known targets") ||
+		!strings.Contains(res.GateReason, "api-gateway was last seen on a target more than 24h before asOf") {
+		t.Errorf("gate %s: %q", res.Gate, res.GateReason)
+	}
+}
+
 func TestResultJSONKeepsFields(t *testing.T) {
 	res := analyzeAuth(buildChain(t), Options{})
 	b, err := json.Marshal(res)
