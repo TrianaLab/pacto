@@ -201,7 +201,8 @@ only.
 points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
 `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
 `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`,
-`pacto_delivery_record_get` and `pacto_delivery_record_verify` for everyone, plus
+`pacto_delivery_record_get`, `pacto_delivery_record_verify` and
+`pacto_delivery_lifecycle` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
 cluster says the caller is an agent. Delivery mode has no approve tool.
 
@@ -237,3 +238,11 @@ a history line names, and returns that record: the change, who asked and
 approved, every verdict with its citation and how to run it again, and whether
 its signature was checked. A record the recorder wrote that does not verify is
 never returned; history lists it as `unverifiedRecord`.
+
+`pacto_delivery_lifecycle` takes a `service` and exactly one of `digest`,
+`version` or `contract`, with optional `domain` and `namespace`, and follows
+that artifact through every Stage of the service you can see: whether it was
+published (`signature`, with the Stages behind it) and, per Stage, its events
+(`arrived`, `left` or `attempted`), whether it verified or failed there (`yes`,
+`no` or `unknown`) and its newest re-check. A Stage whose history is partial
+never reads as "never reached".

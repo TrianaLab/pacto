@@ -117,6 +117,13 @@ func (s *stubDelivery) Record(_ context.Context, ns, stage, id string) (*deliver
 	return &delivery.RecordView{Namespace: ns, Stage: stage, Record: id, Verified: true}, nil
 }
 
+func (s *stubDelivery) Lifecycle(_ context.Context, q delivery.LifecycleQuery) (*delivery.Lifecycle, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Lifecycle{Service: q.Service, Digest: q.Digest + q.Version + q.Contract, Note: q.Namespace + "|" + q.Domain}, nil
+}
+
 func (s *stubDelivery) Status(_ context.Context, q delivery.StatusQuery) (*delivery.ServiceStatus, error) {
 	if s.err != nil {
 		return nil, s.err
@@ -168,7 +175,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify", "pacto_delivery_record_get", "pacto_delivery_status"} {
+	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify", "pacto_delivery_record_get", "pacto_delivery_lifecycle", "pacto_delivery_status"} {
 		if !strings.Contains(read, tool) {
 			t.Fatalf("%s is a read tool: %s", tool, read)
 		}
@@ -179,8 +186,8 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 			t.Fatalf("%s must not be registered: %s", gone, write)
 		}
 	}
-	if n := len(strings.Split(write, ",")); n != 13 {
-		t.Fatalf("want 11 read and 2 write delivery tools, got %d: %s", n, write)
+	if n := len(strings.Split(write, ",")); n != 14 {
+		t.Fatalf("want 12 read and 2 write delivery tools, got %d: %s", n, write)
 	}
 }
 
@@ -534,5 +541,23 @@ func TestRecordGetTool(t *testing.T) {
 	if res := callToolOn(t, server, "pacto_delivery_record_get", map[string]any{"namespace": "prod", "stage": "s", "record": "sha256:x"}); !res.IsError ||
 		!strings.Contains(resultText(t, res), "not in the stream") {
 		t.Fatal("record get must surface the error")
+	}
+}
+
+func TestLifecycleTool(t *testing.T) {
+	api := &stubDelivery{}
+	server := NewDeliveryServer("v", api, false, Authoring{})
+	var l delivery.Lifecycle
+	decode(t, callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments", "version": "3.7.4", "namespace": "prod", "domain": "r"}), &l)
+	if l.Service != "payments" || l.Digest != "3.7.4" || l.Note != "prod|r" {
+		t.Fatalf("lifecycle: %+v", l)
+	}
+	if res := callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"version": "3.7.4"}); !res.IsError {
+		t.Fatal("lifecycle needs a service")
+	}
+	api.err = errors.New("pass exactly one of digest, version or contract")
+	if res := callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "pass exactly one") {
+		t.Fatal("lifecycle must surface the error")
 	}
 }

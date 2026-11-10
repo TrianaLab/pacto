@@ -752,10 +752,7 @@ func publishedDigests(stages []delivery.StageObject, q, service, domain string) 
 		if byService[svc] == nil {
 			byService[svc] = map[string]*PublishedVersion{}
 		}
-		for _, d := range slices.Concat(ss.Published, ss.Offered, ss.Verified, ss.FailedDigests, []string{ss.Pointer}) {
-			if d == "" {
-				continue
-			}
+		for _, d := range delivery.KnownDigests(*st) {
 			v := byService[svc][d]
 			if v == nil {
 				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}

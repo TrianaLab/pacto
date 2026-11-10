@@ -86,6 +86,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryDescribeCommand(v),
 		newDeliveryCandidatesCommand(v, d),
 		newDeliveryStatusCommand(v, d),
+		newDeliveryLifecycleCommand(v, d),
 		newDeliveryPlanCommand(v, d),
 		newDeliveryProposeCommand(v, d),
 		newDeliveryGetCommand(v, d),

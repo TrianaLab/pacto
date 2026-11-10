@@ -144,6 +144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One version's way through delivery
+         * @description For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line.
+         */
+        get: operations["delivery-lifecycle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/operations": {
         parameters: {
             query?: never;
@@ -1421,6 +1441,64 @@ export interface components {
         };
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
+        };
+        "Delivery.LifecycleEvent": {
+            actor: string;
+            actorClass?: string;
+            applied?: string;
+            approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
+            cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
+            finished?: string;
+            from?: string;
+            kind?: string;
+            operation: string;
+            /** @description The Operation's uid, when known */
+            operationUID?: string;
+            outcome?: string;
+            phase?: string;
+            pointer?: components["schemas"]["Delivery.PointerChange"];
+            reason?: string;
+            record?: string;
+            /**
+             * @description arrived: it moved the Stage to this artifact; left: it moved the Stage off it; attempted: it targeted it and moved nothing
+             * @enum {string}
+             */
+            role: "arrived" | "left" | "attempted";
+            /** Format: int64 */
+            seq?: number;
+            since?: string;
+            to?: string;
+            type: string;
+            unverifiedRecord?: string;
+            verification?: string;
+        };
+        "Delivery.LifecycleStage": {
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            environment: string;
+            /** @description Oldest first, at most the newest 50 */
+            events: components["schemas"]["Delivery.LifecycleEvent"][] | null;
+            /**
+             * @description From the Stage's history first, else status.failedDigests; unknown on the same terms as verified
+             * @enum {string}
+             */
+            failed: "yes" | "no" | "unknown";
+            /** @description The newest re-check, when it judged this artifact */
+            lastCheck?: components["schemas"]["Delivery.Recheck"];
+            namespace: string;
+            /** @description Offered downstream after it verified here */
+            offered: boolean;
+            recordsVerified: boolean;
+            running: boolean;
+            /** @enum {string} */
+            source: "records" | "status";
+            stage: string;
+            /**
+             * @description From the Stage's history (the verification outcome of the arrival) first, else status.verified; unknown when the digest is absent from a list at its cap or the Stage's history is partial
+             * @enum {string}
+             */
+            verified: "yes" | "no" | "unknown";
         };
         "Delivery.LocalRef": {
             name: string;
@@ -3446,6 +3524,45 @@ export interface components {
             /** Format: int64 */
             stages: number;
         };
+        LifecycleOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description The digest-pinned contract the artifact names */
+            contract?: string;
+            /** @description The artifact digest Stages point at */
+            digest: string;
+            domain?: string;
+            note: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            service: string;
+            /**
+             * @description The Publish page's rule: signed when a Stage you can see names it in status.published or status.offered; unsigned only when an entry Stage fed by an OCIRepository, whose published list never reached its cap, holds it and none names it signed; else unknown
+             * @enum {string}
+             */
+            signature: "signed" | "unsigned" | "unknown";
+            /** @description The Stages (namespace/name) whose status.published or status.offered names this artifact: the evidence for signed */
+            signedOn: string[] | null;
+            /** @description Stamped by pacto publish; an annotation, not signed */
+            sourceRevision?: string;
+            stages: components["schemas"]["Delivery.LifecycleStage"][] | null;
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+            /** @description The entry Stages whose published list never reached its cap and does not name it: the evidence for unsigned */
+            unsignedOn?: string[] | null;
+            version?: string;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         "Lock.Entry": {
             constraint?: string;
             contentHash?: string;
@@ -5415,6 +5532,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboxOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-lifecycle": {
+        parameters: {
+            query: {
+                /** @description The service, by exact name */
+                service: string;
+                /** @description The service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
+                /** @description The artifact digest Stages point at (one of digest, version or contract) */
+                digest?: string;
+                /** @description The version its contract declares (one of digest, version or contract) */
+                version?: string;
+                /** @description Its contract: a manifest digest or a digest-pinned reference (one of digest, version or contract) */
+                contract?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleOutputBody"];
                 };
             };
             /** @description Unauthorized */

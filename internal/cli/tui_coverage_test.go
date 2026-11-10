@@ -65,6 +65,7 @@ var excludedFromTUI = map[string]string{
 	"delivery describe":      "describes an operation type, not a fleet entity a row could name",
 	"delivery explain":       "explains a delivery Operation, which is not a fleet entity",
 	"delivery get":           "reads a delivery Operation, which is not a fleet entity",
+	"delivery lifecycle":     "follows a version across Stages, which are not fleet entities",
 	"delivery history":       "lists the Operations on a Stage, which is not a fleet entity",
 	"delivery plan":          "plans a change to what runs; it belongs next to the propose it precedes",
 	"delivery propose":       "changes what runs; the TUI never acts",

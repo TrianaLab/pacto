@@ -480,3 +480,31 @@ func TestDemoProgress(t *testing.T) {
 	}
 	t.Logf("checkout: %s %+v", p.State, p.Reasons)
 }
+
+// TestDemoLifecycle: the demo follows a version through its Stages through
+// the dashboard's own handler, with events from the records the tab signed.
+func TestDemoLifecycle(t *testing.T) {
+	d, h := demoServer(t)
+	st, err := d.Stage(t.Context(), story.Prod, "checkout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l delivery.Lifecycle
+	if code := call(t, h, "GET", "/api/delivery/lifecycle?service=checkout&digest="+st.Status.Pointer, "", &l); code != 200 || l.Version == "" {
+		t.Fatalf("lifecycle by digest %d %+v", code, l)
+	}
+	var byVersion delivery.Lifecycle
+	if code := call(t, h, "GET", "/api/delivery/lifecycle?service=checkout&version="+l.Version, "", &byVersion); code != 200 ||
+		byVersion.Digest != st.Status.Pointer || len(byVersion.Stages) == 0 {
+		t.Fatalf("lifecycle by version %d %+v", code, byVersion)
+	}
+	events := 0
+	for _, s := range byVersion.Stages {
+		events += len(s.Events)
+		t.Logf("%s/%s: running %v verified %s failed %s, %d events, %s", s.Namespace, s.Stage, s.Running, s.Verified, s.Failed, len(s.Events), s.Completeness)
+	}
+	if events == 0 {
+		t.Fatalf("no events for checkout %s on the demo Stages: %+v", l.Version, byVersion)
+	}
+	t.Logf("checkout %s: %s %v, %s: %s", l.Version, byVersion.Signature, byVersion.SignedOn, byVersion.Completeness, byVersion.Note)
+}

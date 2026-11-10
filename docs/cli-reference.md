@@ -410,6 +410,25 @@ pacto delivery history [flags]
       --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
 ```
 
+### `pacto delivery lifecycle`
+
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+
+```
+pacto delivery lifecycle [flags]
+```
+
+**Flags:**
+
+```
+      --contract string     its contract: a manifest digest or a digest-pinned reference
+      --digest string       the artifact digest Stages point at
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for lifecycle
+      --service string      the service the version belongs to (required)
+      --version string      the version its contract declares
+```
+
 ### `pacto delivery plan`
 
 Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first

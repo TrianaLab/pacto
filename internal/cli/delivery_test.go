@@ -521,6 +521,7 @@ func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 		{"approve", "x", "--oidc-issuer-url", "https://idp"},
 		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
 		{"record", "get", "sha256:r", "--stage", "s"},
+		{"lifecycle", "--service", "s", "--digest", cliA},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
 			t.Fatalf("%v: %v", args, err)
