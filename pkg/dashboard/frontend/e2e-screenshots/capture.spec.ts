@@ -30,6 +30,16 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
       await expect(p.locator('[data-fig] svg[role="img"]').first()).toBeAttached();
     },
   },
+  // What if redis becomes unavailable: the event link answers on load, and redis has
+  // required and optional dependents, so both the Breaks and the May degrade lanes show.
+  {
+    name: 'change-analysis-event',
+    open: async (p) => {
+      await go(p, '/#/fleet/changes/redis?event=unavailable', 'Change analysis');
+      await expect(p.getByTestId('changes-answer')).toBeVisible();
+      await expect(p.locator('[data-fig] svg[role="img"]').first()).toBeAttached();
+    },
+  },
   { name: 'delivery-stages', open: (p) => go(p, '/#/delivery/environments', 'Stages') },
   { name: 'autonomy', open: (p) => go(p, '/#/delivery/autonomy', 'Autonomy') },
   { name: 'golden-paths', open: (p) => go(p, '/#/fleet/golden-paths', 'Golden paths') },
