@@ -9,12 +9,19 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 )
+
+// fresh is an evidence time within the recent window of a snapshot built now.
+func fresh() *time.Time {
+	t := time.Now()
+	return &t
+}
 
 // mkBundle wraps a contract in an in-memory bundle with an (empty) MapFS. RawYAML
 // is left nil so Build skips validation — the fleet topology, not validity, is
@@ -45,8 +52,8 @@ func buildChain(t *testing.T) *fleet.FleetSnapshot {
 	col := &fleet.Collection{
 		Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(gateway)}, {Bundle: mkBundle(frontend)}},
 		Targets: []fleet.RawTarget{
-			{Scope: "prod", Kind: "deployment", Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant},
-			{Scope: "prod", Kind: "deployment", Name: "gw", Service: "api-gateway", Compliance: fleet.StatusCompliant},
+			{Scope: "prod", Kind: "deployment", Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+			{Scope: "prod", Kind: "deployment", Name: "gw", Service: "api-gateway", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
 		},
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
@@ -88,7 +95,7 @@ func TestAnalyze(t *testing.T) {
 	wantConsumers := []AffectedConsumer{
 		{
 			Service: "api-gateway", Depth: 1, Direct: true, Path: []string{"api-gateway", "auth-service"},
-			Owner: "gateway-team", Required: true, Compatibility: "^1.0.0",
+			Owner: "gateway-team", OwnerKey: "team:gateway-team", Required: true, Compatibility: "^1.0.0",
 			CompatibilityVerdict: CompatibilityIncompatible, Provenance: "declared+observed",
 			Confidence: ConfidenceCorroborated, Status: fleet.StatusCompliant, Targets: []string{"prod/deployment/gw"},
 			Via: []string{fleet.RelationshipDependency, fleet.ProvenanceObserved},
@@ -99,10 +106,16 @@ func TestAnalyze(t *testing.T) {
 			Confidence: ConfidenceInferred, Status: fleet.StatusNotEvaluated,
 		},
 	}
+	// The direct consumer cites its fresh target and the observed call.
+	if ev := res.Consumers[0].Evidence; len(ev) != 2 || ev[0].Kind != EvidenceTarget || ev[0].Stale || ev[1].Kind != EvidenceObservedCall ||
+		ev[1].Message != "calls seen, no observation window" {
+		t.Errorf("evidence = %+v", ev)
+	}
+	res.Consumers[0].Evidence = nil
 	if !reflect.DeepEqual(res.Consumers, wantConsumers) {
 		t.Errorf("consumers = %+v, want %+v", res.Consumers, wantConsumers)
 	}
-	if !reflect.DeepEqual(res.Owners, []string{"gateway-team"}) {
+	if !reflect.DeepEqual(res.Owners, []string{"team:gateway-team"}) {
 		t.Errorf("owners = %v", res.Owners)
 	}
 	if !reflect.DeepEqual(res.ActiveTargets, []string{"prod/deployment/auth", "prod/deployment/gw"}) {
@@ -387,13 +400,13 @@ func TestEdgeEvidence(t *testing.T) {
 	// edgeEvidence only through observedEdges, which the caller gates on
 	// IncludeObserved. Skipping it must still not let it be mistaken for the
 	// declared edge, so the declared claim below is what comes back.
-	rel, declared, observed, _ := edgeEvidence(snap, "a", "b", "1.2.0", nil)
+	rel, declared, observed, _, _ := edgeEvidence(snap, "a", "b", "1.2.0", nil)
 	if !declared || observed || !rel.Required || rel.Compatibility != "^1.0.0" {
 		t.Errorf("edgeEvidence = rel:%+v declared:%v observed:%v", rel, declared, observed)
 	}
 
 	// An observed edge supplied via telemetry (not in the graph) also counts.
-	relT, declaredT, observedT, _ := edgeEvidence(
+	relT, declaredT, observedT, _, _ := edgeEvidence(
 		&fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Resolved: true, Required: true},
 		}},
@@ -413,12 +426,12 @@ func TestEdgeEvidenceWorstRevisionSpeaks(t *testing.T) {
 		{dep("^3.0.0"), dep("not a range"), dep("^2.0.0"), dep("^3.0.0")},
 		{dep("^2.0.0"), dep("^3.0.0"), dep("not a range")},
 	} {
-		if rel, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
+		if rel, _, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
 			t.Errorf("edges %v: the consumer speaks through %q, want ^2.0.0", rels, rel.Compatibility)
 		}
 	}
 	rels := []fleet.Relationship{dep("^3.0.0"), dep("not a range")}
-	if rel, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
+	if rel, _, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
 		t.Errorf("an unreadable range outranks one that accepts, got %q", rel.Compatibility)
 	}
 }
@@ -832,7 +845,7 @@ func configRefSnap(t *testing.T, running bool, consumers ...fleet.RawRevision) *
 		Digest: "sha256:pg", RequestedRef: "oci://x/postgresql:16.1.0",
 	}}, consumers...)}
 	if running {
-		col.Targets = []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "orders", Service: "orders", Compliance: fleet.StatusCompliant}}
+		col.Targets = []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "orders", Service: "orders", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()}}
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
 	if err != nil {
@@ -1036,7 +1049,7 @@ func TestImpactLeavesGoldenPathsOut(t *testing.T) {
 	}
 	revs := &fleet.Collection{Revisions: []fleet.RawRevision{pg, path, refConsumer("orders", "", medium, true, dep)}}
 	running := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{
-		{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "http", Service: "http-service", Compliance: fleet.StatusCompliant},
+		{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "http", Service: "http-service", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
 	}})
 	for _, tt := range []struct {
 		name string

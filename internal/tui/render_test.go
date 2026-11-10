@@ -292,11 +292,11 @@ func TestRenderImpactWithOwners(t *testing.T) {
 		OldVersion:     "1.0.0",
 		NewVersion:     "2.0.0",
 		Classification: "BREAKING",
-		Owners:         []string{"team-a", "team-b"},
+		Owners:         []string{"team:shop", "dri:shop", "legacy"},
 	}
 	got := renderImpact(r)
-	if !strings.Contains(got, "team-a") || !strings.Contains(got, "team-b") {
-		t.Fatal("render should include owners")
+	if !strings.Contains(got, "shop (Team)") || !strings.Contains(got, "shop (DRI)") || !strings.Contains(got, "  legacy\n") {
+		t.Fatalf("render should label owner keys, got:\n%s", got)
 	}
 }
 

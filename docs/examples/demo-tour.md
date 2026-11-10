@@ -186,6 +186,11 @@ from `unverified` to `blocked`. Two deployed targets sit in its path:
 command exits 1. Story 3 refused a change for what it is, and this one for
 where it lands.
 
+`orders-service` now reads `confidence=unknown`. Its target last reported
+evidence long before today, and impact treats target evidence older than 24h
+before the answer as unknown. It still blocks: the evidence says it ran there,
+and nothing says it stopped.
+
 ## Story 5: Compare declared and observed dependencies
 
 *Reconcile the edges contracts declare against the edges something observed.*

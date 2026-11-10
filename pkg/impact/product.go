@@ -31,6 +31,8 @@ const (
 	MaxChangeValueRunes = 400
 	// MaxHighlights bounds [ConsumersPage.Highlights].
 	MaxHighlights = 8
+	// MaxProductConsumerTargets bounds [ProductConsumer.Targets].
+	MaxProductConsumerTargets = 20
 )
 
 // ProductConsumer is an affected consumer with route-neutral references and a
@@ -58,6 +60,20 @@ type ProductConsumer struct {
 	// blocked: the change is BREAKING, the consumer does not accept the new version
 	// or requires a guarantee it does not meet, and it runs on a known target.
 	Blocking bool `json:"blocking,omitempty"`
+	// Provenance, Via, Required, Uncontracted and Evidence are the consumer's
+	// [AffectedConsumer] facts.
+	Provenance   string     `json:"provenance" doc:"Where the consumer is known from: declared, observed, declared+observed or inferred"`
+	Via          []string   `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed"`
+	Required     bool       `json:"required,omitempty" doc:"The consumer declares its dependency on the changed service as required"`
+	Uncontracted bool       `json:"uncontracted,omitempty" doc:"A runtime caller no contract describes: its service reference names no page"`
+	Evidence     []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age, newest first"`
+	// Targets are the targets the consumer runs on, bounded to
+	// MaxProductConsumerTargets; TargetsTotal counts them all.
+	Targets      []fleet.EntityRef `json:"targets,omitempty" doc:"The targets the consumer runs on, at most 20"`
+	TargetsTotal int               `json:"targetsTotal,omitempty" doc:"How many targets the consumer runs on, including those beyond the bound"`
+	// OwnerKey and OwnerRef name the owner canonically; Owner is its label.
+	OwnerKey string           `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop); owner is the display label"`
+	OwnerRef *fleet.EntityRef `json:"ownerRef,omitempty" doc:"A reference to the owner's page"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -154,6 +170,8 @@ type Product struct {
 	Owners         fleet.RefPreview         `json:"owners"`
 	ActiveTargets  fleet.RefPreview         `json:"activeTargets"`
 	Limitations    fleet.LimitationsPreview `json:"limitations"`
+	// ChangedOwner is the changed service's own owner.
+	ChangedOwner *fleet.EntityRef `json:"changedOwner,omitempty" doc:"A reference to the changed service's owner"`
 	// Gate and GateReason are the release gate of the analysis, as
 	// [Result.Gate] and [Result.GateReason].
 	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
@@ -236,35 +254,14 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int, outcome string) *Product {
 	consumers := make([]ProductConsumer, 0, len(res.Consumers))
 	for _, c := range res.Consumers {
-		path := pathRefs(snap, c.Path)
-		pathTotal := len(path)
-		pathTruncated := false
-		if pathTotal > MaxProductPath {
-			path = path[:MaxProductPath]
-			pathTruncated = true
-		}
-		consumers = append(consumers, ProductConsumer{
-			Service:              serviceRef(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service)),
-			Path:                 path,
-			PathTotal:            pathTotal,
-			PathTruncated:        pathTruncated,
-			Depth:                c.Depth,
-			Direct:               c.Direct,
-			Confidence:           string(c.Confidence),
-			CompatibilityVerdict: c.CompatibilityVerdict,
-			Owner:                c.Owner,
-			Note:                 c.Note,
-			Unmet:                slices.Clone(c.Unmet),
-			Compatibility:        c.Compatibility,
-			Blocking:             res.blocks(c),
-		})
+		consumers = append(consumers, productConsumer(snap, res, c))
 	}
 	// Deterministic order so paging is stable across identical requests.
 	sort.Slice(consumers, func(i, j int) bool { return consumers[i].Service.Key < consumers[j].Service.Key })
 
 	owners := make([]fleet.EntityRef, 0, len(res.Owners))
 	for _, o := range res.Owners {
-		owners = append(owners, fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o})
+		owners = append(owners, fleet.OwnerRef(o))
 	}
 	hidden := 0
 	if s := snap.Services[svcKey]; s != nil {
@@ -290,9 +287,57 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
+		ChangedOwner:   ownerRef(res.ChangedOwnerKey),
 		Gate:           res.Gate,
 		GateReason:     res.GateReason,
 	}
+}
+
+// productConsumer is one affected consumer with route-neutral references and
+// a bounded path and target list.
+func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer) ProductConsumer {
+	path := pathRefs(snap, c.Path)
+	pathTotal := len(path)
+	if pathTotal > MaxProductPath {
+		path = path[:MaxProductPath]
+	}
+	var targets []fleet.EntityRef
+	for _, tk := range c.Targets[:min(len(c.Targets), MaxProductConsumerTargets)] {
+		targets = append(targets, targetRef(snap, tk))
+	}
+	return ProductConsumer{
+		Service:              serviceRef(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service)),
+		Path:                 path,
+		PathTotal:            pathTotal,
+		PathTruncated:        pathTotal > MaxProductPath,
+		Depth:                c.Depth,
+		Direct:               c.Direct,
+		Confidence:           string(c.Confidence),
+		CompatibilityVerdict: c.CompatibilityVerdict,
+		Owner:                c.Owner,
+		Note:                 c.Note,
+		Unmet:                slices.Clone(c.Unmet),
+		Compatibility:        c.Compatibility,
+		Blocking:             res.blocks(c),
+		Provenance:           c.Provenance,
+		Via:                  slices.Clone(c.Via),
+		Required:             c.Required,
+		Uncontracted:         c.Uncontracted,
+		Evidence:             slices.Clone(c.Evidence),
+		Targets:              targets,
+		TargetsTotal:         len(c.Targets),
+		OwnerKey:             c.OwnerKey,
+		OwnerRef:             ownerRef(c.OwnerKey),
+	}
+}
+
+// ownerRef is the reference to the owner with canonical key, nil for none.
+func ownerRef(key string) *fleet.EntityRef {
+	if key == "" {
+		return nil
+	}
+	ref := fleet.OwnerRef(key)
+	return &ref
 }
 
 // completenessRank orders completeness from least to most known.
@@ -515,12 +560,10 @@ func limitationsPreview(res *Result) fleet.LimitationsPreview {
 // key, taking the human label from the snapshot record when present and otherwise
 // decoding the key (never re-encoding it).
 func serviceRef(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.EntityRef {
-	name, domain := "", ""
 	if s := snap.Services[key]; s != nil {
-		name, domain = s.Name, s.Domain
-	} else {
-		domain, name = fleet.ParseServiceKey(key)
+		return fleet.ServiceRef(s)
 	}
+	domain, name := fleet.ParseServiceKey(key)
 	return fleet.EntityRef{Kind: fleet.KindService, Key: string(key), Label: name, Domain: domain}
 }
 

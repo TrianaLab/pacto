@@ -13,7 +13,7 @@ Affected consumers (5):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
   audit-log                    direct     confidence=observed     compat=unknown      owner=platform-foundations-security
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
-  orders-service               direct     confidence=corroborated compat=incompatible owner=commerce-team
+  orders-service               direct     confidence=unknown      compat=incompatible owner=commerce-team
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
 By outcome: 2 incompatible, 3 unknown, 0 compatible
 Most affected owners: platform-foundations 2 (1 incompatible), commerce-team 1 (1 incompatible), frontend-team 1, platform-foundations-security 1

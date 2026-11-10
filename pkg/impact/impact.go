@@ -59,6 +59,9 @@ const (
 type ObservedEdge struct {
 	Consumer string
 	Provider string
+	// LastSeen is the latest time the call was seen; nil when the source has
+	// no observation window.
+	LastSeen *time.Time
 }
 
 // Options configures the analysis.
@@ -84,6 +87,7 @@ type AffectedConsumer struct {
 	Direct               bool       `json:"direct"` // depth == 1
 	Path                 []string   `json:"path"`
 	Owner                string     `json:"owner,omitempty"`
+	OwnerKey             string     `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
 	Required             bool       `json:"required"`
 	Compatibility        string     `json:"compatibility,omitempty"`
 	CompatibilityVerdict string     `json:"compatibilityVerdict"`
@@ -105,6 +109,9 @@ type AffectedConsumer struct {
 	// compatible verdict only means the consumer's range accepts the new version,
 	// not that the consumer avoids what the change removes.
 	Note string `json:"note,omitempty"`
+	// Evidence lists the facts behind this consumer and their age, newest
+	// first, bounded to MaxConsumerEvidence.
+	Evidence []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first"`
 	// policyVerdict is the verdict of checking this consumer's contract
 	// against the changed service's new policy, empty when it references no
 	// policy of it. A failed check holds the change whatever its classification.
@@ -143,7 +150,8 @@ type Result struct {
 	NonBreakingChanges []diff.Change      `json:"nonBreakingChanges,omitempty"`
 	Consumers          []AffectedConsumer `json:"consumers"`
 	ActiveTargets      []string           `json:"activeTargets,omitempty"`
-	Owners             []string           `json:"owners,omitempty"`
+	Owners             []string           `json:"owners,omitempty" doc:"The canonical owner keys of the affected consumers"`
+	ChangedOwnerKey    string             `json:"changedOwnerKey,omitempty" doc:"The canonical owner key of the changed service"`
 	Completeness       fleet.Completeness `json:"completeness"`
 	Limitations        []fleet.Limitation `json:"limitations,omitempty"`
 	// LimitationsTruncated reports that the snapshot and analysis produced more
@@ -453,11 +461,20 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	// unresolved/ambiguous ones become explicit limitations and never corroborate.
 	resolvedObserved, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, opts.IncludeObserved)
 	res.Limitations = append(res.Limitations, obsLims...)
+	if len(obsLims) > 0 {
+		// An observed caller Pacto could not name may be a consumer it cannot list.
+		res.Completeness = fleet.CompletenessPartial
+	}
 	// The snapshot may already carry observed relationships folded in by Build (the
 	// real observation pipeline). They are pre-resolved to domain-qualified keys, so
 	// they join the ad-hoc --traces edges directly when observed evidence is opted in.
 	if opts.IncludeObserved {
 		resolvedObserved = append(resolvedObserved, snapshotObservedEdges(snap)...)
+		if len(resolvedObserved) == 0 {
+			res.Limitations = append(res.Limitations, fleet.Limitation{Code: "OBSERVED_EVIDENCE_ABSENT", Source: limitationSource,
+				Message: "observed evidence was asked for, but no observation source and no traces file saw any call, so consumers that call " +
+					string(changed) + " without declaring it cannot be found"})
+		}
 	}
 	res.noteUnresolvedRefs(snap, changed, true)
 	newBundle := &contract.Bundle{Contract: new, FS: newFS}
@@ -466,7 +483,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
 	}
-	res.addPolicyReferrers(snap, changed, newBundle)
+	res.addPolicyReferrers(snap, changed, newBundle, resolvedObserved)
 	if opts.IncludeObserved {
 		for _, u := range snap.UncontractedCallers {
 			if u.ToService == changed {
@@ -479,20 +496,43 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 	res.collectOwnersAndTargets(snap, changed)
+	res.noteStaleConsumers()
 	return res
+}
+
+// noteStaleConsumers raises one counted limitation when the evidence of any
+// consumer is older than the recent window. Completeness is unchanged: the
+// consumer set is complete, where those consumers run is what is uncertain.
+func (r *Result) noteStaleConsumers() {
+	n := 0
+	for _, c := range r.Consumers {
+		if slices.ContainsFunc(c.Evidence, func(e Evidence) bool { return e.Stale }) {
+			n++
+		}
+	}
+	if n == 0 {
+		return
+	}
+	r.Limitations = append(r.Limitations, fleet.Limitation{Code: "CONSUMER_EVIDENCE_STALE", Source: limitationSource,
+		Message: strconv.Itoa(n) + " " + plural(n, "consumer has", "consumers have") +
+			" target or traffic evidence older than 24h before asOf, so " + plural(n, "its", "their") + " confidence is unknown"})
 }
 
 // collectOwnersAndTargets sets Owners to the consumers' owners and
 // ActiveTargets to the targets of the changed service and of its consumers.
+// Owners are canonical keys: display labels merge distinct owners.
 func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) {
 	owners := map[string]bool{}
 	targets := map[string]bool{}
 	for _, tk := range serviceTargets(snap, changed) {
 		targets[tk] = true
 	}
+	if s := snap.Services[changed]; s != nil {
+		r.ChangedOwnerKey = s.Owner.KeyString()
+	}
 	for _, c := range r.Consumers {
-		if c.Owner != "" {
-			owners[c.Owner] = true
+		if c.OwnerKey != "" {
+			owners[c.OwnerKey] = true
 		}
 		for _, tk := range c.Targets {
 			targets[tk] = true
@@ -531,8 +571,16 @@ type consumerNode struct {
 }
 
 // resolvedObservedEdge is an observed caller→provider edge whose endpoints have
-// been resolved to UNIQUE domain-qualified fleet ServiceKeys.
-type resolvedObservedEdge struct{ consumer, provider fleet.ServiceKey }
+// been resolved to UNIQUE domain-qualified fleet ServiceKeys. A stale edge was
+// last seen more than the recent window before the snapshot's time: it still
+// names its caller as a consumer, but it no longer corroborates.
+type resolvedObservedEdge struct {
+	consumer, provider fleet.ServiceKey
+	source             string
+	count              int
+	lastSeen           *time.Time
+	stale              bool
+}
 
 // ObservedIdentityUnresolved is the limitation code for an observed endpoint whose
 // OTel service name could not be mapped to exactly one fleet service. It aliases
@@ -576,7 +624,8 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 		cOK := addLim(e.Consumer, cRes)
 		pOK := addLim(e.Provider, pRes)
 		if cOK && pOK {
-			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk})
+			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk, source: tracesFileSource,
+				lastSeen: copyTime(e.LastSeen), stale: e.LastSeen != nil && staleAt(snap, e.LastSeen)})
 		}
 	}
 	sort.Slice(lims, func(i, j int) bool { return lims[i].Message < lims[j].Message })
@@ -591,10 +640,24 @@ func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 	for _, r := range snap.Relationships {
 		// Observed runtime calls are dependency edges; a reference never makes one.
 		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved {
-			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService})
+			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService, source: observedSource(r),
+				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen)})
 		}
 	}
 	return out
+}
+
+// observedSource names the sources that saw an observed relationship: its
+// sole source, else every source of its per-source breakdown.
+func observedSource(r fleet.Relationship) string {
+	if r.Source != "" {
+		return r.Source
+	}
+	ids := make([]string, 0, len(r.ObservedSources))
+	for _, s := range r.ObservedSources {
+		ids = append(ids, s.Source)
+	}
+	return strings.Join(ids, ", ")
 }
 
 // unionConsumers merges the declared dependents (from the graph) with observed
@@ -627,12 +690,14 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 // changed service's new revision.
 func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newBundle *contract.Bundle, observedEdges []resolvedObservedEdge) AffectedConsumer {
 	newVersion := newBundle.Contract.Service.Version
-	c := consumerBase(snap, node.key, changed)
+	c, stale := consumerBase(snap, node.key, changed, observedEdges)
 	c.Service, c.Depth, c.Direct, c.Path = node.name, node.depth, node.depth == 1, pathConsumerFirst(node.path)
 
-	rel, hasDeclared, observed, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
+	rel, hasDeclared, observed, seen, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
 	// The observedEdges slice is empty unless the caller opted in and the endpoints
 	// resolved to unique domain-qualified keys, so `observed` is already gated.
+	// Only a fresh observed call corroborates; a stale one still makes the
+	// caller a consumer (seen) and lowers its confidence below.
 	observedCounted := observed
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
@@ -652,30 +717,38 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		}
 		c.Note, hasDeclared = note, true
 	}
-	if observedCounted {
+	if seen {
 		c.Via = append(c.Via, fleet.ProvenanceObserved)
 	}
-	c.Provenance = provenance(hasDeclared, observedCounted)
+	c.Provenance = provenance(hasDeclared, seen)
 	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
+	if stale {
+		c.Confidence = ConfidenceUnknown
+	}
 	return c
 }
 
 // consumerBase is what every kind of consumer of changed says about the
-// service key: its name, domain, owner, status and targets. Each consumer
-// builder starts from it, so they never disagree about who a consumer is or
-// where it runs.
-func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey) AffectedConsumer {
+// service key: its name, domain, owner, status, targets and the evidence
+// behind it. Each consumer builder starts from it, so they never disagree
+// about who a consumer is or where it runs. stale reports evidence older than
+// the recent window: the builder sets the confidence to unknown after its own
+// grading, never the reverse.
+func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey, observed []resolvedObservedEdge) (AffectedConsumer, bool) {
 	domain, name := fleet.ParseServiceKey(key)
 	c := AffectedConsumer{Service: name, Domain: domain, Path: []string{string(key), string(changed)}}
+	var stale bool
+	c.Evidence, stale = consumerEvidence(snap, key, changed, observed)
 	if s := snap.Services[key]; s != nil {
 		c.Owner = s.Owner.DisplayString()
+		c.OwnerKey = s.Owner.KeyString()
 		c.Status = s.Status
 		for _, tk := range s.Targets {
 			c.Targets = append(c.Targets, string(tk))
 		}
 		sort.Strings(c.Targets)
 	}
-	return c
+	return c, stale
 }
 
 // edgeEvidence finds the declared dependency edge from consumer→changed and
@@ -697,7 +770,7 @@ func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey) Affe
 // unconditionally, so reading corroboration out of them here would bypass the
 // opt-in; when the caller DOES opt in, snapshotObservedEdges supplies the same
 // edges through observedEdges.
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool, refs []fleet.Relationship) {
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed, seen bool, refs []fleet.Relationship) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if !fleet.ConsumesEdge(r) || r.FromService != consumer || r.ToService != changed {
@@ -714,10 +787,11 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 	}
 	for _, e := range observedEdges {
 		if e.consumer == consumer && e.provider == changed {
-			observed = true
+			seen = true
+			observed = observed || !e.stale
 		}
 	}
-	return rel, declared, observed, refs
+	return rel, declared, observed, seen, refs
 }
 
 // unmetGuarantees lists what the consumer's declared dependencies on the

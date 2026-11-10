@@ -62,7 +62,7 @@ func policySnap(t *testing.T, provider *contract.Contract, running []string, rev
 		Digest: "sha256:policy", RequestedRef: policyRef + ":1.0.0",
 	}}, revs...)}
 	for _, s := range running {
-		col.Targets = append(col.Targets, fleet.RawTarget{Scope: "prod", Kind: "deployment", Name: s, Service: s, Compliance: fleet.StatusCompliant})
+		col.Targets = append(col.Targets, fleet.RawTarget{Scope: "prod", Kind: "deployment", Name: s, Service: s, Compliance: fleet.StatusCompliant, EvidenceAt: fresh()})
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
 	if err != nil {
@@ -90,13 +90,13 @@ func TestPolicyReferrerIncompatibleBlocks(t *testing.T) {
 	if res.Classification != "BREAKING" || res.Gate != GateBlocked || !strings.Contains(res.GateReason, "1 service that references policy fails its new policy and runs on known targets: orders") {
 		t.Errorf("classification %s, gate %s (%s)", res.Classification, res.Gate, res.GateReason)
 	}
-	want := AffectedConsumer{Service: "orders", Depth: 1, Direct: true, Path: []string{"orders", "policy"}, Owner: "orders-team",
+	want := AffectedConsumer{Service: "orders", Depth: 1, Direct: true, Path: []string{"orders", "policy"}, Owner: "orders-team", OwnerKey: "team:orders-team",
 		CompatibilityVerdict: CompatibilityIncompatible, Provenance: fleet.ProvenanceDeclared, Confidence: ConfidenceDeclared,
-		Status: c.Status, Targets: c.Targets, Via: []string{fleet.RelationshipPolicyRef}, Note: c.Note, policyVerdict: CompatibilityIncompatible}
+		Status: c.Status, Targets: c.Targets, Via: []string{fleet.RelationshipPolicyRef}, Note: c.Note, Evidence: c.Evidence, policyVerdict: CompatibilityIncompatible}
 	if !reflect.DeepEqual(c, want) || !strings.Contains(c.Note, "metadata") || !strings.Contains(c.Note, "against policy@2.0.0") || !res.blocks(c) {
 		t.Errorf("consumer = %+v", c)
 	}
-	if !slices.Contains(res.Owners, "orders-team") || len(res.ActiveTargets) != 1 {
+	if !slices.Contains(res.Owners, "team:orders-team") || len(res.ActiveTargets) != 1 {
 		t.Errorf("owners %v, targets %v", res.Owners, res.ActiveTargets)
 	}
 }
@@ -216,9 +216,9 @@ func TestPolicyReferrerHiddenCounted(t *testing.T) {
 		Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: policyProvider("1.0.0"), FS: policySchema(openPolicy)},
 			Digest: "sha256:policy", RequestedRef: policyRef + ":1.0.0"}, ref, both},
 		Targets: []fleet.RawTarget{
-			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "policy", Service: "policy", Compliance: fleet.StatusCompliant},
-			{Scope: "secret", Kind: fleet.SourceKindKubernetes, Name: "r", Service: "secret-ref", Compliance: fleet.StatusCompliant},
-			{Scope: "secret", Kind: fleet.SourceKindKubernetes, Name: "b", Service: "secret-both", Compliance: fleet.StatusCompliant},
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "policy", Service: "policy", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+			{Scope: "secret", Kind: fleet.SourceKindKubernetes, Name: "r", Service: "secret-ref", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+			{Scope: "secret", Kind: fleet.SourceKindKubernetes, Name: "b", Service: "secret-both", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
 		},
 	}
 	full, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))

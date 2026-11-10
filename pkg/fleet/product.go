@@ -263,6 +263,9 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 	}
 }
 
+// ServiceRef is serviceEntityRef for callers outside the package.
+func ServiceRef(s *ServiceRecord) EntityRef { return serviceEntityRef(s) }
+
 // revisionEntityRef builds a route-neutral reference to a contract revision. The
 // label prefers the declared version; the digest is the copyable secondary. An
 // invalid revision carries the Invalid status so the UI never presents it as
@@ -312,6 +315,9 @@ func ownerEntityRef(key string) EntityRef {
 	}
 	return ref
 }
+
+// OwnerRef is ownerEntityRef for callers outside the package.
+func OwnerRef(key string) EntityRef { return ownerEntityRef(key) }
 
 // domainEntityRef builds a route-neutral reference to a business domain.
 func domainEntityRef(name string) EntityRef {

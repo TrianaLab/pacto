@@ -330,7 +330,12 @@ func renderImpact(r *impact.Result) string {
 	if len(r.Owners) > 0 {
 		section(&b, fmt.Sprintf("Owners to review (%d)", len(r.Owners)))
 		for _, owner := range r.Owners {
-			fmt.Fprintf(&b, "  %s\n", safeText(owner))
+			// Owners are canonical keys; the label tells a team from a DRI.
+			label := owner
+			if k, err := contract.ParseOwnerKey(owner); err == nil {
+				label = k.Label()
+			}
+			fmt.Fprintf(&b, "  %s\n", safeText(label))
 		}
 	}
 	return b.String()

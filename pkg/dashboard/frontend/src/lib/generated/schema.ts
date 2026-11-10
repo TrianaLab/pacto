@@ -2114,6 +2114,42 @@ export interface components {
             /** Format: int64 */
             unidentifiedOwnership?: number;
         };
+        "Fleet.EntityRef": {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            created?: number;
+            domain?: string;
+            environment?: string;
+            explanation?: string;
+            /** Format: date-time */
+            fetchedAt?: string;
+            key: string;
+            /** @enum {string} */
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
+            label: string;
+            /** Format: int64 */
+            nonCompliant?: number;
+            offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
+            /** Format: int64 */
+            owned?: number;
+            owner?: string;
+            parentService?: string;
+            scope?: string;
+            secondary?: string;
+            /** Format: int64 */
+            services?: number;
+            /** @enum {string} */
+            signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            status?: string;
+            summary?: string;
+            /** Format: int64 */
+            targets?: number;
+            template?: boolean;
+            version?: string;
+        };
         "Fleet.EnvironmentResult": {
             file: string;
             findings: components["schemas"]["Fleet.LocatedFindingsPreview"];
@@ -3058,8 +3094,12 @@ export interface components {
             depth: number;
             direct: boolean;
             domain?: string;
+            /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
+            evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
             owner?: string;
+            /** @description The canonical owner key (for example team:shop). Group or link by it; owner is the display label */
+            ownerKey?: string;
             path: string[] | null;
             provenance: string;
             required: boolean;
@@ -3095,12 +3135,37 @@ export interface components {
             /** Format: int64 */
             owners: number;
         };
+        "Impact.Evidence": {
+            /**
+             * Format: date-time
+             * @description When the fact was last seen. Empty when the source records no time
+             */
+            at?: string;
+            /**
+             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or a provisioning report
+             * @enum {string}
+             */
+            kind: "observed-call" | "target" | "unreachable" | "lifecycle" | "provisioning";
+            /** @description The fact in plain words */
+            message: string;
+            /**
+             * @description Whether a contract declares the fact or a source observed it
+             * @enum {string}
+             */
+            provenance: "declared" | "observed";
+            /** @description Where the fact comes from: the observation source id, the traces file or the target key */
+            source?: string;
+            /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
+            stale?: boolean;
+        };
         "Impact.OwnerTally": {
             /** Format: int64 */
             consumers: number;
             /** Format: int64 */
             incompatible: number;
             owner: string;
+            /** @description The owner's canonical key (for example team:shop): the ranking groups by it */
+            ownerKey?: string;
         };
         "Impact.ProductChange": {
             classification: string;
@@ -3117,6 +3182,8 @@ export interface components {
             /** Format: date-time */
             asOf: string;
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description The canonical owner key of the changed service */
+            changedOwnerKey?: string;
             classification: string;
             completeness: string;
             consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
@@ -3130,6 +3197,7 @@ export interface components {
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             oldVersion?: string;
+            /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             schemaVersion: string;
@@ -3597,6 +3665,8 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
+            /** @description A reference to the changed service's owner */
+            changedOwner?: components["schemas"]["Fleet.EntityRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
@@ -3620,14 +3690,35 @@ export interface components {
             /** Format: int64 */
             depth: number;
             direct: boolean;
+            /** @description The facts behind this consumer and their age, newest first */
+            evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
             owner?: string;
+            /** @description The canonical owner key (for example team:shop); owner is the display label */
+            ownerKey?: string;
+            /** @description A reference to the owner's page */
+            ownerRef?: components["schemas"]["Fleet.EntityRef"];
             path: components["schemas"]["ProductRef"][] | null;
             /** Format: int64 */
             pathTotal: number;
             pathTruncated: boolean;
+            /** @description Where the consumer is known from: declared, observed, declared+observed or inferred */
+            provenance: string;
+            /** @description The consumer declares its dependency on the changed service as required */
+            required?: boolean;
             service: components["schemas"]["ProductRef"];
+            /** @description The targets the consumer runs on, at most 20 */
+            targets?: components["schemas"]["Fleet.EntityRef"][] | null;
+            /**
+             * Format: int64
+             * @description How many targets the consumer runs on, including those beyond the bound
+             */
+            targetsTotal?: number;
+            /** @description A runtime caller no contract describes: its service reference names no page */
+            uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            via?: string[] | null;
         };
         ProductImpactConsumersPage: {
             /** Format: int64 */

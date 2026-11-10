@@ -46,3 +46,14 @@ func TestImpactGateHoldsIncompatiblePolicyReferrer(t *testing.T) {
 		t.Fatalf("impact verdict %+v, floor %+v, question %q", v, p.Floor, p.Question)
 	}
 }
+
+// TestImpactGateOwnersStayDisplay: impact answers name owners by canonical key,
+// but the question a breaking change asks still goes to the team's display
+// name, which is what admission compares with team membership.
+func TestImpactGateOwnersStayDisplay(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, checkoutPacto("^1.0.0"))
+	if strings.Join(p.Floor.Owners, ",") != "team-checkout" {
+		t.Fatalf("floor owners = %v, want the display name team-checkout", p.Floor.Owners)
+	}
+}

@@ -28,7 +28,10 @@ const MaxOwnerRanking = 5
 
 // OwnerTally is one owner's share of the affected consumers.
 type OwnerTally struct {
+	// Owner is the owner's display label. OwnerKey is its canonical key, empty
+	// when the consumers name an owner with no canonical identity.
 	Owner     string `json:"owner"`
+	OwnerKey  string `json:"ownerKey,omitempty" doc:"The owner's canonical key (for example team:shop): the ranking groups by it"`
 	Consumers int    `json:"consumers"`
 	// Incompatible counts this owner's consumers whose outcome is incompatible.
 	Incompatible int `json:"incompatible"`
@@ -66,8 +69,8 @@ func outcomeOf(verdict string, refused bool) string {
 }
 
 type consumerFact struct {
-	verdict, owner string
-	refused        bool
+	verdict, owner, ownerKey string
+	refused                  bool
 }
 
 func tallyFacts(facts []consumerFact) ConsumerTallies {
@@ -81,10 +84,15 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 			t.NoOwner++
 			continue
 		}
-		ot := byOwner[f.owner]
+		// Group by canonical key when there is one: two owners can share a label.
+		group := "label:" + f.owner
+		if f.ownerKey != "" {
+			group = "key:" + f.ownerKey
+		}
+		ot := byOwner[group]
 		if ot == nil {
-			ot = &OwnerTally{Owner: f.owner}
-			byOwner[f.owner] = ot
+			ot = &OwnerTally{Owner: f.owner, OwnerKey: f.ownerKey}
+			byOwner[group] = ot
 		}
 		ot.Consumers++
 		if o == OutcomeIncompatible {
@@ -106,7 +114,10 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 		if a.Consumers != b.Consumers {
 			return a.Consumers > b.Consumers
 		}
-		return a.Owner < b.Owner
+		if a.Owner != b.Owner {
+			return a.Owner < b.Owner
+		}
+		return a.OwnerKey < b.OwnerKey
 	})
 	t.Owners = len(ranked)
 	for _, o := range ranked[min(len(ranked), MaxOwnerRanking):] {
@@ -120,7 +131,7 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 func (r *Result) tally() {
 	facts := make([]consumerFact, 0, len(r.Consumers))
 	for _, c := range r.Consumers {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, refused: len(c.Unmet) > 0})
 	}
 	r.ConsumerTallies = tallyFacts(facts)
 }
@@ -128,7 +139,7 @@ func (r *Result) tally() {
 func tallyProductConsumers(all []ProductConsumer) ConsumerTallies {
 	facts := make([]consumerFact, 0, len(all))
 	for _, c := range all {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, refused: len(c.Unmet) > 0})
 	}
 	return tallyFacts(facts)
 }

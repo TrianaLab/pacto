@@ -97,7 +97,7 @@ func messages(errs []contract.ValidationError, suffix string) string {
 // policy reference as consumers, each checked against the new revision's
 // policy. A referrer that is already a consumer keeps one row: the verdict
 // that accepts least speaks and Via lists both edge types.
-func (r *Result) addPolicyReferrers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, provider *contract.Bundle) {
+func (r *Result) addPolicyReferrers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, provider *contract.Bundle, observed []resolvedObservedEdge) {
 	refs := policyReferrers(snap, changed)
 	keys := make([]fleet.ServiceKey, 0, len(refs))
 	for k := range refs {
@@ -106,8 +106,11 @@ func (r *Result) addPolicyReferrers(snap *fleet.FleetSnapshot, changed fleet.Ser
 	slices.Sort(keys)
 	unchecked := 0
 	for _, k := range keys {
-		c := consumerBase(snap, k, changed)
+		c, stale := consumerBase(snap, k, changed, observed)
 		c.Depth, c.Direct, c.Provenance, c.Confidence = 1, true, fleet.ProvenanceDeclared, ConfidenceDeclared
+		if stale {
+			c.Confidence = ConfidenceUnknown
+		}
 		c.Via = []string{fleet.RelationshipPolicyRef}
 		c.CompatibilityVerdict, c.Note = policyRefVerdict(snap, refs[k], provider)
 		c.policyVerdict = c.CompatibilityVerdict

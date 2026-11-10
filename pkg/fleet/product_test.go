@@ -451,3 +451,14 @@ func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
 		}
 	}
 }
+
+// ServiceRef and OwnerRef are the exported forms of the package's own refs.
+func TestExportedRefs(t *testing.T) {
+	s := &ServiceRecord{Key: "shop/api", Name: "api", Domain: "shop", BusinessDomain: "payments"}
+	if ServiceRef(s) != serviceEntityRef(s) {
+		t.Errorf("ServiceRef = %+v", ServiceRef(s))
+	}
+	if got := OwnerRef("team:shop"); got != (EntityRef{Kind: KindOwner, Key: "team:shop", Label: "shop", Secondary: "Team"}) {
+		t.Errorf("OwnerRef = %+v", got)
+	}
+}

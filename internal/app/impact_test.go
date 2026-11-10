@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -348,5 +349,30 @@ func TestService_ImpactOnSnapshot(t *testing.T) {
 	}
 	if !missing {
 		t.Errorf("limitations %+v lack SERVICE_NOT_IN_FLEET", bound.Limitations)
+	}
+}
+
+// A trace edge keeps the end time of its latest span, so impact can tell a
+// call seen today from one seen last week; a span with no time gives none.
+func TestObservedEdgesFromTracesKeepLastSeen(t *testing.T) {
+	span := func(callee, end string) string {
+		return `{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,` +
+			`"startTimeUnixNano":"` + end + `","endTimeUnixNano":"` + end + `","attributes":[{"key":"peer.service","value":{"stringValue":"` + callee + `"}}]}]}]}`
+	}
+	edges, err := observedEdgesFromTraces([]byte(`{"resourceSpans":[` + span("orders", "5000") + `,` + span("stock", "") + `]}`))
+	if err != nil || len(edges) != 2 {
+		t.Fatalf("edges = %+v, err %v", edges, err)
+	}
+	for _, e := range edges {
+		switch e.Provider {
+		case "orders":
+			if e.LastSeen == nil || !e.LastSeen.Equal(time.Unix(0, 5000)) {
+				t.Errorf("orders lastSeen = %v", e.LastSeen)
+			}
+		default:
+			if e.LastSeen != nil {
+				t.Errorf("%s lastSeen = %v, want none", e.Provider, e.LastSeen)
+			}
+		}
 	}
 }
