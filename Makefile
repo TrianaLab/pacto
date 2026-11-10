@@ -167,6 +167,11 @@ e2e-otel: test-acceptance-local
 # ensures Chromium is installed, then runs the Playwright suite against the built
 # app over FIXED data. Deliberately separate from test-browser-live: determinism
 # and liveness are different properties and a merged suite proves neither.
+#
+# PW_SHARD=i/n runs one Playwright slice (CI shards the suite to fit its timeout).
+# Every shard builds the demo and the doc export it needs; the engine smoke runs
+# only when PW_SHARD is unset or names shard 1, so it is neither duplicated nor dropped.
+PW_SHARD ?=
 test-browser:
 	$(MAKE) -C examples/demo build
 # The legacy non-Fleet views ship in the same bundle but no live host serves them:
@@ -181,8 +186,8 @@ test-browser:
 # check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
 # stops the two compared revisions from differing incompatibly. Before Playwright,
 # because a broken engine makes the browser failures downstream noise.
-	$(MAKE) -C examples/demo smoke
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
+	$(if $(filter-out 1/%,$(PW_SHARD)),@echo "engine smoke runs in shard 1 only; skipped in shard $(PW_SHARD)",$(MAKE) -C examples/demo smoke)
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e$(if $(PW_SHARD), -- --shard=$(PW_SHARD))
 e2e-dashboard-wasm: test-browser
 
 # The full SPEC 23 resolution matrix: every named viewport from a 320px phone to a
