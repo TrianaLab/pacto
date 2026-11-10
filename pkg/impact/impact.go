@@ -16,6 +16,7 @@ package impact
 import (
 	"context"
 	"io/fs"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,6 +94,8 @@ type AffectedConsumer struct {
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
+	// Via lists the edge types that make this service a consumer.
+	Via []string `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed"`
 	// Unmet lists the guarantees this consumer declares it requires from the
 	// changed service that the new revision does not meet, over every revision
 	// of the consumer the snapshot holds. A consumer with an unmet guarantee
@@ -102,6 +105,10 @@ type AffectedConsumer struct {
 	// compatible verdict only means the consumer's range accepts the new version,
 	// not that the consumer avoids what the change removes.
 	Note string `json:"note,omitempty"`
+	// policyVerdict is the verdict of checking this consumer's contract
+	// against the changed service's new policy, empty when it references no
+	// policy of it. A failed check holds the change whatever its classification.
+	policyVerdict string
 }
 
 // Release gate values (see [Result.Gate]).
@@ -178,20 +185,20 @@ func (r *Result) boundEnvelope() {
 }
 
 // ReleaseBlocking reports whether this change is the kind `pacto impact` fails
-// on: a breaking change that reaches a consumer which is both broken
-// (incompatible, or with an unmet guarantee) and actually deployed. A consumer
-// that is broken on paper but running nowhere the snapshot can see is not a
-// release blocker.
+// on: it reaches a consumer that is actually deployed and either broken by a
+// breaking change (incompatible, or with an unmet guarantee) or failing the
+// new policy (see [Result.blocks]). A consumer that is broken on paper but
+// running nowhere the snapshot can see is not a release blocker.
 func (r *Result) ReleaseBlocking() bool {
-	active, _ := r.blockingConsumers()
-	return len(active) > 0
+	return slices.ContainsFunc(r.Consumers, r.blocks)
 }
 
-// blockingConsumers names the consumers that make the change release
-// blocking, and whether any of them is blocked by an unmet guarantee.
+// blockingConsumers names the consumers that make a BREAKING change release
+// blocking through a range or a guarantee, and whether any of them is blocked
+// by an unmet guarantee. Policy referrers are named by policyFailures.
 func (r *Result) blockingConsumers() (active []string, unmet bool) {
 	for _, c := range r.Consumers {
-		if r.blocks(c) {
+		if r.breaks(c) {
 			active = append(active, c.Service)
 			unmet = unmet || len(c.Unmet) > 0
 		}
@@ -199,11 +206,32 @@ func (r *Result) blockingConsumers() (active []string, unmet bool) {
 	return active, unmet
 }
 
-// blocks reports whether one consumer makes the change release blocking: the
-// change is BREAKING, the consumer is broken (incompatible, or with an unmet
-// guarantee) and it runs on a known target. The gate and the product answer's
-// per-consumer Blocking flag both read it, so they never disagree.
+// policyFailures names the consumers whose contract fails the changed
+// service's new policy, and those of them that run on a known target.
+func (r *Result) policyFailures() (failing, running []string) {
+	for _, c := range r.Consumers {
+		if c.policyVerdict == CompatibilityIncompatible {
+			failing = append(failing, c.Service)
+			if len(c.Targets) > 0 {
+				running = append(running, c.Service)
+			}
+		}
+	}
+	return failing, running
+}
+
+// blocks reports whether one consumer makes the change release blocking: it
+// runs on a known target and either the change is BREAKING and the consumer
+// is broken (incompatible, or with an unmet guarantee), or its contract fails
+// the new policy, whatever the classification. The gate and the product
+// answer's per-consumer Blocking flag both read it, so they never disagree.
 func (r *Result) blocks(c AffectedConsumer) bool {
+	return r.breaks(c) || c.policyVerdict == CompatibilityIncompatible && len(c.Targets) > 0
+}
+
+// breaks reports whether a BREAKING change breaks a consumer that runs on a
+// known target through its range or a guarantee it requires.
+func (r *Result) breaks(c AffectedConsumer) bool {
 	return r.Classification == "BREAKING" &&
 		(c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
@@ -214,21 +242,20 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 // changed one: a partial answer may be missing consumers, and a consumer that
 // is incompatible on paper, has no usable range or only matches by range is a
 // consumer nobody has shown to be safe.
+//
+// A consumer whose contract fails the new policy holds any change, whatever
+// its classification: the diff cannot see a policy the provider tightened by
+// adding one of its own, but the check against the referrer's document can.
 func (r *Result) gate() (string, string) {
+	if gate, why := r.blockingGate(); gate != "" {
+		return gate, why
+	}
 	switch r.Classification {
 	case "BREAKING":
 	case "POTENTIAL_BREAKING":
 		return GateClear, "the change is POTENTIAL_BREAKING: the gate holds only BREAKING changes, so review the potentially breaking changes by hand"
 	default:
 		return GateClear, "the change is " + r.Classification
-	}
-	if r.ReleaseBlocking() {
-		active, unmet := r.blockingConsumers()
-		why := "do not accept " + r.Service + " " + r.NewVersion
-		if unmet {
-			why += " or require a guarantee it does not meet"
-		}
-		return GateBlocked, "breaking changes affect active consumers, which run on known targets and " + why + ": " + strings.Join(active, ", ")
 	}
 	if hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET") {
 		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
@@ -248,6 +275,48 @@ func (r *Result) gate() (string, string) {
 			"(for example --target-state) to tell deployed impact apart"
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// blockingGate is the gate when a consumer is shown to break: blocked when one
+// runs on a known target, unverified when only policy referrers that run
+// nowhere known fail the new policy, and "" otherwise.
+func (r *Result) blockingGate() (string, string) {
+	active, unmet := r.blockingConsumers()
+	failing, running := r.policyFailures()
+	var why []string
+	if len(active) > 0 {
+		accept := "do not accept " + r.Service + " " + r.NewVersion
+		if unmet {
+			accept += " or require a guarantee it does not meet"
+		}
+		why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
+	}
+	if len(running) > 0 {
+		why = append(why, r.referrersFail(running)+" and "+plural(len(running), "runs", "run")+" on known targets: "+strings.Join(running, ", "))
+	}
+	switch {
+	case r.ReleaseBlocking():
+		return GateBlocked, strings.Join(why, "; ")
+	case len(failing) > 0:
+		return GateUnverified, r.referrersFail(failing) + ": " + strings.Join(failing, ", ") + ". Review each"
+	}
+	return "", ""
+}
+
+// referrersFail says that n services that reference the changed one fail its
+// new policy.
+func (r *Result) referrersFail(names []string) string {
+	n := len(names)
+	return strconv.Itoa(n) + " " + plural(n, "service that references", "services that reference") + " " + r.Service + " " +
+		plural(n, "fails", "fail") + " its new policy"
+}
+
+// plural picks one or many by n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // unmetNote names the consumers the new revision refuses a guarantee they
@@ -390,24 +459,38 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	if opts.IncludeObserved {
 		resolvedObserved = append(resolvedObserved, snapshotObservedEdges(snap)...)
 	}
-	owners := map[string]bool{}
-	targets := map[string]bool{}
-	for _, tk := range serviceTargets(snap, changed) {
-		targets[tk] = true
-	}
-	if n := unresolvedConfigRefConsumers(snap, changed); n > 0 {
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "CONFIG_REF_CONSUMERS_UNRESOLVED", Source: limitationSource,
-			Message: strconv.Itoa(n) + " configuration references name " + string(changed) +
-				" but are not digest-pinned or locked, so Pacto cannot tell which revision they consume",
-		})
-	}
+	res.noteUnresolvedRefs(snap, changed, true)
 	newBundle := &contract.Bundle{Contract: new, FS: newFS}
 	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
 		c := consumerImpact(snap, changed, cn, newBundle, resolvedObserved)
 		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
+	}
+	res.addPolicyReferrers(snap, changed, newBundle)
+	if opts.IncludeObserved {
+		for _, u := range snap.UncontractedCallers {
+			if u.ToService == changed {
+				res.Consumers = append(res.Consumers, AffectedConsumer{
+					Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
+					CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
+					Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved},
+				})
+			}
+		}
+	}
+	res.collectOwnersAndTargets(snap, changed)
+	return res
+}
+
+// collectOwnersAndTargets sets Owners to the consumers' owners and
+// ActiveTargets to the targets of the changed service and of its consumers.
+func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) {
+	owners := map[string]bool{}
+	targets := map[string]bool{}
+	for _, tk := range serviceTargets(snap, changed) {
+		targets[tk] = true
+	}
+	for _, c := range r.Consumers {
 		if c.Owner != "" {
 			owners[c.Owner] = true
 		}
@@ -415,20 +498,28 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			targets[tk] = true
 		}
 	}
-	if opts.IncludeObserved {
-		for _, u := range snap.UncontractedCallers {
-			if u.ToService == changed {
-				res.Consumers = append(res.Consumers, AffectedConsumer{
-					Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
-					CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
-					Confidence: ConfidenceObserved, Uncontracted: true,
-				})
-			}
+	r.Owners = sortedKeys(owners)
+	r.ActiveTargets = sortedKeys(targets)
+}
+
+// noteUnresolvedRefs makes the answer partial when configuration references,
+// and with withPolicy policy references, may name changed but did not resolve:
+// they may consume or check against it, at a revision Pacto cannot tell.
+func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, withPolicy bool) {
+	note := func(code, relType, what, verb string) {
+		n := unresolvedRefConsumers(snap, changed, relType)
+		if n == 0 {
+			return
 		}
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{Code: code, Source: limitationSource,
+			Message: strconv.Itoa(n) + " " + what + " name " + string(changed) +
+				" but are not digest-pinned or locked, so Pacto cannot tell which revision they " + verb})
 	}
-	res.Owners = sortedKeys(owners)
-	res.ActiveTargets = sortedKeys(targets)
-	return res
+	note("CONFIG_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipConfigRef, "configuration references", "consume")
+	if withPolicy {
+		note("POLICY_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipPolicyRef, "policy references", "check against")
+	}
 }
 
 // consumerNode identifies one affected consumer and its position in the graph.
@@ -536,22 +627,8 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 // changed service's new revision.
 func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newBundle *contract.Bundle, observedEdges []resolvedObservedEdge) AffectedConsumer {
 	newVersion := newBundle.Contract.Service.Version
-	domain, _ := fleet.ParseServiceKey(node.key)
-	c := AffectedConsumer{
-		Service: node.name,
-		Domain:  domain,
-		Depth:   node.depth,
-		Direct:  node.depth == 1,
-		Path:    pathConsumerFirst(node.path),
-	}
-	if s := snap.Services[node.key]; s != nil {
-		c.Owner = s.Owner.DisplayString()
-		c.Status = s.Status
-		for _, tk := range s.Targets {
-			c.Targets = append(c.Targets, string(tk))
-		}
-		sort.Strings(c.Targets)
-	}
+	c := consumerBase(snap, node.key, changed)
+	c.Service, c.Depth, c.Direct, c.Path = node.name, node.depth, node.depth == 1, pathConsumerFirst(node.path)
 
 	rel, hasDeclared, observed, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
 	// The observedEdges slice is empty unless the caller opted in and the endpoints
@@ -560,7 +637,11 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
+	if hasDeclared {
+		c.Via = append(c.Via, fleet.RelationshipDependency)
+	}
 	if len(refs) > 0 {
+		c.Via = append(c.Via, fleet.RelationshipConfigRef)
 		// Pacto judges the consumer's configuration-reference values against
 		// the new revision's schema itself; with a dependency too, the check
 		// that accepts the change least speaks, so a range match never masks
@@ -571,8 +652,29 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		}
 		c.Note, hasDeclared = note, true
 	}
+	if observedCounted {
+		c.Via = append(c.Via, fleet.ProvenanceObserved)
+	}
 	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
+	return c
+}
+
+// consumerBase is what every kind of consumer of changed says about the
+// service key: its name, domain, owner, status and targets. Each consumer
+// builder starts from it, so they never disagree about who a consumer is or
+// where it runs.
+func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey) AffectedConsumer {
+	domain, name := fleet.ParseServiceKey(key)
+	c := AffectedConsumer{Service: name, Domain: domain, Path: []string{string(key), string(changed)}}
+	if s := snap.Services[key]; s != nil {
+		c.Owner = s.Owner.DisplayString()
+		c.Status = s.Status
+		for _, tk := range s.Targets {
+			c.Targets = append(c.Targets, string(tk))
+		}
+		sort.Strings(c.Targets)
+	}
 	return c
 }
 

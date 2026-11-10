@@ -268,7 +268,7 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 	}
 	hidden := 0
 	if s := snap.Services[svcKey]; s != nil {
-		hidden = s.HiddenDependents
+		hidden = s.HiddenDependents + s.HiddenPolicyReferrers
 	}
 	// meta describes the snapshot; the analysis can know less than it (a truncated
 	// blast radius, a service missing from the fleet), and the answer must say so.

@@ -123,13 +123,13 @@ func (m providerByRef) ResolveBundle(_ context.Context, ref string) (*contract.B
 	return nil, errors.New("impact checks one revision and does not follow " + ref)
 }
 
-// unresolvedConfigRefConsumers counts the declared configuration references the
-// snapshot could not resolve that may name changed: by the repository of one of
+// unresolvedRefConsumers counts the declared references of relType
+// (configuration or policy) the snapshot could not resolve that may name changed: by the repository of one of
 // its revisions, or, as dependencies resolve, by a last path segment that is its
 // name (with or without -pacto), which also covers a fleet read from
-// directories and a relative ref. They may consume it, at a revision Pacto
-// cannot tell.
-func unresolvedConfigRefConsumers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) int {
+// directories and a relative ref. They may consume or check against it, at a
+// revision Pacto cannot tell.
+func unresolvedRefConsumers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, relType string) int {
 	_, name := fleet.ParseServiceKey(changed)
 	repos := map[string]bool{}
 	for _, rev := range snap.Revisions {
@@ -144,7 +144,7 @@ func unresolvedConfigRefConsumers(snap *fleet.FleetSnapshot, changed fleet.Servi
 	}
 	n := 0
 	for _, r := range snap.Relationships {
-		if r.Type != fleet.RelationshipConfigRef || r.Provenance != fleet.ProvenanceDeclared || r.Resolved {
+		if r.Type != relType || r.Provenance != fleet.ProvenanceDeclared || r.Resolved {
 			continue
 		}
 		repo := repository(r.RequestedRef)

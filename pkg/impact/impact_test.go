@@ -91,6 +91,7 @@ func TestAnalyze(t *testing.T) {
 			Owner: "gateway-team", Required: true, Compatibility: "^1.0.0",
 			CompatibilityVerdict: CompatibilityIncompatible, Provenance: "declared+observed",
 			Confidence: ConfidenceCorroborated, Status: fleet.StatusCompliant, Targets: []string{"prod/deployment/gw"},
+			Via: []string{fleet.RelationshipDependency, fleet.ProvenanceObserved},
 		},
 		{
 			Service: "frontend", Depth: 2, Direct: false, Path: []string{"frontend", "api-gateway", "auth-service"},
@@ -693,7 +694,7 @@ func TestAnalyze_UncontractedCallers(t *testing.T) {
 	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true})
 	want := []AffectedConsumer{{Service: "k8s:pay/Deployment/legacy", Depth: 1, Direct: true,
 		Path: []string{"k8s:pay/Deployment/legacy", "auth-service"}, CompatibilityVerdict: CompatibilityUnknown,
-		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true}}
+		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved}}}
 	if !reflect.DeepEqual(res.Consumers, want) {
 		t.Fatalf("consumers = %+v\nwant %+v", res.Consumers, want)
 	}
@@ -963,9 +964,9 @@ func TestUnresolvedConfigRefConsumersByName(t *testing.T) {
 			t.Errorf("%s: gate %s (%s), limitations %+v", ref, res.Gate, res.GateReason, res.Limitations)
 		}
 	}
-	if n := unresolvedConfigRefConsumers(&fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
+	if n := unresolvedRefConsumers(&fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
 		Type: fleet.RelationshipConfigRef, Provenance: fleet.ProvenanceDeclared, RequestedRef: "oci://x/redis:7",
-	}}}, fleet.NewServiceKey("postgresql")); n != 0 {
+	}}}, fleet.NewServiceKey("postgresql"), fleet.RelationshipConfigRef); n != 0 {
 		t.Errorf("a ref to another name counted %d", n)
 	}
 }

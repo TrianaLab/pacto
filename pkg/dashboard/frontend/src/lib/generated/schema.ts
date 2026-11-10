@@ -2740,6 +2740,8 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            /** Format: int64 */
+            hiddenPolicyReferrers?: number;
             key: string;
             labels?: {
                 [key: string]: string;
@@ -3066,6 +3068,8 @@ export interface components {
             targets?: string[] | null;
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            via?: string[] | null;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
