@@ -139,8 +139,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 
 // impactEventFlagHelp is the help of each event flag.
 var impactEventFlagHelp = map[string]string{
-	impact.EventUnavailable: "what happens if this service (a fleet service key) becomes unavailable",
-	impact.EventRemoved:     "what happens if this service (a fleet service key) is removed",
+	impact.EventUnavailable: "what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable",
+	impact.EventRemoved:     "what happens if this service (a fleet service key, or a name only one domain holds) is removed",
 	impact.EventRegressed:   "what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures",
 }
 

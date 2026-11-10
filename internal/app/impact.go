@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -161,12 +162,20 @@ func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*im
 
 // ImpactEventOnSnapshot answers the event over snap, an already-built
 // snapshot (the one on screen, or the caller's view). opts.Fleet is ignored.
+// A bare service name resolves to the one service of that name; a name
+// several domains share is refused with their keys, and a name the snapshot
+// does not hold answers SERVICE_NOT_IN_FLEET.
 func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
 	ev := opts.Event
+	if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
+		ev.Service = string(view.Service.Key)
+	} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
+		return nil, err
+	}
 	return impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
 		Event: &ev, ObservedEdges: observed, Regression: opts.Regression,
 	}), nil

@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"slices"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -447,5 +450,28 @@ func TestParseEventFlag(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("%s %q = %+v %v, want %+v", tc.kind, tc.value, got, err, tc.want)
 		}
+	}
+}
+
+// A bare name resolves to the one service of that name in any domain; a name
+// two domains share is refused with their keys.
+func TestImpactEventResolvesABareName(t *testing.T) {
+	raw := func(domain, name string) fleet.RawRevision {
+		return fleet.RawRevision{Domain: domain, Bundle: &contract.Bundle{FS: fstest.MapFS{},
+			Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}}}
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("m", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{raw("ghcr.io/shop", "orders"), raw("ghcr.io/shop", "cart"), raw("ghcr.io/pay", "cart")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(nil, nil)
+	res, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "orders"}}, snap)
+	if err != nil || res.Event.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) || slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == "SERVICE_NOT_IN_FLEET" }) {
+		t.Fatalf("bare name = %+v %v", res, err)
+	}
+	if _, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "cart"}}, snap); err == nil ||
+		!strings.Contains(err.Error(), "is ambiguous") {
+		t.Fatalf("ambiguous name: %v", err)
 	}
 }

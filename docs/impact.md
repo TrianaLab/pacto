@@ -175,8 +175,8 @@ $ echo $?
 2
 ```
 
-Give the snapshot a source that knows where things run and the same command
-blocks:
+Give the snapshot a source that knows where things run, with evidence from
+the last 24 hours, and the same command blocks:
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml
@@ -187,6 +187,7 @@ Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
     path: web > api  provenance: declared  via: dependency
+    evidence: target production/kubernetes-workload/shop%2Fweb 10m0s before asOf
 By outcome: 1 incompatible, 0 unknown, 0 compatible
 Most affected owners: frontend 1 (1 incompatible)
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
