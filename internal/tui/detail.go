@@ -166,6 +166,15 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.ActiveRevisions.Total-len(s.ActiveRevisions.Items))) + "\n")
 		}
 	}
+	if s.Placement.Total > 0 {
+		section(b, "Runs in (observed)")
+		for _, e := range s.Placement.Items {
+			fmt.Fprintf(b, "  %s\n", safeText(e.Line()))
+		}
+		if s.Placement.Truncated {
+			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d more environments", s.Placement.Total-s.Placement.Count)) + "\n")
+		}
+	}
 	renderTemplateDetail(b, s.Template)
 	renderOriginDetail(b, s.Origin, s.Creation)
 	if s.Findings.Total > 0 {

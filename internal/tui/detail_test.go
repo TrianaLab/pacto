@@ -642,3 +642,24 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 		t.Errorf("an unresolved origin gives the reason:\n%s", b.String())
 	}
 }
+
+func TestRenderServicePlacement(t *testing.T) {
+	var b strings.Builder
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.EnvironmentPlacement{
+		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}}},
+	}}})
+	out := b.String()
+	for _, want := range []string{"Runs in (observed)", "prod", "1 target, 1.0.0; 1 declared, 0 not declared, 0 unknown", "1 more environments"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("placement lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[31m") {
+		t.Errorf("environment names go through safeText:\n%q", out)
+	}
+	b.Reset()
+	renderServiceDetail(&b, &fleet.ServiceDetailData{})
+	if strings.Contains(b.String(), "Runs in") {
+		t.Errorf("no targets, no section:\n%s", b.String())
+	}
+}

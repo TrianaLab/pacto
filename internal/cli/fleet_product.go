@@ -315,6 +315,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
+			printPlacement(w, res.Service.Placement, res.Meta.Completeness)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -578,6 +579,26 @@ func printDependents(w io.Writer, d *fleet.ServiceDetailData) {
 		d.Dependents.Total, t.Compliant, t.NonCompliant, t.Unknown, t.Total()-t.Compliant-t.NonCompliant-t.Unknown)
 	if d.HiddenDependents > 0 {
 		_, _ = fmt.Fprintf(w, "%d dependents you may not see\n", d.HiddenDependents)
+	}
+}
+
+// printPlacement prints where a service runs, as its targets report it, or
+// nothing when it has no target. A partial answer says the targets are only
+// those Pacto can see.
+func printPlacement(w io.Writer, p fleet.PlacementPreview, c fleet.Completeness) {
+	if p.Total == 0 {
+		return
+	}
+	heading := "Runs in (observed):"
+	if c == fleet.CompletenessPartial {
+		heading = "Runs in (observed, targets Pacto can see):"
+	}
+	_, _ = fmt.Fprintln(w, heading)
+	for _, e := range p.Items {
+		_, _ = fmt.Fprintf(w, "  %s\n", e.Line())
+	}
+	if p.Truncated {
+		_, _ = fmt.Fprintf(w, "  %d more environments\n", p.Total-p.Count)
 	}
 }
 

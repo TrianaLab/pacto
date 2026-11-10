@@ -3751,6 +3751,35 @@ export interface components {
             severity?: "error" | "warning" | "info";
             view: string;
         };
+        ProductEnvironmentPlacement: {
+            /**
+             * Format: int64
+             * @description Targets whose linked revision declares this environment
+             */
+            declared: number;
+            /** @description The environment label; empty for targets that report none or whose sources disagree */
+            environment?: string;
+            /**
+             * Format: int64
+             * @description Targets whose linked revision does not declare it
+             */
+            notDeclared: number;
+            revisions: components["schemas"]["ProductRef"][] | null;
+            /**
+             * Format: int64
+             * @description How many distinct revisions these targets run
+             */
+            revisionsTotal: number;
+            /** @description revisions holds only the newest 8 of revisionsTotal */
+            revisionsTruncated: boolean;
+            /** Format: int64 */
+            targets: number;
+            /**
+             * Format: int64
+             * @description Targets Pacto cannot check: no label, conflicting labels or no linked revision
+             */
+            unknown: number;
+        };
         ProductEvidenceItem: {
             /** Format: date-time */
             at?: string;
@@ -3975,6 +4004,14 @@ export interface components {
             ref?: components["schemas"]["ProductRef"];
             unknown?: boolean;
         };
+        ProductPlacementPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductEnvironmentPlacement"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductPoliciesPreview: {
             /** Format: int64 */
             count: number;
@@ -4182,6 +4219,7 @@ export interface components {
             origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
+            placement: components["schemas"]["ProductPlacementPreview"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];

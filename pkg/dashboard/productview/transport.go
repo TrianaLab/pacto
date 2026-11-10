@@ -331,6 +331,27 @@ func productRevisionSignatures(p fleet.RevisionSignaturesPreview) ProductRevisio
 	return ProductRevisionSignaturesPreview{RevisionSignaturesPreview: p, Items: items}
 }
 
+// ProductEnvironmentPlacement is one observed environment whose revisions are
+// navigable.
+type ProductEnvironmentPlacement struct {
+	fleet.EnvironmentPlacement
+	Revisions []ProductRef `json:"revisions"`
+}
+
+// ProductPlacementPreview is where a service runs, with navigable revisions.
+type ProductPlacementPreview struct {
+	fleet.PlacementPreview
+	Items []ProductEnvironmentPlacement `json:"items"`
+}
+
+func productPlacement(p fleet.PlacementPreview) ProductPlacementPreview {
+	items := make([]ProductEnvironmentPlacement, len(p.Items))
+	for i, e := range p.Items {
+		items[i] = ProductEnvironmentPlacement{EnvironmentPlacement: e, Revisions: Refs(e.Revisions)}
+	}
+	return ProductPlacementPreview{PlacementPreview: p, Items: items}
+}
+
 // ProductServiceDetail is the navigable service-kind detail payload.
 type ProductServiceDetail struct {
 	fleet.ServiceDetailData
@@ -347,6 +368,7 @@ type ProductServiceDetail struct {
 	ActiveRevisions        ProductRefPreview                    `json:"activeRevisions"`
 	Signatures             ProductRevisionSignaturesPreview     `json:"signatures"`
 	Deployments            ProductRefPreview                    `json:"deployments"`
+	Placement              ProductPlacementPreview              `json:"placement"`
 	Dependencies           ProductRefPreview                    `json:"dependencies"`
 	Dependents             ProductRefPreview                    `json:"dependents"`
 	ReferencedBy           ProductRefPreview                    `json:"referencedBy"`
@@ -410,6 +432,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		ActiveRevisions:        RefPreview(d.ActiveRevisions),
 		Signatures:             productRevisionSignatures(d.Signatures),
 		Deployments:            RefPreview(d.Deployments),
+		Placement:              productPlacement(d.Placement),
 		Dependencies:           RefPreview(d.Dependencies),
 		Dependents:             RefPreview(d.Dependents),
 		ReferencedBy:           RefPreview(d.ReferencedBy),
