@@ -34,9 +34,14 @@ func TestDeliveryLifecycle(t *testing.T) {
 	ev := s["events"].([]any)
 	expect(t, s["stage"] == "payments" && s["running"] == true && s["verified"] == "yes" && len(ev) == 1 &&
 		ev[0].(map[string]any)["role"] == "arrived" && ev[0].(map[string]any)["operation"] == "ship", "stage %v", s)
+	expectLifecycleDegraded(t, f, base)
+}
 
+// expectLifecycleDegraded drives the partial, invalid and not-installed answers.
+func expectLifecycleDegraded(t *testing.T, f *fakeDelivery, base string) {
+	t.Helper()
 	f.historyErr = errors.New("records unreadable")
-	_, b = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
+	_, b := call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
 	expect(t, b["completeness"] == "partial" && strings.Contains(fmt.Sprint(b["unreadable"]), "prod/payments: records unreadable"), "history error %v", b)
 	f.historyErr = nil
 
@@ -46,7 +51,7 @@ func TestDeliveryLifecycle(t *testing.T) {
 	_, b = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
 	expect(t, b["completeness"] == "partial" && fmt.Sprint(b["unreadable"]) == "[books]", "forbidden namespace %v", b)
 
-	code, _ = call(t, http.MethodGet, base+"/api/delivery/lifecycle?digest="+dRun, nil)
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/lifecycle?digest="+dRun, nil)
 	expect(t, code == http.StatusUnprocessableEntity, "lifecycle needs a service: %d", code)
 	f.listErr = errors.New("apiserver down")
 	code, _ = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&digest="+dRun, nil)
