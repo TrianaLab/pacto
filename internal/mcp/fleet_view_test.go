@@ -47,7 +47,7 @@ func TestViewedFleetTools(t *testing.T) {
 	}
 
 	var got *fleet.FleetSnapshot
-	provide := func(_ context.Context, snap *fleet.FleetSnapshot, _, _ string, _ bool, _ string) (*impact.Result, error) {
+	provide := func(_ context.Context, snap *fleet.FleetSnapshot, _ ImpactRequest) (*impact.Result, error) {
 		got = snap
 		return &impact.Result{}, nil
 	}
@@ -68,7 +68,7 @@ func TestViewedFleetTools(t *testing.T) {
 func TestImpactUsesTheCurrentSnapshot(t *testing.T) {
 	q := buildFleetQuery(t)
 	var got *fleet.FleetSnapshot
-	provide := func(_ context.Context, snap *fleet.FleetSnapshot, _, _ string, _ bool, _ string) (*impact.Result, error) {
+	provide := func(_ context.Context, snap *fleet.FleetSnapshot, _ ImpactRequest) (*impact.Result, error) {
 		got = snap
 		return &impact.Result{}, nil
 	}

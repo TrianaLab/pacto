@@ -376,3 +376,76 @@ func TestObservedEdgesFromTracesKeepLastSeen(t *testing.T) {
 		}
 	}
 }
+
+// eventFleet is a fleet root with orders and webapp, which requires it.
+func eventFleet(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeImpactService(t, filepath.Join(root, "orders"), "orders", "1.0.0")
+	dir := filepath.Join(root, "webapp")
+	writeImpactService(t, dir, "webapp", "1.0.0")
+	body := "pactoVersion: \"2.0\"\nservice:\n  name: webapp\n  version: \"1.0.0\"\ndependencies:\n  - name: orders\n    ref: oci://x/orders\n    required: true\n    compatibility: \"^1.0.0\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestImpactEventOnSnapshot(t *testing.T) {
+	svc := NewService(nil, nil)
+	ctx := context.Background()
+	opts := ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Service: "orders"}, Fleet: FleetOptions{LocalRoots: []string{eventFleet(t)}}}
+	res, err := svc.ImpactEvent(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Event == nil || res.Event.Kind != impact.EventUnavailable || len(res.Consumers) != 1 ||
+		res.Consumers[0].Service != "webapp" || res.Consumers[0].Effect != impact.EffectBreaks || res.Gate != impact.GateUnverified {
+		t.Fatalf("unavailable orders = %+v", res)
+	}
+	snap, _ := svc.Fleet(ctx, opts.Fleet)
+	opts.Event = impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}
+	opts.Regression = &impact.Regression{Unavailable: "no cluster"}
+	res, err = svc.ImpactEventOnSnapshot(ctx, opts, snap)
+	if err != nil || res.SnapshotID != snap.SnapshotID || !strings.Contains(res.GateReason, "not read in full") {
+		t.Fatalf("regressed on the snapshot = %+v %v", res, err)
+	}
+	opts.Traces = []byte("{not json")
+	if _, err := svc.ImpactEventOnSnapshot(ctx, opts, snap); err == nil || !strings.Contains(err.Error(), "parse traces") {
+		t.Fatalf("bad traces: %v", err)
+	}
+	opts.Fleet = FleetOptions{LocalRoots: []string{"/nonexistent/root"}}
+	if _, err := svc.ImpactEvent(ctx, opts); err == nil {
+		t.Fatal("a fleet that cannot build is an error")
+	}
+}
+
+func TestParseEventFlag(t *testing.T) {
+	for _, tc := range []struct {
+		kind, value string
+		want        impact.Event
+		err         string
+	}{
+		{impact.EventUnavailable, "redis", impact.Event{Kind: "unavailable", Service: "redis"}, ""},
+		{impact.EventRemoved, "shop/postgres", impact.Event{Kind: "removed", Service: "shop/postgres"}, ""},
+		{impact.EventRegressed, "payments@sha256:ab", impact.Event{Kind: "regressed", Service: "payments", Revision: "sha256:ab"}, ""},
+		{impact.EventRegressed, "a@b@1.0.0", impact.Event{Kind: "regressed", Service: "a@b", Revision: "1.0.0"}, ""},
+		{impact.EventRegressed, "payments", impact.Event{}, "<service>@<revision>"},
+		{impact.EventRegressed, "@1.0.0", impact.Event{}, "<service>@<revision>"},
+		{impact.EventRegressed, "payments@", impact.Event{}, "<service>@<revision>"},
+		{impact.EventUnavailable, "redis@1.0.0", impact.Event{}, "takes a service key"},
+		{impact.EventRemoved, "", impact.Event{}, "takes a service key"},
+		{"exploded", "redis", impact.Event{}, "unknown event"},
+	} {
+		got, err := ParseEventFlag(tc.kind, tc.value)
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s %q: err %v, want %q", tc.kind, tc.value, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s %q = %+v %v, want %+v", tc.kind, tc.value, got, err, tc.want)
+		}
+	}
+}

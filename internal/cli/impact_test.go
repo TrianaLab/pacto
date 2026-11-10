@@ -261,3 +261,55 @@ func TestImpactCommand_WriteError(t *testing.T) {
 		t.Error("expected error when the output writer fails")
 	}
 }
+
+// TestImpactArgsEventXorPair: two revisions, or no argument with exactly one
+// event flag.
+func TestImpactArgsEventXorPair(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"impact", "a"}, "accepts <old> <new>"},
+		{[]string{"impact"}, "accepts <old> <new>"},
+		{[]string{"impact", "a", "b", "--unavailable", "x"}, "--unavailable takes no <old> <new> arguments"},
+		{[]string{"impact", "--unavailable", "x", "--removed", "y"}, "pass one of --unavailable, --removed, not several"},
+		{[]string{"impact", "--unavailable", "x@1.0.0"}, "takes a service key"},
+	} {
+		if _, _, err := execFleet(t, tc.args...); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%v: err %v, want %q", tc.args, err, tc.want)
+		}
+	}
+}
+
+// TestImpactUnavailableText: an event answer prints its lanes and why each
+// consumer is one, and exits 2 when anything depends on the service.
+func TestImpactUnavailableText(t *testing.T) {
+	root, _ := impactFleet(t, "^1.0.0")
+	out, _, err := execFleet(t, "impact", "--unavailable", "orders", "--local", root)
+	var exit *cli.ExitError
+	if !errors.As(err, &exit) || exit.Code != 2 {
+		t.Fatalf("want exit 2, got %v", err)
+	}
+	for _, want := range []string{"Event: orders unavailable", "BREAKS (1):", "webapp", "effect=breaks",
+		"    path: webapp > orders  provenance: declared  via: dependency", "Release gate: unverified"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "MAY DEGRADE") {
+		t.Errorf("no optional edge, no may-degrade lane:\n%s", out)
+	}
+}
+
+// TestImpactContractTextShowsPathAndProvenance: a contract answer prints the
+// same why line under each consumer.
+func TestImpactContractTextShowsPathAndProvenance(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeOrders(t, oldDir, "1.0.0", "service")
+	writeOrders(t, newDir, "1.1.0", "service")
+	root, _ := impactFleet(t, "^1.0.0")
+	out, _, _ := execFleet(t, "impact", oldDir, newDir, "--local", root)
+	if !strings.Contains(out, "    path: webapp > orders  provenance: declared  via: dependency") || !strings.Contains(out, "compat=compatible") {
+		t.Fatalf("missing the why line:\n%s", out)
+	}
+}

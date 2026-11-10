@@ -11,10 +11,18 @@ Breaking changes: 11
 Potentially breaking changes: 8
 Affected consumers (5):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
+    path: api-gateway > payments-service  provenance: declared  via: dependency
   audit-log                    direct     confidence=observed     compat=unknown      owner=platform-foundations-security
+    path: audit-log > payments-service  provenance: observed  via: observed
+    evidence: observed-call traces file no observation window
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
+    path: frontend > api-gateway > payments-service  provenance: inferred  via: -
   orders-service               direct     confidence=unknown      compat=incompatible owner=commerce-team
+    path: orders-service > payments-service  provenance: declared+observed  via: dependency,observed
+    evidence: target production-eu/kubernetes-workload/commerce%2Forders-service stale
+    evidence: observed-call traces file no observation window
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
+    path: pacto-demo > frontend > api-gateway > payments-service  provenance: inferred  via: -
 By outcome: 2 incompatible, 3 unknown, 0 compatible
 Most affected owners: platform-foundations 2 (1 incompatible), commerce-team 1 (1 incompatible), frontend-team 1, platform-foundations-security 1
 Active targets (2): [production-eu/kubernetes-workload/commerce%2Forders-service production-eu/kubernetes-workload/payments%2Fpayments-service]

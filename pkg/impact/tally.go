@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -186,6 +187,11 @@ func (t ConsumerTallies) OwnerSummary() string {
 	for _, o := range t.ByOwner {
 		seen[o.Owner]++
 	}
+	// In an event answer Incompatible counts the consumers that break.
+	word := " incompatible)"
+	if slices.ContainsFunc(t.ByOutcome, func(b TallyBucket) bool { return b.Key == OutcomeBreaks }) {
+		word = " break)"
+	}
 	parts := make([]string, 0, len(t.ByOwner))
 	for _, o := range t.ByOwner {
 		label := o.Owner
@@ -194,7 +200,7 @@ func (t ConsumerTallies) OwnerSummary() string {
 		}
 		s := label + " " + strconv.Itoa(o.Consumers)
 		if o.Incompatible > 0 {
-			s += " (" + strconv.Itoa(o.Incompatible) + " incompatible)"
+			s += " (" + strconv.Itoa(o.Incompatible) + word
 		}
 		parts = append(parts, s)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
@@ -99,6 +100,13 @@ func verbList(c *Context) []Verb {
 				return []string{"pacto", "impact", oldOrPlaceholder(c.pendingImpact.Ref), s.Ref}
 			},
 			Run: verbImpact,
+		},
+		{
+			Key: "u", Help: "what if this service becomes unavailable", Applies: hasService,
+			Argv: func(_ *Context, s Selection) []string {
+				return []string{"pacto", "impact", "--" + impact.EventUnavailable, explainSubject(s)}
+			},
+			Run: verbUnavailable,
 		},
 		{
 			Key: graphVerbKey, Help: "open the selection's neighborhood graph", Applies: graphable,
@@ -533,6 +541,30 @@ func verbImpact(c *Context, sel Selection) tea.Cmd {
 		}
 		emit(c, o, renderImpact(res))
 		return nil
+	})
+}
+
+// hasService is the Applies predicate for u: a service, or a revision of a
+// known service, is something that can become unavailable.
+func hasService(sel Selection) string {
+	if sel.Kind == fleet.KindService || (sel.Kind == fleet.KindRevision && sel.ParentService != "") {
+		return ""
+	}
+	return "this " + string(sel.Kind) + " cannot become unavailable: what if takes a service or a revision of one"
+}
+
+// verbUnavailable answers what happens if the selected service becomes
+// unavailable, over the snapshot on screen.
+func verbUnavailable(c *Context, sel Selection) tea.Cmd {
+	snap, key := c.Snapshot, explainSubject(sel)
+	return runRead(c, "impact", func(o *outputScreen) error {
+		// With no traces to parse the answer cannot fail; renderImpact
+		// prints "(no result)" should it ever.
+		res, err := c.Svc.ImpactEventOnSnapshot(c.Ctx, app.ImpactEventOptions{
+			Event: impact.Event{Kind: impact.EventUnavailable, Service: key},
+		}, snap)
+		emit(c, o, renderImpact(res))
+		return err
 	})
 }
 

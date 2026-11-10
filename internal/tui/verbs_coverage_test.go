@@ -753,3 +753,37 @@ func TestDispatchVerbReportsALookupFailure(t *testing.T) {
 		t.Fatalf("status = %q, want it to name the lookup failure", msg.text)
 	}
 }
+
+// TestVerbUnavailable answers what happens if the selected service becomes
+// unavailable over the snapshot on screen, and applies to a service or a
+// revision of one only.
+func TestVerbUnavailable(t *testing.T) {
+	c, _ := newContextWithService(t)
+	rec := &msgRecorder{}
+	c.Send.p = rec
+	readVerbWorker(t, verbUnavailable(c, Selection{Kind: fleet.KindRevision, Key: "test-svc@1.0.0", ParentService: "test-svc"}))()
+	var lines []string
+	for _, m := range rec.msgs {
+		switch m := m.(type) {
+		case outputLineMsg:
+			lines = append(lines, m.line)
+		case outputDoneMsg:
+			if m.err != nil {
+				t.Fatalf("verbUnavailable: %v", m.err)
+			}
+		}
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, "test-svc becomes unavailable") {
+		t.Fatalf("output:\n%s", out)
+	}
+	for sel, want := range map[Selection]bool{
+		{Kind: fleet.KindService, Key: "svc"}:                                      true,
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0", ParentService: "svc"}:         true,
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0"}:                               false,
+		{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", ParentService: "svc"}: false,
+	} {
+		if got := hasService(sel) == ""; got != want {
+			t.Errorf("hasService(%+v) = %v, want %v", sel, got, want)
+		}
+	}
+}

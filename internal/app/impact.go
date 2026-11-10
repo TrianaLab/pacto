@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 
@@ -133,6 +134,63 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 			IncludeObserved: opts.IncludeObserved,
 			ObservedEdges:   observed,
 		}), nil
+}
+
+// ImpactEventOptions configures a what-if about one fleet service: it
+// becomes unavailable, is removed or a revision of it regressed.
+type ImpactEventOptions struct {
+	Event impact.Event
+	Fleet FleetOptions
+	// Traces is optional OTLP/JSON trace data whose callers join the answer.
+	// An event answer always reads observed callers, so there is no opt-in.
+	Traces []byte
+	// Regression is the delivery evidence the caller read for a regressed
+	// event, with its own identity; nil when none was read.
+	Regression *impact.Regression
+}
+
+// ImpactEvent builds a fleet snapshot from the configured sources and
+// answers the event over it (see [Service.ImpactEventOnSnapshot]).
+func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*impact.Result, error) {
+	snap, err := s.Fleet(ctx, opts.Fleet)
+	if err != nil {
+		return nil, fmt.Errorf("build fleet snapshot: %w", err)
+	}
+	return s.ImpactEventOnSnapshot(ctx, opts, snap)
+}
+
+// ImpactEventOnSnapshot answers the event over snap, an already-built
+// snapshot (the one on screen, or the caller's view). opts.Fleet is ignored.
+func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	observed, err := observedEdgesFromTraces(opts.Traces)
+	if err != nil {
+		return nil, fmt.Errorf("parse traces: %w", err)
+	}
+	ev := opts.Event
+	return impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
+		Event: &ev, ObservedEdges: observed, Regression: opts.Regression,
+	}), nil
+}
+
+// ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
+// service key, and for regressed the revision after the last "@".
+func ParseEventFlag(kind, value string) (impact.Event, error) {
+	ev := impact.Event{Kind: kind, Service: value}
+	switch kind {
+	case impact.EventRegressed:
+		i := strings.LastIndex(value, "@")
+		if i <= 0 || i == len(value)-1 {
+			return impact.Event{}, fmt.Errorf("--regressed takes <service>@<revision>, got %q", value)
+		}
+		ev.Service, ev.Revision = value[:i], value[i+1:]
+	case impact.EventUnavailable, impact.EventRemoved:
+		if value == "" || strings.Contains(value, "@") {
+			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
+		}
+	default:
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed or regressed", kind)
+	}
+	return ev, nil
 }
 
 // refuseHidden keeps a raw-ref impact request from reading a service the

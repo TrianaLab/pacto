@@ -625,3 +625,22 @@ func TestRenderImpactTallies(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderImpactEvent: an event answer says what happens to its service
+// and grades each consumer by its effect.
+func TestRenderImpactEvent(t *testing.T) {
+	for kind, want := range map[string]string{
+		impact.EventUnavailable: "redis becomes unavailable", impact.EventRemoved: "redis is removed", impact.EventRegressed: "redis regressed sha256:a",
+	} {
+		r := &impact.Result{Service: "redis", Completeness: "complete", Gate: impact.GateUnverified,
+			Event: &impact.Event{Kind: kind, Service: "redis", Revision: "sha256:a"},
+			Consumers: []impact.AffectedConsumer{
+				{Service: "web", Direct: true, Effect: impact.EffectBreaks, CompatibilityVerdict: impact.CompatibilityUnknown},
+				{Service: "price", Direct: true, Effect: impact.EffectMayDegrade, CompatibilityVerdict: impact.CompatibilityUnknown},
+			}}
+		got := renderImpact(r)
+		if !strings.Contains(got, want) || !strings.Contains(got, "breaks") || !strings.Contains(got, "price [direct]: may-degrade") {
+			t.Errorf("%s:\n%s", kind, got)
+		}
+	}
+}

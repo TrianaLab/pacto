@@ -131,4 +131,9 @@ func TestTallySummaries(t *testing.T) {
 	if got := (ConsumerTallies{NoOwner: 2}).OwnerSummary(); got != "2 with no identified owner" {
 		t.Errorf("OwnerSummary = %q", got)
 	}
+	// In an event answer the count is of consumers that break.
+	ev := ConsumerTallies{ByOutcome: []TallyBucket{{Key: OutcomeBreaks, Count: 2}}, ByOwner: []OwnerTally{{Owner: "team-a", Consumers: 2, Incompatible: 2}}}
+	if got := ev.OwnerSummary(); got != "team-a 2 (2 break)" {
+		t.Errorf("event OwnerSummary = %q", got)
+	}
 }

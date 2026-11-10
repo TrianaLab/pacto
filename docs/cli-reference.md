@@ -1113,6 +1113,8 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
+With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
+
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING, or the snapshot is complete and no service depends on the changed one.
   1  blocked: the change is BREAKING and a consumer that does not accept the new version runs on a known target.
@@ -1122,7 +1124,7 @@ A command that could not run also exits 1, with nothing on stdout. Add --target-
 Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
 
 ```
-pacto impact <old> <new> [flags]
+pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
 ```
 
 **Examples:**
@@ -1133,6 +1135,13 @@ pacto impact <old> <new> [flags]
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
+
+  # What breaks if redis becomes unavailable, or postgresql is removed
+  pacto impact --unavailable redis --local .
+  pacto impact --removed postgresql --local . --target-state targets.yaml
+
+  # What a regressed artifact affects, with delivery's recorded failures
+  pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
 
 **Flags:**
@@ -1152,9 +1161,12 @@ pacto impact <old> <new> [flags]
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
+      --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
+      --removed string                  what happens if this service (a fleet service key) is removed
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
+      --unavailable string              what happens if this service (a fleet service key) becomes unavailable
 ```
 
 ---

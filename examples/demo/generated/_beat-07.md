@@ -11,9 +11,13 @@ Breaking changes: 11
 Potentially breaking changes: 8
 Affected consumers (4):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
+    path: api-gateway > payments-service  provenance: declared  via: dependency
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
+    path: frontend > api-gateway > payments-service  provenance: inferred  via: -
   orders-service               direct     confidence=contractual  compat=incompatible owner=commerce-team
+    path: orders-service > payments-service  provenance: declared  via: dependency
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
+    path: pacto-demo > frontend > api-gateway > payments-service  provenance: inferred  via: -
 By outcome: 2 incompatible, 2 unknown, 0 compatible
 Most affected owners: platform-foundations 2 (1 incompatible), commerce-team 1 (1 incompatible), frontend-team 1
 Release gate: unverified

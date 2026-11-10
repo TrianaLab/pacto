@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -17,12 +18,13 @@ func stubImpact(res *impact.Result, err error, seen *impact.Options) impactProvi
 }
 
 func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenTraces *string) impactProvider {
-	return func(_ context.Context, _ *fleet.FleetSnapshot, _, _ string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+	return func(_ context.Context, _ *fleet.FleetSnapshot, req ImpactRequest) (*impact.Result, error) {
 		if seen != nil {
-			seen.IncludeObserved = includeObserved
+			seen.IncludeObserved = req.IncludeObserved
+			seen.Event = req.Event
 		}
 		if seenTraces != nil {
-			*seenTraces = tracesPath
+			*seenTraces = req.TracesPath
 		}
 		return res, err
 	}
@@ -89,5 +91,53 @@ func TestNewFleetServer_NilImpact_NoImpactTool(t *testing.T) {
 	session := connectFleetServer(t, buildFleetQuery(t), nil)
 	if toolNames(t, session)["pacto_impact"] {
 		t.Error("did not expect pacto_impact when the impact provider is nil")
+	}
+}
+
+func TestImpactToolEventArgs(t *testing.T) {
+	var seen impact.Options
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(&impact.Result{}, nil, &seen), nil), map[string]any{
+		"event": "regressed", "service": "payments", "revision": "sha256:a",
+	})
+	if res.IsError || seen.Event == nil || *seen.Event != (impact.Event{Kind: "regressed", Service: "payments", Revision: "sha256:a"}) {
+		t.Fatalf("event = %+v error %v", seen.Event, res.IsError)
+	}
+	if callHandler(t, impactTool(), impactHandler(stubImpact(&impact.Result{}, nil, nil), nil), map[string]any{
+		"event": "regressed", "service": "payments",
+	}).IsError != true {
+		t.Error("a regressed event without a revision is refused")
+	}
+}
+
+func TestImpactToolNeedsPairOrEvent(t *testing.T) {
+	for _, args := range []map[string]any{
+		{},
+		{"old_ref": "a"},
+		{"old_ref": "a", "new_ref": "b", "event": "unavailable", "service": "x"},
+		{"event": "unavailable"},
+		{"service": "x"},
+		{"old_ref": "a", "event": "removed", "service": "x"},
+	} {
+		called := false
+		provide := func(context.Context, *fleet.FleetSnapshot, ImpactRequest) (*impact.Result, error) {
+			called = true
+			return &impact.Result{}, nil
+		}
+		if res := callHandler(t, impactTool(), impactHandler(provide, nil), args); !res.IsError || called {
+			t.Errorf("%v: want an error before the provider runs", args)
+		}
+	}
+}
+
+// TestImpactEventHrefs: event consumers link to their entity pages like any
+// consumer, and an uncontracted caller does not.
+func TestImpactEventHrefs(t *testing.T) {
+	provide := stubImpact(&impact.Result{Event: &impact.Event{Kind: impact.EventUnavailable, Service: "redis"}, Consumers: []impact.AffectedConsumer{
+		{Service: "web", Domain: "shop", Effect: impact.EffectBreaks}, {Service: "10.0.0.1", Uncontracted: true, Effect: impact.EffectUnknown},
+	}}, nil, nil)
+	linked := NewFleetServer("test", staticFleet(hrefFleet(t)), Authoring{}, FleetOptions{DashboardURL: "https://dash.example/", Impact: provide})
+	text := resultText(t, callToolOn(t, linked, "pacto_impact", map[string]any{"event": "unavailable", "service": "redis"}))
+	if strings.Count(text, `"href"`) != 1 || !strings.Contains(text, `/fleet/services/shop%2Fweb"`) {
+		t.Fatalf("event hrefs:\n%s", text)
 	}
 }

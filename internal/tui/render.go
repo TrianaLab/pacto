@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -299,9 +300,12 @@ func renderImpact(r *impact.Result) string {
 	}
 	var b strings.Builder
 	b.WriteString(renderGate(r))
-	if r.Classification == "BREAKING" {
+	switch {
+	case r.Event != nil:
+		b.WriteString(safeText(r.Service) + " " + safeText(eventWords(r.Event)) + "  " + dimStyle.Render("as of "+r.AsOf.Format(time.RFC3339)+", "+string(r.Completeness)) + "\n")
+	case r.Classification == "BREAKING":
 		b.WriteString(errorStyle.Render("BREAKING") + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
-	} else {
+	default:
 		b.WriteString(safeText(r.Classification) + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
 	}
 	if len(r.BreakingChanges) > 0 {
@@ -341,6 +345,17 @@ func renderImpact(r *impact.Result) string {
 	return b.String()
 }
 
+// eventWords says what happens to an event's service.
+func eventWords(e *impact.Event) string {
+	switch e.Kind {
+	case impact.EventUnavailable:
+		return "becomes unavailable"
+	case impact.EventRemoved:
+		return "is removed"
+	}
+	return strings.TrimSpace("regressed " + e.Revision)
+}
+
 // renderOutcomes writes the consumers' disjoint outcome tally on one line.
 func renderOutcomes(b *strings.Builder, t impact.ConsumerTallies) {
 	if line := t.OutcomeSummary(); line != "" {
@@ -368,7 +383,12 @@ func renderConsumer(b *strings.Builder, cons impact.AffectedConsumer) {
 		depth = fmt.Sprintf(" [depth %d]", cons.Depth)
 	}
 	compat := safeText(cons.CompatibilityVerdict)
-	if compat == impact.CompatibilityIncompatible {
+	switch {
+	case cons.Effect == impact.EffectBreaks:
+		compat = errorStyle.Render(cons.Effect)
+	case cons.Effect != "":
+		compat = safeText(cons.Effect)
+	case compat == impact.CompatibilityIncompatible:
 		compat = errorStyle.Render(compat)
 	}
 	targets := fmt.Sprintf("%d targets", len(cons.Targets))
