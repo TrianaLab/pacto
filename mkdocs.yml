@@ -223,6 +223,8 @@ nav:
       - Operational graph: operational-graph.md
       - Fleet views: fleet-tools.md
       - Impact analysis: impact.md
+      - Impact consumers and evidence: impact-consumers.md
+      - Ask what happens if: impact-what-if.md
       - What runtime conformance checks: runtime-conformance.md
       - Run a command under Pacto: runtime-run.md
       - Watch a host with pacto agent: runtime-agent.md

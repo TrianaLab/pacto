@@ -224,7 +224,7 @@ A service that takes a configuration schema from another contract by `ref`
 consumes that contract. Once the reference resolves to a revision in the
 snapshot, by digest or through the consumer's `pacto.lock`, the edge counts
 like a declared dependency: graph traversal, `dependents`, the neighborhood
-and hidden counts include it, and [impact](impact.md#configuration-reference-consumers)
+and hidden counts include it, and [impact](impact-consumers.md#configuration-reference-consumers)
 judges the consumer. A neighborhood edge carries the relation
 `configuration_reference` and no declared-against-observed comparison, because
 a reference never produces runtime calls. Policy references stay out: a policy

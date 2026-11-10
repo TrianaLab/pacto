@@ -163,9 +163,8 @@ property to a schema can still surprise a consumer that validates strictly.
 Four consumers. `confidence=contractual` means the consumer declared this
 dependency in its own contract; `confidence=inferred` means it was reached
 transitively. `compat=incompatible` is a second judgement: 2.0.1 falls outside
-the consumer's declared version range. The release gate is `unverified` and the
-command exits 2. The bundles say nothing about where anything runs, so Pacto
-cannot show a consumer is hit and does not call the change safe either.
+the consumer's declared version range. The gate is `unverified` and the
+command exits 2: the bundles say nothing about where anything runs.
 
 Add observed traffic:
 
@@ -183,13 +182,10 @@ Then ask where the change actually lands:
 The consumer list is identical. The active targets are new, and the gate turns
 from `unverified` to `blocked`. Two deployed targets sit in its path:
 `orders-service`, one of the five consumers, and `payments-service` itself. The
-command exits 1. Story 3 refused a change for what it is, and this one for
-where it lands.
+command exits 1.
 
-`orders-service` now reads `confidence=unknown`. Its target last reported
-evidence long before today, and impact treats target evidence older than 24h
-before the answer as unknown. It still blocks: the evidence says it ran there,
-and nothing says it stopped.
+`orders-service` now reads `confidence=unknown`: its target evidence is older
+than 24h before the answer. It still blocks, since nothing says it stopped.
 
 ## Story 5: Compare declared and observed dependencies
 

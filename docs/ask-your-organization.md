@@ -14,7 +14,10 @@ queries, so an agent and a person asking the same question get the same answer.
 | Which services have undocumented dependencies? | `pacto_fleet_attention` with `category=undeclared` | `pacto fleet attention --category undeclared` | The Overview tile "Undeclared runtime dependencies observed" |
 | What changed in the last 24 hours? | Not yet ([#459](https://github.com/TrianaLab/pacto/issues/459)) | Not yet | Not yet |
 | Which infrastructure capabilities are available? | `pacto_fleet_entities` with `kind=offering`, `pacto_fleet_entity` with `kind=offering` | `pacto fleet entities --kind offering` | Offerings |
-| Which services does this deployment affect? | Not yet as a deployment question ([#471](https://github.com/TrianaLab/pacto/issues/471)); `pacto_impact` answers it for a contract change | `pacto impact` | Change analysis |
+| Which services does this deployment affect? | `pacto_impact` with `event=regressed`, `service` and `revision` (an artifact digest cites delivery's recorded failures), or old and new refs for a contract change | `pacto impact --regressed <service>@<digest>`, `pacto impact <old> <new>` | Change analysis |
+| What breaks if payments goes down? | `pacto_impact` with `event=unavailable` and `service` | `pacto impact --unavailable payments-service` | Change analysis, What if this service… |
+| What uses this resource before I remove it? | `pacto_impact` with `event=removed` and `service` | `pacto impact --removed postgresql` | Change analysis, What if this service… |
+| Which services does this policy change reach? | `pacto_impact` with the policy provider's old and new refs | `pacto impact <old> <new>` | Change analysis |
 | Where are the biggest operational risks? | `pacto_fleet_attention` (most severe first), `pacto_fleet_entities` with `sort=health` | `pacto fleet attention`, `pacto fleet entities --sort health` | Needs attention |
 
 ## Read the answer
@@ -23,7 +26,10 @@ Every fleet answer carries `meta`. `asOf` is the time it describes and
 `snapshotId` proves two answers came from the same view. `sources` says what
 each source contributed and `limitations` what Pacto could not see. `pacto_impact`
 carries the same fields at the top level. Cite them when you repeat an answer.
-When `completeness` is `partial`, a missing result means unknown.
+When `completeness` is `partial`, a missing result means unknown. An event
+answer grades each consumer's `effect` (`breaks`, `may-degrade` or `unknown`),
+and evidence older than 24 hours before `asOf` lowers a consumer's confidence
+to `unknown`.
 
 Each fact says how Pacto knows it:
 
@@ -42,13 +48,9 @@ as `DEPENDENCY_UNDECLARED`, and a caller with no contract as
 
 ## Not yet
 
-Two questions need data Pacto does not hold today:
-
-- **Changes in the last 24 hours** need a history of snapshots
-  ([#459](https://github.com/TrianaLab/pacto/issues/459)).
-- **Deployment impact** needs the deployment as an input
-  ([#471](https://github.com/TrianaLab/pacto/issues/471)). Until then, run
-  `pacto impact` on the contract change the deployment carries.
+One question needs data Pacto does not hold today: **changes in the last 24
+hours** need a history of snapshots
+([#459](https://github.com/TrianaLab/pacto/issues/459)).
 
 For runtime health and incidents, [Investigate a problem with
 Mira](investigate-a-problem.md) pairs these answers with Mira's signals.
