@@ -502,7 +502,7 @@ func TestCreateTool_Pactify(t *testing.T) {
 		Applied       bool
 		Files         []struct{ Path, Action string }
 	}
-	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || plan.Mode != "pactify" || plan.Applied || len(plan.Files) != 5 {
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || plan.Mode != "pactify" || plan.Applied || len(plan.Files) != 7 { // with environments/test.yaml and environments/prod.yaml
 		t.Fatalf("plan: %s", resultText(t, res))
 	}
 	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
@@ -516,7 +516,7 @@ func TestCreateTool_Pactify(t *testing.T) {
 	prod, _ := os.ReadFile(filepath.Join(dir, "delivery", "prod.yaml"))
 	contract, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if !strings.Contains(string(prod), "insecure: true") || !strings.Contains(string(prod), "secretRef:\n    name: registry-creds\n") ||
-		!strings.Contains(string(contract), "transparencyLog: false") {
+		!strings.Contains(string(contract), "transparencyLog: false") || !strings.Contains(string(contract), "  - name: prod\n    file: environments/prod.yaml\n") {
 		t.Fatalf("no_transparency_log, insecure_registry and registry_secret were not written:\n%s\n%s", contract, prod)
 	}
 
@@ -557,5 +557,30 @@ func TestServerInstructionsPosition(t *testing.T) {
 		if !strings.Contains(baseInstructions, want) {
 			t.Errorf("baseInstructions lacks %q", want)
 		}
+	}
+}
+
+// TestEditToolEnvironmentDescriptions: add_environments names the declared
+// fields and the version they need, and remove_environments is offered.
+func TestEditToolEnvironmentDescriptions(t *testing.T) {
+	props := editTool().InputSchema.(map[string]any)["properties"].(map[string]any)
+	desc := func(name string) string {
+		p, ok := props[name].(map[string]any)
+		if !ok {
+			t.Fatalf("no %s property", name)
+		}
+		return p["description"].(string)
+	}
+	add := desc("add_environments")
+	for _, want := range []string{"lifetime?", "expires?", "owner?", "Raises pactoVersion to 2.3, or to 2.4 with lifetime, expires or owner"} {
+		if !strings.Contains(add, want) {
+			t.Errorf("add_environments does not say %q: %s", want, add)
+		}
+	}
+	if rm := desc("remove_environments"); !strings.Contains(rm, `["pr-482"]`) || !strings.Contains(rm, "nothing in a cluster changes") {
+		t.Errorf("remove_environments: %s", rm)
+	}
+	if env := createTool().InputSchema.(map[string]any)["properties"].(map[string]any)["environments"].(map[string]any)["description"].(string); !strings.Contains(env, "declared in pacto.yaml with an empty values file") {
+		t.Errorf("pacto_create environments: %s", env)
 	}
 }

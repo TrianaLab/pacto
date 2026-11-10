@@ -634,3 +634,236 @@ func TestEditKeepsEnvironmentFields(t *testing.T) {
 		},
 	}})
 }
+
+func TestAddEnvironmentWithLifetimeRaisesTo24(t *testing.T) {
+	owner := &contract.Owner{Team: "perf"}
+	runEditCases(t, []editCase{{
+		name:  "lifetime expires and owner raise to 2.4",
+		pacto: orders23,
+		input: EditInput{AddEnvironments: []EnvironmentInput{
+			{Name: "pr-482", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: owner},
+			{Name: "prod", Lifetime: contract.EnvironmentPersistent},
+		}},
+		changes: []string{`set pactoVersion to "2.4"`, `added environment "pr-482" (environments/pr-482.yaml), temporary until 2026-11-20T00:00:00Z, owner perf`,
+			`added environment "prod" (environments/prod.yaml), persistent`},
+		check: func(t *testing.T, dir string) {
+			want := []contract.Environment{
+				{Name: "pr-482", File: "environments/pr-482.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: owner},
+				{Name: "prod", File: "environments/prod.yaml", Lifetime: contract.EnvironmentPersistent},
+			}
+			if c := readContract(t, dir); c.PactoVersion != "2.4" || !reflect.DeepEqual(c.Environments, want) {
+				t.Errorf("contract %s %+v", c.PactoVersion, c.Environments)
+			}
+		},
+	}, {
+		name:    "no declared field stays at 2.3",
+		pacto:   "pactoVersion: \"2.0\"\nservice: {name: orders, version: 1.0.0}\n",
+		input:   EditInput{AddEnvironments: []EnvironmentInput{{Name: "prod"}}},
+		changes: []string{`set pactoVersion to "2.3"`, `added environment "prod" (environments/prod.yaml)`},
+		check: func(t *testing.T, dir string) {
+			if c := readContract(t, dir); c.PactoVersion != "2.3" {
+				t.Errorf("pactoVersion %s", c.PactoVersion)
+			}
+		},
+	}})
+}
+
+func TestAddEnvironmentExpiresNeedsTemporary(t *testing.T) {
+	dir := refRoot(t, orders23, nil)
+	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+		AddEnvironments: []EnvironmentInput{{Name: "prod", Lifetime: contract.EnvironmentPersistent, Expires: "2026-11-20T00:00:00Z"}}})
+	if err == nil {
+		t.Fatal("persistent with expires was accepted")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders23 {
+		t.Errorf("pacto.yaml changed:\n%s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "environments")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("environments written: %v", err)
+	}
+}
+
+// ordersTwoEnvs declares prod and pr-1, each with its own file.
+const ordersTwoEnvs = ordersEnv + "  - {name: pr-1, file: environments/pr-1.yaml}\n"
+
+func TestRemoveEnvironmentDeletesOrphanFile(t *testing.T) {
+	runEditCases(t, []editCase{{
+		name:    "remove deletes the file",
+		pacto:   ordersTwoEnvs,
+		files:   map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "db: {size: large}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, "removed environments/pr-1.yaml"},
+		check: func(t *testing.T, dir string) {
+			if _, err := os.Stat(filepath.Join(dir, "environments/pr-1.yaml")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("pr-1 file kept: %v", err)
+			}
+			if raw, _ := os.ReadFile(filepath.Join(dir, "environments/prod.yaml")); string(raw) != "{}\n" {
+				t.Errorf("prod file changed: %q", raw)
+			}
+			if c := readContract(t, dir); len(c.Environments) != 1 || c.Environments[0].Name != "prod" {
+				t.Errorf("environments %+v", c.Environments)
+			}
+		},
+	}, {
+		name:    "remove the last drops the key",
+		pacto:   ordersEnv,
+		files:   map[string]string{"environments/prod.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"prod"}},
+		changes: []string{`removed environment "prod"`, "removed environments/prod.yaml"},
+		check: func(t *testing.T, dir string) {
+			if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); strings.Contains(string(raw), "environments") {
+				t.Errorf("environments key kept:\n%s", raw)
+			}
+		},
+	}})
+}
+
+func TestRemoveEnvironmentKeepsSharedFile(t *testing.T) {
+	runEditCases(t, []editCase{{
+		name:    "a file another environment names stays",
+		pacto:   ordersEnv + "  - {name: pr-1, file: environments/prod.yaml}\n",
+		files:   map[string]string{"environments/prod.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, `kept environments/prod.yaml: environment "prod" still names it`},
+		check: func(t *testing.T, dir string) {
+			if raw, _ := os.ReadFile(filepath.Join(dir, "environments/prod.yaml")); string(raw) != "{}\n" {
+				t.Errorf("shared file changed: %q", raw)
+			}
+		},
+	}, {
+		name:    "a file outside the bundle is never removed",
+		pacto:   ordersEnv + "  - {name: pr-1, file: ../pr-1.yaml}\n",
+		files:   map[string]string{"environments/prod.yaml": "{}\n", "../pr-1.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, "kept ../pr-1.yaml: it is outside the bundle"},
+		check: func(t *testing.T, dir string) {
+			if _, err := os.Stat(filepath.Join(dir, "../pr-1.yaml")); err != nil {
+				t.Errorf("outside file removed: %v", err)
+			}
+		},
+	}})
+}
+
+func TestRemoveUndeclaredEnvironmentFails(t *testing.T) {
+	dir := refRoot(t, ordersTwoEnvs, map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "{}\n"})
+	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, RemoveEnvironments: []string{"staging"}})
+	if err == nil || err.Error() != `environment "staging" is not declared; declared: prod, pr-1` {
+		t.Fatalf("err %v", err)
+	}
+	dir = refRoot(t, orders24, nil)
+	if _, err := Edit(context.Background(), realValidator, EditInput{Path: dir, RemoveEnvironments: []string{"prod"}}); err == nil ||
+		err.Error() != `environment "prod" is not declared; declared: none` {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestRemoveAndAddSameEnvironment(t *testing.T) {
+	runEditCases(t, []editCase{{
+		name:    "re-adding keeps the file",
+		pacto:   ordersEnv,
+		files:   map[string]string{"environments/prod.yaml": "db: {size: large}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"prod"}, AddEnvironments: []EnvironmentInput{{Name: "prod", Lifetime: contract.EnvironmentPersistent}}},
+		changes: []string{`removed environment "prod"`, `added environment "prod" (environments/prod.yaml), persistent`},
+		check: func(t *testing.T, dir string) {
+			if raw, _ := os.ReadFile(filepath.Join(dir, "environments/prod.yaml")); string(raw) != "db: {size: large}\n" {
+				t.Errorf("file changed: %q", raw)
+			}
+			if c := readContract(t, dir); len(c.Environments) != 1 || c.Environments[0].Lifetime != contract.EnvironmentPersistent {
+				t.Errorf("environments %+v", c.Environments)
+			}
+		},
+	}})
+}
+
+func TestRemoveEnvironmentDryRunWritesNothing(t *testing.T) {
+	dir := refRoot(t, ordersTwoEnvs, map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "{}\n"})
+	result, err := Edit(context.Background(), realValidator, EditInput{Path: dir, DryRun: true, RemoveEnvironments: []string{"pr-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{`removed environment "pr-1"`, "removed environments/pr-1.yaml"}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %q, want %q", result.Changes, want)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != ordersTwoEnvs {
+		t.Errorf("pacto.yaml changed:\n%s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "environments/pr-1.yaml")); err != nil {
+		t.Errorf("pr-1 file removed: %v", err)
+	}
+	assertNoStagingLeft(t, dir)
+}
+
+func TestWriteFilesRemovesNilEntries(t *testing.T) {
+	setup := func(t *testing.T) string {
+		dir := t.TempDir()
+		writeTestFile(t, dir, "pacto.yaml", "old")
+		writeTestFile(t, dir, "gone.yaml", "x")
+		return dir
+	}
+	t.Run("removed after the renames, a missing file is fine", func(t *testing.T) {
+		dir := setup(t)
+		if err := osFileOps().writeFiles(dir, map[string][]byte{"pacto.yaml": []byte("new"), "gone.yaml": nil, "never.yaml": nil}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "gone.yaml")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("gone.yaml kept: %v", err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != "new" {
+			t.Errorf("pacto.yaml %q", raw)
+		}
+	})
+	t.Run("a remove failure is reported", func(t *testing.T) {
+		dir := setup(t)
+		o := osFileOps()
+		o.remove = func(string) error { return errors.New("busy") }
+		err := o.writeFiles(dir, map[string][]byte{"pacto.yaml": []byte("new"), "gone.yaml": nil})
+		if err == nil || !strings.Contains(err.Error(), "failed to remove") || !strings.Contains(err.Error(), "gone.yaml") {
+			t.Fatalf("err %v", err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != "new" {
+			t.Errorf("pacto.yaml %q: the renames come first", raw)
+		}
+	})
+}
+
+func TestBundleFSForValidationDropsNilEntries(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "environments/pr-1.yaml", "{}\n")
+	c, err := contract.Parse(strings.NewReader(orders23))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := osFileOps().buildBundleFSForValidation(dir, []byte(orders23), c, map[string][]byte{"environments/pr-1.yaml": nil})
+	if _, ok := m["environments/pr-1.yaml"]; ok {
+		t.Error("a removed file is in the validation bundle")
+	}
+}
+
+func writeTestFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	p := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEditToolRemoveEnvironments(t *testing.T) {
+	dir := refRoot(t, ordersTwoEnvs, map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "{}\n"})
+	res := callToolOn(t, NewServer(Authoring{Validate: realValidator}, "test"), "pacto_edit", map[string]any{
+		"path": dir, "remove_environments": `["pr-1"]`,
+		"add_environments": `[{"name":"pr-2","lifetime":"temporary","expires":"2026-11-20T00:00:00Z","owner":{"team":"perf"}}]`,
+	})
+	if res.IsError {
+		t.Fatalf("edit: %s", resultText(t, res))
+	}
+	c := readContract(t, dir)
+	if len(c.Environments) != 2 || c.Environments[1].Name != "pr-2" || c.Environments[1].Owner.Team != "perf" {
+		t.Errorf("environments %+v", c.Environments)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "environments/pr-1.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("pr-1 file kept: %v", err)
+	}
+}

@@ -533,3 +533,48 @@ func TestTemplateHelpers(t *testing.T) {
 		t.Error("pathOfContract")
 	}
 }
+
+// TestTemplateDeliveryAddsMissingEnvironments: with --delivery, each --env
+// the golden path does not declare is added with an empty values file; the
+// ones it declares stay as the path wrote them.
+func TestTemplateDeliveryAddsMissingEnvironments(t *testing.T) {
+	text := pathContract + "environments:\n  - {name: test, file: environments/test.yaml, lifetime: persistent}\n"
+	fsys := goldenPath(text)
+	fsys["environments/test.yaml"] = &fstest.MapFile{Data: []byte("default: {size: 2}\n")}
+	r, c := mustFromPath(t, fsys, Options{Delivery: true, Environments: []string{"test", "pr-1"}}, override.Overrides{})
+	want := []contract.Environment{{Name: "test", File: "environments/test.yaml", Lifetime: contract.EnvironmentPersistent}, {Name: "pr-1", File: "environments/pr-1.yaml"}}
+	if !slices.Equal(namesOf(c.Environments), namesOf(want)) || c.Environments[0].Lifetime != contract.EnvironmentPersistent || c.Environments[1].File != want[1].File {
+		t.Fatalf("environments %+v", c.Environments)
+	}
+	if f := file(t, r, "environments/pr-1.yaml"); f.Content != "# Values pr-1 uses for each configuration, by configuration name.\n{}\n" {
+		t.Fatalf("pr-1 file %q", f.Content)
+	}
+	if f := file(t, r, "environments/test.yaml"); f.Content != "default: {size: 2}\n" {
+		t.Fatalf("test file %q", f.Content)
+	}
+}
+
+func namesOf(envs []contract.Environment) []string {
+	var out []string
+	for _, e := range envs {
+		out = append(out, e.Name)
+	}
+	return out
+}
+
+// TestTemplateDropsEnvironmentExpiryAndOwner: the path author's expiry dates
+// and owner teams do not carry over to a created service; lifetime does.
+func TestTemplateDropsEnvironmentExpiryAndOwner(t *testing.T) {
+	text := pathContract + "environments:\n  - name: preview\n    file: environments/preview.yaml\n    lifetime: temporary\n    expires: 2026-11-20T00:00:00Z\n    owner: {team: platform}\n"
+	fsys := goldenPath(text)
+	fsys["environments/preview.yaml"] = &fstest.MapFile{Data: []byte("{}\n")}
+	r, c := mustFromPath(t, fsys, Options{}, override.Overrides{})
+	if e := c.Environments[0]; e.Lifetime != contract.EnvironmentTemporary || e.Expires != "" || e.Owner != nil {
+		t.Fatalf("environment %+v", e)
+	}
+	wantLines(t, "next", r.Next, "the golden path's environment expiry and owner were dropped (preview)")
+	r, _ = mustFromPath(t, goldenPath(""), Options{}, override.Overrides{})
+	if hasLine(r.Next, "environment expiry and owner were dropped") {
+		t.Fatalf("nothing dropped: %v", r.Next)
+	}
+}
