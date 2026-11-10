@@ -330,6 +330,7 @@ func renderImpact(r *impact.Result) string {
 			renderConsumer(&b, cons)
 		}
 	}
+	renderUnlisted(&b, r)
 	renderOwnerRanking(&b, r.ConsumerTallies)
 	if len(r.Owners) > 0 {
 		section(&b, fmt.Sprintf("Owners to review (%d)", len(r.Owners)))
@@ -343,6 +344,20 @@ func renderImpact(r *impact.Result) string {
 		}
 	}
 	return b.String()
+}
+
+// renderUnlisted writes what the answer holds outside its consumers: how many
+// the viewer may not see and the golden paths to review.
+func renderUnlisted(b *strings.Builder, r *impact.Result) {
+	if r.Hidden > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  %d more you may not see\n", r.Hidden)))
+	}
+	if len(r.Templates) > 0 {
+		section(b, fmt.Sprintf("Golden paths to review (%d): they run nowhere, so they never hold the gate", len(r.Templates)))
+		for _, t := range r.Templates {
+			fmt.Fprintf(b, "  %s\n", safeText(t))
+		}
+	}
 }
 
 // eventWords says what happens to an event's service.

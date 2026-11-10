@@ -294,3 +294,11 @@ func TestImpactUncontractedCallerHasNoHref(t *testing.T) {
 		t.Errorf("uncontracted caller links to %q", h)
 	}
 }
+
+// TestImpactTemplatesHaveHrefs: golden paths to review link to their page.
+func TestImpactTemplatesHaveHrefs(t *testing.T) {
+	p := toProductImpact(&impact.Product{Templates: fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindService, Key: "http-path", Label: "http-path"}}}})
+	if p.Templates.Total != 1 || !hrefsNonEmpty(p.Templates.Items...) {
+		t.Errorf("templates = %+v", p.Templates)
+	}
+}

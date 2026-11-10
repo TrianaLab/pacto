@@ -228,8 +228,8 @@ func TestPolicyReferrerHiddenCounted(t *testing.T) {
 	}
 	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
 	res := analyzePolicy(snap, tierPolicy)
-	if len(res.Consumers) != 0 {
-		t.Errorf("a hidden referrer is named: %+v", res.Consumers)
+	if len(res.Consumers) != 0 || res.Hidden != 2 {
+		t.Errorf("a hidden referrer is named: %+v, hidden %d", res.Consumers, res.Hidden)
 	}
 	rev := snap.Revisions[snap.Services[fleet.NewServiceKey("policy")].Revisions[0]]
 	if p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0); p.Consumers.Hidden != 2 {
@@ -332,5 +332,69 @@ func TestPolicyReferrersFailingOnStaleTarget(t *testing.T) {
 	want := "2 services that reference policy fail its new policy: orders runs on a known target; billing was last seen on a target more than 24h before asOf"
 	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, want) {
 		t.Errorf("gate %s: %q", res.Gate, res.GateReason)
+	}
+}
+
+// A change the diff does not call BREAKING never clears while a service that
+// references the policy is unchecked or unresolved: the diff can miss a
+// policy the provider tightened, so unknown is never taken as safe.
+func TestPolicyNonBreakingWithUnknownReferrersNotClear(t *testing.T) {
+	oldP := policyProvider("1.0.0")
+	oldP.Policies = []contract.Policy{{Name: "base", Schema: "policy/schema.json"}}
+	newP := policyProvider("1.1.0")
+	newP.Policies = []contract.Policy{{Name: "base", Schema: "policy/schema.json"}, {Name: "tier", Schema: "policy/tier.json"}}
+	newFS := fstest.MapFS{"policy/schema.json": {Data: []byte(openPolicy)}, "policy/tier.json": {Data: []byte(openPolicy)}}
+	unchecked := policyReferrer("orders", false)
+	unchecked.Bundle.FS = nil
+	tagged := policyReferrer("orders", false)
+	tagged.Lock = nil
+	tagged.Bundle.Contract.Policies[0].Ref = policyRef + ":1"
+	for _, tt := range []struct {
+		name, class, reason string
+		oldC, newC          *contract.Contract
+		newFS               fstest.MapFS
+		rev                 fleet.RawRevision
+	}{
+		{"unchecked", "NON_BREAKING", "1 service that references policy could not be checked against its new policy", oldP, newP, newFS, unchecked},
+		{"unresolved", "NON_BREAKING", "policy references that name policy are not digest-pinned or locked", oldP, newP, newFS, tagged},
+		// Removing the policy schema: every referrer's next validation fails.
+		{"schema removed", "POTENTIAL_BREAKING", "could not be checked", policyProvider("1.0.0"), policyProvider("1.1.0"), fstest.MapFS{}, policyReferrer("orders", true)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			snap := policySnap(t, tt.oldC, []string{"orders"}, tt.rev)
+			res := Analyze(context.Background(), tt.oldC, tt.newC, policySchema(openPolicy), tt.newFS, snap, Options{})
+			if res.Classification != tt.class || res.Gate != GateUnverified || !strings.Contains(res.GateReason, tt.reason) ||
+				!strings.HasPrefix(res.GateReason, "the change is "+tt.class+", but ") {
+				t.Errorf("classification %s, gate %s (%s)", res.Classification, res.Gate, res.GateReason)
+			}
+		})
+	}
+	// Every referrer checked and compatible: the change clears.
+	snap := policySnap(t, oldP, []string{"orders"}, policyReferrer("orders", true))
+	if res := Analyze(context.Background(), oldP, newP, policySchema(openPolicy), newFS, snap, Options{}); res.Gate != GateClear {
+		t.Errorf("checked referrers: gate %s (%s)", res.Gate, res.GateReason)
+	}
+}
+
+// A golden path that references the policy runs nowhere: it is listed to
+// review and never counted as a consumer, so it never holds the gate.
+func TestPolicyTemplateReferrerListedNotBlocking(t *testing.T) {
+	path := policyReferrer("http-path", false)
+	path.Bundle.Contract.Service.Template = &contract.Template{}
+	without := analyzePolicy(policySnap(t, policyProvider("1.0.0"), []string{"orders"}, policyReferrer("orders", true)), tierPolicy)
+	snap := policySnap(t, policyProvider("1.0.0"), []string{"orders"}, policyReferrer("orders", true), path)
+	res := analyzePolicy(snap, tierPolicy)
+	key := string(fleet.NewServiceKey("http-path"))
+	if c := onlyConsumer(t, res); c.Service != "orders" || !slices.Equal(res.Templates, []string{key}) ||
+		res.Gate != without.Gate || res.GateReason != without.GateReason {
+		t.Errorf("templates %v, gate %s (%s), want %s", res.Templates, res.Gate, res.GateReason, without.Gate)
+	}
+	rev := snap.Revisions[snap.Services[fleet.NewServiceKey("policy")].Revisions[0]]
+	if p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0); p.Templates.Total != 1 || p.Templates.Items[0].Key != key {
+		t.Errorf("product templates = %+v", p.Templates)
+	}
+	// An availability event reads no policy referrer, so it lists no golden path.
+	if ev := Analyze(context.Background(), nil, nil, nil, nil, snap, Options{Event: &Event{Kind: EventUnavailable, Service: "policy"}}); len(ev.Templates) != 0 {
+		t.Errorf("unavailable templates = %v", ev.Templates)
 	}
 }

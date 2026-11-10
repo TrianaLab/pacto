@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -169,11 +170,12 @@ func TestStaleObservedOnlyCallerStaysListed(t *testing.T) {
 func TestStaleTraceFileDoesNotCorroborate(t *testing.T) {
 	snap := evidenceSnap(t, []fleet.RawRevision{gwRev(authDep)}, []fleet.RawTarget{gwTarget(ago(time.Hour))})
 	res := analyzeAuth(snap, Options{IncludeObserved: true, ObservedEdges: []ObservedEdge{
-		{Consumer: "api-gateway", Provider: "auth-service", LastSeen: ago(48 * time.Hour)},
+		{Consumer: "api-gateway", Provider: "auth-service", LastSeen: ago(48 * time.Hour), Count: 7},
 	}})
 	c := consumerNamed(t, res, "api-gateway")
 	obs := c.Evidence[len(c.Evidence)-1]
-	if c.Confidence != ConfidenceUnknown || obs.Source != tracesFileSource || !obs.Stale || obs.Kind != EvidenceObservedCall {
+	if c.Confidence != ConfidenceUnknown || obs.Source != tracesFileSource || !obs.Stale || obs.Kind != EvidenceObservedCall ||
+		!strings.HasPrefix(obs.Message, "7 calls seen") {
 		t.Errorf("consumer = %+v", c)
 	}
 }
@@ -297,6 +299,31 @@ func TestResultJSONKeepsFields(t *testing.T) {
 	_ = json.Unmarshal(top["consumers"], &consumers)
 	for _, k := range []string{"service", "depth", "direct", "path", "owner", "required", "compatibility", "compatibilityVerdict",
 		"provenance", "confidence", "status", "targets", "via"} {
+		if _, ok := consumers[0][k]; !ok {
+			t.Errorf("consumer lost %q", k)
+		}
+	}
+
+	// Every omitempty key keeps its name when it carries a value.
+	full := &Result{
+		NonBreakingChanges: []diff.Change{{}}, PotentiallyBreakingChanges: []diff.Change{{}}, ChangedOwnerKey: "team:a",
+		Limitations: []fleet.Limitation{{}}, LimitationsTruncated: true, Sources: []fleet.SourceState{{}}, SourcesTruncated: true,
+		NewRevisionAdded: true, Event: &Event{}, Regression: []RegressionEvidence{{}}, Hidden: 1, Templates: []string{"t"},
+		Consumers: []AffectedConsumer{{Domain: "d", OwnerKey: "team:a", Uncontracted: true, Unmet: []contract.Mismatch{{}}, Note: "n",
+			Evidence: []Evidence{{}}, Effect: EffectBreaks, Resources: []fleet.ProvisioningStatus{{}}, ResourcesTotal: 1}},
+	}
+	b, _ = json.Marshal(full)
+	top = nil
+	_ = json.Unmarshal(b, &top)
+	for _, k := range []string{"nonBreakingChanges", "potentiallyBreakingChanges", "changedOwnerKey", "limitations", "limitationsTruncated",
+		"sources", "sourcesTruncated", "newRevisionAdded", "event", "regression", "hidden", "templates"} {
+		if _, ok := top[k]; !ok {
+			t.Errorf("result lost %q", k)
+		}
+	}
+	consumers = nil
+	_ = json.Unmarshal(top["consumers"], &consumers)
+	for _, k := range []string{"domain", "ownerKey", "uncontracted", "unmet", "note", "evidence", "effect", "resources", "resourcesTotal"} {
 		if _, ok := consumers[0][k]; !ok {
 			t.Errorf("consumer lost %q", k)
 		}

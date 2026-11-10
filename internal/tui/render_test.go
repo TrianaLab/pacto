@@ -284,6 +284,10 @@ func TestRenderImpactWithNoConsumers(t *testing.T) {
 	if !strings.Contains(got, "none identified") {
 		t.Fatal("render should say no consumers identified")
 	}
+	r.Hidden, r.Templates = 2, []string{"http-path"}
+	if got := renderImpact(r); !strings.Contains(got, "2 more you may not see") || !strings.Contains(got, "Golden paths to review (1)") || !strings.Contains(got, "  http-path\n") {
+		t.Fatalf("render should count hidden consumers and list golden paths, got:\n%s", got)
+	}
 }
 
 func TestRenderImpactWithOwners(t *testing.T) {

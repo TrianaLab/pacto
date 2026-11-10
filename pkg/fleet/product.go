@@ -324,6 +324,21 @@ func (q *Query) UsesOf(provider ServiceKey) ([]OfferingUse, []Limitation) {
 	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Key == provider }, "", true)
 }
 
+// TemplatesReferencing are the golden paths whose revisions reference
+// provider through a resolved policy reference, sorted. A golden path runs
+// nowhere, so impact lists them to review and never counts them as consumers.
+func (q *Query) TemplatesReferencing(provider ServiceKey) []ServiceKey {
+	var out []ServiceKey
+	for _, r := range q.snap.templateEdges {
+		if r.Type == RelationshipPolicyRef && r.Resolved && !r.Hidden && r.ToService == provider &&
+			q.snap.Services[r.FromService] != nil && !slices.Contains(out, r.FromService) {
+			out = append(out, r.FromService)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // domainEntityRef builds a route-neutral reference to a business domain.
 func domainEntityRef(name string) EntityRef {
 	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}

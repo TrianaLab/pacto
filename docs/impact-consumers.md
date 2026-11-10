@@ -43,8 +43,15 @@ contract against the new revision's policy:
 
 A `BREAKING` change with referrers never ends `clear`. Policy references that
 are neither digest-pinned nor locked add `POLICY_REF_CONSUMERS_UNRESOLVED` and
-make the answer `partial`. A referrer the viewer may not see is never named;
-the dashboard counts it in `consumers.hidden`.
+make the answer `partial`. A change of any classification with an unchecked or
+unresolved referrer ends `unverified`: the diff can miss a policy the provider
+tightened, so a referrer Pacto could not check is never taken as safe. A
+referrer the viewer may not see is never named; the answer counts it in
+`hidden` (`consumers.hidden` in the dashboard).
+
+A golden path that references the policy runs nowhere, so it is never a
+consumer and never holds the gate. The answer lists it in `templates` to
+review: a service created from it checks against the new policy.
 
 ### Observed consumers
 

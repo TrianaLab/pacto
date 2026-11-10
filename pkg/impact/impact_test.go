@@ -707,7 +707,8 @@ func TestAnalyze_UncontractedCallers(t *testing.T) {
 	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true})
 	want := []AffectedConsumer{{Service: "k8s:pay/Deployment/legacy", Depth: 1, Direct: true,
 		Path: []string{"k8s:pay/Deployment/legacy", "auth-service"}, CompatibilityVerdict: CompatibilityUnknown,
-		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved}}}
+		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved},
+		Evidence: []Evidence{{Kind: EvidenceObservedCall, Source: "delivery", Provenance: fleet.ProvenanceObserved, Message: "calls seen, no observation window"}}}}
 	if !reflect.DeepEqual(res.Consumers, want) {
 		t.Fatalf("consumers = %+v\nwant %+v", res.Consumers, want)
 	}

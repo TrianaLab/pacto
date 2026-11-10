@@ -478,3 +478,26 @@ func TestUsesOfAnyProvider(t *testing.T) {
 		t.Errorf("offering uses = %+v", off)
 	}
 }
+
+// TemplatesReferencing lists each visible golden path once that references
+// the provider through a resolved policy reference.
+func TestTemplatesReferencing(t *testing.T) {
+	p := ServiceKey("policy")
+	edge := func(from ServiceKey, mut func(*Relationship)) Relationship {
+		r := Relationship{FromService: from, ToService: p, Type: RelationshipPolicyRef, Resolved: true}
+		if mut != nil {
+			mut(&r)
+		}
+		return r
+	}
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"b-path": {}, "a-path": {}}, templateEdges: []Relationship{
+		edge("b-path", nil), edge("a-path", nil), edge("b-path", nil),
+		edge("a-path", func(r *Relationship) { r.Type = RelationshipConfigRef }),
+		edge("gone", nil),
+		edge("a-path", func(r *Relationship) { r.Resolved = false; r.ToService = "else" }),
+		edge("b-path", func(r *Relationship) { r.Hidden = true; r.ToService = "else" }),
+	}}
+	if got := NewQuery(snap).TemplatesReferencing(p); !slices.Equal(got, []ServiceKey{"a-path", "b-path"}) {
+		t.Errorf("templates = %v", got)
+	}
+}

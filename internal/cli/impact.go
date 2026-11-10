@@ -42,10 +42,13 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 			"artifact digest reads delivery's recorded failures with your own cluster credentials " +
 			"when a cluster is reachable.\n\n" +
 			"The answer ends in a release gate, and the exit status follows it:\n" +
-			"  0  clear: the change is not BREAKING, or the snapshot is complete and no service depends on the changed one.\n" +
-			"  1  blocked: the change is BREAKING and a consumer that does not accept the new version runs on a known target.\n" +
-			"  2  unverified: the change is BREAKING and nothing is shown to block it, but the answer cannot clear it: " +
-			"the answer is partial, or consumers depend on the service and none is shown to be safe. " +
+			"  0  clear: the change is not BREAKING and every service that references its policy passes the new policy, " +
+			"or the snapshot is complete and no service depends on the changed one.\n" +
+			"  1  blocked: a consumer that runs on a known target does not accept the new version of a BREAKING change, " +
+			"or its contract fails the changed service's new policy, whatever the classification.\n" +
+			"  2  unverified: nothing is shown to block the change, but the answer cannot clear it: a BREAKING change " +
+			"whose answer is partial or whose consumers none is shown to be safe, or a service that references the " +
+			"changed policy and fails it running nowhere known, could not be checked or could not be resolved. " +
 			"A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.\n" +
 			"A command that could not run also exits 1, with nothing on stdout. Add --target-state " +
 			"(or a live source) so the gate can tell deployed impact apart.\n\n" +
@@ -152,12 +155,28 @@ func impactArgs(cmd *cobra.Command, args []string) error {
 	switch {
 	case len(set) > 1:
 		return fmt.Errorf("pass one of %s, not several", strings.Join(set, ", "))
+	case len(set) == 1 && changedFlag(cmd, impactChangeOnlyFlags) != "":
+		return fmt.Errorf("--%s applies to <old> <new>, not %s: an event always reads observed callers and diffs no contract",
+			changedFlag(cmd, impactChangeOnlyFlags), set[0])
 	case len(set) == 1 && len(args) > 0:
 		return fmt.Errorf("%s takes no <old> <new> arguments, got %d", set[0], len(args))
 	case len(set) == 0 && len(args) != 2:
 		return fmt.Errorf("accepts <old> <new> (2 arguments) or one of --unavailable, --removed, --regressed, received %d arguments", len(args))
 	}
 	return nil
+}
+
+// impactChangeOnlyFlags only shape a contract change answer.
+var impactChangeOnlyFlags = []string{"include-observed", "old-values", "old-set", "new-values", "new-set"}
+
+// changedFlag is the first of names set on cmd, "" when none is.
+func changedFlag(cmd *cobra.Command, names []string) string {
+	for _, f := range names {
+		if cmd.Flags().Changed(f) {
+			return f
+		}
+	}
+	return ""
 }
 
 // impactEventFlag is the event flag set on cmd and its value, "" when none.
@@ -224,6 +243,12 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 		}
 		if len(result.ActiveTargets) > 0 {
 			_, _ = fmt.Fprintf(w, "Active targets (%d): %v\n", len(result.ActiveTargets), result.ActiveTargets)
+		}
+		if result.Hidden > 0 {
+			_, _ = fmt.Fprintf(w, "Consumers you may not see: %d\n", result.Hidden)
+		}
+		if len(result.Templates) > 0 {
+			_, _ = fmt.Fprintf(w, "Golden paths to review (they run nowhere, so they never hold the gate): %s\n", strings.Join(result.Templates, ", "))
 		}
 		if result.Event != nil && result.Event.Kind == impact.EventRegressed {
 			printRegression(w, result)
@@ -315,10 +340,10 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 			_, _ = fmt.Fprintf(w, "    and %d more\n", len(c.Evidence)-maxEvidenceLines)
 			break
 		}
-		_, _ = fmt.Fprintf(w, "    evidence: %s %s %s\n", e.Kind, orDash(e.Source), evidenceAge(result.AsOf, e))
+		_, _ = fmt.Fprintf(w, "    evidence: %s %s %s\n", e.Kind, orDash(e.Source), evidenceDetail(result.AsOf, e))
 	}
 	for _, r := range c.Resources {
-		_, _ = fmt.Fprintf(w, "    resources: %s %s\n", orDash(r.Environment), r.Phase)
+		_, _ = fmt.Fprintf(w, "    resources: %s %s%s\n", orDash(r.Environment), r.Phase, map[bool]string{true: " entry " + r.Entry}[r.Entry != ""])
 	}
 	if c.ResourcesTotal > len(c.Resources) {
 		_, _ = fmt.Fprintf(w, "    and %d more resources\n", c.ResourcesTotal-len(c.Resources))
@@ -328,9 +353,12 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	}
 }
 
-// evidenceAge says how old a fact was at asOf, or that it is stale.
-func evidenceAge(asOf time.Time, e impact.Evidence) string {
+// evidenceDetail says how old a target or an observed call was at asOf, or
+// that it is stale; any other fact is said in its own words.
+func evidenceDetail(asOf time.Time, e impact.Evidence) string {
 	switch {
+	case e.Kind != impact.EvidenceTarget && e.Kind != impact.EvidenceObservedCall:
+		return e.Message
 	case e.Stale:
 		return "stale"
 	case e.At == nil:

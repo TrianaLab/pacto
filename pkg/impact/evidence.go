@@ -25,7 +25,7 @@ const tracesFileSource = "traces file"
 
 // Evidence is one fact behind an affected consumer, with its age.
 type Evidence struct {
-	Kind       string     `json:"kind" enum:"observed-call,target,unreachable,lifecycle,provisioning" doc:"What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or a provisioning report"`
+	Kind       string     `json:"kind" enum:"observed-call,target,unreachable,lifecycle" doc:"What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources"`
 	Source     string     `json:"source,omitempty" doc:"Where the fact comes from: the observation source id, the traces file or the target key"`
 	At         *time.Time `json:"at,omitempty" doc:"When the fact was last seen. Empty when the source records no time"`
 	Stale      bool       `json:"stale,omitempty" doc:"The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current"`
@@ -103,7 +103,7 @@ func targetEvidence(snap *fleet.FleetSnapshot, t *fleet.TargetRecord, key fleet.
 func observedEvidence(e resolvedObservedEdge) Evidence {
 	msg := "calls seen"
 	if e.count > 0 {
-		msg = strconv.Itoa(e.count) + " " + msg
+		msg = strconv.Itoa(e.count) + " " + plural(e.count, "call", "calls") + " seen"
 	}
 	switch {
 	case e.lastSeen == nil:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,11 @@ func TestEventClearReasonNamesObservationCoverage(t *testing.T) {
 	res = event(snap, EventRemoved, "auth-service", Options{ObservedEdges: []ObservedEdge{{Consumer: "a", Provider: "b"}}})
 	if res.Gate != GateClear || !strings.HasSuffix(res.GateReason, "Observation sources consulted: test, traces file") {
 		t.Errorf("gate %s: %q", res.Gate, res.GateReason)
+	}
+	// A traces file that was read and saw no call was still consulted.
+	res = event(buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("auth-service")}}), EventUnavailable, "auth-service", Options{ObservedEdges: []ObservedEdge{}})
+	if res.Gate != GateClear || !strings.HasSuffix(res.GateReason, "Observation sources consulted: traces file") {
+		t.Errorf("empty traces file: gate %s: %q", res.Gate, res.GateReason)
 	}
 }
 
@@ -320,9 +326,18 @@ func TestEventRemovedResources(t *testing.T) {
 		t.Errorf("unavailable named resources")
 	}
 	many := make([]fleet.ProvisioningStatus, MaxConsumerResources+3)
+	for i := range many {
+		many[i].Entry = strconv.Itoa(i)
+	}
 	got, total := resourcesOf([]fleet.OfferingUse{{Consumer: fleet.EntityRef{Key: "a"}, Provisioning: many}, {Consumer: fleet.EntityRef{Key: "b"}, Provisioning: many}}, "a")
 	if len(got) != MaxConsumerResources || total != MaxConsumerResources+3 {
 		t.Errorf("bounded %d of %d", len(got), total)
+	}
+	// A dependency and a configuration reference with the same status in one
+	// environment name it once.
+	unknown := []fleet.ProvisioningStatus{{Environment: "production", Phase: "Unknown"}}
+	if got, total := resourcesOf([]fleet.OfferingUse{{Consumer: fleet.EntityRef{Key: "a"}, Provisioning: unknown}, {Consumer: fleet.EntityRef{Key: "a"}, Provisioning: unknown}}, "a"); len(got) != 1 || total != 1 {
+		t.Errorf("duplicates: %d of %d", len(got), total)
 	}
 }
 
@@ -383,6 +398,9 @@ func TestEventRegressedEvidenceCited(t *testing.T) {
 		!strings.Contains(res.GateReason, "Delivery recorded: shop/prod gate slo failed (error rate 5%); shop/prod lists it as failed; shop/prod rolled it back (pages)") ||
 		!strings.HasSuffix(res.GateReason, " and 47 more") {
 		t.Errorf("regression %d, reason %q", len(res.Regression), res.GateReason)
+	}
+	if l := limitation(res, LimitationDeliveryEvidenceTruncated); l == nil || l.Message != "3 more delivery facts about this revision are not shown: the answer keeps the first 50" {
+		t.Errorf("truncation limitation %+v", l)
 	}
 }
 
@@ -475,5 +493,21 @@ func TestEventUnresolvedTraceCallerPartial(t *testing.T) {
 	res := event(buildChain(t), EventUnavailable, "auth-service", Options{ObservedEdges: []ObservedEdge{{Consumer: "ghost", Provider: "auth-service"}}})
 	if res.Completeness != fleet.CompletenessPartial || limitation(res, ObservedIdentityUnresolved) == nil {
 		t.Errorf("completeness %s, limitations %+v", res.Completeness, res.Limitations)
+	}
+}
+
+// A referrer that also breaks through a transitive required path keeps the
+// path that justifies breaks, not its unknown policy hop.
+func TestEventRemovedReferrerKeepsTheBreaksPath(t *testing.T) {
+	billing := fleet.RawRevision{Bundle: mkBundle(svcContract("billing", "1.0.0", contract.Owner{Team: "billing"}, dep("policy", true)))}
+	snap := policySnap(t, policyProvider("1.0.0"), nil, billing, policyReferrer("orders", true, dep("billing", true)))
+	res := event(snap, EventRemoved, "policy")
+	i := slices.IndexFunc(res.Consumers, func(c AffectedConsumer) bool { return c.Service == "orders" })
+	if i < 0 {
+		t.Fatalf("consumers = %+v", res.Consumers)
+	}
+	if c := res.Consumers[i]; c.Effect != EffectBreaks || c.Direct || !reflect.DeepEqual(c.Path, []string{"orders", "billing", "policy"}) ||
+		!slices.Contains(c.Via, fleet.RelationshipPolicyRef) {
+		t.Errorf("orders = %+v", c)
 	}
 }

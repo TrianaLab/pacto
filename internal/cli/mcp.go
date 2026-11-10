@@ -456,7 +456,7 @@ func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool) error {
 func mcpRegression(cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
 	if !trusted {
 		return &impact.Regression{Unavailable: "this server answers over HTTP and reads no delivery for its callers; " +
-			"run pacto mcp --delivery beside the agent for the Stage history"}
+			"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"}
 	}
 	return readRegression(cmd, d, ev)
 }

@@ -20,6 +20,7 @@ const (
 	MaxProductPath          = 50
 	MaxProductOwners        = 200
 	MaxProductActiveTargets = 200
+	MaxProductTemplates     = 200
 	// MaxProductLimitations bounded the limitations preview.
 	//
 	// Deprecated: the analysis now caps limitations at [fleet.MaxMetaLimitations].
@@ -175,6 +176,9 @@ type Product struct {
 	Owners         fleet.RefPreview         `json:"owners"`
 	ActiveTargets  fleet.RefPreview         `json:"activeTargets"`
 	Limitations    fleet.LimitationsPreview `json:"limitations"`
+	// Templates are the golden paths that reference the changed service's
+	// policy, as [Result.Templates]: listed to review, never consumers.
+	Templates fleet.RefPreview `json:"templates" doc:"The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each"`
 	// ChangedOwner is the changed service's own owner.
 	ChangedOwner *fleet.EntityRef `json:"changedOwner,omitempty" doc:"A reference to the changed service's owner"`
 	// Gate and GateReason are the release gate of the analysis, as
@@ -272,14 +276,9 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 	for _, o := range res.Owners {
 		owners = append(owners, fleet.OwnerRef(o))
 	}
-	hidden := 0
-	if s := snap.Services[svcKey]; s != nil {
-		hidden = s.HiddenDependents
-		// Policy referrers are consumers of a contract change and of a
-		// removal; availability and regressions do not read them.
-		if res.Event == nil || res.Event.Kind == EventRemoved {
-			hidden += s.HiddenPolicyReferrers
-		}
+	templates := make([]fleet.EntityRef, 0, len(res.Templates))
+	for _, k := range res.Templates {
+		templates = append(templates, serviceRef(snap, fleet.ServiceKey(k)))
 	}
 	// meta describes the snapshot; the analysis can know less than it (a truncated
 	// blast radius, a service missing from the fleet), and the answer must say so.
@@ -297,9 +296,10 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
 		Changes:        boundChanges(res),
-		Consumers:      pageConsumersOutcome(consumers, limit, offset, hidden, outcome, res.Event != nil),
+		Consumers:      pageConsumersOutcome(consumers, limit, offset, res.Hidden, outcome, res.Event != nil),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
+		Templates:      boundRefs(templates, MaxProductTemplates),
 		Limitations:    limitationsPreview(res),
 		ChangedOwner:   ownerRef(res.ChangedOwnerKey),
 		Gate:           res.Gate,

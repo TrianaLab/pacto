@@ -444,7 +444,7 @@
 
 <PageHeader
   title="Change analysis"
-  subtitle="What changed between two revisions and who it reaches."
+  subtitle={isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
 />
 
 {#if !serviceKey}

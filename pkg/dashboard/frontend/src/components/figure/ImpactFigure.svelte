@@ -104,7 +104,7 @@
       {#snippet facts()}
         {#if isEvent}
           <dt>Question</dt>
-          <dd>{m.lead}?</dd>
+          <dd>What happens if {eventPhrase(impact)}?</dd>
         {:else}
           <dt>Change</dt>
           <dd><bdi>{m.service}</bdi> <span class="mono">{m.from} → {m.to}</span></dd>
@@ -131,6 +131,14 @@
             {#if tallies.beyondRanking || tallies.noOwner}
               <span class="t-meta">{[tallies.beyondRanking ? `${countOf(tallies.beyondRanking, 'more consumer', 'more consumers')} of other owners` : '', tallies.noOwner ? `${formatCount(tallies.noOwner)} with no identified owner` : ''].filter(Boolean).join('; ')}</span>
             {/if}
+          </dd>
+        {/if}
+        {#if impact.templates?.total}
+          <!-- Golden paths run nowhere: listed to review, never counted as consumers. -->
+          <dt>Golden paths to review</dt>
+          <dd data-testid="impact-templates">
+            {#each impact.templates.items ?? [] as t, i (t.key)}{i ? ', ' : ''}<EntityLink ref={t} showStatus={false} />{/each}{impact.templates.truncated ? ` and ${formatCount(impact.templates.total - impact.templates.count)} more` : ''}.
+            <span class="t-meta">They run nowhere, so they never hold the gate.</span>
           </dd>
         {/if}
         {#if m.gate}

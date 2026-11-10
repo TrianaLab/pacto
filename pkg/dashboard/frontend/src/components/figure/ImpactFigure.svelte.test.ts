@@ -125,6 +125,23 @@ describe('ImpactFigure', () => {
     const card = target.querySelector('[data-testid="changes-answer"]')!;
     expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Gate Needs a person: 1 required consumer runs on prod/eu-1.');
     expect(card.querySelector('[data-testid="impact-changed-owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Apay');
+    expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Question What happens if payments-service becomes unavailable?');
+    expect(card.querySelector('[data-testid="impact-templates"]')).toBeNull();
+    unmount(c);
+  });
+  it('lists the golden paths that reference a changed policy, never as consumers', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    im.templates = { total: 3, count: 2, truncated: true, items: [
+      { kind: 'service', key: 'http-path', label: 'http-path', href: '/fleet/services/http-path' },
+      { kind: 'service', key: 'grpc-path', label: 'grpc-path', href: '/fleet/services/grpc-path' }] };
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    const row = target.querySelector('[data-testid="impact-templates"]')!;
+    expect([...row.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['#/fleet/services/http-path', '#/fleet/services/grpc-path']);
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('grpc-path and 1 more. They run nowhere, so they never hold the gate.');
     unmount(c);
   });
 });

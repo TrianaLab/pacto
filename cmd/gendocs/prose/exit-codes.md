@@ -14,12 +14,12 @@ the final verdict fails `--fail-on`.
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and no policy referrer fails the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
+| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
 | **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
 
 | Exits `2` |
 | --- |
-| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe |
+| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe; or a change of any classification with a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved |
 | `pacto impact --unavailable`, `--removed` or `--regressed` when anything depends on the service or the answer is partial. An event never exits `1` for its result |
 
 Two cases affect CI gates:

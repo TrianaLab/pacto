@@ -43,12 +43,14 @@ target evidence is stale was last seen there more than 24 hours before `asOf`.
 with the provisioning status per environment. When the service declares its
 lifecycle, such as deprecated or sunset, each consumer cites it as `lifecycle`
 evidence. Policy referrers join a
-removal as `unknown`, since their next revision fails validation.
+removal as `unknown`, since their next revision fails validation. Golden paths
+that reference it are listed under `templates`, never as consumers.
 
 `--regressed` grades consumers like `--unavailable`. When the revision is an
 artifact digest (`sha256:...`), Pacto reads delivery's recorded failures of
 that digest with your own cluster credentials: Fail verdicts, failed digests
-and rollbacks, at most 50, under `regression`. A rollback line read from a
+and rollbacks, at most 50, under `regression`. A
+`DELIVERY_EVIDENCE_TRUNCATED` limitation counts the facts beyond 50. A rollback line read from a
 Stage's status is marked "from status, not signed". A version names no single
 artifact, so it reads nothing. Whenever delivery cannot be read in full, the
 answer carries a `DELIVERY_EVIDENCE_UNAVAILABLE` limitation with the reason. An
@@ -59,7 +61,8 @@ unread Stage never reads as "no failure recorded".
 The `pacto_impact` MCP tool takes `event` (`unavailable`, `removed` or
 `regressed`) with `service`, and `revision` for a regression, in place of
 `old_ref` and `new_ref`. Only a stdio server reads delivery evidence, a
-`traces` path or a local ref; see
+`traces` path or a local ref, so run `pacto mcp --fleet` over stdio beside the
+agent to cite delivery's recorded failures; see
 [Fleet query safety](mcp-reference.md#fleet-query-safety).
 
 ## In the dashboard

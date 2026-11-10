@@ -141,3 +141,11 @@ func TestImpactEventHrefs(t *testing.T) {
 		t.Fatalf("event hrefs:\n%s", text)
 	}
 }
+
+// An event kind the tool does not know is refused before any analysis, even
+// by a client that skips the input schema.
+func TestImpactArgsRefuseUnknownEvent(t *testing.T) {
+	if _, err := (impactArgs{Event: "exploded", Service: "x"}).request(); err == nil || err.Error() != "event is one of unavailable, removed or regressed" {
+		t.Errorf("err = %v", err)
+	}
+}

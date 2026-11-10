@@ -3187,10 +3187,10 @@ export interface components {
              */
             at?: string;
             /**
-             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service, the provider's declared lifecycle or a provisioning report
+             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources
              * @enum {string}
              */
-            kind: "observed-call" | "target" | "unreachable" | "lifecycle" | "provisioning";
+            kind: "observed-call" | "target" | "unreachable" | "lifecycle";
             /** @description The fact in plain words */
             message: string;
             /**
@@ -3254,6 +3254,11 @@ export interface components {
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
+            /**
+             * Format: int64
+             * @description How many consumers this viewer may not see; they are never named
+             */
+            hidden?: number;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             newRevisionAdded?: boolean;
@@ -3269,6 +3274,8 @@ export interface components {
             snapshotId: string;
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
+            /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
+            templates?: string[] | null;
         };
         "Impact.TallyBucket": {
             /** Format: int64 */
@@ -3755,6 +3762,8 @@ export interface components {
             service: components["schemas"]["ProductRef"];
             snapshotId: string;
             snapshotMatch: boolean;
+            /** @description The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each */
+            templates: components["schemas"]["ProductRefPreview"];
         };
         ProductImpactConsumer: {
             blocking?: boolean;

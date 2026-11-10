@@ -273,6 +273,8 @@ func TestImpactArgsEventXorPair(t *testing.T) {
 		{[]string{"impact"}, "accepts <old> <new>"},
 		{[]string{"impact", "a", "b", "--unavailable", "x"}, "--unavailable takes no <old> <new> arguments"},
 		{[]string{"impact", "--unavailable", "x", "--removed", "y"}, "pass one of --unavailable, --removed, not several"},
+		{[]string{"impact", "--removed", "x", "--include-observed"}, "--include-observed applies to <old> <new>, not --removed"},
+		{[]string{"impact", "--unavailable", "x", "--new-set", "a=b"}, "--new-set applies to <old> <new>, not --unavailable"},
 		{[]string{"impact", "--unavailable", "x@1.0.0"}, "takes a service key"},
 	} {
 		if _, _, err := execFleet(t, tc.args...); err == nil || !strings.Contains(err.Error(), tc.want) {

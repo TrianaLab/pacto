@@ -111,18 +111,20 @@ func TestPrintImpactEventText(t *testing.T) {
 	cmd.SetErr(&buf)
 	asOf := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	seen := asOf.Add(-90 * time.Minute)
-	ev := []impact.Evidence{{Kind: "target", Source: "prod/web", At: &seen}, {Kind: "observed-call", Source: "mira"},
-		{Kind: "target", Source: "old/web", Stale: true}, {Kind: "target", Source: "x"}}
+	ev := []impact.Evidence{{Kind: "target", Source: "prod/web", At: &seen, Message: "evidence 1h30m0s old, window 24h"},
+		{Kind: "lifecycle", Source: "redis", Message: "redis declares its lifecycle: deprecated 2026-10-01"},
+		{Kind: "target", Source: "old/web", Stale: true, Message: "no evidence time"}, {Kind: "observed-call", Source: "mira"}}
 	res := &impact.Result{Service: "redis", AsOf: asOf, Completeness: "complete", Gate: impact.GateUnverified,
 		Event: &impact.Event{Kind: impact.EventRegressed, Service: "redis", Revision: "sha256:a"},
 		Consumers: []impact.AffectedConsumer{
 			{Service: "web", Direct: true, Effect: impact.EffectBreaks, Path: []string{"web", "redis"}, Provenance: "declared", Via: []string{"dependency"}, Evidence: ev,
-				Resources: []fleet.ProvisioningStatus{{Environment: "prod", Phase: "Ready"}}, ResourcesTotal: 3},
+				Resources: []fleet.ProvisioningStatus{{Environment: "prod", Phase: "Ready"}, {Environment: "prod", Phase: "Unknown", Entry: "db"}}, ResourcesTotal: 3},
 			{Service: "price", Effect: impact.EffectMayDegrade, Path: []string{"price", "redis"}},
 		},
 		Regression: []impact.RegressionEvidence{{Namespace: "prod", Stage: "redis-prod", Kind: impact.RegressionRollback, Message: "health failed"},
 			{Namespace: "prod", Stage: "redis-prod", Kind: impact.RegressionCheck, Gate: "health", Message: "5xx", Record: "r1"}},
 		Limitations: []fleet.Limitation{{Code: impact.LimitationDeliveryEvidenceUnavailable, Message: "namespace test not read"}},
+		Hidden:      2, Templates: []string{"http-path"},
 	}
 	if err := printImpactResult(cmd, res, "text"); err != nil {
 		t.Fatal(err)
@@ -131,8 +133,11 @@ func TestPrintImpactEventText(t *testing.T) {
 		"Event: redis regressed at sha256:a  asOf 2026-11-10T12:00:00Z  completeness complete",
 		"BREAKS (1):", "MAY DEGRADE (1):", "effect=breaks",
 		"    path: web > redis  provenance: declared  via: dependency",
-		"    evidence: target prod/web 1h30m0s before asOf", "    evidence: observed-call mira no observation window",
-		"    evidence: target old/web stale", "    and 1 more", "    resources: prod Ready", "    and 2 more resources",
+		"    evidence: target prod/web 1h30m0s before asOf\n",
+		"    evidence: lifecycle redis redis declares its lifecycle: deprecated 2026-10-01\n",
+		"    evidence: target old/web stale\n", "    and 1 more", "    resources: prod Ready\n",
+		"    resources: prod Unknown entry db\n", "    and 1 more resources",
+		"Consumers you may not see: 2\n", "Golden paths to review (they run nowhere, so they never hold the gate): http-path\n",
 		"    path: price > redis  provenance: -  via: -",
 		"Delivery evidence (2):", "prod/redis-prod rollback health failed (from status, not signed)", "prod/redis-prod check health 5xx\n",
 		"Delivery evidence not read: namespace test not read",

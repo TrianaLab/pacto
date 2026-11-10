@@ -128,7 +128,9 @@ func (r *Result) addPolicyReferrers(snap *fleet.FleetSnapshot, changed fleet.Ser
 
 // mergeConsumer adds a policy referrer, or folds it into the consumer row
 // for the same service. A referrer reached before only through other
-// services references the changed one itself, so it becomes direct.
+// services references the changed one itself, so it becomes direct, unless
+// the transitive path justifies a worse event effect: the path shown is the
+// one that justifies the effect.
 func (r *Result) mergeConsumer(c AffectedConsumer) {
 	i := slices.IndexFunc(r.Consumers, func(e AffectedConsumer) bool { return e.Service == c.Service && e.Domain == c.Domain })
 	if i < 0 {
@@ -136,7 +138,7 @@ func (r *Result) mergeConsumer(c AffectedConsumer) {
 		return
 	}
 	e := &r.Consumers[i]
-	if e.Depth > 1 {
+	if e.Depth > 1 && effectRank(c.Effect) >= effectRank(e.Effect) {
 		e.Depth, e.Direct, e.Path, e.Provenance, e.Confidence = c.Depth, c.Direct, c.Path, c.Provenance, c.Confidence
 	}
 	if verdictRank(c.CompatibilityVerdict) > verdictRank(e.CompatibilityVerdict) {

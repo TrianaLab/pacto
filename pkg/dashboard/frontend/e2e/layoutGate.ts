@@ -315,6 +315,11 @@ export function installScaleFixture(): void {
           byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
           beyondRanking: 400, noOwner: 84, owners: 300,
         });
+        // Golden paths to review, with long names, past the bound.
+        doc.templates = { total: 240, count: 3, truncated: true, items: Array.from({ length: 3 }, (_, i) => {
+          const key = `domain-load/${longName(`golden-path-${i}`)}`;
+          return { kind: 'service', key, label: longName(`golden-path-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+        }) };
       }
       if (meta) meta.completeness = 'partial';
     }

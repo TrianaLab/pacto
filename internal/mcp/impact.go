@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"slices"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -75,6 +76,8 @@ func (a impactArgs) request() (ImpactRequest, error) {
 	switch {
 	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""), event && (a.Event == "" || a.Service == ""):
 		return ImpactRequest{}, errImpactArgs
+	case event && !slices.Contains([]string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}, a.Event):
+		return ImpactRequest{}, errors.New("event is one of unavailable, removed or regressed")
 	case a.Event == impact.EventRegressed && a.Revision == "":
 		return ImpactRequest{}, errors.New("a regressed event names its 'revision'")
 	case event:

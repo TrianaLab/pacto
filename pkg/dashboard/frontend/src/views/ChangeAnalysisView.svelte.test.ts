@@ -656,6 +656,7 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     await vi.waitFor(() => expect(idle.target.querySelector('#impact-event')).toBeTruthy());
     await new Promise((r) => setTimeout(r, 20));
     expect(impactFn).not.toHaveBeenCalled();
+    expect(idle.target.textContent).toContain('Who a service reaches if it becomes unavailable, is removed or regresses.');
     unmount(idle.component); document.body.removeChild(idle.target);
 
     const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });

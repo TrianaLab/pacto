@@ -144,8 +144,8 @@ The CLI exits on it, and the MCP tool returns it:
 | `gate` | Exit | When |
 |--------|------|------|
 | `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. |
-| `unverified` | `2` | The change is `BREAKING` and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. |
-| `clear` | `0` | The change is not `BREAKING` and no policy referrer fails the new policy, or the snapshot is complete and no service depends on the changed one. |
+| `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
+| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one. |
 
 A command that could not run also exits `1`, with nothing on stdout.
 

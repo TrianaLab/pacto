@@ -291,6 +291,7 @@ type ProductImpact struct {
 	Consumers     ProductImpactConsumersPage `json:"consumers"`
 	Owners        ProductRefPreview          `json:"owners"`
 	ActiveTargets ProductRefPreview          `json:"activeTargets"`
+	Templates     ProductRefPreview          `json:"templates" doc:"The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each"`
 	ChangedOwner  *ProductRef                `json:"changedOwner,omitempty"`
 }
 
@@ -318,6 +319,7 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: consumers(p.Consumers.Items), Highlights: consumers(p.Consumers.Highlights)},
 		Owners:        productview.RefPreview(p.Owners),
 		ActiveTargets: productview.RefPreview(p.ActiveTargets),
+		Templates:     productview.RefPreview(p.Templates),
 		ChangedOwner:  productview.RefPtr(p.ChangedOwner),
 	}
 }

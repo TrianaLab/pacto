@@ -188,7 +188,7 @@
     // Every policy reference in the demo is unpinned, so the honest answer is partial
     // and names no referrer: a reader should see why rather than an empty "nobody".
     title: "Why is the policy answer partial?",
-    text: "The services that reference the policy do not pin a revision of it, so Pacto cannot tell which one they check against and Incomplete evidence lists this as POLICY_REF_CONSUMERS_UNRESOLVED.",
+    text: "The services that reference the policy do not pin a revision of it, so Pacto cannot tell which one they check against: Incomplete evidence lists this as POLICY_REF_CONSUMERS_UNRESOLVED and the gate asks a person to review them.",
     hash: "#/fleet/changes/platform-http-policy",
     target: '[data-testid="changes-limitations"]'
   }, {

@@ -142,6 +142,8 @@ test.describe('impact events', () => {
     await lims.locator('> summary').click();
     await expect(lims).toContainText('POLICY_REF_CONSUMERS_UNRESOLVED');
     await expect(page.getByTestId('changes-answer')).toContainText(/partial/i);
+    // An unresolved referrer is never taken as safe: the non-breaking change needs a person.
+    await expect(page.getByTestId('changes-gate')).toContainText('waits for a person');
     await expect(page.locator('#sec-affected-consumers .badge', { hasText: 'policy reference' })).toHaveCount(0);
   });
 

@@ -230,7 +230,7 @@ func observedEdgesFromTraces(data []byte) ([]impact.ObservedEdge, error) {
 	edges := otelobserver.DependencyEdges(td)
 	out := make([]impact.ObservedEdge, 0, len(edges))
 	for _, e := range edges {
-		edge := impact.ObservedEdge{Consumer: e.From, Provider: e.To}
+		edge := impact.ObservedEdge{Consumer: e.From, Provider: e.To, Count: e.Count}
 		if !e.LastSeen.IsZero() {
 			edge.LastSeen = &e.LastSeen
 		}

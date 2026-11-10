@@ -24,6 +24,9 @@ const (
 
 	// LimitationDeliveryEvidenceUnavailable: regression evidence could not be read.
 	LimitationDeliveryEvidenceUnavailable = "DELIVERY_EVIDENCE_UNAVAILABLE"
+	// LimitationDeliveryEvidenceTruncated: more regression evidence was read
+	// than the answer carries (MaxRegressionEvidence).
+	LimitationDeliveryEvidenceTruncated = "DELIVERY_EVIDENCE_TRUNCATED"
 )
 
 // Regression evidence kinds (see [RegressionEvidence.Kind]).
@@ -232,7 +235,7 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 		res.Completeness = fleet.CompletenessPartial
 	}
 	observed = append(observed, snapshotObservedEdges(snap)...)
-	res.observationSources = observationSources(snap, len(opts.ObservedEdges) > 0)
+	res.observationSources = observationSources(snap, opts.ObservedEdges != nil)
 	effects := eventEffects(graph, snap)
 	var uses []fleet.OfferingUse
 	if ev.Kind == EventRemoved {
@@ -246,17 +249,12 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	if ev.Kind == EventRemoved {
 		res.addEventReferrers(snap, subject, observed, uses)
 	}
-	for _, u := range snap.UncontractedCallers {
-		if u.ToService == subject {
-			res.Consumers = append(res.Consumers, AffectedConsumer{
-				Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(subject)},
-				CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
-				Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved}, Effect: EffectUnknown,
-				Note: "a caller no contract describes; what it needs from " + name + " is unknown",
-			})
-		}
+	for _, c := range uncontractedCallers(snap, subject) {
+		c.Effect, c.Note = EffectUnknown, "a caller no contract describes; what it needs from "+name+" is unknown"
+		res.Consumers = append(res.Consumers, c)
 	}
 	res.collectOwnersAndTargets(snap, subject)
+	res.noteUnlisted(snap, q, subject)
 	res.noteStaleConsumers()
 	return res
 }
@@ -268,6 +266,11 @@ func (r *Result) noteRegression(reg *Regression) {
 	if reg != nil {
 		r.Regression = slices.Clone(reg.Evidence[:min(len(reg.Evidence), MaxRegressionEvidence)])
 		why = reg.Unavailable
+		if n := len(reg.Evidence) - MaxRegressionEvidence; n > 0 {
+			r.Limitations = append(r.Limitations, fleet.Limitation{Code: LimitationDeliveryEvidenceTruncated, Source: limitationSource,
+				Message: strconv.Itoa(n) + " more delivery " + plural(n, "fact", "facts") + " about this revision " + plural(n, "is", "are") +
+					" not shown: the answer keeps the first " + strconv.Itoa(MaxRegressionEvidence)})
+		}
 	}
 	if why != "" {
 		r.Limitations = append(r.Limitations, fleet.Limitation{Code: LimitationDeliveryEvidenceUnavailable, Source: limitationSource, Message: why})
@@ -351,13 +354,22 @@ func effectNote(effect string, direct bool) string {
 	return "it reaches it only through a configuration reference or an observed call, so the effect is unknown"
 }
 
-// resourcesOf is every provisioning status of the uses by consumer key,
-// bounded to MaxConsumerResources, and how many there are.
+// resourcesOf is every distinct provisioning status of the uses by consumer
+// key, bounded to MaxConsumerResources, and how many there are. A dependency
+// and a configuration reference that ask for the same entry share a status.
 func resourcesOf(uses []fleet.OfferingUse, key string) ([]fleet.ProvisioningStatus, int) {
 	var out []fleet.ProvisioningStatus
+	seen := map[[4]string]bool{}
 	for _, u := range uses {
-		if u.Consumer.Key == key {
-			out = append(out, u.Provisioning...)
+		if u.Consumer.Key != key {
+			continue
+		}
+		for _, p := range u.Provisioning {
+			id := [4]string{p.Environment, p.Entry, p.Phase, p.Source}
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, p)
+			}
 		}
 	}
 	return out[:min(len(out), MaxConsumerResources)], len(out)
