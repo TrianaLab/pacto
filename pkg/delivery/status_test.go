@@ -56,6 +56,18 @@ func TestRowOfMatchesEnvironmentRow(t *testing.T) {
 	}
 }
 
+// The running artifact's source revision is shown; a candidate's is not.
+func TestRowOfSourceRevision(t *testing.T) {
+	read := map[string]Described{rowRun: {Version: "1.0.0", Source: "abc1234"}, rowNext: {Source: "fff"}}
+	row := RowOf(rowStage(LevelAdvise, StageStatus{Pointer: rowRun, Candidate: rowNext}), RowInput{Read: read})
+	if row.SourceRevision != "abc1234" {
+		t.Errorf("source revision %q", row.SourceRevision)
+	}
+	if empty := RowOf(rowStage(LevelAdvise, StageStatus{Candidate: rowNext}), RowInput{Read: read}); empty.SourceRevision != "" {
+		t.Errorf("an empty Stage runs no source revision: %q", empty.SourceRevision)
+	}
+}
+
 func TestRowOfReadyFix(t *testing.T) {
 	for reason, want := range map[string]string{ReadyReasonApplierNotOCI: ReadyFix(ReadyReasonApplierNotOCI), "Unknown": ""} {
 		row := RowOf(rowStage(LevelAdvise, StageStatus{Conditions: []Condition{{Type: ConditionReady, Status: "False", Reason: reason}}}), RowInput{})

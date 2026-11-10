@@ -66,7 +66,7 @@ func printStatus(out io.Writer, s *delivery.ServiceStatus) {
 	_, _ = fmt.Fprintln(w, "STAGE\tENVIRONMENT\tUPSTREAM\tRUNS\tSTATE\tCANDIDATE\tLAST CHECK\tLEVEL\tYOU MAY")
 	for _, r := range s.Stages {
 		_, _ = fmt.Fprintf(w, "%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Namespace, r.Stage, r.Environment, upstreamCell(r.Upstream),
-			versionCell(r.Version, r.Pointer), stateCell(r), versionCell(r.CandidateVersion, r.Candidate), checkCell(r.LastCheck),
+			runsCell(r), stateCell(r), versionCell(r.CandidateVersion, r.Candidate), checkCell(r.LastCheck),
 			cmp.Or(r.Level, "-"), offersCell(r.Offers))
 	}
 	_ = w.Flush()
@@ -82,6 +82,16 @@ func printStatus(out io.Writer, s *delivery.ServiceStatus) {
 // versionCell is a version, else a short digest, else "-".
 func versionCell(version, digest string) string {
 	return cmp.Or(version, digest[:min(len(digest), 19)], "-")
+}
+
+// runsCell is what the Stage runs, with the short source revision pacto
+// publish stamped on it when the artifact names one.
+func runsCell(r delivery.StageRow) string {
+	s := versionCell(r.Version, r.Pointer)
+	if r.SourceRevision != "" {
+		s += " (" + r.SourceRevision[:min(len(r.SourceRevision), 7)] + ")"
+	}
+	return s
 }
 
 // stateCell is the row's state in words, with how many changes wait for a

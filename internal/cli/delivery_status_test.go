@@ -97,7 +97,9 @@ func TestDeliveryStatusCells(t *testing.T) {
 		checkCell(&delivery.CheckSummary{Result: delivery.Fail, At: "t"}): "Fail t stale",
 		stateCell(delivery.StageRow{State: "unknown", HeldUnknown: true}): "not known: its operations could not be read, ? held",
 		stateCell(delivery.StageRow{State: "waiting", Held: 2}):           "waiting for a person, 2 held",
-		versionCell("", ""):   "-",
+		versionCell("", ""): "-",
+		runsCell(delivery.StageRow{Version: "1.0.0", SourceRevision: "0123456789abcdef"}): "1.0.0 (0123456)",
+		runsCell(delivery.StageRow{Pointer: cliB}):                                        cliB[:19],
 		versionCell("", cliB): cliB[:19],
 		offersCell([]delivery.Offer{{Action: "promote", Available: true}, {Action: "freeze", Available: true}}): "promote, freeze",
 	}

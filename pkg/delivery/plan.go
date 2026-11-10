@@ -58,6 +58,9 @@ type Revision struct {
 	// NoContract is true when the artifact was read and names no
 	// digest-pinned contract: it was not published by pacto publish.
 	NoContract bool
+	// SourceRevision is the source revision pacto publish stamped on the
+	// artifact (SourceRevisionAnnotation). An annotation, not signed.
+	SourceRevision string
 }
 
 // PlanInput is everything plan() reads. Gathering it is the caller's job, so the

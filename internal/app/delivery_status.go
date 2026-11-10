@@ -173,7 +173,7 @@ func (d *Delivery) describedAll(ctx context.Context, stages []delivery.StageObje
 	out := map[string]delivery.Described{}
 	for i, dg := range ask {
 		r := revs[i]
-		desc := delivery.Described{Contract: r.ContractRef, Err: r.Err}
+		desc := delivery.Described{Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
 		if r.Bundle != nil {
 			desc.Version, desc.Team = r.Bundle.Contract.Service.Version, r.Bundle.Contract.Service.Owner.DisplayString()
 		}

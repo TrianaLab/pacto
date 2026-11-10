@@ -219,6 +219,9 @@ type inboxInput struct {
 	// Except is the figure's folded station: every environment but the ones
 	// it draws, so its counts open a list of exactly what they count.
 	Except []string `query:"except,explode" doc:"Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment"`
+	// Service and Domain narrow everything, byEnvironment included.
+	Service string `query:"service" doc:"Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 }
 
 type inboxOutput struct {
@@ -233,7 +236,7 @@ type inboxOutput struct {
 		ErroredPage Page             `json:"erroredPage"`
 		// ByEnvironment is over every page and before environment, so paging
 		// or narrowing the lists never changes it.
-		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
+		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
 	}
 }
 
@@ -250,6 +253,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	if err != nil {
 		return nil, err
 	}
+	stages, ops = ofService(stages, ops, in.Service, in.Domain)
 	owners := s.serviceOwners(ctx)
 	// A service whose owner the snapshot does not know is shown: an inbox
 	// that hides what it cannot attribute hides work.
@@ -308,6 +312,18 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	narrowRows(ctx, api, b.Frozen)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
+}
+
+// ofService keeps the Stages of service and domain and the operations on
+// them; everything when service is empty. An operation on a Stage the caller
+// cannot read is left out: Pacto cannot tell whose it is.
+func ofService(stages []delivery.StageObject, ops []delivery.OperationObject, service, domain string) ([]delivery.StageObject, []delivery.OperationObject) {
+	if service == "" {
+		return stages, ops
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool { return delivery.OfService(st, service, domain) })
+	byStage := stagesByName(stages)
+	return stages, filter(ops, func(o delivery.OperationObject) bool { return byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil })
 }
 
 // frozenOf returns the caller's frozen Stages by namespace/name, and those
@@ -558,14 +574,10 @@ type PublishedVersion struct {
 	Digest   string `json:"digest"`
 	Version  string `json:"version,omitempty"`
 	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract)"`
-	// Signature is signed when a Stage the caller lists names the digest in
-	// status.published (Flux verified its signature on the candidate
-	// OCIRepository) or status.offered (it passed pacto.published there).
-	// It is unsigned only when an entry Stage, fed by an OCIRepository and
-	// whose published list never reached its cap, holds the digest and no
-	// Stage names it signed. Otherwise Pacto cannot tell: a downstream Stage,
-	// one fed by another cluster's records or a published list that may have
-	// dropped it says nothing about the signature.
+	// SourceRevision is read with the version, from the same artifact.
+	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed"`
+	// Signature follows delivery.SignatureEvidence, the rule the lifecycle
+	// answer uses too.
 	Signature string              `json:"signature" enum:"signed,unsigned,unknown"`
 	Stages    []PublishedOnStages `json:"stages"`
 }
@@ -591,7 +603,9 @@ const publishedPage = 10
 
 type publishedInput struct {
 	PageQuery
-	Signed string `query:"signed" enum:"yes,no,unknown" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions"`
+	Service string `query:"service" doc:"Keep only the versions of the service with exactly this name; it narrows counts too"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Signed  string `query:"signed" enum:"yes,no,unknown" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions"`
 }
 
 type publishedOutput struct {
@@ -599,7 +613,7 @@ type publishedOutput struct {
 		Listing
 		Services []PublishedService `json:"services"`
 		Page     Page               `json:"page" doc:"Which services this page holds; offset and limit count services"`
-		Counts   PublishedCounts    `json:"counts" doc:"Over every page after q, before signed"`
+		Counts   PublishedCounts    `json:"counts" doc:"Over every page after q, service and domain, before signed"`
 	}
 }
 
@@ -630,14 +644,14 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	}
 	// First where each digest stands, which costs nothing; then only the
 	// page's artifacts are read.
-	byService, readFrom := publishedDigests(stages, in.Q)
+	byService, readFrom := publishedDigests(stages, in.Q, in.Service, in.Domain)
 	out := &publishedOutput{}
 	out.Body.Counts = countPublished(byService)
 	for svc, vs := range byService {
 		if in.Signed != "" {
 			// The figure's three lanes: the service's lane, then only the
 			// versions that put it there.
-			lane, keep := signatureLane(vs), map[string]string{"yes": sigSigned, "no": sigUnsigned, "unknown": sigUnknown}[in.Signed]
+			lane, keep := signatureLane(vs), map[string]string{"yes": delivery.SignatureSigned, "no": delivery.SignatureUnsigned, "unknown": delivery.SignatureUnknown}[in.Signed]
 			if lane != keep {
 				clear(vs)
 			}
@@ -658,7 +672,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	}
 	revs := describeAll(ctx, api, len(page), func(i int) (*delivery.StageObject, string) { return readFrom[page[i]], page[i].Digest })
 	for i, v := range page {
-		v.Contract, v.Version = revs[i].ContractRef, version(ctx, revs[i])
+		v.Contract, v.Version, v.SourceRevision = revs[i].ContractRef, version(ctx, revs[i]), revs[i].SourceRevision
 	}
 	for _, svc := range names {
 		ps := PublishedService{Service: svc, Versions: []PublishedVersion{}}
@@ -673,24 +687,17 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	return out, nil
 }
 
-// The three signature states of a published version.
-const (
-	sigSigned   = "signed"
-	sigUnsigned = "unsigned"
-	sigUnknown  = "unknown"
-)
-
 // signatureLane is the figure's lane of a service with versions vs: unsigned
 // when one version is, else unknown when one version's signature cannot be
 // told, else signed.
 func signatureLane(vs map[string]*PublishedVersion) string {
-	lane := sigSigned
+	lane := delivery.SignatureSigned
 	for _, v := range vs {
-		if v.Signature == sigUnsigned {
-			return sigUnsigned
+		if v.Signature == delivery.SignatureUnsigned {
+			return delivery.SignatureUnsigned
 		}
-		if v.Signature == sigUnknown {
-			lane = sigUnknown
+		if v.Signature == delivery.SignatureUnknown {
+			lane = delivery.SignatureUnknown
 		}
 	}
 	return lane
@@ -708,19 +715,19 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 		for _, v := range vs {
 			c.Versions++
 			switch v.Signature {
-			case sigUnsigned:
+			case delivery.SignatureUnsigned:
 				c.Unsigned++
-			case sigUnknown:
+			case delivery.SignatureUnknown:
 				c.Unknown++
 			}
 		}
 		switch signatureLane(vs) {
-		case sigUnsigned:
+		case delivery.SignatureUnsigned:
 			c.UnsignedServices++
 			if len(c.FirstUnsigned) < 4 {
 				c.FirstUnsigned = append(c.FirstUnsigned, svc)
 			}
-		case sigUnknown:
+		case delivery.SignatureUnknown:
 			c.UnknownServices++
 		}
 	}
@@ -728,17 +735,18 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 	return c
 }
 
-// publishedDigests groups every digest the Stages of services matching q
-// remember by service, with the Stage to read each one's artifact from.
-func publishedDigests(stages []delivery.StageObject, q string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
+// publishedDigests groups every digest the Stages of services matching q,
+// service and domain remember by service, with the Stage to read each one's
+// artifact from.
+func publishedDigests(stages []delivery.StageObject, q, service, domain string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
 	byService = map[string]map[string]*PublishedVersion{}
 	readFrom = map[*PublishedVersion]*delivery.StageObject{}
-	signed, unsigned := map[*PublishedVersion]bool{}, map[*PublishedVersion]bool{}
+	evidence := map[*PublishedVersion]*delivery.SignatureEvidence{}
 	for i := range stages {
 		st := &stages[i]
 		ss := st.Status
 		svc := st.Spec.Service.Name
-		if !matches(q, svc) {
+		if !matches(q, svc) || !delivery.OfService(*st, service, domain) {
 			continue
 		}
 		if byService[svc] == nil {
@@ -751,12 +759,9 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 			v := byService[svc][d]
 			if v == nil {
 				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
-				byService[svc][d], readFrom[v] = v, st
+				byService[svc][d], readFrom[v], evidence[v] = v, st, &delivery.SignatureEvidence{}
 			}
-			signed[v] = signed[v] || slices.Contains(ss.Published, d) || slices.Contains(ss.Offered, d)
-			// Only an entry Stage whose published list never dropped a
-			// digest can say Flux never verified this one.
-			unsigned[v] = unsigned[v] || (st.Spec.Candidates.OCIRepositoryRef != nil && len(ss.Published) < delivery.MaxPublished)
+			evidence[v].Add(*st, d)
 			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
 				Running: ss.Pointer == d, Verified: slices.Contains(ss.Verified, d), Failed: slices.Contains(ss.FailedDigests, d)}
 			if !slices.Contains(v.Stages, on) {
@@ -764,13 +769,8 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 			}
 		}
 	}
-	for v := range readFrom {
-		v.Signature = sigUnknown
-		if signed[v] {
-			v.Signature = sigSigned
-		} else if unsigned[v] {
-			v.Signature = sigUnsigned
-		}
+	for v, e := range evidence {
+		v.Signature = e.Signature()
 	}
 	return byService, readFrom
 }
@@ -1107,7 +1107,7 @@ func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery
 	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
 		r := revs[i]
-		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Err: r.Err}
+		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
 		if r.Bundle != nil {
 			desc.Team = r.Bundle.Contract.Service.Owner.DisplayString()
 		}

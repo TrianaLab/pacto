@@ -917,7 +917,7 @@ export interface components {
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
             /** @description Which blockers this page holds, grouped by kind */
             blockersPage: components["schemas"]["Page"];
-            /** @description Stages at each level, over every page after q: observe, advise, auto-nonbreaking, autonomous, then those that report none */
+            /** @description Stages at each level, over every page after q, service and domain: observe, advise, auto-nonbreaking, autonomous, then those that report none */
             byLevel: components["schemas"]["LevelCount"][] | null;
             /**
              * Format: int64
@@ -1950,6 +1950,8 @@ export interface components {
             service: string;
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
+            /** @description The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed */
+            sourceRevision?: string;
             stage: string;
             /**
              * @description The one state the Stage is counted in, as the board's state filter and counts.byEnvironment count it. unknown appears only on status rows whose operations could not be read; the board never emits it
@@ -3382,7 +3384,7 @@ export interface components {
         };
         InboxOutputBody: {
             asOf: string;
-            /** @description What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
+            /** @description What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
             byEnvironment: components["schemas"]["InboxEnvironment"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
@@ -4453,7 +4455,7 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Over every page after q, before signed */
+            /** @description Over every page after q, service and domain, before signed */
             counts: components["schemas"]["PublishedCounts"];
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
@@ -4471,6 +4473,8 @@ export interface components {
             digest: string;
             /** @enum {string} */
             signature: "signed" | "unsigned" | "unknown";
+            /** @description The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed */
+            sourceRevision?: string;
             stages: components["schemas"]["PublishedOnStages"][] | null;
             version?: string;
         };
@@ -4962,6 +4966,10 @@ export interface operations {
                 blockers?: number;
                 /** @description Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers */
                 level?: "observe" | "advise" | "auto-nonbreaking" | "autonomous" | "none";
+                /** @description Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;
@@ -5389,6 +5397,10 @@ export interface operations {
                 environment?: string;
                 /** @description Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment */
                 except?: string[] | null;
+                /** @description Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;
@@ -5940,6 +5952,10 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
+                /** @description Keep only the versions of the service with exactly this name; it narrows counts too */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
                 /** @description yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions */
                 signed?: "yes" | "no" | "unknown";
             };

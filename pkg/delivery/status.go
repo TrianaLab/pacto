@@ -66,6 +66,8 @@ type StageRow struct {
 	Offers      []Offer       `json:"offers" doc:"Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides"`
 	Upstream    *Upstream     `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on board rows and status rows"`
 	Progress    *Progress     `json:"progress,omitempty" doc:"Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why"`
+
+	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed"`
 }
 
 // Watch is the Watched condition as a row shows it.
@@ -95,8 +97,10 @@ type Offer struct {
 }
 
 // Described is what an artifact digest carries: its contract's version and
-// owner team, the contract it names, and Err when it could not be read.
-type Described struct{ Version, Team, Contract, Err string }
+// owner team, the contract it names, the source revision pacto publish
+// stamped on it (an annotation, not signed), and Err when it could not be
+// read.
+type Described struct{ Version, Team, Contract, Source, Err string }
 
 // RowInput is what RowOf reads beside the Stage: its held operations (or
 // that they could not be read), the caller, what each digest carries, and
@@ -119,7 +123,8 @@ func RowOf(st StageObject, in RowInput) StageRow {
 		Held: in.Held, HeldUnknown: in.HeldUnknown, Candidate: ss.Candidate, Level: string(ss.Level), Actions: []string{},
 		State: StageState(st, in.Held, in.HeldUnknown)}
 	if ss.Pointer != "" {
-		row.Version, row.ContractRef = in.Read[ss.Pointer].Version, in.Read[ss.Pointer].Contract
+		run := in.Read[ss.Pointer]
+		row.Version, row.ContractRef, row.SourceRevision = run.Version, run.Contract, run.Source
 	}
 	if ss.Candidate != "" {
 		row.CandidateVersion = in.Read[ss.Candidate].Version

@@ -36,8 +36,10 @@ type fakeDelivery struct {
 	caller delivery.Caller
 	// owner is the team the contract of dRun declares; contract replaces
 	// the contract reference its artifact names.
-	owner     string
-	contract  string
+	owner    string
+	contract string
+	// source is the source revision dRun's artifact carries.
+	source    string
 	callerErr error
 	stages    []delivery.StageObject
 	ops       []delivery.OperationObject
@@ -214,7 +216,7 @@ func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 
 func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, digest string) delivery.Revision {
 	if digest == dRun {
-		return delivery.Revision{Digest: digest, ContractRef: cmp.Or(f.contract, "oci://r/payments@sha256:c"),
+		return delivery.Revision{Digest: digest, ContractRef: cmp.Or(f.contract, "oci://r/payments@sha256:c"), SourceRevision: f.source,
 			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0", Owner: contract.Owner{Team: f.owner}}}}}
 	}
 	if v, ok := f.known[digest]; ok {
@@ -532,6 +534,47 @@ func TestPublished(t *testing.T) {
 	expect(t, payments["service"] == "payments" && len(versions) == 2, "published %v", payments)
 	expect(t, first["version"] == "1.0.0" && first["signature"] == "signed" && first["contract"] == "oci://r/payments@sha256:c", "published %v", first)
 	expect(t, first["stages"].([]any)[0].(map[string]any)["running"] == true, "published %v", first)
+}
+
+// The published version carries the source revision its artifact names.
+func TestPublishedSourceRevision(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.source = "abc1234"
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	versions := page(pub["services"].([]any)[0])["versions"].([]any)
+	expect(t, page(versions[0])["sourceRevision"] == "abc1234" && page(versions[1])["sourceRevision"] == nil, "only dRun's artifact names one: %v", versions)
+}
+
+// service and domain narrow the Publish counts; signed still does not.
+func TestPublishedServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "map[firstUnsigned:[] services:1 signed:2 unknown:0 unknownServices:0 unsigned:0 unsignedServices:0 versions:2]"
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want && len(pub["services"].([]any)) == 1, "only payments: %v", pub)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments&signed=no", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want && len(pub["services"].([]any)) == 0, "the counts stay before signed: %v", pub)
+	// A Stage that names no domain matches any.
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments&domain=acme.io", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want, "no domain matches any: %v", pub["counts"])
+}
+
+// service and domain narrow the Inbox tallies; environment and except still do not.
+func TestInboxServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", held()))
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "[map[environment:other errored:1 frozen:1 held:0 upstream:[]]]"
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox?service=orphan", nil)
+	expect(t, fmt.Sprint(inbox["byEnvironment"]) == want, "only orphan, the unreadable left out: %v", inbox["byEnvironment"])
+	expect(t, len(inbox["held"].([]any)) == 0 && len(inbox["frozen"].([]any)) == 1 && len(inbox["errored"].([]any)) == 1, "orphan's lists: %v", inbox)
+	for _, q := range []string{"&environment=prod", "&except=other"} {
+		_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?service=orphan"+q, nil)
+		expect(t, fmt.Sprint(inbox["byEnvironment"]) == want && len(inbox["frozen"].([]any)) == 0, "%s narrows the lists only: %v", q, inbox)
+	}
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?service=payments", nil)
+	expect(t, page(inbox["heldPage"])["total"] == float64(2), "payments' held changes: %v", inbox["heldPage"])
 }
 
 func toStrings(v any) []string {

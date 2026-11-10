@@ -412,7 +412,7 @@ func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
 		st("downstream", delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "staging"}}, delivery.StageStatus{Pointer: dRun, Verified: []string{dNext}, Offered: []string{dNext}}),
 		st("records", delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{}}, delivery.StageStatus{Pointer: dRun}),
 	}
-	by, _ := publishedDigests(stages, "")
+	by, _ := publishedDigests(stages, "", "", "")
 	got := map[string]string{}
 	for svc, vs := range by {
 		got[svc+"/run"] = vs[dRun].Signature
@@ -445,4 +445,15 @@ func TestAutonomyCountsByLevel(t *testing.T) {
 	}
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/autonomy?level=warp", nil)
 	expect(t, code == http.StatusUnprocessableEntity, "an unknown level is refused: %d", code)
+}
+
+// service narrows the Stages and byLevel; level still does not narrow byLevel.
+func TestAutonomyServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "[map[level:observe stages:0] map[level:advise stages:1] map[level:auto-nonbreaking stages:0] map[level:autonomous stages:0] map[level: stages:0]]"
+	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?service=payments", nil)
+	expect(t, fmt.Sprint(au["byLevel"]) == want && page(au["page"])["total"] == float64(1), "only payments: %v %v", au["byLevel"], au["page"])
+	_, au = call(t, http.MethodGet, base+"/api/delivery/autonomy?service=payments&level=observe", nil)
+	expect(t, fmt.Sprint(au["byLevel"]) == want && page(au["page"])["total"] == float64(0), "level narrows the Stages only: %v", au)
 }
