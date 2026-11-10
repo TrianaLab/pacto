@@ -851,7 +851,15 @@ describe('responsive by construction', () => {
   it('sizes no box in a page from the viewport: beside the sidebar the viewport is wider than the page', () => {
     // Overlays (dialogs, popovers) live in components and may; a view's in-flow box
     // sizes from its container (cqi or %), as the propose panel on the board does.
-    const views = styleFiles(join(SRC, 'views')).filter((f) => /\d\s*vw\b/.test(readFileSync(f, 'utf8').replace(/<script[\s\S]*?<\/script>/g, '')));
+    // The script blocks are cut out by the compiler's own ranges: the markup and the styles remain.
+    const withoutScripts = (f: string) => {
+      const src = readFileSync(f, 'utf8');
+      if (!f.endsWith('.svelte')) return src;
+      const ast = parse(src, { modern: true });
+      return [ast.module, ast.instance].filter((s) => s != null).sort((x, y) => y.start - x.start)
+        .reduce((out, s) => out.slice(0, s.start) + out.slice(s.end), src);
+    };
+    const views = styleFiles(join(SRC, 'views')).filter((f) => /\d\s*vw\b/.test(withoutScripts(f)));
     expect(views.map((f) => relative(SRC, f))).toEqual([]);
   });
 
