@@ -1386,6 +1386,33 @@ jq -e '.completeness == "partial" and ([.entries[] | select(.type == "delivery.p
   || fail "history does not list the four rollbacks: $HIST"
 pass "explain cites how to re-run, history lists every rollback"
 
+section "status, lifecycle and record read it back"
+# Every read runs as agent-a, so the offers and their RBAC narrowing are the
+# agent's own. A lastCheck, when present, has a time; whether one is present
+# depends on re-check timing this section does not pin.
+OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery status --service payments -n "$H" --output-format json)"
+jq -e '.completeness and (.stages | length) > 0 and (.stages[0].offers | length) > 0' <<<"$OUT" >/dev/null \
+  || fail "status does not list payments' Stages with their offers: $OUT"
+jq -e '[.stages[] | select(.lastCheck) | .lastCheck.at] | all(. != "")' <<<"$OUT" >/dev/null \
+  || fail "status shows a lastCheck with no time: $OUT"
+OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery status --service payments -n "$H" --why --output-format json)"
+jq -e '(.stages | length) > 0 and all(.stages[]; .progress.state)' <<<"$OUT" >/dev/null \
+  || fail "status --why does not say where every Stage stands: $OUT"
+# R shipped and was rolled back above, so the Stage shows it arrive and leave.
+OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery lifecycle --service payments -n "$H" --digest "$R" --output-format json)"
+jq -e --arg d "$R" '.digest == $d and ([.stages[] | select(.stage == "payments") | .events[].role] | index("arrived") and index("left"))' <<<"$OUT" >/dev/null \
+  || fail "lifecycle does not show R arrive on payments and leave it: $OUT"
+# The history above is partial, so a signed record is read only when it lists one.
+REC="$(jq -r '[.entries[] | select(.kind == "operation") | .record // empty][0] // empty' <<<"$HIST")"
+if [ -n "$REC" ]; then
+  OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery record get "$REC" -n "$H" --stage payments --trust "$RECORDER_PUB" --output-format json)"
+  jq -e '(.verdicts | length) > 0' <<<"$OUT" >/dev/null || fail "record $REC carries no verdicts: $OUT"
+fi
+OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery history -n "$H" --stage payments --correlation-id does-not-exist --output-format json)"
+jq -e '.entries == [] and (.note | contains("correlation id does-not-exist"))' <<<"$OUT" >/dev/null \
+  || fail "history filtered by an unknown correlation id still lists changes or does not say so: $OUT"
+pass "status lists offers and progress, lifecycle shows R arrive and leave, record and history filters read back"
+
 section "S: an agent cannot take the name of S's rollback first; S fails and is rolled back"
 # promote-s-rollback is the name the promoter gives S's one rollback. Taken
 # first, it would keep S's failure out of the records, so admission keeps the
