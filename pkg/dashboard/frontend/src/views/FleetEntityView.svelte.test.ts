@@ -435,9 +435,11 @@ describe('FleetEntityView — rich service page (D)', () => {
     await vi.waitFor(() => expect(target.querySelector('.page-hd-action')).toBeTruthy());
     const links = Array.from(target.querySelectorAll('a.page-hd-action'));
     const labels = links.map((a) => a.textContent?.trim());
-    expect(labels).toEqual(['Open in graph', 'Compare revisions']);
+    expect(labels).toEqual(['Open in graph', 'Compare revisions', 'What if it becomes unavailable?']);
     expect(links.find((a) => a.textContent?.includes('Compare'))?.getAttribute('href'))
       .toBe('#/fleet/changes/domain-a%2Fpayments');
+    expect(links.find((a) => a.textContent?.includes('What if'))?.getAttribute('href'))
+      .toBe('#/fleet/changes/domain-a%2Fpayments?event=unavailable');
     unmount(component); document.body.removeChild(target);
   });
 

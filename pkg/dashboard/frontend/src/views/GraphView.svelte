@@ -723,7 +723,10 @@
             <div class="gv-drawer-actions">
               <a class="gv-link" href={hashForHref(selected.node.ref.href)}>Open full detail &rarr;</a>
               <a class="gv-link" href={fleetGraphFocusUrl(selected.node.ref.kind, selected.node.ref.key, { perspective: defaultPerspectiveForKind(selected.node.ref.kind), views: gs.views, direction: gs.direction })} data-testid="drawer-focus-here">Focus here</a>
-              {#if selected.node.ref.kind === 'service'}<a class="gv-link" href={fleetChangesUrl(selected.node.ref.key)}>Compare revisions &rarr;</a>{/if}
+              {#if selected.node.ref.kind === 'service'}
+                <a class="gv-link" href={fleetChangesUrl(selected.node.ref.key)}>Compare revisions &rarr;</a>
+                <a class="gv-link" href={fleetChangesUrl(selected.node.ref.key, { event: 'unavailable' })} data-testid="drawer-what-if">What if it becomes unavailable? &rarr;</a>
+              {/if}
             </div>
           </aside>
         {:else if selected.kind === 'edge' && selected.edge}

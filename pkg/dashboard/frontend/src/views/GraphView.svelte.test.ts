@@ -563,6 +563,17 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('links a selected service to its what-if question in Change analysis', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-node-item"]')).toBeTruthy());
+    (qa(target, '[data-testid="graph-node-item"]')[0] as HTMLButtonElement).click();
+    flushSync();
+    const link = q(target, '[data-testid="drawer-what-if"]');
+    expect(link?.getAttribute('href')).toBe('#/fleet/changes/domain-a%2Fweb?event=unavailable');
+    expect(link?.textContent).toContain('What if it becomes unavailable?');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('closes the quick-inspect drawer on Escape and returns focus to the opener (Part 5, 8.3)', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-node-item"]')).toBeTruthy());

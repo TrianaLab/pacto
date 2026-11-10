@@ -242,31 +242,80 @@ export function installScaleFixture(): void {
         ...Array.from({ length: 9 }, (_, i) => longName(`consumer-${i}`)),
       ];
       const V = ['incompatible', 'unknown', 'compatible'];
+      const E = ['breaks', 'may-degrade', 'unknown'];
+      let req: Record<string, unknown> = {};
+      try { req = JSON.parse(body ?? '{}'); } catch { /* no body */ }
+      const outcome = String(req.outcome ?? '');
+      const event = String(req.event ?? '');
+      // Every fact the table renders, long: via, evidence (one stale), more than 20
+      // targets, resources with phases and an owner link, on items and highlights alike.
       const consumer = (name: string, i: number) => {
         const key = `domain-load/consumer-${i}`;
+        const targets = Array.from({ length: 21 }, (_, t) => ({ kind: 'target', key: `prod/k8s/${key}-${t}`, label: longName(`prod-eu-west-1/${name}-target-${t}`), href: `/fleet/targets/${encodeURIComponent(`prod/k8s/${key}-${t}`)}` }));
         return {
           service: { kind: 'service', key, label: name, domain: 'domain-load', href: `/fleet/services/${encodeURIComponent(key)}` },
-          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: V[i % 3], compatibility: '^1.0.0',
-          blocking: i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
+          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : '^1.0.0',
+          blocking: !event && i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
+          ownerRef: { kind: 'owner', key: `team:team-${i}`, label: longName(`team-${i}`), href: `/fleet/owners/${encodeURIComponent(`team:team-${i}`)}` },
+          provenance: 'declared+observed', via: ['dependency', 'configuration_reference', 'policy_reference'], required: i % 2 === 0,
+          effect: event ? E[i % 3] : undefined, uncontracted: event && i === 2 ? true : undefined,
+          targets: targets.slice(0, 20), targetsTotal: 37,
+          evidence: [
+            { kind: 'target', provenance: 'observed', source: targets[0].key, message: `runs on ${targets[0].label}`, at: '2026-11-10T08:00:00Z' },
+            { kind: 'observed-call', provenance: 'observed', source: longName('mira-observation-source'), message: `${name} called it ${longName('through the mesh sidecar')}`, at: '2026-11-08T08:00:00Z', stale: true },
+            { kind: 'unreachable', provenance: 'observed', message: longName('DEPENDENCY_UNREACHABLE reported on the consumer target'), at: '2026-11-10T07:00:00Z' },
+            { kind: 'lifecycle', provenance: 'declared', message: 'the provider declares itself deprecated' },
+          ],
+          resources: event === 'removed' ? Array.from({ length: 3 }, (_, r) => ({ entry: longName(`database-${r}`), environment: longName(`production-${r}`), phase: ['Ready', 'Failed', 'Provisioning'][r], provenance: 'observed', verified: true })) : undefined,
+          resourcesTotal: event === 'removed' ? 24 : undefined,
         };
       };
       const all = names.map(consumer);
-      // One consistent population: byVerdict judges the range alone (6 carry a verdict
-      // this engine does not know); the 5 refused accept the range, so the outcome
-      // tally counts them with the incompatible: 14 + 5 = 19.
-      const byOutcome = [{ key: 'incompatible', count: 19 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1207 }, { key: 'unclassified', count: 6 }];
-      let outcome = '';
-      try { outcome = String(JSON.parse(body ?? '{}').outcome ?? ''); } catch { /* no body */ }
-      const listed = outcome ? all.filter((c) => c.compatibilityVerdict === outcome) : all;
-      Object.assign(cs, {
-        items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: Math.min(10, listed.length), offset: 0, limit: 10,
-        nextOffset: 10, truncated: true, hidden: 3, refused: 5,
-        outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)!.count : 1284,
-        byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1212 }, { key: 'novel', count: 6 }],
-        byOutcome,
-        byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
-        beyondRanking: 400, noOwner: 84, owners: 300,
-      });
+      if (event) {
+        // The event population: lanes by effect sum to the total, and each lane's list
+        // (filtered by effect, never by verdict) totals its lane.
+        const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
+        const listed = outcome ? all.filter((c) => c.effect === outcome) : all;
+        Object.assign(cs, {
+          items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 4000, direct: 1400, count: Math.min(10, listed.length), offset: 0, limit: 10,
+          nextOffset: 10, truncated: true, hidden: 3, refused: 0,
+          outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)?.count ?? 0 : 4000,
+          byVerdict: [{ key: 'unknown', count: 4000 }], byOutcome,
+          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), ownerKey: `team:team-${i}`, consumers: 200 - i * 20, incompatible: 0 })),
+          beyondRanking: 3200, noOwner: 84, owners: 300,
+        });
+        if (event === 'regressed') {
+          const digest = String(req.revision ?? '');
+          if (digest.startsWith('sha256:')) {
+            doc.regression = Array.from({ length: 6 }, (_, i) => ({
+              kind: ['failed', 'check', 'rollback'][i % 3], digest, namespace: longName(`shop-namespace-${i}`), stage: longName(`production-eu-west-${i}`),
+              gate: i % 3 === 1 ? longName('smoke-error-rate') : undefined, message: longName(`the check found ${i} errors in the last window of the canary analysis`),
+              at: '2026-11-10T07:00:00Z', record: i % 2 ? longName(`record-${i}`) : undefined,
+            }));
+          } else {
+            const lim = doc.limitations as { items: Record<string, unknown>[]; total: number; count: number };
+            if (!lim.items.some((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE')) {
+              lim.items.unshift({ code: 'DELIVERY_EVIDENCE_UNAVAILABLE', message: longName('name the artifact digest (sha256:...) to read delivery evidence: a version does not identify one artifact') });
+              lim.total += 1; lim.count += 1;
+            }
+          }
+        }
+      } else {
+        // One consistent population: byVerdict judges the range alone (6 carry a verdict
+        // this engine does not know); the 5 refused accept the range, so the outcome
+        // tally counts them with the incompatible: 14 + 5 = 19.
+        const byOutcome = [{ key: 'incompatible', count: 19 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1207 }, { key: 'unclassified', count: 6 }];
+        const listed = outcome ? all.filter((c) => c.compatibilityVerdict === outcome) : all;
+        Object.assign(cs, {
+          items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: Math.min(10, listed.length), offset: 0, limit: 10,
+          nextOffset: 10, truncated: true, hidden: 3, refused: 5,
+          outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)!.count : 1284,
+          byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1212 }, { key: 'novel', count: 6 }],
+          byOutcome,
+          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
+          beyondRanking: 400, noOwner: 84, owners: 300,
+        });
+      }
       if (meta) meta.completeness = 'partial';
     }
     walk(doc);
@@ -742,6 +791,19 @@ export const ROUTES: Route[] = [
       await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
     },
   },
+  { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },
+  {
+    name: 'change analysis event answered',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes/redis?mode=event');
+      await page.locator('#impact-event').selectOption('unavailable');
+      await page.getByRole('button', { name: /^Ask$/ }).click();
+      await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  { name: 'change analysis event removed', hash: '#/fleet/changes/postgresql?event=removed' },
+  { name: 'change analysis event regressed', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'ab12'.repeat(16)}` },
+  { name: 'change analysis event regressed unread', hash: '#/fleet/changes/redis?event=regressed&rev=1.0.0' },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },

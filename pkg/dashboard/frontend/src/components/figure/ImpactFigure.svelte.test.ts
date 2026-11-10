@@ -102,4 +102,29 @@ describe('ImpactFigure', () => {
     expect(target.querySelector('figcaption')?.textContent).toContain('If this revision is published, it breaks 37 of at least 1,284 consumers');
     unmount(c);
   });
+  it('draws an event answer from one neutral subject node, with no earlier or later layer', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    Object.assign(im, {
+      event: { kind: 'unavailable', service: 'payments-service' }, oldRevision: undefined, newRevision: undefined, classification: '', gate: 'unverified',
+      gateReason: '1 required consumer runs on prod/eu-1', changedOwner: { kind: 'owner', key: 'team:pay', label: 'pay', href: '/fleet/owners/team%3Apay' },
+    });
+    im.consumers.byOutcome = [{ key: 'breaks', count: 2 }, { key: 'may-degrade', count: 1 }, { key: 'unknown', count: 0 }];
+    im.consumers.total = 3; im.consumers.direct = 2; im.consumers.hidden = 0;
+    im.consumers.highlights = [consumer('checkout-web', { effect: 'breaks' })];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    expect(target.querySelectorAll('[data-m="subject"]')).toHaveLength(1);
+    expect(target.querySelector('[data-m="subject"]')?.classList.contains('t-neutral')).toBe(true);
+    expect(target.querySelector('[data-m="next"]')).toBeNull();
+    expect(target.querySelector('[data-m="prev"]')).toBeNull();
+    expect([...target.querySelectorAll('.lane-name')].map((n) => n.textContent)).toEqual(['Breaks', 'May degrade', 'Unknown', 'Unread sources']);
+    expect(target.querySelector('figcaption')?.textContent).toContain('If payments-service becomes unavailable: at least 2 consumers break and 1 may degrade.');
+    const card = target.querySelector('[data-testid="changes-answer"]')!;
+    expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Gate Needs a person: 1 required consumer runs on prod/eu-1.');
+    expect(card.querySelector('[data-testid="impact-changed-owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Apay');
+    unmount(c);
+  });
 });

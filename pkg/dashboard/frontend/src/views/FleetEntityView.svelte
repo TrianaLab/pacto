@@ -109,6 +109,8 @@
         changeAdded = true;
         const opts = e.kind === 'revision' ? { new: e.key } : {};
         out.push({ label: 'Compare revisions', href: fleetChangesUrl(svcKey, opts) });
+        // The other question the same workspace answers (#471): what depends on it.
+        out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl(svcKey, { event: 'unavailable' }) });
       } else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
     }
     return out;

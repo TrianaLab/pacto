@@ -601,4 +601,121 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
+  // ── Event mode: "what if this service becomes unavailable, is removed or regressed?" ──
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+  const eventResult = (o: any = {}): any => ({
+    ...impactResult(), oldRevision: undefined, newRevision: undefined, classification: '',
+    event: { kind: 'unavailable', service: 'domain-a/payments' }, gate: 'unverified', gateReason: '1 required consumer runs on prod/eu-1',
+    changes: { total: 0, count: 0, truncated: false, breaking: 0, potential: 0, nonBreaking: 0, items: [] },
+    changedOwner: ref('owner', 'team:pay', 'pay'),
+    consumers: {
+      ...impactResult().consumers,
+      byOutcome: [{ key: 'breaks', count: 1 }, { key: 'may-degrade', count: 0 }, { key: 'unknown', count: 1 }],
+      highlights: [],
+      items: [
+        { service: ref('service', 'domain-a/billing', 'billing'), path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'unknown',
+          effect: 'breaks', required: true, provenance: 'declared', via: ['dependency'], owner: 'core', ownerRef: ref('owner', 'team:core', 'core'),
+          targets: [ref('target', 'prod/k8s/billing', 'billing')], targetsTotal: 3,
+          evidence: [{ kind: 'target', provenance: 'observed', message: 'runs on prod/k8s/billing', at: '2026-07-29T09:00:00Z', stale: true }] },
+        { service: { kind: 'service', key: 'ghost-caller', label: 'ghost-caller', href: '/fleet/services/ghost-caller' }, path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true,
+          confidence: 'observed', compatibilityVerdict: 'unknown', effect: 'unknown', uncontracted: true, provenance: 'observed', via: ['observed'] },
+      ],
+    },
+    ...o,
+  });
+
+  it('switches to event mode and asks the event over the POST with the service key, never two revisions', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    (target.querySelector('input[value="event"]') as HTMLInputElement).click();
+    flushSync();
+    expect(target.querySelector('#impact-old-rev')).toBeNull();
+    const ev = target.querySelector('#impact-event') as HTMLSelectElement;
+    expect([...ev.options].map((o) => o.textContent)).toEqual(['becomes unavailable', 'is removed', 'regressed']);
+    ev.value = 'regressed'; ev.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    const rev = target.querySelector('#impact-event-rev') as HTMLInputElement;
+    expect([rev.getAttribute('inputmode'), rev.getAttribute('autocomplete')]).toEqual(['text', 'off']);
+    rev.value = 'sha256:dead'; rev.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Ask') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    const body = impactFn.mock.calls[0][0];
+    expect(body).toMatchObject({ serviceKey: 'domain-a/payments', event: 'regressed', revision: 'sha256:dead', snapshotId: 'sha256:abc', limit: 100, offset: 0 });
+    expect(body.fromRevisionKey).toBeUndefined();
+    expect(body.toRevisionKey).toBeUndefined();
+    await vi.waitFor(() => expect(location.hash).toContain('event=regressed'));
+    expect(location.hash).toContain('rev=sha256%3Adead');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('restores an event link and runs it on load, but a bare mode=event only shows the form', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const idle = mountView({ svc: 'domain-a/payments', mode: 'event' });
+    await vi.waitFor(() => expect(idle.target.querySelector('#impact-event')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(impactFn).not.toHaveBeenCalled();
+    unmount(idle.component); document.body.removeChild(idle.target);
+
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(impactFn.mock.calls[0][0]).toMatchObject({ serviceKey: 'domain-a/payments', event: 'unavailable' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    expect((target.querySelector('#impact-event') as HTMLSelectElement).value).toBe('unavailable');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows why each consumer is affected, links owners and never links an uncontracted caller', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-consumers"]')).toBeTruthy());
+    const rows = target.querySelectorAll('[data-testid="consumer-row"]');
+    expect(rows).toHaveLength(2);
+    const [billing, ghost] = Array.from(rows);
+    expect(billing.querySelector('[data-label="Effect"]')?.textContent).toContain('Breaks');
+    const why = billing.querySelector('[data-label="Why"]')!.textContent!.replace(/\s+/g, ' ');
+    expect(why).toContain('dependency');
+    expect(why).toContain('declared');
+    expect(why).toContain('required');
+    expect(why).toContain('runs on prod/k8s/billing');
+    expect(billing.querySelector('[data-label="Why"] .badge-stale')).toBeTruthy();
+    expect(billing.querySelector('[data-label="Runs on"]')?.textContent).toContain('+2');
+    expect(billing.querySelector('[data-label="Owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Acore');
+    expect(ghost.querySelector('[data-label="Consumer"] a')).toBeNull();
+    expect(ghost.querySelector('[data-label="Consumer"]')?.textContent).toContain('ghost-caller');
+    expect(ghost.querySelector('[data-label="Consumer"]')?.textContent).toContain('uncontracted');
+    // The outcome filter offers the effects in an event answer.
+    const outcomeSel = target.querySelector('.consumer-tools select') as HTMLSelectElement;
+    expect([...outcomeSel.options].map((o) => o.value)).toEqual(['', 'breaks', 'may-degrade', 'unknown']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('cites delivery evidence for a regression, with its provenance, or says why it was not read', async () => {
+    impactFn.mockResolvedValue(eventResult({
+      event: { kind: 'regressed', service: 'domain-a/payments', revision: 'sha256:dead' },
+      regression: [
+        { kind: 'check', namespace: 'shop', stage: 'prod', gate: 'smoke', message: 'error rate 5%', at: '2026-07-29T09:00:00Z', record: 'rec-1' },
+        { kind: 'failed', namespace: 'shop', stage: 'staging', message: 'listed as failed' },
+      ],
+    }));
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'regressed', rev: 'sha256:dead' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-delivery-evidence"]')).toBeTruthy());
+    const items = Array.from(target.querySelectorAll('[data-testid="delivery-evidence-item"]')).map((li) => li.textContent!.replace(/\s+/g, ' '));
+    expect(items[0]).toContain('shop/prod');
+    expect(items[0]).toContain('smoke');
+    expect(items[0]).toContain('error rate 5%');
+    expect(items[0]).toContain('rec-1');
+    expect(items[1]).toContain('from status, not signed');
+    unmount(component); document.body.removeChild(target);
+
+    impactFn.mockResolvedValue(eventResult({
+      event: { kind: 'regressed', service: 'domain-a/payments', revision: '1.0.0' },
+      limitations: { total: 1, count: 1, truncated: false, items: [{ code: 'DELIVERY_EVIDENCE_UNAVAILABLE', message: 'name the artifact digest to read delivery evidence' }] },
+    }));
+    const b = mountView({ svc: 'domain-a/payments', event: 'regressed', rev: '1.0.0' });
+    await vi.waitFor(() => expect(b.target.querySelector('[data-testid="changes-delivery-evidence"]')).toBeTruthy());
+    expect(b.target.querySelector('[data-testid="changes-delivery-evidence"]')?.textContent).toContain('name the artifact digest to read delivery evidence');
+    unmount(b.component); document.body.removeChild(b.target);
+  });
 });

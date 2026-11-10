@@ -10,7 +10,7 @@
  */
 import type { ProductImpact } from './api.ts';
 import { outcomeSegments } from './distributions.ts';
-import { countOf, formatCount } from './format.ts';
+import { countOf, formatCount, shortDigest } from './format.ts';
 import type { FigTone, GlyphName, WireDef } from './figure.ts';
 import type { Step } from './narrate.ts';
 
@@ -42,7 +42,7 @@ const GLYPH: Record<Outcome, GlyphName> = { incompatible: 'err', unknown: 'unkno
 
 interface LaneChip { key: string; label: string; href: string; ring: boolean }
 export interface ImpactLane {
-  key: Outcome | 'hidden';
+  key: Outcome | Effect | 'hidden' | 'coverage';
   label: string;
   tone: FigTone;
   hatch: boolean;
@@ -147,6 +147,112 @@ export function impactModel(im: ProductImpact) {
   };
 }
 
+/** What an event does to a consumer (pkg/impact Effect*), in D3's lane order. */
+export type Effect = 'breaks' | 'may-degrade' | 'unknown';
+export const EFFECTS: Effect[] = ['breaks', 'may-degrade', 'unknown'];
+/** effectOf mirrors the Go effect; anything else is unknown, never compatible. */
+export function effectOf(c: { effect?: string | null }): Effect {
+  return EFFECTS.includes(c.effect as Effect) ? (c.effect as Effect) : 'unknown';
+}
+export const EFFECT_META: Record<Effect, { label: string; tone: FigTone; hatch: boolean; glyph: GlyphName }> = {
+  breaks: { label: 'Breaks', tone: 'err', hatch: false, glyph: 'err' },
+  'may-degrade': { label: 'May degrade', tone: 'warn', hatch: false, glyph: 'warn' },
+  unknown: { label: 'Unknown', tone: 'neutral', hatch: true, glyph: 'unknown' },
+};
+// An event has no version a consumer can refuse, so its gate never blocks (Decision 7).
+const EVENT_GATE: Record<string, { cls: string; label: string; tone: FigTone; stamp: string; glyph: GlyphName; says: string }> = {
+  unverified: { ...IMPACT_GATE.unverified, says: 'Needs a person' },
+  clear: { ...IMPACT_GATE.clear, says: 'Clears' },
+};
+
+/** What happens to the service: "becomes unavailable", "is removed", "regressed at 1.2.0". */
+export function eventVerb(im: ProductImpact): string {
+  const rev = im.event?.revision || '';
+  const at = rev.startsWith('sha256:') ? `sha256:${shortDigest(rev, 12)}` : rev;
+  if (im.event?.kind === 'removed') return 'is removed';
+  if (im.event?.kind === 'regressed') return `regressed${at ? ` at ${at}` : ''}`;
+  return 'becomes unavailable';
+}
+/** The event in words: "redis becomes unavailable". */
+export function eventPhrase(im: ProductImpact): string {
+  return `${im.service?.label || im.service?.key || ''} ${eventVerb(im)}`;
+}
+
+/** "a, b and c": no Oxford comma. */
+const joinWords = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0] ?? '');
+
+/**
+ * The event figure's model: "if redis becomes unavailable, who breaks?". Lanes by
+ * effect (Breaks, May degrade, Unknown), the ghost of what the reader may not see and,
+ * when the answer is partial, the hatched lane of the sources Pacto could not read.
+ * Every non-empty consumer lane and that coverage lane send the gate to a person; the
+ * gate sits under the first of them, or under the empty answer when it clears.
+ */
+export function eventModel(im: ProductImpact) {
+  const cs = im.consumers;
+  const total = cs.total ?? 0, direct = cs.direct ?? 0, hidden = cs.hidden ?? 0;
+  const partial = (im.meta?.completeness ?? 'complete') !== 'complete';
+  const unavailable = im.meta?.sourceCounts?.unavailable ?? 0;
+  const by = Object.fromEntries(EFFECTS.map((k) => [k, 0])) as Record<Effect, number>;
+  for (const b of cs.byOutcome ?? []) if (EFFECTS.includes(b.key as Effect)) by[b.key as Effect] = b.count ?? 0;
+  const gateKey = im.gate === 'clear' ? 'clear' : im.gate ? 'unverified' : '';
+  const gate = EVENT_GATE[gateKey] ?? null;
+  const unverified = gateKey === 'unverified';
+  const chipsOf = (k: Effect) => (cs.highlights ?? []).filter((c) => effectOf(c) === k).slice(0, 4)
+    .map((c) => ({ key: c.service.key, label: c.service.label || c.service.key, href: c.uncontracted ? '' : c.service.href || '', ring: false }));
+
+  const lanes: ImpactLane[] = EFFECTS.map((k) => ({
+    key: k, label: EFFECT_META[k].label, tone: EFFECT_META[k].tone, hatch: EFFECT_META[k].hatch, glyph: EFFECT_META[k].glyph,
+    n: by[k], share: total ? by[k] / total : 0, chips: chipsOf(k), decides: unverified && by[k] > 0, ghost: false,
+  }));
+  if (hidden) lanes.push(hiddenLane(hidden));
+  if (partial) lanes.push({ key: 'coverage', label: 'Unread sources', tone: 'neutral', hatch: true, glyph: 'unknown', n: 0, share: 0, chips: [], decides: unverified, ghost: true });
+  const gateLane = lanes.findIndex((l) => l.decides);
+  const deciding = lanes.filter((l) => l.decides).map((l) => l.label.toLowerCase());
+
+  const service = im.service?.label || im.service?.key || '';
+  const phrase = eventPhrase(im);
+  const atLeast = partial ? 'at least ' : '';
+  const missing = unavailable ? `the ${countOf(unavailable, 'unavailable source')}` : 'sources Pacto cannot read';
+  // "5 consumers break, 3 may degrade and 2 are unknown": the first count names consumers.
+  const VERB: Record<Effect, [string, string]> = { breaks: ['breaks', 'break'], 'may-degrade': ['may degrade', 'may degrade'], unknown: ['is unknown', 'are unknown'] };
+  const parts = EFFECTS.filter((k) => by[k]).map((k, i) => `${i ? formatCount(by[k]) : countOf(by[k], 'consumer')} ${VERB[k][by[k] === 1 ? 0 : 1]}`);
+  const caption = (total ? `${atLeast}${joinWords(parts)}` : partial ? 'no consumer is known to depend on it' : 'no consumer depends on it')
+    + (hidden ? `; ${formatCount(hidden)} more you may not see ${hidden === 1 ? 'is' : 'are'} not counted` : '')
+    + '.'
+    + (partial ? ` Coverage is partial: consumers known only to ${missing} are missing.` : '');
+  const figRef = gateLane < 0 ? (gate ? 'No lane reaches the gate.' : '')
+    : deciding.length === 1 ? `The gate is drawn under the ${deciding[0]} lane, which sends it to a person.`
+      : `The gate is drawn under the ${deciding[0]} lane; the ${joinWords(deciding)} lanes ${deciding.length === 2 ? 'both' : 'all'} send it to a person.`;
+  const gateWhy = deciding.length > 1 ? `Gate, decided by the ${joinWords(deciding)} lanes`
+    : deciding.length ? 'Gate, decided by this lane' : `Gate: nothing depends on ${service}`;
+
+  const wires: WireDef[] = [{ id: 'w-stack', from: 'subject', to: 'split', style: 'proj', tone: 'neutral', when: ['wide', 'mid', 'narrow'] }];
+  lanes.forEach((l, k) => wires.push({
+    id: `w-l${k}`, from: 'split', to: `ln-${k}`, style: l.ghost ? 'stale' : 'proj', tone: l.hatch || l.ghost ? 'neutral' : l.tone,
+    col: { fs: 'b', ts: 'l' },
+  }));
+  if (gateLane >= 0) {
+    const l = lanes[gateLane];
+    wires.push({ id: 'w-gate', from: `ln-${gateLane}`, fs: 'b', to: 'gate', ts: 't', style: 'proj', tone: l.hatch ? 'neutral' : l.tone });
+  }
+  const laneIds = lanes.map((_, k) => k);
+  const steps: Step[] = [
+    { cap: `Suppose ${phrase}. This is a question: nothing has changed.`, dur: 240, show: ['[data-m="subject"]', 'w:w-stack'], sig: ['w-stack'] },
+    { cap: `It reaches the ${countOf(total, 'consumer')} that depend on ${service}.`, dur: 160, show: ['[data-m="split"]'] },
+    { cap: `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
+  ];
+  if (gate) steps.push({ cap: `${gate.says}${by.breaks ? `: ${countOf(by.breaks, 'consumer')} would break` : ''}.`, dur: 160, show: ['[data-m="gate"]', 'w:w-gate'], sig: ['w-gate'] });
+  const alt = `If ${phrase}: ${EFFECTS.map((k) => `${by[k]} ${k}`).join(', ')} of ${atLeast}${total} consumers`
+    + `; ${hidden} you may not see; gate ${gate ? gate.label.toLowerCase() : 'none'}; evidence ${partial ? 'partial' : 'complete'}.`;
+
+  return {
+    service, lead: `If ${phrase}`, verb: eventVerb(im), total, direct, indirect: Math.max(0, total - direct), hidden, refused: 0, partial, missing, by,
+    lanes, gateLane, gate, gateWhy, wires, steps, caption, figRef, alt,
+    key: { s: im.service?.key, e: im.event?.kind, r: im.event?.revision, by, hidden, gate: gateKey },
+  };
+}
+
 function hiddenLane(n: number): ImpactLane {
   return { key: 'hidden', label: 'Hidden from you', tone: 'neutral', hatch: true, glyph: 'unknown', n, share: 0, chips: [], decides: false, ghost: true };
 }
@@ -157,6 +263,7 @@ function hiddenLane(n: number): ImpactLane {
  * it from a second tally.
  */
 export function answerText(im: ProductImpact): string {
+  if (im.event) return `A question about the fleet as it is: nothing has changed.${im.consumers?.total ? '' : ' No consumer is affected.'}`;
   const ch = im.changes;
   const what = !ch?.total ? 'No contract differences.' : `${countOf(ch.total, 'change')}, ${formatCount(ch.breaking ?? 0)} breaking.`;
   return im.consumers?.total ? what : `${what} No consumer is affected.`;

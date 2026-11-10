@@ -193,7 +193,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['name', 'old', 'new', 'observed', 'outcome']) {
+    for (const k of ['name', 'old', 'new', 'observed', 'outcome', 'mode', 'event', 'rev']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -629,16 +629,21 @@ export function fleetAttentionUrl(opts: {
 // ServiceKey PATH segment (never a display name); `name` is only set when migrating a
 // legacy compare bookmark that had nothing but a name, and is mutually exclusive with a
 // resolved key. The selected revision pair and the include-observed toggle live in the
-// query, so an analysis is shareable and restored by back/forward.
+// query, so an analysis is shareable and restored by back/forward. A what-if question
+// carries its `event` (and `rev` for a regression) instead of the pair; `mode: 'event'`
+// alone opens the event form with no answer.
 export function fleetChangesUrl(
   serviceKey = '',
-  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string } = {},
+  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string; mode?: string; event?: string; rev?: string } = {},
 ): string {
   const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
   if (!serviceKey && opts.name) qs.set('name', opts.name);
   if (opts.old) qs.set('old', opts.old);
   if (opts.new) qs.set('new', opts.new);
+  if (opts.mode && !opts.event) qs.set('mode', opts.mode);
+  if (opts.event) qs.set('event', opts.event);
+  if (opts.rev) qs.set('rev', opts.rev);
   if (opts.observed) qs.set('observed', '1');
   if (opts.outcome) qs.set('outcome', opts.outcome);
   const str = qs.toString();
