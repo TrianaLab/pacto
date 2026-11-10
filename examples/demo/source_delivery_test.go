@@ -397,8 +397,8 @@ func TestDemoPathsDiffer(t *testing.T) {
 	type graph struct {
 		Promotion struct {
 			Nodes []struct {
-				Environment string             `json:"environment"`
-				Upstream    dashboard.Upstream `json:"upstream"`
+				Environment string            `json:"environment"`
+				Upstream    delivery.Upstream `json:"upstream"`
 			} `json:"nodes"`
 			Edges []struct{ From, To string } `json:"edges"`
 		} `json:"promotion"`

@@ -16,6 +16,24 @@ type Listing struct {
 	Unreadable   []string `json:"unreadable,omitempty" doc:"What could not be listed, each naming its namespace and why, or * when the namespaces could not be known"`
 }
 
+// StatusQuery asks where each Stage of one service stands: in Namespace, or
+// in every namespace the caller can list for "". Why also plans the promote
+// of each candidate (Progress).
+type StatusQuery struct {
+	Namespace, Service, Domain string
+	Why                        bool
+}
+
+// ServiceStatus is every Stage of one service the caller can see, in
+// promotion order, from each Stage's spec.candidates.
+type ServiceStatus struct {
+	Listing
+	Service string     `json:"service"`
+	Domain  string     `json:"domain,omitempty"`
+	Note    string     `json:"note"`
+	Stages  []StageRow `json:"stages"`
+}
+
 // StageRow is one Stage: one service in one environment, as every surface
 // shows it (the dashboard, pacto delivery status and MCP).
 type StageRow struct {
@@ -46,6 +64,7 @@ type StageRow struct {
 	LastCheck   *CheckSummary `json:"lastCheck,omitempty" doc:"The newest re-check of the running version after it shipped (status.lastCheck)"`
 	HeldUnknown bool          `json:"heldUnknown,omitempty" doc:"The Stage's operations could not be read, so held is not known"`
 	Offers      []Offer       `json:"offers" doc:"Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides"`
+	Upstream    *Upstream     `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on board rows and status rows"`
 	Progress    *Progress     `json:"progress,omitempty" doc:"Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why"`
 }
 
@@ -283,6 +302,24 @@ func StageState(st StageObject, held int, heldUnknown bool) string {
 		return "unverified"
 	}
 	return "verified"
+}
+
+// StageStateWord is a state of StageState as a person reads it, the words
+// the dashboard's ENV_STATES use.
+func StageStateWord(state string) string {
+	switch state {
+	case "autohold":
+		return "on auto-hold"
+	case "waiting":
+		return "waiting for a person"
+	case "empty":
+		return "running nothing yet"
+	case "unverified":
+		return "not verified"
+	case "unknown":
+		return "not known: its operations could not be read"
+	}
+	return state
 }
 
 // describeParallel is how many digests DescribeAll reads at once: each read

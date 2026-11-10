@@ -696,10 +696,10 @@ func TestFleetAuditWalkIsBounded(t *testing.T) {
 		t.Fatalf("a walk past its deadline = %+v %v", hs, err)
 	}
 	lists.Store(0)
-	stages, forbidden, err := e.d.auditStages(context.Background(), "", delivery.ServiceRef{})
-	if err != nil || lists.Load() > auditParallel+1 || len(stages) > auditParallel*auditLimit ||
-		len(forbidden) < 20-auditParallel || !strings.Contains(forbidden[len(forbidden)-1], "one walk reads at most 500 Stages") {
-		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(stages), forbidden, err)
+	w, err := e.d.auditStages(context.Background(), "", delivery.ServiceRef{})
+	if err != nil || lists.Load() > auditParallel+1 || len(w.Stages) > auditParallel*auditLimit ||
+		len(w.Forbidden) < 20-auditParallel || !strings.Contains(w.Forbidden[len(w.Forbidden)-1], "one walk reads at most 500 Stages") {
+		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(w.Stages), w.Forbidden, err)
 	}
 }
 
@@ -746,7 +746,7 @@ func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
 		return false, nil, nil
 	})
 	var read atomic.Int64
-	if got, err := e.d.namespaceStages(ctx, "a", payments, &read); err != nil || len(got) != 3 || read.Load() != 3 {
+	if got, err := e.d.namespaceStages(ctx, "a", payments, &read); err != nil || len(got) != 603 || read.Load() != 3 {
 		t.Fatalf("one namespace for payments = %d Stages, %d counted, %v", len(got), read.Load(), err)
 	}
 	hs, err := e.d.HistoryAll(ctx, "", payments)

@@ -25,7 +25,7 @@ type operationOutput struct {
 		// change, in seconds; zero or absent when the Stage asks no fresh login.
 		DecisionFreshness int                    `json:"decisionFreshness,omitempty" doc:"How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides"`
 		UndoneBy          *delivery.HistoryEntry `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
-		Upstream          *Upstream              `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, from its spec; absent when the Stage could not be read"`
+		Upstream          *delivery.Upstream     `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, from its spec; absent when the Stage could not be read"`
 		Environment       string                 `json:"environment,omitempty" doc:"The environment the Stage delivers to (its spec.environment); absent when the Stage could not be read"`
 		Labels
 	}

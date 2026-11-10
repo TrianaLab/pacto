@@ -1725,6 +1725,33 @@ export interface components {
             started?: string;
             verifyDeadline?: string;
         };
+        "Delivery.Upstream": {
+            /** @description kind stage: the upstream Stage's environment, when it could be read */
+            environment?: string;
+            /**
+             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
+             * @enum {string}
+             */
+            kind: "stage" | "records" | "artifact" | "none";
+            /** @description kind stage: the upstream Stage's namespace */
+            namespace?: string;
+            /**
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @enum {string}
+             */
+            problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
+            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
+            repository?: string;
+            /** @description kind stage: the upstream Stage's name */
+            stage?: string;
+            /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
+            stream?: string;
+            /**
+             * @description kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet
+             * @enum {string}
+             */
+            trust?: "trusted" | "untrusted" | "unreadable" | "unknown";
+        };
         "Delivery.Verdict": {
             citation?: {
                 [key: string]: string;
@@ -1909,8 +1936,8 @@ export interface components {
              * @enum {string}
              */
             state: "failed" | "frozen" | "autohold" | "waiting" | "empty" | "unverified" | "verified" | "unknown";
-            /** @description Where the Stage's candidates come from, as its spec declares; on the board's rows only */
-            upstream?: components["schemas"]["Upstream"];
+            /** @description Where the Stage's candidates come from, as its spec declares; on board rows and status rows */
+            upstream?: components["schemas"]["Delivery.Upstream"];
             /** @description The running digest passed its verify gates here */
             verified: boolean;
             /** @description The version its contract declares, when the artifact could be read */
@@ -3509,7 +3536,7 @@ export interface components {
             /** @description The rollback that undid this change, read from its Stage's history */
             undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
             /** @description Where the Stage's candidates come from, from its spec; absent when the Stage could not be read */
-            upstream?: components["schemas"]["Upstream"];
+            upstream?: components["schemas"]["Delivery.Upstream"];
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
@@ -4292,7 +4319,7 @@ export interface components {
             namespace: string;
             stage: string;
             /** @description Where the Stage's candidates come from */
-            upstream: components["schemas"]["Upstream"];
+            upstream: components["schemas"]["Delivery.Upstream"];
         };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
@@ -4730,33 +4757,6 @@ export interface components {
             versions?: {
                 [key: string]: string;
             };
-        };
-        Upstream: {
-            /** @description kind stage: the upstream Stage's environment, when it could be read */
-            environment?: string;
-            /**
-             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
-             * @enum {string}
-             */
-            kind: "stage" | "records" | "artifact" | "none";
-            /** @description kind stage: the upstream Stage's namespace */
-            namespace?: string;
-            /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
-             * @enum {string}
-             */
-            problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
-            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
-            repository?: string;
-            /** @description kind stage: the upstream Stage's name */
-            stage?: string;
-            /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
-            stream?: string;
-            /**
-             * @description kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet
-             * @enum {string}
-             */
-            trust?: "trusted" | "untrusted" | "unreadable" | "unknown";
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */

@@ -1174,8 +1174,8 @@ func TestEnvironmentRowJSONKeepsFields(t *testing.T) {
 		Version: "1", Verified: true, Failed: true, Frozen: true, FrozenReason: "r", AutoHold: true, Held: 1, Candidate: dNext,
 		CandidateVersion: "2", Ready: "False: x", ReadyMessage: "m", Actions: []string{}, Level: "advise", State: "failed",
 		ContractRef: "oci://r/c@sha256:c", ReadyFix: "f", Watched: &delivery.Watch{Status: "True"}, LastCheck: &delivery.CheckSummary{},
-		HeldUnknown: true, Offers: []delivery.Offer{}},
-		Upstream: &Upstream{}, Shadow: []ShadowDecision{{}}, Revision: "svc@1"}
+		HeldUnknown: true, Offers: []delivery.Offer{}, Upstream: &delivery.Upstream{}},
+		Shadow: []ShadowDecision{{}}, Revision: "svc@1"}
 	b, _ := json.Marshal(row)
 	var got map[string]any
 	_ = json.Unmarshal(b, &got)

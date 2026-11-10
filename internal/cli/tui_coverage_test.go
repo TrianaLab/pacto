@@ -69,6 +69,7 @@ var excludedFromTUI = map[string]string{
 	"delivery plan":          "plans a change to what runs; it belongs next to the propose it precedes",
 	"delivery propose":       "changes what runs; the TUI never acts",
 	"delivery record verify": "verifies a Stage's records, which are not a fleet entity",
+	"delivery status":        "reads Stages, which are not fleet entities, with the caller's cluster identity",
 	"delivery types":         "lists operation types, not fleet entities",
 	"delivery undo":          "plans a change to what runs; it belongs next to the propose it precedes",
 }

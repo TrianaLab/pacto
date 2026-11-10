@@ -1,12 +1,10 @@
 package dashboard
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -20,76 +18,6 @@ func fed(env, name, upNS, upName string) delivery.StageObject {
 		st.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: upName, Namespace: upNS}
 	}
 	return st
-}
-
-func TestPromotionOrderFollowsDeclaredUpstreams(t *testing.T) {
-	cases := []struct {
-		name      string
-		stages    []delivery.StageObject
-		order     string
-		upstream  map[string][]string
-		cycle     string
-		unordered string
-	}{
-		{
-			// Names alone would put prod before staging's "s" and qa first.
-			name:     "a chain in no name order",
-			stages:   []delivery.StageObject{fed("prod", "a", "staging", "a"), fed("qa", "a", "", ""), fed("staging", "a", "qa", "a")},
-			order:    "[qa staging prod]",
-			upstream: map[string][]string{"qa": {}, "staging": {"qa"}, "prod": {"qa", "staging"}},
-			cycle:    "map[]",
-		},
-		{
-			name: "a fork, and an upstream in the Stage's own namespace",
-			stages: []delivery.StageObject{fed("dev", "a", "", ""), fed("prod-us", "a", "dev", "a"), fed("prod-eu", "a", "dev", "a"),
-				{Metadata: delivery.ObjectMeta{Namespace: "dev", Name: "b"}, Spec: delivery.StageSpec{Environment: "dev-2",
-					Candidates: delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "a"}}}}},
-			order:    "[dev dev-2 prod-eu prod-us]",
-			upstream: map[string][]string{"dev": {}, "dev-2": {"dev"}, "prod-eu": {"dev"}, "prod-us": {"dev"}},
-			cycle:    "map[]",
-		},
-		{
-			// c is free to go first; the cycle a <-> b is placed by name after
-			// it and reported; 0, fed by b, comes after the cycle, not by name.
-			name: "a dangling upstream orders nothing and a cycle is reported",
-			stages: []delivery.StageObject{fed("b", "x", "a", "x"), fed("a", "x", "b", "x"), fed("c", "x", "nowhere", "x"),
-				fed("0", "x", "b", "x")},
-			order:    "[c a b 0]",
-			upstream: map[string][]string{"0": {"a", "b"}, "a": {"b"}, "b": {"a"}, "c": {}},
-			cycle:    "map[a:true b:true]",
-		},
-		{
-			// Each service's path is acyclic; only together do they order eu
-			// and us both ways. That is no cycle: it is placed by name.
-			name:      "two services in opposite orders",
-			stages:    []delivery.StageObject{fed("eu", "a", "", ""), fed("us", "a", "eu", "a"), fed("us", "b", "", ""), fed("eu", "b", "us", "b")},
-			order:     "[eu us]",
-			upstream:  map[string][]string{"eu": {"us"}, "us": {"eu"}},
-			cycle:     "map[]",
-			unordered: "map[eu:true us:true]",
-		},
-		{
-			name:     "a Stage that names itself is on a cycle",
-			stages:   []delivery.StageObject{fed("prod", "s", "prod", "s")},
-			order:    "[prod]",
-			upstream: map[string][]string{"prod": {}},
-			cycle:    "map[prod:true]",
-		},
-	}
-	for _, c := range cases {
-		order, up, cycle, unordered := promotionOrder(c.stages)
-		if fmt.Sprint(unordered) != cmp.Or(c.unordered, "map[]") {
-			t.Errorf("%s: unordered %v, want %s", c.name, unordered, c.unordered)
-		}
-		for k, v := range up {
-			if len(v) == 0 {
-				up[k] = []string{}
-			}
-		}
-		if fmt.Sprint(order) != c.order || !reflect.DeepEqual(up, c.upstream) || fmt.Sprint(cycle) != c.cycle {
-			t.Errorf("%s: order %v upstream %v cycle %v, want %s %v %s", c.name, order, up, cycle, c.order, c.upstream, c.cycle)
-		}
-	}
 }
 
 func TestInboxCountsWhatWaitsPerEnvironment(t *testing.T) {
@@ -161,27 +89,6 @@ func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)
 		}
-	}
-}
-
-// SPEC 21 rule 1: whether the promoter trusts an upstream record stream is
-// read from the Stage's Ready condition.
-func TestRecordsTrustReadsTheReadyCondition(t *testing.T) {
-	cases := map[string][]delivery.Condition{
-		"unknown":    nil,
-		"trusted":    {{Type: "RecordStoreReady", Status: "False"}, {Type: "Ready", Status: "True", Reason: "Ready"}},
-		"untrusted":  {{Type: "Ready", Status: "False", Reason: "UpstreamUntrusted"}},
-		"unreadable": {{Type: "Ready", Status: "False", Reason: "UpstreamUnreadable"}},
-	}
-	for want, conds := range cases {
-		st := stage("prod", "pay", "pay", delivery.StageStatus{Conditions: conds})
-		if got := recordsTrust(&st); got != want {
-			t.Errorf("%v: got %s, want %s", conds, got, want)
-		}
-	}
-	st := stage("prod", "pay", "pay", delivery.StageStatus{Conditions: []delivery.Condition{{Type: "Ready", Status: "False", Reason: "ApplierNotFound"}}})
-	if got := recordsTrust(&st); got != "unknown" {
-		t.Errorf("a Stage not Ready for its applier never judged the records: got %s", got)
 	}
 }
 

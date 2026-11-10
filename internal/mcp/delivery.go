@@ -30,6 +30,9 @@ type DeliveryAPI interface {
 	// HistoryAll keeps only the Stages of service of when it names one.
 	HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error)
 	VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error)
+	// Status says where each Stage of one service stands, as the caller can
+	// see it, in promotion order.
+	Status(ctx context.Context, q delivery.StatusQuery) (*delivery.ServiceStatus, error)
 }
 
 // noApprove is in every delivery tool description, so an agent never goes
@@ -42,6 +45,7 @@ const checkedPass = " A pacto.diff, pacto.impact or pacto.environment verdict pa
 	"breaks payments) and the plan's floor to learn whether it holds the change. The dashboard and the CLI show it as Checked."
 
 const deliveryInstructions = "Pacto delivery decides which version each environment (a Stage) runs. Use " +
+	"pacto_delivery_status to see where each Stage of a service stands and what you may ask for there, " +
 	"pacto_delivery_operation_types to learn what you may propose (with a type, what it checks), " +
 	"pacto_delivery_candidates to list the versions a Stage may take with their digests, " +
 	"pacto_delivery_operation_plan to see what the promoter will do (verdicts, whether a person is needed, " +
@@ -193,10 +197,46 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		v, err := api.VerifyRecords(ctx, a.Namespace, a.Stage)
 		return resultOrError(v, err)
 	})
+	registerDeliveryStatus(server, api, writes)
 	if writes {
 		registerDeliveryWrites(server, api)
 	}
 	return server
+}
+
+// noProposeNote ends a status answer on a server that registered no write
+// tools, so its offers are not read as something this server can do.
+const noProposeNote = "; this MCP server registers no propose tool for your identity; a person proposes from the CLI or the dashboard"
+
+func registerDeliveryStatus(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_status",
+		Description: "Where each Stage of one service stands, as you can see it: the version and contract each runs, whether it is " +
+			"verified and still watched after release (the newest re-check with its verdicts and citations), its Ready condition with " +
+			"what fixes it, its candidate, frozen or auto-hold, changes waiting for a person, its level, and offers: each action " +
+			"(promote, unfreeze, freeze, undo) with whether you may ask for it and why. With why it also plans the promote of each " +
+			"candidate, not proposed, and says what holds it back. The answer carries asOf and completeness: a partial answer means " +
+			"Stages you cannot list may exist. Rows are in promotion order, from each Stage's spec.candidates, and each names its " +
+			"upstream; cycles are named in note. Each row's state is the one the dashboard board counts it in, or unknown when the " +
+			"Stage's operations could not be read. Read-only." + checkedPass + noApprove,
+		InputSchema: inputSchema(map[string]property{
+			"service":   {Type: "string", Description: "The service whose Stages to show"},
+			"domain":    {Type: "string", Description: "Its registry domain; a Stage that names none matches any"},
+			"namespace": {Type: "string", Description: "Only the Stages in this namespace; empty reads every namespace you can list"},
+			"why":       {Type: "boolean", Description: "Also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back"},
+		}, []string{"service"}),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		Service   string `json:"service"`
+		Domain    string `json:"domain"`
+		Namespace string `json:"namespace"`
+		Why       bool   `json:"why"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		s, err := api.Status(ctx, delivery.StatusQuery{Namespace: a.Namespace, Service: a.Service, Domain: a.Domain, Why: a.Why})
+		if err == nil && !writes {
+			s.Note += noProposeNote
+		}
+		return resultOrError(s, err)
+	})
 }
 
 func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {

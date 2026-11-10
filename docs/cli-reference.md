@@ -486,6 +486,23 @@ pacto delivery record verify [flags]
       --stage string        the Stage (this or --all)
 ```
 
+### `pacto delivery status`
+
+Lists every Stage of one service you can see, in promotion order from each Stage's spec.candidates: the version it runs, its state as the dashboard counts it, its upstream, its candidate, its newest re-check, its level and the actions you may ask for (promote, unfreeze, freeze, undo), each with why or why not. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named. With --why it also plans the promote of each candidate, proposes nothing and says what holds it back.
+
+```
+pacto delivery status [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for status
+      --service string      the service whose Stages to show (required)
+      --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
+```
+
 ### `pacto delivery types`
 
 List the operation types you may propose

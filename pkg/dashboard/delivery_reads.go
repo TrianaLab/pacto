@@ -366,7 +366,6 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 // shared row (delivery.StageRow) plus what only the board shows.
 type EnvironmentRow struct {
 	delivery.StageRow
-	Upstream *Upstream `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on the board's rows only"`
 	// Shadow is set on an observe Stage only: newest first.
 	Shadow   []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 	Revision string           `json:"revision,omitempty" doc:"The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it"`
@@ -507,7 +506,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	read := describedAll(ctx, api, nil, on...)
 	for _, st := range shown {
 		row := environmentRowOf(st, held, caller, read, in.Service != "")
-		row.Upstream = upstreamListed(&st, byStage, l)
+		row.Upstream = delivery.UpstreamListed(&st, byStage, l.read, l.scope)
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
 	if in.Service != "" {
@@ -550,7 +549,7 @@ func environmentsListed(stages []delivery.StageObject) ([]string, map[string]str
 			tiers[st.Spec.Environment] = tier
 		}
 	}
-	envs, _, _, _ := promotionOrder(stages)
+	envs, _, _, _ := delivery.PromotionOrder(stages)
 	return envs, tiers
 }
 

@@ -18,6 +18,7 @@ type stubDelivery struct {
 	err     error
 	cancels []string
 	of      delivery.ServiceRef
+	status  delivery.StatusQuery
 }
 
 // stubEntries are a change that finished at ten and one with no time.
@@ -107,6 +108,14 @@ func (s *stubDelivery) VerifyRecords(_ context.Context, ns, stage string) (*deli
 	return &delivery.StreamVerification{Stage: ns + "/" + stage, OK: true}, nil
 }
 
+func (s *stubDelivery) Status(_ context.Context, q delivery.StatusQuery) (*delivery.ServiceStatus, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	s.status = q
+	return &delivery.ServiceStatus{Service: q.Service, Note: "in promotion order"}, nil
+}
+
 func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -150,7 +159,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify"} {
+	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify", "pacto_delivery_status"} {
 		if !strings.Contains(read, tool) {
 			t.Fatalf("%s is a read tool: %s", tool, read)
 		}
@@ -161,8 +170,8 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 			t.Fatalf("%s must not be registered: %s", gone, write)
 		}
 	}
-	if n := len(strings.Split(write, ",")); n != 11 {
-		t.Fatalf("want 9 read and 2 write delivery tools, got %d: %s", n, write)
+	if n := len(strings.Split(write, ",")); n != 12 {
+		t.Fatalf("want 10 read and 2 write delivery tools, got %d: %s", n, write)
 	}
 }
 
@@ -422,5 +431,30 @@ func TestDeliveryDescriptionsExplainCheckedPass(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("tools not found: %v", want)
+	}
+}
+
+// TestDeliveryStatusTool: the arguments reach Status; a missing service is
+// an error; a person's server, which registers no propose tool, says so in
+// the note and an agent's does not.
+func TestDeliveryStatusTool(t *testing.T) {
+	api := &stubDelivery{}
+	var got delivery.ServiceStatus
+	decode(t, callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status",
+		map[string]any{"service": "payments", "domain": "d", "namespace": "prod", "why": true}), &got)
+	if api.status != (delivery.StatusQuery{Namespace: "prod", Service: "payments", Domain: "d", Why: true}) ||
+		got.Note != "in promotion order"+noProposeNote {
+		t.Fatalf("status %+v from %+v", got, api.status)
+	}
+	decode(t, callToolOn(t, NewDeliveryServer("v", api, true, Authoring{}), "pacto_delivery_status", map[string]any{"service": "payments"}), &got)
+	if got.Note != "in promotion order" {
+		t.Fatalf("an agent's server has propose: %q", got.Note)
+	}
+	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{}); !res.IsError {
+		t.Fatal("a missing service must be an error")
+	}
+	api.err = errors.New("boom")
+	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{"service": "p"}); !res.IsError {
+		t.Fatal("an error must be an error result")
 	}
 }

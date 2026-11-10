@@ -198,7 +198,7 @@ always to a new tag) beside the authoring tools. It runs over stdio
 only.
 
 `--delivery` serves the delivery tools over the cluster your kubeconfig
-points at: `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
+points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
 `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
 `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan` and
 `pacto_delivery_record_verify` for everyone, plus
@@ -216,6 +216,16 @@ intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell. Over HTTP it
 needs token exchange; see
 [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+
+`pacto_delivery_status` takes a `service` (and optionally `domain`,
+`namespace` and `why`) and returns one row per Stage of that service you can
+see, in promotion order from each Stage's `spec.candidates`, with `asOf` and
+`completeness`. Each row names its upstream, the version and contract it runs,
+its state as the dashboard board counts it, its newest re-check and its
+offers: promote, unfreeze, freeze and undo, each with whether you may ask for
+it and why. With `why` it also plans the promote of each candidate (at most 16
+per answer) and proposes nothing. On a person's server, which registers no
+propose tool, the `note` says so.
 
 `pacto_delivery_history` takes a window (`since`, `until`) and, without a
 `stage`, a `service` and `domain` filter.

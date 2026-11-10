@@ -124,7 +124,13 @@ func (d *Delivery) history(ctx context.Context, ns, stage string, st *delivery.S
 // Blame says who put digest in place on a Stage, by default the version it
 // runs now: the newest change that moved the Stage to it.
 func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delivery.Blame, error) {
-	h, r, ops, err := d.history(ctx, ns, stage, nil)
+	return d.blameOf(ctx, ns, stage, nil, digest)
+}
+
+// blameOf is Blame over st when the caller already read the Stage; nil
+// reads it.
+func (d *Delivery) blameOf(ctx context.Context, ns, stage string, st *delivery.StageObject, digest string) (*delivery.Blame, error) {
+	h, r, ops, err := d.history(ctx, ns, stage, st)
 	if err != nil {
 		return nil, err
 	}
@@ -365,34 +371,56 @@ func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(
 func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error) {
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout) // the walk counts against the audit's time
 	defer cancel()
-	stages, forbidden, err := d.auditStages(ctx, namespace, of)
+	w, err := d.auditStages(ctx, namespace, of)
 	if err != nil {
 		return nil, err
 	}
-	out := d.Histories(ctx, stages)
-	if len(forbidden) > 0 {
-		out.Unreadable, out.Completeness = append(forbidden, out.Unreadable...), "partial"
+	out := d.Histories(ctx, w.Stages)
+	if len(w.Forbidden) > 0 {
+		out.Unreadable, out.Completeness = append(w.Forbidden, out.Unreadable...), "partial"
 		out.Note += "; the namespaces listed as unreadable were not read, so a change in them may still have happened"
 	}
 	return out, nil
 }
 
+// auditWalk is what a fleet audit's listing read: Stages, the Stages of the
+// service it asked for; All, every Stage it listed before that filter;
+// Forbidden, what it could not read, each naming its namespace and why; and
+// which namespaces it read in full: every one (Everywhere) or those Listed.
+type auditWalk struct {
+	Stages, All []delivery.StageObject
+	Forbidden   []string
+	Everywhere  bool
+	Listed      []string
+}
+
+// read says whether the walk read namespace ns in full, so a Stage of ns it
+// does not hold does not exist.
+func (w auditWalk) read(ns string) bool { return w.Everywhere || slices.Contains(w.Listed, ns) }
+
 // auditStages lists the Stages a fleet audit walks: those in namespace, or in
 // every namespace for "". A caller who may not list Stages cluster-wide gets
 // the Stages of each namespace it can read, and every namespace it cannot is
-// named in forbidden. Only the Stages of service of are kept when it names
-// one, before anything counts toward the walk's bound.
-func (d *Delivery) auditStages(ctx context.Context, namespace string, of delivery.ServiceRef) (stages []delivery.StageObject, forbidden []string, err error) {
-	stages, err = d.Stages(ctx, namespace)
+// named in Forbidden. Only the Stages of service of are kept in Stages when
+// it names one, and only those count toward the walk's bound.
+func (d *Delivery) auditStages(ctx context.Context, namespace string, of delivery.ServiceRef) (auditWalk, error) {
+	all, err := d.Stages(ctx, namespace)
 	if namespace != "" || !apierrors.IsForbidden(err) {
-		return ofService(stages, of), nil, err
+		if err != nil {
+			return auditWalk{}, err
+		}
+		w := auditWalk{All: all, Stages: ofService(slices.Clone(all), of), Everywhere: namespace == ""}
+		if namespace != "" {
+			w.Listed = []string{namespace}
+		}
+		return w, nil
 	}
 	type named struct {
 		Metadata delivery.ObjectMeta `json:"metadata"`
 	}
 	nss, nerr := listInto[named](ctx, d.Dynamic.Resource(gvrNamespaces), "", "namespaces")
 	if nerr != nil {
-		return nil, nil, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one with -n", err, nerr)
+		return auditWalk{}, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one with -n", err, nerr)
 	}
 	per, errs := make([][]delivery.StageObject, len(nss)), make([]error, len(nss))
 	var read atomic.Int64
@@ -405,18 +433,22 @@ func (d *Delivery) auditStages(ctx context.Context, namespace string, of deliver
 		})
 	}
 	_ = g.Wait()
+	var w auditWalk
 	for i, err := range errs {
 		if err != nil {
-			forbidden = append(forbidden, err.Error()) // it names the namespace
+			w.Forbidden = append(w.Forbidden, err.Error()) // it names the namespace
+		} else {
+			w.Listed = append(w.Listed, nss[i].Metadata.Name)
 		}
-		stages = append(stages, per[i]...)
+		w.All = append(w.All, per[i]...)
 	}
-	return stages, forbidden, nil
+	w.Stages = ofService(slices.Clone(w.All), of)
+	return w, nil
 }
 
 // namespaceStages lists one namespace's Stages for the walk, unless the walk
-// already read auditLimit Stages or ran out of time; read counts the ones of
-// service of.
+// already read auditLimit Stages of service of or ran out of time; read
+// counts the ones of service of.
 func (d *Delivery) namespaceStages(ctx context.Context, ns string, of delivery.ServiceRef, read *atomic.Int64) ([]delivery.StageObject, error) {
 	switch {
 	case read.Load() >= auditLimit:
@@ -425,8 +457,7 @@ func (d *Delivery) namespaceStages(ctx context.Context, ns string, of delivery.S
 		return nil, fmt.Errorf("namespace %s was not read: %w", ns, ctx.Err())
 	}
 	s, err := d.Stages(ctx, ns)
-	s = ofService(s, of)
-	read.Add(int64(len(s)))
+	read.Add(int64(len(ofService(slices.Clone(s), of))))
 	return s, err
 }
 
@@ -468,14 +499,14 @@ func (d *Delivery) VerifyAll(ctx context.Context, namespace string) (*delivery.S
 	}
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
-	stages, forbidden, err := d.auditStages(ctx, namespace, delivery.ServiceRef{})
+	w, err := d.auditStages(ctx, namespace, delivery.ServiceRef{})
 	if err != nil {
 		return nil, err
 	}
-	vs, unreadable := audit(ctx, stages, func(ctx context.Context, s delivery.StageObject) (*delivery.StreamVerification, error) {
+	vs, unreadable := audit(ctx, w.Stages, func(ctx context.Context, s delivery.StageObject) (*delivery.StreamVerification, error) {
 		return d.VerifyRecords(ctx, s.Metadata.Namespace, s.Metadata.Name)
 	})
-	unreadable = append(forbidden, unreadable...)
+	unreadable = append(w.Forbidden, unreadable...)
 	out := &delivery.StreamVerifications{AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "complete", Trust: d.Trust.Digest(),
 		OK: len(unreadable) == 0, Unreadable: unreadable, Streams: []delivery.StreamVerification{}}
 	if len(unreadable) > 0 {

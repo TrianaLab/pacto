@@ -505,3 +505,14 @@ func TestHistoryEntriesCarryOperationUID(t *testing.T) {
 		t.Errorf("record entry %q", e.OperationUID)
 	}
 }
+
+// TestStageStateWord: every state reads as the dashboard's ENV_STATES word.
+func TestStageStateWord(t *testing.T) {
+	want := map[string]string{"failed": "failed", "frozen": "frozen", "autohold": "on auto-hold", "waiting": "waiting for a person",
+		"empty": "running nothing yet", "unverified": "not verified", "verified": "verified", "unknown": "not known: its operations could not be read"}
+	for state, word := range want {
+		if got := StageStateWord(state); got != word {
+			t.Errorf("%s: got %q, want %q", state, got, word)
+		}
+	}
+}
