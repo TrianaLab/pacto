@@ -319,6 +319,11 @@ func ownerEntityRef(key string) EntityRef {
 // OwnerRef is ownerEntityRef for callers outside the package.
 func OwnerRef(key string) EntityRef { return ownerEntityRef(key) }
 
+// UsesOf is every declared use of provider, with provisioning, whether or not it provides an offering.
+func (q *Query) UsesOf(provider ServiceKey) ([]OfferingUse, []Limitation) {
+	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Key == provider }, "", true)
+}
+
 // domainEntityRef builds a route-neutral reference to a business domain.
 func domainEntityRef(name string) EntityRef {
 	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}

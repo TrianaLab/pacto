@@ -87,6 +87,44 @@ func TestDemoConfigRefEdgeResolves(t *testing.T) {
 	t.Error("impact does not list catalog-service")
 }
 
+// demoEvent answers an event about service over the fleet `pacto fleet --local
+// examples/demo/bundles` builds.
+func demoEvent(t *testing.T, kind, service string) *impact.Result {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: kind, Service: service}})
+}
+
+// TestDemoEventUnavailableRedis: redis has required dependents (auth-service
+// among them) and one optional one, pricing-service, so both lanes show.
+func TestDemoEventUnavailableRedis(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "redis")
+	effects := map[string]string{}
+	for _, c := range res.Consumers {
+		effects[c.Service] = c.Effect
+	}
+	if effects["auth-service"] != impact.EffectBreaks || effects["pricing-service"] != impact.EffectMayDegrade || res.Gate != impact.GateUnverified {
+		t.Errorf("effects %v, gate %s (%s)", effects, res.Gate, res.GateReason)
+	}
+}
+
+// TestDemoEventUnavailablePaymentsBreaksOnly: every path to payments-service
+// is a required dependency.
+func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "payments-service")
+	if len(res.Consumers) == 0 {
+		t.Fatal("payments-service has no consumers")
+	}
+	for _, c := range res.Consumers {
+		if c.Effect != impact.EffectBreaks {
+			t.Errorf("%s effect %s via %v", c.Service, c.Effect, c.Path)
+		}
+	}
+}
+
 // TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
 // reports to the revisions they name: each digest is the local content identity
 // of its consumer bundle, so an edit to a bundle (its pacto.lock included) that

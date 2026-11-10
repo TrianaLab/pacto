@@ -20,10 +20,25 @@ const (
 	OutcomeUnknown      = "unknown"
 	OutcomeCompatible   = "compatible"
 	OutcomeUnclassified = "unclassified"
+	// OutcomeBreaks and OutcomeMayDegrade partition an event answer, with
+	// OutcomeUnknown, by effect.
+	OutcomeBreaks     = EffectBreaks
+	OutcomeMayDegrade = EffectMayDegrade
 )
 
 // outcomeOrder is the canonical display order: err, unknown, ok, then the shortfall.
 var outcomeOrder = []string{OutcomeIncompatible, OutcomeUnknown, OutcomeCompatible, OutcomeUnclassified}
+
+// eventOrder is the display order of an event answer's outcomes: its lanes.
+var eventOrder = []string{OutcomeBreaks, OutcomeMayDegrade, OutcomeUnknown}
+
+// orderFor is the outcome order of an answer, event or contract.
+func orderFor(event bool) []string {
+	if event {
+		return eventOrder
+	}
+	return outcomeOrder
+}
 
 // MaxOwnerRanking bounds [ConsumerTallies.ByOwner].
 const MaxOwnerRanking = 5
@@ -58,8 +73,12 @@ type ConsumerTallies struct {
 	Owners int `json:"owners"`
 }
 
-func outcomeOf(verdict string, refused bool) string {
+// outcomeOf is a consumer's outcome: its effect in an event answer, else
+// what its verdict and refused guarantees say.
+func outcomeOf(verdict string, refused bool, effect string) string {
 	switch {
+	case effect != "":
+		return effect
 	case refused || verdict == CompatibilityIncompatible:
 		return OutcomeIncompatible
 	case verdict == CompatibilityUnknown:
@@ -71,16 +90,16 @@ func outcomeOf(verdict string, refused bool) string {
 }
 
 type consumerFact struct {
-	verdict, owner, ownerKey string
-	refused                  bool
+	verdict, owner, ownerKey, effect string
+	refused                          bool
 }
 
-func tallyFacts(facts []consumerFact) ConsumerTallies {
+func tallyFacts(facts []consumerFact, event bool) ConsumerTallies {
 	byOutcome := map[string]int{}
 	byOwner := map[string]*OwnerTally{}
 	var t ConsumerTallies
 	for _, f := range facts {
-		o := outcomeOf(f.verdict, f.refused)
+		o := outcomeOf(f.verdict, f.refused, f.effect)
 		byOutcome[o]++
 		if f.owner == "" {
 			t.NoOwner++
@@ -97,11 +116,12 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 			byOwner[group] = ot
 		}
 		ot.Consumers++
-		if o == OutcomeIncompatible {
+		// In an event answer the consumers that break rank an owner.
+		if o == OutcomeIncompatible || o == OutcomeBreaks {
 			ot.Incompatible++
 		}
 	}
-	for _, k := range outcomeOrder {
+	for _, k := range orderFor(event) {
 		t.ByOutcome = append(t.ByOutcome, TallyBucket{Key: k, Count: byOutcome[k]})
 	}
 	ranked := make([]OwnerTally, 0, len(byOwner))
@@ -133,17 +153,17 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 func (r *Result) tally() {
 	facts := make([]consumerFact, 0, len(r.Consumers))
 	for _, c := range r.Consumers {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, effect: c.Effect, refused: len(c.Unmet) > 0})
 	}
-	r.ConsumerTallies = tallyFacts(facts)
+	r.ConsumerTallies = tallyFacts(facts, r.Event != nil)
 }
 
-func tallyProductConsumers(all []ProductConsumer) ConsumerTallies {
+func tallyProductConsumers(all []ProductConsumer, event bool) ConsumerTallies {
 	facts := make([]consumerFact, 0, len(all))
 	for _, c := range all {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, effect: c.Effect, refused: len(c.Unmet) > 0})
 	}
-	return tallyFacts(facts)
+	return tallyFacts(facts, event)
 }
 
 // OutcomeSummary is the outcome tally in words: "2 incompatible, 1 unknown, 9

@@ -74,6 +74,11 @@ type ProductConsumer struct {
 	// OwnerKey and OwnerRef name the owner canonically; Owner is its label.
 	OwnerKey string           `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop); owner is the display label"`
 	OwnerRef *fleet.EntityRef `json:"ownerRef,omitempty" doc:"A reference to the owner's page"`
+	// Effect, Resources and ResourcesTotal are the consumer's event facts, as
+	// [AffectedConsumer] carries them.
+	Effect         string                     `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks, may-degrade or unknown"`
+	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
+	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -176,6 +181,10 @@ type Product struct {
 	// [Result.Gate] and [Result.GateReason].
 	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
 	GateReason string `json:"gateReason"`
+	// Event and Regression are the what-if and the delivery evidence of an
+	// event answer, as [Result.Event] and [Result.Regression].
+	Event      *Event               `json:"event,omitempty" doc:"The what-if this answer is about; absent for a contract change"`
+	Regression []RegressionEvidence `json:"regression,omitempty" doc:"The delivery evidence about a regressed revision, at most 50"`
 }
 
 // ProductRevisions looks up both revisions, requires them to exist and to belong
@@ -265,7 +274,12 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 	}
 	hidden := 0
 	if s := snap.Services[svcKey]; s != nil {
-		hidden = s.HiddenDependents + s.HiddenPolicyReferrers
+		hidden = s.HiddenDependents
+		// Policy referrers are consumers of a contract change and of a
+		// removal; availability and regressions do not read them.
+		if res.Event == nil || res.Event.Kind == EventRemoved {
+			hidden += s.HiddenPolicyReferrers
+		}
 	}
 	// meta describes the snapshot; the analysis can know less than it (a truncated
 	// blast radius, a service missing from the fleet), and the answer must say so.
@@ -283,13 +297,15 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
 		Changes:        boundChanges(res),
-		Consumers:      pageConsumersOutcome(consumers, limit, offset, hidden, outcome),
+		Consumers:      pageConsumersOutcome(consumers, limit, offset, hidden, outcome, res.Event != nil),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
 		ChangedOwner:   ownerRef(res.ChangedOwnerKey),
 		Gate:           res.Gate,
 		GateReason:     res.GateReason,
+		Event:          res.Event,
+		Regression:     slices.Clone(res.Regression),
 	}
 }
 
@@ -328,6 +344,9 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		TargetsTotal:         len(c.Targets),
 		OwnerKey:             c.OwnerKey,
 		OwnerRef:             ownerRef(c.OwnerKey),
+		Effect:               c.Effect,
+		Resources:            slices.Clone(c.Resources),
+		ResourcesTotal:       c.ResourcesTotal,
 	}
 }
 
@@ -349,7 +368,7 @@ var completenessRank = map[fleet.Completeness]int{
 // one outcome ("" for all), with defaulted/capped limit and a next-offset cursor.
 // hidden is the count of direct consumers the viewer may not see. all must be
 // sorted by key.
-func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outcome string) ConsumersPage {
+func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outcome string, event bool) ConsumersPage {
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
@@ -366,7 +385,7 @@ func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outc
 	// all is sorted by key, so a stable sort by rank keeps key as the tiebreak.
 	sort.SliceStable(direct, func(i, j int) bool { return highlightRank(direct[i]) < highlightRank(direct[j]) })
 	highlights := direct[:min(len(direct), MaxHighlights)]
-	listed := orderByOutcome(all, highlights, outcome)
+	listed := orderByOutcome(all, highlights, outcome, orderFor(event))
 	pg := fleet.Paginate(listed, limit, offset, DefaultProductConsumers, MaxProductConsumers)
 	return ConsumersPage{
 		Refused: refused, Direct: len(direct), Hidden: hidden,
@@ -376,14 +395,14 @@ func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outc
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		ByVerdict:       tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
 		ByConfidence:    tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
-		ConsumerTallies: tallyProductConsumers(all),
+		ConsumerTallies: tallyProductConsumers(all, event),
 	}
 }
 
 // orderByOutcome keeps the consumers of one outcome ("" for all) and orders them as
 // the figure reads: by outcome, the highlighted ones first within each in their
 // ranked order, then by key (all is sorted by key and the sort is stable).
-func orderByOutcome(all, highlights []ProductConsumer, outcome string) []ProductConsumer {
+func orderByOutcome(all, highlights []ProductConsumer, outcome string, order []string) []ProductConsumer {
 	rank := make(map[string]int, len(highlights))
 	for i, h := range highlights {
 		rank[h.Service.Key] = i
@@ -393,7 +412,7 @@ func orderByOutcome(all, highlights []ProductConsumer, outcome string) []Product
 		if !ok {
 			r = len(highlights)
 		}
-		return slices.Index(outcomeOrder, consumerOutcome(c)), r
+		return slices.Index(order, consumerOutcome(c)), r
 	}
 	out := make([]ProductConsumer, 0, len(all))
 	for _, c := range all {
@@ -413,7 +432,7 @@ func orderByOutcome(all, highlights []ProductConsumer, outcome string) []Product
 }
 
 func consumerOutcome(c ProductConsumer) string {
-	return outcomeOf(c.CompatibilityVerdict, len(c.Unmet) > 0)
+	return outcomeOf(c.CompatibilityVerdict, len(c.Unmet) > 0, c.Effect)
 }
 
 // highlightRank orders consumers worth drawing: blocking, other broken
@@ -422,6 +441,9 @@ func consumerOutcome(c ProductConsumer) string {
 // mirrors it.
 func highlightRank(c ProductConsumer) int {
 	switch {
+	case c.Effect != "":
+		// An event consumer ranks by its lane: breaks, may-degrade, unknown.
+		return slices.Index(eventOrder, c.Effect)
 	case c.Blocking:
 		return 0
 	case len(c.Unmet) > 0 || c.CompatibilityVerdict == CompatibilityIncompatible:
@@ -570,6 +592,10 @@ func serviceRef(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.EntityRef
 // revisionRef builds a route-neutral revision reference whose label is the
 // record's service and version, never the raw key.
 func revisionRef(rev *fleet.ContractRevision) *fleet.EntityRef {
+	if rev == nil {
+		// An event answer names no revision pair.
+		return nil
+	}
 	label := rev.Service
 	if rev.Version != "" {
 		label = rev.Service + " " + rev.Version

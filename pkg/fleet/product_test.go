@@ -462,3 +462,19 @@ func TestExportedRefs(t *testing.T) {
 		t.Errorf("OwnerRef = %+v", got)
 	}
 }
+
+// UsesOf lists every declared use of a provider, whether or not it provides
+// an offering, with provisioning; offering uses leave the plain one out.
+func TestUsesOfAnyProvider(t *testing.T) {
+	plain := svc24("plain", "16.1.0", "")
+	plain.Configurations = []contract.Configuration{{Name: "db", Schema: "s.json"}}
+	snap := provisioningSnap(t, 0, &Collection{Revisions: []RawRevision{ociRev(acme, plain, nil), consumer("orders", "1.3.0", "plain")}})
+	q := NewQuery(snap)
+	uses, _ := q.UsesOf(NewServiceKeyDomain(acme, "plain"))
+	if len(uses) != 1 || uses[0].Consumer.Label != "orders" || uses[0].Via != RelationshipConfigRef || len(uses[0].Provisioning) != 1 {
+		t.Fatalf("uses = %+v", uses)
+	}
+	if off, _ := q.offeringUses(func(*ServiceRecord) bool { return true }, ""); len(off) != 0 {
+		t.Errorf("offering uses = %+v", off)
+	}
+}

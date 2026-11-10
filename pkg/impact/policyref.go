@@ -142,6 +142,9 @@ func (r *Result) mergeConsumer(c AffectedConsumer) {
 	if verdictRank(c.CompatibilityVerdict) > verdictRank(e.CompatibilityVerdict) {
 		e.CompatibilityVerdict = c.CompatibilityVerdict
 	}
+	if effectRank(c.Effect) > effectRank(e.Effect) {
+		e.Effect = c.Effect
+	}
 	e.Note = strings.TrimPrefix(e.Note+"; "+c.Note, "; ")
 	e.Via = append(e.Via, c.Via...)
 	e.policyVerdict = c.policyVerdict

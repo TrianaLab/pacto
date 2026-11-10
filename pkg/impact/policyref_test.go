@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -310,4 +311,26 @@ func TestPolicyReferrersCountedInThePlural(t *testing.T) {
 		}
 	}
 	t.Errorf("limitations = %+v", res.Limitations)
+}
+
+// Failing referrers that run, one on a stale target: only the fresh one is
+// said to run there.
+func TestPolicyReferrersFailingOnStaleTarget(t *testing.T) {
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: policyProvider("1.0.0"), FS: policySchema(openPolicy)},
+			Digest: "sha256:policy", RequestedRef: policyRef + ":1.0.0"}, policyReferrer("orders", false), policyReferrer("billing", false)},
+		Targets: []fleet.RawTarget{
+			{Scope: "prod", Kind: "deployment", Name: "orders", Service: "orders", Compliance: fleet.StatusCompliant, EvidenceAt: ago(time.Hour)},
+			{Scope: "prod", Kind: "deployment", Name: "billing", Service: "billing", Compliance: fleet.StatusCompliant, EvidenceAt: ago(30 * time.Hour)},
+		},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return evidenceNow }}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := analyzePolicy(snap, tierPolicy)
+	want := "2 services that reference policy fail its new policy: orders runs on a known target; billing was last seen on a target more than 24h before asOf"
+	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, want) {
+		t.Errorf("gate %s: %q", res.Gate, res.GateReason)
+	}
 }

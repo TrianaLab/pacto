@@ -2582,6 +2582,28 @@ export interface components {
             sourceKind?: string;
             verified: boolean;
         };
+        "Fleet.ProvisioningStatus": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            phase: "Requested" | "Provisioning" | "Ready" | "Failed" | "Deleting" | "Unknown";
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reportedPhase?: string;
+            revision?: components["schemas"]["Fleet.EntityRef"];
+            source?: string;
+            sourceKind?: string;
+            stale?: boolean;
+            verified: boolean;
+        };
         "Fleet.RangeTally": {
             /** Format: int64 */
             none: number;
@@ -3094,6 +3116,11 @@ export interface components {
             depth: number;
             direct: boolean;
             domain?: string;
+            /**
+             * @description What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown
+             * @enum {string}
+             */
+            effect?: "breaks" | "may-degrade" | "unknown";
             /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
@@ -3103,6 +3130,13 @@ export interface components {
             path: string[] | null;
             provenance: string;
             required: boolean;
+            /** @description What this consumer asked the removed service for, one provisioning status per environment, at most 20 */
+            resources?: components["schemas"]["Fleet.ProvisioningStatus"][] | null;
+            /**
+             * Format: int64
+             * @description How many provisioning statuses there are, including those beyond the bound
+             */
+            resourcesTotal?: number;
             service: string;
             status?: string;
             targets?: string[] | null;
@@ -3134,6 +3168,17 @@ export interface components {
             noOwner: number;
             /** Format: int64 */
             owners: number;
+        };
+        "Impact.Event": {
+            /**
+             * @description What happens to the service
+             * @enum {string}
+             */
+            kind: "unavailable" | "removed" | "regressed";
+            /** @description The revision that regressed: a version or an artifact digest */
+            revision?: string;
+            /** @description The fleet service key of the service */
+            service: string;
         };
         "Impact.Evidence": {
             /**
@@ -3177,6 +3222,23 @@ export interface components {
             reason?: string;
             type: string;
         };
+        "Impact.RegressionEvidence": {
+            at?: string;
+            digest?: string;
+            gate?: string;
+            /**
+             * @description failed: the Stage lists the digest as failed; check: a re-check gate failed it; rollback: a rollback moved the Stage off it
+             * @enum {string}
+             */
+            kind: "failed" | "check" | "rollback";
+            message?: string;
+            namespace?: string;
+            operation?: string;
+            /** @description The signed record a rollback line came from; empty when it was read from the Operation's status */
+            record?: string;
+            result?: string;
+            stage?: string;
+        };
         "Impact.Result": {
             activeTargets?: string[] | null;
             /** Format: date-time */
@@ -3188,6 +3250,7 @@ export interface components {
             completeness: string;
             consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
+            event?: components["schemas"]["Impact.Event"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
@@ -3200,6 +3263,7 @@ export interface components {
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
             snapshotId: string;
@@ -3670,6 +3734,8 @@ export interface components {
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
+            /** @description The what-if this answer is about; absent for a contract change */
+            event?: components["schemas"]["Impact.Event"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
@@ -3678,6 +3744,8 @@ export interface components {
             newRevision?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description The delivery evidence about a regressed revision, at most 50 */
+            regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
             snapshotId: string;
             snapshotMatch: boolean;
@@ -3690,6 +3758,11 @@ export interface components {
             /** Format: int64 */
             depth: number;
             direct: boolean;
+            /**
+             * @description What the event does to this consumer: breaks, may-degrade or unknown
+             * @enum {string}
+             */
+            effect?: "breaks" | "may-degrade" | "unknown";
             /** @description The facts behind this consumer and their age, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
@@ -3706,6 +3779,13 @@ export interface components {
             provenance: string;
             /** @description The consumer declares its dependency on the changed service as required */
             required?: boolean;
+            /** @description What this consumer asked the removed service for, one provisioning status per environment, at most 20 */
+            resources?: components["schemas"]["Fleet.ProvisioningStatus"][] | null;
+            /**
+             * Format: int64
+             * @description How many provisioning statuses there are, including those beyond the bound
+             */
+            resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
             /** @description The targets the consumer runs on, at most 20 */
             targets?: components["schemas"]["Fleet.EntityRef"][] | null;

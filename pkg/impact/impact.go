@@ -77,6 +77,13 @@ type Options struct {
 	// changed service corroborate a declared consumer (raising confidence to
 	// corroborated) or, when only observed, appear as observed-only consumers.
 	ObservedEdges []ObservedEdge
+	// Event switches the analysis to a non-contract what-if about one fleet
+	// service. Analyze then ignores its contract and FS arguments, which may
+	// be nil.
+	Event *Event
+	// Regression is the delivery evidence the caller read for a regressed
+	// event, with its own identity; nil when none was read.
+	Regression *Regression
 }
 
 // AffectedConsumer is one service affected by the change.
@@ -112,6 +119,12 @@ type AffectedConsumer struct {
 	// Evidence lists the facts behind this consumer and their age, newest
 	// first, bounded to MaxConsumerEvidence.
 	Evidence []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first"`
+	// Effect is what an event does to this consumer; empty on a contract change.
+	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown"`
+	// Resources are the provisioning statuses of what this consumer asked a
+	// removed service for, bounded to MaxConsumerResources.
+	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
+	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
 	// policyVerdict is the verdict of checking this consumer's contract
 	// against the changed service's new policy, empty when it references no
 	// policy of it. A failed check holds the change whatever its classification.
@@ -173,6 +186,13 @@ type Result struct {
 	// ConsumerTallies partition Consumers by outcome and rank their owners, so a
 	// reader states the blast radius from counts rather than by counting the list.
 	ConsumerTallies ConsumerTallies `json:"consumerTallies"`
+	// Event is the what-if this answer is about; nil for a contract change.
+	Event *Event `json:"event,omitempty"`
+	// Regression is the delivery evidence about a regressed revision,
+	// bounded to MaxRegressionEvidence.
+	Regression []RegressionEvidence `json:"regression,omitempty"`
+	// observationSources are the observation sources an event answer read.
+	observationSources []string
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -255,6 +275,9 @@ func (r *Result) breaks(c AffectedConsumer) bool {
 // its classification: the diff cannot see a policy the provider tightened by
 // adding one of its own, but the check against the referrer's document can.
 func (r *Result) gate() (string, string) {
+	if r.Event != nil {
+		return r.eventGate()
+	}
 	if gate, why := r.blockingGate(); gate != "" {
 		return gate, why
 	}
@@ -434,9 +457,14 @@ func (r *Result) noteRangeOnlyMatches() {
 // Analyze compares old→new and projects the change onto the operational graph.
 // The answer always carries its release gate (see [Result.Gate]).
 func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
-	res := analyze(ctx, old, new, oldFS, newFS, snap, opts)
+	var res *Result
+	if opts.Event != nil {
+		res = analyzeEvent(snap, opts)
+	} else {
+		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
+		res.noteRangeOnlyMatches()
+	}
 	res.boundEnvelope()
-	res.noteRangeOnlyMatches()
 	res.Gate, res.GateReason = res.gate()
 	res.tally()
 	return res
@@ -476,35 +504,10 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 
-	svcKey := fleet.NewServiceKeyDomain(opts.Domain, svc)
-	graph, err := q.Graph(fleet.GraphQuery{Service: string(svcKey), Direction: fleet.DirectionDependents, Transitive: true})
-	if err != nil {
-		// The changed service is not in the graph, so NO consumer can be ruled in
-		// or out. Reporting "complete" here would let an empty consumer list read
-		// as "nothing breaks" when it means "I could not tell" — and warnPartial
-		// early-returns on complete, so the limitation below would never reach a
-		// human at all.
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
-			Message: "the changed service is not present in the operational graph; consumers cannot be determined",
-		})
+	graph := res.dependents(snap, q, fleet.NewServiceKeyDomain(opts.Domain, svc), true)
+	if graph == nil {
 		return res
 	}
-	if graph.Truncated {
-		// The traversal stopped at the node cap, so the consumer list below is a
-		// deterministic PREFIX of the reachable dependents. Leaving completeness
-		// alone would let ReleaseBlocking() clear a breaking change on the strength
-		// of whichever consumers happened to sort first, and warnPartial
-		// early-returns on complete, so the cap would never reach a human.
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "GRAPH_TRUNCATED", Source: limitationSource,
-			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
-				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
-		})
-	}
-
 	changed := graph.Root
 	// Resolve observed (OTel) endpoints to unique domain-qualified keys ONCE;
 	// unresolved/ambiguous ones become explicit limitations and never corroborate.
@@ -527,7 +530,6 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 					string(changed) + " without declaring it cannot be found"})
 		}
 	}
-	res.noteUnresolvedRefs(snap, changed, true)
 	newBundle := &contract.Bundle{Contract: new, FS: newFS}
 	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
 		c := consumerImpact(snap, changed, cn, newBundle, resolvedObserved)
@@ -549,6 +551,39 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	res.collectOwnersAndTargets(snap, changed)
 	res.noteStaleConsumers()
 	return res
+}
+
+// dependents walks every service that depends on key, transitively, and
+// notes the unresolved references that may name it (policy ones withPolicy).
+// It is nil, with the answer partial, when key is not in the fleet. Contract
+// and event answers both walk through it, so they list the same consumers.
+func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet.ServiceKey, withPolicy bool) *fleet.GraphResult {
+	graph, err := q.Graph(fleet.GraphQuery{Service: string(key), Direction: fleet.DirectionDependents, Transitive: true})
+	if err != nil {
+		// The service is not in the graph, so NO consumer can be ruled in or
+		// out. Reporting "complete" here would let an empty consumer list read
+		// as "nothing breaks" when it means "I could not tell".
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
+			Message: "the service is not present in the operational graph; consumers cannot be determined",
+		})
+		return nil
+	}
+	if graph.Truncated {
+		// The traversal stopped at the node cap, so the consumer list is a
+		// deterministic PREFIX of the reachable dependents. Leaving
+		// completeness alone would let the gate clear on the strength of
+		// whichever consumers happened to sort first.
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: "GRAPH_TRUNCATED", Source: limitationSource,
+			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
+				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
+		})
+	}
+	r.noteUnresolvedRefs(snap, graph.Root, withPolicy)
+	return graph
 }
 
 // noteStaleConsumers raises one counted limitation when the evidence of any
