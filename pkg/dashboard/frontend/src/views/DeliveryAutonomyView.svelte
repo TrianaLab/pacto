@@ -176,7 +176,7 @@
                       <summary class="au-row">
                         <span class="disclosure-caret" data-motion aria-hidden="true"></span>
                         <!-- Plain text, not a link: a link inside a summary is a control inside a control. The link is in the detail. -->
-                        {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}<span class="au-subject cell-clip">{b.stages?.length ? `${countOf(b.stages.length, 'Stage')}` : 'Every Stage'}</span>{/if}
+                        {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}{@const every = b.stages?.length ? countOf(b.stages.length, 'Stage') : 'Every Stage'}<span class="au-subject cell-clip" title={every}>{every}</span>{/if}
                         <span class="t-meta au-count">{#if !b.subject}{:else if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
                         <!-- The subject is printed just before, so the reason drops it rather than repeating it. -->
                         <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(blockerReason(b.message, b.subject)) : ''}</span>

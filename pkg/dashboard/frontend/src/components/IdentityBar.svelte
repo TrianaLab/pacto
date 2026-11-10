@@ -70,7 +70,7 @@
       <!-- The name comes from the content, not an aria-label: axe's label-content-name-mismatch
            counts the avatar letter as visible text, so no aria-label can contain it. -->
       <button type="button" class="who-trigger" popovertarget="navbar-identity" data-testid="identity-trigger">
-        <span class="who-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span><span class="visually-hidden">{'Who you are: '}</span><span class="who-name"><bdi>{label}</bdi></span>
+        <span class="who-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span><span class="visually-hidden">{'Who you are: '}</span><span class="who-name" title={label}><bdi>{label}</bdi></span>
       </button>
       <div id="navbar-identity" class="who-pop t-body-2" popover>{@render details()}</div>
     </div>

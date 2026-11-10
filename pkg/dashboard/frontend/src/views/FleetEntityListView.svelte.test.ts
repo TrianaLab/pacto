@@ -258,7 +258,7 @@ describe('FleetEntityListView', () => {
     await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
     const envs = Array.from(target.querySelectorAll('.lv-item .pl-env'));
     expect(envs.map((e) => [e.textContent, e.className.includes('is-unknown'), e.getAttribute('title')]))
-      .toEqual([['production', false, 'production'], ['Environment unknown', true, null]]);
+      .toEqual([['production', false, 'production'], ['Environment unknown', true, 'Environment unknown']]);
     unmount(component);
   });
 

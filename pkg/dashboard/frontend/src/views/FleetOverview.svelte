@@ -251,7 +251,7 @@
             <tbody>
               {#each scopes as sc (sc.scope)}
                 <tr>
-                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope}>{sc.scope || 'No scope'}</a></th>
+                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope || 'No scope'}>{sc.scope || 'No scope'}</a></th>
                   <td data-label="Targets">{formatCount(sc.targets)}</td>
                   <td data-label="Not compliant" class:ov-bad={sc.nonCompliant > 0}>{formatCount(sc.nonCompliant)}</td>
                   <td data-label="Unknown">{formatCount(sc.unknown)}</td>

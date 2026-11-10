@@ -237,11 +237,11 @@
                   aria-expanded={expandedService === row.name} aria-controls="readiness-detail-{i}"
                   aria-label="Toggle checks for {row.name}"
                   onclick={(e) => { e.stopPropagation(); toggleExpand(row.name); }}>›</button>
-                <a href={serviceUrl(row.name)} class="service-name" onclick={(e) => e.stopPropagation()}>{row.name}</a>
+                <a href={serviceUrl(row.name)} class="service-name" title={row.name} onclick={(e) => e.stopPropagation()}>{row.name}</a>
               </td>
               <td>
                 {#if !row.ownerKey}
-                  <span class="text-dim owner-name">{row.ownerName}</span>
+                  <span class="text-dim owner-name" title={row.ownerName}>{row.ownerName}</span>
                 {:else}
                   <!-- The link and the filter carry the canonical key; the reader
                        reads the name, with the namespace as the tie-breaker. -->
@@ -313,7 +313,7 @@
                               <td class="evidence-cell">
                                 {#if c.evidence}
                                   {#if isUrlEvidence(c.evidence)}
-                                    <a href={c.evidence} target="_blank" rel="noopener noreferrer" onclick={(e) => e.stopPropagation()}>{c.evidence}</a>
+                                    <a href={c.evidence} target="_blank" rel="noopener noreferrer" title={c.evidence} onclick={(e) => e.stopPropagation()}>{c.evidence}</a>
                                   {:else}
                                     <code title={c.evidence}>{abbreviateDigests(c.evidence)}</code>
                                   {/if}

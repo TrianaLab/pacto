@@ -480,7 +480,7 @@
       {#each list.entities as ref (ref.kind + '::' + ref.key)}
         <li class="sv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
           <EntityLink {ref} showStatus={true} showKind={false}>
-            <span class="pl-owner" title={ref.owner || undefined}>{ref.owner || 'No owner declared'}</span>
+            <span class="pl-owner" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span>
             <span class="pl-num">{formatCount(ref.targets ?? 0)} {ref.targets === 1 ? 'target' : 'targets'}</span>
           </EntityLink>
         </li>

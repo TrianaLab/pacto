@@ -141,7 +141,7 @@
                 {#if source}<span class="cell-clip t-meta" title={source}>{source}</span>{/if}
               </th>
               <td data-label="Summary">{ref.summary || ''}</td>
-              <td data-label="Owner"><span class="cell-clip" title={ref.owner || undefined}>{ref.owner || 'No owner declared'}</span></td>
+              <td data-label="Owner"><span class="cell-clip" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span></td>
               <td data-label="Status and signature">
                 <span class="cell-badges">
                   <EntityStatusBadge kind="service" status={ref.status} />

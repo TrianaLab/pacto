@@ -224,7 +224,7 @@
                   aria-expanded={expandedOwner === row.key} aria-controls="owner-detail-{i}"
                   aria-label="Toggle services for {row.label}{row.kind ? ` (${row.kind})` : ''}"
                   onclick={(e) => { e.stopPropagation(); toggleExpand(row.key); }}>›</button>
-                <a href={ownerUrl(row.key)} class="owner-name" onclick={(e) => e.stopPropagation()}>{row.label}</a>
+                <a href={ownerUrl(row.key)} class="owner-name" title={row.label} onclick={(e) => e.stopPropagation()}>{row.label}</a>
                 <!-- Two owners can share a name; the namespace is the only thing that
                      tells the reader which row is which. -->
                 {#if row.kind}<span class="owner-kind">{row.kind}</span>{/if}
