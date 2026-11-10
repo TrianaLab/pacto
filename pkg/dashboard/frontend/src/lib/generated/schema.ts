@@ -93,7 +93,7 @@ export interface paths {
         };
         /**
          * Every Stage
-         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold.
+         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
          */
         get: operations["delivery-environments"];
         put?: never;
@@ -925,6 +925,10 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
             unreadable?: string[] | null;
@@ -1345,6 +1349,8 @@ export interface components {
             from?: string;
             kind?: string;
             operation: string;
+            /** @description The Operation's uid, when known */
+            operationUID?: string;
             outcome?: string;
             phase?: string;
             pointer?: components["schemas"]["Delivery.PointerChange"];
@@ -3091,6 +3097,10 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
             /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline */
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
@@ -3430,6 +3440,10 @@ export interface components {
             operation: components["schemas"]["Delivery.OperationObject"];
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
+                [key: string]: string;
+            };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
                 [key: string]: string;
             };
             /** @description The rollback that undid this change, read from its Stage's history */
@@ -4619,6 +4633,10 @@ export interface components {
                 [key: string]: string;
             };
             plan?: components["schemas"]["Delivery.Plan"];
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
@@ -4996,7 +5014,7 @@ export interface operations {
                 tier?: "dev" | "test" | "prod";
                 /** @description Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages */
                 state?: "failed" | "frozen" | "autohold" | "waiting" | "unverified" | "empty" | "verified";
-                /** @description Keep only the Stages of the service with exactly this name */
+                /** @description Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo */
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
                 domain?: string;

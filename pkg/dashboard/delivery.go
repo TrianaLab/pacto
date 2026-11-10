@@ -144,8 +144,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
 			"frozen Stages of the caller's services and the Errored operations on them."}), s.deliveryInbox)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
-		Summary:     "Every Stage",
-		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold."}), s.deliveryEnvironments)
+		Summary: "Every Stage",
+		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
+			"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo."}), s.deliveryEnvironments)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-autonomy", Method: http.MethodGet, Path: "/api/delivery/autonomy",
 		Summary: "The path to autonomy",
 		Description: "How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for " +

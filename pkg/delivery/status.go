@@ -163,11 +163,15 @@ func offersOf(st StageObject, in RowInput, row *StageRow) []Offer {
 	}
 	if in.Caller.PolicyErr != "" {
 		for i := range offers {
-			offers[i].Available, offers[i].Reason = false, "Pacto could not read the delivery identity policy ("+in.Caller.PolicyErr+
-				"), so it cannot tell what you may ask for; admission decides when you propose"
+			offers[i].Available, offers[i].Reason = false, policyReason(in.Caller.PolicyErr)
 		}
 	}
 	return offers
+}
+
+// policyReason is why nothing is offered while the identity policy is unread.
+func policyReason(err string) string {
+	return "Pacto could not read the delivery identity policy (" + err + "), so it cannot tell what you may ask for; admission decides when you propose"
 }
 
 func promoteOffer(st StageObject, class ActorClass, row *StageRow) Offer {
@@ -300,4 +304,146 @@ func DescribeAll(ctx context.Context, n int, at func(int) (*StageObject, string)
 	}
 	wg.Wait()
 	return out
+}
+
+// UndoOffer is whether caller may undo the change e on a Stage in status. It
+// mirrors UndoOf and applies the rollback-only admission rules only to the
+// change the Stage runs. It never says rollback: GET /api/delivery/undo or
+// pacto delivery undo decides between a rollback and a promote back.
+func UndoOffer(status StageStatus, e HistoryEntry, caller Caller) Offer {
+	o := Offer{Action: "undo", Operation: e.Operation}
+	if e.Pointer != nil {
+		o.To = e.Pointer.Before
+	}
+	switch {
+	case caller.PolicyErr != "":
+		o.Reason = policyReason(caller.PolicyErr)
+	case e.Pointer == nil || e.Pointer.After == "":
+		o.Reason = "it moved nothing, so there is nothing to undo"
+	case status.Pointer == e.Pointer.After && (e.OperationUID == "" || status.LastOp == e.OperationUID):
+		o.Available, o.Reason = undoRunning(status, e, caller.Class)
+	default:
+		o.Available, o.Reason = undoMovedOn(status, e.Pointer.Before, caller.Class)
+	}
+	return o
+}
+
+// undoRunning is the undo of the change the Stage runs, a rollback while its
+// Operation is in the cluster. The offer cannot see whether it is, so the two
+// rollback-only refusals say what happens when it is gone and stay refusals.
+func undoRunning(status StageStatus, e HistoryEntry, class ActorClass) (bool, string) {
+	before := e.Pointer.Before
+	const gone = "; if its Operation is gone from the cluster, undo is a promote back: open undo for the plan"
+	switch {
+	case !MayRaise(TypeRollback, class, false):
+		return false, classPhrase(class) + " may not raise a rollback; break-glass moves the pointer with an override: pacto delivery propose --type override" + gone
+	case !mayUndo(e.Type, class):
+		return false, "only a person or break-glass undoes a rollback or an override; propose a promote to " + short(before) + " instead" + gone
+	case before == "":
+		return false, undoFirstVersion
+	case slices.Contains(status.FailedDigests, before):
+		return false, undoFailed
+	}
+	why := "undoes " + e.Operation + ": back to " + short(before)
+	if status.Frozen && class == ClassAgent {
+		why += "; an agent rollback on a frozen Stage needs a Fail verdict as its cause"
+	}
+	return true, why
+}
+
+// undoMovedOn is the undo of a change the Stage no longer runs: a promote
+// back to the version it replaced, through every gate.
+func undoMovedOn(status StageStatus, before string, class ActorClass) (bool, string) {
+	switch {
+	case before == "":
+		return false, undoFirstVersion
+	case status.Pointer == before:
+		return false, "the Stage already runs " + short(before) + ", the version it replaced"
+	case slices.Contains(status.FailedDigests, before):
+		return false, undoFailed
+	case status.Level == LevelObserve:
+		return false, "the Stage observes: GitOps owns the applyRef, so going back is a promote it refuses; propose an autonomy change to advise first"
+	case !MayRaise(TypePromote, class, false):
+		return false, classPhrase(class) + " may not raise the promote back"
+	}
+	return true, "the Stage changed since; going back to " + short(before) + " is a promote, and every gate runs"
+}
+
+const (
+	undoFirstVersion = "it brought the Stage its first version; there is no earlier version to go back to"
+	undoFailed       = "the version it replaced failed here, and Pacto never goes back to a failed version"
+)
+
+// UndoOfferFor is the undo offer of the change a Stage runs, from its blame
+// (b, or err when its history could not be read); nil when there is no
+// blame to read.
+func UndoOfferFor(status StageStatus, b *Blame, err error, caller Caller) *Offer {
+	o := &Offer{Action: "undo"}
+	switch {
+	case err != nil:
+		o.Reason = "could not read its history: " + err.Error()
+	case b == nil:
+		return nil
+	case status.Pointer == "":
+		o.Reason = "the Stage runs nothing yet"
+	case b.Change == nil:
+		o.Reason = b.Note
+	default:
+		*o = UndoOffer(status, *b.Change, caller)
+	}
+	return o
+}
+
+// CanCreate answers whether the caller may create Operations in a namespace.
+type CanCreate func(ctx context.Context, ns string) (bool, error)
+
+// CreateOperations is the review NarrowOffers asks: can(ctx, "create",
+// "operations", ns), over an access check that takes a verb and a resource.
+func CreateOperations(can func(ctx context.Context, verb, resource, ns string) (bool, error)) CanCreate {
+	return func(ctx context.Context, ns string) (bool, error) { return can(ctx, "create", "operations", ns) }
+}
+
+// NarrowOffers asks, once per namespace with something available and
+// describeParallel at once, whether the caller's RBAC lets them create an
+// Operation there. Where it does not, or the review fails, every available
+// offer becomes unavailable with the reason and actions is emptied: a review
+// that fails never means yes.
+func NarrowOffers(ctx context.Context, rows []*StageRow, can CanCreate) {
+	offers := func(r *StageRow) bool {
+		return slices.ContainsFunc(r.Offers, func(o Offer) bool { return o.Available })
+	}
+	var asked []string
+	for _, r := range rows {
+		if offers(r) && !slices.Contains(asked, r.Namespace) {
+			asked = append(asked, r.Namespace)
+		}
+	}
+	refused := make([]string, len(asked))
+	sem := make(chan struct{}, describeParallel)
+	var wg sync.WaitGroup
+	for i, ns := range asked {
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			switch ok, err := can(ctx, ns); {
+			case err != nil:
+				refused[i] = "Pacto could not ask the apiserver whether you may create Operations in " + ns + " (" + err.Error() + "), so nothing is offered"
+			case !ok:
+				refused[i] = "your Kubernetes RBAC does not let you create Operations in " + ns
+			}
+		})
+	}
+	wg.Wait()
+	for _, r := range rows {
+		i := slices.Index(asked, r.Namespace)
+		if i < 0 || refused[i] == "" {
+			continue
+		}
+		r.Actions = []string{}
+		for j := range r.Offers {
+			if r.Offers[j].Available {
+				r.Offers[j].Available, r.Offers[j].Reason = false, refused[i]
+			}
+		}
+	}
 }

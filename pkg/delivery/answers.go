@@ -103,7 +103,7 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 // StatusEntry is an Operation's status as a history line.
 func StatusEntry(o OperationObject) HistoryEntry {
 	s := o.Status
-	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, Type: o.Spec.Type, From: o.Spec.Params.From,
+	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, OperationUID: o.Metadata.UID, Type: o.Spec.Type, From: o.Spec.Params.From,
 		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
 		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished, Applied: s.Times.Applied,
 		Cause: o.Spec.Cause, CorrelationID: o.Spec.CorrelationID}

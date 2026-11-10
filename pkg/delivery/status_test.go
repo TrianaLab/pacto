@@ -2,8 +2,10 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -266,9 +268,21 @@ func TestOffersNeverWrite(t *testing.T) {
 			}
 		}
 	}
-	fn := reflect.TypeOf(RowOf)
+	for _, f := range []any{RowOf, UndoOffer, UndoOfferFor} {
+		fn := reflect.TypeOf(f)
+		for i := range fn.NumIn() {
+			if fn.In(i) == reflect.TypeFor[error]() {
+				continue // UndoOfferFor only prints it
+			}
+			check(fn.In(i), fn.In(i).Name())
+		}
+	}
+	// NarrowOffers calls out only through can, its one func argument.
+	fn := reflect.TypeOf(NarrowOffers)
 	for i := range fn.NumIn() {
-		check(fn.In(i), fn.In(i).Name())
+		if in := fn.In(i); in != reflect.TypeFor[context.Context]() && in != reflect.TypeFor[CanCreate]() {
+			check(in, in.Name())
+		}
 	}
 }
 
@@ -326,5 +340,168 @@ func TestDescribeAll(t *testing.T) {
 	}
 	if most.Load() > describeParallel {
 		t.Errorf("%d at once", most.Load())
+	}
+}
+
+const rowOld = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+func undoEntry(typ, before, after, uid string) HistoryEntry {
+	e := HistoryEntry{Operation: "ship-1", Type: typ, OperationUID: uid}
+	if after != "" {
+		e.Pointer = &PointerChange{Before: before, After: after}
+	}
+	return e
+}
+
+// TestUndoOffer: the rules of UndoOf and the rollback-only admission rules,
+// applied only to the change the Stage runs; the offer never says rollback.
+func TestUndoOffer(t *testing.T) {
+	running := StageStatus{Pointer: rowRun, LastOp: "uid-1"}
+	gone := "; if its Operation is gone from the cluster, undo is a promote back: open undo for the plan"
+	for _, c := range []struct {
+		name   string
+		status StageStatus
+		e      HistoryEntry
+		caller Caller
+		ok     bool
+		reason string
+	}{
+		{"policy unreadable", running, undoEntry(TypePromote, rowOld, rowRun, "uid-1"), Caller{Class: ClassHuman, PolicyErr: "boom"}, false,
+			"Pacto could not read the delivery identity policy (boom), so it cannot tell what you may ask for; admission decides when you propose"},
+		{"moved nothing", running, undoEntry(TypeFreeze, "", "", "uid-1"), rowCaller(ClassHuman), false, "it moved nothing, so there is nothing to undo"},
+		{"runs: person", running, undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller(ClassHuman), true, "undoes ship-1: back to " + short(rowOld)},
+		{"runs: no uid falls back to the pointer", running, undoEntry(TypePromote, rowOld, rowRun, ""), rowCaller(ClassHuman), true,
+			"undoes ship-1: back to " + short(rowOld)},
+		{"runs: an unknown class may not roll back", running, undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller("robot"), false,
+			"a robot caller may not raise a rollback; break-glass moves the pointer with an override: pacto delivery propose --type override" + gone},
+		{"runs: agent undoes a rollback", running, undoEntry(TypeRollback, rowOld, rowRun, "uid-1"), rowCaller(ClassAgent), false,
+			"only a person or break-glass undoes a rollback or an override; propose a promote to " + short(rowOld) + " instead" + gone},
+		{"runs: first version", running, undoEntry(TypePromote, "", rowRun, "uid-1"), rowCaller(ClassHuman), false,
+			"it brought the Stage its first version; there is no earlier version to go back to"},
+		{"runs: replaced a failed version", StageStatus{Pointer: rowRun, LastOp: "uid-1", FailedDigests: []string{rowOld}},
+			undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller(ClassHuman), false,
+			"the version it replaced failed here, and Pacto never goes back to a failed version"},
+		{"runs: agent on a frozen Stage", StageStatus{Pointer: rowRun, LastOp: "uid-1", Frozen: true},
+			undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller(ClassAgent), true,
+			"undoes ship-1: back to " + short(rowOld) + "; an agent rollback on a frozen Stage needs a Fail verdict as its cause"},
+		{"A to B to A: another operation runs the same digest", StageStatus{Pointer: rowRun, LastOp: "uid-9"},
+			undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller(ClassHuman), true,
+			"the Stage changed since; going back to " + short(rowOld) + " is a promote, and every gate runs"},
+		{"moved on: agent and an old rollback", StageStatus{Pointer: rowNext, LastOp: "uid-9"},
+			undoEntry(TypeRollback, rowOld, rowRun, "uid-1"), rowCaller(ClassAgent), true,
+			"the Stage changed since; going back to " + short(rowOld) + " is a promote, and every gate runs"},
+		{"moved on: first version", StageStatus{Pointer: rowNext}, undoEntry(TypePromote, "", rowRun, "uid-1"), rowCaller(ClassHuman), false,
+			"it brought the Stage its first version; there is no earlier version to go back to"},
+		{"moved on: already back", StageStatus{Pointer: rowOld}, undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller(ClassHuman), false,
+			"the Stage already runs " + short(rowOld) + ", the version it replaced"},
+		{"moved on: failed", StageStatus{Pointer: rowNext, FailedDigests: []string{rowOld}}, undoEntry(TypePromote, rowOld, rowRun, "uid-1"),
+			rowCaller(ClassHuman), false, "the version it replaced failed here, and Pacto never goes back to a failed version"},
+		{"moved on: observe", StageStatus{Pointer: rowNext, Level: LevelObserve}, undoEntry(TypePromote, rowOld, rowRun, "uid-1"),
+			rowCaller(ClassHuman), false, "the Stage observes: GitOps owns the applyRef, so going back is a promote it refuses; propose an autonomy change to advise first"},
+		{"moved on: an unknown class", StageStatus{Pointer: rowNext}, undoEntry(TypePromote, rowOld, rowRun, "uid-1"), rowCaller("robot"), false,
+			"a robot caller may not raise the promote back"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := UndoOffer(c.status, c.e, c.caller)
+			if o.Action != "undo" || o.Available != c.ok || o.Reason != c.reason || o.Operation != "ship-1" {
+				t.Fatalf("offer %+v", o)
+			}
+			if c.e.Pointer != nil && o.To != c.e.Pointer.Before {
+				t.Fatalf("to %q", o.To)
+			}
+		})
+	}
+}
+
+func TestUndoOfferForBlame(t *testing.T) {
+	human, running := rowCaller(ClassHuman), StageStatus{Pointer: rowRun, LastOp: "uid-1"}
+	if o := UndoOfferFor(running, nil, errors.New("forbidden"), human); o == nil || o.Available || o.Reason != "could not read its history: forbidden" {
+		t.Fatalf("error %+v", o)
+	}
+	if o := UndoOfferFor(running, nil, nil, human); o != nil {
+		t.Fatalf("nil blame %+v", o)
+	}
+	if o := UndoOfferFor(StageStatus{}, &Blame{}, nil, human); o == nil || o.Available || o.Reason != "the Stage runs nothing yet" {
+		t.Fatalf("no pointer %+v", o)
+	}
+	if o := UndoOfferFor(running, &Blame{Note: "the history is partial"}, nil, human); o == nil || o.Available || o.Reason != "the history is partial" {
+		t.Fatalf("no change %+v", o)
+	}
+	e := undoEntry(TypePromote, rowOld, rowRun, "uid-1")
+	if o := UndoOfferFor(running, &Blame{Change: &e}, nil, human); o == nil || !o.Available || o.To != rowOld {
+		t.Fatalf("change %+v", o)
+	}
+}
+
+// TestNarrowOffersFailsClosed: a denied or failed review leaves nothing
+// available, each namespace is asked once, and only for create operations.
+func TestNarrowOffersFailsClosed(t *testing.T) {
+	row := func(ns string, available bool) *StageRow {
+		r := &StageRow{Namespace: ns, Actions: []string{}, Offers: []Offer{{Action: "freeze", Reason: "a person may not raise a freeze"}}}
+		if available {
+			r.Actions = []string{"promote"}
+			r.Offers = append(r.Offers, Offer{Action: "promote", Available: true, Reason: "promotes 1.1.0"},
+				Offer{Action: "undo", Available: true, Reason: "undoes ship-1"})
+		}
+		return r
+	}
+	rows := []*StageRow{row("ok", true), row("ok", true), row("denied", true), row("broken", true), row("quiet", false)}
+	var mu sync.Mutex
+	asked := map[string]int{}
+	can := CreateOperations(func(_ context.Context, verb, resource, ns string) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if verb != "create" || resource != "operations" {
+			t.Errorf("asked %s %s", verb, resource)
+		}
+		asked[ns]++
+		switch ns {
+		case "ok":
+			return true, nil
+		case "broken":
+			return true, errors.New("timeout")
+		}
+		return false, nil
+	})
+	NarrowOffers(context.Background(), rows, can)
+	if !reflect.DeepEqual(asked, map[string]int{"ok": 1, "denied": 1, "broken": 1}) {
+		t.Fatalf("asked %v", asked)
+	}
+	for _, r := range rows[:2] {
+		if !slices.Equal(r.Actions, []string{"promote"}) || !r.Offers[1].Available || !r.Offers[2].Available {
+			t.Fatalf("allowed row narrowed: %+v", r)
+		}
+	}
+	expectNarrowed(t, rows[2], "your Kubernetes RBAC does not let you create Operations in denied")
+	expectNarrowed(t, rows[3], "Pacto could not ask the apiserver whether you may create Operations in broken (timeout), so nothing is offered")
+}
+
+// expectNarrowed: r offers nothing, every offer that was available says
+// why, and an offer that was not keeps its own reason.
+func expectNarrowed(t *testing.T, r *StageRow, want string) {
+	t.Helper()
+	if len(r.Actions) != 0 || r.Actions == nil {
+		t.Fatalf("actions %v", r.Actions)
+	}
+	for _, o := range r.Offers[1:] {
+		if o.Available || o.Reason != want {
+			t.Fatalf("offer %+v", o)
+		}
+	}
+	if r.Offers[0].Reason != "a person may not raise a freeze" {
+		t.Fatalf("an unavailable offer kept its own reason: %+v", r.Offers[0])
+	}
+}
+
+// TestHistoryEntriesCarryOperationUID: UndoOffer tells a running change from
+// another one that ran the same digest by the Operation's uid.
+func TestHistoryEntriesCarryOperationUID(t *testing.T) {
+	if e := StatusEntry(OperationObject{Metadata: ObjectMeta{Name: "ship", UID: "u1"}}); e.OperationUID != "u1" {
+		t.Errorf("status entry %q", e.OperationUID)
+	}
+	var r StoredRecord
+	r.Statement.Predicate.Intent.UID = "u2"
+	if e := RecordEntry(r); e.OperationUID != "u2" {
+		t.Errorf("record entry %q", e.OperationUID)
 	}
 }

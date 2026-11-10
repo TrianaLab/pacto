@@ -3,11 +3,9 @@ package dashboard
 import (
 	"context"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
-	"golang.org/x/sync/errgroup"
 )
 
 // ── one change: its view and the actions offered on it ─────────────────
@@ -72,7 +70,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 			out.Body.UndoneBy = undoneBy(h.Entries, in.Name, st.Pointer.After, st.Times.Finished)
 		}
 	}
-	out.Body.Versions = stageVersions(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
+	out.Body.Labels = s.stageLabels(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
 		op.Status.Pointer.Before, op.Status.Pointer.After, e.Stage.Pointer)
 	people := []string{op.Spec.Actor.User}
 	if op.Spec.OnBehalfOf != nil {
@@ -154,47 +152,6 @@ func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns 
 			answers[ns] = ok
 		}
 		return ok
-	}
-}
-
-// mayRaise drops the actions of each row whose namespace the caller's RBAC
-// refuses an Operation in, and makes its offers unavailable with the reason.
-// Only namespaces with something to offer are asked, describeParallel at
-// once, so a reader's board costs no review; a review that fails says no.
-func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
-	offers := func(r EnvironmentRow) bool {
-		return len(r.Actions) > 0 || slices.ContainsFunc(r.Offers, func(o delivery.Offer) bool { return o.Available })
-	}
-	var asked []string
-	for _, r := range rows {
-		if offers(r) && !slices.Contains(asked, r.Namespace) {
-			asked = append(asked, r.Namespace)
-		}
-	}
-	allowed := map[string]bool{}
-	var mu sync.Mutex
-	var g errgroup.Group
-	g.SetLimit(describeParallel)
-	for _, ns := range asked {
-		g.Go(func() error {
-			ok, err := api.Can(ctx, "create", "operations", ns)
-			mu.Lock()
-			allowed[ns] = err == nil && ok
-			mu.Unlock()
-			return nil
-		})
-	}
-	_ = g.Wait()
-	for i := range rows {
-		if offers(rows[i]) && !allowed[rows[i].Namespace] {
-			rows[i].Actions = []string{}
-			for j := range rows[i].Offers {
-				if rows[i].Offers[j].Available {
-					rows[i].Offers[j].Available = false
-					rows[i].Offers[j].Reason = "your Kubernetes RBAC does not let you create Operations in " + rows[i].Namespace
-				}
-			}
-		}
 	}
 }
 

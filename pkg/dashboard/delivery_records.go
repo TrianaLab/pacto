@@ -44,7 +44,7 @@ func (s *Server) deliveryBlame(ctx context.Context, in *blameInput) (*blameOutpu
 	for _, a := range b.Approvals {
 		people = append(people, a.By)
 	}
-	out.Body.Versions = stageVersions(ctx, api, in.Namespace, in.Stage, digests...)
+	out.Body.Labels = s.stageLabels(ctx, api, in.Namespace, in.Stage, digests...)
 	out.Body.People = s.named(people...)
 	return out, nil
 }
@@ -77,7 +77,7 @@ func (s *Server) deliveryUndo(ctx context.Context, in *undoInput) (*undoOutput, 
 	out := &undoOutput{}
 	out.Body.Undo = *u
 	if p := u.Plan; p != nil && in.Stage != "" {
-		out.Body.Versions = stageVersions(ctx, api, in.Namespace, in.Stage, p.From, p.To)
+		out.Body.Labels = s.stageLabels(ctx, api, in.Namespace, in.Stage, p.From, p.To)
 	}
 	return out, nil
 }

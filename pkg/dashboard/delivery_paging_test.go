@@ -214,14 +214,15 @@ func TestOperationUndoneBy(t *testing.T) {
 
 // A row that offers nothing asks no access review, so a reader's board costs
 // none; a namespace RBAC refuses loses its actions.
-func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
+func TestNarrowRowsAsksOnlyForAnAction(t *testing.T) {
 	f := &fakeDelivery{deny: map[string]bool{"create operations team-b": true}}
+	promote := []delivery.Offer{{Action: "promote", Available: true, Reason: "promotes 1.1.0"}}
 	freeze := []delivery.Offer{{Action: "freeze", Available: true, Reason: "freezes the Stage on 1.0.0"}}
-	rows := []EnvironmentRow{{StageRow: delivery.StageRow{Namespace: "team-a", Actions: []string{"promote"}}},
+	rows := []EnvironmentRow{{StageRow: delivery.StageRow{Namespace: "team-a", Actions: []string{"promote"}, Offers: promote}},
 		{StageRow: delivery.StageRow{Namespace: "team-b", Actions: []string{"unfreeze"}, Offers: freeze}},
 		{StageRow: delivery.StageRow{Namespace: "team-c", Actions: []string{}}},
 		{StageRow: delivery.StageRow{Namespace: "team-d", Actions: []string{}, Offers: []delivery.Offer{{Action: "promote", Reason: "no"}}}}}
-	mayRaise(context.Background(), f, rows)
+	narrowRows(context.Background(), f, rows)
 	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
 	}

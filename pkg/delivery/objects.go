@@ -102,6 +102,7 @@ type StageNow struct {
 type HistoryEntry struct {
 	Seq          int64        `json:"seq,omitempty"`
 	Operation    string       `json:"operation"`
+	OperationUID string       `json:"operationUID,omitempty" doc:"The Operation's uid, when known"`
 	Type         string       `json:"type"`
 	From         string       `json:"from,omitempty"`
 	To           string       `json:"to,omitempty"`
