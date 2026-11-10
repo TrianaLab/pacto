@@ -224,3 +224,87 @@ func TestPrintOriginText_Unresolved(t *testing.T) {
 		t.Errorf("origin text:\n%s", b.String())
 	}
 }
+
+func TestPrintTallies(t *testing.T) {
+	var buf bytes.Buffer
+	printOfferingUses(&buf, "Consumers:", fleet.OfferingUsesPreview{Total: 2, Range: fleet.RangeTally{Satisfied: 1, None: 1}, Phases: fleet.PhaseTally{Ready: 1, Failed: 2}, PhaseConsumers: fleet.PhaseTally{Ready: 1, Failed: 1}})
+	for _, want := range []string{"  range of all 2: 1 satisfied, 0 unsatisfied, 0 unknown, 1 not checked\n", "  provisioning requests: 0 requested, 0 provisioning, 1 ready, 2 failed, 0 deleting, 0 not reported\n", "  consumers by phase: 0 requested, 0 provisioning, 1 ready, 1 failed, 0 deleting, 0 not reported\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("uses text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printDependents(&buf, &fleet.ServiceDetailData{})
+	if buf.Len() != 0 {
+		t.Errorf("no dependents printed %q", buf.String())
+	}
+	printDependents(&buf, &fleet.ServiceDetailData{Dependents: fleet.RefPreview{Total: 3}, HiddenDependents: 2, DependentsStatus: fleet.ComplianceTally{Compliant: 1, NonCompliant: 1, Invalid: 1}})
+	if want := "Dependents: 3 (1 compliant, 1 non-compliant, 0 unknown, 1 other)\n2 dependents you may not see\n"; buf.String() != want {
+		t.Errorf("dependents text = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestPrintRevisionPlace(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	rev := &fleet.RevisionDetailData{
+		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11,
+		ExactTargets: fleet.RefPreview{Total: 6}, InferredTargets: fleet.RefPreview{Total: 2},
+		EvidenceSourceCounts: fleet.SourceCounts{Total: 3, Available: 2, Stale: 1},
+	}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindRevision}, Revision: rev}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Position: 1 of 4 revisions, newest first, current\n",
+		"Targets: 8 of the service's 11 run this revision (6 exact, 2 inferred)\n",
+		"Evidence sources: 3 (2 available, 0 partial, 1 stale, 0 unavailable)\n",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("revision text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printRevisionPlace(&buf, &fleet.RevisionDetailData{Position: 2, Revisions: 4})
+	if !strings.Contains(buf.String(), "Position: 2 of 4 revisions, newest first\n") {
+		t.Errorf("a revision that is not current says so: %q", buf.String())
+	}
+}
+
+func TestPrintNonCompliantRanking(t *testing.T) {
+	var buf bytes.Buffer
+	printNonCompliantRanking(&buf, &fleet.EntityAggregate{})
+	if buf.Len() != 0 {
+		t.Errorf("no non-compliant service printed %q", buf.String())
+	}
+	printNonCompliantRanking(&buf, &fleet.EntityAggregate{
+		ServiceCompliance:         fleet.ComplianceTally{NonCompliant: 9},
+		NonCompliantByOwner:       []fleet.OwnerCount{{Key: "team:a", Services: 10, NonCompliant: 3}},
+		NonCompliantBeyondRanking: 4, NonCompliantUnidentified: 2,
+		NonCompliantByDomain: []fleet.DomainCount{{Domain: "pay", Services: 5, NonCompliant: 5}},
+		NonCompliantNoDomain: 3, NonCompliantDomainUnknown: 1,
+	})
+	want := "Non-compliant services by owner (9): team:a 3 of 10, 4 with other owners, 2 with no identified owner\n" +
+		"Non-compliant services by domain (9): pay 5 of 5, 3 with no domain, 1 whose domain is unknown\n"
+	if buf.String() != want {
+		t.Errorf("ranking text = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestPrintOriginRanking(t *testing.T) {
+	var buf bytes.Buffer
+	printOriginRanking(&buf, &fleet.OriginTally{None: fleet.OriginCount{Services: 4}})
+	if buf.Len() != 0 {
+		t.Errorf("a fleet with no origin printed %q", buf.String())
+	}
+	printOriginRanking(&buf, &fleet.OriginTally{
+		ByPath: []fleet.PathCount{{Key: "acme/http", Services: 5, NonCompliant: 1, Hidden: 2}},
+		Beyond: fleet.OriginCount{Services: 3}, Unresolved: fleet.OriginCount{Services: 1}, None: fleet.OriginCount{Services: 7}, Hidden: 2,
+	})
+	want := "Services by golden path: acme/http 5 (1 non-compliant), 3 from other golden paths, 1 from an origin that resolves to no golden path, 7 with no declared origin\n" +
+		"Plus 2 created from a golden path and hidden by your permissions\n"
+	if buf.String() != want {
+		t.Errorf("origin text = %q, want %q", buf.String(), want)
+	}
+}

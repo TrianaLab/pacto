@@ -11,6 +11,10 @@ import EntityLink from './EntityLink.svelte';
 // @ts-expect-error
 import EntityIdentity from './EntityIdentity.svelte';
 // @ts-expect-error
+import Breadcrumbs from './Breadcrumbs.svelte';
+// @ts-expect-error
+import NodeDrawer from './NodeDrawer.svelte';
+// @ts-expect-error
 import ProductEmptyState from './ProductEmptyState.svelte';
 // @ts-expect-error
 import SourceHealth from './SourceHealth.svelte';
@@ -500,5 +504,29 @@ describe('BundleProvenance', () => {
     comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', referrersUnavailable: 'registry down', signature: { status: 'unknown', bundles: 0, reason: 'registry down' }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
     expect(target.textContent).toContain('Signature bundlesUnknown');
     expect(target.textContent).not.toContain('Signature bundles0');
+  });
+});
+
+// C6/section 9: every identity is isolated in <bdi>, so a name carrying a right-to-left
+// override cannot reorder the text around it.
+describe('identity renderers isolate the name', () => {
+  it('wraps the label and each context bit of an entity in <bdi>', () => {
+    const label = 'svc‮gnp.exe';
+    comp = mount(EntityIdentity, { target, props: { ref: { kind: 'service', key: `d/${label}`, label, domain: 'domain-a' } } });
+    const bdi = target.querySelector('.ei-label bdi');
+    expect(bdi?.textContent).toBe(label);
+    expect(target.querySelectorAll('.ei-context bdi').length).toBeGreaterThan(0);
+  });
+
+  it('wraps every breadcrumb label in <bdi>', () => {
+    const label = 'svc‮gnp.exe';
+    comp = mount(Breadcrumbs, { target, props: { trail: [{ label: 'Services', href: '#/services' }, { label }] } });
+    expect([...target.querySelectorAll('bdi')].map((b) => b.textContent)).toEqual(['Services', label]);
+  });
+
+  it('wraps the graph drawer name in <bdi>', () => {
+    const name = 'svc‮gnp.exe';
+    comp = mount(NodeDrawer, { target, props: { data: { name, external: true, dependencies: [], dependents: [] } } });
+    expect(target.querySelector('.drawer-name bdi')?.textContent).toBe(name);
   });
 });

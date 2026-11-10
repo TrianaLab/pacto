@@ -38,9 +38,9 @@ async function openPaymentsService(page: Page) {
 }
 
 test.describe('novice journey — a first-time user reads ONE product', () => {
-  // J1. "Where am I, and what can I do here?" The app opens on state, and the primary
-  // nav teaches one order: state -> inventory -> relationships -> change, then delivery
-  // where it is served (the demo simulates it).
+  // J1. "Where am I, and what can I do here?" The app opens on state, and the sidebar
+  // groups every destination: state on top, then Organization, Change and delivery
+  // (Delivery where it is served; the demo simulates it) and System.
   test('J1: the app opens on operational state with exactly the primary destinations', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
@@ -48,7 +48,12 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     // The question in the title is answered in one line straight under it.
     await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Operational graph', 'Change analysis', 'Delivery']);
+    // The sidebar's groups (SPEC 20): Overview and Needs attention, then Organization,
+    // Change and delivery, and System.
+    // Names, not text: the count and the source health are descriptions.
+    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Operational graph', 'Data sources'];
+    await expect(nav.getByRole('link')).toHaveCount(names.length);
+    for (const [i, name] of names.entries()) await expect(nav.getByRole('link').nth(i)).toHaveAccessibleName(name);
     await expectNoLegacyScreen(page);
   });
 

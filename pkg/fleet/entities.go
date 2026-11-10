@@ -56,6 +56,11 @@ type EntityFilter struct {
 	// Consumes keeps the SERVICES with a declared, resolved use of a provider of
 	// this platform offering: a dependency or a configuration or policy reference.
 	Consumes string
+	// Phase narrows Consumes to the consumers with a provisioning status of
+	// the offering in this phase, bucketed as [PhaseTally] counts it
+	// (requested, provisioning, ready, failed, deleting, unknown). It needs
+	// Consumes.
+	Phase string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
 	// Capability keeps the SERVICES any of whose read revisions declares a
@@ -67,8 +72,10 @@ type EntityFilter struct {
 	// golden paths marked.
 	Template string
 	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
-	// path service key. Only the key's syntax is checked: a hidden, absent or
-	// non-path key answers an empty list, so the answer never reveals a hidden path.
+	// path service key; NoOrigin keeps those that declare no origin and
+	// UnresolvedOrigin those whose origin resolves to no golden path in this view.
+	// Only the key's syntax is checked: a hidden, absent or non-path key answers an
+	// empty list, so the answer never reveals a hidden path.
 	CreatedFrom string
 	Scope       string
 	// Status filters compliance-bearing entities (service/revision/target) by
@@ -94,6 +101,13 @@ type EntityFilter struct {
 	// the raw FleetSnapshot, so the service-detail revisions preview never has to be
 	// treated as the complete revision universe.
 	Service string
+	// HasNonCompliant keeps the OWNERS and DOMAINS with at least one non-compliant
+	// service, counted as their rows count it ([EntityRef.NonCompliant]); it is the
+	// list the rank figure's "Other" note opens.
+	HasNonCompliant bool
+	// SourceKind keeps the SOURCES of this exact kind (oci, kubernetes, ...), the
+	// list a per-kind source tally ([SourceCounts.AvailableByKind]) opens.
+	SourceKind string
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
 	// order (target-2 before target-10), SortHealth least healthy first, then by
 	// name. Paging walks the sorted answer, so every page agrees with the order.
@@ -108,6 +122,16 @@ const (
 	SortHealth = "health"
 	// SortServices puts the owners with the most services first, then by name.
 	SortServices = "services"
+	// SortNonCompliant puts the owners and domains with the most non-compliant
+	// services first, then the most services, then by name.
+	SortNonCompliant = "nonCompliant"
+	// SortCreated puts the golden paths that created the most services first,
+	// then the most non-compliant of those, then by name.
+	SortCreated = "created"
+	// SortRate puts the owners and domains with the highest share of non-compliant
+	// services first ([EntityRef.NonCompliant] of its rate base), then the most
+	// non-compliant, then by name.
+	SortRate = "rate"
 )
 
 // Template filter values (see [EntityFilter.Template] and [SearchFilter.Template]).
@@ -170,15 +194,32 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	want := kindSet(f.Kinds)
 	refs := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
+	if f.Phase != "" {
+		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase)
+	}
 
+	x := q.crossKindSets(f)
 	filtered := refs[:0:0]
 	for _, r := range refs {
-		if q.entityMatches(r, f) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
+		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
 			filtered = append(filtered, r)
 		}
 	}
 	sortEntityRefs(filtered)
-	switch f.Sort {
+	sortEntityList(filtered, f.Sort)
+
+	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
+	return &EntityList{
+		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
+		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
+		Aggregate: q.aggregate(filtered),
+	}, nil
+}
+
+// sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
+// stably over the kind-then-key order it arrives in.
+func sortEntityList(filtered []EntityRef, order string) {
+	switch order {
 	case SortName:
 		sort.SliceStable(filtered, func(i, j int) bool { return naturalLess(filtered[i].Label, filtered[j].Label) })
 	case SortHealth:
@@ -196,14 +237,88 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 			}
 			return naturalLess(filtered[i].Label, filtered[j].Label)
 		})
+	case SortNonCompliant:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := filtered[i], filtered[j]
+			if a.NonCompliant != b.NonCompliant {
+				return a.NonCompliant > b.NonCompliant
+			}
+			if a.Services != b.Services {
+				return a.Services > b.Services
+			}
+			return naturalLess(a.Label, b.Label)
+		})
+	case SortCreated:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := filtered[i], filtered[j]
+			if a.Created != b.Created {
+				return a.Created > b.Created
+			}
+			if a.NonCompliant != b.NonCompliant {
+				return a.NonCompliant > b.NonCompliant
+			}
+			return naturalLess(a.Label, b.Label)
+		})
+	case SortRate:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := filtered[i], filtered[j]
+			// Cross-multiplied, so no float compares two rates: a.nc/a.base > b.nc/b.base.
+			if l, r := a.NonCompliant*b.RateBase(), b.NonCompliant*a.RateBase(); l != r {
+				return l > r
+			}
+			if a.NonCompliant != b.NonCompliant {
+				return a.NonCompliant > b.NonCompliant
+			}
+			return naturalLess(a.Label, b.Label)
+		})
 	}
+}
 
-	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
-	return &EntityList{
-		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
-		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
-		Aggregate: q.aggregate(filtered),
-	}, nil
+// RateBase is the denominator of an owner or domain row's non-compliant rate: the
+// services an owner owns outright ([EntityRef.Owned]), the rows the rank figure
+// divides by, and every service of a domain.
+func (r EntityRef) RateBase() int {
+	if r.Kind == KindOwner {
+		return r.Owned
+	}
+	return r.Services
+}
+
+// crossKind holds the owners and domains a filter of the OTHER kind relates to,
+// computed once per answer: the owners with a service in the BusinessDomain
+// filter, and the domains with a service the OwnerKey filter's owner claims. A
+// golden path is no service of its owner's estate, so it relates neither. Each
+// set is nil when its filter is absent, or the query does not name the kind, or
+// names services too: an every-kind query (the CLI and MCP default, which name
+// every product kind) keeps the two filters narrowing to what belongs to a
+// service, so a domain query never gains owner rows and an owner query never
+// gains domain rows.
+type crossKind struct {
+	ownersInDomain, domainsOfOwner map[string]bool
+}
+
+func (q *Query) crossKindSets(f EntityFilter) crossKind {
+	var x crossKind
+	only := func(k EntityKind) bool { return slices.Contains(f.Kinds, k) && !slices.Contains(f.Kinds, KindService) }
+	if f.BusinessDomain != "" && only(KindOwner) {
+		x.ownersInDomain = map[string]bool{}
+		for k, s := range q.snap.Services {
+			if !s.Template && q.serviceInBusinessDomain(string(k), f.BusinessDomain) {
+				for _, o := range q.ownerClaimsOf(s).keys {
+					x.ownersInDomain[o] = true
+				}
+			}
+		}
+	}
+	if f.OwnerKey != "" && only(KindDomain) {
+		x.domainsOfOwner = map[string]bool{}
+		for _, s := range q.snap.Services {
+			if !s.Template && s.BusinessDomain != "" && q.matchOwnerKey(s, f.OwnerKey) {
+				x.domainsOfOwner[s.BusinessDomain] = true
+			}
+		}
+	}
+	return x
 }
 
 // NoBusinessDomain is the BusinessDomain filter value for the services known to
@@ -220,6 +335,11 @@ const (
 	OwnershipConsistent  = "consistent"
 	OwnershipConflicting = "conflicting"
 	OwnershipUnowned     = "unowned"
+	// OwnershipUnidentified is every service with no single canonical owner:
+	// unowned, conflicting or owned by contacts alone. It is the union the
+	// non-compliant owner ranking counts as "no identified owner", not a fourth
+	// partition bucket.
+	OwnershipUnidentified = "unidentified"
 )
 
 // Readiness filter values (see [ReadinessTally]).
@@ -232,7 +352,7 @@ const (
 
 func validOwnershipFilter(s string) bool {
 	switch s {
-	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned:
+	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned, OwnershipUnidentified:
 		return true
 	default:
 		return false
@@ -253,16 +373,21 @@ func validateEntityFilter(f EntityFilter) error {
 		return err
 	}
 	if err := validateFields([]fieldCheck{
-		{"sort", f.Sort, "not a sort order (name, health, services)", validSort},
+		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created)", validSort},
+		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
-		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned)", validOwnershipFilter},
+		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned, unidentified)", validOwnershipFilter},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
-		{"createdFrom", f.CreatedFrom, "not a service key", validServiceKey},
+		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
+		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 	}); err != nil {
 		return err
+	}
+	if f.Phase != "" && f.Consumes == "" {
+		return &InvalidQueryError{Field: "phase", Value: f.Phase, Reason: "needs consumes: a phase narrows the consumers of one offering"}
 	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
@@ -272,7 +397,17 @@ func validateEntityFilter(f EntityFilter) error {
 	return validateFilterCombos(f)
 }
 
-func validSort(s string) bool { return s == SortName || s == SortHealth || s == SortServices }
+// boolValue is a set boolean filter as the value [validateFilterCombos] checks.
+func boolValue(b bool) string {
+	if b {
+		return "true"
+	}
+	return ""
+}
+
+func validSort(s string) bool {
+	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated
+}
 
 // validSourceHealth reports whether s is a known source-health value.
 func validSourceHealth(s string) bool {
@@ -307,7 +442,9 @@ func validateFilterCombos(f EntityFilter) error {
 		kinds        []EntityKind
 	}{
 		{"owner", f.Owner, []EntityKind{KindService, KindRevision, KindTarget, KindOwner}},
-		{"ownerKey", f.OwnerKey, []EntityKind{KindService, KindRevision, KindTarget, KindOwner}},
+		{"ownerKey", f.OwnerKey, []EntityKind{KindService, KindRevision, KindTarget, KindOwner, KindDomain}},
+		{"hasNonCompliant", boolValue(f.HasNonCompliant), []EntityKind{KindOwner, KindDomain}},
+		{"sourceKind", f.SourceKind, []EntityKind{KindSource}},
 		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
@@ -316,7 +453,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
-		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
+		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain, KindOwner}},
 		{"offering", f.Offering, []EntityKind{KindService, KindOffering}},
 		{"consumes", f.Consumes, []EntityKind{KindService}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
@@ -399,6 +536,7 @@ func (q *Query) domainListRefs() []EntityRef {
 		}
 		ref.Services++
 		ref.Targets += len(s.Targets)
+		ref.NonCompliant += b2i(s.Status == StatusNonCompliant)
 	}
 	refs := make([]EntityRef, 0, len(by))
 	for _, ref := range by {
@@ -435,11 +573,11 @@ func (q *Query) offeringListRefs() []EntityRef {
 
 // serviceListRef is a service row with its target count and owner summary,
 // and on a golden path the services created from it and its signature.
-func (q *Query) serviceListRef(s *ServiceRecord, created int) EntityRef {
+func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
 	if s.Template {
-		ref.Created, ref.Signature = created, q.pathSignature(s)
+		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
 	}
 	switch n, key := q.ownershipState(s); {
 	case n == 1 && key != "":
@@ -455,7 +593,10 @@ func (q *Query) ownerListRefs() []EntityRef {
 	var refs []EntityRef
 	// The same rule as the owner page: a service is an owner's when any of its
 	// revisions names them.
-	claimed := map[string]int{}
+	// Its non-compliant count is the rank figure's: only the services it owns
+	// outright, the ones no other owner disputes, so a row and the figure lane
+	// that links to it count the same services.
+	claimed, owned, nonCompliant := map[string]int{}, map[string]int{}, map[string]int{}
 	for _, s := range q.snap.Services {
 		if s.Template {
 			continue // a golden path is no service of its owner's estate
@@ -464,10 +605,16 @@ func (q *Query) ownerListRefs() []EntityRef {
 		for _, k := range claims.keys {
 			claimed[k]++
 		}
+		if k := claims.soleKey(); claims.len() == 1 && k != "" {
+			owned[k]++
+			nonCompliant[k] += b2i(s.Status == StatusNonCompliant)
+		}
 	}
 	for _, o := range q.owners() {
 		ref := ownerEntityRef(o)
 		ref.Services = claimed[o]
+		ref.Owned = owned[o]
+		ref.NonCompliant = nonCompliant[o]
 		refs = append(refs, ref)
 	}
 	return refs
@@ -507,16 +654,16 @@ func (q *Query) owners() []string {
 // entityMatches applies the filter guards to one reference. The scalar comparisons
 // (fields read directly off the reference) live in matchScalarFields; the checks that
 // need a snapshot lookup (text, owner, source) stay here.
-func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
+func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 	return matchScalarFields(r, f) &&
 		matchEntityText(r, f.Text) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
-		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey)) &&
+		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
 		q.matchGoldenPath(r, f) &&
-		q.matchOrganization(r, f)
+		q.matchOrganization(r, f, x)
 }
 
 // matchGoldenPath applies the template and created-from filters.
@@ -528,12 +675,16 @@ func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
 		golden = q.goldenPath(ServiceKey(r.ParentService))
 	}
 	return templateMatches(f.Template, golden) &&
-		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), ServiceKey(f.CreatedFrom)))
+		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), f.CreatedFrom))
 }
 
-// matchOrganization applies the business-domain, offering and capability filters.
-func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
-	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
+// matchOrganization applies the business-domain, offering, capability and
+// has-non-compliant filters.
+func (q *Query) matchOrganization(r EntityRef, f EntityFilter, x crossKind) bool {
+	// HasNonCompliant is about owners and domains: a golden path's NonCompliant
+	// counts the services created from it, and never lets it through.
+	return (!f.HasNonCompliant || (r.Kind == KindOwner || r.Kind == KindDomain) && r.NonCompliant > 0) &&
+		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain, x)) &&
 		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
@@ -549,6 +700,23 @@ func (q *Query) offeringConsumers(offering string) map[ServiceKey]bool {
 		rel := &q.snap.Relationships[i]
 		if p := q.snap.Services[rel.ToService]; offeringRelationship(rel, "") && p != nil && p.Offering == offering {
 			out[rel.FromService] = true
+		}
+	}
+	return out
+}
+
+// offeringConsumersInPhase is the consumers of offering with at least one
+// provisioning status in phase, by the same bucketing [PhaseTally] counts, so
+// the list a phase count links to names exactly the consumers behind it.
+// ponytail: recomputes every use per call; index by offering if it shows in profiles.
+func (q *Query) offeringConsumersInPhase(offering, phase string) map[ServiceKey]bool {
+	uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == offering }, "")
+	out := map[ServiceKey]bool{}
+	for _, u := range uses {
+		for _, st := range u.Provisioning {
+			if phaseBucket(st.Phase) == phase {
+				out[ServiceKey(u.Consumer.Key)] = true
+			}
 		}
 	}
 	return out
@@ -578,10 +746,12 @@ func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
 	if r.Kind != KindService {
 		return false
 	}
-	n, _ := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
+	n, key := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
 	var t OwnershipTally
 	t.add(n)
 	switch want {
+	case OwnershipUnidentified:
+		return n != 1 || key == ""
 	case OwnershipUnowned:
 		return t.Unowned == 1
 	case OwnershipConsistent:
@@ -628,7 +798,7 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	if f.Status != "" && r.Status != f.Status {
 		return false
 	}
-	if f.SourceHealth != "" && (r.Kind != KindSource || r.Status != f.SourceHealth) {
+	if !matchSourceFields(r, f) {
 		return false
 	}
 	if f.Service != "" && !entityInService(r, f.Service) {
@@ -637,13 +807,24 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	return true
 }
 
+// matchSourceFields checks the source-only filters: health and kind. Any other
+// kind never matches a set one.
+func matchSourceFields(r EntityRef, f EntityFilter) bool {
+	return (f.SourceHealth == "" || r.Kind == KindSource && r.Status == f.SourceHealth) &&
+		(f.SourceKind == "" || r.Kind == KindSource && r.Secondary == f.SourceKind)
+}
+
 // matchBusinessDomain keeps a reference by the business domain of the service it
 // belongs to, and a domain reference by its name; owners and sources belong to no
 // service and never match a set filter.
-func (q *Query) matchBusinessDomain(r EntityRef, want string) bool {
+func (q *Query) matchBusinessDomain(r EntityRef, want string, x crossKind) bool {
 	switch r.Kind {
 	case KindDomain:
 		return r.Key == want
+	case KindOwner:
+		// An owner is in a domain when it claims a service there, by the owner
+		// page's rule (any revision names it).
+		return x.ownersInDomain[r.Key]
 	case KindService:
 		return q.serviceInBusinessDomain(r.Key, want)
 	case KindRevision, KindTarget:
@@ -714,7 +895,7 @@ func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 // search, so a canonical owner link opens exactly the estate the owner page draws.
 // The two differ ONLY in the predicate; anything else would be a second ownership
 // model. An owner entity IS its key, so it is compared directly.
-func (q *Query) entityOwnedByKey(r EntityRef, key string) bool {
+func (q *Query) entityOwnedByKey(r EntityRef, key string, x crossKind) bool {
 	switch r.Kind {
 	case KindService:
 		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.Key)], key)
@@ -724,6 +905,8 @@ func (q *Query) entityOwnedByKey(r EntityRef, key string) bool {
 		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.ParentService)], key)
 	case KindOwner:
 		return r.Key == key
+	case KindDomain:
+		return x.domainsOfOwner[r.Key]
 	default:
 		return false
 	}

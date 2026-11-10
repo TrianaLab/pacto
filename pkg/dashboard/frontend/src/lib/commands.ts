@@ -28,37 +28,43 @@ export interface CommandGroup {
 // routes), so the command palette can't be a back door to a superseded UI (Part 1); a
 // non-Fleet host keeps the legacy destinations, which are its only UI.
 //
-// The palette AGREES with the primary nav: the nav's destinations come first, in nav
-// order, and the workspaces the nav does not carry as tabs follow -- so every
-// workspace stays one keystroke away.
+// The palette AGREES with the primary nav (SPEC 20): the sidebar's destinations come
+// first, in sidebar order with their group as the hint, and the workspaces the sidebar
+// does not carry follow -- so every workspace stays one keystroke away.
 //
 // "Readiness" resolves to the contract revision inventory, where the whole assessed
 // population lives. It used to resolve to the Needs-attention readiness category, which
 // is a triage cut of that population and structurally cannot contain a passing revision:
 // a user typing "readiness" was shown the failures and told that was readiness.
-const FLEET_VIEWS: Command[] = [
+const ORG = 'Organization';
+const CHANGE = 'Change and delivery';
+const SYSTEM = 'System';
+const FLEET_HEAD: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
   { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
-  { kind: 'view', label: 'Services', href: fleetServicesUrl() },
-  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
-  { kind: 'view', label: 'Domains', href: fleetDomainsUrl(), keywords: ['business domain'] },
-  { kind: 'view', label: 'Platform offerings', href: fleetOfferingsUrl(), keywords: ['offering', 'platform', 'provider'] },
-  { kind: 'view', label: 'Golden paths', href: fleetGoldenPathsUrl(), keywords: ['template', 'golden path', 'create'] },
-  { kind: 'view', label: 'Operational graph', href: fleetUrl() },
+  { kind: 'view', label: 'Services', hint: ORG, href: fleetServicesUrl() },
+  { kind: 'view', label: 'Owners', hint: ORG, href: fleetOwnersUrl() },
+  { kind: 'view', label: 'Domains', hint: ORG, href: fleetDomainsUrl(), keywords: ['business domain'] },
+  { kind: 'view', label: 'Offerings', hint: ORG, href: fleetOfferingsUrl(), keywords: ['offering', 'platform', 'provider'] },
+  { kind: 'view', label: 'Golden paths', hint: ORG, href: fleetGoldenPathsUrl(), keywords: ['template', 'golden path', 'create'] },
   // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
   // as its own row it listed the identical href twice, which is the same "two buttons,
   // one screen" confusion the entity pages had. It stays fully searchable as a synonym.
-  { kind: 'view', label: 'Change analysis', href: fleetChangesUrl(), keywords: ['compare', 'compare revisions', 'diff'] },
-  { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
-  { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
+  { kind: 'view', label: 'Change analysis', hint: CHANGE, href: fleetChangesUrl(), keywords: ['compare', 'compare revisions', 'diff'] },
 ];
-// Where delivery is served, its five views are destinations like any other.
+// Where delivery is served, its five views are destinations like any other, in the
+// sidebar's Change and delivery group.
 const DELIVERY_VIEWS: Command[] = [
-  { kind: 'view', label: 'Delivery inbox', href: deliveryInboxUrl(), keywords: ['delivery', 'held', 'waiting'] },
-  { kind: 'view', label: 'Delivery Stages', href: deliveryEnvironmentsUrl(), keywords: ['delivery', 'promote'] },
-  { kind: 'view', label: 'Delivery autonomy', href: deliveryAutonomyUrl(), keywords: ['delivery', 'level'] },
-  { kind: 'view', label: 'Delivery history', href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
-  { kind: 'view', label: 'Delivery published', href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
+  { kind: 'view', label: 'Delivery inbox', hint: CHANGE, href: deliveryInboxUrl(), keywords: ['delivery', 'held', 'waiting'] },
+  { kind: 'view', label: 'Delivery Stages', hint: CHANGE, href: deliveryEnvironmentsUrl(), keywords: ['delivery', 'promote'] },
+  { kind: 'view', label: 'Delivery autonomy', hint: CHANGE, href: deliveryAutonomyUrl(), keywords: ['delivery', 'level'] },
+  { kind: 'view', label: 'Delivery history', hint: CHANGE, href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
+  { kind: 'view', label: 'Delivery published', hint: CHANGE, href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
+];
+const FLEET_TAIL: Command[] = [
+  { kind: 'view', label: 'Operational graph', hint: SYSTEM, href: fleetUrl() },
+  { kind: 'view', label: 'Data sources', hint: SYSTEM, href: fleetSourcesUrl() },
+  { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];
 
 const LEGACY_VIEWS: Command[] = [
@@ -85,8 +91,8 @@ export function buildCommands(query: string, services: any[], fleet = false, del
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = [...(fleet ? FLEET_VIEWS : LEGACY_VIEWS), ...(delivery ? DELIVERY_VIEWS : [])]
-    .filter((v) => match(v.label) || (v.keywords || []).some(match));
+  const views = (fleet ? [...FLEET_HEAD, ...(delivery ? DELIVERY_VIEWS : []), ...FLEET_TAIL] : LEGACY_VIEWS)
+    .filter((v) => match(v.label) || match(v.hint || '') || (v.keywords || []).some(match));
   if (views.length) groups.push({ label: 'Views', items: views });
 
   // On a Fleet host entities are found through the product search, so typed text is

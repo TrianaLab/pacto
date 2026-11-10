@@ -10,8 +10,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
-  changeSegments, verdictSegments, confidenceSegments, segmentTotal,
+  changeSegments, verdictSegments, confidenceSegments, outcomeSegments, segmentTotal,
   COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel, signatureSegments, signatureState,
+  ownershipSegments, readinessSegments, canonicalRank, type Segment,
 } from './distributions.ts';
 import { statusLabel } from './format.ts';
 
@@ -22,16 +23,48 @@ describe('complianceSegments', () => {
       invalid: 1, reference: 1, notEvaluated: 1, other: 0,
     });
     expect(s.map((x) => x.label)).toEqual([
-      'Compliant', 'Not compliant', 'Unknown', 'Warning',
-      'Invalid', 'Reference', 'Not evaluated', 'Other',
+      'Not compliant', 'Invalid', 'Warning', 'Unknown',
+      'Compliant', 'Reference', 'Not evaluated', 'Other',
     ]);
     expect(segmentTotal(s)).toBe(10);
   });
 
-  // "We cannot evaluate this" is an open question, not a benign state.
-  it('tones Unknown as a warning rather than as neutral', () => {
-    const s = complianceSegments({ unknown: 1 });
-    expect(s.find((x) => x.label === 'Unknown')?.tone).toBe('warn');
+  // "We cannot evaluate this" is an open question: never a status tone, never green,
+  // and hatched so it never reads as the flat grey of "Not evaluated".
+  it('draws Unknown as the neutral hatch and Not evaluated as a flat neutral', () => {
+    const s = complianceSegments({ unknown: 1, notEvaluated: 1 });
+    const unknown = s.find((x) => x.label === 'Unknown');
+    expect(unknown?.tone).toBe('neutral');
+    expect(unknown?.hatch).toBe(true);
+    expect(s.find((x) => x.label === 'Not evaluated')?.hatch).toBeUndefined();
+  });
+
+  // The unknown family is one look on every builder: neutral and hatched, never ok.
+  it('never tones the unknown family ok, warn or err', () => {
+    const all = [
+      ...complianceSegments({}), ...severitySegments({}), ...signatureSegments({}),
+      ...evidenceSegments({}),
+      ...verdictSegments([{ key: 'unknown', count: 1 }]), ...confidenceSegments([{ key: 'unknown', count: 1 }]),
+      ...outcomeSegments([{ key: 'unknown' }, { key: 'unclassified' }]),
+    ];
+    const hatched = all.filter((x) => x.hatch);
+    expect(hatched.length).toBeGreaterThanOrEqual(8);
+    for (const x of hatched) expect(x.tone, x.label).toBe('neutral');
+  });
+
+  // SPEC 2.2: err, warn, the unknown hatch, ok, whatever the data. Every builder whose
+  // buckets are fixed is held to it, so a new bucket cannot land in the wrong place.
+  it('orders every fixed-bucket builder err, warn, unknown hatch, ok', () => {
+    const builders: [string, Segment[]][] = [
+      ['compliance', complianceSegments({})], ['link', linkSegments({})], ['severity', severitySegments({})],
+      ['evidence', evidenceSegments({})], ['change', changeSegments({})], ['signature', signatureSegments({})],
+      ['ownership', ownershipSegments({})], ['readiness', readinessSegments({})],
+      ['verdict', verdictSegments([{ key: 'incompatible' }, { key: 'unknown' }, { key: 'compatible' }])],
+    ];
+    for (const [name, segs] of builders) {
+      const ranks = segs.map(canonicalRank);
+      expect(ranks, name).toEqual([...ranks].sort((a, b) => a - b));
+    }
   });
 
   it('treats a missing tally as all zeros instead of throwing', () => {
@@ -51,7 +84,7 @@ describe('linkSegments', () => {
   it('distinguishes proof from correlation: exact is ok, inferred is only info', () => {
     const s = linkSegments({ exact: 5, inferred: 2, ambiguous: 1, unresolved: 3 });
     expect(s.map((x) => [x.label, x.tone])).toEqual([
-      ['Exact', 'ok'], ['Inferred', 'info'], ['Ambiguous', 'warn'], ['Unresolved', 'warn'],
+      ['Ambiguous', 'warn'], ['Unresolved', 'warn'], ['Exact', 'ok'], ['Inferred', 'info'],
     ]);
     expect(segmentTotal(s)).toBe(11);
   });
@@ -64,8 +97,8 @@ describe('linkSegments', () => {
 describe('severitySegments', () => {
   it('keeps an unrecognized severity in its own bucket rather than folding it into info', () => {
     const s = severitySegments({ errors: 1, warnings: 2, infos: 3, unknown: 4 });
-    expect(s.map((x) => x.label)).toEqual(['Errors', 'Warnings', 'Info', 'Unknown severity']);
-    expect(s[3].value).toBe(4);
+    expect(s.map((x) => x.label)).toEqual(['Errors', 'Warnings', 'Unknown severity', 'Info']);
+    expect(s[2].value).toBe(4);
     expect(segmentTotal(s)).toBe(10);
   });
 
@@ -79,7 +112,7 @@ describe('severitySegments', () => {
     const h = severityHrefs((v) => `#/x?severity=${v}`);
     expect(Object.keys(h).sort()).toEqual(['errors', 'infos', 'warnings']);
     expect(severitySegments({ errors: 1, unknown: 2 }, h)[0].href).toBe('#/x?severity=error');
-    expect(severitySegments({ errors: 1, unknown: 2 }, h)[3].href).toBeUndefined();
+    expect(severitySegments({ errors: 1, unknown: 2 }, h)[2].href).toBeUndefined();
   });
 });
 
@@ -89,12 +122,12 @@ describe('evidenceSegments', () => {
   it('splits observed targets into fresh and stale, keeping never-observed apart', () => {
     const s = evidenceSegments({ withEvidence: 10, stale: 4, withoutEvidence: 3 });
     expect(s.map((x) => [x.label, x.value])).toEqual([
-      ['Fresh evidence', 6], ['Stale evidence', 4], ['No evidence', 3],
+      ['Stale evidence', 4], ['No evidence', 3], ['Fresh evidence', 6],
     ]);
   });
 
   it('never reports a negative fresh count when stale exceeds the observed total', () => {
-    expect(evidenceSegments({ withEvidence: 2, stale: 5 })[0].value).toBe(0);
+    expect(evidenceSegments({ withEvidence: 2, stale: 5 })[2].value).toBe(0);
   });
 
   it('treats a missing tally as all zeros', () => {
@@ -133,7 +166,8 @@ describe('impact consumer buckets', () => {
       'Declared and observed', 'Declared with a range', 'Declared only',
       'Observed only', 'Reached through another service', 'Evidence incomplete',
     ]);
-    expect(s[5].tone).toBe('warn');
+    expect(s[5].tone).toBe('neutral');
+    expect(s[5].hatch).toBe(true);
   });
 
   // A newer engine emitting a value this build has never seen must still appear in the
@@ -160,7 +194,7 @@ describe('impact consumer buckets', () => {
 describe('COMPLIANCE_STATES', () => {
   // The canonical states pkg/fleet counts, one field each (mirrors
   // TestComplianceTally_EveryCanonicalStatusHasItsOwnBucket).
-  const CANONICAL = ['Compliant', 'NonCompliant', 'Unknown', 'Warning', 'Invalid', 'Reference', 'NotEvaluated'];
+  const CANONICAL = ['NonCompliant', 'Invalid', 'Warning', 'Unknown', 'Compliant', 'Reference', 'NotEvaluated'];
 
   it('gives every canonical wire status its own bucket, never the catch-all', () => {
     expect(COMPLIANCE_STATES.filter((s) => s.value).map((s) => s.value)).toEqual(CANONICAL);
@@ -192,8 +226,8 @@ describe('signatureSegments', () => {
   it('orders, words and tones the bundle signature states, unknown never positive', () => {
     const s = signatureSegments({ verified: 1, unverified: 2, unsigned: 3, unknown: 4, notChecked: 5 });
     expect(s.map((x) => [x.label, x.value, x.tone])).toEqual([
-      ['Verified', 1, 'ok'], ['Unverified', 2, 'err'], ['Unsigned', 3, 'warn'],
-      ['Unknown', 4, 'neutral'], ['Not checked', 5, 'neutral'],
+      ['Unverified', 2, 'err'], ['Unsigned', 3, 'warn'], ['Unknown', 4, 'neutral'],
+      ['Verified', 1, 'ok'], ['Not checked', 5, 'neutral'],
     ]);
   });
 

@@ -209,6 +209,23 @@ describe('product visualization system', () => {
     expect(present.sort()).toEqual(ALLOWED_VIZ.slice().sort());
   });
 
+  // Illustrations: one answer drawn beside the table that carries it in full. Not chart
+  // primitives, so not in ALLOWED_VIZ; their dash is the non-colour channel (unknown is
+  // dashed, a broken edge flows), not a retired chart shape.
+  const ILLUSTRATIONS = ['components/figure/ImpactFigure.svelte'];
+
+  it('keeps every illustration beside the table that carries its answer in full', () => {
+    for (const rel of ILLUSTRATIONS) {
+      expect(files.some((f) => f.rel === rel), `${rel} is listed but missing`).toBe(true);
+      const name = rel.split('/').pop()!;
+      const hosts = files.filter((f) => f.rel.endsWith('.svelte') && f.body.includes(`/${name}'`));
+      expect(hosts.length, `${name} is drawn nowhere`).toBeGreaterThan(0);
+      for (const h of hosts) {
+        expect(h.body, `${h.rel} draws ${name} without its table`).toContain('data-testid="changes-consumers"');
+      }
+    }
+  });
+
   it('still allows the legacy non-Fleet host its own charts', () => {
     // Proof the guard is scoped, not vacuous: the retired components DO still exist and
     // are still used somewhere, just never on a product surface.
@@ -269,6 +286,8 @@ describe('product design system', () => {
     // and '--ease-' a typo'd var(--dur-2s) would be treated as component-owned and
     // never checked, which is exactly how a motion value gets re-invented.
     '--dur-', '--ease-', '--motion-', '--stagger-',
+    // Figures (SPEC 3.1).
+    '--fig-',
   ];
   const isGlobalToken = (t: string) => GLOBAL_TOKEN_FAMILIES.some((p) => t.startsWith(p));
 
@@ -298,6 +317,14 @@ describe('product design system', () => {
       }
     }
     expect(offenders, `undeclared global design token:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  it('declares no global design token that nothing reads', () => {
+    // A token nothing references is a value a reader would trust and nobody renders.
+    const read = new Set(STYLED.flatMap((f) => [...references(f.body)]));
+    const code = files.filter((f) => !f.rel.endsWith('.svelte')).map((f) => f.body).join('\n');
+    const unread = [...DECLARED].filter((t) => isGlobalToken(t) && !read.has(t) && !code.includes(`'${t}'`));
+    expect(unread, `global design tokens nothing reads:\n  ${unread.join('\n  ')}`).toEqual([]);
   });
 
   it('scopes the token rule to the shared vocabulary, not to component-local variables', () => {
@@ -707,5 +734,146 @@ describe('product in-page navigation', () => {
     // contents would silently skip them.
     const tagged = PRODUCT_UI.filter((f) => /data-toc="/.test(f.body)).map((f) => f.rel);
     expect(tagged.length, 'no page contributes a section to the navigator').toBeGreaterThan(3);
+  });
+});
+
+/**
+ * Figure guards (SPEC 12, G4). The drawing draws marks and HTML carries every word, so
+ * a figure primitive never holds an SVG <text> and nothing rotates or skews text. Depth
+ * is drawn only where it is a fact: an iso primitive takes the layers it stacks.
+ * Explainers ("How this works") draw a mechanism, never a status, so they use neutral
+ * and accent only.
+ */
+describe('figures', () => {
+  const FIG = join(SRC, 'components/figure');
+  const figFiles = sourceFiles(FIG).map((f) => ({ rel: relative(SRC, f), body: readFileSync(f, 'utf8') }))
+    .filter((f) => !f.rel.endsWith('.test.ts'));
+  const figCss = readFileSync(join(SRC, 'styles/figure.css'), 'utf8');
+
+  it('exists, so the guards below are not vacuous', () => {
+    expect(figFiles.map((f) => f.rel)).toEqual(expect.arrayContaining(['components/figure/Figure.svelte', 'components/figure/Stack.svelte']));
+  });
+
+  it('puts no <text> in a figure primitive and rotates or skews nothing', () => {
+    for (const f of figFiles) expect(f.body, f.rel).not.toMatch(/<text\b/);
+    for (const [rel, body] of [...figFiles.map((f) => [f.rel, f.body]), ['styles/figure.css', figCss]]) {
+      expect(body, rel).not.toMatch(/\b(rotate|skew[XY]?)\(/);
+    }
+  });
+
+  it('requires the layers or count an iso primitive stacks', () => {
+    for (const [name, prop] of [['Stack.svelte', 'layers'], ['Plinth.svelte', 'count']]) {
+      const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
+      expect(body, name).toMatch(new RegExp(`let \\{ ${prop}[,} ]`));
+      expect(body, name).toMatch(new RegExp(`\\{ ${prop}: [^?]`));
+    }
+  });
+
+  // S10 and G4: a mark that stands for many members is never toned by its worst one.
+  it('lets a station or a hub take only neutral or accent', () => {
+    for (const name of ['Station.svelte', 'HubNode.svelte']) {
+      const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
+      expect(body, name).toMatch(/tone\?: 'neutral' \| 'accent'|tone\?: 'accent' \| 'neutral'/);
+    }
+  });
+
+  it('keeps explainers to neutral and accent', () => {
+    const explain = figFiles.filter((f) => f.rel.startsWith('components/figure/explain/'));
+    for (const f of explain) expect(f.body, f.rel).not.toMatch(/--c-(ok|warn|err)\b|\bt-(ok|warn|err)\b/);
+  });
+});
+
+// Responsive by construction (SPEC 24.1, 24.6): a text container never takes a fixed
+// pixel width (it overflows the moment the font or the column changes), and a grid
+// never lays a bare `auto` track beside a squeezable one (an auto column of identifiers
+// shrank to one character per line on Publish). Each needs a minimum a person chose:
+// `minmax(<n>ch, auto)`, `max-content`, rem or ch. The lists below are the reviewed
+// exceptions (the sidebar's own 232px, a counts column beside a 1fr label); a new
+// occurrence fails here, and a fixed one is taken off the list.
+describe('responsive by construction', () => {
+  const styleFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'generated' ? [] : styleFiles(full);
+    return /\.(svelte|css)$/.test(e.name) ? [full] : [];
+  });
+  const decls = styleFiles(SRC).flatMap((f) => {
+    const rel = relative(SRC, f);
+    const body = readFileSync(f, 'utf8');
+    return [...body.matchAll(/(?<![\w-])(width|inline-size|min-width|min-inline-size|grid-template-columns)\s*:\s*([^;}\n]+)/g)]
+      .map((m) => ({ rel, prop: m[1], value: m[2].trim() }));
+  });
+  const key = (d: { rel: string; prop: string; value: string }) => `${d.rel}: ${d.prop}: ${d.value}`;
+
+  const FIXED_WIDTH_REVIEWED = [
+    'StatsBar.svelte: width: 120px',
+    'sections/OverviewSection.svelte: min-width: 240px',
+    'styles/base.css: min-width: 560px',
+    'styles/components.css: width: 120px',
+    'components/Sidebar.svelte: inline-size: 232px',
+    'components/FilterBar.svelte: min-width: 180px',
+    'views/FleetDomainsView.svelte: min-width: 220px',
+    'views/FleetServicesView.svelte: min-width: 220px',
+    'views/FleetOwnersView.svelte: min-width: 220px',
+    'views/FleetSourcesView.svelte: min-width: 220px',
+    'views/FleetGoldenPathsView.svelte: min-width: 220px',
+    'views/FleetEntityListView.svelte: min-width: 220px',
+    'views/FleetEntityListView.svelte: min-width: 180px',
+    'views/FleetOfferingsView.svelte: min-width: 220px',
+    'views/ServiceListView.svelte: min-width: 220px',
+  ];
+  const AUTO_TRACK_REVIEWED = [
+    'App.svelte: grid-template-columns: auto minmax(0, 1fr)',
+    'styles/figure.css: grid-template-columns: 14px minmax(0, 1fr) auto',
+    'styles/components.css: grid-template-columns: auto 1fr',
+    'styles/components.css: grid-template-columns: minmax(0, 1fr) auto',
+    'components/viz/HorizontalBars.svelte: grid-template-columns: minmax(6ch, 20ch) 1fr auto',
+    'components/viz/HorizontalBars.svelte: grid-template-columns: 1fr auto',
+    'views/DeliveryPublishView.svelte: grid-template-columns: minmax(0, 13rem) minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto',
+    'views/DeliveryPublishView.svelte: grid-template-columns: minmax(0, 13rem) 12rem minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto',
+    'views/DeliveryAutonomyView.svelte: grid-template-columns: auto minmax(0, 16rem) 6rem minmax(0, 1fr) auto',
+    'views/DeliveryAutonomyView.svelte: grid-template-columns: auto minmax(0, 1fr) auto',
+  ];
+
+  it('scans the style rules', () => {
+    expect(decls.length).toBeGreaterThan(200);
+  });
+
+  it('lets a free-text badge wrap inside a table cell, over the one-line rule for badges elsewhere', () => {
+    // A fixed-layout column cannot widen for a badge: at max-content it paints over the
+    // next column. The cell rule must outrank `.badge:not(.wrap)` (0,2,0).
+    const css = readFileSync(join(SRC, 'styles/components.css'), 'utf8');
+    const rule = css.match(/td \.badge:not\(\.status-badge\)[^{]*\{([^}]*)\}/);
+    expect(rule?.[1]).toMatch(/white-space: normal/);
+    expect(rule?.[1]).toMatch(/min-width: 0/);
+    expect(rule?.[1]).toMatch(/max-width: 100%/);
+  });
+
+  it('sizes no box in a page from the viewport: beside the sidebar the viewport is wider than the page', () => {
+    // Overlays (dialogs, popovers) live in components and may; a view's in-flow box
+    // sizes from its container (cqi or %), as the propose panel on the board does.
+    // The script blocks are cut out by the compiler's own ranges: the markup and the styles remain.
+    const withoutScripts = (f: string) => {
+      const src = readFileSync(f, 'utf8');
+      if (!f.endsWith('.svelte')) return src;
+      const ast = parse(src, { modern: true });
+      return [ast.module, ast.instance].filter((s) => s != null).sort((x, y) => y.start - x.start)
+        .reduce((out, s) => out.slice(0, s.start) + out.slice(s.end), src);
+    };
+    const views = styleFiles(join(SRC, 'views')).filter((f) => /\d\s*vw\b/.test(withoutScripts(f)));
+    expect(views.map((f) => relative(SRC, f))).toEqual([]);
+  });
+
+  it('gives no text container a fixed pixel width beyond the reviewed ones', () => {
+    const found = [...new Set(decls.filter((d) => d.prop !== 'grid-template-columns' && /^\d{3,}px$/.test(d.value)).map(key))];
+    expect(found.filter((k) => !FIXED_WIDTH_REVIEWED.includes(k))).toEqual([]);
+    expect(FIXED_WIDTH_REVIEWED.filter((k) => !found.includes(k)), 'fixed: take it off the list').toEqual([]);
+  });
+
+  it('lays no bare auto grid track beyond the reviewed ones', () => {
+    // A bare `auto` track: not the max of a minmax() someone gave a floor.
+    const bare = (v: string) => /(^|[\s(,])auto(?=[\s),]|$)/.test(v.replace(/minmax\([^()]*(\([^()]*\)[^()]*)*\)/g, 'M'));
+    const found = [...new Set(decls.filter((d) => d.prop === 'grid-template-columns' && bare(d.value)).map(key))];
+    expect(found.filter((k) => !AUTO_TRACK_REVIEWED.includes(k))).toEqual([]);
+    expect(AUTO_TRACK_REVIEWED.filter((k) => !found.includes(k)), 'fixed: take it off the list').toEqual([]);
   });
 });

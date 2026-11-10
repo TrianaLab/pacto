@@ -113,7 +113,7 @@ describe('inbox', () => {
     // Frozen Stages and stuck changes fold behind their count, each a one-line row.
     const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
     expect(frozenSection.open).toBe(false);
-    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen Stages 1');
+    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('Frozen Stages 1');
     expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Errored');
     expect(text(frozenSection)).toContain('Nothing moves in these until a person unfreezes them.');
     expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
@@ -363,7 +363,7 @@ describe('environments', () => {
     destroy();
   });
 
-  it('pages services, keeps every environment in promotion order and labels Stages that share a cell', async () => {
+  it('pages services, counts every environment and labels Stages that share a cell', async () => {
     const row = (service: string, environment: string, stage: string) => ({ namespace: environment, stage, service, environment, verified: false, failed: false,
       frozen: false, autoHold: false, held: 0, actions: [], ready: 'False: NoCandidateSource', readyMessage: 'the Stage names no candidates' });
     fns.environments.mockResolvedValue({ ...listing, page: { total: 400, offset: 25, limit: 25 }, environmentNames: ['test', 'prod', 'env-2', 'env-10'],
@@ -371,7 +371,9 @@ describe('environments', () => {
       environments: [row('payments', 'prod', 'pay-a'), row('payments', 'prod', 'pay-b')] });
     const { target, destroy } = render(DeliveryEnvironmentsView, { offset: '25', q: 'pay' });
     await settle();
-    expect([...target.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Service', 'test', 'prod', 'env-2', 'env-10']);
+    // No shared columns (SPEC 21 r3): the header names no order, and the row holds only its own environments.
+    expect([...target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', "Path as each service's Stages declare it"]);
+    expect([...target.querySelectorAll('[data-testid="env-step"]')].map((e) => (e as HTMLElement).dataset.env)).toEqual(['prod']);
     expect(text(target)).toContain('400 services, 4 environments');
     // The answer counts every page, not the two rows shown.
     expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('43 failed and 40 frozen. 1,500 Stages wait for a person.');
@@ -380,6 +382,19 @@ describe('environments', () => {
     expect(stages).toEqual(['prod/pay-a', 'prod/pay-b']);
     expect(text(target)).toContain('Cannot promote: The Stage names no candidates.');
     expect(target.querySelector('[data-testid="environments-pager-next"]')?.getAttribute('href')).toBe('#/delivery/environments?q=pay&offset=50');
+    destroy();
+  });
+
+  it('orders each row of a small board by its own service, even when services order the same environments both ways (SPEC 21 r3)', async () => {
+    const row = (service: string, environment: string, from?: string) => ({ namespace: environment, stage: service, service, environment, pointer: D1, version: '1.0.0',
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], upstream: from ? { kind: 'stage', namespace: from, stage: service, environment: from } : { kind: 'artifact', repository: 'oci' } });
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: ['eu', 'us'], environmentTiers: {}, page: { total: 2, offset: 0, limit: 25 },
+      environments: [row('a', 'eu'), row('a', 'us', 'eu'), row('b', 'us'), row('b', 'eu', 'us')] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const steps = (svc: string) => [...target.querySelectorAll(`[data-testid="env-row-${svc}"] .ev-step-env`)].map((e) => text(e as HTMLElement));
+    expect(steps('a')).toEqual(['eu', 'us, fed by eu']);
+    expect(steps('b')).toEqual(['us', 'eu, fed by us']);
     destroy();
   });
 
@@ -395,7 +410,7 @@ describe('environments', () => {
     destroy();
   });
 
-  it('narrows to one environment, keeps empty cells quiet and caps what Pacto would have done', async () => {
+  it('narrows to one environment, leaves out the environments a service is not in and caps what Pacto would have done', async () => {
     const shadow = [{ candidate: D2, predicted: 'Proceeds' }];
     const row = (service: string, environment: string) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, verified: false, failed: false,
       frozen: false, autoHold: false, held: 0, actions: [], ready: 'True', level: 'observe', shadow });
@@ -403,9 +418,9 @@ describe('environments', () => {
     fns.environments.mockResolvedValue({ ...listing, environmentNames: ['test', 'prod'], environments: [...svcs.map((x) => row(x, 'test')), row('a', 'prod')] });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
-    // An empty cell is a quiet dash a legend explains, not a sentence in every cell.
-    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('not delivered in that environment');
-    expect(target.querySelectorAll('.ev-none[title="Not delivered here"]').length).toBe(6);
+    // A row is its service's own path: an environment it is not in is no cell at all.
+    expect([...target.querySelectorAll('[data-testid="env-row-b"] [data-testid="env-step"]')].map((e) => (e as HTMLElement).dataset.env)).toEqual(['test']);
+    expect(target.querySelectorAll('[data-testid="env-step"]').length).toBe(8);
     // One summary for every observing Stage, five shown, the rest behind a button.
     expect(target.querySelectorAll('[data-testid="shadow-summary"]').length).toBe(1);
     expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(5);
@@ -423,9 +438,48 @@ describe('environments', () => {
     const narrowed = render(DeliveryEnvironmentsView, { environment: 'prod' });
     await settle();
     expect(fns.environments).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod', tier: undefined }));
-    expect([...narrowed.target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod']);
+    expect([...narrowed.target.querySelectorAll('[data-testid="env-step"]')].map((e) => (e as HTMLElement).dataset.env)).toEqual(['prod']);
     expect(narrowed.target.querySelectorAll('[data-testid="shadow"]').length).toBe(1);
     narrowed.destroy();
+  });
+
+  it('caps a row at eight marks of its own path and counts the rest in a chip to that service', async () => {
+    const envs = Array.from({ length: 11 }, (_, i) => `e${i + 1}`);
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: envs.map((environment) => ({
+      namespace: environment, stage: 's', service: 'payments', environment, pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [] })) });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
+    expect([...pay.querySelectorAll('button[data-testid="env-dot"]')].map((d) => (d as HTMLElement).dataset.env)).toEqual(envs.slice(0, 8));
+    const more = pay.querySelector('[data-testid="env-more"]') as HTMLAnchorElement;
+    expect(more.textContent).toBe('+3');
+    expect(more.getAttribute('aria-label')).toBe('3 more environments of payments');
+    expect(more.getAttribute('href')).toBe('#/delivery/environments?service=payments');
+    destroy();
+  });
+
+  it('marks a Stage with no source Pacto can follow on the strip and on the board of whole cells (SPEC 21 r4)', async () => {
+    const row = (environment: string, upstream: object) => ({ namespace: environment, stage: 's', service: 'payments', environment, pointer: D1, version: '1.0.0',
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], upstream });
+    const envs = ['e1', 'e2', 'e3', 'e4', 'prod-us'];
+    const rows = [...envs.slice(0, 4).map((e) => row(e, { kind: 'artifact', repository: 'oci' })), row('prod-us', { kind: 'stage', namespace: 'staging-us', stage: 's', problem: 'missing' })];
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: rows });
+    let r = render(DeliveryEnvironmentsView);
+    await settle();
+    const dots = [...r.target.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
+    const prod = dots.find((d) => d.dataset.env === 'prod-us')!;
+    expect(prod.getAttribute('aria-label')).toBe('prod-us: 1.0.0. Verified. Missing upstream: the Stage staging-us/s does not exist');
+    expect(prod.querySelector('.ev-nosrc')).not.toBeNull();
+    expect(dots.filter((d) => d.querySelector('.ev-nosrc')).length).toBe(1);
+    r.destroy();
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: ['prod-us'], environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 }, environments: [rows[4]] });
+    r = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="env-no-source"]') as HTMLElement)).toBe('Missing upstream: the Stage staging-us/s does not exist');
+    // SPEC 24.2: the board scrolls sideways, so it is a named region a keyboard can focus.
+    const region = r.target.querySelector('[data-testid="environments-board"]')!.parentElement!;
+    expect([region.getAttribute('role'), region.getAttribute('aria-label'), region.tabIndex]).toEqual(['region', 'Services by environment, each along its own promotion path', 0]);
+    r.destroy();
   });
 
   it('shows many environments as a strip of dots that open the full cell, with no sideways scroll', async () => {
@@ -433,10 +487,11 @@ describe('environments', () => {
     const tiers = { dev: 'dev', test: 'test', qa: 'test', staging: 'test', preprod: 'test', 'prod-eu': 'prod', 'prod-us': 'prod' };
     const r = (service: string, environment: string, over = {}) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, pointer: D1, version: '1.0.0',
       verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], ...over });
+    const up = (environment: string) => ({ kind: 'stage', namespace: environment, stage: `payments-${environment}`, environment });
     fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: tiers, page: { total: 2, offset: 0, limit: 25 }, environments: [
-      r('payments', 'dev'), r('payments', 'test', { held: 2 }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
-      r('payments', 'prod-eu', { frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
-      r('payments', 'prod-us', { failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
+      r('payments', 'dev'), r('payments', 'test', { held: 2, upstream: up('dev') }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
+      r('payments', 'prod-eu', { upstream: up('test'), frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
+      r('payments', 'prod-us', { upstream: up('test'), failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
       r('ledger', 'staging', { verified: false }),
     ] });
     fns.plan.mockResolvedValue({ intentDigest: 'sha256:u', type: 'delivery.pacto.trianalab.io/unfreeze', predicted: 'Proceeds' });
@@ -445,26 +500,25 @@ describe('environments', () => {
     const board = target.querySelector('[data-testid="environments-board"]') as HTMLElement;
     expect(board.classList.contains('ev-strip')).toBe(true);
     expect(board.style.minWidth).toBe('');
-    expect([...board.querySelectorAll('thead .ev-group-head')].map((g) => g.textContent)).toEqual(['dev', 'test', 'prod', 'other']);
+    // No shared columns: the header names no order, and each row is its service's own path.
+    expect(board.querySelectorAll('[data-testid="env-column"]').length).toBe(0);
+    expect([...board.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Service', "Path as each service's Stages declare it", 'State in 8 environments']);
     // How to read the strip is one (?) away, not a sentence on the page.
     const legend = target.querySelector('[data-testid="environments-legend"]') as HTMLElement;
-    expect(text(legend)).not.toContain('One column per environment');
-    (legend.querySelector('button[aria-label="About the dots"]') as HTMLButtonElement).click();
+    expect(text(legend)).not.toContain('own path');
+    (legend.querySelector('button[aria-label="About the paths"]') as HTMLButtonElement).click();
     flushSync();
-    expect(text(legend)).toContain('One column per environment, grouped dev, test, prod and other.');
-    // Every dot column is named in the header, the full name in its title.
-    const cols = [...board.querySelectorAll('[data-testid="env-column"]')] as HTMLElement[];
-    expect(cols.map((c) => c.textContent)).toEqual(envs);
-    expect(cols.map((c) => c.title)).toEqual(envs);
-    // The dots column fits its dots: groups of 1, 4, 2 and 1 dots are 36 + 76 + 36 + 36 px, 12px apart.
-    expect((board.querySelectorAll('col')[1] as HTMLElement).style.width).toBe('calc(220px + 2 * var(--sp-3))');
+    expect(text(legend)).toContain("Each row is its service's own path, in the order its Stages declare their upstreams.");
     const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
     const dots = [...pay.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
-    expect(dots.map((d) => `${d.dataset.env}:${d.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
-      ['dev:verified', 'test:waiting', 'qa:empty', 'prod-eu:frozen', 'prod-us:failed', 'books:autohold']);
-    expect(pay.querySelectorAll('.ev-dot.s-none').length).toBe(2);
-    expect(dots[5].getAttribute('aria-label')).toBe('books: 1.0.0, 1.0.0. Auto-hold (2 Stages)');
-    expect(dots[2].title).toBe('qa: Nothing yet');
+    // dev feeds test and test feeds prod-eu, declared; the rest follow by name, unlinked.
+    expect(dots.map((d) => `${d.dataset.env}:${d.querySelector('.ev-dot')!.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
+      ['books:autohold', 'dev:verified', 'test:waiting', 'prod-eu:frozen', 'prod-us:failed', 'qa:empty']);
+    expect([...pay.querySelectorAll('[data-testid="env-mark"]')].map((m) => m.classList.contains('linked'))).toEqual([false, false, true, true, false, false]);
+    expect(dots[0].getAttribute('aria-label')).toBe('books: 1.0.0, 1.0.0. Auto-hold (2 Stages)');
+    expect(dots[5].title).toBe('qa (named like test): Nothing yet');
+    expect(dots[4].title).toBe('prod-us (named like prod): 1.0.0. Failed. Fed by test');
+    expect(pay.querySelector('[data-testid="env-more"]')).toBeNull();
     expect(dots.map((d) => d.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
     expect(text(pay.querySelector('[data-testid="env-summary"]') as HTMLElement).trim()).toBe('1 failed1 frozen1 auto-hold1 waiting1 nothing yet1 verified');
     const ledger = target.querySelector('[data-testid="env-row-ledger"]') as HTMLElement;
@@ -498,7 +552,7 @@ describe('environments', () => {
     dots[3].click();
     await settle();
     expect(target.querySelector('[data-testid="env-detail"]')).toBeNull();
-    dots[5].click();
+    dots[0].click();
     await settle();
     detail = target.querySelector('[data-testid="env-detail"]') as HTMLElement;
     expect([...detail.querySelectorAll('.ev-stage')].map((e) => e.textContent)).toEqual(['books/payments-books', 'books/other']);
@@ -508,6 +562,7 @@ describe('environments', () => {
     // Tier and environment filters ask the server, and clear each other.
     const [tierPick, envPick] = [...target.querySelectorAll('.ev-tools select')] as HTMLSelectElement[];
     expect([...tierPick.options].map((o) => o.value)).toEqual(['', 'dev', 'test', 'prod']);
+    expect([...tierPick.options].map((o) => o.textContent)).toEqual(['Every tier', 'Named like dev', 'Named like test', 'Named like prod']);
     tierPick.value = 'prod';
     tierPick.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/delivery/environments?tier=prod');
@@ -515,11 +570,12 @@ describe('environments', () => {
     envPick.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/delivery/environments?environment=qa');
     destroy();
-    // A tier narrows the columns to its environments: two fit the board.
+    // A tier narrows the board to its environments: two fit as whole cells, each row in its own order.
     const prod = render(DeliveryEnvironmentsView, { tier: 'prod', q: 'pay' });
     await settle();
     expect(fns.environments).toHaveBeenLastCalledWith(expect.objectContaining({ tier: 'prod', q: 'pay' }));
-    expect([...prod.target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod-eu', 'prod-us']);
+    expect(prod.target.querySelector('[data-testid="environments-board"]')!.classList.contains('ev-strip')).toBe(false);
+    expect([...prod.target.querySelectorAll('[data-testid="env-row-payments"] [data-testid="env-step"]')].map((e) => (e as HTMLElement).dataset.env)).toEqual(['prod-eu', 'prod-us']);
     // One page: the header counts the services, so no footer repeats it.
     expect(prod.target.querySelector('[data-testid="environments-pager"]')).toBeNull();
     prod.destroy();
@@ -533,7 +589,7 @@ describe('environments', () => {
     a.destroy();
     const b = render(DeliveryEnvironmentsView, { tier: 'dev', q: 'x' });
     await settle();
-    expect(text(b.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see matches “x” has a Stage in a dev environment.');
+    expect(text(b.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see matches “x” has a Stage in an environment named like dev.');
     b.destroy();
   });
 
@@ -587,7 +643,14 @@ describe('change detail', () => {
     const first = target.querySelector('.cd-timeline time') as HTMLElement;
     expect(first.textContent).toBe('2026-10-21 10:00 UTC');
     expect(first.title).toBe('2026-10-21T10:00:00Z');
+    // Without the Stage's environment the details name the Stage only.
+    expect(text(target.querySelector('[data-testid="change-environment"]') as HTMLElement)).toBe('prod/pay (frozen: Errored)');
     destroy();
+    fns.operation.mockResolvedValue({ ...heldOperation(), environment: 'production' });
+    const named = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(named.target.querySelector('[data-testid="change-environment"]') as HTMLElement)).toBe('production, the Stage prod/pay (frozen: Errored)');
+    named.destroy();
   });
 
   it('leads with the decision and folds the affected services, the checks and the details, opening the checks on a problem', async () => {
@@ -1196,7 +1259,7 @@ describe('history and published', () => {
     // Both lists fold behind a warn count, so the changes come first.
     const problems = target.querySelector('[data-testid="history-problems"]') as HTMLDetailsElement;
     expect(problems.open).toBe(false);
-    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('▸2 record problems');
+    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('2 record problems');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
     // Ids are short inline; the full one is on hover and copied on a click.
     const ids = [...target.querySelectorAll('[data-testid^="history-"] button.dt-id')];
@@ -1432,6 +1495,34 @@ describe('history and published', () => {
     r.destroy();
   });
 
+  it("opens a timeline column on the changes it counts, timed inside its slice (T3)", async () => {
+    const z = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, unverified: 0, released: 0, other: 0 };
+    const at = (h: number) => `2026-11-08T${String(h).padStart(2, '0')}:00:00Z`;
+    const buckets = Array.from({ length: 12 }, (_, i) => ({ start: at(i * 2), end: i === 11 ? '2026-11-09T00:00:00Z' : at(i * 2 + 2), ...z, other: 1 }));
+    const timeline = { start: at(0), end: '2026-11-09T00:00:00Z', buckets, totals: { ...z, other: 12 } };
+    const h = { namespace: 'prod', stage: { name: 'pay', pointer: D1 }, source: 'records', verified: true, completeness: 'complete', entries: [], entriesPage: { total: 0, offset: 0, limit: 50 }, timeline };
+    fns.history.mockResolvedValue({ ...listing, histories: [h] });
+    let r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const cols = [...r.target.querySelectorAll('a.tl-n')].map((a) => a.getAttribute('href'));
+    expect(cols[0]).toBe('#/delivery/history?namespace=prod&stage=pay&since=2026-11-08T00%3A00%3A00Z&until=2026-11-08T02%3A00%3A00Z&timed=1');
+    // The window ends now, so its last column stays open at the end.
+    expect(cols[11]).toBe('#/delivery/history?namespace=prod&stage=pay&since=2026-11-08T22%3A00%3A00Z&timed=1');
+    r.destroy();
+    // A record problem no line stands for keeps the figure from calling the record whole.
+    fns.history.mockResolvedValue({ ...listing, histories: [{ ...h, problems: ['seq 41 concluded with no record'], unreadable: ['sha256:bad: not trusted here'] }] });
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="history-figure"] figcaption') as HTMLElement)).toContain('2 record problems are listed below and drawn in no column');
+    r.destroy();
+    fns.history.mockResolvedValue({ ...listing, histories: [h] });
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: at(2), until: at(4), timed: '1' });
+    await settle();
+    expect(fns.history).toHaveBeenLastCalledWith('prod', 'pay', expect.objectContaining({ since: at(2), until: at(4), timed: true }));
+    expect(text(r.target.querySelector('[data-testid="history-window"]') as HTMLElement)).toContain('Changes with a time at or after 2026-11-08 02:00 UTC and before 2026-11-08 04:00 UTC.');
+    r.destroy();
+  });
+
   it('says an open-ended window in words', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [] });
     let r = render(DeliveryHistoryView, { since: '2026-11-02T00:00:00Z' });
@@ -1467,10 +1558,10 @@ describe('history and published', () => {
 
   it('lists published versions with their signature state and where they run', async () => {
     fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
-      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signed: true, stages: [
+      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signature: 'signed', stages: [
         { namespace: 'test', stage: 'pay', environment: 'test', running: false, verified: true, failed: false },
         { namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
-      { digest: D1, signed: false, contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
+      { digest: D1, signature: 'unknown', contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
     ] }] });
     let r = render(DeliveryPublishView);
     await settle();
@@ -1478,7 +1569,7 @@ describe('history and published', () => {
     const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
     expect(rows).toEqual([
       '2.0.0 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
-      'Signature not checked here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
+      'Signature not known here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
     ]);
     // The signature state is said once; only the version that differs carries a badge.
     expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature checked on every version shown, except where marked.');
@@ -1492,6 +1583,16 @@ describe('history and published', () => {
     // Running and failed first.
     expect([...r.target.querySelectorAll('[data-testid="published-stages"]')].map((p) => text(p as HTMLElement).trim()))
       .toEqual(['prod: running, verified test: known, verified', 'prod: known, failed']);
+    r.destroy();
+    // An unsigned version is told apart from one whose signature is not known here.
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
+      { digest: D2, version: '2.0.0', signature: 'unknown', stages: [] },
+      { digest: D1, version: '1.0.0', signature: 'unsigned', stages: [] },
+    ] }] });
+    r = render(DeliveryPublishView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature not known here for the versions shown, except where marked.');
+    expect([...r.target.querySelectorAll('.pv-sig .badge')].map((b) => [b.textContent, b.classList.contains('badge-warn')])).toEqual([['Not signed', true]]);
     r.destroy();
     fns.published.mockResolvedValue({ ...listing, services: [] });
     r = render(DeliveryPublishView);

@@ -13,10 +13,10 @@ export type StatusClass = 'ok' | 'warn' | 'err' | 'info' | 'neutral' | 'referenc
  * They were three tables — the badge class here, the legend tone in distributions.ts
  * and the node colour in graph.ts — and they disagreed. "Unknown" was a blue badge on a
  * row, an amber swatch in the legend above it and a grey node in the graph beside it:
- * one state, three colours, one screen. Amber is the answer the product settled on — a
- * target we cannot evaluate is an open question, and blue or grey next to a green
- * Compliant reads as benign. "Not evaluated" stays neutral: nothing is running to
- * evaluate.
+ * one state, three colours, one screen. Unknown is neutral and drawn as the grey hatch
+ * (isUnknownStatus): a target Pacto cannot evaluate is an open question, never a status
+ * tone and never green, and the hatch keeps it from reading as the benign flat grey of
+ * "Not evaluated", where nothing is running to evaluate.
  */
 const STATUS_META: Record<string, { label: string; tone: StatusClass }> = {
   Compliant: { label: 'Compliant', tone: 'ok' },
@@ -27,13 +27,18 @@ const STATUS_META: Record<string, { label: string; tone: StatusClass }> = {
   // the very service it was describing.
   NonCompliant: { label: 'Not compliant', tone: 'err' },
   Invalid: { label: 'Invalid', tone: 'err' },
-  Unknown: { label: 'Unknown', tone: 'warn' },
+  Unknown: { label: 'Unknown', tone: 'neutral' },
   Reference: { label: 'Reference', tone: 'reference' },
   NotEvaluated: { label: 'Not evaluated', tone: 'neutral' },
 };
 
 export function statusClass(status: string | undefined): StatusClass {
   return STATUS_META[status || '']?.tone || 'neutral';
+}
+
+/** isUnknownStatus marks the one compliance state drawn as the grey hatch. */
+export function isUnknownStatus(status: string | undefined): boolean {
+  return status === 'Unknown';
 }
 
 export function statusLabel(status: string | undefined): string {
@@ -119,12 +124,12 @@ export function completenessLabel(c: string | undefined): string {
   return COMPLETENESS_LABELS[c] || c;
 }
 
-/** Badge class for a completeness — a partial answer reads as a warning. */
+/**
+ * Badge class for a completeness. Partial is the unknown family, neutral and never a
+ * status tone (SPEC 2.2): missing knowledge is not a warning about what is known.
+ */
 export function completenessClass(c: string | undefined): string {
-  if (c === 'complete') return 'badge-ok';
-  if (c === 'partial') return 'badge-warn';
-  if (c === 'empty') return 'badge-neutral';
-  return 'badge-neutral';
+  return c === 'complete' ? 'badge-ok' : 'badge-neutral';
 }
 
 export function changeTypeClass(t: string): string {

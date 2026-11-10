@@ -31,11 +31,11 @@
 
 <span class="entity-identity">
   {#if showKind}<span class="ei-kind">{kindLabel(ref.kind)}</span>{/if}
-  <span class="ei-label" title={primary}>{primary}</span>
+  <span class="ei-label" title={primary}><bdi>{primary}</bdi></span>
   {#if showStatus}<span class="ei-status"><EntityStatusBadge kind={ref.kind} status={ref.status} /></span>{/if}
   {#if context.length}
     <span class="ei-context">
-      {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}>{display(bit)}</span>{/each}
+      {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}><bdi data-format={display(bit) === bit ? undefined : "short"}>{display(bit)}</bdi></span>{/each}
     </span>
   {/if}
 </span>
@@ -51,7 +51,7 @@
     font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .ei-label { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
-  .ei-context { font-size: var(--text-xs); color: var(--c-text-3); display: inline-flex; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+  .ei-context { font-size: var(--text-xs); color: var(--c-text-3); display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
   .ei-dot { color: var(--c-text-3); }
   .ei-key { margin-top: var(--sp-1); }
 </style>

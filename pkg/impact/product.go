@@ -29,6 +29,8 @@ const (
 	// answer unbounded; both truncations are reported rather than silent.
 	MaxProductChanges   = 300
 	MaxChangeValueRunes = 400
+	// MaxHighlights bounds [ConsumersPage.Highlights].
+	MaxHighlights = 8
 )
 
 // ProductConsumer is an affected consumer with route-neutral references and a
@@ -48,6 +50,14 @@ type ProductConsumer struct {
 	// Unmet lists the guarantees the consumer requires that the new revision
 	// refuses, as [AffectedConsumer.Unmet] does.
 	Unmet []contract.Mismatch `json:"unmet,omitempty"`
+	// Compatibility is the version range the consumer declared for the changed
+	// service, as written. Empty when it declared none (an inferred or observed-only
+	// consumer).
+	Compatibility string `json:"compatibility,omitempty"`
+	// Blocking is true when this consumer is one of the reasons the release gate is
+	// blocked: the change is BREAKING, the consumer does not accept the new version
+	// or requires a guarantee it does not meet, and it runs on a known target.
+	Blocking bool `json:"blocking,omitempty"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -57,9 +67,16 @@ type TallyBucket struct {
 	Count int    `json:"count"`
 }
 
-// ConsumersPage is a stable, offset-paged consumer answer.
+// ConsumersPage is a stable, offset-paged consumer answer. Items are ordered by
+// outcome (incompatible, unknown, compatible, unclassified), the highlighted
+// consumers first within each outcome in their ranked order, then by key.
 type ConsumersPage struct {
-	Total      int               `json:"total"`
+	Total int `json:"total"`
+	// Outcome is the outcome Items are filtered to, when the caller asked for one.
+	Outcome string `json:"outcome,omitempty"`
+	// Matching counts the consumers Items page over: Total, or the consumers whose
+	// outcome is Outcome when the page is filtered. Every tally still covers Total.
+	Matching   int               `json:"matching"`
 	Count      int               `json:"count"`
 	Limit      int               `json:"limit"`
 	Offset     int               `json:"offset"`
@@ -75,6 +92,19 @@ type ConsumersPage struct {
 	// a guarantee they require unmet. They break whatever their verdict, which
 	// judges only the range.
 	Refused int `json:"refused"`
+	// Highlights are at most MaxHighlights direct consumers, ranked over every
+	// consumer (blocking, other incompatible or refused, unknown, compatible, then
+	// key). They are identical on every page, so a drawing of them never depends on
+	// which page of Items is loaded.
+	Highlights []ProductConsumer `json:"highlights"`
+	// Direct counts every direct consumer, not only this page's.
+	Direct int `json:"direct"`
+	// Hidden counts the direct consumers this viewer may not see. They are in
+	// neither Items nor Total, and are never named.
+	Hidden int `json:"hidden,omitempty"`
+	// ConsumerTallies (byOutcome, byOwner and the owners outside the ranking) cover
+	// EVERY consumer, like ByVerdict.
+	ConsumerTallies
 }
 
 // ProductChange is one field-level semantic difference between the two revisions,
@@ -193,7 +223,17 @@ func mutableRefDescription(rev *fleet.ContractRevision) string {
 // up in the snapshot so identities are exact and labels come from records) and
 // bounds every list. SnapshotMatch is true because the caller analyzed only the
 // immutable content [ImmutableRef] returned, over this snapshot.
+//
+// Deprecated: use [BuildProductOutcome] with an empty outcome.
 func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int) *Product {
+	return BuildProductOutcome(meta, snap, svcKey, fromRev, toRev, res, limit, offset, "")
+}
+
+// BuildProductOutcome is [BuildProduct] with the consumer page filtered to one
+// outcome (one of the Outcome constants); "" pages over every consumer. The tallies, the
+// highlights and Total always cover every consumer, so a drawing made from them is
+// the same whichever filter the table below it shows.
+func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int, outcome string) *Product {
 	consumers := make([]ProductConsumer, 0, len(res.Consumers))
 	for _, c := range res.Consumers {
 		path := pathRefs(snap, c.Path)
@@ -215,6 +255,8 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 			Owner:                c.Owner,
 			Note:                 c.Note,
 			Unmet:                slices.Clone(c.Unmet),
+			Compatibility:        c.Compatibility,
+			Blocking:             res.blocks(c),
 		})
 	}
 	// Deterministic order so paging is stable across identical requests.
@@ -223,6 +265,15 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 	owners := make([]fleet.EntityRef, 0, len(res.Owners))
 	for _, o := range res.Owners {
 		owners = append(owners, fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o})
+	}
+	hidden := 0
+	if s := snap.Services[svcKey]; s != nil {
+		hidden = s.HiddenDependents
+	}
+	// meta describes the snapshot; the analysis can know less than it (a truncated
+	// blast radius, a service missing from the fleet), and the answer must say so.
+	if r, ok := completenessRank[res.Completeness]; ok && r < completenessRank[meta.Completeness] {
+		meta.Completeness = res.Completeness
 	}
 	targets := make([]fleet.EntityRef, 0, len(res.ActiveTargets))
 	for _, tk := range res.ActiveTargets {
@@ -235,7 +286,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
 		Changes:        boundChanges(res),
-		Consumers:      pageConsumers(consumers, limit, offset),
+		Consumers:      pageConsumersOutcome(consumers, limit, offset, hidden, outcome),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
@@ -244,34 +295,108 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 	}
 }
 
-// pageConsumers offset-pages a sorted consumer list with defaulted/capped limit
-// and a next-offset cursor.
-func pageConsumers(all []ProductConsumer, limit, offset int) ConsumersPage {
-	pg := fleet.Paginate(all, limit, offset, DefaultProductConsumers, MaxProductConsumers)
+// completenessRank orders completeness from least to most known.
+var completenessRank = map[fleet.Completeness]int{
+	fleet.CompletenessEmpty: 0, fleet.CompletenessPartial: 1, fleet.CompletenessComplete: 2,
+}
+
+// pageConsumersOutcome offset-pages a sorted consumer list over the consumers of
+// one outcome ("" for all), with defaulted/capped limit and a next-offset cursor.
+// hidden is the count of direct consumers the viewer may not see. all must be
+// sorted by key.
+func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outcome string) ConsumersPage {
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
 	refused := 0
+	direct := make([]ProductConsumer, 0, len(all))
 	for i := range all {
 		if len(all[i].Unmet) > 0 {
 			refused++
 		}
+		if all[i].Direct {
+			direct = append(direct, all[i])
+		}
 	}
+	// all is sorted by key, so a stable sort by rank keeps key as the tiebreak.
+	sort.SliceStable(direct, func(i, j int) bool { return highlightRank(direct[i]) < highlightRank(direct[j]) })
+	highlights := direct[:min(len(direct), MaxHighlights)]
+	listed := orderByOutcome(all, highlights, outcome)
+	pg := fleet.Paginate(listed, limit, offset, DefaultProductConsumers, MaxProductConsumers)
 	return ConsumersPage{
-		Refused: refused,
-		Total:   len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
+		Refused: refused, Direct: len(direct), Hidden: hidden,
+		Highlights: highlights,
+		Total:      len(all), Outcome: outcome, Matching: len(listed),
+		Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
-		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
-		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
+		ByVerdict:       tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
+		ByConfidence:    tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
+		ConsumerTallies: tallyProductConsumers(all),
+	}
+}
+
+// orderByOutcome keeps the consumers of one outcome ("" for all) and orders them as
+// the figure reads: by outcome, the highlighted ones first within each in their
+// ranked order, then by key (all is sorted by key and the sort is stable).
+func orderByOutcome(all, highlights []ProductConsumer, outcome string) []ProductConsumer {
+	rank := make(map[string]int, len(highlights))
+	for i, h := range highlights {
+		rank[h.Service.Key] = i
+	}
+	pos := func(c ProductConsumer) (int, int) {
+		r, ok := rank[c.Service.Key]
+		if !ok {
+			r = len(highlights)
+		}
+		return slices.Index(outcomeOrder, consumerOutcome(c)), r
+	}
+	out := make([]ProductConsumer, 0, len(all))
+	for _, c := range all {
+		if outcome == "" || consumerOutcome(c) == outcome {
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		oi, ri := pos(out[i])
+		oj, rj := pos(out[j])
+		if oi != oj {
+			return oi < oj
+		}
+		return ri < rj
+	})
+	return out
+}
+
+func consumerOutcome(c ProductConsumer) string {
+	return outcomeOf(c.CompatibilityVerdict, len(c.Unmet) > 0)
+}
+
+// highlightRank orders consumers worth drawing: blocking, other broken
+// (incompatible or refused), unknown, then compatible. Unknown sorts before
+// compatible so a cap hides the positive ones first. The dashboard's verdictOf
+// mirrors it.
+func highlightRank(c ProductConsumer) int {
+	switch {
+	case c.Blocking:
+		return 0
+	case len(c.Unmet) > 0 || c.CompatibilityVerdict == CompatibilityIncompatible:
+		return 1
+	case c.CompatibilityVerdict == CompatibilityCompatible:
+		return 3
+	default:
+		return 2
 	}
 }
 
 // verdictOrder and confidenceOrder are the canonical display orders of the two
-// consumer dimensions, worst/strongest first. They are declared here rather than
+// consumer dimensions, worst/strongest first. Verdicts follow the dashboard's one
+// order for every distribution: err, warn, unknown, ok, so unknown sits between
+// incompatible and compatible and never next to the green bucket's place by accident.
+// They are declared here rather than
 // derived from the data so an empty bucket keeps its place and the chart does not
 // reorder itself between two analyses of the same change.
 var (
-	verdictOrder    = []string{CompatibilityIncompatible, CompatibilityCompatible, CompatibilityUnknown}
+	verdictOrder    = []string{CompatibilityIncompatible, CompatibilityUnknown, CompatibilityCompatible}
 	confidenceOrder = []string{
 		string(ConfidenceCorroborated), string(ConfidenceContractual), string(ConfidenceDeclared),
 		string(ConfidenceObserved), string(ConfidenceInferred), string(ConfidenceUnknown),
@@ -406,7 +531,7 @@ func revisionRef(rev *fleet.ContractRevision) *fleet.EntityRef {
 	if rev.Version != "" {
 		label = rev.Service + " " + rev.Version
 	}
-	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain}
+	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Version: rev.Version, Secondary: rev.Digest, Domain: rev.Domain}
 }
 
 // targetRef builds a route-neutral target reference whose label is the record's

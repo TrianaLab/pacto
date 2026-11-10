@@ -21,7 +21,13 @@
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
-  import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
+  import ServiceRevisionsFigure from '../../components/figure/ServiceRevisionsFigure.svelte';
+  import GoldenPathFigure from '../../components/figure/GoldenPathFigure.svelte';
+  import CreationFigure from '../../components/figure/CreationFigure.svelte';
+  import CreationExplainer from '../../components/figure/explain/CreationExplainer.svelte';
+  import Glyph from '../../components/figure/Glyph.svelte';
+  import { creationStatus } from '../../lib/goldenFigures.ts';
+  import { readinessSegments, signatureSegments, signatureState, segmentTotal, complianceSegments, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
   import { api } from '../../lib/api.ts';
   import { miraServiceLink } from '../../lib/delivery.ts';
@@ -139,11 +145,10 @@
   const gpSig = $derived(gp ? signatureState(gp.signature) : null);
   const VIA = { dependency: 'dependency', configuration_reference: 'configuration', policy_reference: 'policy' };
   const STEP_LABEL = { signature: 'Signature', contract: 'Contract', validation: 'Validation', plugin: 'Plugin', published: 'Published', fleet: 'Seen by Pacto', deployed: 'Deployed', provisioning: 'Provisioning' };
-  const STEP_STATUS = {
-    done: ['Done', 'ok'], planned: ['Planned', 'info'], skipped: ['Skipped', 'neutral'],
-    unknown: ['Unknown', 'warn'], failed: ['Failed', 'err'], 'not-applicable': ['Not applicable', 'neutral'],
-  };
-  const stepStatus = (st) => STEP_STATUS[st] ?? ['Unknown', 'warn'];
+  // Unknown is neutral (SPEC 2.2): no evidence never reads as done, nor as a warning.
+  const stepStatus = (st) => { const s = creationStatus(st); return [s.word, s.tone]; };
+  // What the golden path requests, for the creation explainer's last station.
+  const requested = $derived([...new Set((gp?.requirements?.items ?? []).map((u) => u.offering || u.provider?.label || u.provider?.key).filter(Boolean))]);
   const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
   const hiddenReqs = $derived(gp?.hiddenRequirements ?? 0);
 </script>
@@ -184,7 +189,7 @@
     </div>
     {#if origin}
       <div class="se-fact" data-testid="service-origin">
-        <span class="se-k">Created from</span>
+        <span class="se-k"><Glyph kind="golden-path" /> Created from</span>
         <IdentityBadge label="declared" tone="neutral" title="Its contract records this origin. Pacto did not observe the creation." describe />
         {#if origin.goldenPath}
           <EntityLink ref={origin.goldenPath} showStatus={false} showKind={false} />
@@ -271,6 +276,9 @@
       </div>
       {#if detail.entity?.summary}<p class="se-lead t-body-2">{detail.entity.summary}</p>{/if}
 
+      <GoldenPathFigure path={key} name={self} version={d.currentRevision?.version ?? ''} hidden={hiddenCreated} />
+      <CreationExplainer requires={requested} hidden={hiddenReqs} />
+
       <h3 class="t-subsection-title">Create a service from it</h3>
       <div class="se-create" data-testid="golden-path-create">
         {#if gp.instantiate}
@@ -347,7 +355,7 @@
         {:else if !hiddenReqs}
           <p class="se-none">It consumes no offering.</p>
         {/if}
-        {#if hiddenReqs}<p class="se-hidden t-body-2">{hiddenReqs === 1 ? '1 requirement' : `${hiddenReqs} requirements`} on services you may not see.</p>{/if}
+        {#if hiddenReqs}<p class="se-hidden t-body-2 go">{hiddenReqs === 1 ? '1 requirement' : `${hiddenReqs} requirements`} on services you may not see.</p>{/if}
       </div>
     </section>
 
@@ -370,6 +378,7 @@
     <section class="se-gp" id="sec-creation" data-toc="Creation status" aria-labelledby="se-creation-h">
       <h2 id="se-creation-h" class="t-section-title">Creation status</h2>
       <p class="se-lead t-body-2">Derived from what Pacto observes now. Pacto keeps no record of the creation itself.</p>
+      <CreationFigure steps={creation} />
       <ul class="se-steps" data-testid="creation-status">
         {#each creation as st, i (`${st.step}:${st.name ?? ''}:${i}`)}
           {@const [label, tone] = stepStatus(st.status)}
@@ -461,6 +470,10 @@
     </PreviewSection>
   </div>
 
+  {#if (d.revisions?.total ?? 0) > 0}
+    <ServiceRevisionsFigure revisions={d.revisions} current={d.currentRevision ?? null} {self} allHref={allRevisionsHref} />
+  {/if}
+
   <div class="se-wrap" data-testid="service-delivery">
     <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} />
   </div>
@@ -519,6 +532,11 @@
     </div>
 
     <PreviewSection title="Dependents" help="Services that declare this one." total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependents, false) || 'Nothing depends on this service.'}>
+      {#if (d.dependents?.total ?? 0) > 1}
+        <!-- B4: the dependents' compliance over every visible dependent, never the
+             preview; hidden ones are counted in the line below and never here. -->
+        <DistributionBar title="Compliance of dependents" level={3} segments={complianceSegments(d.dependentsStatus)} total={d.dependents.total} />
+      {/if}
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
       {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
     </PreviewSection>
@@ -593,6 +611,7 @@
   .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .se-unresolved li { padding: var(--sp-1) var(--sp-2); overflow-wrap: anywhere; }
   .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .se-k :global(.kind-glyph) { vertical-align: -5px; }
   .se-conflicts {
     display: flex; flex-direction: column; gap: var(--sp-2);
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
@@ -632,4 +651,6 @@
   .se-reqs, .se-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .se-reqs li, .se-steps li { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .se-step { font-weight: 600; min-width: 9rem; }
+  /* A detail can carry a registry URL: it breaks anywhere rather than spill (SPEC 24.5). */
+  .se-steps .se-note, .se-reqs .se-note { min-width: 0; overflow-wrap: anywhere; }
 </style>

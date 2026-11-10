@@ -321,10 +321,12 @@ func renderImpact(r *impact.Result) string {
 		b.WriteString(dimStyle.Render("  none identified\n"))
 	} else {
 		section(&b, fmt.Sprintf("Affected consumers (%d)", len(r.Consumers)))
+		renderOutcomes(&b, r.ConsumerTallies)
 		for _, cons := range r.Consumers {
 			renderConsumer(&b, cons)
 		}
 	}
+	renderOwnerRanking(&b, r.ConsumerTallies)
 	if len(r.Owners) > 0 {
 		section(&b, fmt.Sprintf("Owners to review (%d)", len(r.Owners)))
 		for _, owner := range r.Owners {
@@ -332,6 +334,23 @@ func renderImpact(r *impact.Result) string {
 		}
 	}
 	return b.String()
+}
+
+// renderOutcomes writes the consumers' disjoint outcome tally on one line.
+func renderOutcomes(b *strings.Builder, t impact.ConsumerTallies) {
+	if line := t.OutcomeSummary(); line != "" {
+		b.WriteString("  " + safeText(line) + "\n")
+	}
+}
+
+// renderOwnerRanking writes the owners with the most affected consumers, and
+// what the ranking leaves out.
+func renderOwnerRanking(b *strings.Builder, t impact.ConsumerTallies) {
+	if len(t.ByOwner) == 0 {
+		return
+	}
+	section(b, "Most affected owners")
+	b.WriteString("  " + safeText(t.OwnerSummary()) + "\n")
 }
 
 // renderConsumer writes one affected consumer: its verdict line, every

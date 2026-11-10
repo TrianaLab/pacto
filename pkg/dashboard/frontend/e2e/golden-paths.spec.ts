@@ -17,11 +17,11 @@ async function axeClean(page: Page) {
 }
 
 test.describe('WASM demo — golden paths', () => {
-  test('the Golden paths tab opens the list and the page never scrolls sideways', async ({ page }) => {
+  test('the Golden paths item opens the list and the page never scrolls sideways', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet');
     await page.addStyleTag({ content: WIDE_FONT });
-    const tab = page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Golden paths' });
+    const tab = page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Golden paths' });
     await tab.scrollIntoViewIfNeeded();
     await tab.click();
     await expect(page).toHaveURL(/#\/fleet\/golden-paths$/);

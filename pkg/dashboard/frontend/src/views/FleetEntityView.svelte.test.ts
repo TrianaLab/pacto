@@ -15,7 +15,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
   // Keep the real facade behaviors (narrowEntityDetail, error classes); override only
   // the network call so the component exercises the real contract shapes.
-  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a) } };
+  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a), fleetEntities: () => new Promise(() => {}) } };
 });
 
 // @ts-expect-error — Svelte component has no declaration file

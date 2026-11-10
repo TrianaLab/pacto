@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -36,6 +37,9 @@ type inventoryRevision struct {
 	ready    *contract.Readiness
 	distinct string // content that makes two same-version revisions distinct
 	target   string // scope of one target running this revision, if any
+	// compliance is that target's reported status (Compliant when empty), and
+	// domain the business domain the revision declares.
+	compliance, domain string
 }
 
 // inventoryFleet builds a snapshot from revision declarations, plus whatever
@@ -50,7 +54,7 @@ func inventoryFleet(t *testing.T, revs ...inventoryRevision) *Query {
 	for i, r := range revs {
 		c := &contract.Contract{
 			PactoVersion: "2.0",
-			Service:      contract.Service{Name: r.service, Version: "1.0.0", Owner: r.owner},
+			Service:      contract.Service{Name: r.service, Version: "1.0.0", Owner: r.owner, Domain: r.domain},
 			Readiness:    r.ready,
 		}
 		fsys := fstest.MapFS{"note.txt": {Data: []byte(r.distinct)}}
@@ -62,7 +66,7 @@ func inventoryFleet(t *testing.T, revs ...inventoryRevision) *Query {
 		if r.target != "" {
 			targets = append(targets, RawTarget{
 				Scope: r.target, Kind: "k8s", Name: r.service, Service: r.service,
-				Digest: digest, Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow()),
+				Digest: digest, Compliance: cmp.Or(r.compliance, StatusCompliant), EvidenceAt: ptrTime(fixedNow()),
 			})
 		}
 	}

@@ -155,6 +155,9 @@ type Result struct {
 	// and, when it is not clear, what to do next.
 	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
 	GateReason string `json:"gateReason"`
+	// ConsumerTallies partition Consumers by outcome and rank their owners, so a
+	// reader states the blast radius from counts rather than by counting the list.
+	ConsumerTallies ConsumerTallies `json:"consumerTallies"`
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -187,16 +190,22 @@ func (r *Result) ReleaseBlocking() bool {
 // blockingConsumers names the consumers that make the change release
 // blocking, and whether any of them is blocked by an unmet guarantee.
 func (r *Result) blockingConsumers() (active []string, unmet bool) {
-	if r.Classification != "BREAKING" {
-		return nil, false
-	}
 	for _, c := range r.Consumers {
-		if (c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0 {
+		if r.blocks(c) {
 			active = append(active, c.Service)
 			unmet = unmet || len(c.Unmet) > 0
 		}
 	}
 	return active, unmet
+}
+
+// blocks reports whether one consumer makes the change release blocking: the
+// change is BREAKING, the consumer is broken (incompatible, or with an unmet
+// guarantee) and it runs on a known target. The gate and the product answer's
+// per-consumer Blocking flag both read it, so they never disagree.
+func (r *Result) blocks(c AffectedConsumer) bool {
+	return r.Classification == "BREAKING" &&
+		(c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
 // gate derives the release gate from the finished answer. Only a BREAKING change
@@ -303,6 +312,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	res.boundEnvelope()
 	res.noteRangeOnlyMatches()
 	res.Gate, res.GateReason = res.gate()
+	res.tally()
 	return res
 }
 

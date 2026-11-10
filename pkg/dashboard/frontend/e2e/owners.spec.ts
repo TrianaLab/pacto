@@ -253,9 +253,9 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     );
 
     // And the roster shows them as two rows, told apart by the only thing that differs.
-    const rows = page.locator('[data-testid="owner-list"] li').filter({ hasText: PARTNERS });
+    const rows = page.locator('[data-testid="owner-list"] tbody tr').filter({ hasText: PARTNERS });
     await expect(rows).toHaveCount(2);
-    const hrefs = await rows.locator('a').evaluateAll((els) =>
+    const hrefs = await rows.locator('a.entity-link').evaluateAll((els) =>
       els.map((e) => (e as HTMLAnchorElement).getAttribute('href') || ''));
     expect(new Set(hrefs).size, 'both rows link to the same page, so they are one owner on screen').toBe(2);
     expect(hrefs.some((h) => decodeURIComponent(h).endsWith(`/team:${PARTNERS}`))).toBe(true);
@@ -347,7 +347,7 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     // No row claims them: the ranking holds only owners with a consistent service.
     await expect(ranking(page).locator('a.hb-inner').filter({ hasText: 'team/payments' })).toHaveCount(0);
     // But the roster still names them, so they are reachable rather than erased.
-    await expect(page.locator('[data-testid="owner-list"] li').filter({ hasText: 'team/payments' }))
+    await expect(page.locator('[data-testid="owner-list"] tbody tr').filter({ hasText: 'team/payments' }))
       .toHaveCount(1, { timeout: T });
   });
 });
@@ -367,8 +367,8 @@ test.describe('WASM demo — the ownership summary is its own question', () => {
 
     await expect(aggregate(page)).toContainText(/Can.t reach the Pacto backend/, { timeout: T });
     // The roster is a different request with a different answer, and it arrived.
-    await expect(page.getByTestId('owner-list').locator('li').first()).toBeVisible({ timeout: T });
-    expect(await page.getByTestId('owner-list').locator('li').count()).toBeGreaterThan(1);
+    await expect(page.getByTestId('owner-list').locator('tbody tr').first()).toBeVisible({ timeout: T });
+    expect(await page.getByTestId('owner-list').locator('tbody tr').count()).toBeGreaterThan(1);
     // Nothing is drawn from an aggregate the page does not have.
     await expect(aggregate(page).locator('.dist-legend')).toHaveCount(0);
 

@@ -18,6 +18,7 @@
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import EdgeExplainer from '../components/figure/explain/EdgeExplainer.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityLink from '../components/EntityLink.svelte';
@@ -211,7 +212,7 @@
       { key: 'rel:reference', label: 'Configuration reference', cls: 'lg-edge lg-ref' },
     ] },
     { title: 'Reconciliation', items: [
-      { key: 'state:matched', label: 'Matched / corroborated', cls: 'lg-edge lg-matched' },
+      { key: 'state:matched', label: 'Matched / corroborated (observed)', cls: 'lg-edge lg-matched' },
       { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
@@ -441,7 +442,7 @@
              affordance that a graph renders HERE once a focus is chosen -- so the tab reads
              as a graph discovery experience, not an empty page -- without auto-rendering the
              whole fleet. -->
-        <div class="disco-placeholder" data-testid="graph-discovery-placeholder" aria-hidden="true">
+        <div class="disco-placeholder iso-backdrop" data-testid="graph-discovery-placeholder" aria-hidden="true">
           <svg viewBox="0 0 120 64" class="disco-ph-glyph" role="presentation" focusable="false">
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
@@ -450,6 +451,9 @@
           <p class="disco-ph-sub">Its graph shows up here.</p>
         </div>
       {/if}
+
+      <!-- The wire vocabulary drawn on four edges, before the canvas uses it (SPEC 17). -->
+      <EdgeExplainer />
 
       <!-- One line, not two panels: the way in from a problem, and the layer definitions
            one (i) away instead of a card of prose the reader passes on every visit. -->
@@ -553,7 +557,7 @@
       {/if}
       {#if noticeParts.length}
       <details class="gv-notice disclosure" data-testid="graph-notice">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{noticeParts.join(' · ')}</summary>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{noticeParts.join(' · ')}</summary>
         <div class="gv-notice-body">
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
       {#if showTruncated}
@@ -631,7 +635,7 @@
                   ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
                 {/each}
               {/each}
-              <span class="t-meta lg-hint">Select an entry to hide it.</span>
+              <span class="t-meta lg-hint">Solid: observed. Dashed: expected but not observed, a Runs link or a configuration reference. Dotted: insufficient evidence. Select an entry to hide it.</span>
             </div>
 
             <!-- Accessible text alternative: the same nodes and edges as
@@ -641,7 +645,7 @@
                  screens for different readers. -->
             <p class="gv-summary" aria-live="polite" data-testid="graph-summary">{graphSummary}</p>
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Relationships (text)</summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Relationships (text)</summary>
               <ul class="gv-nodes" aria-label="Graph nodes">
                 {#each shown.nodes as n (n.ref.key)}
                   <li>
@@ -684,7 +688,7 @@
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <!-- A secondary list: a count that opens, not a block that pushes the page down. -->
             <details class="gv-unresolved disclosure" data-testid="graph-unresolved">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Dependencies outside the graph</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 class="gv-fold-title">Dependencies outside the graph</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
               <p class="t-meta">Declared, with no known service to draw. External ones are delivered outside Pacto; unresolved ones match nothing Pacto knows.</p>
               <CappedList items={shown.unresolvedDependencies.items} max={8} label="Dependencies outside the graph" testid="graph-unresolved-list">
                 {#snippet item(u)}{#if u.external}<IdentityBadge label="external" />{' '}{/if}<EntityLink ref={u.from} showStatus={false} />{' '}declares {u.external ? 'external ' : ''}<code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
@@ -695,7 +699,7 @@
 
           {#if (shown.limitations?.count ?? 0) > 0}
             <details class="gv-limitations disclosure" data-testid="graph-limitations">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
               <LimitationsList items={shown.limitations.items} />
             </details>
           {/if}
@@ -748,7 +752,7 @@
               {/if}
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <details class="gv-claims disclosure">
-                  <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
+                  <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
                   <ul>
                     {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
@@ -847,7 +851,7 @@
   .lg-runs { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-ref { border-top-style: dashed; }
   .lg-matched { border-top-color: var(--c-ok); }
-  .lg-eno { border-top-color: var(--c-info); }
+  .lg-eno { border-top-style: dashed; border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
   .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
   .lg-refused { border-top-width: 3px; border-top-color: var(--c-err); }

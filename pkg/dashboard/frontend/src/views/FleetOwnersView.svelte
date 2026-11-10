@@ -7,7 +7,6 @@
   import { ownershipSegments, ownershipHrefs, ownerRanking } from '../lib/distributions.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
-  import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
@@ -15,22 +14,27 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Pager from '../components/Pager.svelte';
-  import ListSort from '../components/ListSort.svelte';
+  import GroupTable from '../components/GroupTable.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
-  import { flip } from 'svelte/animate';
-  import { MOTION, dur } from '../lib/motion.ts';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadRankFigure } from '../lib/lazyFigures.ts';
 
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
-  // backend pagination kept in the URL. Rows navigate to the rich owner page.
-  let { text = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
-  const order = $derived(sort || 'name');
+  // backend pagination kept in the URL. Rows navigate to the rich owner page. The
+  // default order is the rank figure's (most non-compliant services first, T3), and
+  // the list narrows to the owners with a non-compliant service or with a service in
+  // one business domain (the domain page's "N more").
+  let { text = '', hasNonCompliant = '', businessDomain = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  const DEFAULT_SORT = 'nonCompliant';
+  const order = $derived(sort || DEFAULT_SORT);
+  const nc = $derived(!!hasNonCompliant);
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
-  const anyFilter = $derived(!!text);
+  const anyFilter = $derived(!!(text || nc || businessDomain));
 
   // Seeded once; the effect below keeps it in step with the URL.
   let textDraft = $state(untrack(() => text));
@@ -41,12 +45,12 @@
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
-  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, hasNonCompliant: nc || undefined, businessDomain: businessDomain || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
   // queryIdentity is the QUESTION (search + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived(`${text}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${nc}@@${businessDomain}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${order}`);
+  const listIdentity = $derived(`${text}@@${nc}@@${businessDomain}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -61,10 +65,23 @@
   const revalidating = $derived(view.revalidating);
   const total = $derived(list?.total ?? 0);
 
-  const pageHref = (off, lim) => fleetOwnersUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: sort || undefined });
-  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetOwnersUrl({ text: textDraft, sort: sort || undefined }); }
+  const urlWith = (patch, off = 0, lim = pageLimit) => fleetOwnersUrl({
+    text: (patch.text ?? text) || undefined, hasNonCompliant: patch.nc ?? nc, businessDomain: (patch.businessDomain ?? businessDomain) || undefined,
+    offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
+  });
+  const pageHref = (off, lim) => urlWith({}, off, lim);
+  const sortHref = (v) => urlWith({ sort: v === DEFAULT_SORT ? '' : v });
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = urlWith({ text: textDraft }); }
   function clearAll() { location.hash = fleetOwnersUrl(); }
-  const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
+  const chips = $derived([
+    text ? { key: 'text', label: 'Search', value: text } : null,
+    nc ? { key: 'nc', label: 'Has', value: 'a non-compliant service' } : null,
+    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomain } : null,
+  ].filter(Boolean));
+  function removeChip(key) { location.hash = urlWith({ [key]: key === 'nc' ? false : '' }); }
+  // An owner's non-compliant count is of the services it owns outright, so its link
+  // lists exactly those, as the rank figure's lanes do.
+  const ncHref = (ref) => fleetServicesUrl({ ownerKey: ref.key, ownership: 'consistent', status: 'NonCompliant' });
 
   // The ownership picture above the inventory.
   //
@@ -111,6 +128,13 @@
   // ask the exact question. With the free-text filter the count and its destination
   // disagree the moment one owner's key is a substring of another's.
   const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ ownerKey: o, ownership: 'consistent' })));
+  // Who owns the non-compliant services (B8): each owner's count lists exactly what it
+  // counts, its consistently owned non-compliant services; the remainder no owner can
+  // name lists under ownership=unidentified.
+  const rankHrefs = {
+    services: (o) => fleetServicesUrl(o ? { ownerKey: o, ownership: 'consistent', status: 'NonCompliant' } : { ownership: 'unidentified', status: 'NonCompliant' }),
+    groups: fleetOwnersUrl({ hasNonCompliant: true }),
+  };
   // The answer line: how much of the fleet has one clear owner, and what does not.
   const ownAnswer = $derived.by(() => {
     if (!agg || services === 0) return null;
@@ -125,10 +149,14 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
-  <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+  <PageHeader glyph="owner" title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
 
   {#if ownAnswer}
     <p class="page-answer t-body" data-testid="owners-answer"><strong>{ownAnswer.lead}</strong> {ownAnswer.rest}</p>
+  {/if}
+
+  {#if aggState.kind === 'ready' && (agg?.serviceCompliance?.nonCompliant ?? 0) > 0}
+    <LazyView load={loadRankFigure} kind="owner" aggregate={agg} hrefs={rankHrefs} meta={ownershipLoader.data?.meta} />
   {/if}
 
   <div class="ow-filters">
@@ -136,9 +164,12 @@
       <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
       <button type="submit" class="btn">Search</button>
     </form>
-    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first']]} href={(v) => fleetOwnersUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="owner-sort" />
+    <label class="ow-nc">
+      <input type="checkbox" checked={nc} onchange={(e) => { location.hash = urlWith({ nc: e.currentTarget.checked }); }} data-testid="owner-nc-filter" />
+      Only owners with a non-compliant service
+    </label>
   </div>
-  <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
+  <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
@@ -171,7 +202,7 @@
       />
       <details class="disclosure ow-sum-more">
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <span>Per-owner breakdown</span>
           <!-- The number names the population it counts: every canonical owner these
                services declare, disputed ones included — not the rows below, which
@@ -213,11 +244,7 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list pl-list pl-list--facts pl-list--owners" data-testid="owner-list">
-      {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}</span></EntityLink></li>
-      {/each}
-    </ul>
+    <GroupTable kind="owner" entities={list.entities} {order} {sortHref} {ncHref} testid="owner-list" />
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />
   {/if}
 </div>
@@ -234,7 +261,8 @@
   .ow-more-count { color: var(--c-text-3); }
   .ow-unidentified { margin: var(--sp-3) 0 0; color: var(--c-text-2); }
   .ow-sum-more[open] > .ow-sum-grid { margin-top: var(--sp-3); }
-  .ow-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
+  .ow-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+  .ow-nc { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
   .lv-search .input { flex: 1; }
   /* The Search control is the shared .btn, the search box the shared .input and the list,

@@ -1,13 +1,11 @@
 /* ─── Chartkit / Soft Depth tokens ─── */
 :root {
-  --chart-shadow: 0 4px 10px rgba(2,6,23,.35);
   --chart-radius: 6px;
   --c-ok-light: #6ee7b7;
   --c-warn-light: #fcd34d;
   --c-err-light: #fda4af;
 }
 [data-theme="light"] {
-  --chart-shadow: 0 4px 8px rgba(15,23,42,.14);
   --c-ok-light: #4ade80;
   --c-warn-light: #fbbf24;
   --c-err-light: #fb7185;
@@ -64,6 +62,28 @@
 .badge-definition { background: var(--c-neutral-bg); color: var(--c-text-2); }
 .badge-definition .badge-dot { background: var(--c-text-3); }
 
+/* C7: a badge, chip or pill never shrinks below its content, in a table cell too. The
+   container wraps or its column gets a min-width instead. C10: a sentence never sits in
+   a nowrap badge; it uses .badge.wrap. */
+.badge:not(.wrap), .pill {
+  flex-shrink: 0;
+  min-width: max-content;
+}
+.badge.wrap { white-space: normal; overflow-wrap: break-word; min-width: 0; }
+/* In a table cell a free-text badge wraps inside its column: a fixed-layout table
+   cannot widen a column for it, and at max-content it painted over the next one.
+   A status badge is a short fixed word and keeps its line. `break-word`, NOT
+   `anywhere`: once a word exceeds the column the two break alike, but `anywhere`
+   lets the word stop counting toward min-content, so an auto table layout could
+   squeeze the column to one character ("incompatibl"/"e"). */
+td .badge:not(.status-badge), td .pill { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: break-word; }
+
+/* The grey hatch (unknown, partial, hidden) on any HTML mark, with its solid edge. */
+.hatch {
+  background: var(--c-hatch), var(--c-surface);
+  box-shadow: inset 0 0 0 1px var(--c-neutral);
+}
+
 /* ─── Pill (small inline tag) ─── */
 .pill {
   display: inline-block;
@@ -75,35 +95,6 @@
   background: var(--c-neutral-bg);
   color: var(--c-text-3);
   transition: background var(--transition);
-}
-
-/* Pills/badges are nowrap by default, which is right inline. But inside a
-   fixed-layout table cell a long tag (e.g. a "backup-recovery" category) can't
-   shrink and — with the cell's overflow:visible — bleeds into the next column.
-   Inside any table cell, cap tags to the column and wrap (breaking a long word
-   if needed) so they can never overlap a neighbouring cell.
-
-   `break-word`, NOT `anywhere`: the two break identically once a word genuinely
-   exceeds the column, but `anywhere` also lets the word stop counting toward
-   min-content, so auto table layout is free to squeeze the column down to a
-   single character. That is how a "incompatible" verdict rendered as
-   "incompatibl"/"e" the moment the neighbouring headers grew -- a break with
-   room to spare, in a column the layout could have widened. */
-td .pill,
-td .badge {
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-
-/* Status badges are short, fixed labels (Compliant, Warning, Non-Compliant, …).
-   The wrap rule above is for long free-form tags (e.g. category names) and would
-   otherwise let a cramped table column break a status word mid-character
-   ("Complian"/"t"). Keep status badges intact. */
-td .badge.status-badge {
-  max-width: none;
-  white-space: nowrap;
-  overflow-wrap: normal;
 }
 
 /* ─── Button ─── */
@@ -129,10 +120,14 @@ td .badge.status-badge {
   border-color: var(--c-accent);
   color: var(--c-on-accent);
 }
-.btn-primary:hover { opacity: 0.9; border-color: var(--c-accent); }
+/* .btn:hover outranks .btn-primary, so the hover keeps the accent ground itself: without
+   it a hovered primary button put its on-accent text on --c-surface-hover (1.27:1 dark). */
+.btn-primary:hover { opacity: 0.9; background: var(--c-accent); border-color: var(--c-accent); }
 .btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
 /* A button that cannot be pressed yet looks it: a primary one too, so an empty required note reads as the reason. */
-.btn:disabled, .btn:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
+/* aria-disabled: a control that goes idle while it has focus keeps it (a native
+   disabled button drops focus to the body), so it looks the same and ignores the click. */
+.btn:disabled, .btn:disabled:hover, .btn[aria-disabled="true"], .btn[aria-disabled="true"]:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
 .btn-ghost {
   background: none;
   border: 1px solid transparent;
@@ -262,6 +257,24 @@ select {
    ProductEmptyState.svelte already read this way. */
 .state-box :is(h1, h2, h3) { color: var(--c-text-2); }
 .state-box p { max-width: 400px; line-height: var(--line-height); }
+
+/* The landing hero's plane: a 2:1 isometric grid (26.565deg is atan(1/2)) with an
+   accent glow, faded out by a radial mask. Decorative, on ::before so it is never in
+   the accessibility tree, behind the content (isolation keeps z-index: -1 inside the
+   box), and still: the backdrop is identity, not state, so it never moves. inset: 0
+   so it never bleeds past the content column on a narrow phone. axe reports text over
+   it as contrast "incomplete"; styles/isoContrast.test.ts is the check for that text. */
+.iso-backdrop { position: relative; isolation: isolate; }
+.iso-backdrop::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(40% 55% at var(--iso-at, 76% 55%), var(--c-iso-glow), transparent 70%),
+    repeating-linear-gradient(26.565deg, var(--c-iso-grid) 0 1px, transparent 1px 25px),
+    repeating-linear-gradient(-26.565deg, var(--c-iso-grid) 0 1px, transparent 1px 25px);
+  -webkit-mask: radial-gradient(60% 85% at var(--iso-at, 75% 50%), #000 20%, transparent 75%);
+  mask: radial-gradient(60% 85% at var(--iso-at, 75% 50%), #000 20%, transparent 75%);
+}
+.state-box.iso-backdrop { --iso-at: 50% 50%; }
 
 /* ─── Section heading ─── */
 .section {
@@ -497,6 +510,21 @@ tr.clickable:active { background: var(--c-surface-inset); }
     min-height: var(--touch-min);
   }
 }
+/* On a touch screen every control and every link outside running text is a 44px target
+   (SPEC 23, 24.4), whatever the window width: a tablet at 1366px is still a finger.
+   #app carries the weight, as in the navigation mockup, so a component's compact size
+   on a fine pointer never shrinks a target under a finger. Links inside sentences keep
+   their line (WCAG 2.5.8 exempts inline targets); a paragraph that is a row of links,
+   not a sentence, says so with .go. */
+@media (pointer: coarse) {
+  #app :is(button, select, input:not([type=checkbox], [type=radio], [type=hidden]), summary, [role=button]) { min-block-size: 44px; min-inline-size: 44px; }
+  #app :is(button, .btn) { align-items: center; justify-content: center; }
+  #app label:has(> input:is([type=checkbox], [type=radio])) { min-block-size: 44px; }
+  #app a[href]:not(:is(p:not(.go), figcaption, .t-meta, .lead, .dist-scope) a) { min-block-size: 44px; min-inline-size: 44px; }
+  /* A plain inline link takes a box so the size applies; a link a component already lays
+     out (block, flex, grid) keeps its own display, which this zero-specificity rule loses to. */
+  :where(#app a[href]):not(:where(p:not(.go), figcaption, .t-meta, .lead, .dist-scope) a) { display: inline-block; vertical-align: middle; padding-block: max(0px, (44px - 1lh) / 2); }
+}
 
 /* ─── Search-first discovery entry ─── */
 /* The shared visual language of a tab whose landing state is "search for one thing":
@@ -552,19 +580,27 @@ tr.clickable:active { background: var(--c-surface-inset); }
    summary was display:flex lost the native marker entirely, so it read as a dead label
    rather than something openable. One class, one caret, one behaviour. */
 .disclosure > summary {
-  display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
   cursor: pointer; min-height: var(--touch-min);
   font-size: var(--text-sm); color: var(--c-text-2);
 }
 .disclosure > summary::-webkit-details-marker { display: none; }
 .disclosure > summary:hover { color: var(--c-text); }
-.disclosure-caret { display: inline-block; flex-shrink: 0; }
+/* A square box with a drawn triangle: turned open, it keeps the same footprint. A text
+   glyph (the old U+25B8) came from a fallback font whose line box is taller than 1em,
+   so turned open it swung that box over the title beside it. */
+.disclosure-caret { display: inline-block; flex-shrink: 0; width: 1em; height: 1em; }
+.disclosure-caret::before {
+  content: ''; display: block; width: 0.5em; height: 0.6em; margin: 0.2em 0.25em;
+  background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%);
+  forced-color-adjust: none; /* forced colours would repaint the fill as Canvas */
+}
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
 /* A fold titled by a heading reads the same on every page (Fold.svelte's look): a plain
    sans title at body size, never a serif section title or italic, and the count or note
    after it pushed to the right. A collapsible PreviewSection is a section that folds,
    not a fold: its title keeps the section role's size (PreviewSection.svelte). */
-.disclosure:not(.ps-collapsible) > summary:has(> :is(h2, h3, h4)) { gap: var(--sp-2); color: var(--c-text); font-size: var(--text-base); }
+.disclosure:not(.ps-collapsible) > summary:has(> :is(h2, h3, h4)) { color: var(--c-text); font-size: var(--text-base); }
 .disclosure:not(.ps-collapsible) > summary > :is(h2, h3, h4) {
   margin: 0; font-family: var(--font-sans, inherit); font-size: var(--text-base); font-weight: 500;
   font-style: normal; letter-spacing: normal; text-transform: none; font-variant-caps: normal; color: var(--c-text);
@@ -758,8 +794,8 @@ button.detail-card-header {
    of a 50-row page behind a second scrollbar. The header sticks under the navbar instead.
    The frame clips (overflow: clip is not a scroll container, so the sticky header still
    follows the page) and is positioned, so an absolutely positioned visually-hidden label
-   in a cell stays inside it rather than stretching the document. Under 768px each row
-   becomes a card of label and value pairs, read from data-label. */
+   in a cell stays inside it rather than stretching the document. In a narrow frame each
+   row becomes a card of label and value pairs, read from data-label (below). */
 .data-scroll {
   position: relative; overflow: clip;
   border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface);
@@ -775,12 +811,30 @@ button.detail-card-header {
 .cell-clip:focus-visible, .cell-clip:focus-within { white-space: normal; overflow-wrap: anywhere; }
 .cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
 .cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
-@media (max-width: 768px) {
-  .data-scroll { border: none; background: none; }
+/* The narrow form (SPEC T2, 24.2): every data table becomes stacked cards, one per row,
+   by the width it gets and not the window's, so the sidebar and split views count. The
+   frame (.data-scroll) is the container and keeps its border; the cards inside it are
+   divided by a rule. 48rem is where a table's fixed columns stop fitting; a table with
+   more of them opts into the wider .cq-cards threshold. */
+.data-scroll { container: dtable / inline-size; }
+.cq-cards { container: dtable-wide / inline-size; }
+.data-scroll.cq-cards { container-name: dtable dtable-wide; }
+@container dtable (max-width: 48rem) {
   .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
   .data-table colgroup { display: none; }
   .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .data-table tr { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); margin-bottom: var(--sp-2); padding: var(--sp-2) 0; }
+  .data-table tr { padding: var(--sp-2) 0; }
+  .data-table tr + tr { border-top: 1px solid var(--c-border); }
+  .data-table td, .data-table tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
+  .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  .data-table td:empty { display: none; }
+}
+@container dtable-wide (max-width: 56rem) {
+  .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
+  .data-table colgroup { display: none; }
+  .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .data-table tr { padding: var(--sp-2) 0; }
+  .data-table tr + tr { border-top: 1px solid var(--c-border); }
   .data-table td, .data-table tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
   .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
   .data-table td:empty { display: none; }
@@ -818,10 +872,6 @@ button.detail-card-header {
   grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 10rem) minmax(0, 12rem) 8rem;
   grid-template-areas: "name status ctx owner num";
 }
-.pl-list.pl-list--owners .pl-row > .entity-link:only-child {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) 8rem;
-  grid-template-areas: "name ctx num";
-}
 /* A domain row: the name, then its service and target counts at their own width. */
 .pl-list.pl-list--domains .pl-row > .entity-link:only-child {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -838,15 +888,11 @@ button.detail-card-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "name status" "owner num" "ctx ctx";
   }
-  .pl-list.pl-list--owners .pl-row > .entity-link:only-child {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name num" "ctx ctx";
-  }
   .pl-list.pl-list--domains .pl-row > .entity-link:only-child {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "name" "num";
   }
-  .pl-list.pl-list--domains .pl-num { text-align: left; }
+  .pl-list.pl-list--domains .pl-num { text-align: left; white-space: normal; }
 }
 
 /* The one-line answer under a page title: each page answers its question first, in

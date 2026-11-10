@@ -46,17 +46,21 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned)")
+	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
+	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
-	f.String("created-from", "", "services created from this golden path, by key")
-	f.String("sort", "", "order: name, health (least healthy first) or services (owners with the most services first)")
+	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
+	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)")
+	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
+	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
-	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned))
+	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices))
+	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated))
 	return cmd
 }
 
@@ -104,6 +108,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	nc, _ := cmd.Flags().GetBool("has-non-compliant")
 	kinds := fleet.ProductKinds()
 	if k := get("kind"); k != "" {
 		kinds = []string{k}
@@ -116,8 +121,9 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	}
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
-		Template: get("template"), CreatedFrom: get("created-from"), Limit: limit, Offset: offset,
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Template: get("template"), CreatedFrom: get("created-from"),
+		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
 	}
 }
 
@@ -238,9 +244,63 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
 		}
+		printNonCompliantRanking(w, &res.Aggregate)
+		printOriginRanking(w, &res.Aggregate.Origins)
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+// printNonCompliantRanking renders who owns the matched non-compliant services and
+// which domains hold them, the rows and counts summing to every one of them.
+func printNonCompliantRanking(w io.Writer, a *fleet.EntityAggregate) {
+	total := a.ServiceCompliance.NonCompliant
+	if total == 0 {
+		return
+	}
+	parts := make([]string, 0, len(a.NonCompliantByOwner)+2)
+	for _, o := range a.NonCompliantByOwner {
+		parts = append(parts, fmt.Sprintf("%s %d of %d", o.Key, o.NonCompliant, o.Services))
+	}
+	parts = appendCount(parts, a.NonCompliantBeyondRanking, "with other owners")
+	parts = appendCount(parts, a.NonCompliantUnidentified, "with no identified owner")
+	_, _ = fmt.Fprintf(w, "Non-compliant services by owner (%d): %s\n", total, strings.Join(parts, ", "))
+	parts = parts[:0]
+	for _, d := range a.NonCompliantByDomain {
+		parts = append(parts, fmt.Sprintf("%s %d of %d", d.Domain, d.NonCompliant, d.Services))
+	}
+	parts = appendCount(parts, a.NonCompliantDomainsBeyond, "in other domains")
+	parts = appendCount(parts, a.NonCompliantNoDomain, "with no domain")
+	parts = appendCount(parts, a.NonCompliantDomainUnknown, "whose domain is unknown")
+	_, _ = fmt.Fprintf(w, "Non-compliant services by domain (%d): %s\n", total, strings.Join(parts, ", "))
+}
+
+// printOriginRanking renders which golden paths created the matched services,
+// the rows and counts summing to every one of them; hidden services are counted
+// apart and never named.
+func printOriginRanking(w io.Writer, o *fleet.OriginTally) {
+	if len(o.ByPath) == 0 && o.Unresolved.Services == 0 && o.Hidden == 0 {
+		return
+	}
+	parts := make([]string, 0, len(o.ByPath)+3)
+	for _, p := range o.ByPath {
+		parts = append(parts, fmt.Sprintf("%s %d (%d non-compliant)", p.Key, p.Services, p.NonCompliant))
+	}
+	parts = appendCount(parts, o.Beyond.Services, "from other golden paths")
+	parts = appendCount(parts, o.Unresolved.Services, "from an origin that resolves to no golden path")
+	parts = appendCount(parts, o.None.Services, "with no declared origin")
+	_, _ = fmt.Fprintf(w, "Services by golden path: %s\n", strings.Join(parts, ", "))
+	if o.Hidden > 0 {
+		_, _ = fmt.Fprintf(w, "Plus %d created from a golden path and hidden by your permissions\n", o.Hidden)
+	}
+}
+
+// appendCount adds "N words" when N is not zero.
+func appendCount(parts []string, n int, words string) []string {
+	if n == 0 {
+		return parts
+	}
+	return append(parts, fmt.Sprintf("%d %s", n, words))
 }
 
 func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string) error {
@@ -254,6 +314,10 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
+			printDependents(w, res.Service)
+		}
+		if res.Revision != nil {
+			printRevisionPlace(w, res.Revision)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
@@ -477,6 +541,43 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	}
 	if uses.Truncated {
 		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
+	}
+	r := uses.Range
+	_, _ = fmt.Fprintf(w, "  range of all %d: %d satisfied, %d unsatisfied, %d unknown, %d not checked\n", uses.Total, r.Satisfied, r.Unsatisfied, r.Unknown, r.None)
+	if p := uses.Phases; p != (fleet.PhaseTally{}) {
+		_, _ = fmt.Fprintf(w, "  provisioning requests: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
+			p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
+		c := uses.PhaseConsumers
+		_, _ = fmt.Fprintf(w, "  consumers by phase: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
+			c.Requested, c.Provisioning, c.Ready, c.Failed, c.Deleting, c.Unknown)
+	}
+}
+
+// printRevisionPlace renders where a revision stands in its service, how many
+// of the service's targets run it and which sources report about it.
+func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
+	current := ""
+	if r.Current {
+		current = ", current"
+	}
+	_, _ = fmt.Fprintf(w, "Position: %d of %d revisions, newest first%s\n", r.Position, r.Revisions, current)
+	_, _ = fmt.Fprintf(w, "Targets: %d of the service's %d run this revision (%d exact, %d inferred)\n",
+		r.ExactTargets.Total+r.InferredTargets.Total, r.ServiceTargets, r.ExactTargets.Total, r.InferredTargets.Total)
+	c := r.EvidenceSourceCounts
+	_, _ = fmt.Fprintf(w, "Evidence sources: %d (%d available, %d partial, %d stale, %d unavailable)\n", c.Total, c.Available, c.Partial, c.Stale, c.Unavailable)
+}
+
+// printDependents renders how many services depend on this one, by status,
+// and how many the caller's permissions hide.
+func printDependents(w io.Writer, d *fleet.ServiceDetailData) {
+	if d.Dependents.Total == 0 && d.HiddenDependents == 0 {
+		return
+	}
+	t := d.DependentsStatus
+	_, _ = fmt.Fprintf(w, "Dependents: %d (%d compliant, %d non-compliant, %d unknown, %d other)\n",
+		d.Dependents.Total, t.Compliant, t.NonCompliant, t.Unknown, t.Total()-t.Compliant-t.NonCompliant-t.Unknown)
+	if d.HiddenDependents > 0 {
+		_, _ = fmt.Fprintf(w, "%d dependents you may not see\n", d.HiddenDependents)
 	}
 }
 

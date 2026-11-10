@@ -13,6 +13,8 @@
   import LimitationsSection from '../../components/LimitationsSection.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
+  import { inService } from '../../lib/identityContext.ts';
+  import TargetFigure from '../../components/figure/TargetFigure.svelte';
 
   // The deployment/target page. It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -59,6 +61,8 @@
       <IdentityBadge label={retrievabilityLabel(id.identityClass, id.retrievable)} tone={retrievabilityTone(id.identityClass, id.retrievable)} />
     </div>
   </section>
+
+  <TargetFigure target={d} status={detail.status ?? ''} revisionLabel={authoritativeRevision ? (inService(authoritativeRevision, d.service?.label ?? '').label ?? authoritativeRevision.key) : ''} />
 
   {#if authoritativeRevision}
     <div class="te-rev">

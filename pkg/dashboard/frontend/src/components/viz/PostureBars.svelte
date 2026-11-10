@@ -25,6 +25,9 @@
     summary = {},
     level = 3,
     attentionUrl = null,
+    // false where a figure on the page already draws compliance (owner and domain
+    // pages): one carrier per fact (SPEC L3).
+    compliance: showCompliance = true,
     empty = 'Nothing running has been observed here yet, so there is no compliance, identity or freshness picture.',
   } = $props();
 
@@ -52,6 +55,7 @@
 
 {#if targets > 0}
   <div class="pb-dists">
+    {#if showCompliance}
     <DistributionBar
       title="Compliance"
       {level}
@@ -59,6 +63,7 @@
       segments={compliance}
       total={targets}
     />
+    {/if}
     <DistributionBar
       title="Revision-match certainty"
       {level}

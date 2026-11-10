@@ -78,6 +78,7 @@
   // The element the spotlight is currently on. Kept so the tour scrolls a target into
   // view when it CHANGES rather than on every frame, which would fight the reader.
   var lastTarget = null;
+  var lastDocTop = 0;
 
   // ---- the guided tour -------------------------------------------------------
 
@@ -257,10 +258,15 @@
     raf = window.requestAnimationFrame(tick);
     var s = TOUR[step];
     var t = resolve(s.target);
-    if (t !== lastTarget) {
+    // The target's place in the DOCUMENT moves only when the page above it reflows (a
+    // figure that loads late), never when the reader scrolls, so a move there is the
+    // one other time the tour may bring it back into view.
+    var docTop = t ? t.getBoundingClientRect().top + window.scrollY : 0;
+    if (t !== lastTarget || Math.abs(docTop - lastDocTop) > 1) {
       lastTarget = t;
-      if (t) { ensureVisible(t); }
+      if (t) { ensureVisible(t); docTop = t.getBoundingClientRect().top + window.scrollY; }
     }
+    lastDocTop = docTop;
     place(t);
     if (!s.gate) { return; }
     var now = Date.now();

@@ -79,7 +79,7 @@ func impactWithRes(t *testing.T, q *fleet.Query, res *impact.Result, limit, offs
 		t.Fatal(err)
 	}
 	rev := v.Revisions[0]
-	return toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset))
+	return toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset, ""))
 }
 
 // adversarialImpactResult builds an impact result whose every list is above its
@@ -276,3 +276,24 @@ func TestProductImpact_RejectsNegativePaging(t *testing.T) {
 // target whose logical service record is missing carries no owner block, and the
 // transport must pass that absence through rather than emit an empty owner, which
 // would read as "nobody owns this" instead of "we do not know".
+
+// TestProductImpact_OutcomeFilter: a lane's "List all N" lands on a page of that
+// outcome whose matching count is N, while the figure's tallies stay whole; an
+// outcome the engine does not know is rejected.
+func TestProductImpact_OutcomeFilter(t *testing.T) {
+	q := twoDomainDashboardQuery(t)
+	from := revKeyForDomain(t, q, "domain-a")
+	res := &impact.Result{SnapshotID: q.SnapshotID(), Consumers: []impact.AffectedConsumer{
+		{Service: "a", CompatibilityVerdict: impact.CompatibilityCompatible},
+		{Service: "b", CompatibilityVerdict: impact.CompatibilityIncompatible},
+		{Service: "c", CompatibilityVerdict: impact.CompatibilityUnknown},
+	}}
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, staticImpact(res))
+	defer cancel()
+	var out ProductImpact
+	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: q.SnapshotID(), FromRevisionKey: from, ToRevisionKey: from, Outcome: impact.OutcomeUnknown}, http.StatusOK, &out)
+	if c := out.Consumers; c.Matching != 1 || c.Total != 3 || len(c.Items) != 1 || c.Items[0].CompatibilityVerdict != impact.CompatibilityUnknown || c.Outcome != impact.OutcomeUnknown {
+		t.Errorf("unknown page = matching %d, total %d, items %+v", c.Matching, c.Total, c.Items)
+	}
+	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: q.SnapshotID(), FromRevisionKey: from, ToRevisionKey: from, Outcome: "refused"}, http.StatusUnprocessableEntity, nil)
+}

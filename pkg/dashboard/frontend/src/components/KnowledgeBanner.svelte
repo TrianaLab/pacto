@@ -18,7 +18,8 @@
   // how many OTHER sources are behind it.
   // sources, when given, names the sources behind the caveat ("edge-cluster and
   // registry-mirror"); tone overrides the colour a page wants for it (the overview
-  // keeps it a caution: the answer above it already says what is broken).
+  // keeps an unavailable source a caution: the answer above it already says what is
+  // broken). Partial and unknown knowledge are the neutral hatch, never a status tone.
   let { knowledge = {}, noun = 'view', testid = undefined, sources = [], tone = '' } = $props();
 
   const names = $derived.by(() => {
@@ -50,4 +51,10 @@
     background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
   }
   .knowledge.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
+  /* The unknown family: a neutral box with the hatch as a band on its leading edge, so
+     the pattern never sits under the words. */
+  .knowledge.tone-neutral {
+    background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg);
+    border-color: var(--c-neutral); padding-inline-start: calc(var(--sp-3) + 6px);
+  }
 </style>

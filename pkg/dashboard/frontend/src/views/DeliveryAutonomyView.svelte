@@ -18,20 +18,23 @@
   import ProposePanel from '../components/ProposePanel.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import AutonomyFigure from '../components/figure/AutonomyFigure.svelte';
 
   // How far each Stage runs on its own, what Pacto proposes next and what
   // stands in the way. The page only reads: a level moves through a proposed
   // operation a second person approves, and a fix is something to copy and run.
   // Stages and blockers page on the server, each with its place in the URL.
-  let { offset = '', limit = '', q = '', blockers: blockersAt = '', refreshTick = 0, miraURL = '' } = $props();
+  let { offset = '', limit = '', q = '', blockers: blockersAt = '', level = '', refreshTick = 0, miraURL = '' } = $props();
 
-  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt) });
+  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt), level });
   const loader = createProductLoader(() => api.deliveryAutonomy({
     offset: query.offset || undefined, limit: query.limit || undefined, q: q || undefined, blockers: query.blockers || undefined,
+    // The router passes any string; the server refuses a level it does not know.
+    level: /** @type {any} */ (level || undefined),
   }));
   const question = $derived(JSON.stringify(query));
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(q);
+  const listQuestion = $derived(`${q}@@${level}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -114,6 +117,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} href={(l) => deliveryAutonomyUrl({ q, level: l })} />{/if}
 
     <dl class="au-metrics">
       <div class="au-metric" data-testid="autonomy-contracted">
@@ -126,6 +130,8 @@
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
       </div>
+      <!-- With the figure drawn, its aside is the one carrier of who approved the promotions. -->
+      {#if !data.byLevel?.some((l) => l.stages)}
       <div class="au-metric" data-testid="autonomy-promotions">
         <dt>Promotions without a person <HelpTip label="this count" text="Counted over the last 20 operations per environment." /></dt>
         {#if promotions.of}
@@ -139,6 +145,7 @@
           <dd class="t-body-2">No promotion succeeded in the last 20 operations per environment.</dd>
         {/if}
       </div>
+      {/if}
     </dl>
 
     <section aria-labelledby="au-blockers">
@@ -167,9 +174,9 @@
                   <li class="au-blocker">
                     <details class="disclosure">
                       <summary class="au-row">
-                        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
                         <!-- Plain text, not a link: a link inside a summary is a control inside a control. The link is in the detail. -->
-                        {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}<span class="au-subject cell-clip">{b.stages?.length ? `${countOf(b.stages.length, 'Stage')}` : 'Every Stage'}</span>{/if}
+                        {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}{@const every = b.stages?.length ? countOf(b.stages.length, 'Stage') : 'Every Stage'}<span class="au-subject cell-clip" title={every}>{every}</span>{/if}
                         <span class="t-meta au-count">{#if !b.subject}{:else if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
                         <!-- The subject is printed just before, so the reason drops it rather than repeating it. -->
                         <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(blockerReason(b.message, b.subject)) : ''}</span>
@@ -198,8 +205,9 @@
     </section>
     <section aria-labelledby="au-stages">
       <h2 id="au-stages" class="t-section-title">Each Stage</h2>
+      {#if level}<p class="t-meta" data-testid="autonomy-level">Only the Stages {level === 'none' ? 'that report no level' : `on ${levelLabel(level)}`}. <a href={deliveryAutonomyUrl({ q })}>Show every Stage</a></p>{/if}
       {#if stages.length === 0}
-        <p class="t-body-2" data-testid="autonomy-empty">{q ? `No Stage you can see matches “${q}”.` : `No Stage exists ${data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}.`}</p>
+        <p class="t-body-2" data-testid="autonomy-empty">{q ? `No Stage you can see matches “${q}”${level ? ' on this level' : ''}.` : level ? 'No Stage you can see is on this level.' : `No Stage exists ${data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}.`}</p>
       {:else}
         <div class="data-scroll">
           <table class="data-table au-table" data-testid="autonomy-stages">
@@ -245,6 +253,8 @@
 </div>
 
 <style>
+  /* The service link sits in words ("checkout in prod"), so it is underlined (axe link-in-text-block). */
+  .au-table tbody th a { text-decoration: underline; }
   .au-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--sp-3); margin: 0; }
   .au-metric { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); }
   .au-metric dt { color: var(--c-text-3); font-size: var(--text-sm); font-weight: 600; }

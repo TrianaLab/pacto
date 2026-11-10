@@ -203,7 +203,8 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     // this file exists to prevent. The denominator is 25,000 and the legend adds up
     // to it, on a screen showing 25 services.
     await expect(page.getByText('All 25,000 services in the snapshot.').first()).toBeVisible();
-    await expect(page.getByText('(25% of 25,000)').first()).toBeVisible();
+    await expect(page.locator('[data-testid="posture-figure"] figcaption')).toContainText('All 25,000 services:');
+    await expect(page.locator('[data-testid="posture-figure"] .prow-n', { hasText: '· 25%' }).first()).toBeVisible();
     // And the per-owner ranking says how much of the population it leaves out, rather
     // than reading as a complete breakdown of 900 owners.
     await page.locator('.sv-inv-more summary').click();

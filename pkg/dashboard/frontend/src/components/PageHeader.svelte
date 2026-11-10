@@ -4,6 +4,8 @@
   import { identityContext, primaryLabel } from '../lib/identityContext.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
+  import Glyph from './figure/Glyph.svelte';
+  import { KIND_GLYPH } from '../lib/figure.ts';
 
   // The ONE page/entity header in the product.
   //
@@ -55,11 +57,19 @@
     // A page turn in flight: the rows on screen are the page being left, so the line
     // says the next one is coming rather than that the data is being re-checked.
     paging = false,
+    // The landing hero's isometric grid behind the header (.iso-backdrop). Identity,
+    // so only a page whose answer is on screen passes it: a loading or failed page
+    // stays plain.
+    backdrop = false,
+    // The kind glyph beside the title (SPEC 3, Glyph): an entity page's own kind, or the
+    // kind a list page lists. Decoration: the eyebrow and title name it in words.
+    glyph = '',
     children,
   } = $props();
 
   const heading = $derived(title || primaryLabel(ref));
   const shownKind = $derived(kind || ref?.kind || '');
+  const glyphKind = $derived(glyph || (shownKind in KIND_GLYPH ? shownKind : ''));
   const context = $derived(ref ? identityContext(ref) : []);
   const shownStatus = $derived(status || ref?.status || '');
   // Reads `revalidating` too, so the age recomputes each poll instead of freezing at
@@ -67,15 +77,16 @@
   const age = $derived(revalidating ? '' : formatRelative(asOf));
 </script>
 
-<header class="page-hd">
+<header class="page-hd" class:iso-backdrop={backdrop}>
   {#if shownKind || eyebrow || context.length}
     <p class="page-hd-eyebrow t-label">
       {#if eyebrow}{eyebrow}{:else if shownKind}{kindLabel(shownKind)}{/if}
-      {#each context as bit}<span class="page-hd-dot" aria-hidden="true">·</span><span class="page-hd-ctx" title={abbreviateDigests(bit) === bit ? undefined : bit}>{abbreviateDigests(bit)}</span>{/each}
+      {#each context as bit}<span class="page-hd-dot" aria-hidden="true">·</span><span class="page-hd-ctx" title={abbreviateDigests(bit) === bit ? undefined : bit}><bdi data-format={abbreviateDigests(bit) === bit ? undefined : "short"}>{abbreviateDigests(bit)}</bdi></span>{/each}
     </p>
   {/if}
 
   <div class="page-hd-title-row">
+    {#if glyphKind}<span class="page-hd-glyph"><Glyph kind={glyphKind} size="md" /></span>{/if}
     <h1 class="t-page-title" data-testid="page-title">{#if titlePrefix}<span class="visually-hidden">{`${titlePrefix}: `}</span>{/if}{heading}</h1>
     {#if showStatus && shownStatus}
       <EntityStatusBadge kind={shownKind} status={shownStatus} />
@@ -107,11 +118,12 @@
      section: the header owns a generous bottom gap and nothing
      else on the page is allowed to sit that far apart. */
   .page-hd { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-  .page-hd-eyebrow { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+  .page-hd-eyebrow { margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .page-hd-dot { color: var(--c-text-3); }
   .page-hd-ctx { text-transform: none; letter-spacing: normal; overflow-wrap: anywhere; }
   .page-hd-title-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .page-hd-title-row :global(h1) { margin: 0; }
+  .page-hd-glyph { display: inline-flex; color: var(--c-text-2); }
   .page-hd-count { font-variant-numeric: tabular-nums; }
   .page-hd-sub { margin: 0; max-width: 72ch; overflow-wrap: anywhere; }
   /* Tint only: the word swaps between "Checking for changes" and an age on every poll,

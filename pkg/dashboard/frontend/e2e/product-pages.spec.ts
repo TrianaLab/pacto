@@ -125,7 +125,7 @@ test.describe('WASM demo — product pages', () => {
     // Exact: the ownership summary's own heading starts with "Ownership", which a
     // substring name match reads as this page's title too.
     await expect(page.getByRole('heading', { name: 'Owners', exact: true })).toBeVisible({ timeout: T });
-    const owner = page.locator('.lv-item a.entity-link').first();
+    const owner = page.locator('[data-testid="owner-list"] a.entity-link').first();
     await expect(owner).toBeVisible({ timeout: T });
     await owner.click();
     await expect(page).toHaveURL(/#\/fleet\/owners\//);
@@ -153,13 +153,13 @@ test.describe('WASM demo — product pages', () => {
     await expect(page).toHaveURL(/#\/fleet\/(services|revisions|targets)\//);
   });
 
-  test('L19: entity breadcrumbs navigate (service page -> Services list)', async ({ page }) => {
+  test('L19: entity breadcrumbs navigate (service page -> Domains list)', async ({ page }) => {
     await boot(page);
     await openPaymentsService(page);
-    // The breadcrumb trail is Overview > Services > <service>; clicking Services returns.
-    await page.getByRole('navigation').getByRole('link', { name: 'Services' }).first().click();
-    await expect(page).toHaveURL(/#\/fleet\/services$/);
-    await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
+    // The breadcrumb trail is Overview > Domains > payments > <service>; clicking Domains returns.
+    await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Domains' }).click();
+    await expect(page).toHaveURL(/#\/fleet\/domains$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Domains' })).toBeVisible({ timeout: T });
   });
 
   // Progressive disclosure hides the expert identifier by DEFAULT; it must not remove it.

@@ -220,6 +220,19 @@
       el.appendChild(close);
       // First in the body, so it sits above the dashboard rather than over it.
       document.body.insertBefore(el, document.body.firstChild);
+      // The dashboard's sidebar runs the window height under its top bar. While this band
+      // is on screen above the bar the sidebar starts that much lower, so it takes the
+      // band's visible height off its own (--shell-top-inset) and still ends at the
+      // window bottom at scroll top.
+      function inset() {
+        var b = el.hidden ? 0 : Math.max(0, el.getBoundingClientRect().bottom);
+        document.documentElement.style.setProperty("--shell-top-inset", Math.round(b) + "px");
+      }
+      window.addEventListener("scroll", inset, { passive: true });
+      window.addEventListener("resize", inset);
+      if (window.ResizeObserver) { new window.ResizeObserver(inset).observe(el); }
+      close.addEventListener("click", inset);
+      inset();
       // The tour bubble floats, so the page reserves its height; observed rather than
       // measured once, because each step's text wraps to a different number of lines.
       if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); }

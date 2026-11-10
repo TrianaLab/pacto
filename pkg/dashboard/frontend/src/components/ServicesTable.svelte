@@ -85,7 +85,7 @@
         {#each paged.items as svc (svc.name)}
           <tr class="clickable" onclick={() => (location.hash = serviceUrl(svc.name))}>
             <td data-label="Name">
-              <a href={serviceUrl(svc.name)} class="svc-name" title={svc.name}>{svc.name}</a>
+              <a href={serviceUrl(svc.name)} class="svc-name" title={svc.name}><bdi>{svc.name}</bdi></a>
               <span class="svc-owner"><OwnerLink owner={svc.owner} /></span>
             </td>
             <td data-label="Version">

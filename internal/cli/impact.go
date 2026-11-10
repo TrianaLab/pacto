@@ -137,6 +137,12 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 			}
 		}
 
+		if len(result.ConsumerTallies.ByOutcome) > 0 && len(result.Consumers) > 0 {
+			_, _ = fmt.Fprintf(w, "By outcome: %s\n", result.ConsumerTallies.OutcomeSummary())
+		}
+		if len(result.ConsumerTallies.ByOwner) > 0 {
+			_, _ = fmt.Fprintf(w, "Most affected owners: %s\n", result.ConsumerTallies.OwnerSummary())
+		}
 		if len(result.ActiveTargets) > 0 {
 			_, _ = fmt.Fprintf(w, "Active targets (%d): %v\n", len(result.ActiveTargets), result.ActiveTargets)
 		}

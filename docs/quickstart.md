@@ -154,6 +154,8 @@ Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=orders
   reporting                    direct     confidence=contractual  compat=compatible   owner=orders
     note: the range >=1.0.0 has no upper bound, so compatible only means the range >=1.0.0 accepts 2.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
+By outcome: 1 incompatible, 0 unknown, 1 compatible
+Most affected owners: my-team 2 (1 incompatible)
 Release gate: unverified
 unverified: the change is BREAKING and 2 consumers depend on my-service, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```

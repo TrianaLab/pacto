@@ -21,6 +21,7 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
       services: async () => [],
       refresh: async () => ({}),
       fleetOverview: () => fns.overview(),
+      fleetEntities: () => new Promise(() => {}),
     },
   };
 });

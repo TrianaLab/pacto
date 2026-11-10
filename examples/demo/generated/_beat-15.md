@@ -19,6 +19,8 @@ Affected consumers (7):
   support-assistant            transitive confidence=inferred     compat=unknown      owner=support-team
   ticketing-service            transitive confidence=inferred     compat=unknown      owner=support-team
   warehouse-scanner            direct     confidence=contractual  compat=incompatible owner=logistics-team
+By outcome: 5 incompatible, 2 unknown, 0 compatible
+Most affected owners: catalog-team 2 (2 incompatible), logistics-team 2 (2 incompatible), frontend-team 1 (1 incompatible), support-team 2
 Release gate: unverified
 unverified: the change is BREAKING and 7 consumers depend on inventory-service, but none is shown to be both incompatible and running. inventory-service 3.0.0 does not meet a guarantee required by fulfillment-service, pricing-service. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```

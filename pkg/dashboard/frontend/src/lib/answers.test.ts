@@ -13,6 +13,14 @@ describe('postureAnswer', () => {
   it('treats unknown compliance as not proven', () => {
     expect(postureAnswer({ targets: 2, compliance: { compliant: 1, unknown: 1 } }).rest).toBe('1 running target has unknown compliance.');
   });
+  // SPEC 2.2: unknown is neutral everywhere. An answer whose only concerns are open
+  // questions, or a snapshot that is merely incomplete, is never toned warn.
+  it('tones open questions and incomplete knowledge neutral, never warn', () => {
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 1, unknown: 1 } }).tone).toBe('neutral');
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 2 }, evidence: { withoutEvidence: 1 } }).tone).toBe('neutral');
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 2 } }, true).tone).toBe('neutral');
+    expect(postureAnswer({ targets: 2, compliance: { unknown: 1, compliant: 1 }, evidence: { stale: 1 } }).tone).toBe('warn');
+  });
   it('names an ownership conflict and unmatched revisions instead of saying nothing is broken', () => {
     expect(postureAnswer({ targets: 1, revisions: 3, revisionsInUse: 0, compliance: { unknown: 1 } }, true, 2)).toEqual({
       tone: 'warn',

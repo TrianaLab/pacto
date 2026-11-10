@@ -594,3 +594,34 @@ func TestRenderExplainGuaranteesEpochAndRequires(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderImpactTallies(t *testing.T) {
+	r := &impact.Result{Service: "s", Classification: "BREAKING", Gate: impact.GateBlocked,
+		Consumers: []impact.AffectedConsumer{{Service: "a", CompatibilityVerdict: impact.CompatibilityIncompatible}},
+		ConsumerTallies: impact.ConsumerTallies{
+			ByOutcome:     []impact.TallyBucket{{Key: impact.OutcomeIncompatible, Count: 1}, {Key: impact.OutcomeUnknown}, {Key: impact.OutcomeCompatible, Count: 6}, {Key: impact.OutcomeUnclassified}},
+			ByOwner:       []impact.OwnerTally{{Owner: "team-a", Consumers: 1, Incompatible: 1}, {Owner: "team-b", Consumers: 2}},
+			BeyondRanking: 3, NoOwner: 1, Owners: 4,
+		}}
+	got := renderImpact(r)
+	for _, want := range []string{
+		"  1 incompatible, 0 unknown, 6 compatible\n",
+		"Most affected owners",
+		"team-a 1 (1 incompatible), team-b 2; 3 more of other owners; 1 with no identified owner",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "unclassified") {
+		t.Errorf("an empty unclassified bucket is not printed:\n%s", got)
+	}
+	r.ConsumerTallies.ByOutcome[3].Count = 2
+	r.ConsumerTallies.BeyondRanking, r.ConsumerTallies.NoOwner = 1, 2
+	got = renderImpact(r)
+	for _, want := range []string{"2 unclassified", "1 more of other owners", "2 with no identified owner"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}

@@ -1,13 +1,16 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -26,13 +29,17 @@ func TestPageOf(t *testing.T) {
 	expect(t, len(items) == 5 && p.Limit == maxPage, "a limit is capped: %+v", p)
 }
 
-func TestSortEnvironments(t *testing.T) {
-	envs := []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"}
-	sortEnvironments(envs)
-	expect(t, strings.Join(envs, ",") == "Development,test,staging,preprod,prod-eu,prod-us,a1,a1b,env-02,env-2,env-10", "the way changes travel: %v", envs)
-	_, tier := envRank("PROD")
-	_, none := envRank("books")
-	expect(t, tier == "prod" && none == "", "tiers: %q %q", tier, none)
+// Names give a tier label only; with no declared upstream they order by name,
+// numbers in number order, never prod after test because of the words (SPEC 21).
+func TestEnvironmentsListedNeverOrderByTier(t *testing.T) {
+	var stages []delivery.StageObject
+	for _, e := range []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"} {
+		stages = append(stages, stage(e, "x", "x", delivery.StageStatus{}))
+	}
+	envs, tiers := environmentsListed(stages)
+	expect(t, strings.Join(envs, ",") == "Development,a1,a1b,env-02,env-2,env-10,preprod,prod-eu,prod-us,staging,test", "name order: %v", envs)
+	expect(t, tiers["preprod"] == "test" && tiers["Development"] == "dev" && tiers["a1"] == "", "inferred tiers: %v", tiers)
+	expect(t, envTier("PROD") == "prod" && envTier("books") == "", "tiers by name")
 }
 
 func TestMatches(t *testing.T) {
@@ -83,6 +90,12 @@ func TestUndoneBy(t *testing.T) {
 
 func page(v any) map[string]any { return v.(map[string]any) }
 
+// needs is a board answer's failed, frozen and waiting counts.
+func needs(envs map[string]any) string {
+	c := page(envs["counts"])
+	return fmt.Sprint(c["failed"], c["frozen"], c["waiting"])
+}
+
 // The environments board pages services on the server, keeps every column on
 // every page and filters with q, environment and tier.
 func TestDeliveryEnvironmentsPage(t *testing.T) {
@@ -94,8 +107,12 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	expect(t, p["total"] == float64(3) && p["offset"] == float64(1) && p["nextOffset"] == float64(2), "services are paged: %v", p)
 	rows := envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan", "only the page's Stages: %v", rows)
-	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "every column on every page, prod before names it cannot place: %v", envs["environmentNames"])
-	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:0 frozen:3 waiting:1]", "the counts are over every page: %v", envs["counts"])
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "books,other,prod", "every column on every page, by name when no Stage declares an upstream: %v", envs["environmentNames"])
+	expect(t, needs(envs) == "0 3 1", "the counts are over every page: %v", envs["counts"])
+	f.stages[1].Status.Pointer = dNext // ledger runs the digest that failed there
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?limit=1", nil)
+	expect(t, needs(envs) == "1 3 1", "a Stage running a failed digest counts as failed: %v", envs["counts"])
+	f.stages[1].Status.Pointer = ""
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
 
@@ -103,7 +120,7 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?environment=other", nil)
 	rows = envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan" && page(envs["page"])["total"] == float64(1), "only services with a Stage there: %v", envs)
-	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "the columns to pick from stay: %v", envs["environmentNames"])
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "books,other,prod", "the columns to pick from stay: %v", envs["environmentNames"])
 	expect(t, fmt.Sprint(envs["environmentTiers"]) == "map[prod:prod]", "the tiers names say: %v", envs["environmentTiers"])
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?tier=prod", nil)
 	rows = envs["environments"].([]any)
@@ -303,6 +320,12 @@ func TestDeliveryHistoryWindow(t *testing.T) {
 	expect(t, strings.Join(ops, ",") == "flight,inside,timeless" && page(one["entriesPage"])["total"] == float64(3),
 		"in-window, in-flight and timeless changes, newest first: %v %v", ops, one["entriesPage"])
 	expect(t, strings.Contains(one["note"].(string), "only changes between"), "the note says the list is windowed: %v", one["note"])
+	// timed keeps what a timeline column counts: only a change timed inside.
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&timed=true"+window, nil)
+	one = page(h["histories"].([]any)[0])
+	expect(t, len(one["entries"].([]any)) == 1 && page(one["entries"].([]any)[0])["operation"] == "inside" && page(one["entriesPage"])["total"] == float64(1),
+		"a slice holds only the change timed inside: %v", one)
+	expect(t, page(one["timeline"])["totals"].(map[string]any)["other"] == float64(1), "its count is its list: %v", one["timeline"])
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?until=2026-11-03T00:00:00Z", nil)
 	first := page(h["histories"].([]any)[0])
 	expect(t, page(first["entries"].([]any)[0])["operation"] == "flight" && page(first["entriesPage"])["total"] == float64(4),
@@ -313,4 +336,106 @@ func TestDeliveryHistoryWindow(t *testing.T) {
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "until"), "a bad until is refused: %d %v", code, body)
 	code, body = call(t, http.MethodGet, base+"/api/delivery/history?since=2026-11-03T00:00:00Z&until=2026-11-02T00:00:00Z", nil)
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "since is after until"), "an inverted window is refused: %d %v", code, body)
+}
+
+// B7: without a stage, the timeline counts the Operations still in the
+// cluster on the Stages that match, never one the caller cannot see; one
+// Stage's timeline counts its whole history before q and paging.
+func TestDeliveryHistoryTimeline(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	ago := func(h int) string { return time.Now().Add(-time.Duration(h) * time.Hour).UTC().Format(time.RFC3339) }
+	for i := range f.ops {
+		f.ops[i].Status.Times.Finished = ago(1)
+	}
+	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Failed,
+		Times: delivery.Times{Finished: ago(1)}}))
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: []delivery.HistoryEntry{
+		{Operation: "a", Kind: delivery.RecordGap, Finished: ago(2)}, {Operation: "b", Outcome: delivery.Succeeded, Verification: delivery.Verified, Pointer: &delivery.PointerChange{After: dRun}, Finished: ago(3)}}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
+	tl := page(h["timeline"])
+	expect(t, len(tl["buckets"].([]any)) == delivery.TimelineBuckets, "twelve slices: %v", tl)
+	tot := page(tl["totals"])
+	// 3 held on payments, 2 errored on frozen Stages; the Operations on gone or
+	// unseen Stages are not counted.
+	expect(t, tot["held"] == float64(3) && tot["failed"] == float64(2) && tot["other"] == float64(0), "the cluster's changes: %v", tot)
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?q=ledger", nil)
+	expect(t, page(page(h["timeline"])["totals"])["failed"] == float64(1), "q narrows the timeline: %v", h["timeline"])
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=nothing-matches", nil)
+	one := page(h["histories"].([]any)[0])
+	tot = page(page(one["timeline"])["totals"])
+	expect(t, h["timeline"] == nil && tot["missing"] == float64(1) && tot["released"] == float64(1), "one Stage's timeline is its own, before q: %v", one["timeline"])
+}
+
+// Publish: the counts are over every page; signed narrows the list, never
+// the counts.
+func TestPublishedCountsAndSignedFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=1", nil)
+	want := "map[firstUnsigned:[] services:2 signed:2 unknown:1 unknownServices:1 unsigned:0 unsignedServices:0 versions:3]"
+	expect(t, fmt.Sprint(pub["counts"]) == want, "payments' two published digests are signed; ledger's Stage has no candidate source, so its failed one is unknown: %v", pub["counts"])
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=unknown", nil)
+	svcs := pub["services"].([]any)
+	expect(t, len(svcs) == 1 && page(svcs[0])["service"] == "ledger" && fmt.Sprint(pub["counts"]) == want, "only unknown versions: %v", svcs)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=no", nil)
+	expect(t, len(pub["services"].([]any)) == 0, "no version is known unsigned: %v", pub["services"])
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=yes", nil)
+	svcs = pub["services"].([]any)
+	expect(t, len(svcs) == 1 && len(page(svcs[0])["versions"].([]any)) == 2 && page(pub["page"])["total"] == float64(1), "only services whose every version is signed: %v", svcs)
+}
+
+// A version is unsigned only where an entry Stage can say Flux never
+// verified it; a downstream Stage, one fed by records or a published list at
+// its cap leaves it unknown, and status.offered makes it signed.
+func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
+	full := make([]string, delivery.MaxPublished)
+	for i := range full {
+		full[i] = fmt.Sprintf("sha256:%064d", i)
+	}
+	st := func(svc string, c delivery.Candidates, s delivery.StageStatus) delivery.StageObject {
+		o := stage("prod", svc, svc, s)
+		o.Spec.Candidates = c
+		return o
+	}
+	oci := delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "oci"}}
+	stages := []delivery.StageObject{
+		st("entry", oci, delivery.StageStatus{Pointer: dRun, Published: []string{dNext}}),
+		st("capped", oci, delivery.StageStatus{Pointer: dRun, Published: full}),
+		st("downstream", delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "staging"}}, delivery.StageStatus{Pointer: dRun, Verified: []string{dNext}, Offered: []string{dNext}}),
+		st("records", delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{}}, delivery.StageStatus{Pointer: dRun}),
+	}
+	by, _ := publishedDigests(stages, "")
+	got := map[string]string{}
+	for svc, vs := range by {
+		got[svc+"/run"] = vs[dRun].Signature
+		if v := vs[dNext]; v != nil {
+			got[svc+"/next"] = v.Signature
+		}
+	}
+	want := map[string]string{"entry/run": "unsigned", "entry/next": "signed", "capped/run": "unknown",
+		"downstream/run": "unknown", "downstream/next": "signed", "records/run": "unknown"}
+	expect(t, maps.Equal(got, want), "%v", got)
+	c := countPublished(by)
+	expect(t, c.UnsignedServices == 1 && c.UnknownServices == 3 && c.Unsigned == 1 && c.Unknown == 3 && fmt.Sprint(c.FirstUnsigned) == "[entry]", "%+v", c)
+}
+
+// Autonomy: Stages per level over every page, every level present, a level
+// the ladder does not know counted as none reported.
+func TestAutonomyCountsByLevel(t *testing.T) {
+	rows := []AutonomyStage{{Level: "advise"}, {Level: "advise"}, {Level: "autonomous"}, {Level: "warp"}, {}}
+	expect(t, fmt.Sprint(countByLevel(rows)) == "[{observe 0} {advise 2} {auto-nonbreaking 0} {autonomous 1} { 2}]", "%v", countByLevel(rows))
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1", nil)
+	expect(t, len(au["byLevel"].([]any)) == 5, "every level: %v", au["byLevel"])
+	// level opens exactly the Stages a card counts, and never narrows the tally.
+	for _, l := range au["byLevel"].([]any) {
+		lv := cmp.Or(page(l)["level"].(string), "none")
+		_, got := call(t, http.MethodGet, base+"/api/delivery/autonomy?level="+lv, nil)
+		expect(t, page(got["page"])["total"] == page(l)["stages"] && fmt.Sprint(got["byLevel"]) == fmt.Sprint(au["byLevel"]),
+			"%s: %v of %v", lv, got["page"], l)
+	}
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/autonomy?level=warp", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "an unknown level is refused: %d", code)
 }

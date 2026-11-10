@@ -150,6 +150,7 @@
 <div class="product-page">
   <Breadcrumbs {trail} />
   <PageHeader
+    glyph={kind}
     title={`${pluralTitle}${service ? ` of ${service}` : ''}`}
     count={list ? `${formatCount(total)} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
     countTestid="entity-list-total"

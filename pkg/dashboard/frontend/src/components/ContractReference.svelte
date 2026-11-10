@@ -25,7 +25,8 @@
 </span>
 
 <style>
-  .cr { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+  /* Never wider than its cell: the unresolved reason wraps inside it. */
+  .cr { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; max-width: 100%; }
   .cr-arrow { color: var(--c-text-3); }
-  .cr-unresolved { font-size: var(--text-xs); color: var(--c-warn); }
+  .cr-unresolved { font-size: var(--text-xs); color: var(--c-warn); min-width: 0; overflow-wrap: anywhere; }
 </style>

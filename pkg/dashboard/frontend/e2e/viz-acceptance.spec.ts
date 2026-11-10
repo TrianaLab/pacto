@@ -148,7 +148,8 @@ test.describe('Every product visualization is named, textual and keyboard-operab
 
   test('a legend drill-down is reachable and activated by keyboard alone', async ({ page }) => {
     await open(page, '#/fleet');
-    const link = page.locator('main figure.dist .dist-item a').first();
+    // The posture bands' legends; the trust figure's aside bar above them lists services.
+    const link = page.locator('main .page-toc-main figure.dist .dist-item a').first();
     await expect(link).toBeVisible();
     const href = await link.getAttribute('href');
     expect(href).toContain('attention');
@@ -188,10 +189,18 @@ test.describe('Every product visualization is named, textual and keyboard-operab
   const MOTION_MARKER = '[data-motion]';
 
   test('everything marked as moving stops moving under a reduced-motion preference', async ({ page }) => {
+    test.setTimeout(120_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     let total = 0;
-    for (const s of SURFACES) {
-      await open(page, s.hash);
+    // SURFACES never reach an analysis, and the impact figure's narration only exists
+    // once one has run, so the analysed Change analysis route joins the sweep.
+    const k = await keys(page);
+    const sweep = [
+      ...SURFACES.map((s) => ({ ...s, after: undefined as ((p: Page) => Promise<void>) | undefined })),
+      { hash: `#/fleet/changes/${encodeURIComponent(k.service)}`, name: 'Change analysis (analysed)', after: runAnalysis },
+    ];
+    for (const s of sweep) {
+      await open(page, s.hash, s.after);
       const moving = await page.evaluate((sel) => {
         // A shorthand computes to a comma-separated list, one entry per property, so the
         // worst entry is what matters -- not whatever parseFloat finds first.
@@ -199,7 +208,8 @@ test.describe('Every product visualization is named, textual and keyboard-operab
         return Array.from(document.querySelectorAll(sel)).map((el) => {
           const cs = getComputedStyle(el);
           return {
-            tag: `${el.tagName.toLowerCase()}.${el.className}`,
+            // getAttribute, not className: an SVG element's className is an SVGAnimatedString.
+            tag: `${el.tagName.toLowerCase()}.${el.getAttribute('class')}`,
             transition: worst(cs.transitionDuration) + Math.max(0, worst(cs.transitionDelay)),
             animation: worst(cs.animationDuration) + Math.max(0, worst(cs.animationDelay)),
           };
@@ -208,6 +218,12 @@ test.describe('Every product visualization is named, textual and keyboard-operab
       total += moving.length;
       const offenders = moving.filter((m) => m.transition > 0.001 || m.animation > 0.001);
       expect(offenders, `${s.name} still animates:\n  ${offenders.map((o) => o.tag).join('\n  ')}`).toEqual([]);
+      // A narration under reduced motion is a step-through, never an animation.
+      if (s.after) {
+        const narr = await page.evaluate(() => document.getAnimations().filter((a) => String(a.id).startsWith('narr:')).length);
+        expect(narr, 'the impact figure narrated under reduced motion').toBe(0);
+        await expect(page.getByText(/^Step \d+ of \d+$/)).toBeVisible();
+      }
     }
     // The sweep is only a gate if it found something to sweep. A selector typo, or a
     // rename of the marker attribute, would otherwise turn this test permanently green.

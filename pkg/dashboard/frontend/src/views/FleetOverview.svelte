@@ -1,12 +1,15 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { sourceHealthTally, splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
+  import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
-  import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
-  import { formatDateTime } from '../lib/dateFormat.ts';
+  import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs } from '../lib/distributions.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
+  import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadTrustFigure, loadKnowsExplainer } from '../lib/lazyFigures.ts';
   import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -37,6 +40,8 @@
   let { refreshTick = 0 } = $props();
 
   let overview = $state(null);
+  // The "How does Pacto know?" explainer opens on request: it explains, it reports nothing.
+  let showKnows = $state(false);
   let loading = $state(true);
   let error = $state(null);
   let lastTick = untrack(() => refreshTick); // the tick this page last loaded for
@@ -62,13 +67,18 @@
     }
   });
 
+  // The trust figure's aside: what the snapshot says about the services, one bar whose
+  // legend items list each bucket (L3: the bar is the one carrier). The overview
+  // counts targets, so the service tally is the entities aggregate, a second
+  // question with its own request; a failure costs only the bar.
+  const svcLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
+  $effect(() => { svcLoader.sync(`svc@@${refreshTick}`, 'svc'); });
+  onDestroy(() => svcLoader.destroy());
+  const svcAgg = $derived(svcLoader.data?.aggregate ?? null);
+  const svcCompliance = $derived(complianceSegments(svcAgg?.serviceCompliance, statusHrefs((status) => fleetServicesUrl({ status }))));
+
   const knowledge = $derived(snapshotKnowledge(overview?.meta));
   const attentionTotal = $derived(overview?.attention?.total ?? 0);
-  // Band 4. Fleet-wide source health from the backend's complete-population tally, not
-  // from meta.sources -- that list is capped at MaxMetaSources and keeps the least
-  // healthy when it cuts, so counting it would report a fleet of sixty healthy sources
-  // and one outage as sixty-one problems.
-  const sourceTally = $derived(sourceHealthTally(overview?.meta?.sourceCounts));
   // Page-level state: loading/error gate the whole view; once loaded, the overview
   // always has a summary to render (itemCount 1).
   const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
@@ -172,7 +182,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
-  <PageHeader title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} />
+  <PageHeader glyph="snapshot" title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} backdrop={pageState.kind === 'ready'} />
 
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
@@ -200,8 +210,29 @@
     {:else}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
     {/if}
-    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone="warn" />
+    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone={knowledge.level === 'unavailable' ? 'warn' : ''} />
   </div>
+  <!-- How sure the answer above is: every count on this page is bounded by which
+       sources answered. The figure counts sources by state; Data sources below names them. -->
+  <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} meta={overview.meta} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
+    stateHref={(st) => fleetSourcesUrl({ sourceHealth: st })}>
+    {#snippet aside()}
+      {#if svcAgg}
+        <!-- The bar's in-segment counts repeat its legend, whose items are the links. -->
+        <div data-nofilter><DistributionBar title="What the snapshot says about {formatCount(svcAgg.services ?? 0)} {svcAgg.services === 1 ? 'service' : 'services'}" level={2}
+          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
+      {/if}
+      <dl class="facts">
+        <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
+        <dt>Revisions</dt><dd><a href={fleetEntityListUrl('revision')}>{formatCount(totalRevisions)}</a></dd>
+        <dt>Targets</dt><dd><a href={fleetEntityListUrl('target')}>{formatCount(totalTargets)}</a></dd>
+      </dl>
+    {/snippet}
+  </LazyView>
+  <div class="ov-knows">
+    <button type="button" class="btn btn-sm" aria-expanded={showKnows} aria-controls="ov-knows" onclick={() => (showKnows = !showKnows)} data-testid="knows-toggle">{showKnows ? 'Hide' : 'Show'} how Pacto knows</button>
+  </div>
+  <div id="ov-knows">{#if showKnows}<LazyView load={loadKnowsExplainer} />{/if}</div>
   <div class="page-toc-layout">
     <PageToc />
     <div class="page-toc-main">
@@ -220,7 +251,7 @@
             <tbody>
               {#each scopes as sc (sc.scope)}
                 <tr>
-                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope}>{sc.scope || 'No scope'}</a></th>
+                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope || 'No scope'}>{sc.scope || 'No scope'}</a></th>
                   <td data-label="Targets">{formatCount(sc.targets)}</td>
                   <td data-label="Not compliant" class:ov-bad={sc.nonCompliant > 0}>{formatCount(sc.nonCompliant)}</td>
                   <td data-label="Unknown">{formatCount(sc.unknown)}</td>
@@ -322,9 +353,8 @@
         <div class="ov-title"><h2 id="ov-sources" class="t-section-title">Data sources</h2><HelpTip label="data sources" text="Where everything above came from. A degraded source makes the counts on this page incomplete." /></div>
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
-      <!-- The tally is over the COMPLETE source population; the chips below it are the
-           bounded, least-healthy-first list from the meta. -->
-      <p class="ov-tally t-body-2">{sourceTally}</p>
+      <!-- The trust figure at the top of the page counts the sources by state (one
+           carrier per fact, L3); this section names them, least healthy first. -->
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 
@@ -366,6 +396,7 @@
 </div>
 
 <style>
+  .ov-knows { display: flex; justify-content: flex-end; }
   .band, .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
   /* A band is a question, so it is separated by space and a hairline rather than by a
      card: three nested boxes on a page already inside a shell is chrome, not structure. */

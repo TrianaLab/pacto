@@ -4,6 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  exceptParam, exceptList,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -118,6 +119,11 @@ describe('delivery routes', () => {
     expect(parseHash(deliveryEnvironmentsUrl({ service: 'pay', domain: 'ghcr.io/a' })).params).toEqual({ service: 'pay', domain: 'ghcr.io/a' });
     expect(parseHash(deliveryHistoryUrl({ service: 'pay' })).params).toEqual({ service: 'pay' });
     expect(parseHash('#/delivery/history?domain=ghcr.io%2Fa').params).toEqual({});
+    // A figure's links carry the Autonomy level and the folded station's except.
+    expect(parseHash(deliveryAutonomyUrl({ level: 'advise' })).params).toEqual({ level: 'advise' });
+    const except = exceptParam(['prod', 'a,b']);
+    expect(parseHash(deliveryEnvironmentsUrl({ except })).params).toEqual({ except });
+    expect(parseHash(deliveryInboxUrl({ except })).params).toEqual({ except });
   });
 });
 
@@ -185,7 +191,7 @@ describe('what a check concluded', () => {
     expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'Breaking' });
     expect(verdictBadge({ gate: 'pacto.impact', result: 'Pass', citation: { classification: 'POTENTIAL_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'May break' });
     expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'NON_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: '' });
-    expect(verdictBadge({ gate: 'pacto.diff', result: 'Unknown' })).toEqual({ label: 'Unknown', tone: 'badge-warn', chip: '' });
+    expect(verdictBadge({ gate: 'pacto.diff', result: 'Unknown' })).toEqual({ label: 'Unknown', tone: 'badge-neutral', chip: '' });
     expect(verdictBadge({ gate: 'pacto.published', result: 'Pass' })).toEqual({ label: 'Pass', tone: 'badge-ok', chip: '' });
     expect(verdictBadge({ gate: 'mira.health', result: 'Fail' })).toEqual({ label: 'Fail', tone: 'badge-err', chip: '' });
     expect(verdictBadge({ gate: 'pacto.environment', result: 'Pass', citation: { applicable: 'false' } })).toEqual({ label: 'N/A', tone: 'badge-neutral', chip: '' });
@@ -201,6 +207,12 @@ describe('what a check concluded', () => {
     expect(andList(['a'])).toBe('a');
     expect(andList(['a', 'b'])).toBe('a and b');
     expect(andList(['a', 'b', 'c'])).toBe('a, b and c');
+    // The folded station's filter survives any name, and a bad value is no filter.
+    expect(exceptList(exceptParam(['prod,eu', '', 'test'])!)).toEqual(['prod,eu', '', 'test']);
+    expect(exceptParam([])).toBeUndefined();
+    expect(exceptList('nope')).toEqual([]);
+    expect(exceptList('[1]')).toEqual([]);
+    expect(exceptList('{}')).toEqual([]);
     expect(reasonWords('ApprovalRequired')).toBe('Waiting for a person to approve');
     expect(reasonWords('ExecutionDeadline')).toBe('Execution deadline');
     expect(reasonWords('the plan changed')).toBe('the plan changed');

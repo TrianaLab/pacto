@@ -44,7 +44,7 @@ func TestFleetEntitiesTemplateFlag(t *testing.T) {
 	}{
 		{[]string{"--template"}, []string{"1 of 1 entit(ies):", "  golden path ", " http-service "}, nil},
 		{[]string{"--template", "--output-format", "json"}, []string{`"asOf"`, `"template": true`, `"created": 1`}, nil},
-		{[]string{"--template=exclude", "--kind", "service"}, []string{" gift-cards ", " billing "}, []string{"http-service"}},
+		{[]string{"--template=exclude", "--kind", "service"}, []string{" gift-cards ", " billing ", "Services by golden path: http-service 1 (0 non-compliant)"}, []string{"http-service   "}},
 		{[]string{"--created-from", "http-service"}, []string{"1 of 1 entit(ies):", " gift-cards "}, nil},
 	} {
 		out, _, err := execFleet(t, append([]string{"fleet", "entities", "--local", root}, tc.flags...)...)

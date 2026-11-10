@@ -413,7 +413,8 @@ export function verdictBadge(v: { gate?: string; result?: string; citation?: Rec
   const chip = CLASSIFICATION_CHIPS[v.citation?.classification ?? ''] ?? '';
   if (v.citation?.applicable === 'false') return { label: 'N/A', tone: 'badge-neutral', chip };
   if (v.result === 'Pass' && EVIDENCE_GATES.has(v.gate ?? '')) return { label: 'Checked', tone: 'badge-neutral', chip };
-  const tone = ({ Pass: 'badge-ok', Fail: 'badge-err', Unknown: 'badge-warn' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
+  // Unknown is neutral, never warn: a check that could not decide is an open question.
+  const tone = ({ Pass: 'badge-ok', Fail: 'badge-err' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
   return { label: v.result ?? '', tone, chip };
 }
 
@@ -447,6 +448,40 @@ export function isBreaking(verdicts: { citation?: Record<string, string> }[] | n
 export function andList(names: string[], max = Infinity, word = 'and'): string {
   const xs = names.length > max + 1 ? [...names.slice(0, max), `${formatCount(names.length - max)} others`] : names;
   return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} ${word} ${xs[xs.length - 1]}`;
+}
+
+/**
+ * placedByName says why some environments of a fleet figure are placed by name
+ * (SPEC 21): a Stage there is on a cycle of upstream links, or different services
+ * order them both ways, which is no cycle. Empty when the links place them all.
+ */
+export function placedByName(byEnv: { environment: string; cycle?: boolean; unordered?: boolean }[]): string {
+  const cyc = byEnv.filter((e) => e.cycle).map((e) => e.environment);
+  const both = byEnv.filter((e) => e.unordered).map((e) => e.environment);
+  const placed = (n: number) => (n === 1 ? 'it is' : 'they are');
+  return [
+    cyc.length ? `A Stage in ${andList(cyc, 3)} is on a cycle of upstream links, so ${placed(cyc.length)} placed by name.` : '',
+    both.length ? `Services order ${andList(both, 3)} both ways, so ${placed(both.length)} placed by name.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+/**
+ * The `except` URL parameter: the environments a figure draws, which its folded
+ * station leaves out so its counts open exactly what they count. It travels as one
+ * JSON array, so any environment name (commas included) survives the round trip.
+ */
+export function exceptParam(envs: string[] | undefined): string | undefined {
+  return envs?.length ? JSON.stringify(envs) : undefined;
+}
+
+/** exceptList reads the `except` URL parameter; anything but an array of strings is no filter. */
+export function exceptList(raw: string): string[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : [];
+  } catch {
+    return [];
+  }
 }
 
 // ── The autonomy ladder ─────────────────────────────────────────────────────

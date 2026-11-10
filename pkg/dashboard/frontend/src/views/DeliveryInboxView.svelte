@@ -5,7 +5,7 @@
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { session, me, teamGroups } from '../lib/session.svelte.ts';
-  import { typeLabel, shortDigest, shortDigests, andList } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, andList, exceptList, exceptParam } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -15,15 +15,18 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
+  import InboxFigure from '../components/figure/InboxFigure.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
 
   // What waits on me or my team: held changes whose question names one of my
   // teams, then frozen Stages and changes that could not finish. Each
   // section is paged on the server, and its place is in the URL.
-  let { held: heldAt = '', frozen: frozenAt = '', errored: erroredAt = '', limit = '', q = '', show = '', refreshTick = 0 } = $props();
+  let { held: heldAt = '', frozen: frozenAt = '', errored: erroredAt = '', limit = '', q = '', show = '', environment = '', except = '', refreshTick = 0 } = $props();
+  // The folded station of the figure: every environment but the ones it draws.
+  const exceptEnvs = $derived(exceptList(except));
 
-  const query = $derived({ held: urlInt(heldAt), frozen: urlInt(frozenAt), errored: urlInt(erroredAt), limit: urlInt(limit), q, show });
+  const query = $derived({ held: urlInt(heldAt), frozen: urlInt(frozenAt), errored: urlInt(erroredAt), limit: urlInt(limit), q, show, environment, except: exceptEnvs });
   // One section shown whole, with its pager: the frozen Stages or the changes
   // that could not finish. Otherwise each is a short preview, so a page has
   // one pager at most. A link into a later page of one of them shows it.
@@ -31,11 +34,11 @@
   const PREVIEW = 5;
   const loader = createProductLoader(() => api.deliveryInbox({
     held: query.held || undefined, frozen: query.frozen || undefined, errored: query.errored || undefined,
-    limit: query.limit || undefined, q: q || undefined,
+    limit: query.limit || undefined, q: q || undefined, environment: environment || undefined, except: exceptEnvs.length ? exceptEnvs : undefined,
   }));
   const question = $derived(JSON.stringify(query));
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(q);
+  const listQuestion = $derived(`${q}@@${environment}@@${except}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -93,7 +96,7 @@
   const nothing = $derived(!!inbox && total(inbox.heldPage, held) + total(inbox.frozenPage, frozen) + total(inbox.erroredPage, errored) === 0);
   // A link to another page of one section keeps the others where they are.
   const hrefFor = (section) => (off, lim) => deliveryInboxUrl({
-    ...query, [section]: off, limit: limitParam(lim, limit, inbox?.[`${section}Page`]?.limit ?? lim),
+    ...query, except: except || undefined, [section]: off, limit: limitParam(lim, limit, inbox?.[`${section}Page`]?.limit ?? lim),
   });
 </script>
 
@@ -136,11 +139,24 @@
     <ListingNote listing={inbox} error={loader.error} onRetry={() => loader.refresh()} />
 
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} testid="inbox-answer" />{/if}
+    {#if inbox.byEnvironment?.length}
+      <!-- Over every page and before the environment filter, so it never moves while the
+           lists below are paged or narrowed; each count links to its narrowed list. -->
+      <InboxFigure byEnvironment={inbox.byEnvironment} partial={inbox.completeness === 'partial'}
+        href={(env, kind, ex) => deliveryInboxUrl({ q, environment: env || undefined, except: exceptParam(ex), show: kind === 'held' || !kind ? undefined : kind })} />
+    {/if}
+    {#if environment}
+      <p class="t-body-2 dl-env" data-testid="inbox-environment">Waiting to enter <bdi>{environment}</bdi>.
+        <a href={deliveryInboxUrl({ q, show: show || undefined })}>Show every environment</a></p>
+    {:else if exceptEnvs.length}
+      <p class="t-body-2 dl-env" data-testid="inbox-environment">Waiting to enter every environment but {andList(exceptEnvs.map((e) => e || 'Stages you cannot read'), 3)}.
+        <a href={deliveryInboxUrl({ q, show: show || undefined })}>Show every environment</a></p>
+    {/if}
     {#if nothing}
       <div class="state-box" data-testid="inbox-empty">
-        {#if q}
+        {#if q || environment || exceptEnvs.length}
           <h2>Nothing matches the filter</h2>
-          <p>Nothing waiting on you matches “{q}”.</p>
+          <p>{q ? `Nothing waiting on you matches “${q}”${environment ? ` in ${environment}` : ''}.` : environment ? `Nothing waits on you to enter ${environment}.` : 'Nothing waits on you to enter the other environments.'}</p>
         {:else}
           <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
           <p>No change is held for your teams, and none of your Stages is frozen or stuck.</p>
@@ -148,7 +164,7 @@
       </div>
     {:else}
       {#if whole}
-        <p class="t-body-2"><a href={deliveryInboxUrl({ q })} data-testid="inbox-back">Back to the inbox</a></p>
+        <p class="t-body-2"><a href={deliveryInboxUrl({ q, environment: environment || undefined, except: except || undefined })} data-testid="inbox-back">Back to the inbox</a></p>
       {:else}
       <section aria-labelledby="inbox-held">
         <h2 id="inbox-held" class="t-section-title">Waiting for your decision</h2>
@@ -182,7 +198,7 @@
            and links to all of them, so the page keeps one pager. -->
       {#if frozen.length && whole !== 'errored'}
         <details class="disclosure dl-more" open={whole === 'frozen'} data-testid="inbox-frozen-section">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(frozenTotal)}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(frozenTotal)}</span></summary>
           <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozenRows as row, i (row.namespace + '/' + row.stage)}
@@ -196,14 +212,14 @@
           {#if whole === 'frozen'}
             <Pager page={inbox.frozenPage} href={hrefFor('frozen')} label="Pages of frozen Stages" noun="frozen Stages" testid="inbox-frozen-pager" />
           {:else if frozenTotal > frozenRows.length}
-            <a class="btn btn-sm dl-all" href={deliveryInboxUrl({ q, limit: query.limit || undefined, show: 'frozen' })} data-testid="inbox-frozen-all">Show all {formatCount(frozenTotal)} frozen Stages</a>
+            <a class="btn btn-sm dl-all" href={deliveryInboxUrl({ q, environment: environment || undefined, except: except || undefined, limit: query.limit || undefined, show: 'frozen' })} data-testid="inbox-frozen-all">Show all {formatCount(frozenTotal)} frozen Stages</a>
           {/if}
         </details>
       {/if}
 
       {#if errored.length && whole !== 'frozen'}
         <details class="disclosure dl-more" open={whole === 'errored'} data-testid="inbox-errored-section">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(erroredTotal)}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(erroredTotal)}</span></summary>
           <p class="t-body-2 dl-note">Each Stage stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each erroredRows as it, i (it.namespace + '/' + it.name)}
@@ -217,7 +233,7 @@
           {#if whole === 'errored'}
             <Pager page={inbox.erroredPage} href={hrefFor('errored')} label="Pages of changes that could not finish" noun="changes" testid="inbox-errored-pager" />
           {:else if erroredTotal > erroredRows.length}
-            <a class="btn btn-sm dl-all" href={deliveryInboxUrl({ q, limit: query.limit || undefined, show: 'errored' })} data-testid="inbox-errored-all">Show all {formatCount(erroredTotal)} changes that could not finish</a>
+            <a class="btn btn-sm dl-all" href={deliveryInboxUrl({ q, environment: environment || undefined, except: except || undefined, limit: query.limit || undefined, show: 'errored' })} data-testid="inbox-errored-all">Show all {formatCount(erroredTotal)} changes that could not finish</a>
           {/if}
         </details>
       {/if}
@@ -245,6 +261,8 @@
   .dl-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-3); margin: 0; color: var(--c-text-2); }
   .dl-affects { min-width: 0; }
   .dl-calm { margin: 0; color: var(--c-text-3); }
+  .dl-env { margin: 0; }
+  .dl-env a { text-decoration: underline; }
   .dl-facts a { text-decoration: underline; }
   .dl-none { color: var(--c-text-3); }
   .dl-sub { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1); font: 600 var(--text-sm) / 1.4 var(--font-sans, inherit); color: var(--c-text); }

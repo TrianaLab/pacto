@@ -103,6 +103,9 @@ async function waitStable(page: Page, tries = 25): Promise<Spatial> {
  *  events, and scrolling the page moves neither the graph nor its viewport. */
 async function centreCanvas(page: Page): Promise<void> {
   await page.getByTestId('neighborhood-canvas').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // The scroll event fires on the next frame, and only then does cytoscape drop its cached
+  // container offset; a pointer that arrives before it lands on stale coordinates.
+  await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
 }
 
 /** Drags a node by a real mouse gesture, toward the middle of the canvas so it stays in view. */

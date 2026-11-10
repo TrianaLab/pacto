@@ -139,6 +139,8 @@ const autonomyPage = 25
 type autonomyInput struct {
 	PageQuery
 	Blockers int `query:"blockers" minimum:"0" doc:"Where the page of blockers starts; limit and q apply to it too"`
+	// Level is the figure's card: its count opens the Stages it counts.
+	Level string `query:"level" enum:"observe,advise,auto-nonbreaking,autonomous,none" doc:"Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers"`
 }
 
 type autonomyOutput struct {
@@ -153,7 +155,43 @@ type autonomyOutput struct {
 		BlockersPage            Page              `json:"blockersPage" doc:"Which blockers this page holds, grouped by kind"`
 		BlockerKinds            []BlockerKind     `json:"blockerKinds" doc:"How many blockers of each kind match, over every page, in page order"`
 		CanMoveUp               int               `json:"canMoveUp" doc:"Stages, over every page, Pacto proposes a next level for"`
+		ByLevel                 []LevelCount      `json:"byLevel" doc:"Stages at each level, over every page after q: observe, advise, auto-nonbreaking, autonomous, then those that report none"`
 	}
+}
+
+// LevelCount is how many Stages sit at one level of the autonomy ladder.
+type LevelCount struct {
+	Level  string `json:"level" doc:"observe, advise, auto-nonbreaking or autonomous; empty for Stages that report no level"`
+	Stages int    `json:"stages"`
+}
+
+// ladderLevels are the ladder's levels, lowest first.
+var ladderLevels = []string{"observe", "advise", "auto-nonbreaking", "autonomous", ""}
+
+// countByLevel counts rows by level, every level present, in ladder order; a
+// level the ladder does not know counts as none reported.
+func countByLevel(rows []AutonomyStage) []LevelCount {
+	out := make([]LevelCount, len(ladderLevels))
+	for i, l := range ladderLevels {
+		out[i].Level = l
+	}
+	for _, r := range rows {
+		i := len(ladderLevels) - 1
+		if l := levelOf(r); l != "none" {
+			i = slices.Index(ladderLevels, l)
+		}
+		out[i].Stages++
+	}
+	return out
+}
+
+// levelOf is the level filter a row answers to: its level, or none when the
+// ladder does not know it, so the filter lists exactly what countByLevel counts.
+func levelOf(r AutonomyStage) string {
+	if r.Level == "" || !slices.Contains(ladderLevels, r.Level) {
+		return "none"
+	}
+	return r.Level
 }
 
 func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*autonomyOutput, error) {
@@ -180,6 +218,10 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 	blockers = filter(blockers, func(x AutonomyBlocker) bool {
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
 	})
+	b.ByLevel = countByLevel(rows)
+	if in.Level != "" {
+		rows = filter(rows, func(r AutonomyStage) bool { return levelOf(r) == in.Level })
+	}
 	b.Stages, b.Page = pageOf(rows, in.Offset, in.Limit, autonomyPage)
 	for _, r := range rows {
 		if r.Proposal != nil && r.Proposal.Level != "" {

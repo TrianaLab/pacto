@@ -229,14 +229,17 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
   });
 
-  // The primary nav teaches ONE order -- state, inventory, relationships, change -- with
-  // Needs attention beside the Overview and Owners beside Services, plus Delivery where
-  // delivery is served (the demo simulates it). Data sources and Readiness are not
-  // tabs, and the legacy-only destinations never leak onto a Fleet host.
+  // The sidebar groups every destination (SPEC 20): Overview and Needs attention on top,
+  // then Organization, Change and delivery (Delivery where it is served; the demo
+  // simulates it) and System. Readiness is not an item, and the legacy-only
+  // destinations never leak onto a Fleet host.
   test('navigation exposes exactly the primary destinations (no dead tabs)', async ({ page }) => {
     await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Operational graph', 'Change analysis', 'Delivery']);
+    // Names, not text: the count and the source health are descriptions.
+    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Operational graph', 'Data sources'];
+    await expect(nav.getByRole('link')).toHaveCount(names.length);
+    for (const [i, name] of names.entries()) await expect(nav.getByRole('link').nth(i)).toHaveAccessibleName(name);
   });
 
   test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
@@ -418,8 +421,9 @@ test.describe('WASM dashboard demo — workflows', () => {
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     // audit-log declares no dependency on payments-service — an observed-only shadow,
     // listed in the consumers fold under the one-line answer.
+    // Scoped to the table: the isometric diagram above it names audit-log too, in SVG.
     await page.getByTestId('changes-consumers').locator('summary').click();
-    await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('changes-consumers').getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });
 
   // The demo strip is DEMO-ONLY chrome (examples/demo/boot.js), never dashboard UI,

@@ -123,7 +123,7 @@
   <details class="ps disclosure ps-collapsible" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" open={isOpen}
     ontoggle={(e) => { isOpen = e.currentTarget.open; }} {...toc}>
     <summary class="ps-head">
-      <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+      <span class="disclosure-caret" data-motion aria-hidden="true"></span>
       {@render head(false)}
     </summary>
     {#if isOpen}<div class="ps-panel">{@render body(!!help)}</div>{/if}

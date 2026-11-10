@@ -23,6 +23,7 @@
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
+  import RevisionFigures from '../../components/figure/RevisionFigures.svelte';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -136,13 +137,15 @@
     {/if}
   </section>
 
+  <RevisionFigures {stages} revision={d} self={detail.entity?.key ?? ''} service={d.service?.label ?? ''} {historyHref} />
+
   {#if id.digest || id.resolvedRef || id.requestedRef}
     <!-- The immutable content identity, in full and still copyable, one click away. Three rows of 71-character hex were the second thing on the
          page and the first thing every reader scrolled past; the badge in the facts
          strip above already says whether that content is retrievable, which is the part
          that changes what you do next. -->
     <details class="re-identity disclosure" data-testid="revision-identity">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Content identity</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Content identity</summary>
       <div class="re-idrows">
         {#if id.digest}<div class="re-idrow"><span class="re-k">Digest</span><CopyableIdentifier value={id.digest} /></div>{/if}
         {#if id.resolvedRef}<div class="re-idrow"><span class="re-k">Resolved ref</span><CopyableIdentifier value={id.resolvedRef} /></div>{/if}
@@ -160,7 +163,7 @@
          owner identity, so nothing here links to an owner page. -->
     <details class="re-contacts disclosure">
       <summary>
-        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
         Declared contacts ({formatCount(o.contacts.total)})
       </summary>
       <ul class="re-contactrows">
@@ -286,7 +289,7 @@
                  the flat cross-interface tool list further down still carries them. -->
             <details class="ri-ops disclosure">
               <summary>
-                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                <span class="disclosure-caret" data-motion aria-hidden="true"></span>
                 {formatCount(i.operations.count)}{i.operations.truncated ? ` of ${formatCount(i.operations.total)}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
               </summary>
               <ul class="re-tools">
@@ -426,7 +429,7 @@
          inventory itself lives instead of implying it has been read here. -->
     <details class="re-sbom disclosure" id="sec-software-inventory" data-toc="Software inventory" data-testid="revision-sbom">
       <summary>
-        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
         <h2 class="t-section-title">Software inventory</h2>
         <span class="re-sbom-gist t-meta">{sbom.packages} {sbom.packages === 1 ? 'package' : 'packages'} · {sbomFormat}</span>
       </summary>
@@ -502,7 +505,7 @@
        stated, including when no source checked it. -->
   <details class="re-prov disclosure">
     <summary>
-      <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+      <span class="disclosure-caret" data-motion aria-hidden="true"></span>
       Provenance
       {#if prov.fetchedAt}<span class="t-meta">Fetched {formatDate(prov.fetchedAt)}</span>{/if}
     </summary>

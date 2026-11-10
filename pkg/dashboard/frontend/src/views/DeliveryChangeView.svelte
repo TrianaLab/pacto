@@ -21,6 +21,7 @@
   import RefusalNotice from '../components/RefusalNotice.svelte';
   import Fold from '../components/Fold.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import ChangeFigure from '../components/figure/ChangeFigure.svelte';
 
   // One change. It leads with where it stands and, while held, the decision;
   // the affected services, the checks with their proof and the details (facts,
@@ -187,6 +188,8 @@
       </div>
     {/if}
 
+    <ChangeFigure {data} {namespace} />
+
     {#if cancelled}
       <p class="t-body-2" role="status" tabindex="-1" bind:this={doneMsg}>Cancelled. Nothing changed.</p>
     {:else if gone}
@@ -238,7 +241,7 @@
       <Fold title="Details" meta="environment, versions, decisions, timeline" testid="change-details">
         <dl class="cd-facts t-body-2">
           {#if st?.question}<dt>Question</dt><dd data-testid="change-question">{shortDigests(st.question)}</dd>{/if}
-          <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
+          <dt>Environment</dt><dd data-testid="change-environment">{#if data.environment}<bdi>{data.environment}</bdi>, the Stage{' '}{/if}<a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
           {#if data.level}<dt>Level</dt><dd data-testid="change-level"><span class="badge badge-neutral">{levelLabel(data.level)}</span>{' '}<HelpTip label={levelLabel(data.level)} text={levelHelp(data.level)} /></dd>{/if}
           {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
             {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>

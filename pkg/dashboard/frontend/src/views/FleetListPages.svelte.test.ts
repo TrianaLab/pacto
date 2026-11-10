@@ -83,10 +83,11 @@ describe('FleetOwnersView (G)', () => {
       { kind: 'owner', key: 'dri:team-a', label: 'team-a', secondary: 'DRI', href: '/fleet/owners/dri:team-a' },
     ], { total: 2 }));
     const { target, component } = mountView(FleetOwnersView);
-    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
-    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], limit: 25 }));
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="owner-list"] tbody tr').length).toBe(2));
+    // The default order is the rank figure's: most non-compliant services first (T3).
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], limit: 25, sort: 'nonCompliant' }));
     // Two owners called team-a — a team and a person — are two rows and two pages.
-    const hrefs = Array.from(target.querySelectorAll('.lv-item a.entity-link')).map((n) => n.getAttribute('href'));
+    const hrefs = Array.from(target.querySelectorAll('[data-testid="owner-list"] a.entity-link')).map((n) => n.getAttribute('href'));
     expect(hrefs).toEqual(['#/fleet/owners/team:team-a', '#/fleet/owners/dri:team-a']);
     unmount(component); document.body.removeChild(target);
   });
@@ -94,11 +95,32 @@ describe('FleetOwnersView (G)', () => {
   it('search commits into the URL and pagination carries the offset', async () => {
     entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team:team-a', label: 'team-a', href: '/fleet/owners/team:team-a' }], { total: 60, nextOffset: 25 }));
     const { target, component } = mountView(FleetOwnersView);
-    await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="owner-list"] tbody tr')).toBeTruthy());
     const search = target.querySelector('input[type="search"]') as HTMLInputElement;
     search.value = 'team'; search.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
     (target.querySelector('form.lv-search') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(location.hash).toBe('#/fleet/owners?text=team');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('sorts by the figure\'s question on the server, says which in aria-sort, and filters to owners with a non-compliant service', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team:a', label: 'a', href: '/fleet/owners/team:a', services: 12, owned: 10, nonCompliant: 3 }], { total: 1 }));
+    const { target, component } = mountView(FleetOwnersView, { sort: 'rate' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="owner-list"] tbody tr')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], sort: 'rate' }));
+    const ths = Array.from(target.querySelectorAll('[data-testid="owner-list"] thead th'));
+    expect(ths.map((th) => [th.textContent?.trim(), th.getAttribute('aria-sort')])).toEqual([
+      ['Owner', 'none'], ['Services', 'none'], ['Non-compliant', 'none'], ['Rate ▼', 'descending'],
+    ]);
+    expect(ths[2].querySelector('a')?.getAttribute('href')).toBe('#/fleet/owners');
+    const cells = Array.from(target.querySelectorAll('[data-testid="owner-list"] tbody td')).map((td) => td.textContent?.trim());
+    // The rate is of the services the owner owns outright, the figure's denominator.
+    expect(cells).toEqual(['12', '3', '30%']);
+    expect(target.querySelector('[data-testid="owner-list"] tbody td a')?.getAttribute('href'))
+      .toBe('#/fleet/services?ownerKey=team%3Aa&ownership=consistent&status=NonCompliant');
+    const box = target.querySelector('[data-testid="owner-nc-filter"]') as HTMLInputElement;
+    box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/owners?hasNonCompliant=1&sort=rate');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -115,9 +137,9 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
     // The buckets are the backend's 40 services, not the 2 owner rows below them.
     expect(legend(target)).toEqual([
-      ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
       ['Revisions name different owners', '2', '#/fleet/services?ownership=conflicting'],
       ['No declared owner', '4', '#/fleet/services?ownership=unowned'],
+      ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
     ]);
     expect(aggregateOf(target)?.querySelector('.dist-scope')?.textContent)
       .toBe('All 40 services in the snapshot, whatever this page is filtered or paged to.');
@@ -261,7 +283,7 @@ describe('FleetOwnersView (G)', () => {
     // The owner question carries the search and the offset; the ownership question does not.
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], text: 'team', offset: 25 }));
     expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], template: 'exclude', limit: 1 });
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 });
@@ -286,7 +308,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
   it('says the summary is unavailable on first load, and keeps the owner roster usable', async () => {
     rosterOkAggregateFails(new Error('aggregate down'));
     const { target, component } = mountView(FleetOwnersView);
-    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="owner-list"] tbody tr').length).toBe(2));
     const section = aggregateOf(target) as HTMLElement;
     // The heading stays: the question is still on the page, only the answer is missing.
     expect(section.querySelector('h2')?.textContent).toBe('Ownership across every service');
@@ -295,7 +317,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Not a picture drawn from nothing, and not silence either.
     expect(aggregateDrawn(target)).toBeFalsy();
     // The roster is untouched -- one failed question does not close the page.
-    expect(target.querySelector('.lv-item a.entity-link')?.getAttribute('href')).toBe('#/fleet/owners/team:team-0');
+    expect(target.querySelector('[data-testid="owner-list"] a.entity-link')?.getAttribute('href')).toBe('#/fleet/owners/team:team-0');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -306,7 +328,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     respondByKind(listResp(owners(2), { total: 2 }));
     (aggregateOf(target)?.querySelector('button') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -326,7 +348,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     expect(aggregateOf(target)?.querySelector('[data-testid="stale-refresh"]')?.textContent)
       .toContain('This ownership summary could not be refreshed');
     // And the last answer we did receive is still readable, rather than thrown away.
-    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    expect(legend(target)[2]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -350,9 +372,9 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     ]);
     // 5 + 2 + 1 == 8 of 10: the missing two are a bucket, not rounding.
     expect(rows).toEqual([
-      ['One declared owner', '5', '(50% of 10)'],
       ['Revisions name different owners', '2', '(20% of 10)'],
       ['No declared owner', '1', '(10% of 10)'],
+      ['One declared owner', '5', '(50% of 10)'],
       ['Unclassified', '2', '(20% of 10)'],
     ]);
     unmount(component); document.body.removeChild(target);
@@ -385,9 +407,9 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Still shares of 8 -- the denominator was not quietly moved to make them fit --
     // and no Unclassified slice was invented to pad a bar that is already too full.
     expect(rows).toEqual([
-      ['One declared owner', '(75% of 8)'],
       ['Revisions name different owners', '(38% of 8)'],
       ['No declared owner', '(13% of 8)'],
+      ['One declared owner', '(75% of 8)'],
     ]);
     unmount(component); document.body.removeChild(target);
   });
@@ -424,26 +446,25 @@ describe('FleetSourcesView (G)', () => {
   const sourceRows = (n: number) => Array.from({ length: n }, (_, i) => (
     { kind: 'source', key: `src-${i}`, label: `src-${i}`, href: `/fleet/sources/src-${i}` }));
 
+  // The state bar's legend: "<label> <count>" per bucket, each a link to its filter.
+  const legend = (tally: HTMLElement) => Array.from(tally.querySelectorAll('.dist-item a'))
+    .map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`);
+
   it('summarises source health over the complete population, with each bucket as its filter', async () => {
     const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
     resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView);
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
     // Worst first, and about all 60 -- not the 25 rows on this page.
-    const links = Array.from(tally.querySelectorAll('a'));
-    expect(links.map((a) => a.textContent)).toEqual(['1 unavailable', '5 stale', '4 partial', '50 available']);
-    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+    expect(legend(tally)).toEqual(['Unavailable 1', 'Stale 5', 'Partial 4', 'Current 50']);
+    expect(Array.from(tally.querySelectorAll('.dist-item a')).map((a) => a.getAttribute('href'))).toEqual([
       '#/fleet/sources?sourceHealth=unavailable',
       '#/fleet/sources?sourceHealth=stale',
       '#/fleet/sources?sourceHealth=partial',
       '#/fleet/sources?sourceHealth=available',
     ]);
-    // No second population total to reconcile against the header's.
-    expect(tally.textContent).not.toContain('60');
-    // The parts are a sentence: a space after each comma, never "1 unavailable,5 stale".
-    expect(tally.textContent?.replace(/\s+/g, ' ')).toContain('1 unavailable, 5 stale, 4 partial, 50 available.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -453,28 +474,28 @@ describe('FleetSourcesView (G)', () => {
     resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'stale' });
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    // The filtered page shows 5 rows; the tally still describes all 60 sources.
-    expect(tally.textContent).toContain('50 available');
+    // The filtered page shows 5 rows; the bar still describes all 60 sources.
+    expect(legend(tally)).toContain('Current 50');
     const current = tally.querySelector('a[aria-current="true"]') as HTMLAnchorElement;
-    expect(current.textContent).toBe('5 stale');
+    expect(current.querySelector('.dist-label')?.textContent).toBe('Stale');
     unmount(component); document.body.removeChild(target);
   });
 
   it('offers no filter link for a health state the backend cannot be asked about', async () => {
     // total 60 against 59 classified: one source reported a status with no bucket. It
-    // is named rather than folded into "available", and it is NOT a link, because
-    // sourceHealth= has no value that would select it.
+    // is drawn as its own unclassified slice rather than folded into "Current", and it
+    // is NOT a link, because sourceHealth= has no value that would select it.
     const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
     resp.meta.sourceCounts = { total: 60, available: 59 };
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView(FleetSourcesView);
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"] .dist-item')).toBeTruthy());
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    expect(tally.textContent).toContain('1 unclassified');
-    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['59 available']);
-    expect((tally.querySelector('.lv-unclassified') as HTMLElement).title).toContain('cannot be filtered');
+    expect(tally.textContent).toContain('Unclassified');
+    expect(legend(tally)).toContain('Current 59');
+    expect(Array.from(tally.querySelectorAll('.dist-item:not(:has(a)) .dist-label')).map((e) => e.textContent)).toContain('Unclassified');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -502,8 +523,8 @@ describe('FleetSourcesView (G)', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
 
     const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
-    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent))
-      .toEqual(['60 unavailable', '1 available']);
+    await vi.waitFor(() => expect(tally.querySelector('.dist-item')).toBeTruthy());
+    expect(legend(tally)).toEqual(['Unavailable 60', 'Current 1']);
 
     const banner = target.querySelector('.knowledge') as HTMLElement;
     const caveat = (banner.textContent ?? '').replace(/\s+/g, ' ').trim();

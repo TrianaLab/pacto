@@ -26,6 +26,8 @@ describe('Pager', () => {
     const link = (rel: string) => b.querySelector(`[data-testid="pager-${rel}"]`)?.getAttribute('href');
     expect([link('first'), link('prev'), link('next'), link('last')]).toEqual([href(0, 50), href(0, 50), href(100, 50), href(12400, 50)]);
     expect(b.textContent).toContain('of 249');
+    // The list's total, for the G1 gate to check a figure link against (T3).
+    expect(b.querySelector('[data-testid="pager"]')?.getAttribute('data-view-total')).toBe('12431');
   });
 
   it('greys out what leads nowhere and hides the moves on one page', () => {

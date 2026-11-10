@@ -59,14 +59,35 @@ folder, so no host folder such as `/Users/<name>` is published.
 | Parameter | Values | Effect |
 |-----------|--------|--------|
 | `template` (entities) | `only`, `exclude` | `only` keeps golden paths and, with no kinds, lists services only; `exclude` leaves them and their revisions out. Absent lists every service and marks golden paths `template` |
-| `createdFrom` (entities; MCP `created_from`) | a service key | Keeps the services whose origin resolves to that golden path. A hidden, absent or non-path key answers an empty list |
+| `createdFrom` (entities; MCP `created_from`) | a service key, `(none)` or `(unresolved)` | Keeps the services whose origin resolves to that golden path. `(none)` keeps the services that declare no origin and `(unresolved)` those whose origin resolves to no golden path in the view. A hidden, absent or non-path key answers an empty list |
+| `sort` (entities) | `created` | Golden paths that created the most services first, then the most non-compliant of those, then by name |
 | `template` (search) | `only`, `exclude` | The same filter on search; the default keeps golden paths, each hit marked `template` |
 
 A golden path row in an entity list carries `created`, the number of services
 created from it, golden paths derived from it left out like the Services list
-leaves them out, and its signature status: `not-checked` when no source that
-read the path checks signatures, and the path's detail then has no
-`signature`.
+leaves them out, `nonCompliant`, how many of those are non-compliant, and its
+signature status: `not-checked` when no source that read the path checks
+signatures, and the path's detail then has no `signature`.
+
+## Services by golden path
+
+The aggregate of an entity list over services carries `origins`, which
+partitions the matched services that are no golden path by their declared
+origin, over the whole population before paging:
+
+| Field | Counts |
+|-------|--------|
+| `byPath` | Up to 10 golden paths, the most services created first, each with `services`, `nonCompliant` and `hidden` |
+| `paths` | Golden paths that created at least one matched service |
+| `beyond` | Services created from the golden paths past the ranking |
+| `unresolved` | Services whose origin resolves to no golden path in the view (`createdFrom=(unresolved)`) |
+| `none` | Services that declare no origin (`createdFrom=(none)`) |
+| `hidden` | Services created from a golden path that the viewer cannot see, in no other count |
+
+The `services` of `byPath`, `beyond`, `unresolved` and `none` sum to the
+matched services, and their `nonCompliant` counts sum to the non-compliant
+ones. `pacto fleet entities` prints the ranking under the list, and the
+dashboard's Golden paths page draws it.
 
 ## Creation checklist
 

@@ -33,7 +33,7 @@ const EDGE_REST = 0.07;
 // (Cytoscape's canvas can't read CSS custom properties directly). Status has no table
 // here: it reads format.ts's, so a node cannot be a different colour from the badge on
 // the row that names it. The hand-written one omitted Invalid and NotEvaluated, so both
-// drew grey, and toned Unknown grey where every other surface toned it amber.
+// drew grey, and toned Unknown in a colour no other surface used.
 const REASON_TO_PAL: Record<string, string> = {
   non_oci_ref: 'neutral', auth_failed: 'err', no_semver_tags: 'warn', not_found: 'warn', discovering: 'accent',
 };
@@ -610,7 +610,7 @@ function resolvePalette(container: HTMLElement): Palette {
     warn: v('--c-warn', '#fbbf24'),
     err: v('--c-err', '#f87171'),
     info: v('--c-info', '#60a5fa'),
-    neutral: v('--c-neutral', '#64748b'),
+    neutral: v('--c-neutral', '#586577'),
     accent: v('--c-accent', '#818cf8'),
   };
 }
@@ -690,6 +690,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         width: 1,
         'line-color': pal.textDim,
         'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' || ele.data('etype') === 'runs' ? 'dashed' : 'solid'),
+        // One dash for every dashed edge, the figures' projected wire (SPEC 2.1).
+        'line-dash-pattern': [6, 5],
         'target-arrow-shape': restArrow,
         'target-arrow-color': pal.textDim,
         'arrow-scale': 0.85,
@@ -712,9 +714,10 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
     },
     {
       // expected-not-observed: declared but not witnessed in the window (not proof it
-      // is unused). Info tone, kept solid.
+      // is unused). Info tone.
       selector: "edge[state='expected-not-observed']",
-      style: { 'line-color': pal.info, 'target-arrow-color': pal.info },
+      // Projected, never observed: the figures' dashed wire (SPEC 2.1).
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed', 'line-dash-pattern': [6, 5] },
     },
     {
       // drift (observed-not-expected): observed at runtime but never declared. The

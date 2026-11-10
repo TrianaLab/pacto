@@ -275,11 +275,20 @@ jobs:
   # Browser-level acceptance for the redesigned Operational Graph + Impact UI:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
   # browser with Playwright. No cluster required.
+  #
+  # Sharded: the full suite on one 4-vCPU runner outgrew its timeout. Each leg
+  # builds the demo once and runs its Playwright slice; the engine smoke runs in
+  # shard 1 only (see test-browser in the Makefile). The `required` aggregate
+  # sees one dashboard-e2e result that is failure if any leg fails.
   dashboard-e2e:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -293,14 +302,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
-        timeout-minutes: 30
-        run: make test-browser
+        timeout-minutes: 25
+        run: make test-browser PW_SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Upload browser traces
         if: failure()
         timeout-minutes: 5
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: dashboard-e2e-traces
+          name: dashboard-e2e-traces-shard-${{ matrix.shard }}
           path: |
             pkg/dashboard/frontend/test-results
             pkg/dashboard/frontend/playwright-report

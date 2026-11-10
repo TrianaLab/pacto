@@ -160,9 +160,9 @@ test.describe('WASM demo — retained rows answer the question that is on screen
   test('an Owners search committed mid-flight does not leave the previous owners on screen', async ({ page }) => {
     await page.goto('/#/fleet/owners');
     await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: T });
-    const before = await page.getByTestId('owner-list').locator('li').count();
+    const before = await page.getByTestId('owner-list').locator('tbody tr').count();
     expect(before).toBeGreaterThan(1);
-    const firstOwner = (await page.getByTestId('owner-list').locator('li').first().textContent())!.trim();
+    const firstOwner = (await page.getByTestId('owner-list').locator('tbody th').first().textContent())!.trim();
 
     const g = gate(page);
     await g.hold('/api/fleet/entities');
@@ -176,7 +176,7 @@ test.describe('WASM demo — retained rows answer the question that is on screen
 
     await g.release();
     await expect(skeleton(page)).toHaveCount(0, { timeout: T });
-    expect(await page.getByTestId('owner-list').locator('li').count()).toBeLessThanOrEqual(before);
+    expect(await page.getByTestId('owner-list').locator('tbody tr').count()).toBeLessThanOrEqual(before);
   });
 
   test('changing the scoped Revisions inventory mid-flight does not show one service under another', async ({ page }) => {

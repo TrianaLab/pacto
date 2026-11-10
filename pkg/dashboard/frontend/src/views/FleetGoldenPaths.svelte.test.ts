@@ -36,16 +36,23 @@ beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
 describe('FleetGoldenPathsView', () => {
   it('asks for golden paths only and lists each with its summary, owner, signature, source and created services', async () => {
     entitiesFn.mockResolvedValue(listResp([
-      pathRef('http-service', { summary: 'An HTTP API on the platform runtime', owner: 'platform', signature: 'verified', created: 2 }),
+      pathRef('http-service', { summary: 'An HTTP API on the platform runtime', owner: 'platform', signature: 'verified', created: 2, nonCompliant: 1 }),
       pathRef('worker', { signature: 'unsigned', created: 1 }),
       pathRef('cron', { signature: 'not-checked' }),
     ]));
     const { target, done } = mountView({ text: 'http' });
     await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="golden-path-list"] tbody tr').length).toBe(3));
-    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], template: 'only', text: 'http', limit: 25, sort: 'name' }));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], template: 'only', text: 'http', limit: 25, sort: 'created' }));
+    // The origin figure asks about the whole fleet, whatever the search.
+    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], template: 'exclude', limit: 1 });
     expect(target.querySelector('h1')?.textContent).toBe('Golden paths');
     const rows = target.querySelectorAll('[data-testid="golden-path-list"] tbody tr');
     expect(rows[0].textContent).toContain('http-service');
+    // The label takes the ellipsis, with its whole name in its title: an ellipsis on a
+    // box around the inline-flex link hid the whole link in a narrow name column.
+    const name = rows[0].querySelector('th .gp-name') as HTMLElement;
+    expect(name.closest('.cell-clip')).toBeNull();
+    expect(name.querySelector('.ei-label')?.getAttribute('title')).toBe('http-service');
     expect(rows[0].textContent).toContain('An HTTP API on the platform runtime');
     expect(rows[0].textContent).toContain('platform');
     expect(rows[0].textContent).toContain('ghcr.io/acme');
@@ -60,6 +67,19 @@ describe('FleetGoldenPathsView', () => {
     expect(created?.textContent).toContain('2');
     expect(created?.getAttribute('href')).toBe('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');
     expect(rows[0].querySelector('a.entity-link')?.getAttribute('href')).toBe('#/fleet/services/ghcr.io%2Facme%2Fhttp-service');
+    expect(rows[0].querySelector('a[data-testid="path-noncompliant"]')?.getAttribute('href')).toBe('#/fleet/services?status=NonCompliant&createdFrom=ghcr.io%2Facme%2Fhttp-service');
+    expect(rows[1].querySelector('[data-testid="path-noncompliant"]')).toBeNull();
+    done();
+  });
+
+  it('opens the creation explainer on request', async () => {
+    entitiesFn.mockResolvedValue(listResp([pathRef('http-service', { created: 1 })]));
+    const { target, done } = mountView();
+    const toggle = await vi.waitFor(() => { const b = target.querySelector<HTMLButtonElement>('[data-testid="creation-toggle"]'); expect(b).toBeTruthy(); return b!; });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="creation-explainer"]')).toBeTruthy());
+    expect(toggle.textContent).toContain('Hide');
     done();
   });
 

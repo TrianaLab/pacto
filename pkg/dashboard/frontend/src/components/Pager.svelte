@@ -8,6 +8,8 @@
   // count: how many rows this page holds, when known. None on a page the server
   // matched rows for means the link went past the end, and the pager says so with
   // a way back instead of an empty list beside a count.
+  // data-view-total states the list's total, so a figure link that says how many
+  // it lists can be checked against the list it opens (T3, the G1 gate).
   let { page, href, label = 'Pages', noun = 'items', testid = 'pager', count = undefined } = $props();
 
   const v = $derived(pageView(page));
@@ -27,11 +29,11 @@
 </script>
 
 {#if count === 0 && v.total > 0}
-  <p class="pl-past-end" role="status" data-testid={`${testid}-past-end`}>
+  <p class="pl-past-end" role="status" data-testid={`${testid}-past-end`} data-view-total={v.total}>
     This page is past the end of the {formatCount(v.total)} {word}. <a href={href(v.last ?? 0, v.limit)}>Go to the last page</a>
   </p>
 {:else if v.total > 0}
-  <nav class="pl-pager" aria-label={label} data-testid={testid}>
+  <nav class="pl-pager" aria-label={label} data-testid={testid} data-view-total={v.total}>
     <span class="pl-range" data-testid={`${testid}-range`}>
       {#if paged}Showing {formatCount(v.from)}–{formatCount(v.to)} of {formatCount(v.total)} {word}{:else}{formatCount(v.total)} {word}{/if}
     </span>

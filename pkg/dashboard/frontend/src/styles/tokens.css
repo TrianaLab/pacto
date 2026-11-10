@@ -237,6 +237,36 @@
   --motion-alarm-period: 1.2s;
   --motion-alarm-count: 3;
 
+  /* The grey hatch: unknown, partial and hidden, and nothing else. A pattern, so it
+     never reads as the flat grey of a benign neutral bucket; the element that wears it
+     also draws a solid 1px --c-neutral edge, which carries the contrast. */
+  --c-hatch: repeating-linear-gradient(135deg, var(--c-neutral) 0 3px, transparent 3px 6px);
+  /* Frost: frozen, and nothing else (SPEC 2.2 r4). Small diamonds on the info tone, so
+     it never reads as the unknown hatch; its wearer also draws a solid info edge. */
+  --c-frost: repeating-linear-gradient(45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px);
+  /* Isometric identity: the landing hero's plane, as dashboard tokens. The slab face,
+     and the faint 2:1 grid with its accent glow. Decorative only: no text sits on
+     --c-iso-grid. */
+  --c-iso-face: #141b2d;
+  --c-iso-grid: rgba(129, 140, 248, 0.09);
+  --c-iso-glow: rgba(129, 140, 248, 0.14);
+  /* Toned slab sides mix the tone into a NEUTRAL side, not the lavender iso side, so
+     ok reads green and warn reads amber in both themes. */
+  --c-fig-side: #182033;
+  --c-fig-side-2: #10162a;
+
+  /* Figures (SPEC 3.1): explanatory drawings. Marks only; words are HTML. One stroke
+     and one lane height for every figure, so two drawings read as one language. */
+  --fig-line: color-mix(in srgb, var(--c-text-3) 55%, transparent);
+  --fig-line-strong: var(--c-text-3);
+  --fig-tone-mix-top: 6%;
+  --fig-tone-mix-side: 24%;
+  --fig-tone-mix-side-2: 36%;
+  --fig-stroke: 1.25px;
+  --fig-lane-h: 2.5rem;
+  --fig-glyph-sm: 20px;
+  --fig-glyph-md: 32px;
+
   /* Layout */
   --navbar-h: 56px;
   --container-max: 1200px;
@@ -261,21 +291,23 @@
   --c-ok: #047857;
   --c-ok-bg: rgba(4, 120, 87, 0.06);
   --c-ok-border: rgba(4, 120, 87, 0.15);
-  /* amber-700: deepened from #d97706 so warn-as-text clears AA 4.5:1 on white (was 3.19,
-     now 5.02) while staying amber — warn(amber)↔err(red) is ΔE 27 (well over the ΔE≥15
+  /* amber, deepened twice: from #d97706 so warn-as-text clears AA on white, then from
+     amber-700 (#b45309) because a warn badge sits on its own tint over --c-bg, where
+     amber-700 measured 4.43:1. Now 5.25:1 on that tint and 4.83:1 on a doubled tint (a
+     badge inside a warn banner), and warn(amber)↔err(red) stays ΔE 28 (over the ΔE≥15
      normal-vision floor), so a "partial" segment still reads distinct from "not done". */
-  --c-warn: #b45309;
-  --c-warn-bg: rgba(180, 83, 9, 0.06);
-  --c-warn-border: rgba(180, 83, 9, 0.15);
+  --c-warn: #a14a07;
+  --c-warn-bg: rgba(161, 74, 7, 0.06);
+  --c-warn-border: rgba(161, 74, 7, 0.15);
   --c-err: #b91c1c;
   --c-err-bg: rgba(185, 28, 28, 0.06);
   --c-err-border: rgba(185, 28, 28, 0.15);
   --c-info: #2563eb;
   --c-info-bg: rgba(37, 99, 235, 0.06);
   --c-info-border: rgba(37, 99, 235, 0.15);
-  /* deepened from #64748b so a neutral tag's text clears AA 4.5:1 on the inset
-     surface it sits on (was 4.34, now 4.97). */
-  --c-neutral: #5b6b80;
+  /* #586577, not #64748b: the old value gave 4.43:1 on the tinted badge background
+     and 4.34:1 on the inset surface; this clears AA 4.5:1 on both. */
+  --c-neutral: #586577;
   --c-neutral-bg: rgba(100, 116, 139, 0.06);
   /* indigo-600: deepened from #6366f1 so accent-as-text (links, badges) AND white-on-accent
      controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
@@ -287,6 +319,12 @@
   --c-on-accent: #ffffff;
   --seg-ink: #ffffff;
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  /* The hero's default (light) isometric plane. */
+  --c-iso-face: #ffffff;
+  --c-iso-grid: rgba(79, 70, 229, 0.1);
+  --c-iso-glow: rgba(79, 70, 229, 0.1);
+  --c-fig-side: #eceff4;
+  --c-fig-side-2: #d9dee7;
 }
 
 /* ─── Responsive token overrides ─── */

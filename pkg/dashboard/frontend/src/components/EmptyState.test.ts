@@ -12,6 +12,18 @@ describe('EmptyState', () => {
   beforeEach(() => { target = document.createElement('div'); document.body.appendChild(target); });
   afterEach(() => { document.body.removeChild(target); });
 
+  it('puts the isometric grid only behind an idle state that opts in', () => {
+    const idle = mount(EmptyState, { target, props: { title: 'Ready to compare', identity: true } });
+    expect(target.querySelector('.state-box.iso-backdrop')).toBeTruthy();
+    unmount(idle);
+    // An error, a load or a caller that did not opt in is not identity.
+    for (const props of [{ title: 'Nope', identity: true, error: true }, { identity: true, loading: true }, { title: 'Nothing here' }]) {
+      const c = mount(EmptyState, { target, props });
+      expect(target.querySelector('.iso-backdrop')).toBeFalsy();
+      unmount(c);
+    }
+  });
+
   it('renders a skeleton while loading', () => {
     const c = mount(EmptyState, { target, props: { loading: true } });
     expect(target.querySelector('.skeleton')).toBeTruthy();

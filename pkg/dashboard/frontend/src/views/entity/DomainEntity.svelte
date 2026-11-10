@@ -9,6 +9,7 @@
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
+  import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
   // The business-domain page, one scope up from a service and drawn like an owner page:
   // the posture over every service in the domain, its declared ownership, bounded
@@ -28,6 +29,7 @@
 </script>
 
 <div class="domain-entity">
+  {#if key}<ScopedPostureFigure filter={{ businessDomain: key }} />{/if}
   <section class="de-posture" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="de-posture-h">
     <h2 id="de-posture-h" class="t-section-title">Operational summary</h2>
     <p class="de-lead t-body-2">
@@ -35,7 +37,8 @@
       {formatCount(sum.revisions ?? 0)} {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'}{(sum.invalidRevisions ?? 0) > 0 ? ` (${sum.invalidRevisions} invalid)` : ''} ·
       {formatCount(sum.targets ?? 0)} operational {(sum.targets ?? 0) === 1 ? 'target' : 'targets'}
     </p>
-    <PostureBars summary={sum} {attentionUrl} empty="Nothing running has been seen for the services in this domain yet." />
+    <!-- Service compliance is the figure above (one carrier per fact, L3). -->
+    <PostureBars summary={sum} {attentionUrl} compliance={false} empty="Nothing running has been seen for the services in this domain yet." />
     <DistributionBar
       title="Declared ownership"
       description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."

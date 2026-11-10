@@ -350,6 +350,10 @@ describe('parseHash — fleet product IA', () => {
     });
     // fleetServicesUrl accepts only the implemented filters.
     expect(fleetServicesUrl({ owner: 'team-a', offset: 25 })).toBe('#/fleet/services?owner=team-a&offset=25');
+    // A phase only narrows the consumers of an offering.
+    expect(fleetServicesUrl({ consumes: 'pg', phase: 'failed' })).toBe('#/fleet/services?consumes=pg&phase=failed');
+    expect(fleetServicesUrl({ phase: 'failed' })).toBe('#/fleet/services');
+    expect(parseHash('#/fleet/services?consumes=pg&phase=failed').params).toEqual({ consumes: 'pg', phase: 'failed' });
   });
 
   it('carries declared-ownership as route state, so an aggregate finding is a link', () => {
@@ -501,6 +505,12 @@ describe('fleetChangesUrl', () => {
   it('builds a shareable deep link with both revisions and the observed toggle', () => {
     expect(fleetChangesUrl('domain-a/payments', { old: 'a', new: 'b', observed: true }))
       .toBe('#/fleet/changes/domain-a%2Fpayments?old=a&new=b&observed=1');
+  });
+  // A lane of the figure links to the consumers of its outcome, and the link parses back.
+  it('carries the outcome a lane lists, and parses it back', () => {
+    const url = fleetChangesUrl('payments', { old: 'a', new: 'b', outcome: 'unknown' });
+    expect(url).toBe('#/fleet/changes/payments?old=a&new=b&outcome=unknown');
+    expect(parseHash(url).params).toEqual({ svc: 'payments', old: 'a', new: 'b', outcome: 'unknown' });
   });
   // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
   // in the query -- never promoted into the path where it would look canonical.

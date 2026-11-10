@@ -92,7 +92,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     const sel = target.querySelector('select[aria-label="Filter by declared ownership"]') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value))
-      .toEqual(['', 'consistent', 'conflicting', 'unowned']);
+      .toEqual(['', 'conflicting', 'unowned', 'consistent', 'unidentified']);
     sel.value = 'conflicting';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?owner=team-a&ownership=conflicting');
@@ -208,15 +208,18 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => expect(rows(target).length).toBe(2));
 
-    const compliance = dist(target, 'Compliance');
-    expect(Array.from(compliance.querySelectorAll('.dist-legend .dist-item')).map((n) => [
-      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
-    ])).toEqual([['Compliant', '20'], ['Not compliant', '5'], ['Unknown', '3'], ['Not evaluated', '12']]);
-    // 40 matching services, of which only 2 are on screen: the denominator is the match.
-    expect(compliance.querySelector('.dist-scope')?.textContent).toBe('All 40 services in the snapshot.');
-    expect(compliance.querySelector('.dist-pct')?.textContent).toBe('(50% of 40)');
+    // The posture column draws the compliance tally; its rows carry count and share.
+    // The figure loads lazily, so under a busy test run it can land after the rows.
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy());
+    const fig = target.querySelector('[data-testid="posture-figure"]') as HTMLElement;
+    expect(Array.from(fig.querySelectorAll('.prow')).filter((r) => r.querySelector('.prow-n b')?.textContent !== '0').map((r) => [
+      r.querySelector('.prow-l')?.textContent, r.querySelector('.prow-n')?.textContent,
+    ])).toEqual([['Not compliant', '5 · 13%'], ['Unknown', '3 · 8%'], ['Compliant', '20 · 50%'], ['Not evaluated', '12 · 30%']]);
+    // Empty strata keep their row and draw nothing; 40 matching services, 2 on screen.
+    expect(fig.querySelectorAll('.pc').length).toBe(4);
+    expect(fig.querySelector('figcaption')?.textContent).toContain('All 40 services');
     // Every bucket drills into the same list, narrowed by that status.
-    expect(compliance.querySelector('.dist-legend a')?.getAttribute('href')).toBe('#/fleet/services?status=Compliant');
+    expect(Array.from(fig.querySelectorAll('.prow a')).map((a) => a.getAttribute('href'))[2]).toBe('#/fleet/services?status=Compliant');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -228,9 +231,9 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const ownership = dist(target, 'Declared ownership');
     expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, across every page.');
     expect(Array.from(ownership.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent))
-      .toEqual(['One declared owner', 'Revisions name different owners', 'No declared owner']);
+      .toEqual(['Revisions name different owners', 'No declared owner', 'One declared owner']);
     // The owner filter survives the click; it is narrowed, not replaced.
-    expect(ownership.querySelector('.dist-legend a')?.getAttribute('href'))
+    expect(ownership.querySelectorAll('.dist-legend a')[2]?.getAttribute('href'))
       .toBe('#/fleet/services?owner=team-a&ownership=consistent');
     unmount(component); document.body.removeChild(target);
   });
@@ -289,7 +292,8 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
       .toEqual(['Services per owner', 'Operational targets per owner']);
     // And the distributions are NOT behind it.
     expect(Array.from(target.querySelectorAll('.sv-inventory > .sv-inv-grid .dist-title')).map((n) => n.textContent))
-      .toEqual(['Compliance', 'Declared ownership']);
+      .toEqual(['Declared ownership']);
+    expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -406,6 +410,26 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('picks the golden path a service was created from in a search over the golden paths, or none declared', async () => {
+    vi.useFakeTimers();
+    try {
+      entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+      const { target, component } = mountView();
+      await vi.waitFor(() => expect(rows(target).length).toBe(1));
+      const box = target.querySelector('#svc-created') as HTMLInputElement;
+      // Suggestions come from the golden paths only, as the reader types.
+      box.value = 'http'; box.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ text: 'http', kinds: ['service'], template: 'only' }));
+      // The words the chip uses commit the origin no path names.
+      box.value = 'None declared'; box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      flushSync();
+      expect(location.hash).toBe('#/fleet/services?createdFrom=%28none%29');
+      unmount(component); document.body.removeChild(target);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('lists the consumers of an offering from the URL, with a chip that removes the filter', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ consumes: 'postgresql', status: 'Compliant' });
@@ -415,6 +439,19 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Consumes: postgresql ×');
     (chip.querySelector('button') as HTMLButtonElement).click();
     expect(location.hash).toBe('#/fleet/services?status=Compliant');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('narrows the consumers to a provisioning phase, and drops the phase with the offering', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ consumes: 'postgresql', phase: 'failed' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ consumes: 'postgresql', phase: 'failed' }));
+    const chipText = (c: Element) => c.textContent?.replace(/\s+/g, ' ').trim();
+    expect(Array.from(target.querySelectorAll('.chip')).map(chipText)).toEqual(['Consumes: postgresql ×', 'Provisioning phase: Failed ×']);
+    const consumes = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Consumes')) as HTMLElement;
+    (consumes.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services');
     unmount(component); document.body.removeChild(target);
   });
 

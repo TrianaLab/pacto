@@ -97,7 +97,8 @@ export function knowledgeTone(level: string | undefined): Tone {
   switch (level) {
     case 'complete': return 'ok';
     case 'empty': return 'neutral';
-    case 'partial': return 'warn';
+    // Partial knowledge is the unknown family: the neutral hatch, never a status tone.
+    case 'partial': return 'neutral';
     case 'stale': return 'warn';
     case 'unavailable': return 'err';
     default: return 'neutral';
@@ -239,9 +240,9 @@ export function sourceHealthLabel(status: string | undefined): string {
 export function sourceHealthTone(status: string | undefined): Tone {
   switch (status) {
     case 'available': return 'ok';
-    case 'partial': return 'warn';
     case 'stale': return 'warn';
     case 'unavailable': return 'err';
+    // Partial, like unknown, is the neutral family, never a status tone.
     default: return 'neutral';
   }
 }
@@ -283,16 +284,6 @@ export function sourceHealthTallyParts(c: SourceCounts | null | undefined): Sour
     parts.push({ status: '', count: total - classified, text: `${total - classified} unclassified` });
   }
   return parts;
-}
-/** sourceHealthTally is [sourceHealthTallyParts] as one sentence, for a surface with
- *  no room (or no need) for a per-bucket drill-down. */
-export function sourceHealthTally(c: SourceCounts | null | undefined): string {
-  const total = c?.total ?? 0;
-  if (total === 0) return 'No data sources reported.';
-  const noun = `${formatCount(total)} data source${total === 1 ? '' : 's'}`;
-  const parts = sourceHealthTallyParts(c);
-  if (parts.length === 1 && parts[0].status === 'available') return `${noun}, all available.`;
-  return `${noun} — ${parts.map((p) => p.text).join(', ')}.`;
 }
 /**
  * sourceHealthSentence says what a source's health MEANS for the records around it,

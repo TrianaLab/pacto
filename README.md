@@ -13,8 +13,8 @@ the OCI registry you already run.
 
 > **Why Pacto exists:** [MANIFEST.md](MANIFEST.md)
 
-![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?", counts services that need attention, non-compliant targets and invalid revisions, and warns that the snapshot is missing data](docs/assets/screenshots/dashboard-overview-light.png#gh-light-mode-only)
-![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?", counts services that need attention, non-compliant targets and invalid revisions, and warns that the snapshot is missing data](docs/assets/screenshots/dashboard-overview-dark.png#gh-dark-mode-only)
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract and two invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-light.png#gh-light-mode-only)
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?" with two running targets that break their contract and two invalid revisions, warns that the snapshot is missing data and draws which data sources reported](docs/assets/screenshots/dashboard-overview-dark.png#gh-dark-mode-only)
 
 ---
 

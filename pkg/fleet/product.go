@@ -138,6 +138,16 @@ type EntityRef struct {
 	Template  bool   `json:"template,omitempty"`
 	Created   int    `json:"created,omitempty"`
 	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
+	// NonCompliant counts the NonCompliant services of an OWNER or DOMAIN
+	// reference, set only on list answers: every service of a domain, and only
+	// the services an owner owns outright (Owned), the ones the non-compliant
+	// owner ranking counts, so a row and the rank figure agree. On a golden path
+	// reference it counts the non-compliant services among Created.
+	NonCompliant int `json:"nonCompliant,omitempty"`
+	// Owned counts the services an OWNER reference owns outright: every revision
+	// that names an owner names this one alone. It is the denominator of the
+	// owner's non-compliant rate (see [EntityRef.RateBase]).
+	Owned int `json:"owned,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY
@@ -156,15 +166,27 @@ type SourceCounts struct {
 	Partial     int `json:"partial"`
 	Stale       int `json:"stale"`
 	Unavailable int `json:"unavailable"`
+	// AvailableByKind splits Available by source kind, the most first (ties by
+	// kind), so a figure can say "41 more Kubernetes clusters, all current"
+	// without counting a page. The kinds are the adapters Pacto ships, a few.
+	AvailableByKind []SourceKindCount `json:"availableByKind,omitempty"`
+}
+
+// SourceKindCount is how many sources of one kind are in a [SourceCounts] bucket.
+type SourceKindCount struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
 }
 
 // sourceCounts tallies the complete source population by health.
 func sourceCounts(ss []SourceState) SourceCounts {
 	c := SourceCounts{Total: len(ss)}
+	byKind := map[string]int{}
 	for _, s := range ss {
 		switch s.Status {
 		case SourceAvailable:
 			c.Available++
+			byKind[s.Kind]++
 		case SourcePartial:
 			c.Partial++
 		case SourceStale:
@@ -173,6 +195,12 @@ func sourceCounts(ss []SourceState) SourceCounts {
 			c.Unavailable++
 		}
 	}
+	for k, n := range byKind {
+		c.AvailableByKind = append(c.AvailableByKind, SourceKindCount{Kind: k, Count: n})
+	}
+	slices.SortFunc(c.AvailableByKind, func(a, b SourceKindCount) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Kind, b.Kind))
+	})
 	return c
 }
 

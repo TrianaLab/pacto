@@ -1,14 +1,16 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl } from './lib/router.ts';
+  import { fleetOverviewUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
+  import { navGroups, legacyNav, navCurrent } from './lib/nav.ts';
   import SourceDot from './components/SourceDot.svelte';
   import IdentityBar from './components/IdentityBar.svelte';
-  import { currentEntity } from './lib/currentEntity.svelte.ts';
+  import NavList from './components/NavList.svelte';
 
   let {
     services = [], sourcesInfo = [], capabilities = null, version = '', discovering = false, view = 'list',
     entityKind = '', autoReload = false, refreshing = false, fleetSearch = false,
+    attentionTotal = null, sourceCounts = null,
     onRefresh, onToggleAutoReload, onToggleTheme, onOpenSearch,
   } = $props();
 
@@ -17,78 +19,17 @@
   // (Cmd/Ctrl-K) otherwise. Its label and shortcut hint communicate the actual action.
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.includes('Mac');
   const searchLabel = $derived(fleetSearch ? 'Search services, revisions and targets' : 'Search: open command palette');
-  const searchPlaceholder = $derived(fleetSearch ? 'Search services, revisions and targets…' : 'Search...');
+  const searchPlaceholder = $derived(fleetSearch ? 'Search services, revisions and targets…' : 'Search services, owners and pages');
   const searchKbd = $derived(fleetSearch ? '/' : (isMac ? '⌘K' : 'Ctrl+K'));
 
-  // Persistent primary nav. `views` lists the route.view values that light the item.
-  //
-  // The product IA teaches ONE mental model, in order: state, then inventory, then
-  // relationships, then change. Needs attention sits beside the Overview (state) and
-  // Owners beside Services (inventory): both are pages a reader lands on and returns
-  // to, and lighting "Overview" while showing either one told them they were somewhere
-  // else. Data sources keeps its own control on the right of the bar and Readiness is
-  // a cut of the revision inventory, so neither is a tab. Desktop nav, the mobile
-  // drawer (which renders this same array) and the palette all agree on that ordering.
-  //
-  // `cap: 'fleet'` items are shown until capabilities are known and hidden once the host
-  // reports no fleet; `legacyOnly` items are the mirror image, appearing only once the
-  // host is confirmed NON-fleet -- so neither UI's destinations leak into the other.
-  //
-  // Every entity page shares ONE view id ('fleet-entity'), so `kinds` is what tells the
-  // nav which destination a given entity belongs under. It has to agree with the
-  // breadcrumb trail: an owner or data source is reached through the Overview
-  // (Overview > Data sources > ...), a service/revision/target through Services. Lighting
-  // "Services" on a data-source page contradicted the trail printed right below it.
-  const nav = $derived(
-    [
-      {
-        label: 'Overview',
-        href: fleetOverviewUrl(),
-        views: ['fleet-overview', 'fleet-sources'],
-        kinds: ['source'],
-        cap: 'fleet',
-      },
-      { label: 'Needs attention', href: fleetAttentionUrl(), views: ['fleet-attention'], cap: 'fleet' },
-      // Services exists on BOTH host classes, so its href must be correct at every probe
-      // state -- including before capabilities resolve. '#/' was not: on a Fleet host it
-      // canonicalizes straight back to the Overview, so clicking Services during the probe
-      // silently did nothing. '#/services' is the one spelling that works everywhere: the
-      // legacy list on a legacy host, and canonicalized to /fleet/services on a Fleet one.
-      {
-        label: 'Services',
-        href: capabilities?.fleet ? '#/fleet/services' : '#/services',
-        views: ['list', 'detail', 'fleet-services'],
-        kinds: ['service', 'revision', 'target'],
-      },
-      { label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], cap: 'fleet' },
-      { label: 'Domains', href: fleetDomainsUrl(), views: ['fleet-domains'], kinds: ['domain'], cap: 'fleet' },
-      { label: 'Offerings', href: fleetOfferingsUrl(), views: ['fleet-offerings'], kinds: ['offering'], cap: 'fleet' },
-      // A golden path's entity page is a service page, lit here like its breadcrumb.
-      { label: 'Golden paths', href: fleetGoldenPathsUrl(), views: ['fleet-golden-paths'], kinds: ['golden-path'], cap: 'fleet' },
-      // Sentence case, like its three siblings and like the H1 and breadcrumb on the
-      // page it opens. Title Case here made one tab in four look like a different kind
-      // of destination and made the tab read as a different name from its own page.
-      { label: 'Operational graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
-      { label: 'Change analysis', href: fleetChangesUrl(), views: ['changes'], cap: 'fleet' },
-      // Delivery is opt-in: shown only once the host CONFIRMS it, never while the
-      // probe is pending, so a cluster without it never flashes a dead tab.
-      {
-        label: 'Delivery',
-        href: deliveryInboxUrl(),
-        views: ['delivery-inbox', 'delivery-environments', 'delivery-autonomy', 'delivery-change', 'delivery-history', 'delivery-publish'],
-        cap: 'delivery',
-        confirmed: true,
-      },
-      { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'], legacyOnly: true },
-      { label: 'Readiness', href: readinessUrl(), views: ['readiness'], legacyOnly: true },
-      { label: 'Compare', href: compareDiffUrl(), views: ['diff'], legacyOnly: true },
-    ].filter((item) => (item.legacyOnly
-      ? capabilities?.fleet === false
-      : item.confirmed ? capabilities?.[item.cap] === true
-      : !item.cap || capabilities === null || capabilities[item.cap])),
-  );
-  const pageKind = $derived(entityKind === 'service' && currentEntity.template ? 'golden-path' : entityKind);
-  const isActive = (item) => (view === 'fleet-entity' ? (item.kinds || []).includes(pageKind) : item.views.includes(view));
+  // SPEC 20 (B2): a Fleet host -- or one whose capabilities are not known yet, the
+  // common case -- carries its destinations in the grouped sidebar (Sidebar.svelte),
+  // and under 768px in this bar's Menu drawer as the same grouped list. Only a host
+  // confirmed NON-fleet (the offline `pacto doc` export) keeps its own items in this
+  // bar: four items do not need a sidebar.
+  const fleetUI = $derived(capabilities?.fleet !== false);
+  const groups = $derived(navGroups(capabilities));
+  const legacy = legacyNav();
 
   // The Pacto brand/logo is the application HOME affordance. On a Fleet-capable host it
   // goes to the canonical Operational Overview (fleetOverviewUrl, never a hardcoded
@@ -184,15 +125,17 @@
     </a>
   </div>
 
-  <nav class="navbar-nav navbar-nav-desktop" aria-label="Primary">
-    {#each nav as item}
-      <a href={item.href} class="nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined}>{item.label}</a>
-    {/each}
-  </nav>
+  {#if !fleetUI}
+    <nav class="navbar-nav navbar-nav-desktop" aria-label="Primary">
+      {#each legacy as item}
+        <a href={item.href} class="nav-link" class:active={!!navCurrent(item, view, '')} aria-current={navCurrent(item, view, '')}>{item.label}</a>
+      {/each}
+    </nav>
+  {/if}
 
-  <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} data-testid="navbar-search">
+  <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} aria-keyshortcuts={fleetSearch ? '/' : 'Control+K Meta+K'} data-testid="navbar-search">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <span class="search-trigger-text">{searchPlaceholder}</span>
+    <span class="search-trigger-text" title={searchPlaceholder}>{searchPlaceholder}</span>
     <kbd class="search-kbd" aria-hidden="true">{searchKbd}</kbd>
   </button>
 
@@ -202,7 +145,7 @@
          nav and the search left the search truncated at 1440px, and a fifth tab
          (Delivery) made it worse. The popover is native (light dismiss, Escape, focus
          return), so there is no state or focus code of our own. -->
-    {#if enabledSources.length > 0 || discovering}
+    {#if !fleetUI && (enabledSources.length > 0 || discovering)}
       <button type="button" class="sources-trigger" popovertarget="navbar-sources" data-testid="navbar-sources">
         <span class="sources-dots" aria-hidden="true">
           {#each enabledSources as src}<span class="source-dot source-dot-{src.type}"></span>{/each}
@@ -219,7 +162,6 @@
           {/each}
         </ul>
         {#if discovering}<p class="t-meta sources-pop-note">Still discovering services.</p>{/if}
-        {#if capabilities?.fleet}<a class="sources-pop-link" href={fleetSourcesUrl()}>Source health</a>{/if}
       </div>
     {/if}
 
@@ -236,20 +178,17 @@
     <IdentityBar />
   </div>
 
-  <!-- Mobile hamburger -->
+  <!-- Under 768px the sidebar gives way to one Menu button and its drawer (SPEC 20). -->
   <button
     type="button"
-    class="hamburger"
-    class:open={mobileMenuOpen}
+    class="btn hamburger"
+    id="nav-menu"
     bind:this={hamburgerEl}
     onclick={toggleMenu}
-    aria-label="Menu"
     aria-haspopup="true"
     aria-expanded={mobileMenuOpen}
     aria-controls="mobile-drawer"
-  >
-    <span data-motion></span><span data-motion></span><span data-motion></span>
-  </button>
+  >Menu</button>
 </header>
 
 <!-- Mobile drawer: an overlay with a focus trap, Escape-to-close and focus
@@ -258,11 +197,17 @@
 {#if mobileMenuOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions (the drawer is no widget: its keydown only traps focus among the links inside and closes on Escape) -->
   <div class="mobile-drawer" id="mobile-drawer" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
-    <nav class="mobile-nav" aria-label="Primary">
-      {#each nav as item}
-        <a href={item.href} class="mobile-nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined} onclick={() => closeMenu(false)}>{item.label}</a>
-      {/each}
-    </nav>
+    <div class="mobile-nav">
+      {#if fleetUI}
+        <NavList {groups} {view} {entityKind} {attentionTotal} {sourceCounts} prefix="d" onNavigate={() => closeMenu(false)} />
+      {:else}
+        <nav aria-label="Primary">
+          {#each legacy as item}
+            <a href={item.href} class="mobile-nav-link" class:active={!!navCurrent(item, view, '')} aria-current={navCurrent(item, view, '')} onclick={() => closeMenu(false)}>{item.label}</a>
+          {/each}
+        </nav>
+      {/if}
+    </div>
     <IdentityBar drawer />
     <div class="mobile-drawer-section">
       {#each enabledSources as src}
@@ -361,6 +306,9 @@
   /* One line that truncates: wrapping a squeezed placeholder spills it out of the bar. */
   .search-trigger { min-width: 9rem; }
   .search-trigger-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* In the trigger the key hint is a flex item after the text, never laid over it. */
+  .search-trigger { padding-right: 10px; }
+  .search-trigger .search-kbd { position: static; transform: none; flex-shrink: 0; }
   .navbar-right {
     display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
   }
@@ -398,7 +346,6 @@
   .sources-pop-list li > span:last-child { display: flex; flex-direction: column; min-width: 0; }
   .sources-pop-desc { overflow-wrap: anywhere; }
   .sources-pop-note { margin: var(--sp-2) 0 0; }
-  .sources-pop-link { display: inline-block; margin-top: var(--sp-3); font-size: var(--text-sm); }
   .navbar-right :global(.btn-ghost) {
     display: inline-flex;
     align-items: center;
@@ -427,22 +374,8 @@
   .theme-moon { display: none; }
   .theme-sun { display: block; }
 
-  /* Hamburger — hidden on desktop */
-  .hamburger {
-    display: none;
-    flex-direction: column; justify-content: center; gap: 4px;
-    width: 36px; height: 36px;
-    background: none; border: none; cursor: pointer; padding: 8px;
-    margin-left: auto; flex-shrink: 0;
-  }
-  .hamburger span {
-    display: block; width: 100%; height: 2px;
-    background: var(--c-text-2); border-radius: 1px;
-    transition: transform var(--motion-feedback), opacity var(--motion-feedback);
-  }
-  .hamburger.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
-  .hamburger.open span:nth-child(2) { opacity: 0; }
-  .hamburger.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  /* The Menu button: a labelled button, hidden on desktop. */
+  .hamburger { display: none; margin-left: auto; flex-shrink: 0; }
 
   /* Mobile drawer — hidden on desktop */
   .mobile-drawer {
@@ -450,13 +383,16 @@
     position: sticky; top: var(--navbar-h); z-index: 99;
     background: var(--c-surface); border-bottom: 1px solid var(--c-border);
     padding: var(--sp-4);
+    /* Usable at a 375px-high landscape phone: the list scrolls inside the drawer. */
+    max-block-size: calc(100vh - var(--navbar-h)); max-block-size: calc(100dvh - var(--navbar-h));
+    overflow-y: auto; overscroll-behavior: contain;
     animation: slideDown 150ms ease-out both;
   }
   .mobile-nav {
-    display: flex; flex-direction: column; gap: 2px;
     margin-bottom: var(--sp-3); padding-bottom: var(--sp-3);
     border-bottom: 1px solid var(--c-border);
   }
+  .mobile-nav > nav { display: flex; flex-direction: column; gap: 2px; }
   .mobile-nav-link {
     padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-xs);
     min-height: var(--touch-min); display: flex; align-items: center;
@@ -473,9 +409,8 @@
   }
 
   /* ─── Tight ─── */
-  /* With ten tabs the roomy bar needs about 1,640px. Below that it sheds the version
-     tag and some padding before it gives up the tabs. Where it still does not fit, the
-     tabs scroll inside the bar (see .navbar-nav). */
+  /* The legacy host's four items and its sources control share this bar with the
+     search; below 1440px it sheds the version tag and some padding first. */
   @media (max-width: 1440px) {
     .navbar { padding: 0 var(--sp-4); }
     .nav-link { padding: 6px 5px; }
@@ -483,18 +418,17 @@
     .search-trigger { min-width: 7rem; }
   }
 
-  /* ─── Collapsed ─── */
-  /* Collapsing at the phone breakpoint left Refresh, Theme and then Search clipped and
-     unreachable on mid-width screens, so the bar collapses as soon as the tight bar
-     above stops fitting. */
-  @media (max-width: 1200px) {
+  /* ─── Phone ─── */
+  /* Under 768px the sidebar is gone (SPEC 20): the destinations, the controls and the
+     person menu move into the Menu drawer. */
+  @media (max-width: 767.98px) {
     .navbar {
       padding: 0 var(--sp-4);
       gap: var(--sp-2);
     }
     .navbar-right-desktop { display: none; }
     .navbar-nav-desktop { display: none; }
-    .hamburger { display: flex; }
+    .hamburger { display: inline-flex; align-items: center; }
     .mobile-drawer { display: block; }
     .search-kbd { display: none; }
     /* At 390px a flex:1 text field between the brand and the hamburger had no room for
@@ -511,5 +445,12 @@
   }
   @media (max-width: 480px) {
     .version-tag { display: none; }
+  }
+  /* SPEC 23, 24.4: 44px targets on a touch screen; the padding grows, not the font. */
+  @media (pointer: coarse) {
+    .hamburger { min-height: 44px; }
+    .navbar-right :global(.btn-ghost) { width: 44px; height: 44px; }
+    .search-trigger, .sources-trigger, .mobile-nav-link { min-height: 44px; }
+    .search-trigger { min-width: 44px; }
   }
 </style>

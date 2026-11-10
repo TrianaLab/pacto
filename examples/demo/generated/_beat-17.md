@@ -16,6 +16,7 @@ Plugins:
   github-actions: A CI workflow that validates and publishes the contract
 Requirements:
   http-service -> postgresql (postgresql) via dependency, range satisfied, provider deprecated since 2026-11-01, sunset 2027-06-30, successor oci://ghcr.io/trianalab/pacto/postgresql:17.0.0
+  range of all 1: 1 satisfied, 0 unsatisfied, 0 unknown, 0 not checked
 Unresolved requirements:
   database: this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no unambiguous resolution for it, so the destination contract is unknown
   http-standards: this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no unambiguous resolution for it, so the destination contract is unknown

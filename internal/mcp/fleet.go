@@ -415,41 +415,54 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
 			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
-			"starting points for pacto_create from. created_from lists the services created from one. Read-only.",
+			"starting points for pacto_create from; sort=created orders them by the services created from them. created_from lists the services created from one " +
+			"((none): no declared origin; (unresolved): an origin that resolves to no golden path), and over services aggregate.origins " +
+			"ranks golden paths by the services created from them and counts the rest, hidden services in a count of their own. Over services, the aggregate ranks owners " +
+			"and business domains by non-compliant services (nonCompliantByOwner, nonCompliantByDomain) and counts " +
+			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Owner and domain rows carry nonCompliant " +
+			"(an owner's: the services it owns outright, 'owned'); has_non_compliant keeps the ones with at least one and " +
+			"sort=rate orders them by their share. source_kind keeps the sources of one kind; meta.sourceCounts.availableByKind " +
+			"counts the available ones per kind. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"text":            {Type: "string", Description: "Substring over name, key and owner"},
-			"kind":            {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
-			"owner":           {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
-			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
-			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
-			"offering":        {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
-			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
-			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
-			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
-			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
-			"created_from":    {Type: "string", Description: "Services created from this golden path, by service key"},
-			"sort":            {Type: "string", Description: "Order: by name, least healthy first or owners with the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices}},
-			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
-			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
+			"text":              {Type: "string", Description: "Substring over name, key and owner"},
+			"kind":              {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
+			"owner":             {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
+			"owner_key":         {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
+			"business_domain":   {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
+			"offering":          {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
+			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
+			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
+			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
+			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
+			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
+			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, or golden paths that created the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated}},
+			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
+			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
+			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
+			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
 	}
 }
 
 type fleetEntitiesArgs struct {
-	Text           string `json:"text"`
-	Kind           string `json:"kind"`
-	Owner          string `json:"owner"`
-	OwnerKey       string `json:"owner_key"`
-	BusinessDomain string `json:"business_domain"`
-	Offering       string `json:"offering"`
-	Consumes       string `json:"consumes"`
-	Ownership      string `json:"ownership"`
-	Status         string `json:"status"`
-	Template       string `json:"template"`
-	CreatedFrom    string `json:"created_from"`
-	Sort           string `json:"sort"`
-	Limit          int    `json:"limit"`
-	Offset         int    `json:"offset"`
+	Text            string `json:"text"`
+	Kind            string `json:"kind"`
+	Owner           string `json:"owner"`
+	OwnerKey        string `json:"owner_key"`
+	BusinessDomain  string `json:"business_domain"`
+	Offering        string `json:"offering"`
+	Consumes        string `json:"consumes"`
+	Phase           string `json:"phase"`
+	Ownership       string `json:"ownership"`
+	Status          string `json:"status"`
+	Template        string `json:"template"`
+	CreatedFrom     string `json:"created_from"`
+	Sort            string `json:"sort"`
+	HasNonCompliant bool   `json:"has_non_compliant"`
+	SourceKind      string `json:"source_kind"`
+	Limit           int    `json:"limit"`
+	Offset          int    `json:"offset"`
 }
 
 func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
@@ -466,8 +479,9 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
+			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind,
 		}))
 	}
 }
@@ -483,7 +497,10 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"plugins its service.template names, its requirements, the services created from it and the " +
 			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
-			"shows otherwise. Read-only.",
+			"shows otherwise. Tallies cover every visible item, never the preview: an " +
+			"offering's consumers carry 'range', 'phases' (requests) and 'phaseConsumers' (distinct consumers, as the phase filter lists them) and name up to 3 'failed' consumers; a service carries " +
+			"'dependentsStatus'; a revision carries its 'position' of 'revisions' (newest first), 'current', " +
+			"'serviceTargets' and 'evidenceSources' with 'evidenceSourceCounts'. Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

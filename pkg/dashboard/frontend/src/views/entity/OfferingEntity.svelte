@@ -13,6 +13,8 @@
   import PolicyList from '../../components/PolicyList.svelte';
   import OfferingVersions from '../../components/OfferingVersions.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
+  import OfferingFigure from '../../components/figure/OfferingFigure.svelte';
+  import OfferingUseFigure from '../../components/figure/OfferingUseFigure.svelte';
 
   // The platform-offering page: every service whose contract declares this
   // service.offering, with what a consumer needs to choose one (owner, versions,
@@ -28,9 +30,14 @@
   const RANGE_TONE = { satisfied: 'ok', unsatisfied: 'warn', unknown: 'neutral' };
   const hiddenConsumers = $derived(d.hiddenConsumers ?? 0);
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
+  // The request the reader opened: which use row and which of its statuses.
+  let picked = $state(/** @type {{ row: number, i: number } | null} */ (null));
+  const pickedUse = $derived(picked ? consumers.items?.[picked.row] : null);
+  const pickedRequest = $derived(pickedUse?.provisioning?.[picked?.i ?? -1] ?? null);
 </script>
 
 <div class="offering-entity">
+  <OfferingFigure offering={key} {providers} {consumers} hidden={hiddenConsumers} providersHref={fleetServicesUrl({ offering: key })} />
   <PreviewSection title="Providers" total={providers.total ?? 0} count={providers.count ?? 0} truncated={providers.truncated}
     viewAllHref={fleetServicesUrl({ offering: key })} viewAllLabel="View all providers" empty="No service provides this offering."
     help="Services whose contract declares this platform offering.">
@@ -100,11 +107,16 @@
           <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
           {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
           <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
-          <ProvisioningBadges statuses={u.provisioning ?? []} />
+          <ProvisioningBadges statuses={u.provisioning ?? []} selected={picked?.row === ui ? picked.i : -1}
+            onselect={(i) => { picked = i < 0 ? null : { row: ui, i }; }} />
         </li>
       {/each}
     </ul>
   </PreviewSection>
+  {#if pickedUse && pickedRequest}
+    <OfferingUseFigure consumer={pickedUse.consumer?.label ?? ''} request={pickedRequest}
+      useKey={`${pickedUse.consumer?.key}:${pickedUse.provider?.key}:${pickedUse.via}:${picked?.i}`} />
+  {/if}
   <!-- Outside the section so the count shows when every consumer is hidden. -->
   {#if hiddenConsumers > 0}<p class="oe-note" data-testid="hidden-consumers">{formatCount(hiddenConsumers)} {hiddenConsumers === 1 ? 'consumer' : 'consumers'} you may not see</p>{/if}
 

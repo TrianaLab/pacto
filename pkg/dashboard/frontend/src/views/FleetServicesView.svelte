@@ -22,8 +22,13 @@
   import ListSort from '../components/ListSort.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
+  import { PHASE_WORDS } from '../lib/provisioning.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadPostureFigure } from '../lib/lazyFigures.ts';
+  import { provenance } from '../lib/provenance.ts';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -37,14 +42,16 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', phase = '', createdFrom = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
+  // The created-from values that name no golden path (B5), in words.
+  const ORIGIN_WORDS = { '(none)': 'None declared', '(unresolved)': 'Origin not resolved' };
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes || createdFrom));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes || phase || createdFrom));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -71,6 +78,7 @@
     capability: capability || undefined,
     offering: offering || undefined,
     consumes: consumes || undefined,
+    phase: (consumes && phase) || undefined,
     createdFrom: createdFrom || undefined,
     // Golden paths have their own tab and stay out of the service population.
     template: 'exclude',
@@ -84,9 +92,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${createdFrom}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${phase}@@${createdFrom}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -116,6 +124,8 @@
       capability: patch.capability ?? capability,
       offering: patch.offering ?? offering,
       consumes: patch.consumes ?? consumes,
+      // A phase narrows one offering's consumers, so it goes with them.
+      phase: patch.consumes === '' ? '' : patch.phase ?? phase,
       createdFrom: patch.createdFrom ?? createdFrom,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
@@ -160,19 +170,22 @@
   function pickOwner(ref) { ownerCommitted = ref.label ?? ''; apply({ ownerKey: ref.key ?? '', owner: '' }); }
   function searchOwner(v) { if (v !== ownerCommitted) { ownerCommitted = v; apply({ owner: v, ownerKey: '' }); } }
 
+  // The non-compliant owner ranking's remainder: no single canonical owner.
+  const UNIDENTIFIED = 'No identified owner';
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerChipValue } : null,
     // Named apart from the exact one on purpose: the two chips can both be present,
     // and a reader must be able to tell which of them is the loose one.
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
-    ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
+    ownership ? { key: 'ownership', label: 'Ownership', value: ownership === 'unidentified' ? UNIDENTIFIED : bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,
     offering ? { key: 'offering', label: 'Offering', value: offering } : null,
     consumes ? { key: 'consumes', label: 'Consumes', value: consumes } : null,
-    createdFrom ? { key: 'createdFrom', label: 'Created from', value: createdFrom } : null,
+    consumes && phase ? { key: 'phase', label: 'Provisioning phase', value: PHASE_WORDS[phase] ?? phase } : null,
+    createdFrom ? { key: 'createdFrom', label: 'Created from', value: ORIGIN_WORDS[createdFrom] ?? createdFrom } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
 
@@ -188,6 +201,18 @@
     domainCommitted = v;
     const is = (value, label) => v === value || v.toLowerCase() === label.toLowerCase();
     apply({ businessDomain: is(NO_DOMAIN, businessDomainLabel('')) ? NO_DOMAIN : is(UNKNOWN_DOMAIN, businessDomainLabel(UNKNOWN_DOMAIN)) ? UNKNOWN_DOMAIN : v });
+  }
+  // Created from (T3): a search over the golden paths, plus the two origins no path names,
+  // typed in words ("None declared", "Origin not resolved") as the filter chip says them.
+  const createdBox = $derived(createdFrom ? (ORIGIN_WORDS[createdFrom] ?? createdFrom) : '');
+  let createdCommitted = $state('');
+  $effect(() => { createdCommitted = createdBox; });
+  function pickCreated(ref) { createdCommitted = ref.label ?? ''; apply({ createdFrom: ref.key ?? '' }); }
+  function typeCreated(v) {
+    if (v === createdCommitted) return;
+    createdCommitted = v;
+    const word = Object.entries(ORIGIN_WORDS).find(([k, w]) => v === k || v.toLowerCase() === w.toLowerCase());
+    apply({ createdFrom: word ? word[0] : v });
   }
   // The capability types come from the backend aggregate over every matched service,
   // so the options never describe only the page on screen. A selected type the current
@@ -214,6 +239,10 @@
   // question the reader was actually asking. It is gone rather than demoted -- keeping
   // both would put two compliance bars with different denominators on one screen.
   const agg = $derived(list?.aggregate ?? null);
+  // No identified owner: unowned, disputed or owned by contacts alone, which is what
+  // ownership=unidentified lists; the Evidence fact is the provenance in words.
+  const unidentified = $derived((agg?.ownership?.unowned ?? 0) + (agg?.ownership?.conflicting ?? 0) + (agg?.unidentifiedOwnership ?? 0));
+  const evidence = $derived(provenance(list?.meta));
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
     ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, across every page.`
@@ -253,7 +282,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+  <PageHeader glyph="service" title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
 
   {#if state.kind === 'ready' && matched > 0}
     <p class="page-answer t-body" data-testid="services-answer">
@@ -304,6 +333,7 @@
       <select value={ownership} aria-label="Filter by declared ownership" onchange={(e) => apply({ ownership: e.currentTarget.value })}>
         <option value="">Any ownership</option>
         {#each OWNERSHIP_STATES as o}<option value={o.value}>{o.label}</option>{/each}
+        <option value="unidentified">{UNIDENTIFIED}</option>
       </select>
     </label>
     <label class="sv-field">
@@ -327,6 +357,20 @@
         testid="svc-domain"
         onselect={pickDomain}
         oncommit={typeDomain}
+      />
+    </div>
+    <div class="sv-field">
+      <label for="svc-created">Created from</label>
+      <EntityCombobox
+        id="svc-created"
+        value={createdBox}
+        kinds={['service']}
+        filters={{ template: 'only' }}
+        placeholder="golden path or None declared"
+        label="Filter by the golden path a service was created from"
+        testid="svc-created"
+        onselect={pickCreated}
+        oncommit={typeCreated}
       />
     </div>
     <label class="sv-field">
@@ -362,19 +406,25 @@
   {/if}
 
   {#if state.kind === 'ready' && matched > 0}
+    <LazyView load={loadPostureFigure} question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched} meta={list?.meta}
+      scope={anyFilter ? `${formatCount(matched)} matching services` : `All ${formatCount(matched)} services`} compact={true}>
+      {#snippet aside()}
+        <dl class="facts">
+          <dt>Services</dt><dd><span data-nofilter>{formatCount(matched)}</span>{anyFilter ? ' matching these filters' : ' in the snapshot'}</dd>
+          <!-- Every service with no single canonical owner: unowned, disputed or owned by
+               contacts alone, the population ownership=unidentified lists. -->
+          <dt>No identified owner</dt><dd>{#if unidentified}<a href={urlWith({ ownership: 'unidentified' })}>{formatCount(unidentified)}</a>{:else}<span data-nofilter>0</span>{/if}</dd>
+          <dt>Evidence</dt><dd><span class="badge wrap" class:badge-neutral={evidence.partial}>{evidence.text}</span></dd>
+          {#if list?.meta?.asOf}<dt>As of</dt><dd>{formatDate(list.meta.asOf)}</dd>{/if}
+        </dl>
+      {/snippet}
+    </LazyView>
     <section class="sv-inventory" aria-labelledby="sv-inv-h">
       <div class="sv-inv-head">
         <h2 id="sv-inv-h" class="t-section-title">{anyFilter ? 'What these filters select' : 'The whole service inventory'}</h2>
         <a class="sv-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       <div class="sv-inv-grid">
-        <DistributionBar
-          title="Compliance"
-          description="Whether each service is observed to obey its contract, rolled up from the targets running it."
-          {scopeNote}
-          segments={complianceOfMatch}
-          total={matched}
-        />
         <DistributionBar
           title="Declared ownership"
           description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree."
@@ -393,7 +443,7 @@
            is native. -->
       <details class="disclosure sv-inv-more">
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <span>Per-owner breakdown</span>
           <span class="sv-more-count t-meta">{distinctOwners} named {distinctOwners === 1 ? 'owner' : 'owners'}</span>
         </summary>
@@ -430,7 +480,7 @@
       {#each list.entities as ref (ref.kind + '::' + ref.key)}
         <li class="sv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
           <EntityLink {ref} showStatus={true} showKind={false}>
-            <span class="pl-owner" title={ref.owner || undefined}>{ref.owner || 'No owner declared'}</span>
+            <span class="pl-owner" title={ref.owner || 'No owner declared'}>{ref.owner || 'No owner declared'}</span>
             <span class="pl-num">{formatCount(ref.targets ?? 0)} {ref.targets === 1 ? 'target' : 'targets'}</span>
           </EntityLink>
         </li>

@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { detailFn, docFn } = vi.hoisted(() => ({ detailFn: vi.fn(), docFn: vi.fn() }));
+const { detailFn, docFn, entitiesFn } = vi.hoisted(() => ({ detailFn: vi.fn(), docFn: vi.fn(), entitiesFn: vi.fn(() => new Promise(() => {})) }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api.ts')>();
   return {
@@ -25,6 +25,7 @@ vi.mock('../../lib/api.ts', async (importOriginal) => {
     api: {
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetRevisionDocument: (...a: unknown[]) => docFn(...a),
+      fleetEntities: (...a: unknown[]) => entitiesFn(...(a as [])),
     },
   };
 });
@@ -526,8 +527,16 @@ describe('owner detail answers the posture question', () => {
 
   it('draws compliance, revision-match and freshness from the complete estate', async () => {
     detailFn.mockResolvedValue(richOwner());
+    // Service compliance is the posture figure, from the backend's tally over every
+    // service the owner key selects; the targets' is in the page's answer line.
+    entitiesFn.mockImplementation(() => Promise.resolve({ meta, total: 4, count: 0, limit: 1, offset: 0, entities: [],
+      aggregate: { services: 4, serviceCompliance: { compliant: 3, nonCompliant: 1 } } }) as never);
     const { target, component } = await mountView('owner', 'team/payments');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy());
     const text = target.textContent || '';
+    expect(text).toContain('2 running targets break their contract');
+    expect(Array.from(target.querySelectorAll('[data-testid="posture-figure"] a.prow-n')).map((a) => a.getAttribute('href')))
+      .toEqual(expect.arrayContaining([expect.stringContaining('ownerKey=team%2Fpayments')]));
     // The estate, from the summary: the previews below it show one row each.
     expect(text).toContain('4');
     expect(text).toContain('9');
@@ -543,7 +552,9 @@ describe('owner detail answers the posture question', () => {
       .map((a) => a.getAttribute('href') || '');
     expect(drill.length).toBeGreaterThan(0);
     expect(drill.every((h) => h.includes('ownerKey=team%2Fpayments'))).toBe(true);
-    expect(drill.some((h) => h.includes('category=non-compliant'))).toBe(true);
+    expect(drill.some((h) => h.includes('category=stale'))).toBe(true);
+    entitiesFn.mockReset();
+    entitiesFn.mockImplementation(() => new Promise(() => {}));
     unmount(component); target.remove();
   });
 });

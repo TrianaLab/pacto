@@ -18,17 +18,23 @@
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import CappedList from '../components/CappedList.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
+  import PublishFigure from '../components/figure/PublishFigure.svelte';
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
-  let { offset = '', limit = '', q = '', refreshTick = 0 } = $props();
+  // signed narrows the list to the services whose every version is signed (yes),
+  // that have an unsigned version (no) or a signature not known here (unknown):
+  // the figure's three lanes.
+  let { offset = '', limit = '', q = '', signed = '', refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.deliveryPublished({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
+    // The router passes any string; the server refuses one it does not know.
+    signed: /** @type {any} */ (signed || undefined),
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${signed}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(q);
+  const listQuestion = $derived(`${q}@@${signed}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -36,7 +42,7 @@
   const data = $derived(answer.data);
   const services = $derived(data?.services ?? []);
   const serviceTotal = $derived(data?.page?.total ?? services.length);
-  const href = (off, lim) => deliveryPublishUrl({ q, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryPublishUrl({ q, signed, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
 
   // Publishes Pacto refused, for whoever supervises: the check that refused
   // each and, for the version rule, the bump the change needs. Its own read,
@@ -61,15 +67,20 @@
     : !refused.recorded ? { head: 'Refused publishes are not recorded here.', rest: '' }
     : refusedTotal ? { head: `${countOf(refusedTotal, 'publish', 'publishes')} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
     : { head: 'Nothing refused lately.', rest: refused.completeness === 'partial' ? 'The list may be incomplete.' : '' });
-  // Whether a signature was checked, said once for the page: a version is
-  // marked only where it differs from most of the others.
+  // Each version's signature, said once for the page: a version is marked only
+  // where its state differs from the most common one (a tie leaves the
+  // unsigned ones marked). Unknown is its own state,
+  // never drawn as unsigned.
+  const SIG = {
+    signed: { tone: 'badge-ok', mark: 'Signature checked', line: 'Signature checked on every version shown' },
+    unknown: { tone: 'badge-neutral', mark: 'Signature not known here', line: 'Signature not known here for the versions shown' },
+    unsigned: { tone: 'badge-warn', mark: 'Not signed', line: 'No signature verified on the versions shown' },
+  };
   const shown = $derived(services.flatMap((svc) => svc.versions ?? []));
-  const signedCount = $derived(shown.filter((v) => v.signed).length);
-  const sigCommon = $derived(signedCount * 2 >= shown.length);
-  const sigMixed = $derived(signedCount > 0 && signedCount < shown.length);
-  const sigLine = $derived(!shown.length ? ''
-    : sigCommon ? `Signature checked on every version shown${sigMixed ? ', except where marked' : ''}.`
-    : `Signature not checked here on the versions shown${sigMixed ? ', except where marked' : ''}.`);
+  const sigOf = (v) => (SIG[v.signature] ? v.signature : 'unknown');
+  const sigCommon = $derived(Object.keys(SIG).reduce((best, k) => (shown.filter((v) => sigOf(v) === k).length > shown.filter((v) => sigOf(v) === best).length ? k : best), 'signed'));
+  const sigMixed = $derived(new Set(shown.map(sigOf)).size > 1);
+  const sigLine = $derived(!shown.length ? '' : `${SIG[sigCommon].line}${sigMixed ? ', except where marked' : ''}.`);
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
@@ -85,6 +96,7 @@
       tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-publish" />
+  {#if data?.counts?.services}<PublishFigure counts={data.counts} href={(s) => deliveryPublishUrl({ q, signed: s })} serviceHref={deliveryServiceUrl} />{/if}
 
   <!-- The refused publishes are a count that opens: the versions are what the page lists. -->
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
@@ -101,7 +113,7 @@
       <!-- Open when a refusal is the page's answer, so the answer is on screen. -->
       <details class="disclosure pv-fold" open={!!(refused.recorded && refusedTotal)}>
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
           <span class="badge {refused.recorded && refusedTotal ? 'badge-err' : 'badge-neutral'}" data-testid="refused-chip">{refused.recorded ? formatCount(refusedTotal) : 'Not recorded'}</span>
         </summary>
@@ -134,8 +146,9 @@
     {/if}
   </section>
 
-  <h2 class="t-section-title">Versions by service</h2>
-  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v })} label="Filter services by name" placeholder="Service" testid="published-filter" />
+  <h2 class="t-section-title" data-view-total={data ? serviceTotal : undefined}>Versions by service</h2>
+  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : signed === 'unknown' ? 'Services with a version whose signature is not known here, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q })}>Show every service</a></p>{/if}
+  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v, signed })} label="Filter services by name" placeholder="Service" testid="published-filter" />
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
   {:else if !data && loader.error}
@@ -160,7 +173,7 @@
                      count that opens the per-environment list. -->
                 <div class="pv-head" class:pv-sigcol={sigMixed}>
                   <strong class="pv-ver" title={v.version || undefined}>{v.version ?? ''}</strong>
-                  {#if sigMixed}<span class="pv-sig">{#if v.signed !== sigCommon}{#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}{/if}</span>{/if}
+                  {#if sigMixed}<span class="pv-sig">{#if sigOf(v) !== sigCommon}<span class="badge {SIG[sigOf(v)].tone}">{SIG[sigOf(v)].mark}</span>{/if}</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
                   {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{:else}<span></span>{/if}
                   {#if stages.length}
@@ -197,8 +210,11 @@
      version is cut short (whole on hover) instead of pushing the rest along. */
   @media (min-width: 769px) {
     .pv-row { min-height: 0; }
-    .pv-head { display: grid; grid-template-columns: minmax(0, 13rem) auto minmax(0, 1fr) auto; column-gap: var(--sp-3); }
-    .pv-head.pv-sigcol { grid-template-columns: minmax(0, 13rem) 12rem auto minmax(0, 1fr) auto; }
+    /* The digest and contract columns keep room for a 12-character short form and its
+       copy button: as auto columns they shrank to one character per line once the
+       environments button grew to a 44px touch target. */
+    .pv-head { display: grid; grid-template-columns: minmax(0, 13rem) minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto; column-gap: var(--sp-3); }
+    .pv-head.pv-sigcol { grid-template-columns: minmax(0, 13rem) 12rem minmax(calc(12ch + 3rem), auto) minmax(calc(12ch + 8rem), 1fr) auto; }
     .pv-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pv-envs { justify-self: end; min-height: 26px; padding: 0 var(--sp-2); }
   }
@@ -206,13 +222,14 @@
   .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
   .pv-envs { margin-left: auto; }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .pv-fold > summary { gap: var(--sp-2); }
   .pv-fold > summary h2 { margin: 0; }
   .pv-fold-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
   .pv-fold-body > p { margin: 0; }
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }
-  .pv-partial { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid var(--c-warn-border); }
+  /* A possibly incomplete list is the unknown family: neutral, with the hatch as a band
+     on its leading edge so the pattern never sits under the words. */
+  .pv-partial { padding: var(--sp-2) var(--sp-3) var(--sp-2) calc(var(--sp-3) + 6px); border-radius: var(--radius-sm); background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg); color: var(--c-text-2); border: 1px solid var(--c-neutral); }
   .pv-stages { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
   .pv-more { align-self: flex-start; }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }

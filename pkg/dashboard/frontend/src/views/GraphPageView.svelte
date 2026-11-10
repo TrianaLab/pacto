@@ -187,7 +187,7 @@
 {:else if graphError}
   <EmptyState error onRetry={loadGraph} title="Couldn’t load the graph" />
 {:else if !graphData?.nodes?.length}
-  <EmptyState title="No services to graph" message="Services show up here once they declare dependencies." />
+  <EmptyState identity title="No services to graph" message="Services show up here once they declare dependencies." />
 {:else}
   <div class="graph-focus-bar">
     <button type="button" class="seg-toggle" class:active={groupByOwner} onclick={toggleGroup} aria-pressed={groupByOwner}>

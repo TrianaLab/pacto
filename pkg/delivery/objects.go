@@ -168,6 +168,9 @@ type History struct {
 	// Unreadable names what could not be read or verified, and why.
 	Unreadable []string       `json:"unreadable,omitempty"`
 	Entries    []HistoryEntry `json:"entries"`
+	// Timeline counts the entries by time and kind (B7), when the reader
+	// asked for one.
+	Timeline *HistoryTimeline `json:"timeline,omitempty"`
 }
 
 // StageHistory is one Stage's history and the namespace the Stage lives in,
@@ -186,6 +189,8 @@ type Histories struct {
 	// Unreadable names the Stages the walk could not read, and why.
 	Unreadable []string       `json:"unreadable,omitempty"`
 	Histories  []StageHistory `json:"histories"`
+	// Timeline counts every walked Stage's entries by time and kind (B7).
+	Timeline *HistoryTimeline `json:"timeline,omitempty"`
 }
 
 // StreamVerifications is `record verify --all`'s answer: every Stage's stream

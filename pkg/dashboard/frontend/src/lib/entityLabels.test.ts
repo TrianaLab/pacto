@@ -4,7 +4,7 @@ import {
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
   attentionCategoryLabel, ATTENTION_CATEGORIES,
   provenanceLabel, provenanceIsImplied,
-  sourceHealthTallyParts, sourceHealthTally, sourceHealthSentence,
+  sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy,
 } from './entityLabels.ts';
 import { statusLabel } from './format.ts';
@@ -90,12 +90,15 @@ describe('knowledge + source-health labels/tones', () => {
     expect(knowledgeLabel('unavailable')).toBe('Source unavailable');
     expect(knowledgeTone('complete')).toBe('ok');
     expect(knowledgeTone('unavailable')).toBe('err');
+    // Partial is the unknown family: neutral, never a status tone.
+    expect(knowledgeTone('partial')).toBe('neutral');
   });
   it('labels source health', () => {
     expect(sourceHealthLabel('available')).toBe('Available');
     expect(sourceHealthLabel('stale')).toBe('Stale');
     expect(sourceHealthTone('available')).toBe('ok');
     expect(sourceHealthTone('unavailable')).toBe('err');
+    expect(sourceHealthTone('partial')).toBe('neutral');
   });
 });
 
@@ -173,18 +176,6 @@ describe('the fleet-wide source health tally', () => {
     // '' is not a filter value -- the caller cannot render it as a working filter link
     // for a state the backend cannot be asked about.
     expect(parts[1].status).toBe('');
-    expect(sourceHealthTally({ total: 4, available: 3 })).toBe('4 data sources — 3 available, 1 unclassified.');
-  });
-
-  it('says the sentence form without a dash when there is nothing to break down', () => {
-    expect(sourceHealthTally({ total: 0 })).toBe('No data sources reported.');
-    expect(sourceHealthTally(undefined)).toBe('No data sources reported.');
-    expect(sourceHealthTally({ total: 1, available: 1 })).toBe('1 data source, all available.');
-    expect(sourceHealthTally({ total: 6, available: 6 })).toBe('6 data sources, all available.');
-    expect(sourceHealthTally({ total: 6, available: 5, stale: 1 })).toBe('6 data sources — 1 stale, 5 available.');
-    // "all available" is reserved for actually-all-available; one unclassified source
-    // is enough to lose it.
-    expect(sourceHealthTally({ total: 7, available: 6 })).not.toContain('all available');
   });
 
   it('states health as a consequence for the records, not as a second badge', () => {

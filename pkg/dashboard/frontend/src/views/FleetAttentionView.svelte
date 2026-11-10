@@ -143,15 +143,17 @@
   ].filter(Boolean));
   // Category buckets come from the backend in canonical order with their zeros; the
   // tone mirrors the severity each category habitually carries, and each bar is a
-  // filter link so the chart is a triage control, not a picture.
+  // filter link so the chart is a triage control, not a picture. Unknown compliance is
+  // the neutral hatch, never warn: an open question is not a warning (SPEC 2.2).
   const CATEGORY_TONE = {
-    'non-compliant': 'err', invalid: 'err', unknown: 'warn', stale: 'warn',
+    'non-compliant': 'err', invalid: 'err', unknown: 'neutral', stale: 'warn',
     unresolved: 'warn', 'out-of-range': 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
     label: attentionCategoryLabel(b.category),
     value: b.count ?? 0,
     tone: CATEGORY_TONE[b.category] ?? 'neutral',
+    hatch: b.category === 'unknown',
     href: urlWith({ category: b.category }),
   })));
 
@@ -242,7 +244,7 @@
       </select>
     </label>
     <details class="av-advanced disclosure">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Advanced filters</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Advanced filters</summary>
       <div class="av-adv-grid">
         <label class="av-field">
           <span>Status</span>

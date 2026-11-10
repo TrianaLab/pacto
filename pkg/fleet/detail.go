@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
 	"github.com/trianalab/pacto/v4/pkg/semver"
 )
@@ -379,6 +380,10 @@ type ServiceDetailData struct {
 	// never named.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
+	// DependentsStatus tallies every visible dependent by its status, over the
+	// complete population, never the bounded Dependents preview. Hidden
+	// dependents are counted in HiddenDependents only.
+	DependentsStatus ComplianceTally `json:"dependentsStatus"`
 	// ReferencedBy names the services whose revisions declare a configuration or
 	// policy REFERENCE to this service. A reference is not a dependency, so these
 	// services are absent from Dependents and from graph traversal; a shared
@@ -486,14 +491,32 @@ type RevisionDetailData struct {
 	// snapshot limitations, which distinguish the two).
 	SBOM *SBOMSummary `json:"sbom,omitempty"`
 	// Metadata is the contract's declared free-form metadata, bounded at Build.
-	Metadata        RuntimePreview     `json:"metadata"`
-	ExactTargets    RefPreview         `json:"exactTargets"`
-	InferredTargets RefPreview         `json:"inferredTargets"`
-	Previous        *EntityRef         `json:"previous,omitempty"`
-	Next            *EntityRef         `json:"next,omitempty"`
-	Ownership       *OwnershipInfo     `json:"ownership,omitempty"`
-	Limitations     LimitationsPreview `json:"limitations"`
+	Metadata        RuntimePreview `json:"metadata"`
+	ExactTargets    RefPreview     `json:"exactTargets"`
+	InferredTargets RefPreview     `json:"inferredTargets"`
+	Previous        *EntityRef     `json:"previous,omitempty"`
+	Next            *EntityRef     `json:"next,omitempty"`
+	// Position is this revision's place among its service's Revisions, newest
+	// first (1 is the newest), in the order Previous and Next walk. Current
+	// says it is the service's current revision: the newest one a target runs,
+	// else the newest known (ServiceDetailData.CurrentRevision).
+	Position  int  `json:"position"`
+	Revisions int  `json:"revisions"`
+	Current   bool `json:"current,omitempty"`
+	// ServiceTargets counts every visible target of the service, so the exact
+	// and inferred targets read as this revision's share of them.
+	ServiceTargets int `json:"serviceTargets"`
+	// EvidenceSources names up to MaxEvidenceSources of the sources that
+	// contributed this revision or a target linked to it, least healthy first;
+	// EvidenceSourceCounts tallies every one of them by health.
+	EvidenceSources      RefPreview         `json:"evidenceSources"`
+	EvidenceSourceCounts SourceCounts       `json:"evidenceSourceCounts"`
+	Ownership            *OwnershipInfo     `json:"ownership,omitempty"`
+	Limitations          LimitationsPreview `json:"limitations"`
 }
+
+// MaxEvidenceSources bounds RevisionDetailData.EvidenceSources.
+const MaxEvidenceSources = 3
 
 // TargetDetailData is the target-kind payload: the logical service and linked
 // revision, the exact/inferred/ambiguous/unresolved link state, compliance,
@@ -623,18 +646,134 @@ type OfferingUse struct {
 	Provisioning []ProvisioningStatus `json:"provisioning,omitempty"`
 }
 
-// OfferingUsesPreview is a bounded preview of offering uses.
+// OfferingUsesPreview is a bounded preview of offering uses. Range, Phases and
+// Failed are tallied over EVERY use, never the bounded Items, so a figure can
+// draw proportions from them.
 type OfferingUsesPreview struct {
 	Total     int           `json:"total"`
 	Count     int           `json:"count"`
 	Truncated bool          `json:"truncated"`
 	Items     []OfferingUse `json:"items"`
+	// Range counts the uses by RangeStatus; a use with no range check counts
+	// as None. Its fields sum to Total.
+	Range RangeTally `json:"range"`
+	// Phases counts the provisioning statuses of every use (one per
+	// environment and entry) by phase. A policy reference provisions nothing
+	// and adds none, so the fields sum to the requests, not to Total.
+	Phases PhaseTally `json:"phases"`
+	// PhaseConsumers counts the distinct consumers with at least one status in
+	// each phase: the total of the list a phase filter returns. A consumer
+	// with statuses in two phases counts in both.
+	PhaseConsumers PhaseTally `json:"phaseConsumers"`
+	// Failed names up to MaxFailedConsumers of the distinct consumers with a
+	// Failed status, by key; its Total counts them all.
+	Failed RefPreview `json:"failed"`
 }
+
+// RangeTally counts offering uses by whether the provider version satisfies
+// the declared range.
+type RangeTally struct {
+	Satisfied   int `json:"satisfied"`
+	Unsatisfied int `json:"unsatisfied"`
+	Unknown     int `json:"unknown"`
+	None        int `json:"none"`
+}
+
+// PhaseTally counts provisioning statuses by phase. Unknown means no provider
+// reported a phase Pacto can trust (see [ProvisioningStatus]).
+type PhaseTally struct {
+	Requested    int `json:"requested"`
+	Provisioning int `json:"provisioning"`
+	Ready        int `json:"ready"`
+	Failed       int `json:"failed"`
+	Deleting     int `json:"deleting"`
+	Unknown      int `json:"unknown"`
+}
+
+// MaxFailedConsumers bounds OfferingUsesPreview.Failed.
+const MaxFailedConsumers = 3
 
 func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	it, total, trunc := boundSlice(uses, MaxDetailPreview)
-	return OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	out := OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	failed := map[string]EntityRef{}
+	inPhase := map[string]bool{}
+	for _, u := range uses {
+		switch u.RangeStatus {
+		case RangeSatisfied:
+			out.Range.Satisfied++
+		case RangeUnsatisfied:
+			out.Range.Unsatisfied++
+		case RangeUnknown:
+			out.Range.Unknown++
+		default:
+			out.Range.None++
+		}
+		for _, st := range u.Provisioning {
+			out.Phases.add(st.Phase)
+			if id := phaseBucket(st.Phase) + "\x00" + u.Consumer.Key; !inPhase[id] {
+				inPhase[id] = true
+				out.PhaseConsumers.add(st.Phase)
+			}
+			if st.Phase == string(evidence.PhaseFailed) {
+				failed[u.Consumer.Key] = u.Consumer
+			}
+		}
+	}
+	refs := make([]EntityRef, 0, len(failed))
+	for _, k := range slices.Sorted(maps.Keys(failed)) {
+		refs = append(refs, failed[k])
+	}
+	shown, n, more := boundSlice(refs, MaxFailedConsumers)
+	out.Failed = RefPreview{Total: n, Count: len(shown), Truncated: more, Items: shown}
+	return out
 }
+
+func (t *PhaseTally) add(phase string) {
+	switch phaseBucket(phase) {
+	case PhaseBucketRequested:
+		t.Requested++
+	case PhaseBucketProvisioning:
+		t.Provisioning++
+	case PhaseBucketReady:
+		t.Ready++
+	case PhaseBucketFailed:
+		t.Failed++
+	case PhaseBucketDeleting:
+		t.Deleting++
+	default:
+		t.Unknown++
+	}
+}
+
+// Provisioning phase buckets: the [PhaseTally] fields, and the values the
+// entity Phase filter takes.
+const (
+	PhaseBucketRequested    = "requested"
+	PhaseBucketProvisioning = "provisioning"
+	PhaseBucketReady        = "ready"
+	PhaseBucketFailed       = "failed"
+	PhaseBucketDeleting     = "deleting"
+	PhaseBucketUnknown      = "unknown"
+)
+
+// PhaseBuckets lists the provisioning phase buckets in track order.
+func PhaseBuckets() []string {
+	return []string{PhaseBucketRequested, PhaseBucketProvisioning, PhaseBucketReady, PhaseBucketFailed, PhaseBucketDeleting, PhaseBucketUnknown}
+}
+
+// phaseBucket is the bucket a reported phase counts in: a phase Pacto does
+// not know, or none, is unknown.
+func phaseBucket(phase string) string {
+	switch p := evidence.ProvisionPhase(phase); p {
+	case evidence.PhaseRequested, evidence.PhaseProvisioning, evidence.PhaseReady, evidence.PhaseFailed, evidence.PhaseDeleting:
+		return strings.ToLower(string(p))
+	default:
+		return PhaseBucketUnknown
+	}
+}
+
+func validPhaseBucket(s string) bool { return slices.Contains(PhaseBuckets(), s) }
 
 // ConsumeSnippet is what a service adds to its contract to consume a provider
 // of a platform offering: the contract entries, and the YAML rendered from them
@@ -872,6 +1011,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,
 		HiddenDependents:   s.HiddenDependents,
+		DependentsStatus:   q.statusTally(view.Dependents),
 		ReferencedBy:       refPreview(q.referencingServices(s.Key)),
 		Findings:           attributedTargetFindingsPreview(view.Targets),
 		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
@@ -894,37 +1034,46 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	}
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
+	place := q.revisionPlace(rev)
+	evidenceRefs, evidenceCounts := q.revisionEvidenceSources(rev)
+	shownEvidence, nEvidence, moreEvidence := boundSlice(evidenceRefs, MaxEvidenceSources)
 	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
 	cfgs, pols := withSchemaContent(q.snap, rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
 	data := &RevisionDetailData{
-		Configurations:  cfgs,
-		Policies:        pols,
-		Service:         q.serviceRef(rev.ServiceKey),
-		Version:         rev.Version,
-		PactoVersion:    rev.PactoVersion,
-		Lifecycle:       rev.Contract.Service.Lifecycle,
-		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
-		Provenance:      revisionProvenance(rev),
-		Valid:           rev.Valid,
-		Readiness:       productReadiness(rev.Readiness),
-		Validation:      findingsPreview(rev.Validation),
-		Stages:          append([]ValidationStage{}, rev.Stages...),
-		Environments:    environmentsPreview(rev.Environments),
-		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
-		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
-		Workload:        rev.Contract.Workload,
-		State:           stateSummary(rev.Contract.State),
-		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
-		Tools:           toolsPreview(rev.Tools),
-		Skills:          stringsPreview(rev.Skills),
-		Docs:            docsPreview(rev.Docs),
-		SBOM:            rev.SBOM,
-		Metadata:        rev.Metadata,
-		ExactTargets:    refPreview(exact),
-		InferredTargets: refPreview(inferred),
-		Previous:        prev,
-		Next:            next,
-		Ownership:       revisionOwnership(rev),
+		Configurations:       cfgs,
+		Policies:             pols,
+		Service:              q.serviceRef(rev.ServiceKey),
+		Version:              rev.Version,
+		PactoVersion:         rev.PactoVersion,
+		Lifecycle:            rev.Contract.Service.Lifecycle,
+		Identity:             revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
+		Provenance:           revisionProvenance(rev),
+		Valid:                rev.Valid,
+		Readiness:            productReadiness(rev.Readiness),
+		Validation:           findingsPreview(rev.Validation),
+		Stages:               append([]ValidationStage{}, rev.Stages...),
+		Environments:         environmentsPreview(rev.Environments),
+		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
+		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
+		Workload:             rev.Contract.Workload,
+		State:                stateSummary(rev.Contract.State),
+		Dependencies:         relationshipsPreview(q.revisionEdges(rev.Key)),
+		Tools:                toolsPreview(rev.Tools),
+		Skills:               stringsPreview(rev.Skills),
+		Docs:                 docsPreview(rev.Docs),
+		SBOM:                 rev.SBOM,
+		Metadata:             rev.Metadata,
+		ExactTargets:         refPreview(exact),
+		InferredTargets:      refPreview(inferred),
+		Previous:             prev,
+		Next:                 next,
+		Position:             place.position,
+		Revisions:            place.revisions,
+		Current:              place.current,
+		ServiceTargets:       place.targets,
+		EvidenceSources:      RefPreview{Total: nEvidence, Count: len(shownEvidence), Truncated: moreEvidence, Items: shownEvidence},
+		EvidenceSourceCounts: evidenceCounts,
+		Ownership:            revisionOwnership(rev),
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
@@ -1408,6 +1557,80 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 	return prev, next
 }
 
+// revisionPlace is where rev stands in its service: its position newest
+// first among the service's revisions, how many there are, whether it is the
+// current one (see [newestInUse]) and how many targets the service runs.
+type revisionPlacement struct {
+	position, revisions, targets int
+	current                      bool
+}
+
+func (q *Query) revisionPlace(rev *ContractRevision) revisionPlacement {
+	var p revisionPlacement
+	inUse := map[RevisionKey]bool{}
+	for _, t := range q.snap.Targets {
+		if t.ServiceKey == rev.ServiceKey {
+			p.targets++
+			inUse[t.ContractRevision] = true
+		}
+	}
+	var all, active []*ContractRevision
+	for _, r := range q.snap.Revisions {
+		if r.ServiceKey != rev.ServiceKey {
+			continue
+		}
+		all = append(all, r)
+		if inUse[r.Key] {
+			active = append(active, r)
+		}
+		if lessRevisionChrono(rev, r) {
+			p.position++
+		}
+	}
+	p.position++
+	p.revisions = len(all)
+	p.current = newestInUse(active, all) == rev
+	return p
+}
+
+// revisionEvidenceSources is every source that contributed rev or a target
+// linked to it, least healthy first then by id, and their tally by health.
+func (q *Query) revisionEvidenceSources(rev *ContractRevision) ([]EntityRef, SourceCounts) {
+	ids := map[string]bool{}
+	add := func(primary string, all []string) {
+		for _, id := range append([]string{primary}, all...) {
+			if id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	add(rev.Source, rev.Sources)
+	for _, t := range q.snap.Targets {
+		if t.ContractRevision == rev.Key {
+			add(t.Source, t.Sources)
+		}
+	}
+	states := make([]SourceState, 0, len(ids))
+	for _, st := range q.snap.Sources {
+		if ids[st.ID] {
+			states = append(states, st)
+			delete(ids, st.ID)
+		}
+	}
+	// A source the snapshot no longer reports on has no known health.
+	for id := range ids {
+		states = append(states, SourceState{ID: id})
+	}
+	slices.SortFunc(states, func(a, b SourceState) int {
+		return cmp.Or(cmp.Compare(sourceHealthRank(a.Status), sourceHealthRank(b.Status)), cmp.Compare(a.ID, b.ID))
+	})
+	refs := make([]EntityRef, 0, len(states))
+	for _, st := range states {
+		refs = append(refs, sourceEntityRef(st))
+	}
+	return refs, sourceCounts(states)
+}
+
 // newestReadable is the newest readable revision of revs in revision
 // chronology, nil when none is readable.
 func newestReadable(revs []*ContractRevision) *ContractRevision {
@@ -1555,6 +1778,20 @@ func (q *Query) targetsForRevision(revKey RevisionKey) (exact, inferred []Entity
 	sortEntityRefs(exact)
 	sortEntityRefs(inferred)
 	return exact, inferred
+}
+
+// statusTally counts services by status; a key the snapshot does not hold
+// counts as Other.
+func (q *Query) statusTally(keys []ServiceKey) ComplianceTally {
+	var t ComplianceTally
+	for _, k := range keys {
+		status := ""
+		if s := q.snap.Services[k]; s != nil {
+			status = s.Status
+		}
+		t.add(status)
+	}
+	return t
 }
 
 func (q *Query) serviceKeyRefs(keys []ServiceKey) []EntityRef {

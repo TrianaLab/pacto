@@ -580,4 +580,24 @@ describe('cyStylesheet', () => {
     expect(cy.getElementById('p').style('target-arrow-shape')).toBe('triangle');
     cy.destroy();
   });
+
+  // SPEC 2.1 (r5): the canvas speaks the figures' wire vocabulary. Observed is solid,
+  // projected or expected-not-observed dashed 6/5, unverifiable dotted.
+  it('maps reconciliation states to the wire vocabulary', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f' };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force'),
+      elements: [
+        { data: { id: 'a' } }, { data: { id: 'b' } },
+        { data: { id: 'm', source: 'a', target: 'b', state: 'matched' } },
+        { data: { id: 'e', source: 'b', target: 'a', state: 'expected-not-observed' } },
+        { data: { id: 'i', source: 'a', target: 'a', state: 'insufficient' } },
+      ],
+    });
+    expect(cy.getElementById('m').style('line-style')).toBe('solid');
+    expect(cy.getElementById('e').style('line-style')).toBe('dashed');
+    expect(String(cy.getElementById('e').style('line-dash-pattern'))).toBe('6 5');
+    expect(cy.getElementById('i').style('line-style')).toBe('dotted');
+    cy.destroy();
+  });
 });

@@ -161,7 +161,8 @@ func storyReplayed(t *testing.T, d *demoDelivery) {
 	for _, s := range stages {
 		cands[s.Metadata.Name] = versionOf(s.Metadata.Name, s.Status.Candidate)
 	}
-	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": "", "pay-agent": ""}; !maps.Equal(cands, want) {
+	// audit-log and notification-worker travel paths of their own (SPEC 21) and offer nothing yet.
+	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": "", "pay-agent": "", "audit-log": "", "notification-worker": ""}; !maps.Equal(cands, want) {
 		t.Fatalf("prod candidates %v, want %v", cands, want)
 	}
 
@@ -383,5 +384,38 @@ func TestWasmBuildHasNoKubernetes(t *testing.T) {
 		if strings.Contains(p, "k8s.io") {
 			t.Fatalf("the wasm build links %s", p)
 		}
+	}
+}
+
+// TestDemoPathsDiffer: the demo's services travel different declared paths
+// (SPEC 21 rule 6): checkout forks from test into three prod regions,
+// audit-log has one Stage fed by artifacts and notification-worker one fed
+// by another cluster's records, which the promoter trusts.
+func TestDemoPathsDiffer(t *testing.T) {
+	_, h := demoServer(t)
+	type graph struct {
+		Promotion struct {
+			Nodes []struct {
+				Environment string             `json:"environment"`
+				Upstream    dashboard.Upstream `json:"upstream"`
+			} `json:"nodes"`
+			Edges []struct{ From, To string } `json:"edges"`
+		} `json:"promotion"`
+	}
+	read := func(svc string) graph {
+		var g graph
+		if code := call(t, h, "GET", "/api/delivery/environments?service="+svc, "", &g); code != 200 {
+			t.Fatalf("%s: %d", svc, code)
+		}
+		return g
+	}
+	if g := read("checkout"); len(g.Promotion.Nodes) != 4 || len(g.Promotion.Edges) != 3 {
+		t.Fatalf("checkout forks from test into prod, prod-eu and prod-us: %+v", g.Promotion)
+	}
+	if g := read("audit-log"); len(g.Promotion.Nodes) != 1 || g.Promotion.Nodes[0].Upstream.Kind != "artifact" {
+		t.Fatalf("audit-log: one Stage fed by artifacts: %+v", g.Promotion)
+	}
+	if g := read("notification-worker"); len(g.Promotion.Nodes) != 1 || g.Promotion.Nodes[0].Upstream.Kind != "records" || g.Promotion.Nodes[0].Upstream.Trust != "trusted" {
+		t.Fatalf("notification-worker: one Stage fed by trusted records: %+v", g.Promotion)
 	}
 }

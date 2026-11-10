@@ -357,9 +357,13 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		start, end := delivery.TimelineWindow(since, until, time.Now())
+		var all []delivery.HistoryEntry
 		for i := range hs.Histories {
 			hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+			all = append(all, hs.Histories[i].Entries...)
 		}
+		hs.Timeline = new(delivery.Timeline(all, start, end))
 		return resultOrError(hs, nil)
 	}
 	if a.Service != "" || a.Domain != "" {
@@ -368,6 +372,8 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 	h, err := api.History(ctx, a.Namespace, a.Stage)
 	if err == nil {
 		*h = delivery.WindowEntries(*h, since, until)
+		start, end := delivery.TimelineWindow(since, until, time.Now())
+		h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 	}
 	return resultOrError(h, err)
 }

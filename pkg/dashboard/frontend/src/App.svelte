@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { finishNarrations } from './lib/narrate.ts';
   import { parseHash, legacyRedirectTarget, replaceHash, fleetOverviewUrl } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
   import { toggleTheme } from './lib/theme.svelte.ts';
@@ -13,18 +14,15 @@
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
+  import Sidebar from './components/Sidebar.svelte';
+  import { navGroups } from './lib/nav.ts';
   import LazyView from './components/LazyView.svelte';
   import DeliveryUnavailable from './components/DeliveryUnavailable.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
-  import ServiceListView from './views/ServiceListView.svelte';
-  import OwnersView from './views/OwnersView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
-  import FleetOwnersView from './views/FleetOwnersView.svelte';
-  import FleetSourcesView from './views/FleetSourcesView.svelte';
-  import FleetDomainsView from './views/FleetDomainsView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
@@ -48,6 +46,13 @@
   const loadDeliveryChangeView = once(() => import('./views/DeliveryChangeView.svelte'));
   const loadDeliveryHistoryView = once(() => import('./views/DeliveryHistoryView.svelte'));
   const loadDeliveryPublishView = once(() => import('./views/DeliveryPublishView.svelte'));
+  // The two least visited fleet lists, loaded on first use to keep the first download in budget.
+  const loadFleetSourcesView = once(() => import('./views/FleetSourcesView.svelte'));
+  const loadFleetDomainsView = once(() => import('./views/FleetDomainsView.svelte'));
+  const loadFleetOwnersView = once(() => import('./views/FleetOwnersView.svelte'));
+  // The legacy list views serve only the offline `pacto doc` export, never a Fleet host.
+  const loadServiceListView = once(() => import('./views/ServiceListView.svelte'));
+  const loadOwnersView = once(() => import('./views/OwnersView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -69,6 +74,10 @@
   // The capabilities probe failed and none is known yet: every gated route would
   // otherwise wait on "Loading…" for ever, so they say so and offer a retry.
   let capError = $state(false);
+  // What the sidebar counts (SPEC 20): the attention backlog and source health, from
+  // the overview the poll reads anyway. null = not known, so no badge and no dot.
+  let navAttention = $state(null);
+  let navSourceCounts = $state(null);
 
   // A dashboard people sign in to shows nothing but its sign-in screen until
   // they do; the server answers no API call before that. A failed session read
@@ -87,6 +96,8 @@
   let reloadInterval = POLL_FAST; // the currently-active poll interval (ms)
 
   function onHashChange() {
+    // A narration never outlives its page: end every one before the next route renders.
+    finishNarrations();
     route = parseHash(location.hash);
     // Reflect external hash changes (back/forward, shared links) into the shared
     // filter store so the views' filtered set stays in sync with the URL.
@@ -130,11 +141,16 @@
          route.view === 'owner-detail' || route.view === 'diff' || route.view === 'readiness');
 
       let servicesFailed = false;
-      const [svcList, srcData, health] = await Promise.all([
+      const [svcList, srcData, health, overview] = await Promise.all([
         needsServices ? api.services().catch(() => { servicesFailed = true; return null; }) : Promise.resolve(null),
         api.sources().catch(() => null),
         api.health().catch(() => null),
+        capabilities?.fleet === true ? Promise.resolve().then(() => api.fleetOverview()).catch(() => null) : Promise.resolve(null),
       ]);
+      if (overview) {
+        navAttention = overview.attention?.total ?? null;
+        navSourceCounts = overview.meta?.sourceCounts ?? null;
+      }
       // A failed services fetch means the backend is unreachable or erroring — not
       // that the fleet is genuinely empty. Keep any stale data and flag the error
       // so views show "can't reach backend" instead of the "no sources" setup screen.
@@ -288,6 +304,17 @@
   });
 </script>
 
+<!-- The figures' hatch pattern (SPEC 3.1): unknown, partial and hidden marks fill with
+     it; their solid neutral edge carries the contrast. Frost (SPEC 2.2) is frozen only. -->
+<svg class="fig-defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs><pattern id="fig-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="6" height="6" fill="var(--c-iso-face)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern>
+    <pattern id="fig-frost" width="5" height="5" patternUnits="userSpaceOnUse">
+    <rect width="5" height="5" fill="var(--c-iso-face)" /><path d="M2.5 0.8 L4.2 2.5 L2.5 4.2 L0.8 2.5 Z" fill="var(--c-info)" /></pattern></defs>
+</svg>
+<!-- WCAG 2.4.1: the first stop skips the header and the sidebar. A button, since the
+     hash router owns the URL: it moves focus to the page, never the location. -->
+<button type="button" class="skip-link" onclick={() => mainEl?.focus()}>Skip to content</button>
 {#if auth.loaded && !gated}
 <Navbar
   {services}
@@ -304,6 +331,8 @@
   onToggleTheme={toggleTheme}
   {fleetSearch}
   onOpenSearch={openSearch}
+  attentionTotal={navAttention}
+  sourceCounts={navSourceCounts}
 />
 
 <CommandPalette
@@ -317,6 +346,17 @@
 
 <EntitySearch open={searchOpen} initial={searchInitial} onClose={() => { searchOpen = false; searchInitial = ''; }} />
 
+{/if}
+
+<!-- The shell (SPEC 20, 22-24): the sidebar column, then the page column. The page
+     column always takes the second track, so with no sidebar the first one is empty. -->
+<div class="shell">
+{#if auth.loaded && !gated && capabilities?.fleet !== false}
+  <Sidebar groups={navGroups(capabilities)} view={route.view} entityKind={route.params.kind || ''}
+    attentionTotal={navAttention} sourceCounts={navSourceCounts} blocked={paletteOpen || searchOpen} />
+{/if}
+<div class="shell-col">
+{#if auth.loaded && !gated}
 {#if loadError && services.length > 0}
   <div class="backend-banner" role="alert">
     <span>{loadError} Showing the last known data and retrying…</span>
@@ -344,7 +384,7 @@
   {/if}
 {/snippet}
 
-<main class="container" bind:this={mainEl}>
+<main class="container" tabindex="-1" bind:this={mainEl}>
   {#if gated}
     <SignInScreen />
   {:else if !auth.loaded}
@@ -424,18 +464,19 @@
       offering={route.params.offering || ''}
       consumes={route.params.consumes || ''}
       createdFrom={route.params.createdFrom || ''}
+      phase={route.params.phase || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
       {refreshTick}
     />
   {:else if route.view === 'fleet-owners'}
-    <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
+    <LazyView load={loadFleetOwnersView} text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''} hasNonCompliant={route.params.hasNonCompliant || ''} businessDomain={route.params.businessDomain || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-domains'}
-    <FleetDomainsView text={route.params.text || ''} offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
+    <LazyView load={loadFleetDomainsView} text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''} hasNonCompliant={route.params.hasNonCompliant || ''} ownerKey={route.params.ownerKey || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
     <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
@@ -446,9 +487,10 @@
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
-    <FleetSourcesView
+    <LazyView load={loadFleetSourcesView}
       text={route.params.text || ''}
       sourceHealth={route.params.sourceHealth || ''}
+      sourceKind={route.params.sourceKind || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -524,7 +566,7 @@
     <!-- Owners: product owners on a Fleet host (redirected via the effect); legacy list
          only on a non-Fleet host. -->
     {#if legacyHost}
-      <OwnersView {services} {initialLoading} />
+      <LazyView load={loadOwnersView} {services} {initialLoading} />
     {:else}
       {@render migrating()}
     {/if}
@@ -544,12 +586,14 @@
     <!-- Catch-all legacy list: the only UI on a non-Fleet host; a Fleet host redirects
          it (and any unknown hash) to the operational overview via the effect. -->
     {#if legacyHost}
-      <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
+      <LazyView load={loadServiceListView} {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
     {:else}
       {@render migrating()}
     {/if}
   {/if}
 </main>
+</div>
+</div>
 
 <style>
   .backend-banner {
@@ -565,6 +609,12 @@
     color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
   }
   .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
+  .shell {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start;
+    min-block-size: calc(100vh - var(--navbar-h)); min-block-size: calc(100dvh - var(--navbar-h));
+  }
+  .shell-col { grid-column: 2; min-inline-size: 0; }
+  .fig-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
   .app-loading { color: var(--c-text-3); padding: var(--sp-4) 0; }
   .permissions-note {
     margin: 0; padding: var(--sp-2) var(--sp-3); text-align: center;

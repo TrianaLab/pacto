@@ -188,6 +188,8 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+By outcome: 1 incompatible, 0 unknown, 0 compatible
+Most affected owners: frontend 1 (1 incompatible)
 Release gate: unverified
 unverified: the change is BREAKING and 1 consumer depends on api, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 $ echo $?
@@ -205,6 +207,8 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+By outcome: 1 incompatible, 0 unknown, 0 compatible
+Most affected owners: frontend 1 (1 incompatible)
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
 Release gate: blocked
 breaking changes affect active consumers, which run on known targets and do not accept api 2.0.0: web
@@ -246,8 +250,8 @@ evidence gaps are folded below it, each with its count. It reads the **currently
 Operational Graph shows, so its `snapshotId` matches the graph. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.
 
-![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the affected consumers table lists api-gateway and orders-service as incompatible](assets/screenshots/dashboard-change-analysis-light.png#only-light)
-![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the affected consumers table lists api-gateway and orders-service as incompatible](assets/screenshots/dashboard-change-analysis-dark.png#only-dark)
+![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-light.png#only-light)
+![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-dark.png#only-dark)
 
 ## What's next
 

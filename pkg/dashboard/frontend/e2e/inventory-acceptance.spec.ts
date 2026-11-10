@@ -42,6 +42,25 @@ async function figure(page: Page, title: string): Promise<Figure> {
   return f!;
 }
 
+/** Reads the posture figure (a PostureColumn): its caption and its non-empty rows. */
+async function posture(page: Page): Promise<Figure> {
+  const f = await page.evaluate(() => {
+    const fig = document.querySelector('[data-testid="posture-figure"]');
+    if (!fig) return null;
+    return {
+      scope: fig.querySelector('figcaption')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      description: '',
+      buckets: [...fig.querySelectorAll('.prow')].map((li) => ({
+        label: li.querySelector('.prow-l')!.textContent!.trim(),
+        value: Number(li.querySelector('.prow-n b')!.textContent!.trim().replace(/,/g, '')),
+        href: li.querySelector('a')?.getAttribute('href') ?? '',
+      })).filter((b) => b.value > 0),
+    };
+  });
+  expect(f, 'no posture figure on this page').not.toBeNull();
+  return f!;
+}
+
 const sum = (b: Bucket[]) => b.reduce((n, x) => n + x.value, 0);
 
 /** Reads a rendered HorizontalBars ranking by its caption, as a reader sees it. */
@@ -100,20 +119,20 @@ test('Services: a bucket of the figure and the rows under it are the same popula
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
 
   const total = await pagerTotal(page, '[data-testid="svc-range"]');
-  const before = await figure(page, 'Compliance');
+  const before = await posture(page);
   // Unfiltered, the figure says so in words and reconciles to the whole snapshot.
-  expect(before.scope).toBe(`All ${total} services in the snapshot.`);
+  expect(before.scope).toMatch(new RegExp(`^All ${total.toLocaleString('en-US')} services: `));
   expect(sum(before.buckets), 'the compliance buckets do not add up to the population').toBe(total);
 
   const bucket = drillable(before, total);
   await follow(page, bucket);
   await expect.poll(() => pagerTotal(page, '[data-testid="svc-range"]'), { timeout: 30_000 }).toBe(bucket.value);
 
-  const after = await figure(page, 'Compliance');
+  const after = await posture(page);
   // The rows narrowed; so did the figure, to exactly the bucket that was chosen. A
   // figure still describing 18 services beside a list of 5 is the failure this catches.
   expect(await pagerTotal(page, '[data-testid="svc-range"]')).toBe(bucket.value);
-  expect(after.scope).toBe(`All ${bucket.value} matching services, across every page.`);
+  expect(after.scope).toMatch(new RegExp(`^${bucket.value.toLocaleString('en-US')} matching services: `));
   expect(after.buckets.map((b) => b.label), `filtering to "${bucket.label}" left other buckets populated`)
     .toEqual([bucket.label]);
   expect(after.buckets[0].value).toBe(bucket.value);
@@ -181,7 +200,7 @@ test('Owners: the ownership picture is the whole fleet, whatever the roster unde
   // cannot be allowed to redraw what "this fleet's ownership" means.
   // One owner's own name -- taken from the row's href, because the visible label carries
   // the entity kind in front of it. A term guaranteed to select fewer rows than the roster.
-  const href = (await page.getByTestId('owner-list').locator('li a').first().getAttribute('href'))!;
+  const href = (await page.getByTestId('owner-list').locator('tbody a.entity-link').first().getAttribute('href'))!;
   const term = decodeURIComponent(href.split('/').pop()!);
   await page.evaluate((t: string) => { location.hash = `/fleet/owners?text=${encodeURIComponent(t)}`; }, term);
   await expect.poll(() => pagerTotal(page, '[data-testid="owner-range"]'), { timeout: 30_000 }).toBeLessThan(roster);

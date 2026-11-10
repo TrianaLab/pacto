@@ -43,7 +43,7 @@
             {#if iface.compatibilityEpoch}<IdentityBadge label={`Epoch ${iface.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." describe />{/if}
           </div>
           {#if iface.hasContractFile}
-            <span class="detail-card-sub" title={iface.contractFile || undefined}>{iface.contractFile || 'has contract'}</span>
+            <span class="detail-card-sub" title={iface.contractFile || 'has contract'}>{iface.contractFile || 'has contract'}</span>
           {/if}
         </button>
 

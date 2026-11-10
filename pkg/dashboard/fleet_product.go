@@ -86,28 +86,31 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 }
 
 type fleetEntitiesInput struct {
-	Text           string   `query:"text"`
-	Kinds          []string `query:"kinds" enum:"service,revision,target,owner,source,domain,offering" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering)"`
-	Owner          string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey       string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
-	Domain         string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
-	BusinessDomain string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
-	Environment    string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
-	Capability     string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
-	Offering       string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
-	Consumes       string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
-	Scope          string   `query:"scope"`
-	Status         string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
-	Ownership      string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
-	Readiness      string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
-	SourceHealth   string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
-	Source         string   `query:"source"`
-	Service        string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
-	Template       string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
-	CreatedFrom    string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list"`
-	Sort           string   `query:"sort" enum:"name,health,services" doc:"Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key"`
-	Limit          int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
-	Offset         int      `query:"offset" minimum:"0"`
+	Text            string   `query:"text"`
+	Kinds           []string `query:"kinds" enum:"service,revision,target,owner,source,domain,offering" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering)"`
+	Owner           string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey        string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
+	Domain          string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
+	BusinessDomain  string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
+	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
+	Capability      string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
+	Offering        string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
+	Consumes        string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
+	Phase           string   `query:"phase" enum:"requested,provisioning,ready,failed,deleting,unknown" doc:"With consumes: keeps the consumers with a provisioning status of that offering in this phase (unknown: no phase a provider reported can be trusted)"`
+	Scope           string   `query:"scope"`
+	Status          string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
+	Ownership       string   `query:"ownership" enum:"consistent,conflicting,unowned,unidentified" doc:"Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone)"`
+	Readiness       string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
+	SourceHealth    string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
+	Source          string   `query:"source"`
+	Service         string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
+	Template        string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
+	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
+	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
+	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
+	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created" doc:"Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first); absent orders by kind then key"`
+	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
+	Offset          int      `query:"offset" minimum:"0"`
 }
 
 type fleetEntitiesOutput struct{ Body *ProductEntityList }
@@ -123,9 +126,10 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
-		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes,
-		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
-		Ownership: in.Ownership, Readiness: in.Readiness,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
+		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
+		HasNonCompliant: in.HasNonCompliant,
+		Ownership:       in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
@@ -269,7 +273,8 @@ type ProductImpactConsumer struct {
 // ProductImpactConsumersPage is a stable, offset-paged consumer answer.
 type ProductImpactConsumersPage struct {
 	impact.ConsumersPage
-	Items []ProductImpactConsumer `json:"items"`
+	Items      []ProductImpactConsumer `json:"items"`
+	Highlights []ProductImpactConsumer `json:"highlights"`
 }
 
 // ProductImpact is the navigable impact answer: [impact.Product] with a canonical
@@ -287,16 +292,19 @@ type ProductImpact struct {
 }
 
 func toProductImpact(p *impact.Product) *ProductImpact {
-	items := make([]ProductImpactConsumer, len(p.Consumers.Items))
-	for i, c := range p.Consumers.Items {
-		items[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
+	consumers := func(cs []impact.ProductConsumer) []ProductImpactConsumer {
+		out := make([]ProductImpactConsumer, len(cs))
+		for i, c := range cs {
+			out[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
+		}
+		return out
 	}
 	return &ProductImpact{
 		Product:       *p,
 		Service:       productview.Ref(p.Service),
 		OldRevision:   productview.RefPtr(p.OldRevision),
 		NewRevision:   productview.RefPtr(p.NewRevision),
-		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: items},
+		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: consumers(p.Consumers.Items), Highlights: consumers(p.Consumers.Highlights)},
 		Owners:        productview.RefPreview(p.Owners),
 		ActiveTargets: productview.RefPreview(p.ActiveTargets),
 	}
@@ -312,6 +320,7 @@ type impactRequest struct {
 	IncludeObserved bool   `json:"includeObserved,omitempty"`
 	Limit           int    `json:"limit,omitempty" doc:"Max consumers per page (negatives rejected; excessive values capped)"`
 	Offset          int    `json:"offset,omitempty" doc:"Consumer page offset (negatives rejected)"`
+	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified" doc:"List only the consumers of this outcome; the tallies still cover every consumer"`
 }
 
 type fleetImpactPostInput struct {
@@ -361,7 +370,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if res.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot changed during analysis; refetch and retry")
 	}
-	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset))}, nil
+	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset, b.Outcome))}, nil
 }
 
 // productQueryError maps a product-query error to HTTP: absent → 404, a document

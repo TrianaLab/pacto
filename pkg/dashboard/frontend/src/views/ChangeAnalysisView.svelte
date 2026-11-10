@@ -1,23 +1,25 @@
 <script>
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack, tick } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
-  import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount, countOf } from '../lib/format.ts';
+  import { shortDigest, formatCount, countOf } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { formatRelative } from '../lib/dateFormat.ts';
-  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
+  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import Select from '../components/Select.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
   import RequirementList from '../components/RequirementList.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
+  import ImpactFigure from '../components/figure/ImpactFigure.svelte';
+  import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
+  import { OUTCOMES } from '../lib/impactFigure.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -85,7 +87,15 @@
   // Swapping the whole result for a loader on every page reset the scroll to the top.
   let pagingConsumers = $state(false);
   let analyzeGen = 0;
+  // The reader pressed Compare: the figure may tell its answer (SPEC 6, A2). A restored
+  // link or a page of the table is not a request, so it shows the final frame.
+  let readerAsked = $state(false);
   let limShown = $state(8);
+  // The consumers table lists one outcome when a lane's link asked for it (T3): the
+  // lane's count is that list's total. The figure always shows every outcome.
+  let outcome = $state(untrack(() => (OUTCOMES.includes(params.outcome) ? params.outcome : '')));
+  // A restored link to one outcome opens the table on it once the answer is in.
+  let showTable = untrack(() => !!outcome);
 
   // Service picker (only when the route carries no service key): search-first, so a
   // service beyond the first page of results is still discoverable.
@@ -98,13 +108,6 @@
   // A migrated legacy name that resolved to several services, or to none: the picker
   // says which, rather than silently opening the wrong service or an empty search.
   let migrateNote = $state('');
-
-  // The release gate `pacto impact` exits on: blocked (1), unverified (2), clear (0).
-  const GATE = {
-    blocked: { cls: 'badge-err', label: 'Blocked' },
-    unverified: { cls: 'badge-warn', label: 'Unverified' },
-    clear: { cls: 'badge-ok', label: 'Clear' },
-  };
 
   function verdictClass(v) {
     if (v === 'compatible') return 'badge-ok';
@@ -254,9 +257,10 @@
     if (!observedAvailable) includeObserved = false;
   });
 
-  async function analyze(offset = 0, paging = false) {
+  async function analyze(offset = 0, paging = false, asked = false) {
     if (!serviceKey || !fromRevKey || !toRevKey) return;
     const gen = ++analyzeGen;
+    if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
     else analyzing = true;
     analyzeError = null;
@@ -270,6 +274,7 @@
         includeObserved,
         limit: CONSUMER_PAGE,
         offset,
+        outcome: outcome || undefined,
       });
       if (gen !== analyzeGen) return;
       result = res;
@@ -277,7 +282,8 @@
       // The analyzed pair becomes the URL, so the exact analysis is shareable and
       // restorable. A replaceState (not a push) keeps Back on the previous SCREEN rather
       // than on every selector tweak.
-      history.replaceState(null, '', fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved }));
+      history.replaceState(null, '', changesUrl(outcome));
+      if (showTable) { showTable = false; await tick(); openConsumers(); }
     } catch (e) {
       if (gen !== analyzeGen) return;
       // A snapshot-id mismatch is a 409: the published snapshot changed, so the honest
@@ -287,6 +293,42 @@
     } finally {
       if (gen === analyzeGen) { analyzing = false; pagingConsumers = false; }
     }
+  }
+
+  const changesUrl = (o = '') => fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o });
+
+  // A lane's count or "N more" lists that outcome. A plain click keeps the answer on
+  // screen: it pushes the link's URL (so Back returns to the whole table), pages the
+  // table to that outcome and opens it. A modified click is the browser's.
+  function showOutcome(/** @type {string} */ o, /** @type {MouseEvent} */ e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    outcome = o;
+    history.pushState(null, '', changesUrl(o));
+    showTable = true;
+    analyze(0, true);
+  }
+  function setOutcome(/** @type {string} */ o) {
+    outcome = o;
+    analyze(0, true);
+  }
+  // Back and Forward between a lane's list and the whole table: the route stays the
+  // same view, so the URL's outcome is read here.
+  function onHash() {
+    const o = parseHash(location.hash).params?.outcome ?? '';
+    if (parseHash(location.hash).view === 'changes' && o !== outcome && result) setOutcome(OUTCOMES.includes(o) ? o : '');
+  }
+  onMount(() => { window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); });
+
+  // "N more" in a lane of the figure opens the table: open the fold, focus its summary
+  // without the browser's own jump, then scroll it under the sticky navbar (.ca-fold
+  // carries the scroll margin).
+  function openConsumers() {
+    const d = /** @type {HTMLDetailsElement | null} */ (document.getElementById('sec-affected-consumers'));
+    if (!d) return;
+    d.open = true;
+    d.querySelector('summary')?.focus({ preventScroll: true });
+    d.scrollIntoView({ block: 'start' });
   }
 
   async function refetchAndAnalyze() {
@@ -325,34 +367,21 @@
       { label: 'Change analysis' },
     ];
   });
-  // The one-line answer. Version-range verdicts are per consumer (the range each one
-  // declared), never per field, and come from the backend tallies over EVERY consumer.
-  function classificationLabel(c) {
-    const t = String(c || 'unknown').replace(/_/g, ' ').toLowerCase();
-    return t.charAt(0).toUpperCase() + t.slice(1);
-  }
+  // Version-range verdicts are per consumer (the range each one declared), never per
+  // field, and come from the backend tallies over EVERY consumer.
   const verdictCount = (k) => (consumers.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
-  const answerText = $derived.by(() => {
-    if (!result) return '';
-    const what = changes.total === 0
-      ? 'No contract differences.'
-      : `${countOf(changes.total, 'change')}, ${formatCount(changes.breaking)} breaking.`;
-    if (!consumers.total) return `${what} No consumer is affected.`;
-    const newLabel = result.newRevision?.version || result.newRevision?.label || 'the new revision';
-    const parts = [
-      verdictCount('incompatible') ? `${formatCount(verdictCount('incompatible'))} ${verdictCount('incompatible') === 1 ? 'does' : 'do'} not accept ${newLabel}` : '',
-      // A refused consumer breaks whatever its range verdict, so it is named on its own.
-      consumers.refused ? `${formatCount(consumers.refused)} ${consumers.refused === 1 ? 'requires' : 'require'} a guarantee ${newLabel} does not offer` : '',
-      verdictCount('unknown') ? `${formatCount(verdictCount('unknown'))} unknown` : '',
-    ].filter(Boolean);
-    return `${what} ${countOf(consumers.total, 'consumer')} affected${parts.length ? `: ${parts.join(', ')}` : ''}.`;
-  });
+  // The figure's chips name these; the table marks them so every name is readable in full.
+  const highlighted = $derived(new Set((consumers.highlights ?? []).map((c) => c.service?.key)));
   const consumerMeta = $derived(
     consumers.total
       ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`
       : 'None',
   );
-  const cShownFrom = $derived(consumers.total === 0 ? 0 : (consumers.offset ?? 0) + 1);
+  // What the table pages over: every consumer, or those of the outcome a lane asked for.
+  const cMatching = $derived(consumers.matching ?? consumers.total ?? 0);
+  const outcomeLabel = (/** @type {string} */ o) => outcomeSegments([{ key: o, count: 0 }])[0]?.label ?? o;
+  const outcomeOptions = $derived([{ value: '', label: 'Every outcome' }, ...OUTCOMES.map((o) => ({ value: o, label: outcomeLabel(o) }))]);
+  const cShownFrom = $derived(cMatching === 0 ? 0 : (consumers.offset ?? 0) + 1);
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
@@ -421,7 +450,7 @@
 {:else}
   <!-- No page navigator: the answer sits under the pickers and every part behind it is a
        fold, so the page is one screen and going back to change a revision is no scroll. -->
-  <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
+  <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0, false, true); }}>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
@@ -473,40 +502,16 @@
   {:else if analyzing}
     <EmptyState loading message="Comparing the two revisions…" />
   {:else if result}
-    <!-- The answer first: what kind of change this is and who it reaches, in one line.
-         Everything that backs it -- the field diff, the consumer table, owners and targets,
-         the evidence gaps -- is folded below with its count, one click away. -->
-    <div class="ca-answer" data-testid="changes-answer">
-      <p class="ca-answer-line">
-        <span class="badge {classificationClass(result.classification)}">{classificationLabel(result.classification)}</span>
-        <span>{answerText}</span>
-      </p>
-      {#if GATE[result.gate]}
-        <p class="ca-answer-line" data-testid="changes-gate">
-          <span class="badge {GATE[result.gate].cls}">{GATE[result.gate].label}</span>
-          <span class="text-2">{result.gateReason}</span>
-        </p>
-      {/if}
-      <p class="impact-summary">
-        {#if result.oldRevision || result.newRevision}
-          <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
-        {/if}
-        <span class="badge {completenessClass(result.meta?.completeness)}"><span class="badge-dot"></span>{completenessLabel(result.meta?.completeness)}</span>
-        {#if result.meta?.asOf}<span class="text-3">Data as of {formatRelative(result.meta.asOf)}</span>{/if}
-        <!-- The snapshot id is precise and occasionally decisive, but it is opaque to
-             anyone who has not read the data model. The chip states what it MEANS; the id
-             itself stays exact, one hover away. -->
-        <span class="snap-id" class:match={result.snapshotMatch} title="Snapshot {result.snapshotId}">
-          {result.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}
-        </span>
-      </p>
-    </div>
+    <!-- The answer, drawn and stated: the figure reads only the backend tallies and the
+         ranked highlights, so paging the table below never changes it. Its card says what
+         changed, who it reaches and what the gate decides; the table stays the full answer. -->
+    <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
 
     <div class="ca-stack">
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
          statement about the contracts, not about what runs. -->
     <details class="ca-fold disclosure" id="sec-what-changed" data-testid="changes-what-changed">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>What changed</h2>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>What changed</h2>
         <span class="ca-fold-meta" data-testid="changes-counts">{#if changes.total === 0}No differences{:else}{changes.breaking} breaking · {changes.potential} potentially breaking · {changes.nonBreaking} non-breaking{/if}</span>
       </summary>
       <div class="ca-fold-body">
@@ -535,11 +540,11 @@
          are different claims with different evidence. -->
     <div class="ca-folds" id="sec-what-it-affects" data-testid="changes-what-it-affects">
       <details class="ca-fold disclosure" id="sec-affected-consumers" data-testid="changes-consumers">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Affected consumers</h2>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Affected consumers</h2>
           <span class="ca-fold-meta">{consumerMeta}</span>
         </summary>
         <div class="ca-fold-body">
-        {#if (consumers.items?.length ?? 0) === 0}
+        {#if !consumers.total}
           <EmptyState title="No affected consumers" message="Nothing in the operational graph uses this change." level={3} />
         {:else}
           <!-- Both rankings come from the backend tallies over EVERY consumer, so they do
@@ -560,6 +565,13 @@
               total={consumers.total}
             />
           </div>
+          <div class="consumer-tools">
+            <Select label="Outcome" value={outcome} options={outcomeOptions} onchange={(e) => setOutcome(e.currentTarget.value)} />
+            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each outcome.</span>
+          </div>
+          {#if (consumers.items?.length ?? 0) === 0}
+            <p class="text-dim" data-testid="consumers-none-of-outcome">No consumer is {outcomeLabel(outcome).toLowerCase()}.</p>
+          {:else}
           <div class="data-scroll" aria-busy={pagingConsumers}>
             <table class="data-table">
               <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
@@ -576,14 +588,14 @@
               <tbody>
                 {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
                   <tr>
-                    <td data-label="Consumer" class="consumer-cell"><EntityLink ref={c.service} showStatus={false} /></td>
+                    <td data-label="Consumer" class="consumer-cell">{#if highlighted.has(c.service?.key)}<span class="badge badge-accent">Highlighted</span> {/if}<EntityLink ref={c.service} showStatus={false} /></td>
                     <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
                     <td data-label="Path" class="path-cell">
                       {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
                     </td>
                     <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
                          range verdict is never shown as a plain pass next to the refusal. -->
-                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
                       {#if c.unmet?.length}
                         <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
                       {/if}</td>
@@ -594,8 +606,9 @@
               </tbody>
             </table>
           </div>
-          <nav class="consumer-pager" aria-label="Consumer pages">
-            <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(consumers.total)}{pagingConsumers ? ' · loading…' : ''}</span>
+          {/if}
+          <nav class="consumer-pager" aria-label="Consumer pages" data-view-total={cMatching}>
+            <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(cMatching)}{consumers.outcome ? ` ${outcomeLabel(consumers.outcome).toLowerCase()}` : ''}{pagingConsumers ? ' · loading…' : ''}</span>
             <div class="pager-btns">
               <button type="button" class="pg" disabled={!cHasPrev || pagingConsumers} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE), true)}>Previous</button>
               <button type="button" class="pg" disabled={!cHasNext || pagingConsumers} onclick={() => analyze(consumers.nextOffset, true)}>Next</button>
@@ -606,7 +619,7 @@
       </details>
 
       <details class="ca-fold disclosure" data-testid="changes-owners-targets">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Owners and targets</h2>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Owners and targets</h2>
           <span class="ca-fold-meta">{countOf(owners.total, 'owner')} · {countOf(activeTargets.total, 'target')}</span>
         </summary>
         <div class="ca-fold-body meta-lists">
@@ -621,7 +634,7 @@
 
       {#if limitations.count > 0}
         <details class="ca-fold disclosure" data-testid="changes-limitations">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Incomplete evidence</h2>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Incomplete evidence</h2>
             <span class="ca-fold-meta">{formatCount(limitations.total)}</span>
           </summary>
           <div class="ca-fold-body">
@@ -642,9 +655,9 @@
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if fromRevKey && toRevKey}
-      <EmptyState title="Ready to compare" message="Press Compare revisions." />
+      <EmptyState identity title="Ready to compare" message="Press Compare revisions." />
     {:else}
-      <EmptyState title="Pick two revisions" message="An earlier and a later one." />
+      <EmptyState identity title="Pick two revisions" message="An earlier and a later one." />
     {/if}
   {/if}
 {/if}
@@ -673,27 +686,23 @@
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }
 
-  .ca-answer { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-3); }
-  .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
   .consumer-refused { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; margin-top: var(--sp-1); }
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
-  .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
+  .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .ca-stack { border-top: 1px solid var(--c-border); }
-  .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; }
-  .ca-fold > summary { gap: var(--sp-2); }
+  .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }
   .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }
   .ca-fold-body { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
   .ca-show-all { align-self: flex-start; }
   .check-row { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .disco-more { margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .snap-id { font-family: var(--font-mono, monospace); font-size: var(--text-xs); color: var(--c-text-3); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 999px; }
-  .snap-id.match { color: var(--c-ok); border-color: var(--c-ok-border, var(--c-ok)); }
 
   .partial-banner { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid var(--c-warn-border); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-text-2); font-size: var(--text-sm); }
   .partial-banner strong { color: var(--c-warn); }
 
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
+  .consumer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0; }
   .consumer-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
   .pager-btns { display: flex; gap: var(--sp-2); }
   .pg { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); cursor: pointer; min-height: var(--touch-min); }

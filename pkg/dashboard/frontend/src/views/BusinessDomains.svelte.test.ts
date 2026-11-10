@@ -15,7 +15,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return {
     ...actual,
     api: {
-      fleetEntities: (...a: unknown[]) => entitiesFn(...a),
+      fleetEntities: (...a: unknown[]) => entitiesFn(...a) ?? new Promise(() => {}),
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetOverview: (...a: unknown[]) => overviewFn(...a),
       fleetAttention: (...a: unknown[]) => attentionFn(...a),
@@ -62,9 +62,9 @@ describe('FleetDomainsView', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="domain-none"]')).toBeTruthy());
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['domain'], limit: 25 }));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], businessDomain: '(none)', limit: 1 }));
-    const rows = target.querySelectorAll('[data-testid="domain-list"] .lv-item');
-    expect(rows[0].textContent).toContain('12 services · 30 operational targets');
-    expect(rows[1].textContent).toContain('1 service · 1 operational target');
+    const cells = (r: number) => Array.from(target.querySelectorAll('[data-testid="domain-list"] tbody tr')[r].querySelectorAll('td')).map((td) => td.textContent?.trim());
+    expect(cells(0).slice(0, 2)).toEqual(['12', '30']);
+    expect(cells(1).slice(0, 2)).toEqual(['1', '1']);
     expect(hrefs(target, '[data-testid="domain-list"] a.entity-link')).toEqual(['#/fleet/domains/commerce', '#/fleet/domains/identity']);
     const none = target.querySelector('[data-testid="domain-none"]') as HTMLElement;
     expect(none.textContent).toContain('No domain: 4 services');
@@ -125,7 +125,12 @@ describe('the domain page', () => {
         attention: { total: 3, count: 1, truncated: true, items: [{ severity: 'info', category: 'unowned', entity: { kind: 'service', key: 'ledger', label: 'ledger', href: '/fleet/services/ledger' }, summary: 'no owner declared' }] },
       },
     });
+    entitiesFn.mockResolvedValue(listResp([], { aggregate: { services: 2, serviceCompliance: { nonCompliant: 1, compliant: 1 } } }));
     const { target, done } = mountView(FleetEntityView, { kind: 'domain', entityKey: 'commerce' });
+    // The posture column counts the domain's services, and each row lists exactly them.
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], limit: 1, businessDomain: 'commerce' });
+    expect(target.querySelector('[data-testid="posture-figure"] .prow a')?.getAttribute('href')).toBe('#/fleet/services?status=NonCompliant&businessDomain=commerce');
     await vi.waitFor(() => expect(target.querySelector('.domain-entity')).toBeTruthy());
     const text = target.textContent || '';
     expect(text).toContain('Operational summary');

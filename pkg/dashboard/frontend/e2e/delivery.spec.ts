@@ -80,18 +80,19 @@ function installDelivery(persona: Persona): void {
     if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
     if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
     if (route === '/api/delivery/inbox') {
-      return json(200, { ...listing, held: decided() || !caller?.groups.includes('team-checkout') ? [] : [{
+      const waits = !decided() && !!caller?.groups.includes('team-checkout');
+      return json(200, { ...listing, byEnvironment: waits ? [{ environment: 'prod', held: 1, errored: 0, frozen: 0, upstream: ['test'] }] : [], held: !waits ? [] : [{
         namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, phase: 'Held',
         question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'], order: plan.order }], frozen: [], errored: [] });
     }
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], level: 'advise' }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        ready: 'True', actions: ['promote'], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
-        // The server orders the columns the way changes travel, as environmentColumns does.
+        // The server lists the environments the way changes travel, as environmentsListed does.
         environmentNames: ['test', 'prod'], environmentTiers: { test: 'test', prod: 'prod' } });
     }
     if (route === '/api/delivery/autonomy') {
@@ -232,7 +233,7 @@ test.describe('Delivery views', () => {
   test('the inbox shows what waits on my team, and the keyboard reaches the change', async ({ page }) => {
     await as(page, 'carol');
     await page.goto('/#/fleet');
-    await page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Delivery' }).click();
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Delivery' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible({ timeout: T });
     const held = page.getByTestId('inbox-held');
     await expect(held).toContainText('Breaks checkout');
@@ -245,6 +246,8 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('identity')).toContainText('Signed in as carol');
     await expect(page.getByTestId('identity')).not.toContainText('https://idp#carol');
     await expect(page.getByTestId('identity').locator('.copyable')).toHaveAttribute('title', 'https://idp#carol');
+    // The figure over every page: one station, its held queue linked to the narrowed list.
+    await expect(page.getByTestId('inbox-figure').getByRole('link', { name: '1 held' })).toHaveAttribute('href', '#/delivery/inbox?environment=prod');
     await audit(page, 'inbox');
 
     const link = held.getByRole('link', { name: /^Promote on prod\/payments-prod/ });
@@ -257,6 +260,8 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('change-checks')).toHaveAttribute('open', '');
     await expect(page.getByTestId('predicted-verdicts')).toBeVisible();
     await expect(page.getByTestId('actual-verdicts')).toHaveCount(0);
+    // Held before it applies: the token rests on the gate, which holds it.
+    await expect(page.getByTestId('change-figure').locator('[data-tok="4"] .tok')).toHaveCount(1);
     await audit(page, 'change detail');
   });
 
@@ -278,7 +283,14 @@ test.describe('Delivery views', () => {
     for (const hash of ['#/delivery/changes/prod/op1']) {
       await page.goto('/' + hash);
       await expect(page.getByTestId('decision-safer')).toBeVisible({ timeout: T });
-      expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)), hash).toBe(true);
+      // On failure the message names what runs past the edge, so a rare spill is diagnosable.
+      const spill = await page.evaluate(() => {
+        if ([document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)) return '';
+        const edge = document.body.clientWidth + 1;
+        return [...document.querySelectorAll('body *')].filter((el) => el.getBoundingClientRect().right > edge)
+          .slice(0, 5).map((el) => `<${el.tagName.toLowerCase()} class="${el.getAttribute('class') ?? ''}"> "${(el.textContent ?? '').trim().slice(0, 30)}"`).join(' | ') || 'no element';
+      });
+      expect(spill, `${hash} scrolls sideways`).toBe('');
     }
   });
 
@@ -494,6 +506,7 @@ test.describe('The path to autonomy', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Path to autonomy' })).toBeVisible({ timeout: T });
     await expect(page.getByTestId('autonomy-contracted')).toContainText('80%');
     await expect(page.getByTestId('autonomy-contracted')).toContainText('of the 5 services Pacto has seen');
+    // This answer reports no level, so no figure draws and the metric carries the count.
     await expect(page.getByTestId('autonomy-promotions')).toContainText('3 of 5');
     await expect(page.getByTestId('autonomy-stages')).toContainText('Pacto proposes Auto non-breaking: 3 verified promotions, no incident.');
     await expect(page.getByTestId('autonomy-blockers')).toContainText('pacto init --cluster --namespace pay --out ./pacto-drafts');
@@ -513,7 +526,7 @@ test.describe('The path to autonomy', () => {
     const shadow = page.getByTestId('shadow');
     await expect(page.getByTestId('shadow-summary')).toContainText('advisory and unsigned', { timeout: T });
     await shadow.locator('summary').click();
-    // The board orders environments test before prod (the server's environmentNames).
+    // The row follows the service's own path: payments-prod declares payments-test upstream.
     await expect(page.getByTestId('level')).toHaveText(['Observe', 'Advise']);
     await expect(shadow.getByTestId('shadow-row').first()).toContainText('hold for team-checkout');
     await expect(shadow.getByTestId('held-but-ran')).toHaveCount(1);

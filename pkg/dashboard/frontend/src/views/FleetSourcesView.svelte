@@ -3,6 +3,8 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import { sourceHealthLabel, sourceHealthTallyParts } from '../lib/entityLabels.ts';
+  import { SOURCE_STATES, bucketLabel, sourceSegments } from '../lib/distributions.ts';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -17,12 +19,16 @@
   import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadTrustFigure } from '../lib/lazyFigures.ts';
 
   // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
   // health filter (the backend sourceHealth query param), all kept in the URL. Rows
   // navigate to the rich source page.
-  let { text = '', sourceHealth = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  // `sourceKind` narrows to one adapter kind: the list a figure's kind tally opens.
+  let { text = '', sourceHealth = '', sourceKind = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const HEALTH_OPTIONS = ['available', 'partial', 'stale', 'unavailable'];
@@ -30,7 +36,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Least healthy first by default: the sources worth a look are the broken ones.
   const order = $derived(sort || 'health');
-  const anyFilter = $derived(!!(text || sourceHealth));
+  const anyFilter = $derived(!!(text || sourceHealth || sourceKind));
 
   // Seeded once; the effect below keeps it in step with the URL.
   let textDraft = $state(untrack(() => text));
@@ -41,12 +47,12 @@
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
-  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], text: text || undefined, sourceHealth: sourceHealth || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], text: text || undefined, sourceHealth: sourceHealth || undefined, sourceKind: sourceKind || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
   // queryIdentity is the QUESTION (search + health filter + page); refreshTick only
   // re-asks it. Rows are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived(`${text}@@${sourceHealth}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${sourceHealth}@@${sourceKind}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${sourceHealth}@@${order}`);
+  const listIdentity = $derived(`${text}@@${sourceHealth}@@${sourceKind}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -72,9 +78,16 @@
   // to reconcile.
   const tallyParts = $derived(sourceHealthTallyParts(list?.meta?.sourceCounts));
 
+  // The figure names the least healthy sources of the WHOLE population, whatever the
+  // list is filtered or paged to: a second question, so a second request (S7).
+  const worstLoader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], sort: 'health', limit: 8 }));
+  $effect(() => { worstLoader.sync(`worst@@${refreshTick}`, 'worst'); });
+  onDestroy(() => worstLoader.destroy());
+  const worst = $derived(worstLoader.data?.entities ?? []);
+
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetSourcesUrl({
-      text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, offset: off,
+      text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, sourceKind: patch.sourceKind ?? sourceKind, offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
     });
   }
@@ -83,6 +96,7 @@
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     sourceHealth ? { key: 'sourceHealth', label: 'Health', value: sourceHealthLabel(sourceHealth) } : null,
+    sourceKind ? { key: 'sourceKind', label: 'Kind', value: sourceKind } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
 </script>
@@ -93,6 +107,7 @@
        the snapshot, so a degraded one makes every other number incomplete rather than
        zero. It is not a collector -- it does not observe anything by itself. -->
   <PageHeader
+    glyph="source"
     title="Data sources"
     count={list ? `${formatCount(total)} data source${total === 1 ? '' : 's'}` : ''}
     subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete."
@@ -101,14 +116,18 @@
   />
 
   {#if tallyParts.length}
-    <p class="lv-tally t-body-2" data-testid="source-tally">
-      Across every data source:
-      {#each tallyParts as p, i (p.status || 'unclassified')}{#if i > 0}{', '}{/if}{#if p.status}<a
-          href={urlWith({ sourceHealth: p.status })}
-          aria-current={sourceHealth === p.status ? 'true' : undefined}>{p.text}</a>{:else}<span
-          class="lv-unclassified"
-          title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
-    </p>
+    <LazyView load={loadTrustFigure} mode="sources" counts={list?.meta?.sourceCounts} meta={list?.meta} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
+      stateHref={(st, kind) => urlWith({ text: '', sourceHealth: st, sourceKind: kind ?? '' })}>
+      {#snippet aside()}
+        <!-- The state bar (SPEC 7 r5): one carrier for the counts, over every source,
+             whatever the list is filtered to; each legend item is its filter. -->
+        <div class="lv-tally" data-testid="source-tally" data-nofilter>
+          <DistributionBar title="Every data source by state" level={2} total={list?.meta?.sourceCounts?.total ?? 0}
+            segments={sourceSegments(list?.meta?.sourceCounts, (st) => urlWith({ sourceHealth: st }))}
+            selected={bucketLabel(SOURCE_STATES, sourceHealth)} emptyLabel="No data sources reported." />
+        </div>
+      {/snippet}
+    </LazyView>
   {/if}
 
   <div class="lv-filters">
@@ -153,9 +172,6 @@
   .lv-tally { margin: 0; }
   /* Inline links inside a sentence, so they are underlined rather than only accent-
      coloured -- the same rule the overview's "See all" follows (WCAG 1.4.1). */
-  .lv-tally a { color: var(--c-accent); text-decoration: underline; }
-  .lv-tally a[aria-current='true'] { font-weight: 700; }
-  .lv-unclassified { color: var(--c-text-3); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   /* On a phone the search takes its own row, so its button is never squeezed to 'Searc'. */

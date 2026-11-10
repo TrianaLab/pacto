@@ -193,7 +193,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['name', 'old', 'new', 'observed']) {
+    for (const k of ['name', 'old', 'new', 'observed', 'outcome']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -216,7 +216,7 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'createdFrom', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -250,7 +250,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings' || rest === 'golden-paths') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'sourceHealth', 'sourceKind', 'hasNonCompliant', 'businessDomain', 'ownerKey', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -268,7 +268,7 @@ function parseFleet(path: string, query: string): Route {
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
@@ -450,7 +450,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; createdFrom?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -471,6 +471,8 @@ export function fleetServicesUrl(opts: {
   if (opts.offering) qs.set('offering', opts.offering);
   // consumes keeps the services that consume a provider of that offering.
   if (opts.consumes) qs.set('consumes', opts.consumes);
+  // phase narrows those consumers to the ones with a provisioning status in it.
+  if (opts.consumes && opts.phase) qs.set('phase', opts.phase);
   // createdFrom keeps the services whose declared origin is that golden path.
   if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
   setPaging(qs, opts);
@@ -480,17 +482,24 @@ export function fleetServicesUrl(opts: {
 
 // fleetOwnersUrl / fleetSourcesUrl build the product owner/source list routes,
 // preserving the search text, the source-health filter and the page offset.
-export function fleetOwnersUrl(opts: { text?: string } & ListPaging = {}): string {
+// `hasNonCompliant` keeps the owners or domains with a non-compliant service; an
+// owner list narrows to a business domain and a domain list to an owner key, the
+// lists an owner or domain page's "N more" opens.
+export function fleetOwnersUrl(opts: { text?: string; hasNonCompliant?: boolean; businessDomain?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.hasNonCompliant) qs.set('hasNonCompliant', '1');
+  if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
 }
 
-export function fleetDomainsUrl(opts: { text?: string } & ListPaging = {}): string {
+export function fleetDomainsUrl(opts: { text?: string; hasNonCompliant?: boolean; ownerKey?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.hasNonCompliant) qs.set('hasNonCompliant', '1');
+  if (opts.ownerKey) qs.set('ownerKey', opts.ownerKey);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
@@ -514,10 +523,11 @@ export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): 
   return str ? `#/fleet/golden-paths?${str}` : '#/fleet/golden-paths';
 }
 
-export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
+export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; sourceKind?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.sourceHealth) qs.set('sourceHealth', opts.sourceHealth);
+  if (opts.sourceKind) qs.set('sourceKind', opts.sourceKind);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/sources?${str}` : '#/fleet/sources';
@@ -622,7 +632,7 @@ export function fleetAttentionUrl(opts: {
 // query, so an analysis is shareable and restored by back/forward.
 export function fleetChangesUrl(
   serviceKey = '',
-  opts: { name?: string; old?: string; new?: string; observed?: boolean } = {},
+  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string } = {},
 ): string {
   const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
@@ -630,6 +640,7 @@ export function fleetChangesUrl(
   if (opts.old) qs.set('old', opts.old);
   if (opts.new) qs.set('new', opts.new);
   if (opts.observed) qs.set('observed', '1');
+  if (opts.outcome) qs.set('outcome', opts.outcome);
   const str = qs.toString();
   return str ? `${base}?${str}` : base;
 }

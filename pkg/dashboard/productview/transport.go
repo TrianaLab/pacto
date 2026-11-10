@@ -492,6 +492,7 @@ type ProductRevisionDetail struct {
 	Dependencies    ProductRelationshipsPreview  `json:"dependencies"`
 	ExactTargets    ProductRefPreview            `json:"exactTargets"`
 	InferredTargets ProductRefPreview            `json:"inferredTargets"`
+	EvidenceSources ProductRefPreview            `json:"evidenceSources"`
 	Previous        *ProductRef                  `json:"previous,omitempty"`
 	Next            *ProductRef                  `json:"next,omitempty"`
 	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
@@ -506,6 +507,7 @@ func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail
 		Dependencies:       productRelationshipsPreview(d.Dependencies),
 		ExactTargets:       RefPreview(d.ExactTargets),
 		InferredTargets:    RefPreview(d.InferredTargets),
+		EvidenceSources:    RefPreview(d.EvidenceSources),
 		Previous:           RefPtr(d.Previous),
 		Next:               RefPtr(d.Next),
 		Ownership:          productOwnership(d.Ownership),
@@ -588,7 +590,8 @@ type ProductProvisioningStatus struct {
 // ProductOfferingUsesPreview is a bounded preview of offering uses.
 type ProductOfferingUsesPreview struct {
 	fleet.OfferingUsesPreview
-	Items []ProductOfferingUse `json:"items"`
+	Items  []ProductOfferingUse `json:"items"`
+	Failed ProductRefPreview    `json:"failed"`
 }
 
 func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview {
@@ -599,7 +602,7 @@ func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview
 			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})
 		}
 	}
-	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items}
+	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items, Failed: RefPreview(p.Failed)}
 }
 
 // ProductInferredOffering is a navigable inferred offering suggestion.

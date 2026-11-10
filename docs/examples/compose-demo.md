@@ -176,7 +176,7 @@ removes the registry volume and the evidence with it.
   services.
 - [Kubernetes demo](kubernetes-demo.md): delivery: promotions, approvals,
   rollbacks and signed records. This demo has no cluster and no sign-in, so its
-  dashboard shows no Delivery tab.
+  dashboard's sidebar shows no Delivery item.
 
 Next: the [Quickstart](../quickstart.md) takes an empty directory to a validated
 contract and a caught breaking change in about five minutes.

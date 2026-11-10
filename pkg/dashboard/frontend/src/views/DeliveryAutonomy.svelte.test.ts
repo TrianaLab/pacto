@@ -256,11 +256,12 @@ describe('would have versus what happened', () => {
     ] };
 
   it('shows the level on every Stage and the advisory would-have table on observe only', async () => {
-    fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'prod', stage: 'ledger-prod', level: 'advise', shadow: undefined }] });
+    fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'prod', stage: 'ledger-prod', level: 'advise', shadow: undefined,
+      upstream: { kind: 'stage', namespace: 'test', stage: 'ledger', environment: 'test' } }] });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
     const levels = [...target.querySelectorAll('[data-testid="level"]')].map((b) => b.textContent);
-    // Columns run the way changes travel: test before prod.
+    // The row runs the way ledger's Stages declare: ledger-prod is fed by test.
     expect(levels).toEqual(['Observe', 'Advise']);
     const tables = target.querySelectorAll('[data-testid="shadow"]');
     expect(tables.length).toBe(1);

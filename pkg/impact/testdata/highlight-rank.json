@@ -1,0 +1,10 @@
+[
+  {"name": "blocking beats every verdict", "blocking": true, "compatibilityVerdict": "compatible", "rank": 0},
+  {"name": "incompatible", "compatibilityVerdict": "incompatible", "rank": 1},
+  {"name": "refused while compatible", "compatibilityVerdict": "compatible", "unmet": [{"guarantee": "delivery"}], "rank": 1},
+  {"name": "refused while unknown", "compatibilityVerdict": "unknown", "unmet": [{"guarantee": "delivery"}], "rank": 1},
+  {"name": "unknown", "compatibilityVerdict": "unknown", "rank": 2},
+  {"name": "no verdict", "compatibilityVerdict": "", "rank": 2},
+  {"name": "unrecognised verdict", "compatibilityVerdict": "maybe", "rank": 2},
+  {"name": "compatible", "compatibilityVerdict": "compatible", "rank": 3}
+]

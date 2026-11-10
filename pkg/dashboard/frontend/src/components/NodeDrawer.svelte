@@ -4,6 +4,7 @@
   import StatusBadge from './StatusBadge.svelte';
   import OwnerLink from './OwnerLink.svelte';
   import SourceDot from './SourceDot.svelte';
+  import Glyph from './figure/Glyph.svelte';
 
   let { data = null, onClose } = $props();
 
@@ -16,7 +17,8 @@
   <aside class="drawer" data-motion aria-label="Service details for {data.name}">
     <div class="drawer-head">
       <div class="drawer-title">
-        <span class="drawer-name">{data.name}</span>
+        <Glyph kind="service" />
+        <span class="drawer-name"><bdi>{data.name}</bdi></span>
         {#if data.external}
           <span class="badge">external</span>
         {:else}

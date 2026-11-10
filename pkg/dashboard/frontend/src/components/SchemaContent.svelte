@@ -13,7 +13,7 @@
 {:else if content}
   <details class="sc disclosure">
     <summary>
-      <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+      <span class="disclosure-caret" data-motion aria-hidden="true"></span>
       {formatCount(props.length)}{content.truncated ? ` of ${formatCount(content.total ?? 0)}` : ''} {props.length === 1 && !content.truncated ? 'property' : 'properties'}
     </summary>
     {#if content.title}<p class="sc-title">{content.title}</p>{/if}

@@ -270,6 +270,17 @@ type OwnerCount struct {
 	Ambiguous bool `json:"ambiguous,omitempty"`
 	Services  int  `json:"services"`
 	Targets   int  `json:"targets"`
+	// NonCompliant counts the owner's consistently owned services whose status is
+	// NonCompliant, so Services is the denominator of its rate.
+	NonCompliant int `json:"nonCompliant,omitempty"`
+}
+
+// DomainCount is one business domain's non-compliant services and the services it
+// holds in the matched population. Like [OwnerCount] it is a ranking row.
+type DomainCount struct {
+	Domain       string `json:"domain"`
+	Services     int    `json:"services"`
+	NonCompliant int    `json:"nonCompliant"`
 }
 
 // maxOwnerRanking bounds the owner ranking on an entity aggregate. A fleet may
@@ -343,6 +354,31 @@ type EntityAggregate struct {
 	// are in this population" — an owner in a dispute is still an owner, and counting
 	// only the rankable ones would erase exactly the owners a reader is looking for.
 	DistinctOwners int `json:"distinctOwners,omitempty"`
+	// NonCompliantByOwner ranks owners by their consistently owned NON-COMPLIANT
+	// services, most first, bounded to maxOwnerRanking; only owners with at least one
+	// appear. NonCompliantOwners is how many owners have one. The three fields below
+	// partition ServiceCompliance.NonCompliant:
+	//
+	//	Sum(NonCompliantByOwner.NonCompliant) + NonCompliantBeyondRanking +
+	//	NonCompliantUnidentified == ServiceCompliance.NonCompliant
+	//
+	// NonCompliantUnidentified counts the non-compliant services with no single
+	// canonical owner (unowned, disputed or owned by contacts alone): the services
+	// the ownership filter "unidentified" lists.
+	NonCompliantByOwner       []OwnerCount `json:"nonCompliantByOwner,omitempty"`
+	NonCompliantBeyondRanking int          `json:"nonCompliantBeyondRanking,omitempty"`
+	NonCompliantUnidentified  int          `json:"nonCompliantUnidentified,omitempty"`
+	NonCompliantOwners        int          `json:"nonCompliantOwners,omitempty"`
+	// NonCompliantByDomain ranks business domains the same way, and the fields
+	// after it close the partition:
+	//
+	//	Sum(NonCompliantByDomain.NonCompliant) + NonCompliantDomainsBeyond +
+	//	NonCompliantNoDomain + NonCompliantDomainUnknown == ServiceCompliance.NonCompliant
+	NonCompliantByDomain      []DomainCount `json:"nonCompliantByDomain,omitempty"`
+	NonCompliantDomainsBeyond int           `json:"nonCompliantDomainsBeyond,omitempty"`
+	NonCompliantDomains       int           `json:"nonCompliantDomains,omitempty"`
+	NonCompliantNoDomain      int           `json:"nonCompliantNoDomain,omitempty"`
+	NonCompliantDomainUnknown int           `json:"nonCompliantDomainUnknown,omitempty"`
 	// Capabilities counts the matched services declaring each capability type, the
 	// most declared first, bounded to maxCapabilityFacet; CapabilityTypes is how many
 	// types there are in all.
@@ -354,6 +390,100 @@ type EntityAggregate struct {
 	Offerings     []TypeCount `json:"offerings,omitempty"`
 	OfferingTypes int         `json:"offeringTypes,omitempty"`
 	OfferingCount int         `json:"offeringCount"`
+	// Origins partitions the matched services that are no golden path by the
+	// golden path they were created from.
+	Origins OriginTally `json:"origins"`
+}
+
+// maxPathRanking bounds OriginTally.ByPath.
+const maxPathRanking = 10
+
+// OriginTally partitions the matched services that are no golden path by their
+// declared origin, over the whole population before paging:
+//
+//	Sum(ByPath.Services) + Beyond.Services + Unresolved.Services + None.Services ==
+//	    matched services that are no golden path
+//
+// and the NonCompliant counts partition the non-compliant ones the same way.
+// Hidden services are in no count: Hidden counts, over the whole view whatever
+// the filter, the services created from a visible golden path that the caller's
+// permissions hide, never naming them.
+type OriginTally struct {
+	// ByPath ranks the golden paths by the services created from them, most
+	// first, bounded to maxPathRanking; Paths is how many golden paths created
+	// at least one matched service.
+	ByPath []PathCount `json:"byPath,omitempty"`
+	Paths  int         `json:"paths,omitempty"`
+	// Beyond counts the services created from golden paths past the ranking,
+	// Unresolved those whose declared origin resolves to no golden path in this
+	// view (the UnresolvedOrigin filter) and None those that declare no origin
+	// (the NoOrigin filter).
+	Beyond     OriginCount `json:"beyond"`
+	Unresolved OriginCount `json:"unresolved"`
+	None       OriginCount `json:"none"`
+	Hidden     int         `json:"hidden,omitempty"`
+}
+
+// OriginCount is a number of services and how many of them are non-compliant.
+type OriginCount struct {
+	Services     int `json:"services"`
+	NonCompliant int `json:"nonCompliant"`
+}
+
+// add counts s.
+func (c *OriginCount) add(s *ServiceRecord) {
+	c.Services++
+	c.NonCompliant += b2i(s.Status == StatusNonCompliant)
+}
+
+// PathCount is one golden path of the origin ranking: its services created
+// among the matched population, and Hidden, the services created from it that
+// the caller's permissions hide (in neither count).
+type PathCount struct {
+	Key          string `json:"key"`
+	Label        string `json:"label"`
+	Services     int    `json:"services"`
+	NonCompliant int    `json:"nonCompliant"`
+	Hidden       int    `json:"hidden,omitempty"`
+}
+
+// tallyOrigin counts one matched service under its origin bucket.
+func (o *OriginTally) tallyOrigin(byPath map[string]*OriginCount, s *ServiceRecord) {
+	switch b := originBucket(s); b {
+	case NoOrigin:
+		o.None.add(s)
+	case UnresolvedOrigin:
+		o.Unresolved.add(s)
+	default:
+		if byPath[b] == nil {
+			byPath[b] = &OriginCount{}
+		}
+		byPath[b].add(s)
+	}
+}
+
+// rankPaths orders the golden paths most created first (ties by label, then
+// key), cuts the ranking at maxPathRanking into Beyond and counts what the
+// view hides.
+func (q *Query) rankPaths(o *OriginTally, byPath map[string]*OriginCount) {
+	for k, c := range byPath {
+		path := q.snap.Services[ServiceKey(k)]
+		o.ByPath = append(o.ByPath, PathCount{Key: k, Label: serviceEntityRef(path).Label, Services: c.Services, NonCompliant: c.NonCompliant, Hidden: path.HiddenCreated})
+	}
+	slices.SortFunc(o.ByPath, func(a, b PathCount) int {
+		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Label, b.Label), cmp.Compare(a.Key, b.Key))
+	})
+	o.Paths = len(o.ByPath)
+	if len(o.ByPath) > maxPathRanking {
+		for _, c := range o.ByPath[maxPathRanking:] {
+			o.Beyond.Services += c.Services
+			o.Beyond.NonCompliant += c.NonCompliant
+		}
+		o.ByPath = o.ByPath[:maxPathRanking]
+	}
+	for _, s := range q.snap.Services {
+		o.Hidden += s.HiddenCreated
+	}
 }
 
 // TypeCount is one type (a capability or a platform offering) and how many
@@ -419,45 +549,27 @@ func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
 func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
 	byOwner := map[string]*OwnerCount{}
+	byDomain := map[string]*DomainCount{}
 	present := map[string]bool{}
 	capabilities, offerings := map[string]int{}, map[string]int{}
+	byPath := map[string]*OriginCount{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
 			agg.ServiceCompliance.add(s.Status)
+			nc := s.Status == StatusNonCompliant
+			agg.tallyDomain(byDomain, s, nc)
 			for _, c := range q.serviceCapabilities(s) {
 				capabilities[c]++
 			}
 			if s.Offering != "" {
 				offerings[s.Offering]++
 			}
-			claims := q.ownerClaimsOf(s)
-			// Every canonical owner the service names is present in the population,
-			// including the two sides of a dispute — neither of which can rank.
-			for _, k := range claims.keys {
-				present[k] = true
-			}
-			agg.Ownership.add(claims.len())
-			// Only a consistently owned service can rank, and only under a canonical
-			// key. soleKey is empty both for a conflicted service and for one owned by
-			// contacts alone, so the ranking is guarded by the bucket, not by the key.
-			if claims.len() == 1 {
-				switch key := claims.soleKey(); key {
-				case "":
-					// Consistently owned by an owner with no canonical identity. Counted
-					// here so the ranking's omission is stated rather than lost.
-					agg.UnidentifiedOwnership++
-				default:
-					c := byOwner[key]
-					if c == nil {
-						c = newOwnerCount(key)
-						byOwner[key] = c
-					}
-					c.Services++
-					c.Targets += len(s.Targets)
-				}
+			agg.tallyOwner(q.ownerClaimsOf(s), s, nc, byOwner, present)
+			if !s.Template {
+				agg.Origins.tallyOrigin(byPath, s)
 			}
 		case KindRevision:
 			agg.Revisions++
@@ -479,8 +591,11 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg.DistinctOwners = len(present)
 	markAmbiguousLabels(byOwner, present)
 	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
+	agg.NonCompliantByOwner, agg.NonCompliantBeyondRanking, agg.NonCompliantOwners = rankNonCompliantOwners(byOwner)
+	agg.NonCompliantByDomain, agg.NonCompliantDomainsBeyond, agg.NonCompliantDomains = rankNonCompliantDomains(byDomain)
 	agg.Capabilities, agg.CapabilityTypes = typeFacet(capabilities)
 	agg.Offerings, agg.OfferingTypes = typeFacet(offerings)
+	q.rankPaths(&agg.Origins, byPath)
 	return agg
 }
 
@@ -547,6 +662,105 @@ func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
 		other += c.Services
 	}
 	return out[:maxOwnerRanking], other
+}
+
+// tallyOwner buckets one service by its owner claims: the ownership partition, the
+// owner ranking and the non-compliant services no owner row can name.
+func (agg *EntityAggregate) tallyOwner(claims ownerClaimSet, s *ServiceRecord, nc bool, byOwner map[string]*OwnerCount, present map[string]bool) {
+	// Every canonical owner the service names is present in the population,
+	// including the two sides of a dispute — neither of which can rank.
+	for _, k := range claims.keys {
+		present[k] = true
+	}
+	agg.Ownership.add(claims.len())
+	key := claims.soleKey()
+	if nc && (claims.len() != 1 || key == "") {
+		agg.NonCompliantUnidentified++
+	}
+	// Only a consistently owned service can rank, and only under a canonical
+	// key. soleKey is empty both for a conflicted service and for one owned by
+	// contacts alone, so the ranking is guarded by the bucket, not by the key.
+	if claims.len() == 1 {
+		switch key {
+		case "":
+			// Consistently owned by an owner with no canonical identity. Counted
+			// here so the ranking's omission is stated rather than lost.
+			agg.UnidentifiedOwnership++
+		default:
+			c := byOwner[key]
+			if c == nil {
+				c = newOwnerCount(key)
+				byOwner[key] = c
+			}
+			c.Services++
+			c.Targets += len(s.Targets)
+			c.NonCompliant += b2i(nc)
+		}
+	}
+}
+
+// tallyDomain counts a service under its business domain for the non-compliant
+// domain ranking; a service with no domain, or one Pacto cannot tell, is counted
+// in its own bucket when it is non-compliant.
+func (agg *EntityAggregate) tallyDomain(by map[string]*DomainCount, s *ServiceRecord, nc bool) {
+	switch {
+	case s.BusinessDomainUnknown:
+		agg.NonCompliantDomainUnknown += b2i(nc)
+	case s.BusinessDomain == "":
+		agg.NonCompliantNoDomain += b2i(nc)
+	default:
+		d := by[s.BusinessDomain]
+		if d == nil {
+			d = &DomainCount{Domain: s.BusinessDomain}
+			by[s.BusinessDomain] = d
+		}
+		d.Services++
+		d.NonCompliant += b2i(nc)
+	}
+}
+
+// rankNonCompliantOwners orders the owners with a non-compliant service by how many
+// they have (ties by canonical key), bounded to maxOwnerRanking, and returns the
+// non-compliant services the cut dropped and how many owners have one.
+func rankNonCompliantOwners(m map[string]*OwnerCount) ([]OwnerCount, int, int) {
+	var out []OwnerCount
+	for _, c := range m {
+		if c.NonCompliant > 0 {
+			out = append(out, *c)
+		}
+	}
+	slices.SortFunc(out, func(a, b OwnerCount) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(a.Key, b.Key))
+	})
+	return cutRanking(out, func(c OwnerCount) int { return c.NonCompliant })
+}
+
+// rankNonCompliantDomains is [rankNonCompliantOwners] for business domains.
+func rankNonCompliantDomains(m map[string]*DomainCount) ([]DomainCount, int, int) {
+	var out []DomainCount
+	for _, d := range m {
+		if d.NonCompliant > 0 {
+			out = append(out, *d)
+		}
+	}
+	slices.SortFunc(out, func(a, b DomainCount) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(a.Domain, b.Domain))
+	})
+	return cutRanking(out, func(d DomainCount) int { return d.NonCompliant })
+}
+
+// cutRanking bounds a sorted ranking to maxOwnerRanking rows and returns the rows,
+// the count the cut dropped and how many rows there were.
+func cutRanking[T any](out []T, n func(T) int) ([]T, int, int) {
+	all := len(out)
+	if all <= maxOwnerRanking {
+		return out, 0, all
+	}
+	beyond := 0
+	for _, r := range out[maxOwnerRanking:] {
+		beyond += n(r)
+	}
+	return out[:maxOwnerRanking], beyond, all
 }
 
 // ServiceSummary is the complete, backend-authoritative aggregate a service page

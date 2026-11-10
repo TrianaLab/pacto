@@ -32,7 +32,7 @@
 {#if !changes?.length}
   <p class="text-2">No changes detected</p>
 {:else}
-  <div class="table-wrap">
+  <div class="data-scroll">
     <table class="data-table diff-table" class:diff-table-compact={compact}>
       <colgroup>
         <col class="dc-path" />
@@ -102,7 +102,9 @@
   .dc-change { width: 8%; }
   .dc-old { width: 21%; }
   .dc-new { width: 21%; }
-  .dc-impact { width: 18%; }
+  /* C7: a badge never shrinks below its content, so the column gets the floor instead:
+     room for the widest verdict, "POTENTIAL BREAKING", at any table width. */
+  .dc-impact { width: max(18%, 12.5rem); }
   /* Wrap long dotted paths at their natural boundaries (via <wbr> from
      breakableIdentifierHtml), never mid-word. break-word is only a last-resort
      fallback for a single segment longer than the column. */
