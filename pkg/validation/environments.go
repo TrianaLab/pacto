@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -56,6 +57,27 @@ func EnvironmentStageWith(c *contract.Contract, bundleFS fs.FS, refs ConfigRefs)
 		st.Status, st.Reason = StageSkip, "could not verify: "+strings.Join(unverified, ", ")
 	}
 	return st
+}
+
+// ExpiredEnvironmentWarnings is one ENVIRONMENT_EXPIRED warning for each
+// declared environment whose expires is at or before now; an expires that is
+// not RFC 3339 is left to the cross-field check. It is time-dependent, so it
+// is not part of the validation layers: those also run inside the fleet build
+// and the delivery gate, which must stay deterministic. Only `pacto validate`
+// and pacto_check add it, with the clock of the run. Nothing is deleted for an
+// expired environment.
+func ExpiredEnvironmentWarnings(c *contract.Contract, now time.Time) []contract.ValidationWarning {
+	var out []contract.ValidationWarning
+	for i, env := range c.Environments {
+		if at, ok := env.ExpiresAt(); ok && !at.After(now) {
+			out = append(out, contract.ValidationWarning{
+				Path:    fmt.Sprintf("environments[%d].expires", i),
+				Code:    "ENVIRONMENT_EXPIRED",
+				Message: "environment " + env.Name + " expired at " + env.Expires + "; nothing was deleted: remove it with pacto_edit remove_environments or move expires",
+			})
+		}
+	}
+	return out
 }
 
 // checkEnvironment checks one environment's values file into r and returns

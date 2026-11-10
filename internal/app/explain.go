@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -48,6 +49,9 @@ type ExplainResult struct {
 	Environments []contract.Environment `json:"environments,omitempty"`
 	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
 	Metadata     map[string]any         `json:"metadata,omitempty"`
+	// AsOf is the RFC 3339 time of the explain, the time an environment's
+	// expires is compared with.
+	AsOf string `json:"asOf"`
 }
 
 // ExplainReadiness is a derived readiness summary for the explain output.
@@ -208,6 +212,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Workload:     c.Workload,
 		Environments: c.Environments,
 		Metadata:     c.Metadata,
+		AsOf:         s.env().now().UTC().Format(time.RFC3339),
 	}
 
 	if c.State != nil {

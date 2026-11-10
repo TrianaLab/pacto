@@ -226,3 +226,26 @@ func TestCheck_EnvironmentErrorCarriesItsFile(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckReportsExpiredEnvironment: pacto_check goes through the wired
+// validator, so it warns about an expired temporary environment and stays
+// valid.
+func TestCheckReportsExpiredEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	for name, data := range map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n" +
+			"environments:\n  - name: pr-482\n    file: pr-482.yaml\n    lifetime: temporary\n    expires: 2000-01-01T00:00:00Z\n",
+		"pr-482.yaml": "{}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != "ENVIRONMENT_EXPIRED" {
+		t.Fatalf("got valid=%v errors=%+v warnings=%+v", res.Valid, res.Errors, res.Warnings)
+	}
+}

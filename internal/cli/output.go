@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -343,14 +344,19 @@ func printExplainConfigurations(w io.Writer, configs []app.ExplainConfiguration)
 }
 
 // printEnvironments lists each environment with its file and declared
-// fields, when there are any.
-func printEnvironments(w io.Writer, envs []contract.Environment) {
+// fields, when there are any, marking one expired at or before asOf (a zero
+// asOf marks none). The text names no time, so it stays deterministic.
+func printEnvironments(w io.Writer, envs []contract.Environment, asOf time.Time) {
 	if len(envs) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "\nEnvironments (%d):\n", len(envs))
 	for _, env := range envs {
-		_, _ = fmt.Fprintf(w, "  - %s\n", env.Summary())
+		expired := ""
+		if at, ok := env.ExpiresAt(); ok && !asOf.IsZero() && !at.After(asOf) {
+			expired = ", expired"
+		}
+		_, _ = fmt.Fprintf(w, "  - %s%s\n", env.Summary(), expired)
 	}
 }
 
@@ -402,7 +408,8 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		printExplainDependencies(w, result.Dependencies)
 		printExplainConfigurations(w, result.Configurations)
 
-		printEnvironments(w, result.Environments)
+		asOf, _ := time.Parse(time.RFC3339, result.AsOf) // zero when absent: nothing reads expired
+		printEnvironments(w, result.Environments, asOf)
 
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)

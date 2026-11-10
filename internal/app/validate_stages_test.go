@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -328,5 +329,79 @@ func TestValidateStages_OverridesKeepEnvironmentPositions(t *testing.T) {
 	}
 	if want := "fix environments[0].file at " + file + ":3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate --set service.version=1.0.1 " + dir; r.Next != want {
 		t.Fatalf("next = %q, want %q", r.Next, want)
+	}
+}
+
+// writeExpiringBundle writes a valid 2.4 bundle with a temporary environment
+// that expires at 2026-11-20T00:00:00Z.
+func writeExpiringBundle(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml": `pactoVersion: "2.4"
+service:
+  name: svc
+  version: 1.0.0
+environments:
+  - name: pr-482
+    file: environments/pr-482.yaml
+    lifetime: temporary
+    expires: 2026-11-20T00:00:00Z
+`,
+		"environments/pr-482.yaml": "{}\n",
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// TestValidateWarnsExpiredEnvironment: the warning comes from the Service's
+// clock, sits on the environments stage, which keeps its status, and reaches
+// ValidationReport (pacto_check).
+func TestValidateWarnsExpiredEnvironment(t *testing.T) {
+	dir := writeExpiringBundle(t)
+	before := pinnedService(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC))
+	r, err := before.Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil || !r.Valid || len(r.Warnings) != 0 {
+		t.Fatalf("before expiry: %+v %v", r, err)
+	}
+	after := pinnedService(time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC))
+	r, err = after.Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil || !r.Valid {
+		t.Fatalf("after expiry: %+v %v", r, err)
+	}
+	var st validation.Stage
+	for _, s := range r.Stages {
+		if s.Name == "environments" {
+			st = s
+		}
+	}
+	if st.Status != validation.StagePass || len(st.Warnings) != 1 || st.Warnings[0].Code != "ENVIRONMENT_EXPIRED" || st.Warnings[0].Path != "environments[0].expires" {
+		t.Fatalf("stage = %+v", st)
+	}
+	rep, err := after.ValidationReport(context.Background(), dir)
+	if err != nil || len(rep.Warnings) != 1 || rep.Warnings[0].Code != "ENVIRONMENT_EXPIRED" {
+		t.Fatalf("report = %+v %v", rep, err)
+	}
+}
+
+// TestWithExpiredEnvironmentsKeepsSkippedStage: a skipped environments stage
+// keeps its status and reason and still carries the warning; with no
+// environments stage nothing is added.
+func TestWithExpiredEnvironmentsKeepsSkippedStage(t *testing.T) {
+	c := &contract.Contract{Environments: []contract.Environment{{Name: "e", File: "f", Lifetime: "temporary", Expires: "2000-01-01T00:00:00Z"}}}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := withExpiredEnvironments([]validation.Stage{{Name: "environments", Status: validation.StageSkip, Reason: "could not verify: e"}}, c, now)
+	if got[0].Status != validation.StageSkip || got[0].Reason != "could not verify: e" || len(got[0].Warnings) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	if got := withExpiredEnvironments([]validation.Stage{{Name: "load"}}, c, now); len(got[0].Warnings) != 0 {
+		t.Fatalf("got %+v", got)
 	}
 }

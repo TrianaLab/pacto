@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -246,5 +247,33 @@ func TestEnvironmentStage_SyntaxErrorLine(t *testing.T) {
 	st := EnvironmentStage(envContract("staging.yaml"), envFS(map[string]string{"staging.yaml": "chart:\n  - [\n"}))
 	if len(st.Errors) != 1 || st.Errors[0].Line != 2 {
 		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+func TestExpiredEnvironmentWarnings(t *testing.T) {
+	now := time.Date(2026, time.November, 20, 0, 0, 0, 0, time.UTC)
+	c := &contract.Contract{Environments: []contract.Environment{
+		{Name: "past", File: "p.yaml", Lifetime: "temporary", Expires: "2026-11-19T00:00:00Z"},
+		{Name: "now", File: "n.yaml", Lifetime: "temporary", Expires: "2026-11-20T00:00:00Z"},
+		{Name: "future", File: "f.yaml", Lifetime: "temporary", Expires: "2026-11-21T00:00:00Z"},
+		{Name: "none", File: "x.yaml"},
+		{Name: "bad", File: "b.yaml", Lifetime: "temporary", Expires: "next week"},
+	}}
+	got := ExpiredEnvironmentWarnings(c, now)
+	if len(got) != 2 || got[0].Path != "environments[0].expires" || got[1].Path != "environments[1].expires" {
+		t.Fatalf("got %+v", got)
+	}
+	w := got[0]
+	if w.Code != "ENVIRONMENT_EXPIRED" || w.Message != "environment past expired at 2026-11-19T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires" {
+		t.Fatalf("got %+v", w)
+	}
+}
+
+func TestEnvironmentStageHasNoExpiry(t *testing.T) {
+	c := envContract("staging.yaml")
+	c.Environments[0].Lifetime, c.Environments[0].Expires = "temporary", "2000-01-01T00:00:00Z"
+	st := EnvironmentStageWith(c, envFS(map[string]string{"staging.yaml": "chart: {ingress: {host: s}}\n"}), nil)
+	if strings.Contains(codes(st), "ENVIRONMENT_EXPIRED") {
+		t.Fatalf("got %+v", st)
 	}
 }
