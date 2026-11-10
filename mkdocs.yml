@@ -244,6 +244,7 @@ nav:
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
           - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
+          - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
           - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md

@@ -40,7 +40,7 @@ Mira.
 |----------|------|--------------|
 | When did the problem start? | Mira `list_alerts`, `query_metric`, `correlate`. The `frame.from` of a `correlate` answer is the start of the window you asked for; read the onset from alert times and metric points. | Alert times and metric points |
 | Which signals indicate degradation? | Mira `query_metric`, `list_alerts`, `get_trace` | Series and exemplar trace ids |
-| Which deployments or changes happened around then? | `pacto_delivery_history` with `service`, `since` and `until`; `pacto_delivery_explain` for verdict citations; `pacto_impact` with `include_observed=true` on a suspected change | Record ids, `applied`, `cause`, `completeness` and affected consumers |
+| Which deployments or changes happened around then? | `pacto_delivery_history` with `service`, `since` and `until`, or `correlation_id` for the changes of one incident; `pacto_delivery_explain` for verdict citations; `pacto_impact` with `include_observed=true` on a suspected change | Record ids, `applied`, `cause`, `completeness` and affected consumers |
 | Which dependencies are involved? | `pacto_fleet_graph`, `pacto_fleet_neighborhood` with `views=differences`; Mira `service_map` | Edge `provenance`, `reconciliation` and `observedSources` |
 | Which other services are affected? | `pacto_fleet_neighborhood` with `direction=dependents` and `depth=2` (views default to `expected,observed`); `pacto_fleet_graph` with `direction=dependents` and `transitive=true`; `pacto_fleet_attention` with `category=undeclared` and `service`, for the callers with no contract that the neighborhood does not list | Nodes, attention items and `hiddenDependents`. A restricted viewer sees only a count of hidden services and callers. |
 | Which teams own the affected components? | `pacto_fleet_neighborhood` owners, `pacto_fleet_entity` with `kind=owner` | Owner keys |
@@ -49,7 +49,10 @@ Mira.
 
 From the CLI, `pacto fleet neighborhood <service>` and
 `pacto delivery history --all --service <service> --since 2h` answer the same
-questions.
+questions. When the changes of an incident share a correlation id,
+`pacto delivery history --all --correlation-id <id>` (`correlation_id` in
+`pacto_delivery_history`) lists exactly those, and `--cause` finds the
+changes a verdict or reason caused.
 
 ## Read the evidence
 

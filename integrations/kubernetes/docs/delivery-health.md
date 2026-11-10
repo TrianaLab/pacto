@@ -176,6 +176,17 @@ Stage's `Watched` condition is `True` while that result passed. It turns
 Fail. The promoter emits an Event when it turns `False`, and the
 `pacto_delivery_stage_watched` gauge drops to 0, so you can alert on it.
 
+### Where the re-check shows
+
+`pacto delivery status`, `pacto_delivery_status` and the dashboard's service
+page show that result as `lastCheck`, with each verdict and its citation, and
+read `Watched` only while the result is about the running version; see
+[status, progress and lifecycle](delivery-status.md). A `pacto.contract`
+verdict cites, for each Pacto it judged, `<pacto>.target` (its fleet target
+key), `<pacto>.contractStatus`, `<pacto>.evaluatedAt` and `<pacto>.findings`
+(the codes of its error and warning findings, at most 10), so it links to the
+compliance findings behind it.
+
 ## Explain
 
 ```bash

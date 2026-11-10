@@ -209,40 +209,15 @@ cluster says the caller is an agent. Delivery mode has no approve tool.
 `pacto_delivery_candidates` lists the versions a Stage may take, with their
 digests. The `to` input of plan and propose takes a version (`3.0.0`), a tag or
 a digest; a version or a tag must name exactly one of those candidates, or the
-tool refuses it and says why. A plan's `next` says what proposing it leads to:
-which teams must sign, that an agent cannot answer and the operation is then
-Held, and what happens at the approval deadline. `pacto_delivery_get` adds
-`next` with the deadline while an operation is held. Propose with the plan's
-intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
+tool refuses it and says why. A plan's `next` says what proposing it leads
+to, as [plan, propose and approve](integrations/kubernetes/delivery-operations.md)
+describes, and `pacto_delivery_get` repeats it while an operation is held.
+Propose with the plan's intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell. Over HTTP it
-needs token exchange; see
-[agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+needs [token exchange](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
 
-`pacto_delivery_status` takes a `service` (and optionally `domain`,
-`namespace` and `why`) and returns one row per Stage of that service you can
-see, in promotion order from each Stage's `spec.candidates`, with `asOf` and
-`completeness`. Each row names its upstream, the version and contract it runs,
-its state as the dashboard board counts it, its newest re-check and its
-offers: promote, unfreeze, freeze and undo, each with whether you may ask for
-it and why. With `why` it also plans the promote of each candidate (at most 16
-per answer) and proposes nothing. On a person's server, which registers no
-propose tool, the `note` says so.
-
-`pacto_delivery_history` takes a window (`since`, `until`, each an RFC 3339
-time or a duration before now such as `2h`), `cause` and `correlation_id`
-filters that narrow the timeline too and, without a `stage`, a `service` and
-`domain` filter.
-
-`pacto_delivery_record_get` takes a `namespace`, a `stage` and the `record` id
-a history line names, and returns that record: the change, who asked and
-approved, every verdict with its citation and how to run it again, and whether
-its signature was checked. A record the recorder wrote that does not verify is
-never returned; history lists it as `unverifiedRecord`.
-
-`pacto_delivery_lifecycle` takes a `service` and exactly one of `digest`,
-`version` or `contract`, with optional `domain` and `namespace`, and follows
-that artifact through every Stage of the service you can see: whether it was
-published (`signature`, with the Stages behind it) and, per Stage, its events
-(`arrived`, `left` or `attempted`), whether it verified or failed there (`yes`,
-`no` or `unknown`) and its newest re-check. A Stage whose history is partial
-never reads as "never reached".
+`pacto_delivery_history` takes `since` and `until` (an RFC 3339 time or a
+duration such as `2h`), `cause`, `correlation_id` and, without a `stage`,
+`service` and `domain`.
+[Status, progress and lifecycle](integrations/kubernetes/delivery-status.md)
+covers the status, lifecycle and record tools.
