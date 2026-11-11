@@ -88,8 +88,15 @@ func TestResolveLifecycleDigestIncompleteSearch(t *testing.T) {
 	if err == nil || err.Error() != "no artifact of pay that names contract sha256:nope is known to its Stages" {
 		t.Fatalf("a contract no artifact names: %v", err)
 	}
+}
+
+// TestResolveLifecycleDigestUnreadArtifacts: gaps and unread artifacts turn a
+// miss into unknown and caveat a single match.
+func TestResolveLifecycleDigestUnreadArtifacts(t *testing.T) {
+	read := []Revision{lcRev(lcOld, "1.0.0", "")}
+	var miss *LifecycleMiss
 	gaps := LifecycleGaps("the Stages know 230 artifacts and only the first 200 were read to find the one asked for", []string{"test: forbidden"}, true)
-	_, _, err = ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "9.9.9"}, read, gaps)
+	_, _, err := ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "9.9.9"}, read, gaps)
 	if !errors.As(err, &miss) || miss.Definite || !strings.Contains(err.Error(), "only the first 200 were read") ||
 		!strings.Contains(err.Error(), "Stages not listed: test: forbidden") || !strings.Contains(err.Error(), "it may be among those") {
 		t.Fatalf("an incomplete search is unknown: %v", err)
