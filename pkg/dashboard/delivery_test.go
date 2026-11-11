@@ -420,6 +420,17 @@ func sampleCluster(groups ...string) *fakeDelivery {
 		}}
 }
 
+// TestEnvironmentsHeldOperation: with exactly one held change the row names
+// it, so the waiting badge opens that change.
+func TestEnvironmentsHeldOperation(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.ops = f.ops[1:2]
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	pay := rowOf(t, envs, "payments")
+	expect(t, pay["held"] == float64(1) && pay["heldOperation"] == "for-ledger", "row %v", pay)
+}
+
 func names(items any) string {
 	var out []string
 	for _, it := range items.([]any) {
@@ -483,6 +494,7 @@ func TestEnvironments(t *testing.T) {
 	pay := rows[2].(map[string]any)
 	expect(t, len(rows) == 3 && pay["service"] == "payments" && pay["version"] == "1.0.0", "environments %v", rows)
 	expect(t, pay["verified"] == true && pay["held"] == float64(3) && pay["ready"] == "True", "environments %v", rows)
+	expect(t, pay["heldOperation"] == nil, "three held changes name none: %v", pay)
 	expect(t, strings.Join(toStrings(pay["actions"]), ",") == "promote,unfreeze", "actions %v", pay["actions"])
 	led := rows[0].(map[string]any)
 	expect(t, led["service"] == "ledger" && led["failed"] == false, "ledger row %v", led)

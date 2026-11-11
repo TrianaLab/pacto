@@ -385,6 +385,8 @@ type EnvironmentRow struct {
 	// Shadow is set on an observe Stage only: newest first.
 	Shadow   []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 	Revision string           `json:"revision,omitempty" doc:"The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it"`
+	// HeldOperation lets a waiting badge open the one held change.
+	HeldOperation string `json:"heldOperation,omitempty" doc:"The name of the Operation waiting for a person, when exactly one is"`
 }
 
 // environmentRowOf is one Stage as the board shows it; held counts the held
@@ -485,10 +487,11 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if err != nil {
 		return nil, err
 	}
-	held := map[string]int{}
+	held, heldName := map[string]int{}, map[string]string{}
 	for _, o := range ops {
 		if o.Status.Phase == delivery.PhaseHeld {
 			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
+			heldName[o.Metadata.Namespace+"/"+o.Spec.Stage] = o.Metadata.Name
 		}
 	}
 	byStage := stagesByName(stages)
@@ -523,6 +526,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	for _, st := range shown {
 		row := environmentRowOf(st, held, caller, read, in.Service != "")
 		row.Upstream = delivery.UpstreamListed(&st, byStage, l.read, l.scope)
+		if row.Held == 1 {
+			row.HeldOperation = heldName[st.Metadata.Namespace+"/"+st.Metadata.Name]
+		}
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
 	if in.Service != "" {

@@ -2004,6 +2004,8 @@ export interface components {
              * @description Operations on this Stage waiting for a person
              */
             held: number;
+            /** @description The name of the Operation waiting for a person, when exactly one is */
+            heldOperation?: string;
             /** @description The Stage's operations could not be read, so held is not known */
             heldUnknown?: boolean;
             /** @description The newest re-check of the running version after it shipped (status.lastCheck) */

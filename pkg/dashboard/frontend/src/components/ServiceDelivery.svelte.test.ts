@@ -14,7 +14,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 });
 
 import { ApiError } from '../lib/api.ts';
-import { deliveryPublishUrl } from '../lib/router.ts';
+import { deliveryPublishUrl, deliveryChangeUrl } from '../lib/router.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import ServiceDelivery from './ServiceDelivery.svelte';
 
@@ -239,13 +239,16 @@ describe('ServiceDelivery', () => {
     v.destroy();
   });
 
-  it('says ? waiting when the operations could not be read, and links held changes to the Inbox', async () => {
-    environments.mockResolvedValue(answer([row({ heldUnknown: true }), row({ stage: 'o2', environment: 'qa', held: 2 })]));
+  it('says ? waiting when the operations could not be read, links held changes to the Inbox and the one held change to its page', async () => {
+    environments.mockResolvedValue(answer([row({ heldUnknown: true }), row({ stage: 'o2', environment: 'qa', held: 2 }),
+      row({ stage: 'o3', environment: 'prod', namespace: 'prod', held: 1, heldOperation: 'op-held' })]));
     const v = render({ domain: 'ghcr.io/a' });
     await settle();
     expect(v.target.textContent).toContain('? waiting');
     const held = [...v.target.querySelectorAll('a')].find((a) => a.textContent?.includes('2 waiting'));
     expect(held?.getAttribute('href')).toBe('#/delivery/inbox?service=orders&domain=ghcr.io%2Fa');
+    const one = [...v.target.querySelectorAll('a')].find((a) => a.textContent?.includes('1 waiting'));
+    expect(one?.getAttribute('href')).toBe(deliveryChangeUrl('prod', 'op-held'));
     v.destroy();
   });
 

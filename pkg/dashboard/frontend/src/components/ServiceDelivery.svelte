@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, fleetEntityUrl } from '../lib/router.ts';
+  import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
   import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, offerLabel, offerRequest, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
@@ -165,7 +165,7 @@
             <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })} title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {/if}
           {#if r.level}<span class="t-meta" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
-          <DeliveryBadges row={r} heldHref={deliveryInboxUrl({ service, domain })} />
+          <DeliveryBadges row={r} heldHref={r.heldOperation ? deliveryChangeUrl(r.namespace, r.heldOperation) : deliveryInboxUrl({ service, domain })} />
           {#if r.level === 'observe'}<a class="t-meta" href={deliveryAutonomyUrl({ service, domain })}>What Pacto would have done</a>{/if}
         </p>
         {#if r.contractRef}<p class="t-meta sd-line" title={r.contractRef}>Contract {#if r.revision}<a href={fleetEntityUrl('revision', r.revision)}><bdi>{shortDigest(r.contractRef.split('@').pop())}</bdi></a>{:else}<bdi>{shortDigest(r.contractRef.split('@').pop())}</bdi>{/if}</p>{/if}
