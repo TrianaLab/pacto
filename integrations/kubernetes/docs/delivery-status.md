@@ -58,12 +58,15 @@ nothing. A status answer plans at most 16 Stages and names the rest in its
 | State | Meaning |
 |---|---|
 | `up-to-date` | The Stage runs its newest candidate and nothing is open on it |
-| `can-promote` | Nothing holds the candidate back |
+| `can-promote` | Nothing holds the candidate back, and there is a candidate to move to |
 | `needs-person` | A held change or the plan waits for a person's decision |
 | `blocked` | Something must change first: Ready False, no candidate, frozen, observe level, RBAC, a rejected or waiting plan |
-| `unknown` | Pacto could not read the operations, the identity policy, the RBAC answer, the Ready condition or the plan |
+| `unknown` | Pacto could not read the operations, the identity policy, the RBAC answer, the Ready condition or the plan; the status predates the Stage's spec; or a change is open on a Stage with nothing to move to |
 
-Reason codes: `NotReady`, `ReadyUnknown`, `NoCandidate`, `Frozen`, `AutoHold`,
+`completeness` is `partial` whenever a reason ends in `Unknown` or is
+`StatusStale`, whatever the state: a reason may be missing.
+
+Reason codes: `NotReady`, `ReadyUnknown`, `StatusStale`, `NoCandidate`, `Frozen`, `AutoHold`,
 `Held`, `InFlight`, `Level`, `OpsUnknown`, `PolicyUnknown`, `NotPermitted`,
 `RBACUnknown`, `PlanRejected`, `PlanHeld`, `PlanWaits` and `PlanUnknown`. A fix
 prints a command only when you may run it: the approve command only for a
@@ -122,8 +125,12 @@ pacto delivery lifecycle --service payments --version 3.0.0
 `/api/delivery/lifecycle` take a service and exactly one of `--digest` (the
 artifact), `--version` (its contract's version) or `--contract` (a manifest
 digest or a digest-pinned reference), with an optional domain and namespace. A version or contract is found among at most 200
-artifacts the Stages remember; none or several matches is an error that lists
-what was found.
+artifacts the Stages remember; several matches is an error that lists them.
+When artifacts were left unread, past that limit or because the registry
+failed, or a Stage listing was refused, a miss says what was not read and a
+single match says another may share it and makes the answer `partial`. The
+dashboard answers `404 LifecycleNotFound` only for a miss from a complete
+search and `400 LifecycleUnresolved` otherwise.
 
 `signature` follows the Publish page's rule: `signed` when a Stage you can see
 names the artifact in `status.published` or `status.offered`, `unsigned` only
@@ -145,7 +152,8 @@ pacto delivery record get -n prod --stage payments sha256:...
 
 `pacto delivery record get`, `pacto_delivery_record_get` and
 `/api/delivery/record` take a namespace, a Stage and the record id a history
-line names, and return that record: the change, who asked and approved, every
+line names (or the short id a text history prints when
+only one record starts with it), and return that record: the change, who asked and approved, every
 verdict with how to run it again and whether its signature was checked
 against a trust config. A record that does not verify is never returned;
 history lists it as `unverifiedRecord`.
