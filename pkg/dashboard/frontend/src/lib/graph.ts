@@ -15,11 +15,13 @@ import { wrapWideRanks } from './layout.ts';
 import { MOTION, prefersReducedMotion } from './motion.ts';
 import { statusTone } from './format.ts';
 import { LANE_CAP } from './neighborhoodGraph.ts';
+import { KIND_GLYPH } from './figure.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
 
-const NODE_W = 164;
+// The width holds a 17-character line at the body size plus the kind glyph on its left.
+const NODE_W = 190;
 const NODE_H = 42;
 // fCoSE's own animation (see cyLayout) plus the fit it ends with. Nothing the layout does
 // to the viewport is a choice the reader made.
@@ -99,7 +101,12 @@ export function fullName(node: { id: string; serviceName?: string; version?: str
 // Characters per label line: what fits a NODE_W box at 14px, and the wider focus box.
 const LINE = 17;
 const FOCUS_LINE = 25;
-const FOCUS_W = 240;
+const FOCUS_W = 266;
+// The kind glyph (SPEC 3) sits GLYPH_X from a box's left edge, and the label is centred
+// in what is left on its right.
+const GLYPH = 16;
+const GLYPH_X = 12;
+const TEXT_LEFT = GLYPH_X + GLYPH + 6;
 
 /** fitLines breaks a name into at most `max` lines of `per` characters, at a hyphen,
  *  dot, slash, underscore or space where it can. Whatever does not fit is cut at the END
@@ -582,6 +589,8 @@ export function cyLayout(layout: 'force' | 'layered', nodeCount = 0): LayoutOpti
 interface Palette {
   surface: string; text: string; textDim: string; border: string;
   ok: string; warn: string; err: string; info: string; neutral: string; accent: string;
+  /** The page's body and label (serif) families, so canvas words match the HTML's. */
+  fontSans?: string; fontDisplay?: string; radius?: number;
 }
 
 /** canPaint2D feature-detects a real 2D canvas in the container's document. A browser has
@@ -611,8 +620,22 @@ function resolvePalette(container: HTMLElement): Palette {
     info: v('--c-info', '#60a5fa'),
     neutral: v('--c-neutral', '#586577'),
     accent: v('--c-accent', '#818cf8'),
+    fontSans: v('--font-sans', 'sans-serif'),
+    fontDisplay: v('--font-display', 'serif'),
+    radius: parseFloat(v('--radius-sm', '6')) || 6,
   };
 }
+
+/** glyphImage is a kind glyph as an SVG data URI, stroked like `.kind-glyph`: a canvas
+ *  cannot draw an inline <svg>, but it can paint one as a node's background image. */
+function glyphImage(kind: keyof typeof KIND_GLYPH, color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="${KIND_GLYPH[kind]}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/** spaced letter-spaces a lane's name: a canvas has no letter-spacing, so a hair space
+ *  between characters stands in for the labels' 0.05em tracking. */
+export const spaced = (s: string) => [...s].join('\u200A');
 
 /** Border/status color for a node, theme-aware and reason-aware for externals. */
 function nodeColor(pal: Palette, status: string, reason: string): string {
@@ -628,6 +651,12 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
   // it reads as a calm scatter, not an edge cloud.
   const restOpacity = layout === 'layered' ? 0.35 : edgeStyle === 'visible' ? 0.55 : EDGE_REST;
   const restArrow = layout === 'layered' || edgeStyle === 'visible' ? 'triangle' : 'none';
+  const sans = pal.fontSans || 'sans-serif';
+  const glyphs = new Map<string, string>();
+  const glyph = (kind: keyof typeof KIND_GLYPH) => {
+    if (!glyphs.has(kind)) glyphs.set(kind, glyphImage(kind, pal.textDim));
+    return glyphs.get(kind)!;
+  };
   return [
     {
       selector: 'node',
@@ -635,22 +664,33 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         shape: 'round-rectangle',
         width: (ele: NodeSingular) => ele.data('w') || NODE_W,
         height: (ele: NodeSingular) => ele.data('h') || NODE_H,
+        'corner-radius': pal.radius ?? 6,
         'background-color': pal.surface,
+        // The kind glyph the rest of the dashboard puts beside a name (SPEC 3, Glyph): a
+        // team folded into one node is an owner, anything else its own kind.
+        'background-image': (ele: NodeSingular) => glyph(ele.data('group') ? 'owner' : ((ele.data('kind') in KIND_GLYPH ? ele.data('kind') : 'service') as keyof typeof KIND_GLYPH)),
+        'background-width': GLYPH, 'background-height': GLYPH,
+        'background-position-x': GLYPH_X, 'background-position-y': '50%',
+        'background-fit': 'none', 'background-clip': 'none',
+        // The status tone stays on the border (it is the node's state); the width is the
+        // dashboard's hairline, with a heavier line only for the states that need a look.
         'border-color': (ele: NodeSingular) => nodeColor(pal, ele.data('status'), ele.data('reason')),
         'border-width': (ele: NodeSingular) => {
-          if (ele.data('isFocus')) return 3;
           const s = ele.data('status');
-          return s === 'Warning' || s === 'NonCompliant' ? 2.5 : 1.5;
+          return s === 'Warning' || s === 'NonCompliant' ? 2 : 1;
         },
         label: 'data(label)',
         color: pal.text,
-        // A bounded neighborhood is read label by label; the whole-fleet map is a picture.
+        // The body's family, size and weight at 1:1 (a fit never zooms past it). The
+        // whole-fleet map is a picture and keeps a smaller step.
+        'font-family': sans,
         'font-size': edgeStyle === 'visible' ? 14 : 12,
-        'font-weight': 500,
+        'font-weight': 400,
         'text-valign': 'center',
         'text-halign': 'center',
+        'text-margin-x': ((TEXT_LEFT - GLYPH_X) / 2),
         'text-wrap': 'wrap',
-        'text-max-width': (ele: NodeSingular) => `${(ele.data('w') || NODE_W) - 18}`,
+        'text-max-width': (ele: NodeSingular) => `${(ele.data('w') || NODE_W) - TEXT_LEFT - GLYPH_X}`,
         'line-height': 1.25,
         'overlay-opacity': 0,
         // Smooth fades/emphasis when focus, hover or filter changes. The two colours are
@@ -746,33 +786,38 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: 'edge[refused = 1]',
       style: { 'line-color': pal.err, 'target-arrow-color': pal.err, 'target-arrow-shape': 'tee', width: 3 },
     },
-    // The node the page is ABOUT, marked once and permanently. A 3px border is the same
-    // 3px the hover state uses, so on arrival the subject of the graph was the one thing
-    // the graph did not point at. A standing halo says it without moving: no pulse, so
-    // there is no reduced-motion branch and nothing for getAnimations() to wait on.
+    // The node the page is ABOUT, marked once and permanently, without moving: no pulse,
+    // so there is no reduced-motion branch and nothing for getAnimations() to wait on.
+    // It is the page's own focus ring (`:focus-visible`: 2px accent, 2px off the box), so
+    // the subject reads as the selected thing it is rather than a glowing slab.
     {
       selector: 'node[isFocus = 1]',
       style: {
-        'underlay-color': pal.accent,
-        'underlay-opacity': 0.22,
-        'underlay-padding': 9,
-        'underlay-shape': 'round-rectangle',
+        'outline-width': 2,
+        'outline-color': pal.accent,
+        'outline-offset': 2,
+        'outline-opacity': 1,
+        'font-weight': 500,
       },
     },
     {
       // A team's entities folded into one node: a double border, so it never reads as
       // one service. Selecting it opens the team.
       selector: 'node[group = 1]',
-      style: { 'border-style': 'double', 'border-width': 4, 'font-weight': 600 },
+      // 3px is the thinnest width a double line still draws as two.
+      style: { 'border-style': 'double', 'border-width': 3 },
     },
     {
-      // A lane: a quiet box around one side's direct neighbors, named above it.
+      // A lane: a quiet box around one side's direct neighbors, named above it in the
+      // dashboard's section label (serif small caps, tracked, muted), never a heading.
       selector: 'node[lane = 1]',
       style: {
-        'background-color': pal.surface, 'background-opacity': 0.4,
+        'background-color': pal.surface, 'background-opacity': 0.4, 'background-image': 'none',
         'border-color': pal.border, 'border-width': 1, 'border-style': 'dashed',
-        'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -6,
-        color: pal.textDim, 'font-size': 14, 'font-weight': 600, padding: '14px',
+        'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -6, 'text-margin-x': 0,
+        label: (ele: NodeSingular) => spaced(ele.data('label') || ''),
+        'text-transform': 'uppercase', 'font-family': pal.fontDisplay || 'serif',
+        color: pal.textDim, 'font-size': 11, 'font-weight': 600, padding: '14px',
       },
     },
     {
@@ -781,7 +826,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       style: {
         // As large as a node's name, on a solid chip ringed in the line's own colour, so the
         // words read at the zoom the nodes do and say which line they belong to.
-        label: 'data(elabel)', 'font-size': 14, 'font-weight': 600, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '130px',
+        label: 'data(elabel)', 'font-family': sans, 'font-size': 14, 'font-weight': 500, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '130px',
         'text-background-color': pal.surface, 'text-background-opacity': 1, 'text-background-padding': '4px',
         'text-background-shape': 'roundrectangle', 'text-border-opacity': 1, 'text-border-width': 1,
         'text-border-color': (ele: EdgeSingular) => ele.data('refused') ? pal.err : ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1,
@@ -794,7 +839,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
     // A faded lane would fade every node inside it, whatever their own state.
     { selector: 'node[lane = 1].pacto-faded', style: { opacity: 1 } },
     { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
-    { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
+    { selector: 'node.pacto-hot', style: { 'border-width': 2.5 } },
+    { selector: 'node[group = 1].pacto-hot', style: { 'border-width': 4 } },
     // Directional highlight: a service's DEPENDENCIES (what it needs) light up in
     // accent with arrows pointing away; its DEPENDENTS (blast radius) light up warm
     // with arrows pointing in. Only one node's edges show at once → no overlap.
@@ -1227,6 +1273,7 @@ export function renderGraph(
   // A bounded neighborhood keeps a higher floor for its larger labels: 14px at 0.7 still
   // reads as text.
   const ZOOM_FLOOR = edgeStyle === 'visible' ? 0.7 : 0.6;
+  const FIT_MAX = 1;
   // A clamped fit is a claim the caller is entitled to: "fit" no longer means the whole
   // graph is on screen. Silently cropping it was the bug -- the canvas looked complete.
   let fitFloored = false;
@@ -1240,11 +1287,18 @@ export function renderGraph(
   }
 
   // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
-  // fit rather than an animated pan/zoom).
+  // fit rather than an animated pan/zoom). A fit only ever zooms OUT: a sparse graph
+  // framed edge to edge blew three boxes up to twice the page's type, so past 1:1 it
+  // stays at 1:1, centred. The +/- buttons can still zoom in as far as maxZoom.
   function fitView(duration: number): void {
     suppressViewport(duration + 150);
-    if (prefersReducedMotion() || duration <= 0) { cy.fit(cy.elements(), 30); floorZoom(); return; }
-    cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out', complete: floorZoom });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const core = cy as any;
+    const vp = core.getFitViewport(cy.elements(), 30) as { zoom: number; pan: { x: number; y: number } } | undefined;
+    if (!vp) { floorZoom(); return; }
+    if (vp.zoom > FIT_MAX) { vp.zoom = FIT_MAX; vp.pan = core.getCenterPan(cy.elements(), FIT_MAX); }
+    if (prefersReducedMotion() || duration <= 0) { cy.viewport(vp); floorZoom(); return; }
+    cy.animate({ zoom: vp.zoom, pan: vp.pan }, { duration, easing: 'ease-out', complete: floorZoom });
   }
 
   function settle(): void {
