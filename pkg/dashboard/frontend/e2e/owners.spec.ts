@@ -40,6 +40,19 @@ const exactly = (key: string) => new RegExp(`[?&]ownerKey=${k(key)}(&|$)`);
 
 const serviceLabels = (page: Page) =>
   page.locator('[data-testid="service-list"] .ei-label').allTextContents();
+/**
+ * The service list once it shows the answer to `query`: the header counts the
+ * backend's own total for that query and the list holds that many rows. A URL
+ * change lands before the answer does, so reading the list straight after it
+ * samples the previous answer, or the list mid-swap.
+ */
+const settledServices = async (page: Page, query: string) => {
+  const total = await page.evaluate(async (q) =>
+    ((await (await fetch(`/api/fleet/entities?kinds=service&limit=1&${q}`)).json()).total as number), query);
+  await expect(page.locator('.page-hd-count')).toHaveText(`${total} service${total === 1 ? '' : 's'}`, { timeout: T });
+  await expect(page.locator('[data-testid="service-list"] .ei-label')).toHaveCount(total, { timeout: T });
+  return serviceLabels(page);
+};
 /** The one row of active-filter chips, named for assistive tech rather than by testid. */
 const filterChips = (page: Page) => page.locator('[aria-label="Active filters"]');
 const chipTexts = async (page: Page) =>
@@ -141,8 +154,7 @@ test.describe('WASM demo — an owner name is either an identity or a search', (
     await box.fill(FOUNDATIONS);
     await box.press('Enter');
     await expect(page).toHaveURL(new RegExp(`[?&]owner=${FOUNDATIONS}(&|$)`), { timeout: T });
-    await expect(page.getByTestId('service-list')).toBeVisible({ timeout: T });
-    const fuzzy = await serviceLabels(page);
+    const fuzzy = await settledServices(page, `owner=${FOUNDATIONS}`);
     expect(fuzzy, 'the search no longer reaches the other owner, so nothing here is being told apart')
       .toContain('audit-log');
 
@@ -158,8 +170,7 @@ test.describe('WASM demo — an owner name is either an identity or a search', (
 
     await expect(page).toHaveURL(exactly(`team:${FOUNDATIONS}`), { timeout: T });
     await expect(page).not.toHaveURL(/[?&]owner=/);
-    await expect(page.getByTestId('service-list')).toBeVisible({ timeout: T });
-    const exact = await serviceLabels(page);
+    const exact = await settledServices(page, `ownerKey=${k(`team:${FOUNDATIONS}`)}`);
     expect(exact.length).toBeGreaterThan(0);
     expect(exact, `"${FOUNDATIONS}" selected a service owned by ${SECURITY}`).not.toContain('audit-log');
     expect(fuzzy, 'the exact answer is not a subset of the search that contains it')
