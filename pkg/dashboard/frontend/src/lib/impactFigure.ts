@@ -166,7 +166,7 @@ const EVENT_GATE: Record<string, { cls: string; label: string; tone: FigTone; st
 };
 
 /** What happens to the service: "becomes unavailable", "is removed", "regressed at 1.2.0". */
-export function eventVerb(im: ProductImpact): string {
+function eventVerb(im: ProductImpact): string {
   const rev = im.event?.revision || '';
   const at = rev.startsWith('sha256:') ? `sha256:${shortDigest(rev, 12)}` : rev;
   if (im.event?.kind === 'removed') return 'is removed';

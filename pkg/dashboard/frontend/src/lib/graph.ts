@@ -186,9 +186,8 @@ interface FleetEntry {
  * historical version is selected, so the embedded graph reflects that version's
  * direct deps (e.g. a dep added in a later version) rather than the current
  * global topology. Dependency nodes are colored/labeled from the current fleet
- * (`services`) when known, else shown as external. Transitive deps, dependents
- * and blast-radius are intentionally omitted — they can't be reconstructed for a
- * past version.
+ * (`services`) when known, else shown as external. Transitive deps and dependents
+ * are intentionally omitted — they can't be reconstructed for a past version.
  */
 export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry[], version: string): GraphData {
   const byName = new Map((services || []).map((s) => [s.name, s]));
