@@ -69,6 +69,16 @@ func TestPlacementOrderAndBounds(t *testing.T) {
 	}
 }
 
+// TestPlacementInferredLink: a target linked only by a mutable tag is
+// unknown and names no revision.
+func TestPlacementInferredLink(t *testing.T) {
+	q := placementQuery(1)
+	p := q.placement([]*TargetRecord{{Environment: "prod", ContractRevision: "svc@1", RevisionMatch: revisionMatchInferred}})
+	if it := p.Items[0]; it.Unknown != 1 || it.Declared+it.NotDeclared != 0 || it.RevisionsTotal != 0 {
+		t.Errorf("inferred = %+v", it)
+	}
+}
+
 func TestPlacementRevisionsTruncated(t *testing.T) {
 	q := placementQuery(11)
 	targets := func(n int) []*TargetRecord {

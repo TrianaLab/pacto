@@ -204,34 +204,44 @@ func promoteOffer(st StageObject, class ActorClass, row *StageRow) Offer {
 	o := Offer{Action: "promote", To: ss.Candidate}
 	ready := readyOf(ss)
 	notReady := ready != nil && ready.Status == "False"
-	switch {
-	case CurrentLevel(st.Spec, ss) == LevelObserve:
-		o.Reason = "the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first"
-	// The row's ReadyFix sits beside the offer on every surface, so a reason
-	// names the Ready reason and never repeats its fix.
-	case notReady && ready.Reason == ReadyReasonUnguarded:
-		o.Reason = "the promoter admits no operation until the delivery admission policies are installed"
-	case ss.Candidate == "" && row.ReadyFix != "":
-		o.Reason = "no eligible candidate while the Stage is not ready (" + ready.Reason + ")"
-	case ss.Candidate == "":
-		o.Reason = "no eligible candidate: the candidate source offers nothing newer that has not failed here"
-	case ss.Candidate == ss.Pointer:
-		o.Reason = "the Stage runs its newest candidate"
-	case !MayRaise(TypePromote, class, false):
-		o.Reason = classPhrase(class) + " may not raise a promote"
-	default:
-		o.Available, o.Reason = true, "promotes "+cmp.Or(row.CandidateVersion, short(ss.Candidate))
-		if ss.Frozen {
-			o.Reason += "; the Stage is frozen, so the promote waits until a person unfreezes it"
-		}
-		if notReady {
-			o.Reason += "; the Stage is not ready (" + ready.Reason + ")"
-			if row.ReadyFix == "" && ready.Message != "" {
-				o.Reason += ": " + ready.Message
-			}
+	if o.Reason = promoteRefusal(st, class, row, ready, notReady); o.Reason != "" {
+		return o
+	}
+	o.Available, o.Reason = true, "promotes "+cmp.Or(row.CandidateVersion, short(ss.Candidate))
+	if ss.Frozen {
+		o.Reason += "; the Stage is frozen, so the promote waits until a person unfreezes it"
+	}
+	if notReady {
+		o.Reason += "; the Stage is not ready (" + ready.Reason + ")"
+		if row.ReadyFix == "" && ready.Message != "" {
+			o.Reason += ": " + ready.Message
 		}
 	}
 	return o
+}
+
+// promoteRefusal is why no promote is offered; "" when one is.
+func promoteRefusal(st StageObject, class ActorClass, row *StageRow, ready *Condition, notReady bool) string {
+	ss := st.Status
+	switch {
+	case CurrentLevel(st.Spec, ss) == LevelObserve:
+		return "the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first"
+	case StatusStale(st) && ss.Candidate != ss.Pointer:
+		return "the promoter has not read the Stage's current spec yet, so its candidate may be out of date"
+	// The row's ReadyFix sits beside the offer on every surface, so a reason
+	// names the Ready reason and never repeats its fix.
+	case notReady && ready.Reason == ReadyReasonUnguarded:
+		return "the promoter admits no operation until the delivery admission policies are installed"
+	case ss.Candidate == "" && row.ReadyFix != "":
+		return "no eligible candidate while the Stage is not ready (" + ready.Reason + ")"
+	case ss.Candidate == "":
+		return "no eligible candidate: the candidate source offers nothing newer that has not failed here"
+	case ss.Candidate == ss.Pointer:
+		return "the Stage runs its newest candidate"
+	case !MayRaise(TypePromote, class, false):
+		return classPhrase(class) + " may not raise a promote"
+	}
+	return ""
 }
 
 // unfreezeOffer mirrors the promoter's admission rule for an unfreeze

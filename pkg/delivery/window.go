@@ -81,6 +81,9 @@ func ParseWhen(v string, now time.Time) (time.Time, error) {
 		return t, nil
 	}
 	if d, err := time.ParseDuration(v); err == nil {
+		if d < 0 {
+			return time.Time{}, fmt.Errorf("takes a positive duration before now, such as 2h: %q", v)
+		}
 		return now.Add(-d), nil
 	}
 	return time.Time{}, fmt.Errorf("takes an RFC 3339 time or a duration before now, such as 2h: %q", v)

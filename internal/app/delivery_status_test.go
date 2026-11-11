@@ -78,7 +78,7 @@ func envsOf(s *delivery.ServiceStatus) string {
 func TestStatusNeedsService(t *testing.T) {
 	d, _ := statusFixture(t)
 	_, err := d.Status(context.Background(), delivery.StatusQuery{})
-	wantErrContaining(t, err, "name the service: pacto delivery status --service <name>")
+	wantErrContaining(t, err, "name the service")
 }
 
 // TestStatusRowsAndOffers: the shared row per Stage, with the version and
@@ -335,13 +335,14 @@ func TestStatusReportsCycle(t *testing.T) {
 }
 
 // TestStatusUpstreamOtherService: an upstream Stage of another service in a
-// namespace read in full names its environment, never missing.
+// namespace read in full names its environment, never missing; with -n it
+// sits outside the scope asked for, which is not an unreadable namespace.
 func TestStatusUpstreamOtherService(t *testing.T) {
 	d, _ := statusFixture(t,
 		statusStage("o", "orders", "orders", "prod", "p", "other", nil),
 		statusStage("p", "other", "other", "qa", "", "", nil))
 	s, err := d.Status(context.Background(), delivery.StatusQuery{Service: "orders", Namespace: "o"})
-	if err != nil || s.Stages[0].Upstream.Problem != "unreadable" {
+	if err != nil || s.Stages[0].Upstream.Problem != "outOfScope" {
 		t.Fatalf("with -n o the namespace p was not read: %+v, %v", s.Stages[0].Upstream, err)
 	}
 	s, _ = d.Status(context.Background(), delivery.StatusQuery{Service: "orders"})

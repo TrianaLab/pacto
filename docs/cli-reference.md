@@ -493,7 +493,7 @@ pacto delivery record [flags]
 
 #### `pacto delivery record get`
 
-Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
 
 ```
 pacto delivery record get <id> [flags]

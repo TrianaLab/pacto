@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -48,19 +49,17 @@ func TestResolveLifecycleDigest(t *testing.T) {
 		want    string
 		wantErr string
 	}{
-		{"nothing", LifecycleQuery{Service: "pay"}, "", "pass exactly one of digest, version or contract"},
-		{"two", LifecycleQuery{Service: "pay", Digest: lcD, Version: "1.0.0"}, "", "pass exactly one"},
 		{"known digest", LifecycleQuery{Service: "pay", Digest: lcOld}, lcOld, ""},
 		{"unknown digest", LifecycleQuery{Service: "pay", Digest: "sha256:else"}, "sha256:else", ""},
 		{"version", LifecycleQuery{Service: "pay", Version: "1.0.0"}, lcOld, ""},
 		{"contract ref", LifecycleQuery{Service: "pay", Contract: "oci://r/pay@" + c1}, lcOld, ""},
 		{"contract digest", LifecycleQuery{Service: "pay", Contract: c1}, lcOld, ""},
-		{"no such version", LifecycleQuery{Service: "pay", Version: "9.9.9"}, "", "no version 9.9.9 of pay is known to its Stages; 1 of the artifacts its Stages know could not be read"},
-		{"no such contract", LifecycleQuery{Service: "pay", Contract: "sha256:nope"}, "", "no artifact of pay that names contract sha256:nope is known to its Stages"},
+		{"no such version", LifecycleQuery{Service: "pay", Version: "9.9.9"}, "", "Pacto found no artifact of pay with version 9.9.9 among what it read, but 1 of the artifacts its Stages know could not be read: it may be among those"},
+		{"no such contract", LifecycleQuery{Service: "pay", Contract: "sha256:nope"}, "", "Pacto found no artifact of pay with contract sha256:nope among what it read"},
 		{"ambiguous", LifecycleQuery{Service: "pay", Version: "2.0.0"}, "", "version 2.0.0 names 2 artifacts (" + lcD + ", " + lcNew + "): pass the digest"},
 	}
 	for _, c := range cases {
-		r, err := ResolveLifecycleDigest(c.q, revs)
+		r, _, err := ResolveLifecycleDigest(c.q, revs, nil)
 		switch {
 		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
 			t.Errorf("%s: err %v, want %q", c.name, err, c.wantErr)
@@ -68,8 +67,64 @@ func TestResolveLifecycleDigest(t *testing.T) {
 			t.Errorf("%s: %+v %v, want %s", c.name, r, err, c.want)
 		}
 	}
-	if r, _ := ResolveLifecycleDigest(LifecycleQuery{Digest: lcOld}, revs); r.ContractRef == "" {
+	if r, _, _ := ResolveLifecycleDigest(LifecycleQuery{Digest: lcOld}, revs, nil); r.ContractRef == "" {
 		t.Fatal("a known digest keeps what its artifact carries")
+	}
+}
+
+// TestResolveLifecycleDigestIncompleteSearch: a search that left artifacts
+// or Stages unread never answers a confident miss or a confident match.
+func TestResolveLifecycleDigestIncompleteSearch(t *testing.T) {
+	read := []Revision{lcRev(lcOld, "1.0.0", "")}
+	if r, note, err := ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "1.0.0"}, read, nil); err != nil || r.Digest != lcOld || note != "" {
+		t.Fatalf("a match from a complete search: %v %q %v", r, note, err)
+	}
+	var miss *LifecycleMiss
+	_, _, err := ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "9.9.9"}, read, nil)
+	if !errors.As(err, &miss) || !miss.Definite || err.Error() != "no version 9.9.9 of pay is known to its Stages" {
+		t.Fatalf("a complete search misses definitely: %v", err)
+	}
+	_, _, err = ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Contract: "sha256:nope"}, read, nil)
+	if err == nil || err.Error() != "no artifact of pay that names contract sha256:nope is known to its Stages" {
+		t.Fatalf("a contract no artifact names: %v", err)
+	}
+	gaps := LifecycleGaps("the Stages know 230 artifacts and only the first 200 were read to find the one asked for", []string{"test: forbidden"}, true)
+	_, _, err = ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "9.9.9"}, read, gaps)
+	if !errors.As(err, &miss) || miss.Definite || !strings.Contains(err.Error(), "only the first 200 were read") ||
+		!strings.Contains(err.Error(), "Stages not listed: test: forbidden") || !strings.Contains(err.Error(), "it may be among those") {
+		t.Fatalf("an incomplete search is unknown: %v", err)
+	}
+	r, note, err := ResolveLifecycleDigest(LifecycleQuery{Service: "pay", Version: "1.0.0"}, append(read, Revision{Digest: lcD, Err: "503"}), nil)
+	if err != nil || r.Digest != lcOld || note != "; version 1.0.0 names one artifact Pacto read, but 1 of the artifacts its Stages know could not be read: another may name it too" {
+		t.Fatalf("a single match beside an unread artifact is caveated: %v %q %v", r, note, err)
+	}
+}
+
+func TestLifecycleGaps(t *testing.T) {
+	if got := LifecycleGaps("", nil, true); !slices.Equal(got, []string{"the Stage listing is partial"}) {
+		t.Fatalf("a partial listing with no reason: %v", got)
+	}
+	if got := LifecycleGaps("", nil, false); len(got) != 0 {
+		t.Fatalf("a complete search has no gap: %v", got)
+	}
+}
+
+func TestLifecycleQueryCheck(t *testing.T) {
+	const d = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	for q, want := range map[LifecycleQuery]string{
+		{Version: "1"}:   "name the service",
+		{Service: "pay"}: "pass exactly one of digest, version or contract",
+		{Service: "pay", Digest: d, Version: "1"}:            "pass exactly one",
+		{Service: "pay", Digest: "1.4.0"}:                    "digest 1.4.0 is not an artifact digest",
+		{Service: "pay", Contract: "oci://r/pay:1.4.0"}:      "contract oci://r/pay:1.4.0 is not digest-pinned",
+		{Service: "pay", Digest: d}:                          "",
+		{Service: "pay", Version: "1.4.0"}:                   "",
+		{Service: "pay", Contract: d}:                        "",
+		{Service: "pay", Contract: "oci://r/pay:1.4.0@" + d}: "",
+	} {
+		if err := q.Check(); (want == "") != (err == nil) || (err != nil && !strings.HasPrefix(err.Error(), want)) {
+			t.Errorf("%+v: %v, want %q", q, err, want)
+		}
 	}
 }
 
@@ -95,7 +150,7 @@ func TestLifecycleDigests(t *testing.T) {
 		Verified: lcDigests(MaxVerified, "c"), FailedDigests: lcDigests(MaxFailedDigests, "d")})
 	more := stage("prod", "more", "pay", StageStatus{Published: lcDigests(MaxPublished, "e"), Offered: lcDigests(MaxOffered, "f")})
 	ds, _, note = LifecycleDigests(LifecycleQuery{Version: "1"}, []StageObject{big, more})
-	if len(ds) != LifecycleDigestLimit || note != "; the Stages know 260 artifacts and only the first 200 were read to find the one asked for" {
+	if len(ds) != LifecycleDigestLimit || note != "the Stages know 260 artifacts and only the first 200 were read to find the one asked for" {
 		t.Fatalf("cap: %d %q", len(ds), note)
 	}
 }

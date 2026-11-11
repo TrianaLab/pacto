@@ -153,7 +153,7 @@ export interface paths {
         };
         /**
          * One version's way through delivery
-         * @description For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line.
+         * @description For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line. A version or contract no artifact names is 404 LifecycleNotFound only when the search read every artifact the Stages know on a complete listing; a search that left any unread is 400 LifecycleUnresolved and names what it did not read.
          */
         get: operations["delivery-lifecycle"];
         put?: never;
@@ -1516,6 +1516,8 @@ export interface components {
         "Delivery.ObjectMeta": {
             creationTimestamp?: string;
             finalizers?: string[] | null;
+            /** Format: int64 */
+            generation?: number;
             labels?: {
                 [key: string]: string;
             };
@@ -1644,6 +1646,11 @@ export interface components {
             /** @description Why the promoter does not promote the candidate on its own; empty when it would */
             autoPromote?: string;
             candidate?: string;
+            /**
+             * @description partial when Pacto could not read something the answer depends on (the reasons ending in Unknown, or a status older than the Stage's spec), so a reason may be missing
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
             /** @description The promote of the candidate, planned for the caller and not proposed */
             plan?: components["schemas"]["Delivery.PlanAnswer"];
             /** @description Everything that holds the candidate back, in the order a person clears them */
@@ -1655,7 +1662,7 @@ export interface components {
         };
         "Delivery.ProgressReason": {
             /** @enum {string} */
-            code: "NotReady" | "ReadyUnknown" | "NoCandidate" | "Frozen" | "AutoHold" | "Held" | "InFlight" | "Level" | "OpsUnknown" | "PolicyUnknown" | "NotPermitted" | "RBACUnknown" | "PlanRejected" | "PlanHeld" | "PlanWaits" | "PlanUnknown";
+            code: "NotReady" | "ReadyUnknown" | "StatusStale" | "NoCandidate" | "Frozen" | "AutoHold" | "Held" | "InFlight" | "Level" | "OpsUnknown" | "PolicyUnknown" | "NotPermitted" | "RBACUnknown" | "PlanRejected" | "PlanHeld" | "PlanWaits" | "PlanUnknown";
             /** @description What to do, often a command to copy */
             fix?: string;
             message: string;
@@ -1834,7 +1841,7 @@ export interface components {
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
              * @enum {string}
              */
             problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
@@ -3875,14 +3882,14 @@ export interface components {
         ProductEnvironmentPlacement: {
             /**
              * Format: int64
-             * @description Targets whose linked revision declares this environment
+             * @description Targets whose exactly linked revision declares this environment
              */
             declared: number;
             /** @description The environment label; empty for targets that report none or whose sources disagree */
             environment?: string;
             /**
              * Format: int64
-             * @description Targets whose linked revision does not declare it
+             * @description Targets whose exactly linked revision does not declare it
              */
             notDeclared: number;
             revisions: components["schemas"]["ProductRef"][] | null;
@@ -3897,7 +3904,7 @@ export interface components {
             targets: number;
             /**
              * Format: int64
-             * @description Targets Pacto cannot check: no label, conflicting labels or no linked revision
+             * @description Targets Pacto cannot check: no label, conflicting labels, no linked revision or one linked only by a mutable tag or version (inferred, not proof)
              */
             unknown: number;
         };
@@ -4435,6 +4442,11 @@ export interface components {
             /** @description Why the promoter does not promote the candidate on its own; empty when it would */
             autoPromote?: string;
             candidate?: string;
+            /**
+             * @description partial when Pacto could not read something the answer depends on (the reasons ending in Unknown, or a status older than the Stage's spec), so a reason may be missing
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
             namespace: string;
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {

@@ -28,7 +28,7 @@ const statusWhyLimit = 16
 // auditTimeout.
 func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*delivery.ServiceStatus, error) {
 	if q.Service == "" {
-		return nil, errors.New("name the service: pacto delivery status --service <name>")
+		return nil, errors.New("name the service")
 	}
 	caller, err := d.WhoAmI(ctx)
 	if err != nil {
@@ -62,7 +62,7 @@ func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*deliver
 		if o := delivery.UndoOfferFor(st, blames[i].b, blames[i].err, caller); o != nil {
 			row.Offers = append(row.Offers, *o)
 		}
-		row.Upstream = delivery.UpstreamListed(&stages[i], byStage, w.read, "")
+		row.Upstream = delivery.UpstreamListed(&stages[i], byStage, w.read, q.Namespace)
 		out.Stages = append(out.Stages, row)
 	}
 	rows := make([]*delivery.StageRow, len(out.Stages))
@@ -198,7 +198,7 @@ func (d *Delivery) whyAll(ctx context.Context, caller Caller, stages []delivery.
 	}
 	_ = g.Wait()
 	if len(stages) > n {
-		return fmt.Sprintf("; why is answered for the first %d of %d Stages only: name a namespace with -n for the others", n, len(stages))
+		return fmt.Sprintf("; why is answered for the first %d of %d Stages only: name a namespace for the others", n, len(stages))
 	}
 	return ""
 }

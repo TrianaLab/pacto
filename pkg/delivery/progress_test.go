@@ -110,11 +110,11 @@ func TestProgressOf(t *testing.T) {
 		{name: "no candidate", state: "blocked", codes: []string{"NoCandidate"},
 			in:  ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate, s.Pointer = "", "" })},
 			fix: map[string]string{"NoCandidate": "pacto delivery candidates -n prod --stage payments"}},
-		{name: "runs the newest, so no candidate", state: "up-to-date", codes: nil, auto: "-",
+		{name: "runs the newest, so no candidate", state: "up-to-date", codes: nil, auto: "no eligible candidate",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = "" })}},
 		{name: "runs the newest with a held change", state: "needs-person", codes: []string{"Held"},
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = "" }), Ops: []OperationObject{heldOp("op-1", "team-checkout")}}},
-		{name: "up to date", state: "up-to-date", codes: nil, auto: "-",
+		{name: "up to date", state: "up-to-date", codes: nil, auto: "runs its candidate already",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = rowRun })}},
 		{name: "frozen with a held promote", state: "blocked", codes: []string{"Frozen", "Held", "PlanHeld"}, auto: "frozen",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen, s.FrozenReason = true, "Errored" }),
@@ -162,11 +162,48 @@ func TestProgressOf(t *testing.T) {
 			fix: map[string]string{"Level": ""}},
 		{name: "up to date wins over a missing plan", state: "up-to-date", codes: nil,
 			in: ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate = rowRun })}},
+		{name: "up to date on advise: the promoter never promotes on its own", state: "up-to-date", codes: nil, auto: "level is advise",
+			in: ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate = "" })}},
+		{name: "runs the newest with an in-flight change", state: "unknown", codes: []string{"InFlight"}, auto: "no eligible candidate",
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = "" }),
+				Ops: []OperationObject{{Metadata: ObjectMeta{Name: "back"}, Status: OperationStatus{Phase: PhaseRunning}}}}},
+		{name: "advise runs its candidate with a held change: no plan to the running digest", state: "needs-person", codes: []string{"Held"},
+			in: ProgressInput{Stage: progStage(LevelAdvise, func(s *StageStatus) { s.Candidate = rowRun }), Caller: person,
+				Ops: []OperationObject{heldOp("op-1", "team-checkout")}}},
+		{name: "runs a version that failed here", state: "blocked", codes: []string{"NoCandidate", "Frozen"}, auto: "frozen",
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) {
+				s.Candidate, s.FailedDigests, s.Frozen = "", []string{rowRun}, true
+			})},
+			fix: map[string]string{"NoCandidate": "pacto delivery candidates"}},
+		{name: "status older than the spec", state: "unknown", codes: []string{"StatusStale"}, auto: "-",
+			in: ProgressInput{Stage: func() StageObject {
+				st := progStage(LevelAutonomous, func(s *StageStatus) { s.ObservedGeneration = 1 })
+				st.Metadata.Generation = 2
+				return st
+			}(), Plan: progPlan(PredictProceeds, nil)}},
 		{name: "ops unreadable", state: "unknown", codes: []string{"OpsUnknown"}, auto: "could not be read",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, nil), Plan: progPlan(PredictProceeds, nil), OpsErr: "forbidden"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { checkProgress(t, c) })
+	}
+}
+
+// TestProgressCompleteness: anything Pacto could not read makes the answer
+// partial, whatever its state.
+func TestProgressCompleteness(t *testing.T) {
+	frozen := progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen = true })
+	if p := ProgressOf(ProgressInput{Stage: frozen, OpsErr: "forbidden", Plan: progPlan(PredictProceeds, nil)}); p.State != "blocked" || p.Completeness != "partial" {
+		t.Fatalf("blocked with unread operations: %s %s", p.State, p.Completeness)
+	}
+	if p := ProgressOf(ProgressInput{Stage: frozen, Plan: progPlan(PredictProceeds, nil)}); p.Completeness != "complete" {
+		t.Fatalf("everything read: %s", p.Completeness)
+	}
+	stale := progStage(LevelAutonomous, nil)
+	stale.Metadata.Generation = 3
+	if p := ProgressOf(ProgressInput{Stage: stale, Plan: progPlan(PredictProceeds, nil)}); p.Completeness != "partial" ||
+		!strings.Contains(reasonOf(p, "StatusStale").Message, "generation 3, status from 0") {
+		t.Fatalf("a status older than its spec: %+v", p)
 	}
 }
 

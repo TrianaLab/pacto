@@ -15,10 +15,10 @@ const MaxPlacementRevisions = 8
 type EnvironmentPlacement struct {
 	Environment        string      `json:"environment,omitempty" doc:"The environment label; empty for targets that report none or whose sources disagree"`
 	Targets            int         `json:"targets"`
-	Declared           int         `json:"declared" doc:"Targets whose linked revision declares this environment"`
-	NotDeclared        int         `json:"notDeclared" doc:"Targets whose linked revision does not declare it"`
-	Unknown            int         `json:"unknown" doc:"Targets Pacto cannot check: no label, conflicting labels or no linked revision"`
-	Revisions          []EntityRef `json:"revisions" doc:"The distinct revisions these targets run, newest first, at most 8"`
+	Declared           int         `json:"declared" doc:"Targets whose exactly linked revision declares this environment"`
+	NotDeclared        int         `json:"notDeclared" doc:"Targets whose exactly linked revision does not declare it"`
+	Unknown            int         `json:"unknown" doc:"Targets Pacto cannot check: no label, conflicting labels, no linked revision or one linked only by a mutable tag or version (inferred, not proof)"`
+	Revisions          []EntityRef `json:"revisions" doc:"The distinct revisions these targets run, by an exact link only, newest first, at most 8"`
 	RevisionsTotal     int         `json:"revisionsTotal" doc:"How many distinct revisions these targets run"`
 	RevisionsTruncated bool        `json:"revisionsTruncated" doc:"revisions holds only the newest 8 of revisionsTotal"`
 }
@@ -46,6 +46,12 @@ func (q *Query) placement(targets []*TargetRecord) PlacementPreview {
 			groups[env] = g
 		}
 		g.Targets++
+		if t.RevisionMatch == revisionMatchInferred {
+			// ponytail: an inferred link is a mutable tag, not proof of
+			// what runs, so it neither counts as declared nor names a revision.
+			g.Unknown++
+			continue
+		}
 		switch q.targetEnvironment(t).Declared {
 		case "declared":
 			g.Declared++

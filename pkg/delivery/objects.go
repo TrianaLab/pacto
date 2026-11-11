@@ -5,6 +5,7 @@ type ObjectMeta struct {
 	Name              string            `json:"name"`
 	Namespace         string            `json:"namespace,omitempty"`
 	UID               string            `json:"uid,omitempty"`
+	Generation        int64             `json:"generation,omitempty"`
 	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
 	Finalizers        []string          `json:"finalizers,omitempty"`

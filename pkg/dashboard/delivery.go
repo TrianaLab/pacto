@@ -177,7 +177,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-lifecycle", Method: http.MethodGet, Path: "/api/delivery/lifecycle",
 		Summary: "One version's way through delivery",
 		Description: "For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the " +
-			"service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line."}), s.deliveryLifecycle)
+			"service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line. A version or contract no artifact names is " +
+			"404 LifecycleNotFound only when the search read every artifact the Stages know on a complete listing; a search that left any " +
+			"unread is 400 LifecycleUnresolved and names what it did not read."}), s.deliveryLifecycle)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
 		Summary: "Publishes Pacto refused",
 		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +

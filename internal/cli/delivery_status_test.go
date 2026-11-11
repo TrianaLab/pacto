@@ -43,7 +43,7 @@ func TestDeliveryStatusText(t *testing.T) {
 			"not ready:\n  prod/payments-prod CandidateUnverified: no signature\n    fix: ",
 			"the Stages of payments you can see, in promotion order, from each Stage's spec.candidates\n"}},
 		{"text", []string{"status"}, true, []string{`required flag(s) "service" not set`}},
-		{"text", []string{"status", "--service="}, true, []string{"name the service: pacto delivery status --service <name>"}},
+		{"text", []string{"status", "--service="}, true, []string{"name the service"}},
 	})
 }
 
@@ -74,6 +74,11 @@ func TestPrintProgressFix(t *testing.T) {
 		Reasons: []delivery.ProgressReason{{Code: "Frozen", Message: "frozen", Fix: "pacto delivery propose --type unfreeze"}}, AutoPromote: "frozen"}})
 	if want := "== n/s: blocked\n  sum\n  Frozen: frozen\n    fix: pacto delivery propose --type unfreeze\n  automatic promote: frozen\n"; b.String() != want {
 		t.Fatalf("got %q, want %q", b.String(), want)
+	}
+	b.Reset()
+	printProgress(&b, delivery.StageRow{Namespace: "n", Stage: "s", Progress: &delivery.Progress{State: "blocked", Summary: "sum", Completeness: "partial"}})
+	if !strings.HasPrefix(b.String(), "== n/s: blocked (partial: a reason may be missing)\n") {
+		t.Fatalf("a partial answer says so: %q", b.String())
 	}
 }
 

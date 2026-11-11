@@ -218,7 +218,7 @@ func TestRecordGetText(t *testing.T) {
 			"  pacto.contract           Pass     compliant\n      re-run: read contractStatus", "as of "}},
 		{"text", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod"}, false, []string{"its signature was not checked"}},
 		{"json", []string{"record", "get", id, "-n", "prod", "--stage", "payments-prod", "--trust", trust}, false, []string{`"verified": true`, `"rerun"`}},
-		{"text", []string{"record", "get", "sha256:other", "-n", "prod", "--stage", "payments-prod", "--trust", trust}, true, []string{"is not in the stream of prod/payments-prod"}},
+		{"text", []string{"record", "get", "sha256:other", "-n", "prod", "--stage", "payments-prod", "--trust", trust}, true, []string{"no record with id or prefix sha256:other is in the stream of prod/payments-prod"}},
 		{"text", []string{"record", "get", id, "-n", "prod"}, true, []string{`"stage" not set`}},
 	})
 

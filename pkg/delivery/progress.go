@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -10,18 +11,19 @@ import (
 // reason that holds it back, each with what clears it, and the promote
 // planned for the caller and not proposed.
 type Progress struct {
-	State       string           `json:"state" enum:"up-to-date,can-promote,needs-person,blocked,unknown"`
-	Summary     string           `json:"summary" doc:"One sentence: where the Stage stands against its newest candidate"`
-	Candidate   string           `json:"candidate,omitempty"`
-	Reasons     []ProgressReason `json:"reasons" doc:"Everything that holds the candidate back, in the order a person clears them"`
-	AutoPromote string           `json:"autoPromote,omitempty" doc:"Why the promoter does not promote the candidate on its own; empty when it would"`
-	Plan        *PlanAnswer      `json:"plan,omitempty" doc:"The promote of the candidate, planned for the caller and not proposed"`
-	AsOf        string           `json:"asOf" doc:"When the Stage and its operations were read (RFC 3339)"`
+	State        string           `json:"state" enum:"up-to-date,can-promote,needs-person,blocked,unknown"`
+	Summary      string           `json:"summary" doc:"One sentence: where the Stage stands against its newest candidate"`
+	Candidate    string           `json:"candidate,omitempty"`
+	Reasons      []ProgressReason `json:"reasons" doc:"Everything that holds the candidate back, in the order a person clears them"`
+	AutoPromote  string           `json:"autoPromote,omitempty" doc:"Why the promoter does not promote the candidate on its own; empty when it would"`
+	Completeness string           `json:"completeness" enum:"complete,partial" doc:"partial when Pacto could not read something the answer depends on (the reasons ending in Unknown, or a status older than the Stage's spec), so a reason may be missing"`
+	Plan         *PlanAnswer      `json:"plan,omitempty" doc:"The promote of the candidate, planned for the caller and not proposed"`
+	AsOf         string           `json:"asOf" doc:"When the Stage and its operations were read (RFC 3339)"`
 }
 
 // ProgressReason is one thing that holds a candidate back.
 type ProgressReason struct {
-	Code    string `json:"code" enum:"NotReady,ReadyUnknown,NoCandidate,Frozen,AutoHold,Held,InFlight,Level,OpsUnknown,PolicyUnknown,NotPermitted,RBACUnknown,PlanRejected,PlanHeld,PlanWaits,PlanUnknown"`
+	Code    string `json:"code" enum:"NotReady,ReadyUnknown,StatusStale,NoCandidate,Frozen,AutoHold,Held,InFlight,Level,OpsUnknown,PolicyUnknown,NotPermitted,RBACUnknown,PlanRejected,PlanHeld,PlanWaits,PlanUnknown"`
 	Message string `json:"message"`
 	Fix     string `json:"fix,omitempty" doc:"What to do, often a command to copy"`
 }
@@ -82,13 +84,19 @@ func ProgressOf(in ProgressInput) Progress {
 	ss := in.Stage.Status
 	p := &progress{in: in, reasons: []ProgressReason{}, ns: in.Stage.Metadata.Namespace, name: in.Stage.Metadata.Name}
 	ready := p.readyReasons()
+	if StatusStale(in.Stage) {
+		p.add("StatusStale", fmt.Sprintf("the promoter has not read the Stage's current spec yet (generation %d, status from %d), "+
+			"so its candidate and Ready condition may be out of date", in.Stage.Metadata.Generation, ss.ObservedGeneration), "")
+	}
 	// The promoter clears the candidate once the Stage runs the newest one it
 	// may take (NewestCandidate), so a running Stage offered nothing, with no
-	// change open on it, is up to date.
-	upToDate := ss.Pointer != "" && (ss.Candidate == "" || ss.Candidate == ss.Pointer) &&
+	// change open on it and a version that did not fail here, is up to date.
+	nothingToMove := ss.Pointer != "" && (ss.Candidate == "" || ss.Candidate == ss.Pointer)
+	failed := ss.Pointer != "" && slices.Contains(ss.FailedDigests, ss.Pointer)
+	upToDate := nothingToMove && !failed &&
 		!slices.ContainsFunc(in.Ops, func(o OperationObject) bool { return o.Status.Phase != PhaseConcluded })
 	if !upToDate {
-		p.candidateReasons()
+		p.candidateReasons(failed)
 		p.freezeReasons()
 		p.heldReasons()
 		p.levelReasons()
@@ -96,10 +104,11 @@ func ProgressOf(in ProgressInput) Progress {
 	}
 	p.opsReasons()
 	p.accessReasons()
-	out := Progress{Candidate: ss.Candidate, Reasons: p.reasons, Plan: in.Plan, AsOf: in.AsOf}
-	out.State = p.state(upToDate && ready)
-	if !upToDate {
-		out.AutoPromote = p.autoPromote()
+	out := Progress{Candidate: ss.Candidate, Reasons: p.reasons, Plan: in.Plan, AsOf: in.AsOf, Completeness: "complete"}
+	out.State = p.state(upToDate && ready, nothingToMove)
+	out.AutoPromote = p.autoPromote()
+	if slices.ContainsFunc(p.reasons, func(r ProgressReason) bool { return r.Code == "StatusStale" || strings.HasSuffix(r.Code, "Unknown") }) {
+		out.Completeness = "partial"
 	}
 	label := ""
 	if ss.Candidate != "" {
@@ -128,17 +137,25 @@ func (p *progress) readyReasons() bool {
 	return false
 }
 
-// candidateReasons: only a Stage that runs nothing has no candidate to wait
-// for; a running one is offered nothing newer.
-func (p *progress) candidateReasons() {
-	if ss := p.in.Stage.Status; ss.Candidate != "" || ss.Pointer != "" {
+// candidateReasons: a Stage that runs nothing, or runs a version that
+// failed here, has no candidate to move to; a running one that did not fail
+// is offered nothing newer.
+func (p *progress) candidateReasons(failed bool) {
+	ss := p.in.Stage.Status
+	msg := "the candidate source offers nothing newer that has not failed here"
+	switch {
+	case ss.Candidate != "" && ss.Candidate != ss.Pointer:
+		return
+	case failed:
+		msg = "the running version failed here and " + msg
+	case ss.Candidate != "" || ss.Pointer != "":
 		return
 	}
 	fix := ""
 	if p.commands() {
 		fix = "pacto delivery candidates -n " + p.ns + " --stage " + p.name
 	}
-	p.add("NoCandidate", "the candidate source offers nothing newer that has not failed here", fix)
+	p.add("NoCandidate", msg, fix)
 }
 
 func (p *progress) freezeReasons() {
@@ -236,7 +253,7 @@ func (p *progress) heldReason(op OperationObject) {
 // plans and proposes each one.
 func (p *progress) levelReasons() {
 	st := p.in.Stage
-	if st.Status.Candidate == "" {
+	if st.Status.Candidate == "" || st.Status.Candidate == st.Status.Pointer {
 		return
 	}
 	switch level := CurrentLevel(st.Spec, st.Status); {
@@ -316,8 +333,10 @@ func (p *progress) accessReasons() {
 
 // state reads the reasons in a fixed order: anything that blocks, then
 // anything unknown about the caller or the operations, then up to date,
-// then an unknown Ready or plan, then a person, else the Stage can move.
-func (p *progress) state(upToDate bool) string {
+// then an unknown Ready or plan, then a person, else the Stage can move;
+// with nothing to move to (a change open on a Stage that runs its newest
+// candidate) it is unknown, never can-promote.
+func (p *progress) state(upToDate, nothingToMove bool) string {
 	has := func(codes ...string) bool {
 		return slices.ContainsFunc(p.reasons, func(r ProgressReason) bool { return slices.Contains(codes, r.Code) })
 	}
@@ -325,7 +344,7 @@ func (p *progress) state(upToDate bool) string {
 	switch {
 	case observe || has("NotReady", "NoCandidate", "Frozen", "NotPermitted", "PlanRejected", "PlanWaits"):
 		return "blocked"
-	case has("OpsUnknown", "PolicyUnknown", "RBACUnknown"):
+	case has("OpsUnknown", "PolicyUnknown", "RBACUnknown", "StatusStale"):
 		return "unknown"
 	case upToDate:
 		return "up-to-date"
@@ -333,6 +352,8 @@ func (p *progress) state(upToDate bool) string {
 		return "unknown"
 	case has("Held", "PlanHeld"):
 		return "needs-person"
+	case nothingToMove:
+		return "unknown"
 	}
 	return "can-promote"
 }
@@ -343,7 +364,9 @@ func (p *progress) autoPromote() string {
 	if why := AutoPromoteHold(p.in.Stage.Spec, p.in.Stage.Status); why != "" {
 		return why
 	}
-	switch {
+	switch ss := p.in.Stage.Status; {
+	case ss.Candidate == ss.Pointer:
+		return "the Stage runs its candidate already"
 	case p.in.OpsErr != "":
 		return "the Stage's operations could not be read, so an operation may be in flight"
 	case slices.ContainsFunc(p.in.Ops, func(o OperationObject) bool { return o.Status.Phase != PhaseConcluded }):
@@ -370,6 +393,12 @@ func progressSummary(state, candidate string) string {
 		return "The Stage cannot move to " + what + " until the reasons below are cleared."
 	}
 	return "Pacto cannot tell whether the Stage can move to " + what + "."
+}
+
+// StatusStale is whether st's status predates its spec: the promoter has
+// not reconciled the Stage's current generation yet.
+func StatusStale(st StageObject) bool {
+	return st.Metadata.Generation > 0 && st.Status.ObservedGeneration < st.Metadata.Generation
 }
 
 // ProgressPlanRequest is the promote of the Stage's candidate, to plan for

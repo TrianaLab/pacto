@@ -46,7 +46,7 @@ func TestLifecycleRefusals(t *testing.T) {
 		err.Error() != "no version 9.9.9 of payments is known to its Stages" {
 		t.Fatalf("an unknown version: %v", err)
 	}
-	if _, err := d.Lifecycle(ctx, delivery.LifecycleQuery{Version: "1.0.0"}); err == nil || !strings.Contains(err.Error(), "--service") {
+	if _, err := d.Lifecycle(ctx, delivery.LifecycleQuery{Version: "1.0.0"}); err == nil || err.Error() != "name the service" {
 		t.Fatalf("no service: %v", err)
 	}
 	if l, err := d.Lifecycle(ctx, delivery.LifecycleQuery{Service: "payments", Digest: dlA, Namespace: "prod"}); err != nil || l.Digest != dlA || l.Version != "1.0.0" {
@@ -67,6 +67,10 @@ func TestLifecycleForbiddenNamespace(t *testing.T) {
 	l, err := d.Lifecycle(context.Background(), delivery.LifecycleQuery{Service: "payments", Digest: dlA})
 	if err != nil || l.Completeness != "partial" || len(l.Unreadable) != 1 || !strings.Contains(l.Unreadable[0], "in test") || len(l.Stages) != 1 {
 		t.Fatalf("lifecycle %+v %v", l, err)
+	}
+	if _, err := d.Lifecycle(context.Background(), delivery.LifecycleQuery{Service: "payments", Version: "9.9.9"}); err == nil ||
+		!strings.Contains(err.Error(), "Stages not listed: ") || !strings.Contains(err.Error(), "it may be among those") {
+		t.Fatalf("a miss beside a forbidden namespace is unknown: %v", err)
 	}
 	if _, err := d.Lifecycle(context.Background(), delivery.LifecycleQuery{Service: "payments", Digest: dlA, Namespace: "test"}); err == nil {
 		t.Fatal("a named namespace is not walked around")

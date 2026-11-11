@@ -84,15 +84,34 @@ func KnownDigests(st StageObject) []string {
 	return out
 }
 
+// Check refuses a query that names no service, not exactly one of digest,
+// version or contract, a digest that is not one or a contract that is not
+// digest-pinned. Callers check before any read.
+func (q LifecycleQuery) Check() error {
+	switch {
+	case q.Service == "":
+		return errors.New("name the service")
+	case len(slices.DeleteFunc([]string{q.Digest, q.Version, q.Contract}, func(s string) bool { return s == "" })) != 1:
+		return errors.New("pass exactly one of digest, version or contract")
+	case q.Digest != "" && !isDigest(q.Digest):
+		return fmt.Errorf("digest %s is not an artifact digest: pass one such as sha256:<64 hex characters>, or pass the version", q.Digest)
+	case q.Contract != "" && ContractDigest(q.Contract) == "" && !isDigest(q.Contract):
+		return fmt.Errorf("contract %s is not digest-pinned: pass a manifest digest or a reference that ends in @sha256:<64 hex characters>", q.Contract)
+	}
+	return nil
+}
+
 // LifecycleDigests are the artifacts to read to answer q over stages, each
 // with the Stage to read it from: the digest q names (from a Stage that
 // knows it, else the first), or every digest the Stages know, at most
-// LifecycleDigestLimit, with a note when some were left out.
-func LifecycleDigests(q LifecycleQuery, stages []StageObject) (ds []string, from []*StageObject, note string) {
+// LifecycleDigestLimit, with a gap that says so when some were left out.
+func LifecycleDigests(q LifecycleQuery, stages []StageObject) (ds []string, from []*StageObject, gap string) {
 	if len(stages) == 0 {
 		return nil, nil, ""
 	}
 	if q.Digest != "" {
+		// ponytail: a digest no Stage still lists may have aged out of the
+		// capped status lists while its history remains, so it is still read.
 		at := slices.IndexFunc(stages, func(st StageObject) bool { return slices.Contains(KnownDigests(st), q.Digest) })
 		return []string{q.Digest}, []*StageObject{&stages[max(at, 0)]}, ""
 	}
@@ -104,29 +123,76 @@ func LifecycleDigests(q LifecycleQuery, stages []StageObject) (ds []string, from
 		}
 	}
 	if n := len(ds); n > LifecycleDigestLimit {
-		note = fmt.Sprintf("; the Stages know %d artifacts and only the first %d were read to find the one asked for", n, LifecycleDigestLimit)
+		gap = fmt.Sprintf("the Stages know %d artifacts and only the first %d were read to find the one asked for", n, LifecycleDigestLimit)
 		ds, from = ds[:LifecycleDigestLimit], from[:LifecycleDigestLimit]
 	}
-	return ds, from, note
+	return ds, from, gap
 }
 
-// ResolveLifecycleDigest is the artifact q names among revs, what the
-// service's Stages know. A digest no Stage knows is taken as given.
-func ResolveLifecycleDigest(q LifecycleQuery, revs []Revision) (Revision, error) {
-	if n := len(slices.DeleteFunc([]string{q.Digest, q.Version, q.Contract}, func(s string) bool { return s == "" })); n != 1 {
-		return Revision{}, errors.New("pass exactly one of digest, version or contract")
+// LifecycleGaps are what a lifecycle search could not read: gap, the
+// artifacts LifecycleDigests left out; the Stage listings refused; and, when
+// partial and nothing names why, that the Stage listing was partial.
+func LifecycleGaps(gap string, unreadable []string, partial bool) []string {
+	var gaps []string
+	if gap != "" {
+		gaps = append(gaps, gap)
 	}
+	switch {
+	case len(unreadable) > 0:
+		gaps = append(gaps, "Stages not listed: "+strings.Join(unreadable, ", "))
+	case partial:
+		gaps = append(gaps, "the Stage listing is partial")
+	}
+	return gaps
+}
+
+// LifecycleMiss is a version or contract that no artifact Pacto read names.
+// Definite only when every artifact the Stages know was read on a complete
+// Stage listing; otherwise the artifact may be among what was not read.
+type LifecycleMiss struct {
+	Msg      string
+	Definite bool
+}
+
+func (e *LifecycleMiss) Error() string { return e.Msg }
+
+// ResolveLifecycleDigest is the artifact a checked q names among revs, what
+// the service's Stages know. A digest no Stage knows is taken as given. gaps
+// name what the search could not read (artifacts past the limit, Stage
+// listings refused). A single match from an incomplete search comes back
+// with a note naming the gaps, and the caller marks the answer partial; no
+// match is a *LifecycleMiss, definite only when nothing was left unread.
+func ResolveLifecycleDigest(q LifecycleQuery, revs []Revision, gaps []string) (Revision, string, error) {
 	if q.Digest != "" {
 		if i := slices.IndexFunc(revs, func(r Revision) bool { return r.Digest == q.Digest }); i >= 0 {
-			return revs[i], nil
+			return revs[i], "", nil
 		}
-		return Revision{Digest: q.Digest}, nil
+		return Revision{Digest: q.Digest}, "", nil
 	}
 	found, at, unread := matchRevisions(q, revs)
-	if len(found) == 1 {
-		return at, nil
+	if unread > 0 {
+		gaps = append([]string{fmt.Sprintf("%d of the artifacts its Stages know could not be read", unread)}, gaps...)
 	}
-	return Revision{}, unresolved(q, found, unread)
+	what := "version " + q.Version
+	if q.Version == "" {
+		what = "contract " + q.Contract
+	}
+	switch {
+	case len(found) > 1:
+		return Revision{}, "", fmt.Errorf("%s names %d artifacts (%s): pass the digest", what, len(found), strings.Join(found, ", "))
+	case len(found) == 1 && len(gaps) > 0:
+		return at, fmt.Sprintf("; %s names one artifact Pacto read, but %s: another may name it too", what, strings.Join(gaps, "; ")), nil
+	case len(found) == 1:
+		return at, "", nil
+	}
+	msg := fmt.Sprintf("no version %s of %s is known to its Stages", q.Version, q.Service)
+	if q.Version == "" {
+		msg = fmt.Sprintf("no artifact of %s that names contract %s is known to its Stages", q.Service, q.Contract)
+	}
+	if len(gaps) > 0 {
+		return Revision{}, "", &LifecycleMiss{Msg: fmt.Sprintf("Pacto found no artifact of %s with %s among what it read, but %s: it may be among those", q.Service, what, strings.Join(gaps, "; "))}
+	}
+	return Revision{}, "", &LifecycleMiss{Msg: msg, Definite: true}
 }
 
 // matchRevisions are the digests of revs whose contract has q's version or
@@ -146,23 +212,6 @@ func matchRevisions(q LifecycleQuery, revs []Revision) (found []string, at Revis
 		}
 	}
 	return found, at, unread
-}
-
-// unresolved says why q names no artifact, or several.
-func unresolved(q LifecycleQuery, found []string, unread int) error {
-	what := "version " + q.Version
-	msg := fmt.Sprintf("no version %s of %s is known to its Stages", q.Version, q.Service)
-	if q.Version == "" {
-		what = "contract " + q.Contract
-		msg = fmt.Sprintf("no artifact of %s that names contract %s is known to its Stages", q.Service, q.Contract)
-	}
-	if len(found) > 1 {
-		return fmt.Errorf("%s names %d artifacts (%s): pass the digest", what, len(found), strings.Join(found, ", "))
-	}
-	if unread > 0 {
-		msg += fmt.Sprintf("; %d of the artifacts its Stages know could not be read", unread)
-	}
-	return errors.New(msg)
 }
 
 // LifecycleOf is r on stages, the Stages of its service the caller can see,

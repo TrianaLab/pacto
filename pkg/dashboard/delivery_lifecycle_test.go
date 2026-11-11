@@ -70,10 +70,26 @@ func TestDeliveryLifecycleAmbiguous(t *testing.T) {
 		"service=payments&version=1.0.0":                "version 1.0.0 names 2 artifacts",
 		"service=payments":                              "pass exactly one of digest, version or contract",
 		"service=payments&version=1.0.0&digest=" + dRun: "pass exactly one",
+		"service=payments&digest=latest":                "digest latest is not an artifact digest",
 	} {
 		code, b := call(t, http.MethodGet, base+"/api/delivery/lifecycle?"+url, nil)
 		expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(b["detail"]), want), "%s: %d %v", url, code, b)
 	}
+}
+
+// TestDeliveryLifecycleNotFound: a miss is LifecycleNotFound only when the
+// search read everything; a partial Stage listing makes it unknown.
+func TestDeliveryLifecycleNotFound(t *testing.T) {
+	f := lifecycleFake()
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	code, b := call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&version=9.9.9", nil)
+	expect(t, code == http.StatusNotFound && b["code"] == "LifecycleNotFound", "a definite miss: %d %v", code, b)
+	f.forbid = map[string]bool{"": true}
+	f.forbidAll, f.stageNS = true, []string{"prod", "books"}
+	f.forbid["books"] = true
+	code, b = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&version=9.9.9", nil)
+	expect(t, code == http.StatusBadRequest && b["code"] == "LifecycleUnresolved" && strings.Contains(fmt.Sprint(b["detail"]), "Stages not listed: books"),
+		"a miss beside an unlisted namespace: %d %v", code, b)
 }
 
 func TestDeliveryLifecycleDigestLimit(t *testing.T) {
@@ -90,11 +106,14 @@ func TestDeliveryLifecycleDigestLimit(t *testing.T) {
 	}}
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	code, b := call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&version=1.0.0", nil)
-	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(b["detail"]), "no version 1.0.0 of payments"), "the 261st artifact is not read: %d %v", code, b)
+	expect(t, code == http.StatusBadRequest && b["code"] == "LifecycleUnresolved" &&
+		strings.Contains(fmt.Sprint(b["detail"]), "only the first 200 were read to find the one asked for: it may be among those"),
+		"the 261st artifact is not read, so the miss is unknown: %d %v", code, b)
 	f.stages[0].Status.Pointer = dRun
 	code, b = call(t, http.MethodGet, base+"/api/delivery/lifecycle?service=payments&version=1.0.0", nil)
-	expect(t, code == http.StatusOK && b["digest"] == dRun &&
-		strings.Contains(b["note"].(string), "the Stages know 261 artifacts and only the first 200 were read"), "cap note %d %v", code, b)
+	expect(t, code == http.StatusOK && b["digest"] == dRun && b["completeness"] == "partial" &&
+		strings.Contains(b["note"].(string), "version 1.0.0 names one artifact Pacto read, but the Stages know 261 artifacts and only the first 200 were read"),
+		"cap note %d %v", code, b)
 }
 
 // TestLifecycleSignatureMatchesPublished: the Publish page and the lifecycle

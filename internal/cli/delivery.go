@@ -925,7 +925,9 @@ func newDeliveryRecordGetCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: "Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict",
-		Args:  cobra.ExactArgs(1),
+		Long: "Reads one signed record of a Stage's stream by its full id or by the short id a text history prints " +
+			"(sha256: and 12 hex characters), when only one record starts with it.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {

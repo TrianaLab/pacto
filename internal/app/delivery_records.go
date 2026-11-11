@@ -201,7 +201,12 @@ func (d *Delivery) recordedOperation(ctx context.Context, ns, stage, name string
 	return nil, fmt.Errorf("operation %s/%s is not in the cluster and no record of Stage %s names it", ns, name, stage)
 }
 
-// Record reads one record of a Stage's stream by its id. Only a record in
+// shortRecordID is the shortest record id prefix Record accepts: what a text
+// history prints (sha256: and 12 hex characters).
+const shortRecordID = 19
+
+// Record reads one record of a Stage's stream by its id, or a unique prefix
+// of at least shortRecordID characters as a text history prints it. Only a record in
 // the stream as it was read (verified when a trust config was given) is
 // shown; a record the recorder wrote that does not verify is never one.
 func (d *Delivery) Record(ctx context.Context, ns, stage, id string) (*delivery.RecordView, error) {
@@ -216,15 +221,38 @@ func (d *Delivery) Record(ctx context.Context, ns, stage, id string) (*delivery.
 	case r == nil:
 		return nil, fmt.Errorf("Stage %s/%s has no records: the recorder has not written its stream anchor", ns, stage)
 	}
-	if i := slices.IndexFunc(r.Fold.Records, func(x delivery.StoredRecord) bool { return x.ID == id }); i >= 0 {
-		v := delivery.RecordViewOf(ns, stage, r.Fold.Records[i], r.Trust, d.Now().UTC().Format(time.RFC3339))
-		return &v, nil
+	i, err := recordAt(r.Fold.Records, id, ns+"/"+stage)
+	if err != nil {
+		if n := len(r.Unreadable); n > 0 {
+			err = fmt.Errorf("%w; records of the stream that could not be read or verified: %d", err, n)
+		}
+		return nil, err
 	}
-	err = fmt.Errorf("record %s is not in the stream of %s/%s; a record the recorder wrote that does not verify is listed as unverifiedRecord in its history", id, ns, stage)
-	if n := len(r.Unreadable); n > 0 {
-		err = fmt.Errorf("%w; records of the stream that could not be read or verified: %d", err, n)
+	v := delivery.RecordViewOf(ns, stage, r.Fold.Records[i], r.Trust, d.Now().UTC().Format(time.RFC3339))
+	return &v, nil
+}
+
+// recordAt is the index of the record id names in records, exactly or by a
+// unique prefix of at least shortRecordID characters.
+func recordAt(records []delivery.StoredRecord, id, stage string) (int, error) {
+	var found []string
+	at := -1
+	for i, x := range records {
+		if x.ID == id {
+			return i, nil
+		}
+		if len(id) >= shortRecordID && strings.HasPrefix(x.ID, id) {
+			found, at = append(found, x.ID), i
+		}
 	}
-	return nil, err
+	switch len(found) {
+	case 0:
+		return -1, fmt.Errorf("no record with id or prefix %s is in the stream of %s; history -o json names each record's full id, "+
+			"and a record the recorder wrote that does not verify is listed as unverifiedRecord in its history", id, stage)
+	case 1:
+		return at, nil
+	}
+	return -1, fmt.Errorf("%s is the start of %d record ids in the stream of %s (%s): pass more of it", id, len(found), stage, strings.Join(found, ", "))
 }
 
 // VerifyRecords verifies every record of a Stage's stream against the trust
@@ -446,7 +474,7 @@ func (d *Delivery) auditStages(ctx context.Context, namespace string, of deliver
 	}
 	nss, nerr := listInto[named](ctx, d.Dynamic.Resource(gvrNamespaces), "", "namespaces")
 	if nerr != nil {
-		return auditWalk{}, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one with -n", err, nerr)
+		return auditWalk{}, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one namespace", err, nerr)
 	}
 	per, errs := make([][]delivery.StageObject, len(nss)), make([]error, len(nss))
 	var read atomic.Int64

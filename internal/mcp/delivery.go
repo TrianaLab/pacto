@@ -212,7 +212,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		InputSchema: inputSchema(map[string]property{
 			"namespace": {Type: "string", Description: "Namespace of the Stage"},
 			"stage":     {Type: "string", Description: "Stage name"},
-			"record":    {Type: "string", Description: "The record id (sha256:...), as a history line names it"},
+			"record":    {Type: "string", Description: "The record id (sha256:...) as a history line names it, or its first 19 characters when only one record starts with them"},
 		}, []string{"namespace", "stage", "record"}),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
 		Namespace string `json:"namespace"`

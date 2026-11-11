@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 
@@ -32,15 +33,21 @@ func (s *Server) deliveryLifecycle(ctx context.Context, in *lifecycleInput) (*li
 	if err != nil {
 		return nil, err
 	}
+	q := delivery.LifecycleQuery{Service: in.Service, Domain: in.Domain, Digest: in.Digest, Version: in.Version, Contract: in.Contract}
+	if err := q.Check(); err != nil {
+		return nil, Refuse(http.StatusBadRequest, "LifecycleInvalid", err.Error())
+	}
 	stages, _, l, err := s.lists(ctx, api, false)
 	if err != nil {
 		return nil, err
 	}
 	stages = slices.DeleteFunc(stages, func(st delivery.StageObject) bool { return !delivery.OfService(st, in.Service, in.Domain) })
-	q := delivery.LifecycleQuery{Service: in.Service, Domain: in.Domain, Digest: in.Digest, Version: in.Version, Contract: in.Contract}
-	ds, from, note := delivery.LifecycleDigests(q, stages)
+	ds, from, gap := delivery.LifecycleDigests(q, stages)
 	revs := describeAll(ctx, api, len(ds), func(i int) (*delivery.StageObject, string) { return from[i], ds[i] })
-	r, err := delivery.ResolveLifecycleDigest(q, revs)
+	r, note, err := delivery.ResolveLifecycleDigest(q, revs, delivery.LifecycleGaps(gap, l.Unreadable, l.Completeness != "complete"))
+	if miss := (*delivery.LifecycleMiss)(nil); errors.As(err, &miss) && miss.Definite {
+		return nil, Refuse(http.StatusNotFound, "LifecycleNotFound", err.Error())
+	}
 	if err != nil {
 		return nil, Refuse(http.StatusBadRequest, "LifecycleUnresolved", err.Error())
 	}
@@ -58,7 +65,7 @@ func (s *Server) deliveryLifecycle(ctx context.Context, in *lifecycleInput) (*li
 	}
 	lc := delivery.LifecycleOf(r, stages, read)
 	lc.AsOf, lc.Service, lc.Domain, lc.Unreadable, lc.Note = l.AsOf, in.Service, in.Domain, l.Unreadable, lc.Note+note
-	if len(lc.Unreadable) > 0 || l.Completeness != "complete" {
+	if len(lc.Unreadable) > 0 || l.Completeness != "complete" || note != "" {
 		lc.Completeness = "partial"
 	}
 	out := &lifecycleOutput{}

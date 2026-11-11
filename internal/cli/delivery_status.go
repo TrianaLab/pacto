@@ -190,7 +190,11 @@ func printProgress(out io.Writer, r delivery.StageRow) {
 	if p == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(out, "== %s/%s: %s\n  %s\n", r.Namespace, r.Stage, p.State, p.Summary)
+	state := p.State
+	if p.Completeness == "partial" {
+		state += " (partial: a reason may be missing)"
+	}
+	_, _ = fmt.Fprintf(out, "== %s/%s: %s\n  %s\n", r.Namespace, r.Stage, state, p.Summary)
 	for _, x := range p.Reasons {
 		_, _ = fmt.Fprintf(out, "  %s: %s\n", x.Code, x.Message)
 		if x.Fix != "" {

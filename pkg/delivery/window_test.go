@@ -265,6 +265,9 @@ func TestParseWhen(t *testing.T) {
 			t.Errorf("ParseWhen(%q) = %v, %v", c.in, got, err)
 		}
 	}
+	if _, err := ParseWhen("-2h", now); err == nil || err.Error() != `takes a positive duration before now, such as 2h: "-2h"` {
+		t.Fatalf("a negative duration would be a future bound: %v", err)
+	}
 	if _, err := ParseWhen("yesterday", now); err == nil || err.Error() != `takes an RFC 3339 time or a duration before now, such as 2h: "yesterday"` {
 		t.Fatalf("err = %v", err)
 	}

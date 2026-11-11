@@ -186,6 +186,11 @@ func TestPromoteOffer(t *testing.T) {
 			reason: "the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first"},
 		{name: "unguarded", status: ready(cand, ReadyReasonUnguarded), caller: rowCaller(ClassHuman), available: false,
 			reason: "the promoter admits no operation until the delivery admission policies are installed"},
+		{name: "not ready, no fix", status: func() StageStatus {
+			st := cand
+			st.Conditions = []Condition{{Type: ConditionReady, Status: "False", Reason: "Elsewhere", Message: "reading"}}
+			return st
+		}(), caller: rowCaller(ClassHuman), read: read, available: true, reason: "promotes 1.1.0; the Stage is not ready (Elsewhere): reading"},
 		{name: "applier not automated", status: ready(cand, ReadyReasonApplierNotAutomated), caller: rowCaller(ClassHuman), read: read, available: true,
 			reason: "promotes 1.1.0; the Stage is not ready (ApplierNotAutomated)"},
 		{name: "runs newest", status: StageStatus{Pointer: rowRun, Candidate: rowRun}, caller: rowCaller(ClassHuman), available: false,
@@ -195,6 +200,21 @@ func TestPromoteOffer(t *testing.T) {
 		{name: "no candidate, source broken", status: ready(StageStatus{}, ReadyReasonCandidateNotFound), caller: rowCaller(ClassHuman), available: false,
 			reason: "no eligible candidate while the Stage is not ready (CandidateNotFound)"},
 	})
+}
+
+// TestPromoteOfferStaleStatus: a status the promoter wrote for an older spec
+// offers no promote of the candidate it names.
+func TestPromoteOfferStaleStatus(t *testing.T) {
+	st := rowStage(LevelAdvise, StageStatus{Pointer: rowRun, Candidate: rowNext, ObservedGeneration: 1})
+	st.Metadata.Generation = 2
+	if o := offerOf(RowOf(st, RowInput{Caller: rowCaller(ClassHuman)}), "promote"); o.Available ||
+		o.Reason != "the promoter has not read the Stage's current spec yet, so its candidate may be out of date" {
+		t.Fatalf("stale promote offer %+v", o)
+	}
+	st.Status.ObservedGeneration = 2
+	if o := offerOf(RowOf(st, RowInput{Caller: rowCaller(ClassHuman)}), "promote"); !o.Available {
+		t.Fatalf("a current status offers its candidate: %+v", o)
+	}
 }
 
 func TestUnfreezeOffer(t *testing.T) {

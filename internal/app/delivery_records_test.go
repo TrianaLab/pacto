@@ -769,7 +769,7 @@ func TestFleetAuditNoNamespaces(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(gvrNamespaces.GroupResource(), "", errors.New("no"))
 	})
 	_, err := e.d.HistoryAll(context.Background(), "", delivery.ServiceRef{})
-	wantErrContaining(t, err, "name one with -n")
+	wantErrContaining(t, err, "name one namespace")
 }
 
 func TestAuditIsBounded(t *testing.T) {
@@ -910,6 +910,18 @@ func TestRecordFound(t *testing.T) {
 	}
 }
 
+// TestRecordShortID: the short id a text history prints names the record.
+func TestRecordShortID(t *testing.T) {
+	e := newRecordEnv(t)
+	_, r2 := e.twoRecords()
+	if v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2[:19]); err != nil || v.Record != r2 {
+		t.Fatalf("the short id names the record: %+v %v", v, err)
+	}
+	if _, err := e.d.Record(context.Background(), "prod", "payments-prod", r2[:12]); err == nil || !strings.Contains(err.Error(), "no record with id or prefix") {
+		t.Fatalf("a prefix shorter than a history prints is no id: %v", err)
+	}
+}
+
 // TestRecordViewOnlyFromStream: a record the recorder wrote that does not
 // verify is never shown as a record; the error points at history.
 func TestRecordViewOnlyFromStream(t *testing.T) {
@@ -925,9 +937,25 @@ func TestRecordViewOnlyFromStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := e.d.Record(context.Background(), "prod", "payments-prod", "sha256:unverified")
-	if err == nil || !strings.Contains(err.Error(), "is not in the stream of prod/payments-prod") ||
+	if err == nil || !strings.Contains(err.Error(), "no record with id or prefix sha256:unverified is in the stream of prod/payments-prod") ||
 		!strings.Contains(err.Error(), "listed as unverifiedRecord") || !strings.Contains(err.Error(), "records of the stream that could not be read or verified: 1") {
 		t.Fatalf("record only named by an Operation: %v", err)
+	}
+}
+
+func TestRecordAt(t *testing.T) {
+	rs := []delivery.StoredRecord{{ID: "sha256:abcdef0123456789"}, {ID: "sha256:abcdef012345aaaa"}, {ID: "sha256:ffff"}}
+	if i, err := recordAt(rs, "sha256:ffff", "prod/pay"); i != 2 || err != nil {
+		t.Fatalf("an exact id: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abcdef012345", "prod/pay"); i != -1 || err == nil || !strings.Contains(err.Error(), "is the start of 2 record ids in the stream of prod/pay") {
+		t.Fatalf("an ambiguous prefix: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abcdef0123456", "prod/pay"); i != 0 || err != nil {
+		t.Fatalf("a unique prefix: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abc", "prod/pay"); i != -1 || err == nil || !strings.Contains(err.Error(), "no record with id or prefix sha256:abc") {
+		t.Fatalf("too short a prefix: %d %v", i, err)
 	}
 }
 
