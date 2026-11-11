@@ -11,7 +11,7 @@ import { parse } from 'svelte/compiler';
 const fns = vi.hoisted(() => ({
   session: vi.fn(), inbox: vi.fn(), environments: vi.fn(), published: vi.fn(), history: vi.fn(),
   operation: vi.fn(), plan: vi.fn(), propose: vi.fn(), decide: vi.fn(), cancel: vi.fn(), signOut: vi.fn(),
-  blame: vi.fn(), undo: vi.fn(), refusals: vi.fn(), lifecycle: vi.fn(),
+  blame: vi.fn(), undo: vi.fn(), refusals: vi.fn(), lifecycle: vi.fn(), record: vi.fn(),
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
@@ -24,7 +24,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a), deliveryDecide: (...a: unknown[]) => fns.decide(...a),
       deliveryCancel: (...a: unknown[]) => fns.cancel(...a), signOut: () => fns.signOut(),
-      deliveryBlame: (...a: unknown[]) => fns.blame(...a), deliveryUndo: (...a: unknown[]) => fns.undo(...a),
+      deliveryBlame: (...a: unknown[]) => fns.blame(...a), deliveryUndo: (...a: unknown[]) => fns.undo(...a), deliveryRecord: (...a: unknown[]) => fns.record(...a),
       deliveryRefusals: () => fns.refusals(),
     },
   };
@@ -1564,7 +1564,7 @@ describe('history and published', () => {
           { seq: 70, operation: 'op70', type: 'delivery.pacto.trianalab.io/promote', from: D2, to: D1, actor: 'carol@example.com', outcome: 'Succeeded', verification: 'AcceptedUnknown',
             reason: 'AcceptedUnknown: AcceptedUnknown: carol accepted it', pointer: { before: D2, after: D1 }, approvals: [{ by: 'carol@example.com', decision: 'accept-unknown' }, { by: 'dave', decision: 'approve' }] },
           { seq: 69, operation: 'op69', type: 'delivery.pacto.trianalab.io/promote', to: D2, actor: 'bot', outcome: 'Failed', approvals: null },
-        ] },
+        ], undoOffers: { op70: { action: 'undo', available: true, reason: 'you may undo it', operation: 'op70', to: D2 } } },
     ] });
     fns.undo.mockReturnValue(new Promise(() => {}));
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', offset: '50', q: 'carol' });
@@ -1972,7 +1972,7 @@ describe('history blame and undo', () => {
         { seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', outcome: 'Succeeded',
           finished: '2026-10-21T11:00:05Z', kind: 'operation', record: REC, pointer: { before: D1, after: D2 } },
         { seq: 2, operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon', approvals: null },
-      ] },
+      ], undoOffers: { op1: { action: 'undo', available: true, reason: 'you may undo it', operation: 'op1', to: D1 } } },
     { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay', pointer: D1 }, entries: [] },
   ] });
 
@@ -2296,6 +2296,149 @@ describe('Unknown, proof, undo and autonomy', () => {
     const line = target.querySelector('[data-testid="history-autonomy"]') as HTMLElement;
     expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited only on an Unknown check');
     expect(text(line)).toContain('Counted from the changes shown here, and some histories are partial.');
+    destroy();
+  });
+});
+
+describe('history filters, columns, gated undo and records (B3)', () => {
+  const REC = 'sha256:' + 'a'.repeat(64);
+  const undo = (op: string, available: boolean, reason: string) => ({ action: 'undo', available, reason, operation: op, to: D1 });
+  const stageHistory = (over: Record<string, unknown> = {}) => ({ namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '',
+    stage: { name: 'pay', pointer: D2 }, entries: [
+      { seq: 2, operation: 'op2', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'carol', actorClass: 'human', outcome: 'Succeeded',
+        finished: '2026-11-10T11:00:00Z', applied: '2026-11-10T10:58:00Z', cause: { reason: 'error rate over budget' }, correlationID: 'inc-42', pointer: { before: D2, after: D1 } },
+      { seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'carol', actorClass: 'human', outcome: 'Succeeded',
+        finished: '2026-11-09T11:00:00Z', applied: '2026-11-09T10:59:00Z', cause: { reason: 'routine bump' }, correlationID: 'rel-7', kind: 'operation', record: REC, pointer: { before: D1, after: D2 } },
+      { seq: 0, operation: 'op0', type: 'delivery.pacto.trianalab.io/promote', to: D1, actor: 'carol', actorClass: 'human', outcome: 'Succeeded', pointer: { after: D1 } },
+    ], ...over });
+
+  beforeEach(() => { location.hash = ''; });
+
+  it('shows when each change applied, why and its correlation, and marks what is not signed', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [stageHistory()] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const head = [...target.querySelectorAll('section.hv-stage thead th')].map((th) => th.textContent?.trim());
+    expect(head).toEqual(['Change', 'Version', 'Asked by', 'Decided by', 'How it ended', 'When', 'Applied', 'Cause', 'Correlation', 'Record']);
+    const cell = (row: number, label: string) => target.querySelectorAll('section.hv-stage tbody tr')[row].querySelector(`td[data-label="${label}"]`) as HTMLElement;
+    // A line read from the Operation's status: its applied time, cause and correlation are not signed.
+    expect(text(cell(0, 'Applied')).trim()).toBe('2026-11-10 10:58 UTC from status, not signed');
+    expect(text(cell(0, 'Cause')).trim()).toBe('error rate over budget from status, not signed');
+    expect(text(cell(0, 'Correlation')).trim()).toBe('inc-42 from status, not signed');
+    // A recorded line carries no mark.
+    expect(text(cell(1, 'Cause')).trim()).toBe('routine bump');
+    expect(text(cell(1, 'Correlation')).trim()).toBe('rel-7');
+    expect(cell(1, 'Correlation').querySelector('[title="rel-7"]')).not.toBeNull();
+    // Nothing to mark when the line says nothing.
+    expect(text(cell(2, 'Cause')).trim()).toBe('–');
+    destroy();
+  });
+
+  it('keeps cause and correlation filters in the URL, the timeline columns and the service clear link', async () => {
+    const z = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, unverified: 0, released: 0, other: 0 };
+    const timeline = { start: '2026-11-08T00:00:00Z', end: '2026-11-08T04:00:00Z', totals: { ...z, other: 2 },
+      buckets: [{ start: '2026-11-08T00:00:00Z', end: '2026-11-08T02:00:00Z', ...z, other: 1 }, { start: '2026-11-08T02:00:00Z', end: '2026-11-08T04:00:00Z', ...z, other: 1 }] };
+    fns.history.mockResolvedValue({ ...listing, histories: [stageHistory({ entries: [] })], timeline, page: { total: 1, offset: 0, limit: 25 } });
+    const { target, destroy } = render(DeliveryHistoryView, { service: 'pay', cause: 'incident', correlationID: 'inc-42' });
+    await settle();
+    expect(fns.history).toHaveBeenCalledWith('', '', expect.objectContaining({ service: 'pay', cause: 'incident', correlationID: 'inc-42' }));
+    const col = target.querySelector('a.tl-n')?.getAttribute('href') ?? '';
+    expect(col).toContain('cause=incident');
+    expect(col).toContain('correlationID=inc-42');
+    const clear = (target.querySelector('[data-testid="delivery-service-filter"] a') as HTMLAnchorElement).getAttribute('href');
+    expect(clear).toBe('#/delivery/history?cause=incident&correlationID=inc-42');
+    // A Stage whose changes the filter drops stays listed, and says why it shows none.
+    expect(text(target)).toContain('None matches the filter');
+    // The filter form commits both fields to the URL.
+    const form = target.querySelector('[data-testid="history-filters"]') as HTMLFormElement;
+    const [causeIn, corrIn] = [...form.querySelectorAll('input')] as HTMLInputElement[];
+    expect([causeIn.value, corrIn.value]).toEqual(['incident', 'inc-42']);
+    causeIn.value = 'rollback'; causeIn.dispatchEvent(new Event('input'));
+    corrIn.value = ''; corrIn.dispatchEvent(new Event('input'));
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(location.hash).toBe('#/delivery/history?service=pay&cause=rollback');
+    destroy();
+  });
+
+  it('picks a window beside a timeline slice', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [stageHistory()] });
+    let r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', cause: 'x' });
+    await settle();
+    let sel = r.target.querySelector('[data-testid="history-window-select"]') as HTMLSelectElement;
+    expect(sel.value).toBe('all');
+    expect([...sel.options].map((o) => o.value)).toEqual(['24h', '7d', '30d', 'all']);
+    sel.value = '7d';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const since = new URLSearchParams(location.hash.split('?')[1]).get('since') ?? '';
+    expect(Math.abs(Date.now() - 7 * 864e5 - Date.parse(since))).toBeLessThan(5000);
+    expect(location.hash).toContain('cause=x');
+    r.destroy();
+    // A timeline slice is a custom window; choosing a window clears its until and timed.
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: '2026-11-08T02:00:00Z', until: '2026-11-08T04:00:00Z', timed: '1' });
+    await settle();
+    sel = r.target.querySelector('[data-testid="history-window-select"]') as HTMLSelectElement;
+    expect(sel.value).toBe('custom');
+    sel.value = 'all';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/delivery/history?namespace=prod&stage=pay');
+    r.destroy();
+  });
+
+  it('HistoryUndoGated: renders Undo only where undoOffers names the change, on one Stage', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [stageHistory({ undoOffers: {
+      op2: undo('op2', true, 'you may undo it'), op1: undo('op1', false, 'your Kubernetes RBAC does not let you create Operations in prod') } })] });
+    fns.undo.mockResolvedValue({ operation: 'prod/op2', kind: 'none', note: 'nothing to undo' });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    expect([...target.querySelectorAll('button[aria-label^="Undo"]')].map((b) => b.getAttribute('aria-label'))).toEqual(['Undo op2']);
+    const reasons = [...target.querySelectorAll('[data-testid="history-undo-reason"]')];
+    expect(reasons.map((x) => text(x as HTMLElement).trim())).toEqual(['No undo: your Kubernetes RBAC does not let you create Operations in prod']);
+    expect(reasons[0].getAttribute('title')).toBe('your Kubernetes RBAC does not let you create Operations in prod');
+    (target.querySelector('button[aria-label="Undo op2"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.undo).toHaveBeenCalledWith('prod', 'op2', 'pay');
+    expect(target.querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('HistoryUndoGated: every Stage of a service offers Undo on its newest change the same way', async () => {
+    const other = stageHistory({ namespace: 'test', undoOffers: { op2: undo('op2', false, 'the Stage is frozen') } });
+    fns.history.mockResolvedValue({ ...listing, page: { total: 2, offset: 0, limit: 25 }, histories: [stageHistory({ undoOffers: { op2: undo('op2', true, 'you may undo it') } }), other,
+      stageHistory({ namespace: 'dev' })] });
+    fns.undo.mockResolvedValue({ operation: 'prod/op2', kind: 'none', note: 'nothing to undo' });
+    const { target, destroy } = render(DeliveryHistoryView, { service: 'pay' });
+    await settle();
+    const summary = target.querySelector('[data-testid="history-summary"]') as HTMLElement;
+    expect([...summary.querySelectorAll('button[aria-label^="Undo"]')].map((b) => b.getAttribute('aria-label'))).toEqual(['Undo op2']);
+    expect(text(summary.querySelector('[data-testid="history-undo-reason"]') as HTMLElement).trim()).toBe('No undo: the Stage is frozen');
+    (summary.querySelector('button[aria-label="Undo op2"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.undo).toHaveBeenCalledWith('prod', 'op2', 'pay');
+    expect(summary.querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('opens a record with its verdicts, reason, approvals and how it was verified', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [stageHistory()] });
+    fns.record.mockResolvedValue({ namespace: 'prod', stage: 'pay', record: REC, verified: true, trust: 'sha256:t', asOf: listing.asOf,
+      entry: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'carol', actorClass: 'human', approvals: [{ by: 'erin', decision: 'approve' }] },
+      intentReason: 'routine bump', verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], note: 'read from the signed record in the registry, verified with trust config sha256:t',
+      versions: { [D1]: '1.0.0', [D2]: '2.0.0' } });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const btn = target.querySelector(`button[aria-label="Read record ${REC}"]`) as HTMLButtonElement;
+    btn.click();
+    await settle();
+    expect(fns.record).toHaveBeenCalledWith('prod', 'pay', REC);
+    const panel = target.querySelector('[data-testid="record-panel"]') as HTMLElement;
+    expect(text(panel)).toContain('Why: “routine bump”');
+    expect(text(panel)).toContain('Approve by erin');
+    expect(panel.querySelector('[data-testid="record-verdicts"]')).not.toBeNull();
+    expect(text(panel)).toContain('Read from the signed record in the registry, verified with trust config sha256:t.');
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(target.querySelector('[data-testid="record-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(btn);
     destroy();
   });
 });

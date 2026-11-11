@@ -5,6 +5,7 @@ import {
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, offerReason, lifecycleWords,
+  causeText, historyWindow, windowSince,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -374,5 +375,27 @@ describe('what a Stage row says', () => {
     expect(isCommand('pacto delivery approve -n prod op-1')).toBe(true);
     expect(isCommand('a person of team-a approves it themselves; you cannot answer it')).toBe(false);
     expect(isCommand(undefined)).toBe(false);
+  });
+});
+
+describe('history filters (B3)', () => {
+  it('says why a change was raised: its reason, else the check, else the change that caused it', () => {
+    expect(causeText({ reason: 'incident 42', operation: 'u1' })).toBe('incident 42');
+    expect(causeText({ operation: 'u1', verdict: { gate: 'pacto.health', message: 'error rate 9%' } })).toBe('pacto.health: error rate 9%');
+    expect(causeText({ verdict: { gate: 'pacto.health' } })).toBe('pacto.health');
+    expect(causeText({ operation: 'u1' })).toBe('operation u1');
+    expect(causeText(undefined)).toBe('');
+  });
+  it('names the window a URL holds, and custom for a timeline slice', () => {
+    const now = Date.parse('2026-11-11T12:00:00Z');
+    expect(historyWindow('', '', '', now)).toBe('all');
+    expect(historyWindow('2026-11-04T12:00:00Z', '', '', now)).toBe('7d');
+    expect(historyWindow('2026-11-10T12:00:00Z', '', '', now)).toBe('24h');
+    expect(historyWindow('2026-10-12T12:00:00Z', '', '', now)).toBe('30d');
+    expect(historyWindow('2026-11-11T08:00:00Z', '', '', now)).toBe('custom');
+    expect(historyWindow('2026-11-10T12:00:00Z', '2026-11-11T00:00:00Z', '', now)).toBe('custom');
+    expect(historyWindow('2026-11-10T12:00:00Z', '', '1', now)).toBe('custom');
+    expect(windowSince('7d', now)).toBe('2026-11-04T12:00:00Z');
+    expect(windowSince('all', now)).toBeUndefined();
   });
 });

@@ -244,6 +244,30 @@ export function installScaleFixture(): void {
         tl.buckets.forEach((b, i) => { b.released = 1200 + i * 37; b.failed = (i * 13) % 40; b.held = (i * 7) % 25; b.other = 300; });
         for (const k of ['released', 'failed', 'held', 'other']) tl.totals[k] = tl.buckets.reduce((n, b) => n + b[k], 0);
       }
+      // The History columns at their longest: every change's cause and correlation id,
+      // and undo offers with long reasons, every other one refused so both forms show.
+      // Operation names, record ids and hrefs stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        for (const en of (h.entries as Record<string, unknown>[] | undefined) ?? []) {
+          if (!en.operation) continue;
+          const c = (en.cause as Record<string, unknown> | undefined) ?? {};
+          const v = c.verdict as Record<string, unknown> | undefined;
+          if (v) v.message = longName(`verdict-${en.operation}`);
+          en.cause = { ...c, reason: longName(`cause-${en.operation}`) };
+          en.correlationID = longName(`correlation-${en.operation}`);
+        }
+        Object.values((h.undoOffers as Record<string, Record<string, unknown>> | undefined) ?? {}).forEach((o, i) => {
+          o.reason = longName(`undo-${o.operation}`);
+          if (i % 2) o.available = false;
+        });
+      }
+    }
+    // One record at its longest: many verdicts with long messages and citations.
+    if (route === '/api/delivery/record') {
+      const base = ((doc.verdicts as Record<string, unknown>[] | null) ?? [])[0] ?? { gate: 'pacto.diff', phase: 'pre', result: 'Pass' };
+      doc.verdicts = Array.from({ length: 12 }, (_, i) => ({ ...base, message: longName(`verdict-${i}`),
+        citation: Object.fromEntries(Array.from({ length: 6 }, (_, j) => [longName(`key-${i}-${j}`).slice(0, 40), longName(`value-${i}-${j}`)])) }));
+      if (typeof doc.intentReason === 'string') doc.intentReason = longName(doc.intentReason || 'reason');
     }
     // The publish figure at fleet scale: thousands of services and versions, and the
     // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
@@ -838,6 +862,29 @@ export const ROUTES: Route[] = [
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
+  {
+    name: 'history, one Stage, with the new columns and filters',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('section.hv-stage tbody tr').first()).toBeVisible({ timeout: 30_000 });
+      const [cause, corr] = await page.locator('[data-testid="history-filters"] input').all();
+      await cause.fill('reconciliation-settlement-ledger-export-worker-eu-west-partner-feed-compliance-archive');
+      await corr.fill('incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export');
+    },
+  },
+  {
+    name: 'history, every Stage, filtered by correlation id',
+    hash: '#/delivery/history?correlationID=incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export-worker',
+  },
+  {
+    name: 'history, record panel open',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await page.locator('button[aria-label^="Read record"]').first().click();
+      await expect(page.locator('[data-testid="record-verdicts"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },

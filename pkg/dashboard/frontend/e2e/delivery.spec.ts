@@ -128,7 +128,7 @@ function installDelivery(persona: Persona): void {
             { seq: 3, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
               outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c'), pointer: { before: D1, after: D2 } },
             { operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
-          ] },
+          ], undoOffers: { op1: { action: 'undo', available: true, reason: 'you may ask for it', operation: 'op1', to: D1 } } },
         { namespace: 'test', stage: { name: 'payments-test', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'status',
           note: 'read from the Operation objects that still exist; an operation deleted from the cluster is missing',
           entries: [{ seq: 4, operation: 'op5', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',

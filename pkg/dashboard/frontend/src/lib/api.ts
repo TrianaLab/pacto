@@ -86,6 +86,8 @@ export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
 export type DeliveryProgress = GetResponse<'/api/delivery/progress'>;
 /** One artifact's way through a service's Stages: published, signed, then per Stage. */
 export type DeliveryLifecycle = GetResponse<'/api/delivery/lifecycle'>;
+/** One record of a Stage's stream, with its verdicts and whether its signature was checked. */
+export type DeliveryRecord = GetResponse<'/api/delivery/record'>;
 /** The paging and filter a long delivery list takes, from the generated query. */
 export type DeliveryQuery<P extends keyof paths> =
   paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
@@ -504,6 +506,8 @@ export const api = {
     unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
   deliveryLifecycle: (query: DeliveryQuery<'/api/delivery/lifecycle'>): Promise<DeliveryLifecycle> =>
     unwrap(client.GET('/api/delivery/lifecycle', { params: { query } })),
+  deliveryRecord: (namespace: string, stage: string, id: string): Promise<DeliveryRecord> =>
+    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id } } })),
   deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),

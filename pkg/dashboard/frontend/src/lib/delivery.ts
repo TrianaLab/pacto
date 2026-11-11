@@ -665,3 +665,39 @@ export function progressStamp(state: string | undefined): { label: string; tone:
 export function isCommand(fix: string | undefined): boolean {
   return !!fix?.startsWith('pacto ');
 }
+
+/**
+ * causeText says why a change was raised, as its intent said: the reason, else the
+ * check whose verdict raised it, else the change that caused it.
+ */
+export function causeText(c: { reason?: string; operation?: string; verdict?: { gate: string; message?: string } | null } | null | undefined): string {
+  if (!c) return '';
+  if (c.reason) return c.reason;
+  if (c.verdict) return c.verdict.message ? `${c.verdict.gate}: ${c.verdict.message}` : c.verdict.gate;
+  return c.operation ? `operation ${c.operation}` : '';
+}
+
+/** The windows the history offers, as the time before now each keeps. */
+export const HISTORY_WINDOWS = [
+  { key: '24h', label: 'Last 24 hours', ms: 864e5 },
+  { key: '7d', label: 'Last 7 days', ms: 7 * 864e5 },
+  { key: '30d', label: 'Last 30 days', ms: 30 * 864e5 },
+] as const;
+
+/**
+ * historyWindow names the window a history URL holds: all with no since, custom for a
+ * timeline slice (until or timed) or a since no window names.
+ */
+export function historyWindow(since: string, until: string, timed: string, now = Date.now()): string {
+  if (until || timed) return 'custom';
+  if (!since) return 'all';
+  const age = now - Date.parse(since);
+  // ponytail: within a tenth of the window, so a page left open a while keeps its name; a since entered by hand that lands there reads as the window
+  return HISTORY_WINDOWS.find((w) => Math.abs(age - w.ms) <= w.ms / 10)?.key ?? 'custom';
+}
+
+/** windowSince is the RFC 3339 since a window keeps changes from; none for all. */
+export function windowSince(key: string, now = Date.now()): string | undefined {
+  const w = HISTORY_WINDOWS.find((x) => x.key === key);
+  return w ? new Date(now - w.ms).toISOString().replace(/\.\d+Z$/, 'Z') : undefined;
+}
