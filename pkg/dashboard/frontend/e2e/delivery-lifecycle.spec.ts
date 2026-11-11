@@ -101,19 +101,31 @@ test.describe('delivery lifecycle in the demo', () => {
     await audit(page, 'service page, observed strip beside Stages');
   });
 
-  test('history filters by correlation id, and a record reads in its panel', async ({ page }) => {
-    // The every-Stage view keeps each Stage and says when none of its changes match.
+  test('history filters by correlation id and cause, and a record reads in its panel', async ({ page }) => {
+    // The every-Stage view keeps each Stage: prod/payments shows the change B1's
+    // ticket names, and every other Stage says none of its changes match.
     await page.goto('/#/delivery/history');
     const filters = page.getByTestId('history-filters');
-    await expect(page.getByTestId('history-summary')).toBeVisible({ timeout: T });
-    await filters.getByLabel('Correlation id').fill('incident-4711');
+    const summary = page.getByTestId('history-summary');
+    await expect(summary).toBeVisible({ timeout: T });
+    await filters.getByLabel('Correlation id').fill('CHG-2041');
     await filters.getByRole('button', { name: 'Filter' }).click();
-    await expect(page).toHaveURL(/correlationID=incident-4711/);
-    await expect(page.getByTestId('history-summary').getByText('None matches the filter').first()).toBeVisible({ timeout: T });
-    await expect(page.getByTestId('history-summary').getByText('Rejected')).toHaveCount(0);
+    await expect(page).toHaveURL(/correlationID=CHG-2041/);
+    await expect(summary.locator('[data-stage="prod/payments"] a[href*="payments-promote-2"]')).toBeVisible({ timeout: T });
+    await expect(summary.locator('[data-stage="test/payments"]')).toContainText('None matches the filter');
+    await expect(summary.getByText('Rejected')).toHaveCount(0);
     await filters.getByRole('link', { name: 'Clear cause and correlation' }).click();
     await expect(page).not.toHaveURL(/correlationID=/);
-    await expect(page.getByTestId('history-summary').getByText('Rejected').first()).toBeVisible({ timeout: T });
+    await expect(summary.getByText('Rejected').first()).toBeVisible({ timeout: T });
+
+    // One Stage, by cause: the failed health check's rollback and step-down.
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+    const rows = page.locator('section.hv-stage tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: T });
+    await filters.getByLabel('Cause').fill('error ratio');
+    await filters.getByRole('button', { name: 'Filter' }).click();
+    await expect(page).toHaveURL(/cause=error/);
+    await expect(rows).toHaveCount(2, { timeout: T });
 
     // One Stage: a record id opens the record panel with its verdicts.
     await page.goto('/#/delivery/history?namespace=prod&stage=payments');

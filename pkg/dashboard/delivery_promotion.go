@@ -28,7 +28,7 @@ type InboxEnvironment struct {
 // something waits are listed; the empty environment (a Stage the caller
 // cannot read) comes last.
 func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem, frozen []delivery.StageObject) []InboxEnvironment {
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	envOf := func(it InboxItem) string {
 		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
 			return st.Spec.Environment

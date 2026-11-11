@@ -55,7 +55,7 @@ func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*deliver
 		out.Unreadable = append(out.Unreadable, "operations in "+ns+": "+err.Error())
 	}
 	read := d.describedAll(ctx, stages)
-	byStage := stagesByName(w.All)
+	byStage := delivery.StagesByName(w.All)
 	for i, st := range stages {
 		row := delivery.RowOf(st, delivery.RowInput{Held: heldOn(ops[st.Metadata.Namespace], st.Metadata.Name),
 			HeldUnknown: opsErr[st.Metadata.Namespace] != nil, Caller: caller, Read: read, WithService: true})
@@ -84,15 +84,6 @@ func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*deliver
 type blameRead struct {
 	b   *delivery.Blame
 	err error
-}
-
-// stagesByName indexes Stages by namespace/name.
-func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObject {
-	out := map[string]*delivery.StageObject{}
-	for i := range stages {
-		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
-	}
-	return out
 }
 
 // inPromotionOrder sorts stages by service, then their environment's place in
@@ -158,7 +149,7 @@ func heldOn(ops []delivery.OperationObject, stage string) int {
 }
 
 // describedAll reads what each pointer and candidate of stages carries,
-// describeParallel at once.
+// delivery.DescribeParallel at once.
 func (d *Delivery) describedAll(ctx context.Context, stages []delivery.StageObject) map[string]delivery.Described {
 	var ask []string
 	from := map[string]*delivery.StageObject{}

@@ -876,7 +876,7 @@ export const ROUTES: Route[] = [
   },
   {
     name: 'history, every Stage, filtered by correlation id',
-    hash: '#/delivery/history?correlationID=incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export-worker',
+    hash: '#/delivery/history?correlationID=CHG-2041',
   },
   {
     name: 'history, record panel open',

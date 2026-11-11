@@ -170,7 +170,7 @@ func TestPromotionGraph(t *testing.T) {
 	remote.Spec.Candidates.UpstreamRecords = &delivery.RemoteStage{Repository: "r", Stream: "c/n/s"}
 	stages := []delivery.StageObject{node("prod-us", "staging", "svc"), node("staging", "dev", "svc"), node("prod-eu", "staging", "svc"), dev,
 		remote, node("lonely", "", ""), node("orphan", "nowhere", "svc"), node("a", "b", "svc"), node("b", "a", "svc")}
-	g := promotionGraph(stages, stagesByName(stages), Listing{everywhere: true})
+	g := promotionGraph(stages, delivery.StagesByName(stages), Listing{everywhere: true})
 	var got []string
 	for _, n := range g.Nodes {
 		s := fmt.Sprintf("%s@%d:%s", n.Environment, n.Level, n.Upstream.Kind)
@@ -193,12 +193,12 @@ func TestPromotionGraph(t *testing.T) {
 	expect(t, g.Nodes[0].Upstream.Problem == "outOfScope", "scoped: %+v", g.Nodes[0])
 	// An upstream of another service names its environment but draws no edge.
 	other := fed("test", "other", "", "")
-	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, stagesByName([]delivery.StageObject{other}), Listing{everywhere: true})
+	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, delivery.StagesByName([]delivery.StageObject{other}), Listing{everywhere: true})
 	expect(t, g.Nodes[0].Upstream.Environment == "test" && len(g.Edges) == 0, "outside the graph: %+v", g)
 	// A Stage that names itself waits on itself: a cycle, never a feed from
 	// another service.
 	self := []delivery.StageObject{node("prod", "prod", "svc")}
-	g = promotionGraph(self, stagesByName(self), Listing{everywhere: true})
+	g = promotionGraph(self, delivery.StagesByName(self), Listing{everywhere: true})
 	expect(t, g.Nodes[0].Upstream.Problem == "self" && g.Nodes[0].Cycle && len(g.Edges) == 0, "self: %+v", g)
 }
 

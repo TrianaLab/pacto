@@ -351,7 +351,7 @@ func TestDescribeAll(t *testing.T) {
 			t.Errorf("out[%d] = %s", i, r.Digest)
 		}
 	}
-	if most.Load() > describeParallel {
+	if most.Load() > DescribeParallel {
 		t.Errorf("%d at once", most.Load())
 	}
 }
@@ -543,5 +543,12 @@ func TestStageStateWord(t *testing.T) {
 		if got := StageStateWord(state); got != word {
 			t.Errorf("%s: got %q, want %q", state, got, word)
 		}
+	}
+}
+
+func TestStagesByName(t *testing.T) {
+	stages := []StageObject{rowStage(LevelAdvise, StageStatus{})}
+	if by := StagesByName(stages); len(by) != 1 || by["prod/payments"] != &stages[0] {
+		t.Fatalf("index %v", by)
 	}
 }

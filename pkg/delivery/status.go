@@ -334,15 +334,26 @@ func StageStateWord(state string) string {
 	return state
 }
 
-// describeParallel is how many digests DescribeAll reads at once: each read
-// goes to a registry.
-const describeParallel = 8
+// StagesByName indexes Stages by namespace/name.
+func StagesByName(stages []StageObject) map[string]*StageObject {
+	out := map[string]*StageObject{}
+	for i := range stages {
+		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+	}
+	return out
+}
 
-// DescribeAll describes n digests, describeParallel at once; at(i) names the
+// DescribeParallel is how many reads run at once (DescribeAll, NarrowOffers
+// and the dashboard's listings and history reads): a read goes to a registry
+// or the apiserver, so a page of fifty one after another took fifty round
+// trips.
+const DescribeParallel = 8
+
+// DescribeAll describes n digests, DescribeParallel at once; at(i) names the
 // Stage to read the i-th from and its digest. out[i] answers at(i).
 func DescribeAll(ctx context.Context, n int, at func(int) (*StageObject, string), describe func(context.Context, *StageObject, string) Revision) []Revision {
 	out := make([]Revision, n)
-	sem := make(chan struct{}, describeParallel)
+	sem := make(chan struct{}, DescribeParallel)
 	var wg sync.WaitGroup
 	for i := range n {
 		sem <- struct{}{}
@@ -456,7 +467,7 @@ func CreateOperations(can func(ctx context.Context, verb, resource, ns string) (
 }
 
 // NarrowOffers asks, once per namespace with something available and
-// describeParallel at once, whether the caller's RBAC lets them create an
+// DescribeParallel at once, whether the caller's RBAC lets them create an
 // Operation there. Where it does not, or the review fails, every available
 // offer becomes unavailable with the reason and actions is emptied: a review
 // that fails never means yes.
@@ -471,7 +482,7 @@ func NarrowOffers(ctx context.Context, rows []*StageRow, can CanCreate) {
 		}
 	}
 	refused := make([]string, len(asked))
-	sem := make(chan struct{}, describeParallel)
+	sem := make(chan struct{}, DescribeParallel)
 	var wg sync.WaitGroup
 	for i, ns := range asked {
 		sem <- struct{}{}

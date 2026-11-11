@@ -95,13 +95,13 @@ func operations(ctx context.Context, api DeliveryAPI, ns string, want bool) ([]d
 	return api.Operations(ctx, ns)
 }
 
-// listEach lists each namespace, describeParallel at once (one after
+// listEach lists each namespace, delivery.DescribeParallel at once (one after
 // another, a person who reads forty namespaces waited on eighty round trips
 // in a row), dropping (and naming) one that refuses.
 func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	sts, oss, errs := make([][]delivery.StageObject, len(namespaces)), make([][]delivery.OperationObject, len(namespaces)), make([]error, len(namespaces))
 	var g errgroup.Group
-	g.SetLimit(describeParallel)
+	g.SetLimit(delivery.DescribeParallel)
 	for i, ns := range namespaces {
 		g.Go(func() error {
 			if sts[i], errs[i] = api.Stages(ctx, ns); errs[i] == nil {
@@ -269,7 +269,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = l
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -322,7 +322,7 @@ func ofService(stages []delivery.StageObject, ops []delivery.OperationObject, se
 		return stages, ops
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return delivery.OfService(st, service, domain) })
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	return stages, filter(ops, func(o delivery.OperationObject) bool { return byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil })
 }
 
@@ -367,15 +367,6 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
 	return answerRefusal(op, caller, it.Decision) == "" ||
 		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != op.Spec.Actor.User
-}
-
-// stagesByName indexes Stages by namespace/name.
-func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObject {
-	out := map[string]*delivery.StageObject{}
-	for i := range stages {
-		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
-	}
-	return out
 }
 
 // EnvironmentRow is one Stage: one service in one environment, as the
@@ -494,7 +485,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 			heldName[o.Metadata.Namespace+"/"+o.Spec.Stage] = o.Metadata.Name
 		}
 	}
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	stages = filter(stages, func(st delivery.StageObject) bool {
 		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
 	})
@@ -1051,7 +1042,7 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 // keep keeps, by time and kind (B7): reading every Stage's signed records for
 // a fleet figure would read every record stream on every poll.
 func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time, keep delivery.EntryFilter) *delivery.HistoryTimeline {
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	var entries []delivery.HistoryEntry
 	for _, o := range ops {
 		if e := delivery.StatusEntry(o); byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil && keep.Keeps(e) {
@@ -1062,7 +1053,7 @@ func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObje
 	return new(delivery.Timeline(entries, start, end))
 }
 
-// historiesOf reads the history of each target, describeParallel at once: on
+// historiesOf reads the history of each target, delivery.DescribeParallel at once: on
 // a cluster each one lists the Stage's changes and reads a record stream, so a
 // page of 25 read one after another was 50 round trips in a row. read says the
 // targets came from the apiserver, so the host is handed them instead of
@@ -1070,7 +1061,7 @@ func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObje
 func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, read bool) ([]*delivery.History, []error) {
 	hs, errs := make([]*delivery.History, len(targets)), make([]error, len(targets))
 	var g errgroup.Group
-	g.SetLimit(describeParallel)
+	g.SetLimit(delivery.DescribeParallel)
 	for i, t := range targets {
 		g.Go(func() error {
 			var listed *delivery.StageObject
@@ -1134,11 +1125,6 @@ func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery
 	}
 	return into
 }
-
-// describeParallel is how many reads run at once: a Describe reads a
-// registry, so a page of fifty read one after another took fifty round
-// trips; the host caches what it read, so a refresh is cheap either way.
-const describeParallel = 8
 
 // describeAll describes n digests at once (delivery.DescribeAll); at(i)
 // names the Stage to read the i-th from and its digest. out[i] answers at(i).
@@ -1234,11 +1220,11 @@ func (s *Server) revisionLabels(ctx context.Context, read map[string]delivery.De
 }
 
 // undoOffers adds to each row the offer to undo the change its Stage runs,
-// one history read per row, describeParallel at once. rows[i] is shown[i].
+// one history read per row, delivery.DescribeParallel at once. rows[i] is shown[i].
 func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObject, rows []EnvironmentRow, caller delivery.Caller) {
 	offers := make([]*delivery.Offer, len(rows))
 	var g errgroup.Group
-	g.SetLimit(describeParallel)
+	g.SetLimit(delivery.DescribeParallel)
 	for i := range rows {
 		g.Go(func() error {
 			b, err := api.Blame(ctx, rows[i].Namespace, rows[i].Stage, "")
