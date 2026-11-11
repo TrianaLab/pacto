@@ -4,7 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
-  exceptParam, exceptList,
+  exceptParam, exceptList, offerLabel, checkText, watchText,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -317,5 +317,27 @@ describe('entityMiraURL', () => {
     expect(entityMiraURL({ miraURL: 'https://m', auth: { hidden: true } })).toBe('');
     expect(entityMiraURL(undefined)).toBe('');
     expect(entityMiraURL(null)).toBe('');
+  });
+});
+
+describe('what a Stage row says', () => {
+  it('names each offer', () => {
+    expect(offerLabel('promote')).toBe('Promote');
+    expect(offerLabel('unfreeze')).toBe('Unfreeze');
+    expect(offerLabel('freeze')).toBe('Freeze');
+    expect(offerLabel('undo')).toBe('Undo');
+    expect(offerLabel('other')).toBe('other');
+  });
+  it('says when the newest re-check ran and what it found, and when it is stale', () => {
+    expect(checkText({ at: '2026-11-04T09:58:00Z', result: 'Unknown', current: true })).toBe('Re-checked 2026-11-04 09:58 UTC, Unknown');
+    expect(checkText({ at: '2026-11-04T09:58:00Z', result: 'Pass', current: false })).toBe('Re-checked 2026-11-04 09:58 UTC, Pass, stale: about an earlier version');
+    expect(checkText(undefined)).toBe('');
+  });
+  it('never reads an old re-check as a pass about the running version', () => {
+    expect(watchText({ status: 'Unknown', reason: 'NotRechecked' })).toBe('Not re-checked since it shipped');
+    expect(watchText({ status: 'True', reason: 'Rechecked' })).toBe('Watched: the newest re-check passed');
+    expect(watchText({ status: 'False', reason: 'RecheckFailed' })).toBe('The newest re-check failed');
+    expect(watchText({ status: 'Unknown', reason: 'RecheckUnknown' })).toBe('The newest re-check could not decide');
+    expect(watchText(undefined)).toBe('');
   });
 });

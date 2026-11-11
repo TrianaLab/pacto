@@ -269,7 +269,7 @@ describe('environments', () => {
 
   it('shows each service in each environment and plans before proposing', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'test', stage: 'pay-test', version: '', pointer: '', verified: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: [] }] });
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Held', question: 'ok?', floor: { owners: ['team-checkout'] }, conflicts: ['other'], verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'POTENTIAL_BREAKING' } }] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Held', question: 'ok?', floor: { owners: ['team-checkout'] }, conflicts: ['other'], next: ['A person of team-checkout approves it, then the promoter applies it.'], verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'POTENTIAL_BREAKING' } }] });
     fns.propose.mockRejectedValueOnce(new ApiError(409, 'moved', 'PlanStale', { intentDigest: 'sha256:j', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' }));
     fns.propose.mockResolvedValueOnce({ operation: { metadata: { name: 'new-op', namespace: 'prod' } } });
     const { target, destroy } = render(DeliveryEnvironmentsView);
@@ -304,6 +304,8 @@ describe('environments', () => {
     expect(panel.closest('tr.ev-plan-row')).not.toBeNull();
     expect(text(panel as HTMLElement)).toContain('It would wait for a person to decide.');
     expect(text(panel as HTMLElement)).toContain('Only team-checkout may answer it.');
+    // Every propose flow shows what happens next, the board's included.
+    expect(text(panel.querySelector('[data-testid="plan-next"]') as HTMLElement)).toContain('A person of team-checkout approves it, then the promoter applies it.');
     (panel.querySelector('form') as HTMLFormElement).requestSubmit();
     await settle();
     expect(fns.propose).toHaveBeenLastCalledWith(expect.objectContaining({ intentDigest: 'sha256:i' }));

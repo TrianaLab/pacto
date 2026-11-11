@@ -3,7 +3,7 @@
  * decision a person left behind when a fresh login took them to the identity
  * provider.
  */
-import type { DeliveryDecision, DeliveryOperation } from './api.ts';
+import type { DeliveryDecision, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -587,4 +587,30 @@ export function proposalText(level: string | undefined, proposal: { level?: stri
   const n = proposal.evidence?.length ?? 0;
   const what = level === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
   return `Pacto proposes ${levelLabel(proposal.level)}: ${n} ${what}, no incident.`;
+}
+
+const OFFERS: Record<DeliveryOffer['action'], string> = { promote: 'Promote', unfreeze: 'Unfreeze', freeze: 'Freeze', undo: 'Undo' };
+
+/** offerLabel names an action a Stage row offers. */
+export function offerLabel(action: string): string {
+  return OFFERS[action as DeliveryOffer['action']] ?? action;
+}
+
+/**
+ * checkText says when the newest re-check of a Stage ran and its worst
+ * verdict. A check about an earlier version or change reads stale: its age
+ * comes from when it ran, never from now.
+ */
+export function checkText(c: { at?: string; result?: string; current?: boolean } | null | undefined): string {
+  if (!c) return '';
+  return `Re-checked ${timeLabel(c.at)}, ${c.result}${c.current ? '' : ', stale: about an earlier version'}`;
+}
+
+const WATCH: Record<string, string> = { True: 'Watched: the newest re-check passed', False: 'The newest re-check failed' };
+
+/** watchText says whether the running version still passes its re-checks. */
+export function watchText(w: { status?: string; reason?: string } | null | undefined): string {
+  if (!w) return '';
+  if (w.reason === 'NotRechecked') return 'Not re-checked since it shipped';
+  return WATCH[w.status ?? ''] ?? 'The newest re-check could not decide';
 }

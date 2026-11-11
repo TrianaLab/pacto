@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
-  import { typeLabel, predictionLabel, shortDigest } from '../lib/delivery.ts';
+  import { typeLabel, predictionLabel, shortDigest, sentence, timeLabel, outcomeTone } from '../lib/delivery.ts';
   import VerdictList from './VerdictList.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -60,6 +60,29 @@
     {#if plan.question}<p class="t-body-2">The question a person would be asked: {plan.question}</p>{/if}
     {#if plan.floor?.owners?.length}<p class="t-body-2">Only {plan.floor.owners.join(' or ')} may answer it.</p>{/if}
     {#if plan.conflicts?.length}<p class="t-body-2">In the way: {plan.conflicts.join(', ')}</p>{/if}
+    {#if plan.next?.length}
+      <div data-testid="plan-next"><p class="t-body-2"><strong>What happens next</strong></p>
+        <ol class="pp-list t-body-2">{#each plan.next as line, i (i)}<li>{line}</li>{/each}</ol></div>
+    {/if}
+    {#if plan.order?.moveFirst?.length || plan.order?.unknown?.length}
+      <div data-testid="plan-order"><p class="t-body-2"><strong>What must move first</strong></p>
+        <ul class="pp-list t-body-2">
+          {#each plan.order.moveFirst ?? [] as m, i (i)}<li><bdi>{m.message}</bdi></li>{/each}
+          {#each plan.order.unknown ?? [] as u, i (i)}<li class="pp-unknown">Not known: <bdi>{u}</bdi></li>{/each}
+        </ul></div>
+    {/if}
+    {#if plan.precedent}
+      <div data-testid="plan-precedent"><p class="t-body-2"><strong>Earlier changes to this version</strong>{#if plan.precedent.completeness === 'partial'} <span class="t-meta">(partial: some records could not be read)</span>{/if}</p>
+        {#if plan.precedent.entries?.length}
+          <ul class="pp-list t-body-2">
+            {#each plan.precedent.entries as e (e.stream + e.seq)}
+              <li><span class="badge {outcomeTone(e.outcome)}">{e.outcome}</span> {typeLabel(e.type)}{#if e.finished}, {timeLabel(e.finished)}{/if}{#if e.reason}: <bdi>{e.reason}</bdi>{/if}</li>
+            {/each}
+          </ul>
+        {:else}<p class="t-body-2">None recorded.</p>{/if}
+        {#if plan.precedent.note}<p class="t-meta">{sentence(plan.precedent.note)}</p>{/if}
+      </div>
+    {/if}
     <VerdictList verdicts={plan.verdicts ?? []} {miraURL} testid="plan-verdicts" />
     <form class="pp-form" onsubmit={propose}>
       <label class="pp-field">
@@ -81,6 +104,8 @@
   .pp h3:focus { outline: none; }
   .pp p { margin: 0; }
   .pp-moved { color: var(--c-warn); }
+  .pp-list { margin: var(--sp-1) 0 0; padding-inline-start: var(--sp-4); overflow-wrap: anywhere; }
+  .pp-unknown { color: var(--c-text-2); }
   .pp-form { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pp-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); color: var(--c-text-2); }
   .pp-btns { display: flex; gap: var(--sp-2); }

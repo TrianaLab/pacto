@@ -91,6 +91,7 @@ export type DeliveryPlan = components['schemas']['Delivery.PlanAnswer'];
 export type DeliveryRequest = components['schemas']['Delivery.Request'];
 export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
 export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict'];
+export type DeliveryOffer = components['schemas']['Delivery.Offer'];
 export type InboxItem = components['schemas']['InboxItem'];
 export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 

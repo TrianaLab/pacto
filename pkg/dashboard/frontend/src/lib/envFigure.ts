@@ -44,6 +44,14 @@ export function rowState(r: Row): (typeof ENV_STATES)[number] {
   return ENV_STATES.find((s) => s.key === key)!;
 }
 
+/**
+ * The word for a Stage state, as EnvMark names it. unknown is the status-only state
+ * (a CLI or MCP walk that could not read the Stage's operations); the board never has it.
+ */
+export function envStateWord(key: string): string {
+  return ENV_STATES.find((s) => s.key === key)?.word ?? 'not known: its operations could not be read';
+}
+
 /** Stations per fleet figure: 7 and their 6 arrows stay under 20 marks (S2); the eighth is "N more". */
 export const MAX_ENV_STATIONS = 7;
 
@@ -162,6 +170,16 @@ export function sourceProblem(r: Pick<Row, 'namespace' | 'stage' | 'upstream'>):
   if (!r.upstream) return '';
   const s = sourceOf({ namespace: r.namespace, stage: r.stage, upstream: r.upstream } as GNode, false, true);
   return s?.kind === 'unknown' ? `${s.label}: ${s.sub}` : '';
+}
+
+/**
+ * upstreamText is where a row's Stage takes its candidates from, when that source is
+ * sound; a source with a problem is sourceProblem's to say, so a row never says it twice.
+ */
+export function upstreamText(r: Pick<Row, 'namespace' | 'stage' | 'upstream'>): string {
+  if (!r.upstream) return '';
+  const s = sourceOf({ namespace: r.namespace, stage: r.stage, upstream: r.upstream } as GNode, false, true);
+  return s && s.kind !== 'unknown' ? `Source: ${s.label}, ${s.sub}` : '';
 }
 
 export function promotionModel(service: string, graph: Graph, rows: Row[]) {

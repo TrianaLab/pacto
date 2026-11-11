@@ -5,10 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
 
-const environments = vi.hoisted(() => vi.fn());
+const { environments, plan, undo } = vi.hoisted(() => ({ environments: vi.fn(), plan: vi.fn(), undo: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { ...actual.api, deliveryEnvironments: (...a: unknown[]) => environments(...a) } };
+  return { ...actual, api: { ...actual.api, deliveryEnvironments: (...a: unknown[]) => environments(...a),
+    deliveryPlan: (...a: unknown[]) => plan(...a), deliveryUndo: (...a: unknown[]) => undo(...a) } };
 });
 
 import { ApiError } from '../lib/api.ts';
@@ -18,8 +19,8 @@ import ServiceDelivery from './ServiceDelivery.svelte';
 const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
 const row = (over = {}) => ({ service: 'orders', namespace: 'prod', stage: 'orders', environment: 'prod', pointer: D1, version: '2.4.0',
-  verified: false, failed: false, frozen: false, autoHold: false, held: 0, actions: [], ...over });
-const answer = (rows: unknown[]) => ({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', environments: rows,
+  verified: false, failed: false, frozen: false, autoHold: false, held: 0, actions: [], offers: [], state: 'unverified', ...over });
+const answer = (rows: unknown[], over = {}) => ({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', environments: rows, ...over,
   page: { offset: 0, limit: 1, total: rows.length ? 1 : 0 }, environmentNames: [], environmentTiers: {}, counts: { failed: 0, frozen: 0, waiting: 0 } });
 
 async function settle() {
@@ -36,7 +37,7 @@ function render(props: Record<string, unknown>) {
 }
 
 describe('ServiceDelivery', () => {
-  beforeEach(() => { environments.mockReset(); });
+  beforeEach(() => { environments.mockReset(); plan.mockReset(); undo.mockReset(); });
 
   it.each([
     ['unknown', 'Checking whether this dashboard serves delivery.'],
@@ -157,6 +158,133 @@ describe('ServiceDelivery', () => {
     await settle();
     expect(environments).toHaveBeenCalledTimes(1);
     expect(v.target.textContent).toContain('2.4.0');
+    v.destroy();
+  });
+  it('a partial listing with no rows never says the service has no Stages', async () => {
+    environments.mockResolvedValue(answer([], { completeness: 'partial', unreadable: ['team-a: forbidden'] }));
+    const v = render({});
+    await settle();
+    const t = v.target.textContent ?? '';
+    expect(t).toContain('No Stages of this service that you can see');
+    expect(t).toContain('team-a: forbidden');
+    expect(t).not.toContain('No Stages for this service');
+    expect(t).toContain('2026-11-04 10:00 UTC');
+    v.destroy();
+  });
+
+  it('a partial listing with rows says some may be missing', async () => {
+    environments.mockResolvedValue(answer([row()], { completeness: 'partial', unreadable: ['team-b'] }));
+    const v = render({});
+    await settle();
+    const note = v.target.querySelector('[data-testid="service-delivery-partial"]')!;
+    expect(note.textContent).toContain('team-b');
+    expect(v.target.textContent).toContain('2.4.0');
+    v.destroy();
+  });
+
+  it('marks each Stage with its state; a Stage with no pointer reads running nothing yet', async () => {
+    environments.mockResolvedValue(answer([row({ pointer: '', version: '', state: 'empty' }), row({ stage: 'o2', environment: 'qa', state: 'verified', verified: true })]));
+    const v = render({});
+    await settle();
+    const marks = [...v.target.querySelectorAll('[data-testid="env-state-mark"]')];
+    expect(marks.map((m) => m.getAttribute('data-state'))).toEqual(['empty', 'verified']);
+    expect(v.target.textContent).toContain('running nothing yet');
+    v.destroy();
+  });
+
+  it('offers available actions as buttons and unavailable ones disabled with the reason in text', async () => {
+    environments.mockResolvedValue(answer([row({ candidate: D2, candidateVersion: '2.5.0', offers: [
+      { action: 'promote', available: true, reason: 'a newer candidate is verified upstream', to: D2 },
+      { action: 'freeze', available: false, reason: 'your Kubernetes RBAC does not let you create Operations in prod' },
+    ] })]));
+    plan.mockResolvedValue({ type: 'delivery.pacto.trianalab.io/promote', predicted: 'Held', intentDigest: 'sha256:i', next: ['A person approves it.'] });
+    const v = render({});
+    await settle();
+    const buttons = [...v.target.querySelectorAll<HTMLButtonElement>('[data-testid="service-delivery-offer"]')];
+    expect(buttons.map((b) => [b.textContent?.trim(), b.disabled])).toEqual([['Promote', false], ['Freeze', true]]);
+    expect(v.target.textContent).toContain('Freeze: your Kubernetes RBAC does not let you create Operations in prod');
+    buttons[0].click();
+    await settle();
+    expect(plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'orders', type: 'delivery.pacto.trianalab.io/promote', to: D2, from: D1 });
+    expect(v.target.querySelector('[data-testid="plan-next"]')?.textContent).toContain('A person approves it.');
+    v.destroy();
+  });
+
+  it('undo opens the undo panel for the operation it undoes', async () => {
+    environments.mockResolvedValue(answer([row({ offers: [{ action: 'undo', available: true, reason: 'undo the change that shipped 2.4.0', operation: 'op-7', to: D2 }] })]));
+    undo.mockResolvedValue({ kind: 'none', note: 'nothing to undo' });
+    const v = render({});
+    await settle();
+    (v.target.querySelector('[data-testid="service-delivery-offer"]') as HTMLButtonElement).click();
+    await settle();
+    expect(undo).toHaveBeenCalledWith('prod', 'op-7', 'orders');
+    expect(v.target.querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    v.destroy();
+  });
+
+  it('links the version to its fleet revision and the contract it names', async () => {
+    environments.mockResolvedValue(answer([row({ revision: 'registry.example/story/orders@sha256:abc', contractRef: 'registry.example/story/orders@sha256:abc', sourceRevision: '0f1e2d' })]));
+    const v = render({});
+    await settle();
+    const r = v.target.querySelector('[data-testid="service-delivery-row"]')!;
+    expect(r.querySelector('a')?.getAttribute('href')).toBe('#/fleet/revisions/' + encodeURIComponent('registry.example/story/orders@sha256:abc'));
+    expect(r.textContent).toContain('0f1e2d');
+    expect(r.textContent).toContain('an annotation, not signed');
+    expect(r.textContent).not.toMatch(/\bunsigned\b/);
+    v.destroy();
+  });
+
+  it('says ? waiting when the operations could not be read, and links held changes to the Inbox', async () => {
+    environments.mockResolvedValue(answer([row({ heldUnknown: true }), row({ stage: 'o2', environment: 'qa', held: 2 })]));
+    const v = render({ domain: 'ghcr.io/a' });
+    await settle();
+    expect(v.target.textContent).toContain('? waiting');
+    const held = [...v.target.querySelectorAll('a')].find((a) => a.textContent?.includes('2 waiting'));
+    expect(held?.getAttribute('href')).toBe('#/delivery/inbox?service=orders&domain=ghcr.io%2Fa');
+    v.destroy();
+  });
+
+  it('shows readyFix or the source problem, never both', async () => {
+    environments.mockResolvedValue(answer([
+      row({ ready: 'False: CandidateUnverified', readyMessage: 'the OCIRepository verifies no publisher', readyFix: 'set spec.verify on the OCIRepository',
+        upstream: { kind: 'artifact', problem: 'unverified', repository: 'orders-repo' } }),
+      row({ stage: 'o2', environment: 'qa', ready: 'True', upstream: { kind: 'artifact', problem: 'missing', repository: 'gone-repo' } }),
+    ]));
+    const v = render({});
+    await settle();
+    const [a, b] = [...v.target.querySelectorAll('[data-testid="service-delivery-row"]')];
+    expect(a.textContent).toContain('OCIRepository verifies no publisher');
+    expect(a.textContent).toContain('Fix: Set spec.verify on the OCIRepository');
+    expect(a.textContent).not.toContain('Unverified artifacts');
+    expect(b.textContent).toContain('Missing artifacts');
+    v.destroy();
+  });
+
+  it('shows the newest re-check and whether it is about the running version', async () => {
+    environments.mockResolvedValue(answer([row({
+      lastCheck: { at: '2026-11-04T09:58:00Z', current: false, digest: D2, result: 'Unknown', verdicts: [{ gate: 'pacto.runtime', phase: 'verify', result: 'Unknown', message: 'no metrics' }] },
+      watched: { status: 'Unknown', reason: 'NotRechecked' },
+    })]));
+    const v = render({});
+    await settle();
+    const t = v.target.textContent ?? '';
+    expect(t).toContain('Re-checked 2026-11-04 09:58 UTC, Unknown, stale');
+    expect(t).toContain('Not re-checked since it shipped');
+    // The verdicts mount once the check is opened.
+    expect(t).not.toContain('no metrics');
+    const d = v.target.querySelector('details.sd-check') as HTMLDetailsElement;
+    d.open = true;
+    d.dispatchEvent(new Event('toggle'));
+    await settle();
+    expect(v.target.textContent).toContain('no metrics');
+    v.destroy();
+  });
+
+  it('links an observe Stage to what Pacto would have done', async () => {
+    environments.mockResolvedValue(answer([row({ level: 'observe', shadow: [{ candidate: D2, predicted: 'Proceeds' }] })]));
+    const v = render({});
+    await settle();
+    expect([...v.target.querySelectorAll('a')].some((a) => a.getAttribute('href') === '#/delivery/autonomy?service=orders')).toBe(true);
     v.destroy();
   });
 });

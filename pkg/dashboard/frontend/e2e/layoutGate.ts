@@ -207,6 +207,15 @@ export function installScaleFixture(): void {
           upstream: i ? [longName(`prod-${i - 1}`)] : [],
         }));
       }
+      // The Stage rows' free text at its longest (the service page reads it per row);
+      // keys, digests and hrefs stay the engine's.
+      for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
+        if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+        for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
+        const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
+        for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+      }
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -272,8 +281,19 @@ export function installScaleFixture(): void {
     walk(doc);
   };
 
+  // A service page asks delivery for its service by the page's (lengthened) label: ask
+  // the engine for the name it knows, and the rows come back under the long name.
+  const engineName = (path: string): string => {
+    const [route, query = ''] = path.split('?');
+    const q = new URLSearchParams(query);
+    const asked = q.get('service');
+    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+    if (!short) return path;
+    q.set('service', short);
+    return `${route}?${q}`;
+  };
   const wrapped: Serve = async (method, path, body) => {
-    const res = await (real as Serve)(method, path, body);
+    const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -708,6 +728,12 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
+const serviceWithStages = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-delivery-row"]').first()).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -763,6 +789,8 @@ export const ROUTES: Route[] = [
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+  { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
+  { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
