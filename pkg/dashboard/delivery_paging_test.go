@@ -415,9 +415,9 @@ func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
 	by, _ := publishedDigests(stages, "", "", "")
 	got := map[string]string{}
 	for svc, vs := range by {
-		got[svc+"/run"] = vs[dRun].Signature
+		got[svc.Service+"/run"] = vs[dRun].Signature
 		if v := vs[dNext]; v != nil {
-			got[svc+"/next"] = v.Signature
+			got[svc.Service+"/next"] = v.Signature
 		}
 	}
 	want := map[string]string{"entry/run": "unsigned", "entry/next": "signed", "capped/run": "unknown",
@@ -425,6 +425,21 @@ func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
 	expect(t, maps.Equal(got, want), "%v", got)
 	c := countPublished(by)
 	expect(t, c.UnsignedServices == 1 && c.UnknownServices == 3 && c.Unsigned == 1 && c.Unknown == 3 && fmt.Sprint(c.FirstUnsigned) == "[entry]", "%+v", c)
+}
+
+// A service whose Stages name two domains is listed once per domain, so the
+// lifecycle of each version asks the domain its Stages name.
+func TestPublishedServicePerDomain(t *testing.T) {
+	plain, scoped := stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun}), stage("test", "payments", "payments", delivery.StageStatus{Pointer: dNext})
+	scoped.Spec.Service.Domain = "acme"
+	by, _ := publishedDigests([]delivery.StageObject{plain, scoped}, "", "", "")
+	expect(t, len(by) == 2 && by[publishedKey{"payments", ""}][dRun] != nil && by[publishedKey{"payments", "acme"}][dNext] != nil, "%v", by)
+	f := sampleCluster("acme:team-checkout")
+	f.stages = []delivery.StageObject{plain, scoped}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published", nil)
+	svcs := pub["services"].([]any)
+	expect(t, len(svcs) == 2 && svcs[0].(map[string]any)["domain"] == nil && svcs[1].(map[string]any)["domain"] == "acme", "%v", svcs)
 }
 
 // Autonomy: Stages per level over every page, every level present, a level

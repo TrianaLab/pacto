@@ -49,8 +49,8 @@
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const href = (off, lim) => deliveryPublishUrl({ q, signed, ...keep, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   // A version's lifecycle opens under its row: no fleet revision is known here, so the
-  // panel asks /api/delivery/lifecycle by artifact digest. Without a domain filter the
-  // default domain is asked, which a Stage that names no domain matches.
+  // panel asks /api/delivery/lifecycle by artifact digest, in the domain the service's
+  // Stages name (the server lists a service once per domain).
   let lifecycle = $state({});
 
   // Publishes Pacto refused, for whoever supervises: the check that refused
@@ -171,12 +171,13 @@
     {:else if services.length === 0}
       <div class="state-box"><h2>Nothing published yet</h2><p>No environment you can see knows a version. Publish one with <code>pacto publish</code>.</p></div>
     {:else}
-      {#each services as svc (svc.service)}
-        <section class="pv-svc" aria-labelledby={`pv-${svc.service}`}>
-          <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a></h2>
+      {#each services as svc (svc.service + '@' + (svc.domain ?? ''))}
+        {@const id = svc.domain ? `${svc.service}@${svc.domain}` : svc.service}
+        <section class="pv-svc" aria-labelledby={`pv-${id}`}>
+          <h2 id={`pv-${id}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a>{#if svc.domain}{' '}<span class="t-meta"><bdi>{svc.domain}</bdi></span>{/if}</h2>
           <ul class="pl-list">
-            {#each open[svc.service] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
-              {@const sk = `${svc.service}@${v.digest}`}
+            {#each open[id] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
+              {@const sk = `${id}@${v.digest}`}
               {@const stages = stagesFirst(v.stages)}
               <li class="pl-row pl-row--stack pv-row">
                 <!-- One line per version: digests short with a copy button, and where it runs as a
@@ -204,11 +205,11 @@
                     {/each}
                   </p>
                 {/if}
-                {#if lifecycle[sk]}<DeliveryLifecycle query={{ service: svc.service, domain: keep.domain ?? '', digest: v.digest }} />{/if}
+                {#if lifecycle[sk]}<DeliveryLifecycle query={{ service: svc.service, domain: svc.domain ?? '', digest: v.digest }} />{/if}
               </li>
             {/each}
           </ul>
-          {#if (svc.versions?.length ?? 0) > VERSIONS}<button type="button" class="btn btn-sm pv-more" aria-expanded={!!open[svc.service]} onclick={() => { open[svc.service] = !open[svc.service]; }}>{open[svc.service] ? 'Show fewer' : `Show all ${formatCount(svc.versions.length)} versions`}</button>{/if}
+          {#if (svc.versions?.length ?? 0) > VERSIONS}<button type="button" class="btn btn-sm pv-more" aria-expanded={!!open[id]} onclick={() => { open[id] = !open[id]; }}>{open[id] ? 'Show fewer' : `Show all ${formatCount(svc.versions.length)} versions`}</button>{/if}
         </section>
       {/each}
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="published-pager" />

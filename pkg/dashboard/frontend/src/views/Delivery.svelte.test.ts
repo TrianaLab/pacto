@@ -822,7 +822,7 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
   });
 
   it('narrows published versions to one service, keeps signed on its links, says what a source revision is and opens a version\'s lifecycle', async () => {
-    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', domain: 'ghcr.io/a', versions: [
       { digest: D2, version: '2.0.0', signature: 'signed', sourceRevision: 'abc123def', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
     ] }] });
     fns.lifecycle.mockResolvedValue({ ...listing, service: 'payments', digest: D2, version: '2.0.0', signature: 'signed', signedOn: ['test/pay'], note: '', sourceRevision: 'abc123def', stages: [
@@ -851,6 +851,20 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
     expect(text(lc)).toContain('not reached');
     expect(text(lc)).toContain('verified: not known');
     expect(text(lc)).toContain('not seen in the history read (partial)');
+    destroy();
+  });
+
+  it('lists a service once per domain its Stages name and asks each version\'s lifecycle in that domain', async () => {
+    const v = (digest: string) => ({ digest, version: '2.0.0', signature: 'signed', stages: [] });
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [v(D1)] }, { service: 'payments', domain: 'ghcr.io/a', versions: [v(D2)] }] });
+    fns.lifecycle.mockResolvedValue({ ...listing, service: 'payments', digest: D2, signature: 'signed', signedOn: [], note: '', stages: [] });
+    const { target, destroy } = render(DeliveryPublishView, {});
+    await settle();
+    const sections = [...target.querySelectorAll('section.pv-svc')] as HTMLElement[];
+    expect(sections.map((s) => text(s.querySelector('h2') as HTMLElement))).toEqual(['payments', 'payments ghcr.io/a']);
+    (sections[1].querySelector('button[aria-label="Lifecycle of payments 2.0.0"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.lifecycle).toHaveBeenCalledWith({ service: 'payments', domain: 'ghcr.io/a', digest: D2 });
     destroy();
   });
 });

@@ -595,7 +595,16 @@ type PublishedOnStages struct {
 // PublishedService is the versions of one service.
 type PublishedService struct {
 	Service  string             `json:"service"`
+	Domain   string             `json:"domain,omitempty" doc:"The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain"`
 	Versions []PublishedVersion `json:"versions"`
+}
+
+// publishedKey is one PublishedService: a service name and the domain its
+// Stages name.
+type publishedKey struct{ Service, Domain string }
+
+func comparePublished(a, b publishedKey) int {
+	return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Domain, b.Domain))
 }
 
 // publishedPage is how many services one page of published versions holds.
@@ -661,7 +670,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 			delete(byService, svc)
 		}
 	}
-	names := slices.Sorted(maps.Keys(byService))
+	names := slices.SortedFunc(maps.Keys(byService), comparePublished)
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
 	names, out.Body.Page = pageOf(names, in.Offset, in.Limit, publishedPage)
 	var page []*PublishedVersion
@@ -675,7 +684,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 		v.Contract, v.Version, v.SourceRevision = revs[i].ContractRef, version(ctx, revs[i]), revs[i].SourceRevision
 	}
 	for _, svc := range names {
-		ps := PublishedService{Service: svc, Versions: []PublishedVersion{}}
+		ps := PublishedService{Service: svc.Service, Domain: svc.Domain, Versions: []PublishedVersion{}}
 		for _, v := range byService[svc] {
 			ps.Versions = append(ps.Versions, *v)
 		}
@@ -704,9 +713,9 @@ func signatureLane(vs map[string]*PublishedVersion) string {
 }
 
 // countPublished counts the versions of byService by their signature.
-func countPublished(byService map[string]map[string]*PublishedVersion) PublishedCounts {
+func countPublished(byService map[publishedKey]map[string]*PublishedVersion) PublishedCounts {
 	c := PublishedCounts{FirstUnsigned: []string{}}
-	for _, svc := range slices.Sorted(maps.Keys(byService)) {
+	for _, svc := range slices.SortedFunc(maps.Keys(byService), comparePublished) {
 		vs := byService[svc]
 		if len(vs) == 0 {
 			continue
@@ -725,7 +734,7 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 		case delivery.SignatureUnsigned:
 			c.UnsignedServices++
 			if len(c.FirstUnsigned) < 4 {
-				c.FirstUnsigned = append(c.FirstUnsigned, svc)
+				c.FirstUnsigned = append(c.FirstUnsigned, svc.Service)
 			}
 		case delivery.SignatureUnknown:
 			c.UnknownServices++
@@ -736,17 +745,17 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 }
 
 // publishedDigests groups every digest the Stages of services matching q,
-// service and domain remember by service, with the Stage to read each one's
-// artifact from.
-func publishedDigests(stages []delivery.StageObject, q, service, domain string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
-	byService = map[string]map[string]*PublishedVersion{}
+// service and domain remember by service and the domain its Stages name,
+// with the Stage to read each one's artifact from.
+func publishedDigests(stages []delivery.StageObject, q, service, domain string) (byService map[publishedKey]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
+	byService = map[publishedKey]map[string]*PublishedVersion{}
 	readFrom = map[*PublishedVersion]*delivery.StageObject{}
 	evidence := map[*PublishedVersion]*delivery.SignatureEvidence{}
 	for i := range stages {
 		st := &stages[i]
 		ss := st.Status
-		svc := st.Spec.Service.Name
-		if !matches(q, svc) || !delivery.OfService(*st, service, domain) {
+		svc := publishedKey{st.Spec.Service.Name, st.Spec.Service.Domain}
+		if !matches(q, svc.Service) || !delivery.OfService(*st, service, domain) {
 			continue
 		}
 		if byService[svc] == nil {

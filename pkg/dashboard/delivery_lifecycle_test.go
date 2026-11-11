@@ -117,7 +117,7 @@ func TestLifecycleSignatureMatchesPublished(t *testing.T) {
 	}
 	byService, _ := publishedDigests(stages, "", "", "")
 	for _, d := range []string{dRun, dNext, dOld} {
-		want := byService["payments"][d].Signature
+		want := byService[publishedKey{Service: "payments"}][d].Signature
 		if got := delivery.LifecycleOf(delivery.Revision{Digest: d}, stages, nil).Signature; got != want {
 			t.Errorf("%s: lifecycle %s, publish %s", d, got, want)
 		}

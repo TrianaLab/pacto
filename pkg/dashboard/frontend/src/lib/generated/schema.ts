@@ -4581,6 +4581,8 @@ export interface components {
             unreadable?: string[] | null;
         };
         PublishedService: {
+            /** @description The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain */
+            domain?: string;
             service: string;
             versions: components["schemas"]["PublishedVersion"][] | null;
         };
