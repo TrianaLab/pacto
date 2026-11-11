@@ -1384,7 +1384,7 @@ func revisionFleet(t *testing.T, revs ...fleet.RawRevision) func(context.Context
 	var targets []fleet.RawTarget
 	for _, r := range revs {
 		name := r.Bundle.Contract.Service.Name
-		targets = append(targets, fleet.RawTarget{Scope: map[string]string{"payments": "prod"}[name] + name, Kind: "kubernetes-workload", Name: name, Service: name})
+		targets = append(targets, fleet.RawTarget{Scope: cmp.Or(map[string]string{"payments": "prod"}[name], name), Kind: fleet.SourceKindKubernetes, Name: name, Service: name})
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: revs, Targets: targets}))
 	if err != nil {
@@ -1472,11 +1472,14 @@ func TestLabelsRevisionsRestricted(t *testing.T) {
 	f.contract = "oci://r/payments@" + dContract
 	f.history = &delivery.History{Stage: delivery.StageNow{Pointer: dRun}}
 	auth := (&authed{state: AuthState{SignedIn: true}}).auth(false, true)
-	hidden := func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
-		return q.Restrict(func(ns string) bool { return ns != "prod" && ns != "" }), nil
+	hide := func(hidden ...string) func(context.Context, *fleet.Query) (*fleet.Query, error) {
+		return func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+			return q.Restrict(func(ns string) bool { return !slices.Contains(hidden, ns) }), nil
+		}
 	}
 	for name, o := range map[string]Options{
-		"hidden":   {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hidden, Auth: auth},
+		"namespace hidden": {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod"), Auth: auth},
+		"cluster hidden":   {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod", ""), Auth: auth},
 		"no fleet": {Auth: auth},
 	} {
 		base := startDeliveryWith(t, f, o, true, nil)
