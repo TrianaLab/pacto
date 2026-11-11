@@ -1480,7 +1480,7 @@ func TestLabelsRevisionsRestricted(t *testing.T) {
 	for name, o := range map[string]Options{
 		"namespace hidden": {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod"), Auth: auth},
 		"cluster hidden":   {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod", ""), Auth: auth},
-		"no fleet": {Auth: auth},
+		"no fleet":         {Auth: auth},
 	} {
 		base := startDeliveryWith(t, f, o, true, nil)
 		_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
