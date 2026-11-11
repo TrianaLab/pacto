@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -414,7 +415,7 @@ func TestUndoOffer(t *testing.T) {
 			"a robot caller may not raise the promote back"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			o := UndoOffer(c.status, c.e, c.caller)
+			o := UndoOffer(StageObject{Spec: StageSpec{StartLevel: LevelAdvise}, Status: c.status}, c.e, c.caller)
 			if o.Action != "undo" || o.Available != c.ok || o.Reason != c.reason || o.Operation != "ship-1" {
 				t.Fatalf("offer %+v", o)
 			}
@@ -425,15 +426,31 @@ func TestUndoOffer(t *testing.T) {
 	}
 }
 
+// TestUndoOfferObserveBeforeReconcile: a Stage that reports no status.level
+// reads its level as the promoter does (CurrentLevel), so a promote back on a
+// Stage that starts in observe, or names no level at all, is never offered.
+func TestUndoOfferObserveBeforeReconcile(t *testing.T) {
+	moved := StageStatus{Pointer: rowNext, LastOp: "uid-9"}
+	e := undoEntry(TypePromote, rowOld, rowRun, "uid-1")
+	for name, spec := range map[string]StageSpec{"startLevel observe": {StartLevel: LevelObserve}, "no level": {}} {
+		if o := UndoOffer(StageObject{Spec: spec, Status: moved}, e, rowCaller(ClassHuman)); o.Available || !strings.HasPrefix(o.Reason, "the Stage observes") {
+			t.Fatalf("%s: %+v", name, o)
+		}
+	}
+	if o := UndoOffer(StageObject{Spec: StageSpec{StartLevel: LevelAdvise}, Status: moved}, e, rowCaller(ClassHuman)); !o.Available {
+		t.Fatalf("startLevel advise: %+v", o)
+	}
+}
+
 func TestUndoOfferForBlame(t *testing.T) {
-	human, running := rowCaller(ClassHuman), StageStatus{Pointer: rowRun, LastOp: "uid-1"}
+	human, running := rowCaller(ClassHuman), StageObject{Spec: StageSpec{StartLevel: LevelAdvise}, Status: StageStatus{Pointer: rowRun, LastOp: "uid-1"}}
 	if o := UndoOfferFor(running, nil, errors.New("forbidden"), human); o == nil || o.Available || o.Reason != "could not read its history: forbidden" {
 		t.Fatalf("error %+v", o)
 	}
 	if o := UndoOfferFor(running, nil, nil, human); o != nil {
 		t.Fatalf("nil blame %+v", o)
 	}
-	if o := UndoOfferFor(StageStatus{}, &Blame{}, nil, human); o == nil || o.Available || o.Reason != "the Stage runs nothing yet" {
+	if o := UndoOfferFor(StageObject{}, &Blame{}, nil, human); o == nil || o.Available || o.Reason != "the Stage runs nothing yet" {
 		t.Fatalf("no pointer %+v", o)
 	}
 	if o := UndoOfferFor(running, &Blame{Note: "the history is partial"}, nil, human); o == nil || o.Available || o.Reason != "the history is partial" {

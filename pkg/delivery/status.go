@@ -349,11 +349,12 @@ func DescribeAll(ctx context.Context, n int, at func(int) (*StageObject, string)
 	return out
 }
 
-// UndoOffer is whether caller may undo the change e on a Stage in status. It
+// UndoOffer is whether caller may undo the change e on the Stage st. It
 // mirrors UndoOf and applies the rollback-only admission rules only to the
 // change the Stage runs. It never says rollback: GET /api/delivery/undo or
 // pacto delivery undo decides between a rollback and a promote back.
-func UndoOffer(status StageStatus, e HistoryEntry, caller Caller) Offer {
+func UndoOffer(st StageObject, e HistoryEntry, caller Caller) Offer {
+	status := st.Status
 	o := Offer{Action: "undo", Operation: e.Operation}
 	if e.Pointer != nil {
 		o.To = e.Pointer.Before
@@ -366,7 +367,7 @@ func UndoOffer(status StageStatus, e HistoryEntry, caller Caller) Offer {
 	case status.Pointer == e.Pointer.After && (e.OperationUID == "" || status.LastOp == e.OperationUID):
 		o.Available, o.Reason = undoRunning(status, e, caller.Class)
 	default:
-		o.Available, o.Reason = undoMovedOn(status, e.Pointer.Before, caller.Class)
+		o.Available, o.Reason = undoMovedOn(st, e.Pointer.Before, caller.Class)
 	}
 	return o
 }
@@ -396,7 +397,8 @@ func undoRunning(status StageStatus, e HistoryEntry, class ActorClass) (bool, st
 
 // undoMovedOn is the undo of a change the Stage no longer runs: a promote
 // back to the version it replaced, through every gate.
-func undoMovedOn(status StageStatus, before string, class ActorClass) (bool, string) {
+func undoMovedOn(st StageObject, before string, class ActorClass) (bool, string) {
+	status := st.Status
 	switch {
 	case before == "":
 		return false, undoFirstVersion
@@ -404,7 +406,7 @@ func undoMovedOn(status StageStatus, before string, class ActorClass) (bool, str
 		return false, "the Stage already runs " + short(before) + ", the version it replaced"
 	case slices.Contains(status.FailedDigests, before):
 		return false, undoFailed
-	case status.Level == LevelObserve:
+	case CurrentLevel(st.Spec, status) == LevelObserve:
 		return false, "the Stage observes: GitOps owns the applyRef, so going back is a promote it refuses; propose an autonomy change to advise first"
 	case !MayRaise(TypePromote, class, false):
 		return false, classPhrase(class) + " may not raise the promote back"
@@ -417,22 +419,22 @@ const (
 	undoFailed       = "the version it replaced failed here, and Pacto never goes back to a failed version"
 )
 
-// UndoOfferFor is the undo offer of the change a Stage runs, from its blame
+// UndoOfferFor is the undo offer of the change the Stage st runs, from its blame
 // (b, or err when its history could not be read); nil when there is no
 // blame to read.
-func UndoOfferFor(status StageStatus, b *Blame, err error, caller Caller) *Offer {
+func UndoOfferFor(st StageObject, b *Blame, err error, caller Caller) *Offer {
 	o := &Offer{Action: "undo"}
 	switch {
 	case err != nil:
 		o.Reason = "could not read its history: " + err.Error()
 	case b == nil:
 		return nil
-	case status.Pointer == "":
+	case st.Status.Pointer == "":
 		o.Reason = "the Stage runs nothing yet"
 	case b.Change == nil:
 		o.Reason = b.Note
 	default:
-		*o = UndoOffer(status, *b.Change, caller)
+		*o = UndoOffer(st, *b.Change, caller)
 	}
 	return o
 }

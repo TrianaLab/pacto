@@ -59,7 +59,7 @@ func (d *Delivery) Status(ctx context.Context, q delivery.StatusQuery) (*deliver
 	for i, st := range stages {
 		row := delivery.RowOf(st, delivery.RowInput{Held: heldOn(ops[st.Metadata.Namespace], st.Metadata.Name),
 			HeldUnknown: opsErr[st.Metadata.Namespace] != nil, Caller: caller, Read: read, WithService: true})
-		if o := delivery.UndoOfferFor(st.Status, blames[i].b, blames[i].err, caller); o != nil {
+		if o := delivery.UndoOfferFor(st, blames[i].b, blames[i].err, caller); o != nil {
 			row.Offers = append(row.Offers, *o)
 		}
 		row.Upstream = delivery.UpstreamListed(&stages[i], byStage, w.read, "")

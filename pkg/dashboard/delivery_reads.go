@@ -963,7 +963,7 @@ func historyUndoOffers(ctx context.Context, api DeliveryAPI, targets []delivery.
 		rows[i] = &delivery.StageRow{Namespace: hs[i].Namespace}
 		for _, e := range hs[i].Entries {
 			if e.Operation != "" && e.Pointer != nil && e.Pointer.After != "" {
-				rows[i].Offers = append(rows[i].Offers, delivery.UndoOffer(targets[i].Status, e, caller))
+				rows[i].Offers = append(rows[i].Offers, delivery.UndoOffer(targets[i], e, caller))
 			}
 		}
 	}
@@ -1220,7 +1220,7 @@ func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObje
 	for i := range rows {
 		g.Go(func() error {
 			b, err := api.Blame(ctx, rows[i].Namespace, rows[i].Stage, "")
-			offers[i] = delivery.UndoOfferFor(shown[i].Status, b, err, caller)
+			offers[i] = delivery.UndoOfferFor(shown[i], b, err, caller)
 			return nil
 		})
 	}
