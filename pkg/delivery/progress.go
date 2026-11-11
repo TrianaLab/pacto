@@ -159,8 +159,13 @@ func (p *progress) unfreezeFix() string {
 	switch {
 	case !p.commands():
 		return ""
-	case p.mayPropose(TypeUnfreeze) && mayUnfreeze(in.Caller, in.Team):
-		return p.propose(`--type unfreeze --reason "<why>"`)
+	case MayRaise(TypeUnfreeze, in.Caller.Class, false) && mayUnfreeze(in.Caller, in.Team):
+		if p.mayPropose(TypeUnfreeze) {
+			return p.propose(`--type unfreeze --reason "<why>"`)
+		}
+		// Admission would take it from this caller: only RBAC refuses, or
+		// could not be asked (NotPermitted, RBACUnknown).
+		return "you may unfreeze it once your Kubernetes RBAC lets you create Operations in " + p.ns
 	case in.Team != "":
 		return "a person of " + in.Team + " or break-glass unfreezes it"
 	case in.Caller.Policy.RequireOwnerTeam:
@@ -279,7 +284,14 @@ func (p *progress) planReasons() {
 		}
 		p.add("PlanHeld", strings.TrimSuffix("a person must decide the promote: "+pl.Question, ": "), fix)
 	case PredictWaits:
-		p.add("PlanWaits", "the promote would wait: "+strings.Join(pl.Conflicts, "; "), "")
+		// A freeze is already a Frozen reason with its fix; the plan's
+		// StageFrozen conflict would say it twice.
+		conflicts := slices.DeleteFunc(slices.Clone(pl.Conflicts), func(c string) bool {
+			return in.Stage.Status.Frozen && strings.HasPrefix(c, "StageFrozen")
+		})
+		if len(conflicts) > 0 || len(pl.Conflicts) == 0 {
+			p.add("PlanWaits", strings.TrimSuffix("the promote would wait: "+strings.Join(conflicts, "; "), ": "), "")
+		}
 	}
 }
 

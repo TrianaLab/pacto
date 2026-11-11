@@ -137,6 +137,12 @@ func TestProgressOf(t *testing.T) {
 			in: ProgressInput{Stage: progStage(LevelAutonomous, nil), Plan: progPlan(PredictRejected, func(p *Plan) { p.Conflicts = []string{"PointerMoved"} })}},
 		{name: "plan waits", state: "blocked", codes: []string{"PlanWaits"},
 			in: ProgressInput{Stage: progStage(LevelAutonomous, nil), Plan: progPlan(PredictWaits, func(p *Plan) { p.Conflicts = []string{"Busy"} })}},
+		{name: "frozen autonomous: the freeze once, not again as PlanWaits", state: "blocked", codes: []string{"Frozen"}, auto: "frozen",
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen, s.FrozenReason = true, "Errored" }),
+				Plan: progPlan(PredictWaits, func(p *Plan) { p.Conflicts = []string{"StageFrozen: Errored"} })}},
+		{name: "frozen autonomous with another conflict", state: "blocked", codes: []string{"Frozen", "PlanWaits"}, auto: "frozen",
+			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen = true }),
+				Plan: progPlan(PredictWaits, func(p *Plan) { p.Conflicts = []string{"StageFrozen: Errored", "Busy"} })}},
 		{name: "plan error", state: "unknown", codes: []string{"PlanUnknown"},
 			in: ProgressInput{Stage: progStage(LevelAutonomous, nil), PlanErr: "registry down"}},
 		{name: "not planned", state: "unknown", codes: []string{"PlanUnknown"},
@@ -254,6 +260,11 @@ func TestProgressOfUnfreezeFixNeedsTeam(t *testing.T) {
 	out := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-ledger"), Team: "team-payments", Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(out, "Frozen"); anyCommand(out, "propose -n prod --stage payments --type unfreeze") || r.Fix != "a person of team-payments or break-glass unfreezes it" {
 		t.Errorf("outside the team: %+v", r)
+	}
+	no := false
+	rbac := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", MayCreate: &no, Plan: progPlan(PredictHeld, nil)})
+	if r := reasonOf(rbac, "Frozen"); r.Fix != "you may unfreeze it once your Kubernetes RBAC lets you create Operations in prod" {
+		t.Errorf("in the team, RBAC refuses: %+v", r)
 	}
 	in := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(in, "Frozen"); r.Fix != `pacto delivery propose -n prod --stage payments --type unfreeze --reason "<why>"` {
