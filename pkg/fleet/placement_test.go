@@ -130,3 +130,9 @@ func TestPlacementLine(t *testing.T) {
 		}
 	}
 }
+
+func TestPlacementHeading(t *testing.T) {
+	if PlacementHeading(CompletenessComplete) != "Runs in (observed)" || PlacementHeading(CompletenessPartial) != "Runs in (observed, targets Pacto can see)" {
+		t.Errorf("headings %q %q", PlacementHeading(CompletenessComplete), PlacementHeading(CompletenessPartial))
+	}
+}

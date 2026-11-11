@@ -589,11 +589,7 @@ func printPlacement(w io.Writer, p fleet.PlacementPreview, c fleet.Completeness)
 	if p.Total == 0 {
 		return
 	}
-	heading := "Runs in (observed):"
-	if c == fleet.CompletenessPartial {
-		heading = "Runs in (observed, targets Pacto can see):"
-	}
-	_, _ = fmt.Fprintln(w, heading)
+	_, _ = fmt.Fprintln(w, fleet.PlacementHeading(c)+":")
 	for _, e := range p.Items {
 		_, _ = fmt.Fprintf(w, "  %s\n", e.Line())
 	}

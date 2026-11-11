@@ -243,7 +243,7 @@ func TestRenderServiceDetailWithAllFields(t *testing.T) {
 			},
 		},
 	}
-	renderServiceDetail(&b, s)
+	renderServiceDetail(&b, s, fleet.CompletenessComplete)
 	out := b.String()
 	if !strings.Contains(out, "example.com") || !strings.Contains(out, "team-a") {
 		t.Fatalf("missing expected content:\n%s", out)
@@ -607,7 +607,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		HiddenRequirements:    1,
 		Signature:             &fleet.BundleSignature{Status: fleet.SignatureUnsigned},
 		Instantiate:           &fleet.TemplateInstantiation{CLI: "pacto init <name> --from oci://r/p@sha256:x --owner <team>"},
-	}})
+	}}, fleet.CompletenessComplete)
 	out := b.String()
 	for _, want := range []string{"Golden path", "unsigned", "dockerfile: A Dockerfile", "3 (0 unresolved)", "3", "pacto init <name> --from oci://r/p@sha256:x"} {
 		if !strings.Contains(out, want) {
@@ -615,7 +615,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}})
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}}, fleet.CompletenessComplete)
 	if !strings.Contains(b.String(), "no digest-pinned reference") || !strings.Contains(b.String(), "not-checked") {
 		t.Errorf("a golden path with no pinned reference gives the reason:\n%s", b.String())
 	}
@@ -629,7 +629,7 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 			{Step: fleet.StepContract, Status: fleet.StepStatusDone, Detail: "read"},
 			{Step: fleet.StepPlugin, Name: "dockerfile", Status: fleet.StepStatusUnknown, Detail: "not observed"},
 		},
-	})
+	}, fleet.CompletenessComplete)
 	out := b.String()
 	for _, want := range []string{"Created from (declared)", "oci://r/http-service:1.0.0", "sha256:abc", "http-service", "done: read", "plugin dockerfile", "unknown: not observed"} {
 		if !strings.Contains(out, want) {
@@ -637,7 +637,7 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}})
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}}, fleet.CompletenessComplete)
 	if !strings.Contains(b.String(), "not in this view") {
 		t.Errorf("an unresolved origin gives the reason:\n%s", b.String())
 	}
@@ -647,7 +647,7 @@ func TestRenderServicePlacement(t *testing.T) {
 	var b strings.Builder
 	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.EnvironmentPlacement{
 		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}}},
-	}}})
+	}}}, fleet.CompletenessComplete)
 	out := b.String()
 	for _, want := range []string{"Runs in (observed)", "prod", "1 target, 1.0.0; 1 declared, 0 not declared, 0 unknown", "1 more environments"} {
 		if !strings.Contains(out, want) {
@@ -658,7 +658,12 @@ func TestRenderServicePlacement(t *testing.T) {
 		t.Errorf("environment names go through safeText:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{})
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial)
+	if !strings.Contains(b.String(), "Runs in (observed, targets Pacto can see)") {
+		t.Errorf("a partial answer says the targets are those Pacto can see:\n%s", b.String())
+	}
+	b.Reset()
+	renderServiceDetail(&b, &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
 	if strings.Contains(b.String(), "Runs in") {
 		t.Errorf("no targets, no section:\n%s", b.String())
 	}

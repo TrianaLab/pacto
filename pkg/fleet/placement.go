@@ -74,6 +74,15 @@ func (q *Query) placement(targets []*TargetRecord) PlacementPreview {
 	return PlacementPreview{Total: total, Count: len(out), Truncated: truncated, Items: out}
 }
 
+// PlacementHeading is the heading the CLI and TUI print above the placement
+// lines: a partial answer lists only the targets Pacto can see.
+func PlacementHeading(c Completeness) string {
+	if c == CompletenessPartial {
+		return "Runs in (observed, targets Pacto can see)"
+	}
+	return "Runs in (observed)"
+}
+
 // Line is the one-line text the CLI and TUI print for an environment group:
 // `<env>: <n> target(s), <versions>[ and N more]; <d> declared, <n> not
 // declared, <u> unknown`.
