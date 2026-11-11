@@ -1,0 +1,236 @@
+# Every test CI runs through Aval, and the files each one reads.
+# Left out, and run as plain make jobs: suites that build an image from an
+# unpinned base (Dockerfile, integrations/kubernetes/Dockerfile: every kind,
+# Compose and runtime suite), pull tags (registry:2, alpine:3, agnhost),
+# download unpinned tools (envtest, helm-unittest, check-jsonschema), call the
+# network (sum.golang.org, proxy.golang.org, GHCR), measure time (perf), read
+# the user's ~/.cache/pacto and ~/.config/pacto (test-acceptance-local) or
+# whose honest scope is the whole tree (ci-static, ci-gates).
+apiVersion: aval.trianalab.io/v1
+kind: TestSet
+defaults:
+  scope:
+    # Symlinks are never inputs: npm ci's node_modules, and two fixture links
+    # under delivery-demo (kind suites only) that tests/** globs reach.
+    exclude:
+      - "**/node_modules/**"
+      - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml"
+      - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml/**"
+      - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json"
+      - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json/**"
+  environment:
+    toolchain: {platform: "Linux x86_64"}
+    probe: {platform: [uname, -sm]}
+  cacheability: hermetic
+fragments:
+  # The Go workspace: minimum version selection spans both modules.
+  go:
+    scope:
+      dependencies: [go.work, go.work.sum, go.mod, go.sum, integrations/kubernetes/go.mod, integrations/kubernetes/go.sum]
+    environment:
+      toolchain: {go: "1.27.3"}
+      probe: {go: [go, env, GOVERSION]}
+      env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOWORK, GODEBUG]
+  # The engine: cmd/pacto and everything it builds from. pkg/** also holds the
+  # frontend; tests that do not read it exclude pkg/dashboard/frontend/**.
+  engine:
+    scope:
+      source: ["cmd/pacto/**", "internal/**", "pkg/**"]
+    # viper reads PACTO_<key> for every key (internal/cli/root.go AutomaticEnv);
+    # these are the keys the CLI reads plus its os.Getenv names.
+    environment:
+      env: [PACTO_NO_CACHE, PACTO_INSECURE_REGISTRIES,
+        PACTO_NO_UPDATE_CHECK, PACTO_DELIVERY_TRUST, NO_COLOR,
+        PACTO_OUTPUT_FORMAT, PACTO_CONFIG, PACTO_VERBOSE, PACTO_NO_ANIM,
+        PACTO_CACHE_DIR, PACTO_EVIDENCE_SOURCE_URL,
+        PACTO_REGISTRY_USERNAME, PACTO_REGISTRY_PASSWORD,
+        PACTO_REGISTRY_TOKEN, PACTO_DIGEST_API,
+        PACTO_MCP_EXCHANGE_CLIENT_SECRET, PACTO_DASHBOARD_HOST,
+        PACTO_DASHBOARD_PORT, PACTO_DASHBOARD_NAMESPACE,
+        PACTO_DASHBOARD_REPO, PACTO_DASHBOARD_TRACES,
+        PACTO_DASHBOARD_TRACE_SOURCES, PACTO_DASHBOARD_MIRA_SOURCES,
+        PACTO_DASHBOARD_MIRA_URL, PACTO_DASHBOARD_CORS_ORIGIN,
+        PACTO_DASHBOARD_DELIVERY_NAMESPACE,
+        PACTO_DASHBOARD_DELIVERY_TRUST, PACTO_DASHBOARD_TOKEN_LOGIN,
+        PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,
+        PACTO_DASHBOARD_SESSION_MAX_AGE,
+        PACTO_DASHBOARD_OIDC_ISSUER_URL,
+        PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL,
+        PACTO_DASHBOARD_OIDC_CLIENT_ID,
+        PACTO_DASHBOARD_OIDC_CLIENT_SECRET,
+        PACTO_DASHBOARD_OIDC_REDIRECT_URL, PACTO_DASHBOARD_OIDC_CA_FILE,
+        PACTO_DASHBOARD_OIDC_DISPLAY_NAME,
+        PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,
+        PACTO_DASHBOARD_OIDC_USERNAME_CLAIM,
+        PACTO_DASHBOARD_OIDC_USERNAME_PREFIX,
+        PACTO_DASHBOARD_OIDC_GROUPS_CLAIM,
+        PACTO_DASHBOARD_OIDC_GROUPS_PREFIX,
+        PACTO_DELIVERY_OIDC_ISSUER_URL, PACTO_DELIVERY_OIDC_CLIENT_ID,
+        PACTO_DELIVERY_OIDC_CLIENT_SECRET, PACTO_DELIVERY_OIDC_CA_FILE,
+        PACTO_DELIVERY_OIDC_EXTRA_SCOPES,
+        PACTO_DELIVERY_OIDC_REDIRECT_PORT]
+  # The payments story (examples/story), embedded by the demo and read by the
+  # acceptance fixture. Its manifests name images as text; nothing pulls them.
+  story:
+    scope:
+      source: ["examples/story/**"]
+      allowMutable:
+        - files: ["examples/story/contracts/*/*/deploy/*.yaml"]
+          ref: ghcr.io/stefanprodan/podinfo:6.7.1
+          reason: fixture text the tests parse; nothing pulls it
+        - file: examples/story/plain/fraud/Dockerfile
+          ref: python:3.13-alpine
+          reason: fixture text the tests parse; nothing builds it
+        - file: examples/story/plain/fraud/k8s/deployment.yaml
+          ref: registry.example/story/images/fraud:1.0.0
+          reason: fixture text the tests parse; nothing pulls it
+  node:
+    scope:
+      dependencies: [pkg/dashboard/frontend/package.json, pkg/dashboard/frontend/package-lock.json]
+    environment:
+      toolchain: {node: "22"}
+      probe: {node: [node, --version]}
+      env: [NODE_OPTIONS]
+  # Tests whose command is a make target read the recipe. Aval scans the
+  # whole Makefile; the references below sit in targets these tests do not
+  # run, except line 190 (test-browser), whose npx runs the @playwright/test
+  # the lockfile pins, right after npm ci.
+  make:
+    scope:
+      dependencies: [Makefile, ci.mk]
+      allowMutable:
+        - {file: Makefile, ref: playwright, reason: "npx after npm ci runs the lockfile's version; the other lines are targets no test here runs"}
+        - {file: Makefile, ref: "ghcr.io/trianalab/pacto/dashboard:$", reason: docker-run target; no test here runs it}
+        - {file: Makefile, ref: clang, reason: bpf-generate target; no test here runs it}
+        - {file: Makefile, ref: llvm, reason: bpf-generate target; no test here runs it}
+        - {file: Makefile, ref: libbpf-dev, reason: bpf-generate target; no test here runs it}
+  # The WASM demo host and the bundles it embeds.
+  demo:
+    scope:
+      source: ["examples/demo/*", "examples/demo/bundles/**", "examples/demo/partners/**"]
+      allowMutable:
+        - {file: examples/demo/Makefile, ref: vite, reason: "npx after npm ci runs the lockfile's vite"}
+tests:
+  # make ci-test: race + 100% coverage over cmd/pacto, internal and pkg, the
+  # examples' Go tests and the offline demo validation.
+  - metadata: {name: unit}
+    use: [go, engine, story, demo, make]
+    runner: {command: [make, ci-test]}
+    outputs: [coverage.out]
+    scope:
+      source:
+        - "examples/demo/pacto-dashboard/**"
+        - "examples/demo/generated/**"
+        - "examples/demo/publishbundles/**"
+        - "examples/demo/validatebundles/**"
+        - "docs/contract-reference/**"
+        - "integrations/kubernetes/config/crd/bases/**"
+        # pkg/contract walks the repository for every pacto.yaml and every
+        # .yaml whose path contains testdata.
+        - "**/pacto.yaml"
+        - "**/*testdata*/**/*.yaml"
+        # Files pkg/validation/schema/field-coverage.yaml names. A new .sh
+        # reference there must be added here too.
+        - "integrations/kubernetes/**/*_test.go"
+        - "tests/integration/*_test.go"
+        - "tests/acceptance/kind/runtime-conformance.sh"
+        - "tests/acceptance/local/runtime-docker.sh"
+        - "tests/acceptance/local/runtime-run.sh"
+      dependencies: [pkg/dashboard/frontend/package.json, pkg/dashboard/frontend/package-lock.json]
+      exclude: ["pkg/dashboard/frontend/**", "examples/demo/demo"]
+      allowMutable:
+        - file: internal/pactify/testdata/fraud/Dockerfile
+          ref: python:3.13-alpine
+          reason: fixture text; nothing builds it
+        - file: internal/pactify/testdata/fraud/k8s/deployment.yaml
+          ref: registry.example/story/images/fraud:1.0.0
+          reason: fixture text; nothing pulls it
+        - file: internal/pactify/testdata/invoices/Dockerfile
+          ref: node:22-alpine
+          reason: fixture text; nothing builds it
+        - file: internal/pactify/testdata/invoices/k8s/deployment.yaml
+          ref: ghcr.io/acme/invoices:1.3.0
+          reason: fixture text; nothing pulls it
+        - file: tests/acceptance/kind/runtime-conformance.sh
+          ref: "$"
+          reason: read as text by a field-coverage test; not run here
+        - file: tests/acceptance/local/runtime-docker.sh
+          ref: "${args[@]+${args[@]}}"
+          reason: read as text by a field-coverage test; not run here
+        - file: tests/acceptance/local/runtime-run.sh
+          ref: "${mode[@]}"
+          reason: read as text by a field-coverage test; not run here
+    environment:
+      # The run action's cosign-installer leaves cosign on PATH; without it
+      # the cosign tests skip, so a run without it must not count.
+      toolchain: {cosign: "3.0.6"}
+      probe: {cosign: [cosign, version]}
+      env: [PACTO_UPDATE_PACTIFY_PLAN]
+
+  # First half of make test-integration: the CLI in process against an
+  # in-process registry and a real plugin binary.
+  - metadata: {name: integration}
+    use: [go, engine]
+    runner: {command: [go, test, -tags, integration, ./tests/integration/, -v, -count=1, -parallel, "16", -timeout, 120s]}
+    scope:
+      source:
+        - "tests/integration/**"
+        - "examples/demo/bundles/**"
+        - "examples/demo/fleet-targets.yaml"
+        - "examples/demo/traces.json"
+      exclude:
+        - "pkg/dashboard/frontend/**"
+        - "cmd/pacto/**/*_test.go"
+        - "internal/**/*_test.go"
+        - "pkg/**/*_test.go"
+        - "internal/**/testdata/**"
+        - "pkg/**/testdata/**"
+
+  # Second half of make test-integration: the acceptance layer's own Go code.
+  # It imports pkg/ and the story, not the CLI.
+  - metadata: {name: acceptance-go}
+    use: [go, story]
+    runner: {command: [go, test, -race, ./tests/acceptance/..., -count=1, -timeout, 180s]}
+    scope:
+      source: ["tests/acceptance/**/*.go", "tests/acceptance/scenario/seed.sh", "pkg/**"]
+      exclude: ["pkg/dashboard/frontend/**", "pkg/**/*_test.go", "pkg/**/testdata/**", "examples/story/**/*_test.go"]
+
+  # make ci-ui: svelte-check and vitest from the lockfile.
+  - metadata: {name: ui}
+    use: [node, make]
+    runner: {command: [make, ci-ui]}
+    environment:
+      # vitest allows .only unless CI is set.
+      env: [CI]
+    scope:
+      source:
+        - "pkg/dashboard/frontend/src/**"
+        - "pkg/dashboard/frontend/index.html"
+        - "pkg/dashboard/frontend/svelte.config.js"
+        - "pkg/dashboard/frontend/tsconfig.json"
+        - "pkg/dashboard/frontend/vite.config.js"
+        # Read by demoEntry.test.ts and impactFigure.test.ts.
+        - "README.md"
+        - "docs/examples/dashboard-demo.md"
+        - "pkg/impact/testdata/highlight-rank.json"
+
+  # make test-browser, one Playwright shard per test: the WASM demo built
+  # from this tree, the doc export, the engine smoke (shard 1) and Chromium
+  # at the version the lockfile pins. CI is an input: it sets forbidOnly,
+  # retries and reuseExistingServer in playwright.config.ts.
+  - metadata: {name: "browser-{shard}"}
+    use: [go, engine, story, demo, node, make]
+    runner: {command: [make, test-browser, "PW_SHARD={shard}/3"]}
+    matrix: {shard: ["1", "2", "3"]}
+    scope:
+      exclude:
+        - "**/*_test.go"
+        - "internal/**/testdata/**"
+        - "pkg/**/testdata/**"
+        - "examples/demo/demo"
+        - "pkg/dashboard/frontend/e2e-live/**"
+        - "pkg/dashboard/frontend/e2e-docs-site/**"
+        - "pkg/dashboard/frontend/e2e-screenshots/**"
+    environment:
+      env: [CI, PW_PORT, PW_DOC_PORT, PACTO_LAYOUT_FULL, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
+    cacheability: controlled-environment

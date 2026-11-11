@@ -337,6 +337,17 @@ make helm-uninstall # remove the release
 
 The operator's `make ci` adds a Helm chart gate (`ci-chart`: `helm lint`, template rendering, unit tests, schema validation, docs drift) on top of the standard fmt/vet/lint/test gates.
 
+## Test result reuse
+
+CI runs the suites in `aval.yaml` through [Aval](https://github.com/TrianaLab/aval). Each test lists the files, tools and variables it reads. When none of them changed, CI reuses a signed result instead of running the suite. Results come from `ci.yml` on `main` (runner trust) or from a maintainer (developer trust), as `.github/aval/policy.yaml` says. Pull requests reuse both kinds, `main` reuses runner results only. Anything that cannot be verified runs the suite. Runner trust is only as strong as the review rule on `main`: whoever can change `main` without review can change what CI signs.
+
+A maintainer can sign a local run so the PR's CI reuses it. Run it on the exact commit you push, with no local edits inside the test's scope, on linux/amd64 with the toolchain versions in `aval.yaml` (the probes refuse anything else), and with each `environment.env` variable set as CI sets it (unset in CI means unset here). The CLI also reads `~/.config/pacto` and `$XDG_CONFIG_HOME/pacto`, which no scope covers, so sign from a `HOME` without them:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <user> --password-stdin  # write:packages
+aval run --test unit --policy .github/aval/policy.yaml --push        # browser Sigstore login; add --login when headless
+```
+
 ## Pull Request Process
 
 1. Run `make ci` locally and ensure it passes.

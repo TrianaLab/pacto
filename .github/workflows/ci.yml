@@ -22,6 +22,12 @@ on:
 permissions:
   contents: read
 
+# Suites in aval.yaml reuse a verified result instead of running
+# (CONTRIBUTING.md, "Test result reuse"). main never reuses a developer's
+# result: below runner trust it is a miss and the suite runs.
+env:
+  AVAL_MIN_TRUST_LEVEL: ${{ github.ref == 'refs/heads/main' && 'runner' || '' }}
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -247,9 +253,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # ci-engine is ci-test + test-integration + test-acceptance-local; the
+      # last one stays a plain make run (aval.yaml says why).
       - uses: ./.github/actions/ci
         with:
-          target: ci-engine
+          target: test-acceptance-local
+      - uses: TrianaLab/aval/integrations/github/run@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+        with:
+          test: unit
+      - uses: TrianaLab/aval/integrations/github/run@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+        with:
+          test: integration
+      - uses: TrianaLab/aval/integrations/github/run@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+        with:
+          test: acceptance-go
       - name: Upload results to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -270,7 +287,9 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - run: make ci-dashboard
+      - uses: TrianaLab/aval/integrations/github/run@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+        with:
+          test: ui
 
   # Browser-level acceptance for the redesigned Operational Graph + Impact UI:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
@@ -288,6 +307,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Must match the browser-{shard} matrix and the /3 in aval.yaml.
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -303,7 +323,9 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 25
-        run: make test-browser PW_SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
+        uses: TrianaLab/aval/integrations/github/run@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+        with:
+          test: browser-${{ matrix.shard }}
       - name: Upload browser traces
         if: failure()
         timeout-minutes: 5
@@ -748,12 +770,30 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: make ci-release-version
 
+  # Signs and pushes the results the aval run steps above uploaded, with this
+  # workflow's identity on main. Pull requests only read them.
+  aval-publish:
+    needs: [ci-engine, ci-dashboard, dashboard-e2e]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: TrianaLab/aval/integrations/github/publish@28628760e7b7291d900a77bab5c907cbf9b8ba58 # v0.8.2
+
   # Single required status for branch protection: green only when every leg that
   # ran succeeded. Skipped (path-filtered) legs do not count as failures.
   required:
     if: always()
     needs:
       - changes
+      - aval-publish
       - ci-static
       - ci-gates
       - ci-engine

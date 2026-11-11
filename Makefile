@@ -64,6 +64,8 @@ test:
 # registry and a real plugin binary on PATH: several real components wired
 # together, but nothing a user could reach over a network. It was called `e2e`
 # for historical reasons only.
+# CI runs these two lines as the aval.yaml tests integration and acceptance-go;
+# change both places.
 test-integration:
 	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
 	# The acceptance layer's own Go code — the scenario fixture every surface
