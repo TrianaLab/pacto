@@ -117,6 +117,9 @@ func TestImpactToolNeedsPairOrEvent(t *testing.T) {
 		{"event": "unavailable"},
 		{"service": "x"},
 		{"old_ref": "a", "event": "removed", "service": "x"},
+		{"event": "unavailable", "service": "redis", "revision": "sha256:abc"},
+		{"event": "removed", "service": "redis", "revision": "1.0.0"},
+		{"event": "unavailable", "service": "redis", "include_observed": true},
 	} {
 		called := false
 		provide := func(context.Context, *fleet.FleetSnapshot, ImpactRequest) (*impact.Result, error) {

@@ -80,6 +80,10 @@ func (a impactArgs) request() (ImpactRequest, error) {
 		return ImpactRequest{}, errors.New("event is one of unavailable, removed or regressed")
 	case a.Event == impact.EventRegressed && a.Revision == "":
 		return ImpactRequest{}, errors.New("a regressed event names its 'revision'")
+	case a.Revision != "" && a.Event != impact.EventRegressed:
+		return ImpactRequest{}, errors.New("revision is read only with event regressed")
+	case event && a.IncludeObserved:
+		return ImpactRequest{}, errors.New("include_observed applies to old_ref and new_ref: an event always reads observed callers")
 	case event:
 		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Revision: a.Revision}
 	}
