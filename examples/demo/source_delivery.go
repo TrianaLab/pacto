@@ -318,9 +318,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		{"pay-agent", story.Test, "1.1.0"}, // and 1.1.0 passes 1 of 2, rolls back and steps test down
 	}
 	for _, s := range steps {
-		if s.svc == "payments" && s.env == story.Prod && s.to == "2.4.0" {
-			d.correlation = demoCorrelation
-		}
+		d.correlation = map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to]
 		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to)}
 		o, _, err := d.propose(req, story.PayAgent)
 		if err != nil {
