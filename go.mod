@@ -1,6 +1,6 @@
 module github.com/trianalab/pacto/v4
 
-go 1.27.3
+go 1.27.4
 
 require (
 	charm.land/bubbles/v2 v2.2.1
