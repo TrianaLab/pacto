@@ -180,7 +180,7 @@ func LifecycleOf(r Revision, stages []StageObject, hs []StageHistory) Lifecycle 
 		byStage[hs[i].Namespace+"/"+hs[i].Stage.Name] = &hs[i].History
 	}
 	var sig SignatureEvidence
-	var partials, capped []string
+	var partials, capped, unrecorded []string
 	known := false
 	for _, st := range stages {
 		name := st.Metadata.Namespace + "/" + st.Metadata.Name
@@ -192,6 +192,10 @@ func LifecycleOf(r Revision, stages []StageObject, hs []StageHistory) Lifecycle 
 		if total > lifecycleEventLimit {
 			capped = append(capped, fmt.Sprintf("only the newest %d of %d events are listed on %s", lifecycleEventLimit, total, name))
 		}
+		if s.Running && s.Completeness == lcComplete && total <= lifecycleEventLimit &&
+			!slices.ContainsFunc(s.Events, func(e LifecycleEvent) bool { return e.Role == "arrived" }) {
+			unrecorded = append(unrecorded, name)
+		}
 		if !slices.Contains(KnownDigests(st), r.Digest) && total == 0 {
 			continue
 		}
@@ -200,6 +204,9 @@ func LifecycleOf(r Revision, stages []StageObject, hs []StageHistory) Lifecycle 
 	}
 	l.Signature = sig.Signature()
 	l.Note = lifecycleNote(r, known, partials, capped)
+	if len(unrecorded) > 0 {
+		l.Note += "; no recorded change brought it to " + strings.Join(unrecorded, ", ") + ": it was placed there before the records began or moved outside Pacto"
+	}
 	return l
 }
 

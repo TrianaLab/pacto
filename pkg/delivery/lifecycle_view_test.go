@@ -219,6 +219,33 @@ func TestLifecycleOfLists(t *testing.T) {
 	}
 }
 
+// TestLifecycleOfUnrecordedArrival: a Stage that runs the digest on a
+// complete history with no arrival says so, and never where its history is
+// partial or capped (the arrival may be what is missing).
+func TestLifecycleOfUnrecordedArrival(t *testing.T) {
+	runs := stage("prod", "pay", "pay", StageStatus{Pointer: lcD})
+	l := LifecycleOf(Revision{Digest: lcD}, []StageObject{runs}, []StageHistory{fullHistory("prod", "pay")})
+	if !strings.Contains(l.Note, "no recorded change brought it to prod/pay: it was placed there before the records began or moved outside Pacto") {
+		t.Fatalf("complete, no arrival: %q", l.Note)
+	}
+	arrived := lcEntry(1, "ship", TypePromote, "", lcD, Succeeded, Verified, &PointerChange{After: lcD})
+	for name, hs := range map[string][]StageHistory{
+		"arrival recorded": {fullHistory("prod", "pay", arrived)},
+		"history not read": nil,
+	} {
+		if l := LifecycleOf(Revision{Digest: lcD}, []StageObject{runs}, hs); strings.Contains(l.Note, "no recorded change") {
+			t.Errorf("%s: %q", name, l.Note)
+		}
+	}
+	var es []HistoryEntry
+	for i := range lifecycleEventLimit + 1 {
+		es = append(es, HistoryEntry{Seq: int64(i + 1), Operation: fmt.Sprintf("op%d", i), Type: TypePromote, To: lcD})
+	}
+	if l := LifecycleOf(Revision{Digest: lcD}, []StageObject{runs}, []StageHistory{fullHistory("prod", "pay", es...)}); strings.Contains(l.Note, "no recorded change") {
+		t.Errorf("capped: %q", l.Note)
+	}
+}
+
 func TestLifecycleOfEventCap(t *testing.T) {
 	var es []HistoryEntry
 	for i := range lifecycleEventLimit + 5 {
