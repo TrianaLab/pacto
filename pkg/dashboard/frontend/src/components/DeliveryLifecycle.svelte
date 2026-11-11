@@ -23,9 +23,13 @@
     });
   });
   const SIG_TONE = { signed: 'badge-ok', unsigned: 'badge-warn', unknown: 'badge-neutral' };
-  // No Stage names it: a neutral answer, never an error (a revision from a local or
-  // derived-digest source never matches a Stage's manifest digest). Several matches stay an error.
-  const unmatched = $derived(error?.code === 'LifecycleUnresolved' && /^no /.test(error?.message ?? ''));
+  // No Stage names it, from a search that read everything: a neutral answer, never an
+  // error (a revision from a local or derived-digest source never matches a Stage's
+  // manifest digest). A search that left something unread (LifecycleUnresolved) shows
+  // the server's words, which name what it did not read; several matches say so too.
+  const unmatched = $derived(error?.code === 'LifecycleNotFound');
+  // "not reached" only for a Stage nothing else on its row says it reached.
+  const unreached = (st) => !st.running && st.verified !== 'yes' && st.failed !== 'yes' && !st.offered && !st.lastCheck;
   const worst = (vs) => { const rs = (vs ?? []).map((v) => v.result); return rs.includes('Fail') ? 'Fail' : rs.includes('Unknown') ? 'Unknown' : 'Pass'; };
   const recKey = (st, id) => `${st.namespace}/${st.stage}/${id}`;
 </script>
@@ -34,7 +38,12 @@
   {#if error?.code === 'DeliveryNotInstalled'}
     <!-- Nothing to claim without delivery. -->
   {:else if unmatched}
-    <p class="t-meta" data-testid="lifecycle-unmatched">No Stage of this service you can see names this {subject}.</p>
+    <p class="t-meta lc-line" data-testid="lifecycle-unmatched">
+      <span class="badge {completenessClass('complete')}">{completenessLabel('complete')}</span>
+      <span>No Stage of this service you can see names this {subject}.</span>
+    </p>
+  {:else if error?.code === 'LifecycleUnresolved'}
+    <p class="t-meta" data-testid="lifecycle-unresolved">{sentence(error.message)}</p>
   {:else if error}
     <p class="t-meta lc-warn" role="alert">Pacto could not read its lifecycle: {error.message || String(error)}</p>
   {:else if !data}
@@ -46,6 +55,12 @@
       <span class="badge {completenessClass(data.completeness)}">{completenessLabel(data.completeness)}</span>
       <span>As of {timeLabel(data.asOf)}</span>
     </p>
+    {#if data.version || data.sourceRevision}
+      <p class="t-meta lc-line">
+        {#if data.version}<span>Version <bdi>{data.version}</bdi></span>{/if}
+        {#if data.sourceRevision}<span data-testid="lifecycle-source">Source revision <bdi class="lc-mono">{data.sourceRevision}</bdi>, an annotation, not signed</span>{/if}
+      </p>
+    {/if}
     {#if data.unreadable?.length}<p class="t-meta">Pacto could not list {andList(data.unreadable, 3)}, so a Stage may be missing.</p>{/if}
     {#if data.note}<p class="t-meta">{sentence(data.note)}</p>{/if}
     <ul class="lc-stages">
@@ -75,8 +90,8 @@
                 {/each}
               </ol>
             {:else}
-              <!-- Never "not reached" past a history Pacto could read only in part. -->
-              <span class="t-meta">{st.completeness === 'complete' ? 'not reached' : 'not seen in the history read (partial)'}</span>
+              <!-- Never "not reached" past a history Pacto could read only in part, nor for a Stage its row shows reached. -->
+              <span class="t-meta">{!unreached(st) ? 'no recorded change brought it here' : st.completeness === 'complete' ? 'not reached' : 'not seen in the history read (partial)'}</span>
             {/if}
           </div>
         </li>

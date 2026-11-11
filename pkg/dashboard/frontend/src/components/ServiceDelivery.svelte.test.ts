@@ -239,12 +239,11 @@ describe('ServiceDelivery', () => {
     v.destroy();
   });
 
-  it('says ? waiting when the operations could not be read, links held changes to the Inbox and the one held change to its page', async () => {
-    environments.mockResolvedValue(answer([row({ heldUnknown: true }), row({ stage: 'o2', environment: 'qa', held: 2 }),
+  it('links held changes to the Inbox and the one held change to its page', async () => {
+    environments.mockResolvedValue(answer([row({ stage: 'o2', environment: 'qa', held: 2 }),
       row({ stage: 'o3', environment: 'prod', namespace: 'prod', held: 1, heldOperation: 'op-held' })]));
     const v = render({ domain: 'ghcr.io/a' });
     await settle();
-    expect(v.target.textContent).toContain('? waiting');
     const held = [...v.target.querySelectorAll('a')].find((a) => a.textContent?.includes('2 waiting'));
     expect(held?.getAttribute('href')).toBe('#/delivery/inbox?service=orders&domain=ghcr.io%2Fa');
     const one = [...v.target.querySelectorAll('a')].find((a) => a.textContent?.includes('1 waiting'));
@@ -296,7 +295,7 @@ describe('ServiceDelivery', () => {
     v.destroy();
   });
 
-  const why = (over = {}) => ({ namespace: 'prod', stage: 'orders', asOf: '2026-11-04T10:00:00Z', state: 'needs-person',
+  const why = (over = {}) => ({ namespace: 'prod', stage: 'orders', asOf: '2026-11-04T10:00:00Z', state: 'needs-person', completeness: 'complete',
     summary: 'A person must approve the promote of 2.5.0.', candidate: D2, autoPromote: 'the level is advise: a person proposes each promote',
     reasons: [{ code: 'Held', message: 'op-1 waits for a person', fix: 'pacto delivery approve -n prod op-1' }],
     plan: { type: 'delivery.pacto.trianalab.io/promote', to: D2, predicted: 'Held', intentDigest: 'sha256:i', next: ['A person of team-a approves it.'] }, ...over });
@@ -326,6 +325,18 @@ describe('ServiceDelivery', () => {
     await openWhy(v);
     await openWhy(v);
     expect(progress).toHaveBeenCalledTimes(1);
+    v.destroy();
+  });
+
+  it('a blocked Why that could not read its operations is partial', async () => {
+    environments.mockResolvedValue(answer([row()]));
+    progress.mockResolvedValue(why({ state: 'blocked', completeness: 'partial', reasons: [{ code: 'Frozen', message: 'frozen' }, { code: 'OpsUnknown', message: 'operations unread' }] }));
+    const v = render({});
+    await settle();
+    await openWhy(v);
+    const card = v.target.querySelector('[data-testid="service-delivery-why"]')!;
+    expect(card.textContent).toContain('Partial');
+    expect(card.textContent).not.toContain('Complete');
     v.destroy();
   });
 
@@ -422,11 +433,11 @@ describe('ServiceDelivery', () => {
   it('shows the newest change per Stage with applied, cause and correlation, marking unsigned cells', async () => {
     environments.mockResolvedValue(answer([row(), row({ stage: 'o2', environment: 'qa' })]));
     history.mockResolvedValue({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', histories: [
-      { namespace: 'prod', stage: { name: 'orders' }, entries: [
+      { namespace: 'prod', stage: { name: 'orders' }, completeness: 'complete', entries: [
         { operation: 'op-2', type: 'delivery.pacto.trianalab.io/promote', outcome: 'Succeeded', applied: '2026-11-04T09:30:00Z', cause: { reason: 'auto-promoted' }, correlationID: 'corr-2' },
         { operation: 'op-1', type: 'delivery.pacto.trianalab.io/promote', outcome: 'Succeeded', applied: '2026-11-03T09:30:00Z', correlationID: 'corr-old' },
       ] },
-      { namespace: 'prod', stage: { name: 'o2' }, entries: [
+      { namespace: 'prod', stage: { name: 'o2' }, completeness: 'partial', entries: [
         { operation: 'op-3', type: 'delivery.pacto.trianalab.io/freeze', outcome: 'Succeeded', applied: '2026-11-04T08:00:00Z', correlationID: 'corr-3', record: 'rec-3' },
       ] },
     ] });
@@ -436,7 +447,11 @@ describe('ServiceDelivery', () => {
     const [a, b] = [...v.target.querySelectorAll('[data-testid="service-delivery-row"]')].map((r) => r.querySelector('[data-testid="service-delivery-last"]')!);
     for (const x of ['2026-11-04 09:30 UTC', 'auto-promoted', 'corr-2', 'from status, not signed']) expect(a.textContent).toContain(x);
     expect(a.textContent).not.toContain('corr-old');
+    expect(a.textContent).toContain('Last change:');
     expect(b.textContent).toContain('corr-3');
+    // A partial history's first line may not be the newest change.
+    expect(b.textContent).toContain('Newest change Pacto could read:');
+    expect(b.textContent).toContain('Partial');
     expect(b.textContent).not.toContain('not signed');
     expect(v.target.textContent).not.toMatch(/\bunsigned\b/);
     expect(v.target.querySelector(`a[href="${deliveryPublishUrl({ service: 'orders' })}"]`)?.textContent).toContain('Published versions');

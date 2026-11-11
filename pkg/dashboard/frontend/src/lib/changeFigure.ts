@@ -85,9 +85,12 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
     if (!applied) return unknown('verify', v.label, 'not run');
     if (phase === 'Verifying') return { ...v, tone: 'neutral', glyph: '', sub: 'being checked' };
     if (held) return { ...v, tone: 'warn', glyph: 'held', sub: 'ended unknown: a person decides' };
-    // The Stage's newest re-check, when it judged this change's version: newer than the verification.
+    // The Stage's newest re-check, when it judged this change's version as this change
+    // shipped it (the operation uid, as the server's CheckSummary.current reads it):
+    // a later change that brought the same version back has its own re-check.
     const lc = e.stage.lastCheck;
-    if (lc && toD && lc.digest === toD) {
+    const uid = d.operation?.metadata?.uid;
+    if (lc && toD && lc.digest === toD && uid && lc.operation === uid) {
       const rs = (lc.verdicts ?? []).map((x) => x.result);
       if (rs.includes('Fail')) return { ...v, tone: 'err', glyph: 'err', sub: 're-checked after release: failed' };
       if (rs.includes('Unknown')) return { ...v, tone: 'neutral', hatch: true, glyph: 'unknown', sub: 're-checked after release: could not decide' };

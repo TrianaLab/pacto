@@ -292,6 +292,7 @@ export function installScaleFixture(): void {
     // long note and the newest 50 events on every Stage.
     if (route === '/api/delivery/lifecycle') {
       doc.note = longName(String(doc.note || 'note'));
+      for (const k of ['sourceRevision', 'version']) if (typeof doc[k] === 'string') doc[k] = longName(doc[k] as string);
       for (const k of ['signedOn', 'unsignedOn']) if (Array.isArray(doc[k])) doc[k] = (doc[k] as string[]).map(longName);
       // Many Stages: the demo's, repeated under distinct long names.
       const base = (doc.stages as Record<string, unknown>[] | undefined) ?? [];

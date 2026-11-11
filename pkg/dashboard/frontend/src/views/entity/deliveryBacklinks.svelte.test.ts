@@ -111,13 +111,44 @@ describe('revision page Delivery lifecycle (B4)', () => {
   });
 
   it('reads a revision no Stage names as a neutral state, never an error', async () => {
-    fns.lifecycle.mockRejectedValue(new ApiError(400, 'no artifact of payments that names contract sha256:c is known to its Stages', 'LifecycleUnresolved'));
+    fns.lifecycle.mockRejectedValue(new ApiError(404, 'no artifact of payments that names contract sha256:c is known to its Stages', 'LifecycleNotFound'));
     const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
     await settle();
     const sec = target.querySelector('[data-testid="revision-delivery"]') as HTMLElement;
     expect(text(sec)).toContain('No Stage of this service you can see names this revision');
     expect(sec.querySelector('[role="alert"]')).toBeNull();
     expect(text(sec)).not.toContain('not delivered');
+    destroy();
+  });
+
+  it('never reads a search that could not read every artifact as no Stage naming it', async () => {
+    const msg = 'Pacto found no artifact of payments with contract sha256:c among what it read, but 1 of the artifacts its Stages know could not be read: it may be among those';
+    fns.lifecycle.mockRejectedValue(new ApiError(400, msg, 'LifecycleUnresolved'));
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
+    await settle();
+    const sec = target.querySelector('[data-testid="revision-delivery"]') as HTMLElement;
+    expect(text(sec)).not.toContain('No Stage of this service you can see names');
+    expect(text(sec.querySelector('[data-testid="lifecycle-unresolved"]'))).toContain('could not be read: it may be among those');
+    destroy();
+  });
+
+  it('names the version and its unsigned source revision', async () => {
+    fns.lifecycle.mockResolvedValue(lifecycle([], { sourceRevision: '4f2c1e0' }));
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
+    await settle();
+    const sec = target.querySelector('[data-testid="revision-delivery"]') as HTMLElement;
+    expect(text(sec)).toContain('Version 2.0.0');
+    expect(text(sec.querySelector('[data-testid="lifecycle-source"]'))).toBe('Source revision 4f2c1e0, an annotation, not signed');
+    destroy();
+  });
+
+  it('never says not reached on a Stage its row shows running', async () => {
+    fns.lifecycle.mockResolvedValue(lifecycle([stage('prod', { running: true, verified: 'yes' })]));
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
+    await settle();
+    const row = text(target.querySelector('.lc-stage'));
+    expect(row).toContain('no recorded change brought it here');
+    expect(row).not.toContain('not reached');
     destroy();
   });
 
@@ -148,6 +179,15 @@ describe('target page Delivery link (B4)', () => {
     expect(fns.environments).toHaveBeenCalledWith(expect.objectContaining({ service: 'audit-log', domain: '', environment: 'prod' }));
     const a = [...target.querySelectorAll('a')].find((x) => x.textContent === 'Delivery in prod');
     expect(a?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=audit-log');
+    destroy();
+  });
+
+  it('names each link by its Stage when two Stages deliver the environment', async () => {
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [row('prod'), { ...row('prod'), namespace: 'prod-shadow' }] });
+    const { target, destroy } = render(TargetEntity, { detail: targetDetail('prod'), deliveryState: 'enabled' });
+    await settle();
+    const names = [...target.querySelectorAll('a')].map((x) => text(x)).filter((x) => x.startsWith('Delivery in'));
+    expect(names).toEqual(['Delivery in prod (prod/audit-log)', 'Delivery in prod (prod-shadow/audit-log)']);
     destroy();
   });
 

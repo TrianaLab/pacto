@@ -45,7 +45,9 @@
   const partial = $derived(data?.completeness === 'partial');
   const unreadable = $derived(andList(data?.unreadable ?? [], 5));
   $effect(() => { if (served === 'enabled' && rows.length) history.sync(`${tag}@@${refreshTick}`, tag); });
-  const lastOf = $derived(new Map((history.dataTag === tag ? history.data?.histories ?? [] : []).map((h) => [`${h.namespace}/${h.stage?.name}`, h.entries?.[0]])));
+  // Each Stage's whole history: a partial one's first line may not be its newest change.
+  const lastOf = $derived(new Map((history.dataTag === tag ? history.data?.histories ?? [] : []).filter((h) => h.entries?.length)
+    .map((h) => [`${h.namespace}/${h.stage?.name}`, { ...h.entries[0], partial: h.completeness !== 'complete' }])));
 
   // Where it runs, observed from targets (D5): without delivery, or with a complete
   // listing that has no Stage, every environment; beside Stages only the environments
@@ -157,7 +159,8 @@
         <EnvMark state={r.state} word />
       </div>
       <div class="sd-body">
-        <p class="sd-line">
+        <!-- A row of controls, not a sentence (.go): each link keeps its touch target. -->
+        <p class="sd-line go">
           {#if r.revision}
             <a href={fleetEntityUrl('revision', r.revision)} title={r.pointer}>{r.version || shortDigest(r.pointer)}</a>
             <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}>History</a>
@@ -189,7 +192,8 @@
         {#if last}
           <!-- A line read from an Operation's status has no record: its applied time, cause and correlation are not signed. -->
           <p class="t-meta sd-line" data-testid="service-delivery-last">
-            <span>Last change: {typeLabel(last.type)}{#if last.outcome}, {last.outcome}{/if}</span>
+            {#if last.partial}<span class="badge {completenessClass('partial')}">{completenessLabel('partial')}</span>{/if}
+            <span>{last.partial ? 'Newest change Pacto could read' : 'Last change'}: {typeLabel(last.type)}{#if last.outcome}, {last.outcome}{/if}</span>
             {#if last.applied || last.finished}<span>applied {timeLabel(last.applied || last.finished)}</span>{/if}
             {#if last.cause?.reason || last.cause?.operation}<span>cause <bdi>{last.cause.reason || last.cause.operation}</bdi></span>{/if}
             {#if last.correlationID}<span>correlation <bdi class="sd-mono">{last.correlationID}</bdi></span>{/if}
@@ -203,7 +207,7 @@
           {:else if why?.data}
             {@const p = why.data}
             <div class="sd-why-body" data-testid="service-delivery-why">
-              <AnswerCard stamps={[progressStamp(p.state)]} completeness={p.state === 'unknown' ? 'partial' : 'complete'} asOf={timeLabel(p.asOf)}
+              <AnswerCard stamps={[progressStamp(p.state)]} completeness={p.completeness} asOf={timeLabel(p.asOf)}
                 provenance="The Stage and its operations, read as you, and a promote planned as you, not proposed">
                 {#snippet lead()}<p class="ca-answer-line">{sentence(p.summary)}</p>{/snippet}
                 {#snippet facts()}

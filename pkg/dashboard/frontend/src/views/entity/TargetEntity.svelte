@@ -119,7 +119,8 @@
       <div class="te-fact" data-testid="target-delivery">
         <span class="te-k">Delivery</span>
         {#if deliveryRows.length}
-          {#each deliveryRows as row (row.namespace + '/' + row.stage)}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}</a>{/each}
+          <!-- Several Stages deliver this environment: each link names its Stage, so no two read alike (WCAG 2.4.4). -->
+          {#each deliveryRows as row (row.namespace + '/' + row.stage)}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}{#if deliveryRows.length > 1}{' '}(<bdi>{row.namespace}/{row.stage}</bdi>){/if}</a>{/each}
         {:else if delivery.error}
           <span class="te-note">Pacto could not read the Stages of this service: {delivery.error.message || String(delivery.error)}</span>
         {:else}
