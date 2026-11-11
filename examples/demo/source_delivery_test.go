@@ -271,7 +271,7 @@ func storyRecords(t *testing.T, d *demoDelivery, op delivery.OperationObject, ro
 		t.Fatalf("blame: %+v", b)
 	}
 	u, _ := d.Undo(t.Context(), story.Prod, rollback, "")
-	if u.Kind != "rollback" || u.Plan == nil {
+	if u.Kind != "rollback" || u.Plan == nil || len(u.Plan.Next) == 0 { // the undo's plan says what proposing it leads to
 		t.Fatalf("undo: %+v", u)
 	}
 
@@ -444,8 +444,9 @@ func TestDemoPathsDiffer(t *testing.T) {
 	}
 }
 
-// TestDemoPlanHasNext: the demo answers a plan, a propose and an undo with
-// what proposing leads to, as the cluster dashboard does.
+// TestDemoPlanHasNext: the demo answers a plan, a propose and a stale
+// propose with what proposing leads to, as the cluster dashboard does (the
+// undo's plan is checked in storyRecords).
 func TestDemoPlanHasNext(t *testing.T) {
 	d, h := demoServer(t)
 	req := `{"namespace":"` + story.Prod + `","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
