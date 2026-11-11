@@ -408,7 +408,9 @@ func TestImpactEventOnSnapshot(t *testing.T) {
 	}
 	snap, _ := svc.Fleet(ctx, opts.Fleet)
 	opts.Event = impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}
-	opts.ReadRegression = func(context.Context, impact.Event) *impact.Regression { return &impact.Regression{Unavailable: "no cluster"} }
+	opts.ReadRegression = func(context.Context, impact.Event) *impact.Regression {
+		return &impact.Regression{Unavailable: "no cluster"}
+	}
 	res, err = svc.ImpactEventOnSnapshot(ctx, opts, snap)
 	if err != nil || res.SnapshotID != snap.SnapshotID || !strings.Contains(res.GateReason, "not read in full") {
 		t.Fatalf("regressed on the snapshot = %+v %v", res, err)
@@ -467,7 +469,10 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 	}
 	svc := NewService(nil, nil)
 	res, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "orders"},
-		ReadRegression: func(context.Context, impact.Event) *impact.Regression { t.Fatal("only a regressed event reads delivery"); return nil }}, snap)
+		ReadRegression: func(context.Context, impact.Event) *impact.Regression {
+			t.Fatal("only a regressed event reads delivery")
+			return nil
+		}}, snap)
 	if err != nil || res.Event.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) || slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == "SERVICE_NOT_IN_FLEET" }) {
 		t.Fatalf("bare name = %+v %v", res, err)
 	}
