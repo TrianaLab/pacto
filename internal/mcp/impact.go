@@ -46,7 +46,7 @@ func impactTool() *mcpsdk.Tool {
 		InputSchema: inputSchema(map[string]property{
 			"old_ref":          {Type: "string", Description: "Old contract revision (local directory or oci:// ref)"},
 			"new_ref":          {Type: "string", Description: "New contract revision (local directory or oci:// ref)"},
-			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence"},
+			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence; with old_ref and new_ref only, since an event always reads observed callers"},
 			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
 			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change", Enum: []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}},
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
