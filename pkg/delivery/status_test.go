@@ -185,15 +185,15 @@ func TestPromoteOffer(t *testing.T) {
 		{name: "observe", level: LevelObserve, status: cand, caller: rowCaller(ClassHuman), available: false,
 			reason: "the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first"},
 		{name: "unguarded", status: ready(cand, ReadyReasonUnguarded), caller: rowCaller(ClassHuman), available: false,
-			reason: "the promoter admits no operation until the delivery admission policies are installed: " + ReadyFix(ReadyReasonUnguarded)},
+			reason: "the promoter admits no operation until the delivery admission policies are installed"},
 		{name: "applier not automated", status: ready(cand, ReadyReasonApplierNotAutomated), caller: rowCaller(ClassHuman), read: read, available: true,
-			reason: "promotes 1.1.0; the Stage is not ready (ApplierNotAutomated): " + ReadyFix(ReadyReasonApplierNotAutomated)},
+			reason: "promotes 1.1.0; the Stage is not ready (ApplierNotAutomated)"},
 		{name: "runs newest", status: StageStatus{Pointer: rowRun, Candidate: rowRun}, caller: rowCaller(ClassHuman), available: false,
 			reason: "the Stage runs its newest candidate"},
 		{name: "no candidate", status: StageStatus{Pointer: rowRun}, caller: rowCaller(ClassHuman), available: false,
 			reason: "no eligible candidate: the candidate source offers nothing newer that has not failed here"},
 		{name: "no candidate, source broken", status: ready(StageStatus{}, ReadyReasonCandidateNotFound), caller: rowCaller(ClassHuman), available: false,
-			reason: "no eligible candidate: " + ReadyFix(ReadyReasonCandidateNotFound)},
+			reason: "no eligible candidate while the Stage is not ready (CandidateNotFound)"},
 	})
 }
 

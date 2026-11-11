@@ -4,7 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
-  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, offerReason, lifecycleWords,
+  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince,
 } from './delivery.ts';
 import {
@@ -336,12 +336,6 @@ describe('what a Stage row says', () => {
     expect(offerRequest({ ...r, pointer: '' }, { action: 'promote', available: true, reason: '', to: 'sha256:c' })).toEqual({
       request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: 'sha256:c', from: undefined }, version: '' });
     expect(offerRequest(r, { action: 'freeze', available: true, reason: '' })).toEqual({ request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/freeze' }, version: '' });
-  });
-  it('never says the Ready fix twice: an offer reason drops the fix the row already shows', () => {
-    const o = { action: 'promote' as const, available: false, reason: 'no eligible candidate: set spec.verify' };
-    expect(offerReason(o, 'set spec.verify')).toBe('no eligible candidate');
-    expect(offerReason(o, '')).toBe('no eligible candidate: set spec.verify');
-    expect(offerReason(o, 'something else')).toBe('no eligible candidate: set spec.verify');
   });
   it('words a lifecycle answer: unknown never reads as yes or no', () => {
     expect(lifecycleWords.signature.signed).toBe('Signature checked');

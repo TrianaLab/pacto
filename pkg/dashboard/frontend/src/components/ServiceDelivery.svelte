@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, fleetEntityUrl } from '../lib/router.ts';
-  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, offerLabel, offerRequest, offerReason, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
+  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, offerLabel, offerRequest, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
   import EnvMark from './figure/EnvMark.svelte';
@@ -237,7 +237,7 @@
                 <button type="button" class="btn btn-sm" data-testid="service-delivery-offer" disabled={!o.available}
                   aria-label={`${offerLabel(o.action)} ${service} in ${r.environment}`} title={o.reason}
                   onclick={(e) => act(e, r, o)}>{offerLabel(o.action)}</button>
-                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {offerReason(o, ready(r) ? r.readyFix : '')}</span>{/if}
+                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {o.reason}</span>{/if}
               </div>
             {/each}
           </div>

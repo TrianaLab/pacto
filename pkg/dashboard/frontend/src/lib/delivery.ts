@@ -612,14 +612,6 @@ export function offerRequest(r: OfferRow, o: DeliveryOffer) {
 }
 
 /**
- * offerReason is an offer's reason without the Ready fix its row already shows beside
- * "Cannot promote", so a row never says the same message twice (Decision 11).
- */
-export function offerReason(o: DeliveryOffer, readyFix = ''): string {
-  return readyFix && o.reason.endsWith(`: ${readyFix}`) ? o.reason.slice(0, -(readyFix.length + 2)) : o.reason;
-}
-
-/**
  * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
  * ("unsigned" only for an artifact Flux never verified), and unknown never as yes or no.
  */

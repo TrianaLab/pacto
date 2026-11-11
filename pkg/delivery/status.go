@@ -207,10 +207,14 @@ func promoteOffer(st StageObject, class ActorClass, row *StageRow) Offer {
 	switch {
 	case CurrentLevel(st.Spec, ss) == LevelObserve:
 		o.Reason = "the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first"
+	// The row's ReadyFix sits beside the offer on every surface, so a reason
+	// names the Ready reason and never repeats its fix.
 	case notReady && ready.Reason == ReadyReasonUnguarded:
-		o.Reason = "the promoter admits no operation until the delivery admission policies are installed: " + ReadyFix(ReadyReasonUnguarded)
+		o.Reason = "the promoter admits no operation until the delivery admission policies are installed"
+	case ss.Candidate == "" && row.ReadyFix != "":
+		o.Reason = "no eligible candidate while the Stage is not ready (" + ready.Reason + ")"
 	case ss.Candidate == "":
-		o.Reason = "no eligible candidate: " + cmp.Or(row.ReadyFix, "the candidate source offers nothing newer that has not failed here")
+		o.Reason = "no eligible candidate: the candidate source offers nothing newer that has not failed here"
 	case ss.Candidate == ss.Pointer:
 		o.Reason = "the Stage runs its newest candidate"
 	case !MayRaise(TypePromote, class, false):
@@ -221,7 +225,10 @@ func promoteOffer(st StageObject, class ActorClass, row *StageRow) Offer {
 			o.Reason += "; the Stage is frozen, so the promote waits until a person unfreezes it"
 		}
 		if notReady {
-			o.Reason += "; the Stage is not ready (" + ready.Reason + "): " + cmp.Or(row.ReadyFix, ready.Message)
+			o.Reason += "; the Stage is not ready (" + ready.Reason + ")"
+			if row.ReadyFix == "" && ready.Message != "" {
+				o.Reason += ": " + ready.Message
+			}
 		}
 	}
 	return o

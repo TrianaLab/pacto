@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, offerReason, checkText } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -198,11 +198,10 @@
           <!-- Every offer: an available one plans, an unavailable one says why in words, never only in a tooltip. -->
           <span class="ev-actions">
             {#each r.offers as o (o.action + (o.operation ?? ''))}
-              {@const reason = offerReason(o, notReady(r) ? r.readyFix : '')}
               <span class="ev-offer">
                 <button type="button" class="btn btn-sm" disabled={!o.available} onclick={(e) => act(e, r, o)} aria-label={offerName(svc, env, r, o)}
-                  title={o.available && o.action === 'promote' && o.to ? `Promote to ${offerRequest(r, o).version || o.to}` : reason}>{offerLabel(o.action)}</button>
-                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {reason}</span>{/if}
+                  title={o.available && o.action === 'promote' && o.to ? `Promote to ${offerRequest(r, o).version || o.to}` : o.reason}>{offerLabel(o.action)}</button>
+                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {o.reason}</span>{/if}
               </span>
             {/each}
           </span>

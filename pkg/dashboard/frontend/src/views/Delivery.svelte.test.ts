@@ -693,7 +693,7 @@ describe('board offers and links (B2)', () => {
     const dead = { kind: 'stage', namespace: 'test', stage: 'pay-test', environment: 'test', problem: 'missing' };
     fns.environments.mockResolvedValue({ ...listing, environments: [
       { ...base, ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified', readyFix: 'set spec.verify on the candidate OCIRepository', upstream: dead,
-        offers: [{ action: 'promote', available: false, reason: 'no eligible candidate: set spec.verify on the candidate OCIRepository' }] },
+        offers: [{ action: 'promote', available: false, reason: 'no eligible candidate while the Stage is not ready (CandidateUnverified)' }] },
       { ...base, service: 'ledger', stage: 'led', upstream: dead },
     ] });
     const { target, destroy } = render(DeliveryEnvironmentsView);
