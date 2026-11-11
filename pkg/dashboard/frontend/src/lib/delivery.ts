@@ -614,3 +614,20 @@ export function watchText(w: { status?: string; reason?: string } | null | undef
   if (w.reason === 'NotRechecked') return 'Not re-checked since it shipped';
   return WATCH[w.status ?? ''] ?? 'The newest re-check could not decide';
 }
+
+const PROGRESS_STAMP: Record<string, { label: string; tone: string }> = {
+  'up-to-date': { label: 'Up to date', tone: 'ok' },
+  'can-promote': { label: 'Can promote', tone: 'accent' },
+  'needs-person': { label: 'Needs a person', tone: 'warn' },
+  blocked: { label: 'Blocked', tone: 'err' },
+};
+
+/** progressStamp is the AnswerCard stamp for where a Stage stands against its candidate; anything else is not known. */
+export function progressStamp(state: string | undefined): { label: string; tone: string } {
+  return PROGRESS_STAMP[state ?? ''] ?? { label: 'Not known', tone: 'neutral' };
+}
+
+/** isCommand says whether a fix is a pacto command to copy rather than words about who acts. */
+export function isCommand(fix: string | undefined): boolean {
+  return !!fix?.startsWith('pacto ');
+}

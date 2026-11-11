@@ -82,6 +82,8 @@ export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace
 export type DeliveryBlame = GetResponse<'/api/delivery/blame'>;
 export type DeliveryUndo = GetResponse<'/api/delivery/undo'>;
 export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
+/** Where one Stage stands against its newest candidate and what holds it back. */
+export type DeliveryProgress = GetResponse<'/api/delivery/progress'>;
 /** The paging and filter a long delivery list takes, from the generated query. */
 export type DeliveryQuery<P extends keyof paths> =
   paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
@@ -496,6 +498,8 @@ export const api = {
     unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
   deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
     unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
+  deliveryProgress: (namespace: string, stage: string): Promise<DeliveryProgress> =>
+    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
   deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),

@@ -4,7 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
-  exceptParam, exceptList, offerLabel, checkText, watchText,
+  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -339,5 +339,18 @@ describe('what a Stage row says', () => {
     expect(watchText({ status: 'False', reason: 'RecheckFailed' })).toBe('The newest re-check failed');
     expect(watchText({ status: 'Unknown', reason: 'RecheckUnknown' })).toBe('The newest re-check could not decide');
     expect(watchText(undefined)).toBe('');
+  });
+  it('stamps where a Stage stands against its candidate, unknown never positive', () => {
+    expect(progressStamp('up-to-date')).toEqual({ label: 'Up to date', tone: 'ok' });
+    expect(progressStamp('can-promote')).toEqual({ label: 'Can promote', tone: 'accent' });
+    expect(progressStamp('needs-person')).toEqual({ label: 'Needs a person', tone: 'warn' });
+    expect(progressStamp('blocked')).toEqual({ label: 'Blocked', tone: 'err' });
+    expect(progressStamp('unknown')).toEqual({ label: 'Not known', tone: 'neutral' });
+    expect(progressStamp('other')).toEqual({ label: 'Not known', tone: 'neutral' });
+  });
+  it('tells a command to copy from a fix in words', () => {
+    expect(isCommand('pacto delivery approve -n prod op-1')).toBe(true);
+    expect(isCommand('a person of team-a approves it themselves; you cannot answer it')).toBe(false);
+    expect(isCommand(undefined)).toBe(false);
   });
 });

@@ -9,9 +9,11 @@
   // Plan first, then propose. The plan says what the promoter would do; the
   // proposal carries the plan's intent digest, so anything that moved since is
   // refused with a fresh plan instead of acting on a stale one.
-  let { request, toVersion = '', miraURL = '', onClose } = $props();
+  // `preview` is a plan already made (the Why card's): shown, never proposed from here.
+  let { request, toVersion = '', miraURL = '', onClose = undefined, preview = null } = $props();
 
-  let plan = $state(null);
+  // svelte-ignore state_referenced_locally
+  let plan = $state(preview);
   let planError = $state(null);
   let reason = $state('');
   let busy = $state(false);
@@ -24,7 +26,7 @@
     try { plan = await api.deliveryPlan(request); } catch (e) { planError = e; }
   }
 
-  onMount(() => { headingEl?.focus(); loadPlan(); });
+  onMount(() => { if (!preview) { headingEl?.focus(); loadPlan(); } });
 
   async function propose(e) {
     e.preventDefault();
@@ -46,8 +48,8 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<section class="pp" aria-labelledby="pp-title" onkeydown={onKeydown} data-testid="propose-panel">
-  <h3 id="pp-title" class="t-subsection-title" tabindex="-1" bind:this={headingEl}>
+<section class="pp" aria-labelledby={preview ? undefined : 'pp-title'} onkeydown={onKeydown} data-testid="propose-panel" aria-label={preview ? 'The planned promote' : undefined}>
+  <h3 id={preview ? undefined : 'pp-title'} class="t-subsection-title" tabindex="-1" bind:this={headingEl}>
     {typeLabel(request.type)} {request.namespace}/{request.stage}{#if request.to}: {toVersion || shortDigest(request.to)}{/if}
   </h3>
   {#if planError}
@@ -84,6 +86,7 @@
       </div>
     {/if}
     <VerdictList verdicts={plan.verdicts ?? []} {miraURL} testid="plan-verdicts" />
+    {#if !preview}
     <form class="pp-form" onsubmit={propose}>
       <label class="pp-field">
         <span>Why (kept with the change)</span>
@@ -94,6 +97,7 @@
         <button type="button" class="btn" onclick={() => onClose?.()}>Cancel</button>
       </div>
     </form>
+    {/if}
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}
   {#if planError}<button type="button" class="btn btn-sm" onclick={() => onClose?.()}>Close</button>{/if}

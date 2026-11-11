@@ -5,14 +5,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
 
-const { environments, plan, undo } = vi.hoisted(() => ({ environments: vi.fn(), plan: vi.fn(), undo: vi.fn() }));
+const { environments, plan, undo, progress, history } = vi.hoisted(() => ({ environments: vi.fn(), plan: vi.fn(), undo: vi.fn(), progress: vi.fn(), history: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
   return { ...actual, api: { ...actual.api, deliveryEnvironments: (...a: unknown[]) => environments(...a),
-    deliveryPlan: (...a: unknown[]) => plan(...a), deliveryUndo: (...a: unknown[]) => undo(...a) } };
+    deliveryPlan: (...a: unknown[]) => plan(...a), deliveryUndo: (...a: unknown[]) => undo(...a),
+    deliveryProgress: (...a: unknown[]) => progress(...a), deliveryHistory: (...a: unknown[]) => history(...a) } };
 });
 
 import { ApiError } from '../lib/api.ts';
+import { deliveryPublishUrl } from '../lib/router.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import ServiceDelivery from './ServiceDelivery.svelte';
 
@@ -37,7 +39,10 @@ function render(props: Record<string, unknown>) {
 }
 
 describe('ServiceDelivery', () => {
-  beforeEach(() => { environments.mockReset(); plan.mockReset(); undo.mockReset(); });
+  beforeEach(() => {
+    environments.mockReset(); plan.mockReset(); undo.mockReset(); progress.mockReset(); history.mockReset();
+    history.mockResolvedValue({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', histories: [] });
+  });
 
   it.each([
     ['unknown', 'Checking whether this dashboard serves delivery.'],
@@ -285,6 +290,153 @@ describe('ServiceDelivery', () => {
     const v = render({});
     await settle();
     expect([...v.target.querySelectorAll('a')].some((a) => a.getAttribute('href') === '#/delivery/autonomy?service=orders')).toBe(true);
+    v.destroy();
+  });
+
+  const why = (over = {}) => ({ namespace: 'prod', stage: 'orders', asOf: '2026-11-04T10:00:00Z', state: 'needs-person',
+    summary: 'A person must approve the promote of 2.5.0.', candidate: D2, autoPromote: 'the level is advise: a person proposes each promote',
+    reasons: [{ code: 'Held', message: 'op-1 waits for a person', fix: 'pacto delivery approve -n prod op-1' }],
+    plan: { type: 'delivery.pacto.trianalab.io/promote', to: D2, predicted: 'Held', intentDigest: 'sha256:i', next: ['A person of team-a approves it.'] }, ...over });
+  const openWhy = async (v: { target: HTMLElement }, i = 0) => {
+    const d = v.target.querySelectorAll<HTMLDetailsElement>('details.sd-why')[i];
+    d.open = !d.open;
+    d.dispatchEvent(new Event('toggle'));
+    await settle();
+    return d;
+  };
+
+  it('the Why disclosure asks for progress once and shows the answer with asOf', async () => {
+    environments.mockResolvedValue(answer([row()]));
+    progress.mockResolvedValue(why());
+    const v = render({});
+    await settle();
+    expect(progress).not.toHaveBeenCalled();
+    await openWhy(v);
+    expect(progress).toHaveBeenCalledWith('prod', 'orders');
+    const card = v.target.querySelector('[data-testid="service-delivery-why"]')!;
+    const t = card.textContent ?? '';
+    for (const x of ['Needs a person', 'A person must approve the promote of 2.5.0.', 'op-1 waits for a person', 'level is advise', '2026-11-04 10:00 UTC'])
+      expect(t).toContain(x);
+    expect(card.querySelector('[data-testid="why-command"]')?.textContent).toContain('pacto delivery approve -n prod op-1');
+    expect(card.querySelector('[data-testid="plan-next"]')?.textContent).toContain('A person of team-a approves it.');
+    expect(card.querySelector('form')).toBeNull(); // a preview: proposing stays behind the offer buttons
+    await openWhy(v);
+    await openWhy(v);
+    expect(progress).toHaveBeenCalledTimes(1);
+    v.destroy();
+  });
+
+  it('an agent-shaped answer shows its fix in words and no command', async () => {
+    environments.mockResolvedValue(answer([row()]));
+    progress.mockResolvedValue(why({ reasons: [{ code: 'Held', message: 'op-1 waits for a person', fix: 'a person of team-a approves it themselves; you cannot answer it' }] }));
+    const v = render({});
+    await settle();
+    await openWhy(v);
+    const card = v.target.querySelector('[data-testid="service-delivery-why"]')!;
+    expect(card.textContent).toContain('person of team-a approves it themselves');
+    expect(card.querySelector('[data-testid="why-command"]')).toBeNull();
+    v.destroy();
+  });
+
+  it('a Why that fails says so', async () => {
+    environments.mockResolvedValue(answer([row()]));
+    progress.mockRejectedValue(new ApiError(503, 'cluster unreachable', 'ClusterUnreachable'));
+    const v = render({});
+    await settle();
+    await openWhy(v);
+    expect(v.target.textContent).toContain('cluster unreachable');
+    v.destroy();
+  });
+
+  const placement = (items: unknown[]) => ({ total: items.length, count: items.length, truncated: false, items });
+  const env = (environment: string, over = {}) => ({ environment, targets: 2, declared: 1, notDeclared: 1, unknown: 0,
+    revisions: [{ kind: 'revision', key: `r-${environment}`, label: 'orders 1.2.0', version: '1.2.0', href: `#/fleet/revisions/r-${environment}` }],
+    revisionsTotal: 1, revisionsTruncated: false, ...over });
+  const META = { asOf: '2026-11-04T09:00:00Z', completeness: 'complete' };
+
+  it('without delivery, shows where the service runs as observed from targets', async () => {
+    const v = render({ state: 'not-served', placement: placement([env('prod'), env('', { declared: 0, notDeclared: 0, unknown: 2 })]), meta: META });
+    await settle();
+    const strip = v.target.querySelector('[data-testid="service-placement"]')!;
+    const t = strip.textContent ?? '';
+    expect(t).toContain('Where it runs (observed)');
+    expect(t).not.toContain('targets Pacto can see');
+    expect(t).toContain('observed from targets, not a promotion step');
+    expect(t).toContain('2026-11-04 09:00 UTC');
+    expect(t).toContain('Complete');
+    const rows = [...strip.querySelectorAll('[data-testid="service-placement-row"]')];
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('prod');
+    for (const x of ['2 targets', '1 declared', '1 not declared']) expect(rows[0].textContent).toContain(x);
+    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/revisions/r-prod');
+    expect(rows[1].textContent).toContain('no environment label');
+    expect(rows[1].textContent).toContain('2 unknown');
+    v.destroy();
+  });
+
+  it('a partial fleet answer reads targets Pacto can see and counts truncated revisions', async () => {
+    environments.mockResolvedValue(answer([]));
+    const v = render({ placement: placement([env('prod', { revisionsTotal: 11, revisionsTruncated: true })]), meta: { ...META, completeness: 'partial' } });
+    await settle();
+    const strip = v.target.querySelector('[data-testid="service-placement"]')!;
+    expect(strip.textContent).toContain('Where it runs (observed, targets Pacto can see)');
+    expect(strip.textContent).toContain('and 10 more');
+    expect(strip.textContent).toContain('2026-11-04 09:00 UTC');
+    v.destroy();
+  });
+
+  it('when delivery is not installed, shows the observed strip', async () => {
+    environments.mockRejectedValue(new ApiError(404, 'no delivery', 'DeliveryNotInstalled'));
+    const v = render({ placement: placement([env('prod')]), meta: META });
+    await settle();
+    expect(v.target.querySelector('[data-testid="service-placement"]')).not.toBeNull();
+    v.destroy();
+  });
+
+  it('beside Stages, shows only environments no Stage covers, and only on a complete listing', async () => {
+    environments.mockResolvedValue(answer([row({ environment: 'prod' })]));
+    const v = render({ placement: placement([env('prod'), env('staging')]), meta: META });
+    await settle();
+    const rows = [...v.target.querySelectorAll('[data-testid="service-placement-row"]')];
+    expect(rows.map((r) => r.querySelector('bdi')?.textContent)).toEqual(['staging']);
+    v.destroy();
+
+    environments.mockResolvedValue(answer([row({ environment: 'prod' })], { completeness: 'partial', unreadable: ['team-b'] }));
+    const w = render({ placement: placement([env('prod'), env('staging')]), meta: META });
+    await settle();
+    expect(w.target.querySelector('[data-testid="service-placement"]')).toBeNull();
+    w.destroy();
+  });
+
+  it('no strip when every environment has a Stage', async () => {
+    environments.mockResolvedValue(answer([row({ environment: 'prod' })]));
+    const v = render({ placement: placement([env('prod')]), meta: META });
+    await settle();
+    expect(v.target.querySelector('[data-testid="service-placement"]')).toBeNull();
+    v.destroy();
+  });
+
+  it('shows the newest change per Stage with applied, cause and correlation, marking unsigned cells', async () => {
+    environments.mockResolvedValue(answer([row(), row({ stage: 'o2', environment: 'qa' })]));
+    history.mockResolvedValue({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', histories: [
+      { namespace: 'prod', stage: { name: 'orders' }, entries: [
+        { operation: 'op-2', type: 'delivery.pacto.trianalab.io/promote', outcome: 'Succeeded', applied: '2026-11-04T09:30:00Z', cause: { reason: 'auto-promoted' }, correlationID: 'corr-2' },
+        { operation: 'op-1', type: 'delivery.pacto.trianalab.io/promote', outcome: 'Succeeded', applied: '2026-11-03T09:30:00Z', correlationID: 'corr-old' },
+      ] },
+      { namespace: 'prod', stage: { name: 'o2' }, entries: [
+        { operation: 'op-3', type: 'delivery.pacto.trianalab.io/freeze', outcome: 'Succeeded', applied: '2026-11-04T08:00:00Z', correlationID: 'corr-3', record: 'rec-3' },
+      ] },
+    ] });
+    const v = render({});
+    await settle();
+    expect(history).toHaveBeenCalledWith('', '', { service: 'orders', domain: '', limit: 25 });
+    const [a, b] = [...v.target.querySelectorAll('[data-testid="service-delivery-row"]')].map((r) => r.querySelector('[data-testid="service-delivery-last"]')!);
+    for (const x of ['2026-11-04 09:30 UTC', 'auto-promoted', 'corr-2', 'from status, not signed']) expect(a.textContent).toContain(x);
+    expect(a.textContent).not.toContain('corr-old');
+    expect(b.textContent).toContain('corr-3');
+    expect(b.textContent).not.toContain('not signed');
+    expect(v.target.textContent).not.toMatch(/\bunsigned\b/);
+    expect(v.target.querySelector(`a[href="${deliveryPublishUrl({ service: 'orders' })}"]`)?.textContent).toContain('Published versions');
     v.destroy();
   });
 });

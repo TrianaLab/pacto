@@ -217,6 +217,23 @@ export function installScaleFixture(): void {
         for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
       }
     }
+    // The Why card at its longest: many reasons, each with a long message and fix.
+    if (route === '/api/delivery/progress') {
+      const base = (doc.reasons as Record<string, unknown>[] | null) ?? [];
+      doc.summary = longName(String(doc.summary ?? 'summary'));
+      doc.reasons = Array.from({ length: 12 }, (_, i) => ({ ...(base[i % Math.max(base.length, 1)] ?? { code: 'NotReady' }),
+        message: longName(`reason-${i}`), fix: i % 2 ? `pacto delivery approve -n ${longName(`ns-${i}`)} op-${i}` : longName(`fix-${i}`) }));
+      if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
+    }
+    // Where a service runs, observed: long environment names and version labels
+    // (keys and hrefs stay the engine's).
+    if (route === '/api/fleet/entities/service') {
+      const pl = (doc.service as Record<string, unknown> | undefined)?.placement as { items?: Record<string, unknown>[] } | undefined;
+      for (const it of pl?.items ?? []) {
+        if (it.environment) it.environment = longName(String(it.environment));
+        for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) { v.label = longName(String(v.label)); v.version = longName(String(v.version ?? 'v')); }
+      }
+    }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
       if (tl) {
@@ -734,6 +751,11 @@ const serviceWithStages = (hash: string) => async (page: Page) => {
   await expect(page.locator('[data-testid="service-delivery-row"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
+const observedStrip = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-placement"]')).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -791,6 +813,16 @@ export const ROUTES: Route[] = [
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
   { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
   { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
+  {
+    name: 'service page, Why card open',
+    open: async (page) => {
+      await serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments')(page);
+      await page.locator('details.sd-why summary').first().click();
+      await expect(page.locator('[data-testid="service-delivery-why"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
+  { name: 'service page, observed strip beside Stages', open: observedStrip('#/fleet/services/notification-worker') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
