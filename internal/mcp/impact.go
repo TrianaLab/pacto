@@ -74,20 +74,33 @@ func (a impactArgs) request() (ImpactRequest, error) {
 	pair := a.OldRef != "" || a.NewRef != ""
 	event := a.Event != "" || a.Service != "" || a.Revision != ""
 	switch {
-	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""), event && (a.Event == "" || a.Service == ""):
+	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""):
 		return ImpactRequest{}, errImpactArgs
-	case event && !slices.Contains([]string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}, a.Event):
-		return ImpactRequest{}, errors.New("event is one of unavailable, removed or regressed")
-	case a.Event == impact.EventRegressed && a.Revision == "":
-		return ImpactRequest{}, errors.New("a regressed event names its 'revision'")
-	case a.Revision != "" && a.Event != impact.EventRegressed:
-		return ImpactRequest{}, errors.New("revision is read only with event regressed")
-	case event && a.IncludeObserved:
-		return ImpactRequest{}, errors.New("include_observed applies to old_ref and new_ref: an event always reads observed callers")
 	case event:
+		if err := a.eventErr(); err != nil {
+			return ImpactRequest{}, err
+		}
 		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Revision: a.Revision}
 	}
 	return req, nil
+}
+
+// eventErr checks the arguments of an event, as `pacto impact` checks its
+// event flags.
+func (a impactArgs) eventErr() error {
+	switch {
+	case a.Event == "" || a.Service == "":
+		return errImpactArgs
+	case !slices.Contains([]string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}, a.Event):
+		return errors.New("event is one of unavailable, removed or regressed")
+	case a.Event == impact.EventRegressed && a.Revision == "":
+		return errors.New("a regressed event names its 'revision'")
+	case a.Revision != "" && a.Event != impact.EventRegressed:
+		return errors.New("revision is read only with event regressed")
+	case a.IncludeObserved:
+		return errors.New("include_observed applies to old_ref and new_ref: an event always reads observed callers")
+	}
+	return nil
 }
 
 // impactHandler analyses over snap: the current snapshot, or the caller's view
