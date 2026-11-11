@@ -63,6 +63,19 @@ func TestRegressionReadsStages(t *testing.T) {
 	}
 }
 
+// A person's rollback off the digest leaves failedDigests unchanged, so a
+// Stage that does not list it still has its history read and cited.
+func TestRegressionReadsManualRollback(t *testing.T) {
+	rollback := opFixture("rb1", map[string]any{"type": delivery.TypeRollback, "stage": "payments-prod",
+		"params": map[string]any{"from": dlB, "to": dlA}, "actor": map[string]any{"user": "alice"}, "cause": map[string]any{"reason": "error rate 30%"}},
+		map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(4), "pointer": map[string]any{"before": dlB, "after": dlA}})
+	d, _, _ := deliveryFixture(t, "alice", nil, nil, rollback)
+	reg := d.RegressionEvidence(context.Background(), regressedB)
+	if len(reg.Evidence) != 1 || reg.Evidence[0].Kind != impact.RegressionRollback {
+		t.Fatalf("a manual rollback off the digest is evidence: %+v", reg)
+	}
+}
+
 // TestRegressionForbiddenNamespaceNamed: a namespace the caller may not read
 // is named, and what was read is kept.
 func TestRegressionForbiddenNamespaceNamed(t *testing.T) {

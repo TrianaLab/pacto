@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,12 +29,9 @@ func (d *Delivery) RegressionEvidence(ctx context.Context, ev impact.Event) *imp
 		}
 		return &impact.Regression{Unavailable: "delivery evidence could not be read: " + err.Error()}
 	}
-	// Only a Stage that lists the digest as failed can hold a rollback off
-	// it worth citing, so only those histories are read.
-	failed := slices.DeleteFunc(slices.Clone(stages), func(st delivery.StageObject) bool {
-		return !slices.Contains(st.Status.FailedDigests, ev.Revision)
-	})
-	hs := d.Histories(ctx, failed)
+	// Every Stage's history is read: a person's rollback off the digest
+	// leaves failedDigests unchanged, so the list cannot narrow the read.
+	hs := d.Histories(ctx, stages)
 	evidence, unknown := delivery.RegressionEvidence(stages, hs.Histories, ev.Revision)
 	var why []string
 	if len(forbidden) > 0 {

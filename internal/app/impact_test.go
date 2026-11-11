@@ -408,7 +408,7 @@ func TestImpactEventOnSnapshot(t *testing.T) {
 	}
 	snap, _ := svc.Fleet(ctx, opts.Fleet)
 	opts.Event = impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}
-	opts.Regression = &impact.Regression{Unavailable: "no cluster"}
+	opts.ReadRegression = func(context.Context, impact.Event) *impact.Regression { return &impact.Regression{Unavailable: "no cluster"} }
 	res, err = svc.ImpactEventOnSnapshot(ctx, opts, snap)
 	if err != nil || res.SnapshotID != snap.SnapshotID || !strings.Contains(res.GateReason, "not read in full") {
 		t.Fatalf("regressed on the snapshot = %+v %v", res, err)
@@ -466,12 +466,24 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewService(nil, nil)
-	res, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "orders"}}, snap)
+	res, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "orders"},
+		ReadRegression: func(context.Context, impact.Event) *impact.Regression { t.Fatal("only a regressed event reads delivery"); return nil }}, snap)
 	if err != nil || res.Event.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) || slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == "SERVICE_NOT_IN_FLEET" }) {
 		t.Fatalf("bare name = %+v %v", res, err)
 	}
 	if _, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "cart"}}, snap); err == nil ||
 		!strings.Contains(err.Error(), "is ambiguous") {
 		t.Fatalf("ambiguous name: %v", err)
+	}
+	// Delivery is read with the resolved key: a bare name read as domain ""
+	// matches no Stage of a domain and would report "no failure recorded".
+	var read impact.Event
+	if _, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{
+		Event: impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"},
+		ReadRegression: func(_ context.Context, ev impact.Event) *impact.Regression {
+			read = ev
+			return &impact.Regression{}
+		}}, snap); err != nil || read.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) {
+		t.Fatalf("regression read with %+v %v", read, err)
 	}
 }

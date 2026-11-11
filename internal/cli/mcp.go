@@ -427,8 +427,8 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 		}
 		if req.Event != nil {
 			opts := app.ImpactEventOptions{Event: *req.Event, Traces: traces}
-			if req.Event.Kind == impact.EventRegressed {
-				opts.Regression = mcpRegression(cmd, d, *req.Event, trusted)
+			opts.ReadRegression = func(ctx context.Context, ev impact.Event) *impact.Regression {
+				return mcpRegression(ctx, cmd, d, ev, trusted)
 			}
 			return svc.ImpactEventOnSnapshot(ctx, opts, snap)
 		}
@@ -453,12 +453,12 @@ func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool) error {
 
 // mcpRegression reads delivery about a regressed revision for a trusted
 // caller, with the kubeconfig the server runs under, which is the caller's.
-func mcpRegression(cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
+func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
 	if !trusted {
 		return &impact.Regression{Unavailable: "this server answers over HTTP and reads no delivery for its callers; " +
 			"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"}
 	}
-	return readRegression(cmd, d, ev)
+	return readRegression(ctx, cmd, d, ev)
 }
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in

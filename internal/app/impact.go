@@ -145,9 +145,11 @@ type ImpactEventOptions struct {
 	// Traces is optional OTLP/JSON trace data whose callers join the answer.
 	// An event answer always reads observed callers, so there is no opt-in.
 	Traces []byte
-	// Regression is the delivery evidence the caller read for a regressed
-	// event, with its own identity; nil when none was read.
-	Regression *impact.Regression
+	// ReadRegression reads the delivery evidence for a regressed event with
+	// the caller's own identity. It is called with the event whose service is
+	// already resolved to its fleet key, so a bare name reads the Stages of
+	// its domain; nil reads none.
+	ReadRegression func(ctx context.Context, ev impact.Event) *impact.Regression
 }
 
 // ImpactEvent builds a fleet snapshot from the configured sources and
@@ -176,8 +178,12 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 	} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
 		return nil, err
 	}
+	var reg *impact.Regression
+	if ev.Kind == impact.EventRegressed && opts.ReadRegression != nil {
+		reg = opts.ReadRegression(ctx, ev)
+	}
 	return impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
-		Event: &ev, ObservedEdges: observed, Regression: opts.Regression,
+		Event: &ev, ObservedEdges: observed, Regression: reg,
 	}), nil
 }
 

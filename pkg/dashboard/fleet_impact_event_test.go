@@ -218,6 +218,21 @@ func TestImpactEventRegressionReadsCallerDelivery(t *testing.T) {
 	}
 }
 
+// A person's rollback off the digest leaves failedDigests unchanged, so the
+// history of a Stage that does not list the digest is read and cited too.
+func TestImpactEventRegressionReadsManualRollback(t *testing.T) {
+	st := libStage(dRun)
+	st.Status.FailedDigests = nil
+	f := &fakeDelivery{stages: []delivery.StageObject{st},
+		history: &delivery.History{Stage: delivery.StageNow{Name: "lib-prod"}, Entries: []delivery.HistoryEntry{{Type: delivery.TypeRollback, Reason: "error rate 30%",
+			Pointer: &delivery.PointerChange{Before: dRun, After: dNext}}}}}
+	base := eventServer(t, Options{Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }})
+	out := regressed(t, base, dRun)
+	if len(out.Regression) != 1 || out.Regression[0].Kind != impact.RegressionRollback || strings.Contains(out.GateReason, "recorded no failure") {
+		t.Fatalf("a manual rollback off the digest is evidence: %+v %q", out.Regression, out.GateReason)
+	}
+}
+
 func TestImpactEventRegressionNoDeliveryHost(t *testing.T) {
 	base := eventServer(t, Options{})
 	if m := limitation(regressed(t, base, dRun), impact.LimitationDeliveryEvidenceUnavailable); !strings.Contains(m, "no cluster") {

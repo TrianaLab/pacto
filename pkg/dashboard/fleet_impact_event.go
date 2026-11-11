@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"errors"
-	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -27,7 +26,9 @@ func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactR
 	case b.Event != impact.EventRegressed && b.Revision != "":
 		return nil, huma.Error422UnprocessableEntity("revision", errors.New("revision is read only with event regressed"))
 	}
-	snap := q.Snapshot()
+	// Read only: neither the lookup nor BuildProductOutcome keeps or changes
+	// it, so no clone of a fleet-sized snapshot per request.
+	snap := q.SnapshotForSerialization()
 	key := fleet.ServiceKey(b.ServiceKey)
 	if snap.Services[key] == nil {
 		return nil, huma.Error404NotFound("no service with this serviceKey")
@@ -37,7 +38,7 @@ func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactR
 	if ev.Kind == impact.EventRegressed {
 		reg = s.regressionEvidence(ctx, key, ev.Revision)
 	}
-	res := impact.Analyze(ctx, nil, nil, nil, nil, q.SnapshotForSerialization(), impact.Options{Event: &ev, IncludeObserved: b.IncludeObserved, Regression: reg})
+	res := impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{Event: &ev, IncludeObserved: b.IncludeObserved, Regression: reg})
 	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, key, nil, nil, res, b.Limit, b.Offset, b.Outcome))}, nil
 }
 
@@ -61,30 +62,27 @@ func (s *Server) regressionEvidence(ctx context.Context, service fleet.ServiceKe
 		return &impact.Regression{Unavailable: deliveryReason(err)}
 	}
 	domain, name := fleet.ParseServiceKey(service)
-	var stages, failed []delivery.StageObject
+	var stages []delivery.StageObject
 	for _, st := range all {
 		if delivery.OfService(st, name, domain) {
 			stages = append(stages, st)
-			if slices.Contains(st.Status.FailedDigests, digest) {
-				failed = append(failed, st)
-			}
 		}
 	}
-	// Only a Stage that lists the digest as failed can hold a rollback off it
-	// worth citing, so only those histories are read.
+	// Every Stage's history is read: a person's rollback off the digest
+	// leaves failedDigests unchanged, so the list cannot narrow the read.
 	var why []string
 	if len(listing.Unreadable) > 0 {
 		why = append(why, "Stages in these namespaces were not read (* is every namespace outside the fleet's): "+strings.Join(listing.Unreadable, ", "))
 	}
 	var histories []delivery.StageHistory
-	hs, errs := historiesOf(ctx, api, failed, true)
+	hs, errs := historiesOf(ctx, api, stages, true)
 	for i, h := range hs {
-		where := failed[i].Metadata.Namespace + "/" + failed[i].Metadata.Name
+		where := stages[i].Metadata.Namespace + "/" + stages[i].Metadata.Name
 		switch {
 		case errs[i] != nil:
 			why = append(why, "the history of "+where+" was not read: "+deliveryReason(errs[i]))
 		case h != nil:
-			histories = append(histories, delivery.StageHistory{Namespace: failed[i].Metadata.Namespace, History: *h})
+			histories = append(histories, delivery.StageHistory{Namespace: stages[i].Metadata.Namespace, History: *h})
 		}
 	}
 	evidence, unknown := delivery.RegressionEvidence(stages, histories, digest)

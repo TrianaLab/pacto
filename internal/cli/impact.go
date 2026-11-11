@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -199,20 +200,21 @@ func runImpactEvent(cmd *cobra.Command, svc *app.Service, d deps, kind, value st
 		return nil, err
 	}
 	opts := app.ImpactEventOptions{Event: ev, Fleet: fleetOptions(cmd), Traces: traces}
-	if ev.Kind == impact.EventRegressed {
-		opts.Regression = readRegression(cmd, d, ev)
+	opts.ReadRegression = func(ctx context.Context, ev impact.Event) *impact.Regression {
+		return readRegression(ctx, cmd, d, ev)
 	}
 	return svc.ImpactEvent(cmd.Context(), opts)
 }
 
 // readRegression reads the delivery evidence about a regressed revision with
-// the ambient cluster credentials.
-func readRegression(cmd *cobra.Command, d deps, ev impact.Event) *impact.Regression {
+// the ambient cluster credentials, bounded by ctx (the request's, so a
+// cancelled MCP call stops the walk).
+func readRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Event) *impact.Regression {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return &impact.Regression{Unavailable: "no cluster to read delivery from: " + err.Error()}
 	}
-	return c.RegressionEvidence(cmd.Context(), ev)
+	return c.RegressionEvidence(ctx, ev)
 }
 
 // maxEvidenceLines bounds the evidence lines printed per consumer.
