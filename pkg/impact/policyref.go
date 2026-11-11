@@ -138,6 +138,7 @@ func (r *Result) mergeConsumer(c AffectedConsumer) {
 		return
 	}
 	e := &r.Consumers[i]
+	e.rangeVerdict = e.CompatibilityVerdict
 	if e.Depth > 1 && effectRank(c.Effect) >= effectRank(e.Effect) {
 		e.Depth, e.Direct, e.Path, e.Provenance, e.Confidence = c.Depth, c.Direct, c.Path, c.Provenance, c.Confidence
 	}

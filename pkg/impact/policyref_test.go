@@ -235,6 +235,24 @@ func TestPolicyReferrerHiddenCounted(t *testing.T) {
 	if p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0); p.Consumers.Hidden != 2 {
 		t.Errorf("hidden consumers = %d, want 2", p.Consumers.Hidden)
 	}
+	// A change the diff does not call BREAKING never clears over referrers
+	// nobody checked: the viewer sees a count, never a name.
+	res = Analyze(context.Background(), policyProvider("1.0.0"), policyProvider("1.0.1"), policySchema(openPolicy), policySchema(openPolicy), snap, Options{})
+	if res.Classification == "BREAKING" || res.Gate != GateUnverified || !strings.Contains(res.GateReason, "2 services you may not see may reference policy") ||
+		strings.Contains(res.GateReason, "secret") {
+		t.Errorf("hidden referrers on %s: gate %s (%s)", res.Classification, res.Gate, res.GateReason)
+	}
+	// Without a policy published, a hidden dependent references none.
+	if n := hiddenReferrers(&fleet.ServiceRecord{HiddenDependents: 3}, &contract.Bundle{Contract: &contract.Contract{}}); n != 0 {
+		t.Errorf("hidden referrers = %d", n)
+	}
+	if n := hiddenReferrers(nil, nil); n != 0 {
+		t.Errorf("no record = %d", n)
+	}
+	if !publishesPolicy(&contract.Bundle{Contract: &contract.Contract{Policies: []contract.Policy{{Name: "p", Schema: "policy/p.json"}}}}) ||
+		publishesPolicy(&contract.Bundle{Contract: &contract.Contract{Policies: []contract.Policy{{Name: "p", Ref: policyRef}}}}) {
+		t.Error("only a policy with its own schema is published")
+	}
 }
 
 func TestPolicyRefUnresolvedPartial(t *testing.T) {
@@ -287,9 +305,14 @@ func TestPolicyReferrerBlocksBesideABrokenDependent(t *testing.T) {
 	dep := contract.Dependency{Name: "policy", Ref: policyRef + ":1.0.0", Required: true, Compatibility: "^1.0.0"}
 	broken := fleet.RawRevision{Bundle: mkBundle(svcContract("billing", "1.0.0", contract.Owner{Team: "billing"}, dep))}
 	res := analyzePolicy(policySnap(t, policyProvider("1.0.0"), []string{"orders", "billing"}, policyReferrer("orders", false), broken), tierPolicy)
-	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, "do not accept policy 2.0.0: billing") ||
+	if res.Gate != GateBlocked || !strings.Contains(res.GateReason, "do not accept policy 2.0.0: billing;") ||
 		!strings.Contains(res.GateReason, "fails its new policy and runs on known targets: orders") {
 		t.Errorf("gate %s (%s)", res.Gate, res.GateReason)
+	}
+	// A pure referrer has no range, so it is named once, by the policy clause.
+	res = analyzePolicy(policySnap(t, policyProvider("1.0.0"), []string{"orders"}, policyReferrer("orders", false)), tierPolicy)
+	if res.Gate != GateBlocked || strings.Contains(res.GateReason, "do not accept") || strings.Count(res.GateReason, "orders") != 1 {
+		t.Errorf("pure referrer gate %s (%s)", res.Gate, res.GateReason)
 	}
 }
 

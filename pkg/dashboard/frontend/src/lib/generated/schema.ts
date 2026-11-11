@@ -3801,10 +3801,12 @@ export interface components {
              */
             resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
+            /** @description The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot */
+            staleTargets?: string[] | null;
             targets?: components["schemas"]["ProductRef"][] | null;
             /**
              * Format: int64
-             * @description How many targets the consumer runs on, including those beyond the bound
+             * @description How many targets the consumer was reported on, including those beyond the bound
              */
             targetsTotal?: number;
             /** @description A runtime caller no contract describes: its service reference names no page */

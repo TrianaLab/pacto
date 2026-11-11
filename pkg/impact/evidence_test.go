@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -366,8 +367,13 @@ func TestConsumerEvidenceEdges(t *testing.T) {
 	}
 	ev, stale := consumerEvidence(snap, "web", "api", observed)
 	last := ev[len(ev)-1]
-	if !stale || len(ev) != MaxConsumerEvidence || !strings.HasSuffix(last.Message, "; 2 older entries not shown") {
+	if !stale || len(ev) != MaxConsumerEvidence || !strings.HasSuffix(last.Message, "; 2 older entries not shown, 1 of them stale") {
 		t.Fatalf("evidence = %+v", ev)
+	}
+	// The stale entries are the oldest, yet one stays visible: it is why the
+	// confidence is unknown.
+	if !slices.ContainsFunc(ev, func(e Evidence) bool { return e.Kind == EvidenceTarget && e.Stale }) {
+		t.Fatalf("every stale entry was dropped: %+v", ev)
 	}
 	ev, _ = consumerEvidence(snap, "web", "api", nil)
 	if ev[0].Message != "evidence 1h0m0s old, window 24h; the source marks it stale" || !ev[0].Stale ||
@@ -379,5 +385,31 @@ func TestConsumerEvidenceEdges(t *testing.T) {
 func TestObservedSource(t *testing.T) {
 	if got := observedSource(fleet.Relationship{ObservedSources: []fleet.ObservedSourceStat{{Source: "otel"}, {Source: "mira"}}}); got != "otel, mira" {
 		t.Errorf("observedSource = %q", got)
+	}
+}
+
+// A stale target with no time older than the window is never said to have
+// been last seen 24h before asOf: no such time is known.
+func TestWhereRunNamesTheStaleCause(t *testing.T) {
+	r := &Result{AsOf: evidenceNow, Consumers: []AffectedConsumer{
+		{Service: "old", Evidence: []Evidence{{Kind: EvidenceTarget, Stale: true, At: ago(48 * time.Hour)}}},
+		{Service: "untimed", Evidence: []Evidence{{Kind: EvidenceTarget, Stale: true}}},
+		{Service: "marked", Evidence: []Evidence{{Kind: EvidenceTarget, Stale: true, At: ago(time.Hour)}}},
+	}}
+	want := "old was last seen on a target more than 24h before asOf; untimed, marked have " + noCurrentTarget
+	if got := r.whereRun([]string{"old", "untimed", "marked"}); got != want {
+		t.Errorf("whereRun = %q\nwant       %q", got, want)
+	}
+}
+
+// A listed target whose evidence is not current is named in StaleTargets, so
+// no surface says the consumer runs there.
+func TestProductConsumerStaleTargets(t *testing.T) {
+	snap := &fleet.FleetSnapshot{GeneratedAt: evidenceNow, Targets: map[fleet.TargetKey]*fleet.TargetRecord{
+		"fresh": {EvidenceAt: ago(time.Hour)}, "old": {EvidenceAt: ago(72 * time.Hour)}, "untimed": {}, "marked": {EvidenceAt: ago(time.Hour), Stale: true},
+	}}
+	p := productConsumer(snap, &Result{}, AffectedConsumer{Service: "web", Targets: []string{"fresh", "old", "untimed", "marked", "gone"}})
+	if !reflect.DeepEqual(p.StaleTargets, []string{"old", "untimed", "marked", "gone"}) || len(p.Targets) != 5 {
+		t.Errorf("stale targets = %v", p.StaleTargets)
 	}
 }

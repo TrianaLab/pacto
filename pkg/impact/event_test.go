@@ -115,6 +115,61 @@ func TestEventEffectUsesWorstPath(t *testing.T) {
 	}
 }
 
+// An observed direct call no declared edge explains is a path whose effect
+// is unknown, so it outranks an optional transitive path.
+func TestEventObservedDirectCallOutranksOptionalPath(t *testing.T) {
+	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{
+		rev("x"), rev("b", dep("x", false)), rev("a", dep("b", true)),
+	}, Observed: []fleet.ObservedEdge{{From: "a", To: "x", Count: 1}}})
+	a := consumerNamed(t, event(snap, EventUnavailable, "x"), "a")
+	if a.Effect != EffectUnknown || !reflect.DeepEqual(a.Path, []string{"a", "x"}) || strings.Contains(a.Note, "every path") {
+		t.Errorf("a = %s via %v (%s)", a.Effect, a.Path, a.Note)
+	}
+	// A declared optional direct dependency explains its own observed call.
+	snap = buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("x"), rev("b", dep("x", false))},
+		Observed: []fleet.ObservedEdge{{From: "b", To: "x", Count: 1}}})
+	if b := consumerNamed(t, event(snap, EventUnavailable, "x"), "b"); b.Effect != EffectMayDegrade {
+		t.Errorf("b = %s", b.Effect)
+	}
+}
+
+// A hop holding an optional dependency and a configuration reference is
+// unknown in either order: the configuration reference's effect is unknown.
+func TestEventHopConfigRefOutranksOptional(t *testing.T) {
+	dep := fleet.Relationship{Type: fleet.RelationshipDependency}
+	ref := fleet.Relationship{Type: fleet.RelationshipConfigRef}
+	req := fleet.Relationship{Type: fleet.RelationshipDependency, Required: true}
+	for _, tc := range []struct {
+		rels []fleet.Relationship
+		want string
+	}{
+		{[]fleet.Relationship{dep, ref}, EffectUnknown},
+		{[]fleet.Relationship{ref, dep}, EffectUnknown},
+		{[]fleet.Relationship{dep}, EffectMayDegrade},
+		{[]fleet.Relationship{ref}, EffectUnknown},
+		{[]fleet.Relationship{ref, req, dep}, EffectBreaks},
+		{[]fleet.Relationship{req, ref}, EffectBreaks},
+	} {
+		g := ""
+		for _, r := range tc.rels {
+			g = hopGrade(g, r)
+		}
+		if g != tc.want {
+			t.Errorf("%+v = %s, want %s", tc.rels, g, tc.want)
+		}
+	}
+}
+
+// An ambiguous caller name matches several contracts, so the answer never
+// says no contract describes it.
+func TestEventAmbiguousCallerNote(t *testing.T) {
+	snap := &fleet.FleetSnapshot{UncontractedCallers: []fleet.UncontractedCaller{{Caller: "payments-service", ToService: "redis", Ambiguous: true}}}
+	c := uncontractedCallers(snap, "redis")
+	if len(c) != 1 || !strings.Contains(c[0].Note, "matches several services") {
+		t.Fatalf("ambiguous caller = %+v", c)
+	}
+}
+
 func TestEventUnavailableUncontractedCallerNotClear(t *testing.T) {
 	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("auth-service")},
 		Observed: []fleet.ObservedEdge{{From: "k8s:pay/Deployment/legacy", To: "auth-service", Count: 1}}})
@@ -170,9 +225,10 @@ func TestEventRemovedUnresolvedPolicyRefPartial(t *testing.T) {
 
 func TestEventGateReasonStaleTargetsNotRunning(t *testing.T) {
 	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("auth-service"), rev("api-gateway", authDep), rev("web", authDep), rev("cli", authDep)},
-		Targets: []fleet.RawTarget{target("api-gateway", ago(48*time.Hour)), target("web", ago(time.Hour))}})
+		Targets: []fleet.RawTarget{target("api-gateway", ago(48*time.Hour)), target("web", ago(time.Hour)), target("cli", nil)}})
 	res := event(snap, EventUnavailable, "auth-service")
-	want := "if auth-service becomes unavailable, 3 consumers break (1 runs on known targets: web; 1 was last seen on a target more than 24h before asOf: api-gateway). Review each"
+	want := "if auth-service becomes unavailable, 3 consumers break (1 runs on known targets: web; 1 was last seen on a target more than 24h before asOf: api-gateway; " +
+		"1 has no current target evidence: a target with no evidence time, missing from the snapshot or marked stale by its source: cli). Review each"
 	if res.GateReason != want {
 		t.Errorf("reason %q\nwant   %q", res.GateReason, want)
 	}

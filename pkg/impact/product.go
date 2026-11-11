@@ -68,10 +68,13 @@ type ProductConsumer struct {
 	Required     bool       `json:"required,omitempty" doc:"The consumer declares its dependency on the changed service as required"`
 	Uncontracted bool       `json:"uncontracted,omitempty" doc:"A runtime caller no contract describes: its service reference names no page"`
 	Evidence     []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age, newest first"`
-	// Targets are the targets the consumer runs on, bounded to
-	// MaxProductConsumerTargets; TargetsTotal counts them all.
-	Targets      []fleet.EntityRef `json:"targets,omitempty" doc:"The targets the consumer runs on, at most 20"`
-	TargetsTotal int               `json:"targetsTotal,omitempty" doc:"How many targets the consumer runs on, including those beyond the bound"`
+	// Targets are the targets the consumer was reported on, bounded to
+	// MaxProductConsumerTargets; TargetsTotal counts them all. StaleTargets
+	// names the listed ones whose evidence is not current: of those it is
+	// never said that the consumer runs there.
+	Targets      []fleet.EntityRef `json:"targets,omitempty" doc:"The targets the consumer was reported on, at most 20; staleTargets names those whose evidence is not current"`
+	TargetsTotal int               `json:"targetsTotal,omitempty" doc:"How many targets the consumer was reported on, including those beyond the bound"`
+	StaleTargets []string          `json:"staleTargets,omitempty" doc:"The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot"`
 	// OwnerKey and OwnerRef name the owner canonically; Owner is its label.
 	OwnerKey string           `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop); owner is the display label"`
 	OwnerRef *fleet.EntityRef `json:"ownerRef,omitempty" doc:"A reference to the owner's page"`
@@ -318,8 +321,12 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		path = path[:MaxProductPath]
 	}
 	var targets []fleet.EntityRef
+	var stale []string
 	for _, tk := range c.Targets[:min(len(c.Targets), MaxProductConsumerTargets)] {
 		targets = append(targets, targetRef(snap, tk))
+		if t := snap.Targets[fleet.TargetKey(tk)]; t == nil || t.Stale || staleAt(snap, t.EvidenceAt) {
+			stale = append(stale, tk)
+		}
 	}
 	return ProductConsumer{
 		Service:              serviceRef(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service)),
@@ -342,6 +349,7 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		Evidence:             slices.Clone(c.Evidence),
 		Targets:              targets,
 		TargetsTotal:         len(c.Targets),
+		StaleTargets:         stale,
 		OwnerKey:             c.OwnerKey,
 		OwnerRef:             ownerRef(c.OwnerKey),
 		Effect:               c.Effect,

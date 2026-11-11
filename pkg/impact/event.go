@@ -106,8 +106,8 @@ type effectPath struct {
 // eventEffects grades every walked consumer of the graph's root by the worst
 // of every declared path to it, never by the first shortest path alone. A hop
 // with a declared dependency required on any revision is required; one with
-// only optional dependencies is optional; one reached only by a configuration
-// reference is unknown. It relaxes in BFS order until nothing changes; a path
+// only optional dependencies is optional; one holding a configuration
+// reference and no required dependency is unknown. It relaxes in BFS order until nothing changes; a path
 // never passes through the consumer it grades.
 //
 // ponytail: fixpoint over every edge per round, O(rounds * E) with at most
@@ -153,17 +153,19 @@ func hopGrades(snap *fleet.FleetSnapshot, walked []fleet.ServiceKey) map[fleet.S
 	return hops
 }
 
-// hopGrade folds one relationship into a hop's grade so far.
+// hopGrade folds one relationship into a hop's grade so far: a required
+// dependency decides the hop; otherwise a configuration reference, whose
+// effect is unknown, outranks an optional dependency.
 func hopGrade(g string, r fleet.Relationship) string {
 	switch {
 	case r.Type == fleet.RelationshipDependency && r.Required:
 		return EffectBreaks
-	case r.Type == fleet.RelationshipDependency && g != EffectBreaks:
+	case r.Type == fleet.RelationshipDependency && g == "":
 		return EffectMayDegrade
-	case g == "":
-		return EffectUnknown
+	case r.Type == fleet.RelationshipDependency, g == EffectBreaks:
+		return g
 	}
-	return g
+	return EffectUnknown
 }
 
 // relaxPaths finds, per service in order, the shortest path to root of each
@@ -250,7 +252,10 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 		res.addEventReferrers(snap, subject, observed, uses)
 	}
 	for _, c := range uncontractedCallers(snap, subject) {
-		c.Effect, c.Note = EffectUnknown, "a caller no contract describes; what it needs from "+name+" is unknown"
+		c.Effect = EffectUnknown
+		if c.Note == "" {
+			c.Note = "a caller no contract describes; what it needs from " + name + " is unknown"
+		}
 		res.Consumers = append(res.Consumers, c)
 	}
 	res.collectOwnersAndTargets(snap, subject)
@@ -322,8 +327,9 @@ func eventConsumer(snap *fleet.FleetSnapshot, subject fleet.ServiceKey, node con
 		c.Confidence = ConfidenceUnknown
 	}
 	ep, ok := effects[node.key]
-	if !ok {
-		// An observed-only caller: no declared path says what it needs.
+	if !ok || (seen && !declared && effectRank(EffectUnknown) > effectRank(ep.effect)) {
+		// An observed call no declared edge explains is a path too: nothing
+		// says what it needs, so it is unknown, and the worst path speaks.
 		ep = effectPath{effect: EffectUnknown, path: []fleet.ServiceKey{node.key, subject}}
 	}
 	c.Effect = ep.effect
@@ -466,9 +472,13 @@ func (r *Result) eventGateCore() (string, string) {
 		if len(running) > 0 {
 			where = append(where, strconv.Itoa(len(running))+" "+plural(len(running), "runs", "run")+" on known targets: "+strings.Join(running, ", "))
 		}
-		if len(lastSeen) > 0 {
-			where = append(where, strconv.Itoa(len(lastSeen))+" "+plural(len(lastSeen), "was", "were")+
-				" last seen on a target more than 24h before asOf: "+strings.Join(lastSeen, ", "))
+		old, untimed := r.splitStaleCause(lastSeen)
+		if len(old) > 0 {
+			where = append(where, strconv.Itoa(len(old))+" "+plural(len(old), "was", "were")+
+				" last seen on a target more than 24h before asOf: "+strings.Join(old, ", "))
+		}
+		if len(untimed) > 0 {
+			where = append(where, strconv.Itoa(len(untimed))+" "+plural(len(untimed), "has", "have")+" "+noCurrentTarget+": "+strings.Join(untimed, ", "))
 		}
 		if len(where) > 0 {
 			s += " (" + strings.Join(where, "; ") + ")"

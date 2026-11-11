@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -115,8 +116,36 @@ func observedEvidence(e resolvedObservedEdge) Evidence {
 }
 
 // boundEvidence keeps the newest MaxConsumerEvidence entries (entries with no
-// time last) and says in the last kept entry how many it dropped.
+// time last) and says in the last kept entry how many it dropped. Stale
+// entries are the oldest, so it keeps a stale target entry and a stale entry
+// when it would drop every one: what lowered the consumer's confidence stays
+// visible.
 func boundEvidence(ev []Evidence) []Evidence {
+	newestFirst(ev)
+	if len(ev) <= MaxConsumerEvidence {
+		return ev
+	}
+	kept, dropped := ev[:MaxConsumerEvidence], ev[MaxConsumerEvidence:]
+	for i, keep := range []func(Evidence) bool{
+		func(e Evidence) bool { return e.Kind == EvidenceTarget && e.Stale },
+		func(e Evidence) bool { return e.Stale },
+	} {
+		if j := slices.IndexFunc(dropped, keep); j >= 0 && !slices.ContainsFunc(kept, keep) {
+			k := MaxConsumerEvidence - 1 - i
+			kept[k], dropped[j] = dropped[j], kept[k]
+		}
+	}
+	newestFirst(kept)
+	note := "; " + strconv.Itoa(len(dropped)) + " older entries not shown"
+	if n := countFunc(dropped, func(e Evidence) bool { return e.Stale }); n > 0 {
+		note += ", " + strconv.Itoa(n) + " of them stale"
+	}
+	kept[MaxConsumerEvidence-1].Message += note
+	return kept
+}
+
+// newestFirst sorts ev newest first, entries with no time last.
+func newestFirst(ev []Evidence) {
 	sort.SliceStable(ev, func(i, j int) bool {
 		a, b := ev[i].At, ev[j].At
 		if (a == nil) != (b == nil) {
@@ -124,13 +153,17 @@ func boundEvidence(ev []Evidence) []Evidence {
 		}
 		return a != nil && a.After(*b)
 	})
-	if len(ev) <= MaxConsumerEvidence {
-		return ev
+}
+
+// countFunc counts the entries of ev for which f holds.
+func countFunc(ev []Evidence, f func(Evidence) bool) int {
+	n := 0
+	for _, e := range ev {
+		if f(e) {
+			n++
+		}
 	}
-	dropped := len(ev) - MaxConsumerEvidence
-	ev = ev[:MaxConsumerEvidence]
-	ev[MaxConsumerEvidence-1].Message += "; " + strconv.Itoa(dropped) + " older entries not shown"
-	return ev
+	return n
 }
 
 func copyTime(t *time.Time) *time.Time {

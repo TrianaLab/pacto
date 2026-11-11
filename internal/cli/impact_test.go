@@ -123,7 +123,7 @@ func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 	root, ev := impactFleet(t, "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev)
-	if err == nil || !strings.Contains(err.Error(), "breaking changes affect consumers that do not accept orders 2.0.0: webapp was last seen on a target more than 24h before asOf") {
+	if err == nil || !strings.Contains(err.Error(), "breaking changes affect consumers that do not accept orders 2.0.0: webapp has no current target evidence: a target with no evidence time") {
 		t.Fatalf("expected the blocked reason as the error, got %v", err)
 	}
 	if !strings.Contains(out, "Release gate: blocked") {

@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // SchemaVersion identifies the impact wire model.
@@ -133,6 +134,10 @@ type AffectedConsumer struct {
 	// against the changed service's new policy, empty when it references no
 	// policy of it. A failed check holds the change whatever its classification.
 	policyVerdict string
+	// rangeVerdict is the verdict of the consumer's range or configuration
+	// reference before a policy verdict was folded in; empty on a row that
+	// only references the policy.
+	rangeVerdict string
 }
 
 // Release gate values (see [Result.Gate]).
@@ -205,6 +210,9 @@ type Result struct {
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
 	// observationSources are the observation sources an event answer read.
 	observationSources []string
+	// hiddenReferrers counts the services this viewer may not see that may
+	// reference the changed service's policy: none of them was checked.
+	hiddenReferrers int
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -272,8 +280,13 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 // breaks reports whether a BREAKING change breaks a consumer that runs on a
 // known target through its range or a guarantee it requires.
 func (r *Result) breaks(c AffectedConsumer) bool {
+	verdict := c.CompatibilityVerdict
+	if c.policyVerdict != "" {
+		// A policy verdict is named by policyFailures: a referrer has no range.
+		verdict = c.rangeVerdict
+	}
 	return r.Classification == "BREAKING" &&
-		(c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
+		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
 // gate derives the release gate from the finished answer. Only a BREAKING change
@@ -374,6 +387,10 @@ func (r *Result) policyUnchecked() string {
 		why = append(why, strconv.Itoa(n)+" "+plural(n, "service that references", "services that reference")+" "+r.Service+
 			" could not be checked against its new policy")
 	}
+	if h := r.hiddenReferrers; h > 0 {
+		why = append(why, strconv.Itoa(h)+" "+plural(h, "service you may not see", "services you may not see")+" may reference "+r.Service+
+			", so "+plural(h, "it", "they")+" could not be checked against its new policy")
+	}
 	if hasCode(r.Limitations, "POLICY_REF_CONSUMERS_UNRESOLVED") {
 		why = append(why, "policy references that name "+r.Service+" are not digest-pinned or locked, so Pacto cannot tell which revision they check against")
 	}
@@ -412,17 +429,47 @@ func (r *Result) splitStale(names []string) (fresh, stale []string) {
 
 // whereRun says where named consumers run, saying only of fresh ones that they
 // run there: "a runs on a known target; b was last seen on a target more than
-// 24h before asOf".
+// 24h before asOf", and of one with no such time that it has no current
+// target evidence.
 func (r *Result) whereRun(names []string) string {
 	fresh, stale := r.splitStale(names)
 	var parts []string
 	if len(fresh) > 0 {
 		parts = append(parts, strings.Join(fresh, ", ")+" "+plural(len(fresh), "runs on a known target", "run on known targets"))
 	}
-	if len(stale) > 0 {
-		parts = append(parts, strings.Join(stale, ", ")+" "+plural(len(stale), "was", "were")+" last seen on a target more than 24h before asOf")
+	old, untimed := r.splitStaleCause(stale)
+	if len(old) > 0 {
+		parts = append(parts, strings.Join(old, ", ")+" "+plural(len(old), "was", "were")+" last seen on a target more than 24h before asOf")
+	}
+	if len(untimed) > 0 {
+		parts = append(parts, strings.Join(untimed, ", ")+" "+plural(len(untimed), "has", "have")+" "+noCurrentTarget)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// noCurrentTarget says why a consumer's target evidence is stale when no
+// time older than the window shows it.
+const noCurrentTarget = "no current target evidence: a target with no evidence time, missing from the snapshot or marked stale by its source"
+
+// splitStaleCause splits named consumers with stale target evidence into
+// those whose every stale target carries a time older than the window, which
+// may be said to be last seen then, and the rest, of which no time is known.
+func (r *Result) splitStaleCause(names []string) (old, untimed []string) {
+	cutoff := r.AsOf.Add(-fleet.RecentEvidenceWindow)
+	byName := map[string]bool{}
+	for _, c := range r.Consumers {
+		byName[c.Service] = !slices.ContainsFunc(c.Evidence, func(e Evidence) bool {
+			return e.Kind == EvidenceTarget && e.Stale && (e.At == nil || !e.At.Before(cutoff))
+		})
+	}
+	for _, n := range names {
+		if byName[n] {
+			old = append(old, n)
+		} else {
+			untimed = append(untimed, n)
+		}
+	}
+	return old, untimed
 }
 
 // referrersFail says that n services that reference the changed one fail its
@@ -584,8 +631,37 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	}
 	res.collectOwnersAndTargets(snap, changed)
 	res.noteUnlisted(snap, q, changed)
+	res.hiddenReferrers = hiddenReferrers(snap.Services[changed], newBundle)
 	res.noteStaleConsumers()
 	return res
+}
+
+// hiddenReferrers counts the hidden services that may reference s's policy:
+// its hidden policy referrers and, when the new revision publishes a policy,
+// its hidden dependents too, since one of them may also reference it (the
+// restricted snapshot counts such a service once, as a dependent).
+func hiddenReferrers(s *fleet.ServiceRecord, provider *contract.Bundle) int {
+	if s == nil {
+		return 0
+	}
+	n := s.HiddenPolicyReferrers
+	if publishesPolicy(provider) {
+		n += s.HiddenDependents
+	}
+	return n
+}
+
+// publishesPolicy reports whether the bundle declares a policy with its own
+// schema (a ref only references another's) or ships the policy schema file.
+func publishesPolicy(b *contract.Bundle) bool {
+	if b.Contract != nil && slices.ContainsFunc(b.Contract.Policies, func(p contract.Policy) bool { return p.Schema != "" }) {
+		return true
+	}
+	if b.FS == nil {
+		return false
+	}
+	_, err := fs.Stat(b.FS, validation.PolicySchemaPath)
+	return err == nil
 }
 
 // uncontractedCallers are the runtime callers of changed no contract
@@ -600,6 +676,9 @@ func uncontractedCallers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) []
 			Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
 			CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
 			Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved},
+		}
+		if u.Ambiguous {
+			c.Note = "its name matches several services in different domains, so Pacto cannot tell which one calls " + string(changed)
 		}
 		for _, src := range u.Sources {
 			c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceObservedCall, Source: src, Provenance: fleet.ProvenanceObserved,
