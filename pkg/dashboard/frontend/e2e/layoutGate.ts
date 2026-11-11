@@ -932,6 +932,20 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: 'revision page, no Stage names it',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=storefront-web', '/fleet/revisions/')(page);
+      await expect(page.locator('[data-testid="lifecycle-unmatched"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page, no Stage delivers it here',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+      await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
+    },
+  },
+  {
     name: 'change page with service and revision links',
     open: async (page) => {
       await page.goto('/#/delivery/changes/prod/payments-promote-6');

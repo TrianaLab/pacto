@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { settle } from './ready';
+import { touchProblems } from './layoutGate';
 
 // The delivery lifecycle journeys of #466, over the browser demo's simulated
 // delivery (examples/demo/source_delivery.go): the service page's Stage rows, Why
@@ -45,6 +46,8 @@ test.describe('delivery lifecycle in the demo', () => {
     await expect(prod.getByText('Freeze: an agent may not raise a freeze')).toBeVisible();
     // The version links to its revision page.
     await expect(prod.locator('a[href*="/fleet/revisions/"]').first()).toBeVisible();
+    // The source revision pacto publish stamped, labelled as the unsigned annotation it is.
+    await expect(prod.getByText(/^Source revision [0-9a-f]{40}, an annotation, not signed$/)).toBeVisible();
     await audit(page, 'service page with Stages');
   });
 
@@ -79,6 +82,25 @@ test.describe('delivery lifecycle in the demo', () => {
     expect(wrote, 'opening the undo panel must not propose').toBe(false);
   });
 
+  test.describe('on a touch screen', () => {
+    test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+    test('a Stage row\'s version, History and held links are touch targets', async ({ page }) => {
+      const prod = await stageRow(page, PAYMENTS, 'prod');
+      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+      for (const link of await prod.locator('p.sd-line.go a').all()) {
+        const box = await link.boundingBox();
+        expect(box && box.width >= 43.5 && box.height >= 43.5, `${await link.textContent()} is ${box?.width}x${box?.height}`).toBe(true);
+      }
+      expect(await touchProblems(page)).toEqual([]);
+    });
+  });
+
+  test('the published versions of a service name each source revision as an unsigned annotation', async ({ page }) => {
+    await page.goto('/#/delivery/publish?service=payments');
+    await expect(page.getByText(/^Source revision [0-9a-f]{40}, an annotation, not signed$/).first()).toBeVisible({ timeout: T });
+    await audit(page, 'publish, source revisions');
+  });
+
   test('a service with no Stage shows where it runs, observed from targets', async ({ page }) => {
     await page.goto('/#/fleet/services/storefront-web');
     const strip = page.getByTestId('service-placement');
@@ -87,8 +109,10 @@ test.describe('delivery lifecycle in the demo', () => {
     await expect(strip.getByText('Each row is observed from targets, not a promotion step.', { exact: false })).toBeVisible();
     await expect(strip.getByText(/^As of /)).toBeVisible();
     const row = strip.getByTestId('service-placement-row').filter({ hasText: 'production' });
-    await expect(row).toContainText('1 declared');
-    await expect(row.locator('a[href*="/fleet/revisions/"]')).toHaveText('1.1.0');
+    // Its target is linked to 1.1.0 by a mutable tag only: inferred, so neither
+    // declared nor a revision it is known to run.
+    await expect(row).toContainText('1 unknown');
+    await expect(row.locator('a[href*="/fleet/revisions/"]')).toHaveCount(0);
     await expect(page.getByTestId('service-delivery-row')).toHaveCount(0);
     await audit(page, 'service page, observed strip');
   });
@@ -127,6 +151,10 @@ test.describe('delivery lifecycle in the demo', () => {
     await expect(page).toHaveURL(/cause=error/);
     await expect(rows).toHaveCount(2, { timeout: T });
 
+    // An undo the caller may not take says why, in the row.
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+    await expect(page.getByTestId('history-undo-reason').first()).toHaveText(/^No undo: /, { timeout: T });
+
     // One Stage: a record id opens the record panel with its verdicts.
     await page.goto('/#/delivery/history?namespace=prod&stage=payments');
     await page.locator('button[aria-label^="Read record"]').first().click();
@@ -146,7 +174,26 @@ test.describe('delivery lifecycle in the demo', () => {
     // The history of test/payments is partial: what is missing is stated, never "not reached".
     await expect(life.getByText(/partial or was not read/)).toBeVisible();
     await expect(life.getByText('not reached')).toHaveCount(0);
+    await expect(life.getByText('Version 2.3.0')).toBeVisible();
+    await expect(life.getByTestId('lifecycle-source')).toHaveText(/^Source revision [0-9a-f]{40}, an annotation, not signed$/);
     await audit(page, 'revision page, Delivery lifecycle list');
+  });
+
+  test('a revision of a service no Stage delivers says so, from a complete search', async ({ page }) => {
+    await page.goto('/#/fleet/revisions?service=storefront-web');
+    const first = page.locator('main a[href*="/fleet/revisions/"]').first();
+    await expect(first).toBeVisible({ timeout: T });
+    await page.goto(`/${await first.getAttribute('href')}`);
+    const unmatched = page.getByTestId('lifecycle-unmatched');
+    await expect(unmatched).toContainText('No Stage of this service you can see names this revision.', { timeout: T });
+    await expect(unmatched).toContainText('Complete');
+    await audit(page, 'revision page, no Stage names it');
+  });
+
+  test('a target in an environment no Stage delivers says it is observed', async ({ page }) => {
+    await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+    await expect(page.getByTestId('target-delivery')).toContainText('No Stage you can see delivers this service here', { timeout: T });
+    await audit(page, 'target page, no Stage delivers it here');
   });
 
   test('the audit-log prod target links to its Stage', async ({ page }) => {
