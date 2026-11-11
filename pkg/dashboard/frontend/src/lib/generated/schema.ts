@@ -4590,6 +4590,8 @@ export interface components {
             /** @description The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract) */
             contract?: string;
             digest: string;
+            /** @description The fleet revision key of that contract, for this service and domain; empty when none or several match or the viewer cannot see it */
+            revision?: string;
             /** @enum {string} */
             signature: "signed" | "unsigned" | "unknown";
             /** @description The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed */

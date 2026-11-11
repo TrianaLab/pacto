@@ -33,7 +33,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import { ApiError } from '../lib/api.ts';
 import { session as auth, loadSession } from '../lib/session.svelte.ts';
 import { keepPending } from '../lib/delivery.ts';
-import { deliveryInboxUrl, deliveryPublishUrl } from '../lib/router.ts';
+import { deliveryInboxUrl, deliveryPublishUrl, fleetEntityUrl } from '../lib/router.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryInboxView from './DeliveryInboxView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
@@ -855,13 +855,16 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
   });
 
   it('lists a service once per domain its Stages name and asks each version\'s lifecycle in that domain', async () => {
-    const v = (digest: string) => ({ digest, version: '2.0.0', signature: 'signed', stages: [] });
-    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [v(D1)] }, { service: 'payments', domain: 'ghcr.io/a', versions: [v(D2)] }] });
+    const v = (digest: string, revision?: string) => ({ digest, version: '2.0.0', signature: 'signed', stages: [], revision });
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [v(D1)] }, { service: 'payments', domain: 'ghcr.io/a', versions: [v(D2, 'a/payments@sha256:c2')] }] });
     fns.lifecycle.mockResolvedValue({ ...listing, service: 'payments', digest: D2, signature: 'signed', signedOn: [], note: '', stages: [] });
     const { target, destroy } = render(DeliveryPublishView, {});
     await settle();
     const sections = [...target.querySelectorAll('section.pv-svc')] as HTMLElement[];
     expect(sections.map((s) => text(s.querySelector('h2') as HTMLElement))).toEqual(['payments', 'payments ghcr.io/a']);
+    // A version links its fleet revision only when the server names one.
+    expect(sections[0].querySelector('.pv-ver a')).toBeNull();
+    expect(sections[1].querySelector('.pv-ver a')?.getAttribute('href')).toBe(fleetEntityUrl('revision', 'a/payments@sha256:c2'));
     (sections[1].querySelector('button[aria-label="Lifecycle of payments 2.0.0"]') as HTMLButtonElement).click();
     await settle();
     expect(fns.lifecycle).toHaveBeenCalledWith({ service: 'payments', domain: 'ghcr.io/a', digest: D2 });

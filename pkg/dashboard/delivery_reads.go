@@ -574,6 +574,7 @@ type PublishedVersion struct {
 	Digest   string `json:"digest"`
 	Version  string `json:"version,omitempty"`
 	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract)"`
+	Revision string `json:"revision,omitempty" doc:"The fleet revision key of that contract, for this service and domain; empty when none or several match or the viewer cannot see it"`
 	// SourceRevision is read with the version, from the same artifact.
 	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed"`
 	// Signature follows delivery.SignatureEvidence, the rule the lifecycle
@@ -683,7 +684,13 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	for i, v := range page {
 		v.Contract, v.Version, v.SourceRevision = revs[i].ContractRef, version(ctx, revs[i]), revs[i].SourceRevision
 	}
+	match := s.revisionMatcher(ctx)
 	for _, svc := range names {
+		if match != nil {
+			for _, v := range byService[svc] {
+				v.Revision = match(svc.Service, svc.Domain, v.Contract)
+			}
+		}
 		ps := PublishedService{Service: svc.Service, Domain: svc.Domain, Versions: []PublishedVersion{}}
 		for _, v := range byService[svc] {
 			ps.Versions = append(ps.Versions, *v)

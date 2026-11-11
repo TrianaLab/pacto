@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryPublishUrl } from '../lib/router.ts';
+  import { deliveryPublishUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
@@ -48,8 +48,8 @@
   const services = $derived(data?.services ?? []);
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const href = (off, lim) => deliveryPublishUrl({ q, signed, ...keep, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
-  // A version's lifecycle opens under its row: no fleet revision is known here, so the
-  // panel asks /api/delivery/lifecycle by artifact digest, in the domain the service's
+  // A version's lifecycle opens under its row (its version links its fleet revision
+  // when one is known): the panel asks /api/delivery/lifecycle by artifact digest, in the domain the service's
   // Stages name (the server lists a service once per domain).
   let lifecycle = $state({});
 
@@ -183,7 +183,7 @@
                 <!-- One line per version: digests short with a copy button, and where it runs as a
                      count that opens the per-environment list. -->
                 <div class="pv-head" class:pv-sigcol={sigMixed}>
-                  <strong class="pv-ver" title={v.version || undefined}>{v.version ?? ''}</strong>
+                  <strong class="pv-ver" title={v.version || undefined}>{#if v.revision && v.version}<a href={fleetEntityUrl('revision', v.revision)}>{v.version}</a>{:else}{v.version ?? ''}{/if}</strong>
                   {#if sigMixed}<span class="pv-sig">{#if sigOf(v) !== sigCommon}<span class="badge {SIG[sigOf(v)].tone}">{SIG[sigOf(v)].mark}</span>{/if}</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
                   {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{:else}<span></span>{/if}

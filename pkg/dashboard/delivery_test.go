@@ -1434,8 +1434,15 @@ func TestEnvironmentsRevisionJoin(t *testing.T) {
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	row := rowOf(t, envs, "payments")
 	expect(t, row["revision"] == revisionKeyOf(t, fl, "payments") && row["contractRef"] == f.contract, "row %v", row)
+	// Publish links each version to the same revision by the same rule.
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	pv := pub["services"].([]any)[0].(map[string]any)["versions"].([]any)[0].(map[string]any)
+	expect(t, pv["revision"] == revisionKeyOf(t, fl, "payments"), "published %v", pv)
 	base = startDeliveryWith(t, f, Options{Fleet: revisionFleet(t, contractRev("ledger", dContract)), Auth: auth}, true, nil)
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	pv = pub["services"].([]any)[0].(map[string]any)["versions"].([]any)[0].(map[string]any)
+	expect(t, pv["revision"] == nil, "another service's revision is never linked on Publish: %v", pv)
 	expect(t, rowOf(t, envs, "payments")["revision"] == nil, "another service's revision is never linked: %v", rowOf(t, envs, "payments"))
 	// The same contract in two domains, and a Stage that names none: either
 	// could be meant, so neither is linked.
