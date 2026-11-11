@@ -15,9 +15,7 @@ defaults:
     exclude:
       - "**/node_modules/**"
       - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml"
-      - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml/**"
       - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json"
-      - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json/**"
   environment:
     toolchain: {platform: "Linux x86_64"}
     probe: {platform: [uname, -sm]}
@@ -37,38 +35,10 @@ fragments:
     scope:
       source: ["cmd/pacto/**", "internal/**", "pkg/**"]
     # viper reads PACTO_<key> for every key (internal/cli/root.go AutomaticEnv);
-    # these are the keys the CLI reads plus its os.Getenv names.
+    # the CLI reads its config dir (credentials, plugins) outside the tree.
     environment:
-      env: [PACTO_NO_CACHE, PACTO_INSECURE_REGISTRIES,
-        PACTO_NO_UPDATE_CHECK, PACTO_DELIVERY_TRUST, NO_COLOR,
-        PACTO_OUTPUT_FORMAT, PACTO_CONFIG, PACTO_VERBOSE, PACTO_NO_ANIM,
-        PACTO_CACHE_DIR, PACTO_EVIDENCE_SOURCE_URL,
-        PACTO_REGISTRY_USERNAME, PACTO_REGISTRY_PASSWORD,
-        PACTO_REGISTRY_TOKEN, PACTO_DIGEST_API,
-        PACTO_MCP_EXCHANGE_CLIENT_SECRET, PACTO_DASHBOARD_HOST,
-        PACTO_DASHBOARD_PORT, PACTO_DASHBOARD_NAMESPACE,
-        PACTO_DASHBOARD_REPO, PACTO_DASHBOARD_TRACES,
-        PACTO_DASHBOARD_TRACE_SOURCES, PACTO_DASHBOARD_MIRA_SOURCES,
-        PACTO_DASHBOARD_MIRA_URL, PACTO_DASHBOARD_CORS_ORIGIN,
-        PACTO_DASHBOARD_DELIVERY_NAMESPACE,
-        PACTO_DASHBOARD_DELIVERY_TRUST, PACTO_DASHBOARD_TOKEN_LOGIN,
-        PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,
-        PACTO_DASHBOARD_SESSION_MAX_AGE,
-        PACTO_DASHBOARD_OIDC_ISSUER_URL,
-        PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL,
-        PACTO_DASHBOARD_OIDC_CLIENT_ID,
-        PACTO_DASHBOARD_OIDC_CLIENT_SECRET,
-        PACTO_DASHBOARD_OIDC_REDIRECT_URL, PACTO_DASHBOARD_OIDC_CA_FILE,
-        PACTO_DASHBOARD_OIDC_DISPLAY_NAME,
-        PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,
-        PACTO_DASHBOARD_OIDC_USERNAME_CLAIM,
-        PACTO_DASHBOARD_OIDC_USERNAME_PREFIX,
-        PACTO_DASHBOARD_OIDC_GROUPS_CLAIM,
-        PACTO_DASHBOARD_OIDC_GROUPS_PREFIX,
-        PACTO_DELIVERY_OIDC_ISSUER_URL, PACTO_DELIVERY_OIDC_CLIENT_ID,
-        PACTO_DELIVERY_OIDC_CLIENT_SECRET, PACTO_DELIVERY_OIDC_CA_FILE,
-        PACTO_DELIVERY_OIDC_EXTRA_SCOPES,
-        PACTO_DELIVERY_OIDC_REDIRECT_PORT]
+      env: ["PACTO_*", NO_COLOR]
+      paths: ["~/.config/pacto", "${XDG_CONFIG_HOME}/pacto"]
   # The payments story (examples/story), embedded by the demo and read by the
   # acceptance fixture. Its manifests name images as text; nothing pulls them.
   story:
@@ -93,8 +63,8 @@ fragments:
       env: [NODE_OPTIONS]
   # Tests whose command is a make target read the recipe. Aval scans the
   # whole Makefile; the references below sit in targets these tests do not
-  # run, except line 190 (test-browser), whose npx runs the @playwright/test
-  # the lockfile pins, right after npm ci.
+  # run, except test-browser's, whose npx runs the @playwright/test the
+  # lockfile pins, right after npm ci.
   make:
     scope:
       dependencies: [Makefile, ci.mk]
@@ -104,6 +74,10 @@ fragments:
         - {file: Makefile, ref: clang, reason: bpf-generate target; no test here runs it}
         - {file: Makefile, ref: llvm, reason: bpf-generate target; no test here runs it}
         - {file: Makefile, ref: libbpf-dev, reason: bpf-generate target; no test here runs it}
+    # make reads its flags (-i, -k, -n turn a failure into a pass) and extra
+    # makefiles from these.
+    environment:
+      env: [MAKEFLAGS, GNUMAKEFLAGS, MAKEFILES]
   # The WASM demo host and the bundles it embeds.
   demo:
     scope:
@@ -126,7 +100,7 @@ tests:
         - "docs/contract-reference/**"
         - "integrations/kubernetes/config/crd/bases/**"
         # pkg/contract walks the repository for every pacto.yaml and every
-        # .yaml whose path contains testdata.
+        # .yaml whose path contains testdata (optionalSource: a file name).
         - "**/pacto.yaml"
         - "**/*testdata*/**/*.yaml"
         # Files pkg/validation/schema/field-coverage.yaml names. A new .sh
@@ -136,6 +110,7 @@ tests:
         - "tests/acceptance/kind/runtime-conformance.sh"
         - "tests/acceptance/local/runtime-docker.sh"
         - "tests/acceptance/local/runtime-run.sh"
+      optionalSource: ["**/*testdata*.yaml"]
       dependencies: [pkg/dashboard/frontend/package.json, pkg/dashboard/frontend/package-lock.json]
       exclude: ["pkg/dashboard/frontend/**", "examples/demo/demo"]
       allowMutable:
@@ -160,21 +135,17 @@ tests:
         - file: tests/acceptance/local/runtime-run.sh
           ref: "${mode[@]}"
           reason: read as text by a field-coverage test; not run here
-    environment:
-      # The run action's cosign-installer leaves cosign on PATH; without it
-      # the cosign tests skip, so a run without it must not count.
-      toolchain: {cosign: "3.0.6"}
-      probe: {cosign: [cosign, version]}
-      env: [PACTO_UPDATE_PACTIFY_PLAN]
 
-  # First half of make test-integration: the CLI in process against an
-  # in-process registry and a real plugin binary.
+  # make test-integration: the CLI in process against an in-process registry
+  # and a real plugin binary, then the acceptance layer's own Go code.
   - metadata: {name: integration}
-    use: [go, engine]
-    runner: {command: [go, test, -tags, integration, ./tests/integration/, -v, -count=1, -parallel, "16", -timeout, 120s]}
+    use: [go, engine, story, make]
+    runner: {command: [make, test-integration]}
     scope:
       source:
         - "tests/integration/**"
+        - "tests/acceptance/**/*.go"
+        - "tests/acceptance/scenario/seed.sh"
         - "examples/demo/bundles/**"
         - "examples/demo/fleet-targets.yaml"
         - "examples/demo/traces.json"
@@ -185,15 +156,7 @@ tests:
         - "pkg/**/*_test.go"
         - "internal/**/testdata/**"
         - "pkg/**/testdata/**"
-
-  # Second half of make test-integration: the acceptance layer's own Go code.
-  # It imports pkg/ and the story, not the CLI.
-  - metadata: {name: acceptance-go}
-    use: [go, story]
-    runner: {command: [go, test, -race, ./tests/acceptance/..., -count=1, -timeout, 180s]}
-    scope:
-      source: ["tests/acceptance/**/*.go", "tests/acceptance/scenario/seed.sh", "pkg/**"]
-      exclude: ["pkg/dashboard/frontend/**", "pkg/**/*_test.go", "pkg/**/testdata/**", "examples/story/**/*_test.go"]
+        - "examples/story/**/*_test.go"
 
   # make ci-ui: svelte-check and vitest from the lockfile.
   - metadata: {name: ui}
@@ -220,8 +183,8 @@ tests:
   # retries and reuseExistingServer in playwright.config.ts.
   - metadata: {name: "browser-{shard}"}
     use: [go, engine, story, demo, node, make]
-    runner: {command: [make, test-browser, "PW_SHARD={shard}/3"]}
-    matrix: {shard: ["1", "2", "3"]}
+    runner: {command: [make, test-browser, "PW_SHARD={shard}/{shard_count}"]}
+    matrix: {shard: {count: 3}}
     scope:
       exclude:
         - "**/*_test.go"
@@ -232,5 +195,5 @@ tests:
         - "pkg/dashboard/frontend/e2e-docs-site/**"
         - "pkg/dashboard/frontend/e2e-screenshots/**"
     environment:
-      env: [CI, PW_PORT, PW_DOC_PORT, PACTO_LAYOUT_FULL, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
+      env: [CI, PW_PORT, PW_DOC_PORT, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
     cacheability: controlled-environment

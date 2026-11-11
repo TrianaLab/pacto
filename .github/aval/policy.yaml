@@ -1,8 +1,9 @@
 # Who Pacto trusts to sign test results (aval.yaml). The aval actions in
 # ci.yml read this file from main, never from the checkout, so a pull request
 # that edits it changes nothing until it merges. Only ci.yml on main signs at
-# runner level; it never reuses a developer result (AVAL_MIN_TRUST_LEVEL in
-# ci.yml), pull requests do. An unlisted signer is a verification failure.
+# runner level; on main the run action requires runner trust, so main never
+# reuses a developer result, pull requests do. An unlisted signer is a
+# verification failure.
 apiVersion: aval.trianalab.io/v1
 kind: Policy
 registry: ghcr.io/trianalab/pacto-attestations
