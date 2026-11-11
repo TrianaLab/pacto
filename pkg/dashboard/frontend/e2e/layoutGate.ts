@@ -271,7 +271,13 @@ export function installScaleFixture(): void {
         };
       };
       const all = names.map(consumer);
-      if (event) {
+      // A leaf (the real answer lists no consumer) draws the clear answer: every lane
+      // empty and the gate under them, the shape a complete snapshot gives it.
+      const leaf = !!event && !cs.total;
+      if (leaf) {
+        doc.gate = 'clear';
+        doc.gateReason = longName('no contract in the complete snapshot declares a dependency on it and no observation source saw a caller; a service with no contract can still call it');
+      } else if (event) {
         // The event population: lanes by effect sum to the total, and each lane's list
         // (filtered by effect, never by verdict) totals its lane.
         const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
@@ -281,19 +287,24 @@ export function installScaleFixture(): void {
           nextOffset: 10, truncated: true, hidden: 3, refused: 0,
           outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)?.count ?? 0 : 4000,
           byVerdict: [{ key: 'unknown', count: 4000 }], byOutcome,
-          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), ownerKey: `team:team-${i}`, consumers: 200 - i * 20, incompatible: 0 })),
+          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), ownerKey: `team:team-${i}`, consumers: 200 - i * 20, incompatible: 40 - i * 9 })),
           beyondRanking: 3200, noOwner: 84, owners: 300,
         });
         if (event === 'regressed') {
           const digest = String(req.revision ?? '');
-          if (digest.startsWith('sha256:')) {
+          const lim = doc.limitations as { items: Record<string, unknown>[]; total: number; count: number };
+          if (digest.startsWith('sha256:c1ea')) {
+            // Read in full and clean: no failure recorded, nothing unread.
+            doc.regression = [];
+            const kept = lim.items.filter((l) => l.code !== 'DELIVERY_EVIDENCE_UNAVAILABLE');
+            lim.total -= lim.items.length - kept.length; lim.count = kept.length; lim.items = kept;
+          } else if (digest.startsWith('sha256:')) {
             doc.regression = Array.from({ length: 6 }, (_, i) => ({
               kind: ['failed', 'check', 'rollback'][i % 3], digest, namespace: longName(`shop-namespace-${i}`), stage: longName(`production-eu-west-${i}`),
               gate: i % 3 === 1 ? longName('smoke-error-rate') : undefined, message: longName(`the check found ${i} errors in the last window of the canary analysis`),
               at: '2026-11-10T07:00:00Z', record: i % 2 ? longName(`record-${i}`) : undefined,
             }));
           } else {
-            const lim = doc.limitations as { items: Record<string, unknown>[]; total: number; count: number };
             if (!lim.items.some((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE')) {
               lim.items.unshift({ code: 'DELIVERY_EVIDENCE_UNAVAILABLE', message: longName('name the artifact digest (sha256:...) to read delivery evidence: a version does not identify one artifact') });
               lim.total += 1; lim.count += 1;
@@ -321,7 +332,7 @@ export function installScaleFixture(): void {
           return { kind: 'service', key, label: longName(`golden-path-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
         }) };
       }
-      if (meta) meta.completeness = 'partial';
+      if (meta) meta.completeness = leaf ? 'complete' : 'partial';
     }
     walk(doc);
   };
@@ -809,6 +820,8 @@ export const ROUTES: Route[] = [
   { name: 'change analysis event removed', hash: '#/fleet/changes/postgresql?event=removed' },
   { name: 'change analysis event regressed', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'ab12'.repeat(16)}` },
   { name: 'change analysis event regressed unread', hash: '#/fleet/changes/redis?event=regressed&rev=1.0.0' },
+  { name: 'change analysis event clear', hash: '#/fleet/changes/storefront-web?event=unavailable' },
+  { name: 'change analysis event regressed clean', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'c1ea'.repeat(16)}` },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },

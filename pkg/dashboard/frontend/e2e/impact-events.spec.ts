@@ -119,6 +119,20 @@ test.describe('impact events', () => {
     expect(ls.find((l) => l.name === 'May degrade')?.n, JSON.stringify(ls)).toBe(0);
   });
 
+  test('a leaf service lists no consumer, never blocks and never says nobody is affected', async ({ page }) => {
+    await appReady(page);
+    await page.goto('/#/fleet/changes/storefront-web?event=unavailable');
+    await answered(page);
+    expect((await lanes(page)).every((l) => l.n === 0)).toBe(true);
+    await expect(page.locator(`${FIGURE} .stamp`, { hasText: 'Blocked' })).toHaveCount(0);
+    await expect(page.getByTestId('impact-gate')).toContainText(/Needs a person|Clears/);
+    await expect(page.getByTestId('changes-answer')).toContainText(/No consumer (you can see )?is known to depend on it/);
+    await expect(page.getByTestId('changes-answer')).not.toContainText('No consumer is affected');
+    const fold = page.locator('#sec-affected-consumers');
+    if ((await fold.getAttribute('open')) === null) await fold.locator('> summary').click();
+    await expect(fold).toContainText('Nothing in the operational graph depends on this service.');
+  });
+
   test('postgresql removed names the resources each consumer uses, with their phase', async ({ page }) => {
     await appReady(page);
     await page.goto('/#/fleet/changes/postgresql?event=removed');

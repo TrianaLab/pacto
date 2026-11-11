@@ -82,7 +82,10 @@
     { value: 'regressed', label: 'regressed' },
   ];
   let mode = $state(untrack(() => (params.event || params.mode === 'event' ? 'event' : 'compare')));
-  let eventKind = $state(untrack(() => (EVENT_KINDS.some((k) => k.value === params.event) ? params.event : 'unavailable')));
+  // A link may name an event this build does not know (a typo, a newer build): it is
+  // never answered as another one, the form says so instead.
+  const unknownEvent = untrack(() => (params.event && !EVENT_KINDS.some((k) => k.value === params.event) ? params.event : ''));
+  let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
   const isEvent = $derived(mode === 'event');
   const outcomeKeys = $derived(isEvent ? EFFECTS : OUTCOMES);
@@ -199,7 +202,7 @@
       // this is gated on BOTH sides resolving.
       // An event link answers the same way: the event (and, for a regression, its
       // revision) is the whole question. `mode=event` alone is the empty event form.
-      if (mode === 'event') { if (params.event && (eventKind !== 'regressed' || eventRev)) analyze(0); }
+      if (mode === 'event') { if (params.event && !unknownEvent && (eventKind !== 'regressed' || eventRev)) analyze(0); }
       else if (restoredOld && restoredNew) analyze(0);
     } catch (e) {
       if (gen !== revGen) return;
@@ -673,7 +676,7 @@
           </div>
           <div class="consumer-tools">
             <Select label={isEvent ? 'Effect' : 'Outcome'} value={outcome} options={outcomeOptions} onchange={(e) => setOutcome(e.currentTarget.value)} />
-            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each outcome.</span>
+            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each {isEvent ? 'effect' : 'outcome'}.</span>
           </div>
           {#if (consumers.items?.length ?? 0) === 0}
             <p class="text-dim" data-testid="consumers-none-of-outcome">No consumer {isEvent ? 'is in the' : 'is'} {outcomeLabel(outcome).toLowerCase()}{isEvent ? ' lane' : ''}.</p>
@@ -724,7 +727,9 @@
                       <div class="cell-badges">
                         {#each c.via ?? [] as v (v)}<span class="badge badge-neutral">{v.replace(/_/g, ' ')}</span>{/each}
                         {#if c.provenance}<span class="badge badge-info">{c.provenance}</span>{/if}
-                        {#if c.direct && isEvent}<span class="badge {c.required ? 'badge-err' : 'badge-warn'}">{c.required ? 'required' : 'optional'}</span>{/if}
+                        <!-- Only a declared dependency is required or optional: an observed, uncontracted,
+                             configuration or policy edge declares neither. -->
+                        {#if c.direct && isEvent && c.via?.includes('dependency')}<span class="badge {c.required ? 'badge-err' : 'badge-warn'}" data-testid="consumer-requirement">{c.required ? 'required' : 'optional'}</span>{/if}
                         <span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span>
                       </div>
                       {#if ev.length}
@@ -747,14 +752,15 @@
                     <td data-label="Runs on" class="runs-cell">
                       {#if targets.length}
                         <ul class="runs-list">
-                          {#each targets.slice(0, 2) as t (t.key)}<li><EntityLink ref={t} showStatus={false} showKind={false} /></li>{/each}
+                          {#each targets.slice(0, 2) as t (t.key)}<li><EntityLink ref={t} showStatus={false} showKind={false} />{#if c.staleTargets?.includes(t.key)} <span class="badge badge-warn badge-stale" data-testid="consumer-target-stale" title="Its evidence is older than 24h before this answer's snapshot, has no time or is marked stale, so the consumer was last reported there">stale</span>{/if}</li>{/each}
                         </ul>
                         {@const more = Math.max(c.targetsTotal ?? targets.length, targets.length) - Math.min(2, targets.length)}
                         {#if more > 0}<span class="t-meta" title={targets.slice(2).map((t) => t.label || t.key).join(', ')}>+{formatCount(more)}</span>{/if}
                       {:else}<span class="text-dim">—</span>{/if}
                     </td>
                     <td data-label="Owner">
-                      {#if c.ownerRef}<span class="cell-clip"><EntityLink ref={c.ownerRef} showStatus={false} showKind={false} /></span>
+                      <!-- The label wraps: an ellipsis cannot show inside the link's inline-flex box. -->
+                      {#if c.ownerRef}<EntityLink ref={c.ownerRef} showStatus={false} showKind={false} />
                       {:else if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}
                     </td>
                   </tr>
@@ -811,7 +817,9 @@
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if isEvent}
-      {#if eventKind === 'regressed' && !eventRev.trim()}
+      {#if unknownEvent}
+        <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the service and press Ask." />
+      {:else if eventKind === 'regressed' && !eventRev.trim()}
         <EmptyState identity title="Name the revision" message="A version, or an artifact digest to read delivery evidence." />
       {:else}
         <EmptyState identity title="Ready to ask" message="Press Ask." />
@@ -881,7 +889,8 @@
     .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(12ch, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
     .ca-table thead, .ca-table tbody, .ca-table tr { display: contents; }
   }
-  @container ca-consumers (max-width: 66rem) {
+  /* Exclusive of the grid's 66rem, so at exactly that width only one form applies. */
+  @container ca-consumers (width < 66rem) {
     .ca-table, .ca-table tbody, .ca-table tr, .ca-table td { display: block; width: 100%; }
     .ca-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .ca-table tr { padding: var(--sp-2) 0; }

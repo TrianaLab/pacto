@@ -112,6 +112,7 @@ describe('ImpactFigure', () => {
     im.consumers.byOutcome = [{ key: 'breaks', count: 2 }, { key: 'may-degrade', count: 1 }, { key: 'unknown', count: 0 }];
     im.consumers.total = 3; im.consumers.direct = 2; im.consumers.hidden = 0;
     im.consumers.highlights = [consumer('checkout-web', { effect: 'breaks' })];
+    im.consumers.byOwner = [{ owner: 'team-a', ownerKey: 'team:team-a', consumers: 2, incompatible: 2 }, { owner: 'team-b', ownerKey: 'team:team-b', consumers: 1, incompatible: 1 }];
     const target = document.createElement('div');
     document.body.appendChild(target);
     const c = mount(ImpactFigure, { target, props: { impact: im } });
@@ -127,6 +128,9 @@ describe('ImpactFigure', () => {
     expect(card.querySelector('[data-testid="impact-changed-owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Apay');
     expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Question What happens if payments-service becomes unavailable?');
     expect(card.querySelector('[data-testid="impact-templates"]')).toBeNull();
+    // No version is judged in an event: an owner's consumers break, never "incompatible".
+    const owners = [...card.querySelectorAll('[data-testid="impact-owners"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(owners).toEqual(['team-a2 consumers, 2 break', 'team-b1 consumer, 1 breaks']);
     unmount(c);
   });
   it('lists the golden paths that reference a changed policy, never as consumers', () => {

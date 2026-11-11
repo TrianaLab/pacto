@@ -615,7 +615,7 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
       items: [
         { service: ref('service', 'domain-a/billing', 'billing'), path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'unknown',
           effect: 'breaks', required: true, provenance: 'declared', via: ['dependency'], owner: 'core', ownerRef: ref('owner', 'team:core', 'core'),
-          targets: [ref('target', 'prod/k8s/billing', 'billing')], targetsTotal: 3,
+          targets: [ref('target', 'prod/k8s/billing', 'billing')], targetsTotal: 3, staleTargets: ['prod/k8s/billing'],
           evidence: [{ kind: 'target', provenance: 'observed', message: 'runs on prod/k8s/billing', at: '2026-07-29T09:00:00Z', stale: true }] },
         { service: { kind: 'service', key: 'ghost-caller', label: 'ghost-caller', href: '/fleet/services/ghost-caller' }, path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true,
           confidence: 'observed', compatibilityVerdict: 'unknown', effect: 'unknown', uncontracted: true, provenance: 'observed', via: ['observed'] },
@@ -667,6 +667,17 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('never answers a link that names an unknown event as another event', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const { target, component } = mountView({ svc: 'domain-a/payments', event: 'down' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(impactFn).not.toHaveBeenCalled();
+    expect(target.textContent).toContain('Unknown event');
+    expect(target.textContent).toContain('“down”');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows why each consumer is affected, links owners and never links an uncontracted caller', async () => {
     impactFn.mockResolvedValue(eventResult());
     const { target, component } = mountView({ svc: 'domain-a/payments', event: 'unavailable' });
@@ -683,12 +694,20 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     expect(billing.querySelector('[data-label="Why"] .badge-stale')).toBeTruthy();
     expect(billing.querySelector('[data-label="Runs on"]')?.textContent).toContain('+2');
     expect(billing.querySelector('[data-label="Owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Acore');
+    // The owner link wraps: an ellipsis cannot show inside its inline-flex box, so it is never clipped.
+    expect(billing.querySelector('[data-label="Owner"] .cell-clip')).toBeNull();
     expect(ghost.querySelector('[data-label="Consumer"] a')).toBeNull();
     expect(ghost.querySelector('[data-label="Consumer"]')?.textContent).toContain('ghost-caller');
     expect(ghost.querySelector('[data-label="Consumer"]')?.textContent).toContain('uncontracted');
-    // The outcome filter offers the effects in an event answer.
+    // Only a declared dependency is required or optional: an observed caller declares neither.
+    expect(billing.querySelector('[data-testid="consumer-requirement"]')?.textContent).toBe('required');
+    expect(ghost.querySelector('[data-testid="consumer-requirement"]')).toBeNull();
+    // A target whose evidence is not current is marked, never said to run the consumer.
+    expect(billing.querySelector('[data-label="Runs on"] [data-testid="consumer-target-stale"]')).toBeTruthy();
+    // The outcome filter offers the effects in an event answer, and its hint says effect.
     const outcomeSel = target.querySelector('.consumer-tools select') as HTMLSelectElement;
     expect([...outcomeSel.options].map((o) => o.value)).toEqual(['', 'breaks', 'may-degrade', 'unknown']);
+    expect(target.querySelector('.consumer-tools')?.textContent).toContain('come first in each effect.');
     unmount(component); document.body.removeChild(target);
   });
 

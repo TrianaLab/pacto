@@ -804,6 +804,18 @@ describe('responsive by construction', () => {
   });
   const key = (d: { rel: string; prop: string; value: string }) => `${d.rel}: ${d.prop}: ${d.value}`;
 
+  // A min-width and a max-width query at the same breakpoint both match at exactly
+  // that width, so both layouts apply at once; the second must be exclusive (width < X).
+  it('never lets two container queries of one container overlap at a breakpoint', () => {
+    const overlaps = styleFiles(SRC).flatMap((f) => {
+      const body = readFileSync(f, 'utf8');
+      const at = (bound: string) => new Set([...body.matchAll(new RegExp(`@container\\s+([\\w-]+)\\s*\\(${bound}-width:\\s*([\\d.]+\\w+)\\)`, 'g'))].map((m) => `${m[1]} ${m[2]}`));
+      const max = at('max');
+      return [...at('min')].filter((q) => max.has(q)).map((q) => `${relative(SRC, f)}: ${q}`);
+    });
+    expect(overlaps).toEqual([]);
+  });
+
   const FIXED_WIDTH_REVIEWED = [
     'StatsBar.svelte: width: 120px',
     'sections/OverviewSection.svelte: min-width: 240px',

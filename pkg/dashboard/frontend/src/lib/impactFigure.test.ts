@@ -232,7 +232,8 @@ describe('eventModel (an event answer)', () => {
     const m = eventModel(event({}));
     expect(m.gate?.stamp).toBe('Clears');
     expect(m.gateLane).toBe(-1);
-    expect(m.caption).toBe('no consumer depends on it.');
+    expect(m.caption).toBe('no contract declares a dependency on it and no source saw a caller; a service with no contract can still call it.');
+    expect(m.gateWhy).toBe('Gate: nothing known depends on redis');
     expect(m.figRef).toBe('No lane reaches the gate.');
   });
   it('hatches unknown, draws the ghost and keeps chips per effect', () => {
@@ -256,6 +257,16 @@ describe('eventModel (an event answer)', () => {
   });
   it('answerText states a what-if', () => {
     expect(answerText(event({ breaks: 1 }))).toBe('A question about the fleet as it is: nothing has changed.');
-    expect(answerText(event({}))).toBe('A question about the fleet as it is: nothing has changed. No consumer is affected.');
+    expect(answerText(event({}))).toBe('A question about the fleet as it is: nothing has changed. No consumer is known to depend on it.');
+  });
+  it('never says no consumer is affected over a partial or restricted answer', () => {
+    expect(answerText(event({}, { completeness: 'partial', meta: { completeness: 'partial' } })))
+      .toBe('A question about the fleet as it is: nothing has changed. No consumer you can see is known to depend on it.');
+    expect(answerText(event({}, { consumers: { hidden: 3 } })))
+      .toBe('A question about the fleet as it is: nothing has changed. No consumer you can see is known to depend on it; 3 you may not see are not counted.');
+  });
+  it('says "at least" in the reach step of a partial answer', () => {
+    expect(eventModel(event({ breaks: 4 }, { completeness: 'partial' })).steps[1].cap).toBe('It reaches at least 4 consumers that depend on redis.');
+    expect(eventModel(event({ breaks: 4 })).steps[1].cap).toBe('It reaches the 4 consumers that depend on redis.');
   });
 });

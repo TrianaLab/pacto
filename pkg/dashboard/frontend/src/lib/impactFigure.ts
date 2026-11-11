@@ -217,7 +217,10 @@ export function eventModel(im: ProductImpact) {
   // "5 consumers break, 3 may degrade and 2 are unknown": the first count names consumers.
   const VERB: Record<Effect, [string, string]> = { breaks: ['breaks', 'break'], 'may-degrade': ['may degrade', 'may degrade'], unknown: ['is unknown', 'are unknown'] };
   const parts = EFFECTS.filter((k) => by[k]).map((k, i) => `${i ? formatCount(by[k]) : countOf(by[k], 'consumer')} ${VERB[k][by[k] === 1 ? 0 : 1]}`);
-  const caption = (total ? `${atLeast}${joinWords(parts)}` : partial ? 'no consumer is known to depend on it' : 'no consumer depends on it')
+  // Even a complete answer only knows contracts and observed calls: the Go clear
+  // reason's hedge is carried here.
+  const caption = (total ? `${atLeast}${joinWords(parts)}` : partial ? 'no consumer is known to depend on it'
+    : 'no contract declares a dependency on it and no source saw a caller; a service with no contract can still call it')
     + (hidden ? `; ${formatCount(hidden)} more you may not see ${hidden === 1 ? 'is' : 'are'} not counted` : '')
     + '.'
     + (partial ? ` Coverage is partial: consumers known only to ${missing} are missing.` : '');
@@ -225,7 +228,7 @@ export function eventModel(im: ProductImpact) {
     : deciding.length === 1 ? `The gate is drawn under the ${deciding[0]} lane, which sends it to a person.`
       : `The gate is drawn under the ${deciding[0]} lane; the ${joinWords(deciding)} lanes ${deciding.length === 2 ? 'both' : 'all'} send it to a person.`;
   const gateWhy = deciding.length > 1 ? `Gate, decided by the ${joinWords(deciding)} lanes`
-    : deciding.length ? 'Gate, decided by this lane' : `Gate: nothing depends on ${service}`;
+    : deciding.length ? 'Gate, decided by this lane' : `Gate: nothing known depends on ${service}`;
 
   const wires: WireDef[] = [{ id: 'w-stack', from: 'subject', to: 'split', style: 'proj', tone: 'neutral', when: ['wide', 'mid', 'narrow'] }];
   lanes.forEach((l, k) => wires.push({
@@ -239,7 +242,7 @@ export function eventModel(im: ProductImpact) {
   const laneIds = lanes.map((_, k) => k);
   const steps: Step[] = [
     { cap: `Suppose ${phrase}. This is a question: nothing has changed.`, dur: 240, show: ['[data-m="subject"]', 'w:w-stack'], sig: ['w-stack'] },
-    { cap: `It reaches the ${countOf(total, 'consumer')} that depend on ${service}.`, dur: 160, show: ['[data-m="split"]'] },
+    { cap: `It reaches ${atLeast || 'the '}${countOf(total, 'consumer')} that depend on ${service}.`, dur: 160, show: ['[data-m="split"]'] },
     { cap: `Each consumer is sorted by whether every path to ${service} is required.`, dur: 240, show: [...laneIds.map((k) => `[data-m="ln-${k}"]`), ...laneIds.map((k) => `w:w-l${k}`)], sig: laneIds.map((k) => `w-l${k}`) },
   ];
   if (gate) steps.push({ cap: `${gate.says}${by.breaks ? `: ${countOf(by.breaks, 'consumer')} would break` : ''}.`, dur: 160, show: ['[data-m="gate"]', 'w:w-gate'], sig: ['w-gate'] });
@@ -253,6 +256,17 @@ export function eventModel(im: ProductImpact) {
   };
 }
 
+/**
+ * What an event answer with no listed consumer may say: never "no consumer is
+ * affected", since a service with no contract can still call the subject, and a
+ * partial or restricted answer only speaks for what the viewer can see.
+ */
+function noEventConsumer(im: ProductImpact): string {
+  const hidden = im.consumers?.hidden ?? 0;
+  if ((im.meta?.completeness ?? 'complete') === 'complete' && !hidden) return 'No consumer is known to depend on it.';
+  return `No consumer you can see is known to depend on it${hidden ? `; ${formatCount(hidden)} you may not see ${hidden === 1 ? 'is' : 'are'} not counted` : ''}.`;
+}
+
 function hiddenLane(n: number): ImpactLane {
   return { key: 'hidden', label: 'Hidden from you', tone: 'neutral', hatch: true, glyph: 'unknown', n, share: 0, chips: [], decides: false, ghost: true };
 }
@@ -263,7 +277,7 @@ function hiddenLane(n: number): ImpactLane {
  * it from a second tally.
  */
 export function answerText(im: ProductImpact): string {
-  if (im.event) return `A question about the fleet as it is: nothing has changed.${im.consumers?.total ? '' : ' No consumer is affected.'}`;
+  if (im.event) return `A question about the fleet as it is: nothing has changed.${im.consumers?.total ? '' : ` ${noEventConsumer(im)}`}`;
   const ch = im.changes;
   const what = !ch?.total ? 'No contract differences.' : `${countOf(ch.total, 'change')}, ${formatCount(ch.breaking ?? 0)} breaking.`;
   return im.consumers?.total ? what : `${what} No consumer is affected.`;

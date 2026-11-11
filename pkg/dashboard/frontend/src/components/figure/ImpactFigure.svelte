@@ -125,7 +125,7 @@
                  does not fit; the full name stays in its title. -->
             <ul class="ac-owners">
               {#each tallies.byOwner ?? [] as o (o.ownerKey || `label:${o.owner}`)}
-                <li><bdi class:fit={elidable(o.owner)} title={o.owner}>{o.owner}</bdi>{#if sharedLabel(o.owner) && o.ownerKey}<span class="t-meta">{` (${ownerKind(o.ownerKey)})`}</span>{/if}<span class="ac-owner-n">{countOf(o.consumers, 'consumer')}{o.incompatible ? `, ${formatCount(o.incompatible)} incompatible` : ''}</span></li>
+                <li><bdi class:fit={elidable(o.owner)} title={o.owner}>{o.owner}</bdi>{#if sharedLabel(o.owner) && o.ownerKey}<span class="t-meta">{` (${ownerKind(o.ownerKey)})`}</span>{/if}<span class="ac-owner-n">{countOf(o.consumers, 'consumer')}{o.incompatible ? `, ${formatCount(o.incompatible)} ${isEvent ? (o.incompatible === 1 ? 'breaks' : 'break') : 'incompatible'}` : ''}</span></li>
               {/each}
             </ul>
             {#if tallies.beyondRanking || tallies.noOwner}
