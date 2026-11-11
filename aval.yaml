@@ -26,7 +26,7 @@ fragments:
     scope:
       dependencies: [go.work, go.work.sum, go.mod, go.sum, integrations/kubernetes/go.mod, integrations/kubernetes/go.sum]
     environment:
-      toolchain: {go: "1.27.3"}
+      toolchain: {go: "1.27.4"}
       probe: {go: [go, env, GOVERSION]}
       env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOWORK, GODEBUG]
   # The engine: cmd/pacto and everything it builds from. pkg/** also holds the
