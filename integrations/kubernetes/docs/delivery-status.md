@@ -133,7 +133,9 @@ it, else `unknown`. The source revision is an annotation, not signed.
 Per Stage, each event has a role: `arrived`, `left` or `attempted`.
 `verified` and `failed` read `yes`, `no` or `unknown`; a partial history or a
 list at its cap answers `unknown`, never "never reached". Each Stage lists its
-newest 50 events.
+newest 50 events. `note` names a Stage that runs the artifact on a complete
+history with no `arrived` event: it was placed before its records began or
+moved outside Pacto.
 
 ## One record
 
