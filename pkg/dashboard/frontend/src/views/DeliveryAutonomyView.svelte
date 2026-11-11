@@ -19,22 +19,27 @@
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import AutonomyFigure from '../components/figure/AutonomyFigure.svelte';
+  import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
 
   // How far each Stage runs on its own, what Pacto proposes next and what
   // stands in the way. The page only reads: a level moves through a proposed
   // operation a second person approves, and a fix is something to copy and run.
   // Stages and blockers page on the server, each with its place in the URL.
-  let { offset = '', limit = '', q = '', blockers: blockersAt = '', level = '', refreshTick = 0, miraURL = '' } = $props();
+  // `service` and `domain` narrow the Stages to one exact service, from a service
+  // page's link; every link the page builds keeps them.
+  let { offset = '', limit = '', q = '', blockers: blockersAt = '', level = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
+  const keep = $derived({ service: service || undefined, domain: (service && domain) || undefined });
 
-  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt), level });
+  const query = $derived({ offset: urlInt(offset), limit: urlInt(limit), q, blockers: urlInt(blockersAt), level, ...keep });
   const loader = createProductLoader(() => api.deliveryAutonomy({
     offset: query.offset || undefined, limit: query.limit || undefined, q: q || undefined, blockers: query.blockers || undefined,
     // The router passes any string; the server refuses a level it does not know.
     level: /** @type {any} */ (level || undefined),
+    service: service || undefined, domain: keep.domain,
   }));
   const question = $derived(JSON.stringify(query));
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${level}`);
+  const listQuestion = $derived(`${q}@@${level}@@${keep.domain}/${service}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -108,7 +113,8 @@
       tip="How far each Stage runs on its own, what Pacto proposes next and what stands in the way. A person confirms every step up; this page only reads." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-autonomy" />
-  <ListFilter value={q} href={(v) => deliveryAutonomyUrl({ q: v })} label="Filter Stages and blockers by service, environment or kind"
+  <DeliveryServiceFilter {service} {domain} clear={deliveryAutonomyUrl({ q, level })} />
+  <ListFilter value={q} href={(v) => deliveryAutonomyUrl({ q: v, ...keep })} label="Filter Stages and blockers by service, environment or kind"
     placeholder="Service, environment or blocker" testid="autonomy-filter" />
 
   {#if !data && loader.loading}
@@ -117,7 +123,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} href={(l) => deliveryAutonomyUrl({ q, level: l })} />{/if}
+    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} href={(l) => deliveryAutonomyUrl({ q, level: l, ...keep })} />{/if}
 
     <dl class="au-metrics">
       <div class="au-metric" data-testid="autonomy-contracted">
@@ -205,7 +211,7 @@
     </section>
     <section aria-labelledby="au-stages">
       <h2 id="au-stages" class="t-section-title">Each Stage</h2>
-      {#if level}<p class="t-meta" data-testid="autonomy-level">Only the Stages {level === 'none' ? 'that report no level' : `on ${levelLabel(level)}`}. <a href={deliveryAutonomyUrl({ q })}>Show every Stage</a></p>{/if}
+      {#if level}<p class="t-meta" data-testid="autonomy-level">Only the Stages {level === 'none' ? 'that report no level' : `on ${levelLabel(level)}`}. <a href={deliveryAutonomyUrl({ q, ...keep })}>Show every Stage</a></p>{/if}
       {#if stages.length === 0}
         <p class="t-body-2" data-testid="autonomy-empty">{q ? `No Stage you can see matches “${q}”${level ? ' on this level' : ''}.` : level ? 'No Stage you can see is on this level.' : `No Stage exists ${data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}.`}</p>
       {:else}
@@ -228,7 +234,7 @@
                         <span class="t-meta">{countOf(s.proposal.blockers.length, 'blocker')} below.</span>
                       {:else}
                         <!-- The blockers are paged: the link narrows the page to this service. -->
-                        <a class="t-meta" href={deliveryAutonomyUrl({ q: s.service })} data-testid="stage-blockers">{countOf(s.proposal.blockers.length, 'blocker')}</a>
+                        <a class="t-meta" href={deliveryAutonomyUrl({ q: s.service, ...keep })} data-testid="stage-blockers">{countOf(s.proposal.blockers.length, 'blocker')}</a>
                       {/if}
                     {/if}
                     {#if s.lastShadow}<span class="t-meta au-help" data-testid="would-have">Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}

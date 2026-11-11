@@ -3,14 +3,17 @@
   // state word as its accessible name, or beside it as text when `word` is set. The
   // shape differs per state, so colour is never the only cue. `unknown` is the
   // status-only state (operations not read): hatched, and the board never passes it.
+  // `decorative` hides it from assistive technology, for a control that names the state itself.
   import { envStateWord } from '../../lib/envFigure.ts';
 
-  /** @type {{ state: string, href?: string, word?: boolean }} */
-  let { state, href = '', word = false } = $props();
+  /** @type {{ state: string, href?: string, word?: boolean, decorative?: boolean }} */
+  let { state, href = '', word = false, decorative = false } = $props();
   const label = $derived(envStateWord(state));
 </script>
 
-{#if href}
+{#if decorative}
+  <span class="env-mark" aria-hidden="true" data-testid="env-state-mark" data-state={state}><span class="ev-dot s-{state}"></span></span>
+{:else if href}
   <a class="env-mark" {href} data-testid="env-state-mark" data-state={state} aria-label={word ? undefined : label} title={label}><span class="ev-dot s-{state}" aria-hidden="true"></span>{#if word}<span class="env-word">{label}</span>{/if}</a>
 {:else if word}
   <span class="env-mark" data-testid="env-state-mark" data-state={state}><span class="ev-dot s-{state}" aria-hidden="true"></span><span class="env-word">{label}</span></span>

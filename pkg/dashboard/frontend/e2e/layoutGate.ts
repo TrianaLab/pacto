@@ -195,6 +195,10 @@ export function installScaleFixture(): void {
         const environment = longName(`prod-${i}`);
         return { environment, errored: (i * 37) % 1300, held: (i * 53) % 900, frozen: i % 4, upstream: i ? [longName(`prod-${i - 1}`)] : [] };
       });
+      // A frozen row's unfreeze offer at its longest reason.
+      for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -254,6 +258,22 @@ export function installScaleFixture(): void {
         const pg = doc.page as { total: number; offset: number; limit: number; nextOffset?: number };
         pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'unknown' ? 700 : q.get('signed') === 'yes' ? 2500 : 5000;
         if (pg.offset + pg.limit < pg.total) pg.nextOffset = pg.offset + pg.limit;
+      }
+      // Each version's source revision at its longest; digests stay the engine's.
+      for (const svc of (doc.services as { versions?: Record<string, unknown>[] }[] | undefined) ?? []) {
+        for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
+      }
+    }
+    // A version's lifecycle at its longest: long environment, Stage and record names, a
+    // long note and the newest 50 events on every Stage.
+    if (route === '/api/delivery/lifecycle') {
+      doc.note = longName(String(doc.note || 'note'));
+      for (const k of ['signedOn', 'unsignedOn']) if (Array.isArray(doc[k])) doc[k] = (doc[k] as string[]).map(longName);
+      for (const st of (doc.stages as Record<string, unknown>[] | undefined) ?? []) {
+        st.environment = longName(String(st.environment));
+        st.stage = longName(String(st.stage));
+        const evs = (st.events as Record<string, unknown>[] | undefined) ?? [];
+        if (evs.length) st.events = Array.from({ length: 50 }, (_, i) => ({ ...evs[i % evs.length], record: i % 3 ? longName(`record-${i}`) : undefined }));
       }
     }
     if (route === '/api/delivery/autonomy') {
@@ -756,6 +776,17 @@ const observedStrip = (hash: string) => async (page: Page) => {
   await expect(page.locator('[data-testid="service-placement"]')).toBeVisible({ timeout: 30_000 });
 };
 
+/** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
+const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="delivery-service-filter"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(landmark).first()).toBeVisible({ timeout: 30_000 });
+};
+// What each list shows once its answer is in.
+const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
+const PUBLISH_LOADED = 'li.pv-row';
+const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -824,6 +855,18 @@ export const ROUTES: Route[] = [
   },
   { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
   { name: 'service page, observed strip beside Stages', open: observedStrip('#/fleet/services/notification-worker') },
+  { name: 'inbox filtered by service', open: deliveryOfService('#/delivery/inbox?service=payments', INBOX_LOADED) },
+  { name: 'publish filtered by service', open: deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED) },
+  { name: 'autonomy filtered by service', open: deliveryOfService('#/delivery/autonomy?service=payments', AUTONOMY_LOADED) },
+  {
+    name: 'publish, version lifecycle open',
+    open: async (page) => {
+      await deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED)(page);
+      await page.locator('button[aria-label^="Lifecycle of"]').first().click();
+      await expect(page.locator('[data-testid="delivery-lifecycle"] li').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

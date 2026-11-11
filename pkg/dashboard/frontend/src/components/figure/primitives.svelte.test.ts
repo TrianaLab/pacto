@@ -140,4 +140,14 @@ describe('EnvMark', () => {
     expect(w.hasAttribute('aria-label')).toBe(false);
     unmount(worded.c);
   });
+  it('stays out of the accessibility tree when decorative, for a control that names the state itself', () => {
+    const { host, c } = render(EnvMark, { state: 'frozen', decorative: true });
+    const m = host.querySelector('[data-testid="env-state-mark"]')!;
+    expect(m.getAttribute('aria-hidden')).toBe('true');
+    expect(m.hasAttribute('aria-label')).toBe(false);
+    expect(m.hasAttribute('title')).toBe(false);
+    expect(m.hasAttribute('role')).toBe(false);
+    expect(m.querySelector('.ev-dot')?.classList.contains('s-frozen')).toBe(true);
+    unmount(c);
+  });
 });

@@ -88,8 +88,8 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
-        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
+        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], offers: [{ action: 'promote', available: false, to: D2, reason: 'the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first' }], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
         // The server lists the environments the way changes travel, as environmentsListed does.

@@ -596,6 +596,40 @@ export function offerLabel(action: string): string {
   return OFFERS[action as DeliveryOffer['action']] ?? action;
 }
 
+type OfferRow = { namespace: string; stage: string; pointer?: string; candidate?: string; candidateVersion?: string };
+
+/**
+ * offerRequest is the propose request an offer opens (promote, unfreeze or freeze; undo
+ * opens the undo panel instead) and the version a promote names, known only for the
+ * Stage's candidate. Offers only describe: the request is planned, then proposed with
+ * the caller's own identity, and admission decides.
+ */
+export function offerRequest(r: OfferRow, o: DeliveryOffer) {
+  const request: { namespace: string; stage: string; type: string; to?: string; from?: string } = { namespace: r.namespace, stage: r.stage, type: `delivery.pacto.trianalab.io/${o.action}` };
+  const to = o.to || r.candidate;
+  if (o.action === 'promote') Object.assign(request, { to, from: r.pointer || undefined });
+  return { request, version: o.action === 'promote' && to === r.candidate ? (r.candidateVersion ?? '') : '' };
+}
+
+/**
+ * offerReason is an offer's reason without the Ready fix its row already shows beside
+ * "Cannot promote", so a row never says the same message twice (Decision 11).
+ */
+export function offerReason(o: DeliveryOffer, readyFix = ''): string {
+  return readyFix && o.reason.endsWith(`: ${readyFix}`) ? o.reason.slice(0, -(readyFix.length + 2)) : o.reason;
+}
+
+/**
+ * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
+ * ("unsigned" only for an artifact Flux never verified), and unknown never as yes or no.
+ */
+export const lifecycleWords = {
+  signature: { signed: 'Signature checked', unsigned: 'Not signed', unknown: 'Signature not known here' },
+  verified: { yes: 'verified', no: 'not verified', unknown: 'verified: not known' },
+  failed: { yes: 'failed', no: '', unknown: 'failed: not known' },
+  role: { arrived: 'arrived', left: 'moved off it', attempted: 'attempted, moved nothing' },
+} as const;
+
 /**
  * checkText says when the newest re-check of a Stage ran and its worst
  * verdict. A check about an earlier version or change reads stale: its age

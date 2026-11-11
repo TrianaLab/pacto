@@ -5,11 +5,13 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
+import { readFileSync } from 'node:fs';
+import { parse } from 'svelte/compiler';
 
 const fns = vi.hoisted(() => ({
   session: vi.fn(), inbox: vi.fn(), environments: vi.fn(), published: vi.fn(), history: vi.fn(),
   operation: vi.fn(), plan: vi.fn(), propose: vi.fn(), decide: vi.fn(), cancel: vi.fn(), signOut: vi.fn(),
-  blame: vi.fn(), undo: vi.fn(), refusals: vi.fn(),
+  blame: vi.fn(), undo: vi.fn(), refusals: vi.fn(), lifecycle: vi.fn(),
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
@@ -17,8 +19,8 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return {
     ...actual,
     api: {
-      ...sessionApi(() => fns.session(), actual.ApiError), deliveryInbox: () => fns.inbox(), deliveryEnvironments: (...a: unknown[]) => fns.environments(...a),
-      deliveryPublished: () => fns.published(), deliveryHistory: (...a: unknown[]) => fns.history(...a),
+      ...sessionApi(() => fns.session(), actual.ApiError), deliveryInbox: (...a: unknown[]) => fns.inbox(...a), deliveryEnvironments: (...a: unknown[]) => fns.environments(...a),
+      deliveryPublished: (...a: unknown[]) => fns.published(...a), deliveryLifecycle: (...a: unknown[]) => fns.lifecycle(...a), deliveryHistory: (...a: unknown[]) => fns.history(...a),
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a), deliveryDecide: (...a: unknown[]) => fns.decide(...a),
       deliveryCancel: (...a: unknown[]) => fns.cancel(...a), signOut: () => fns.signOut(),
@@ -31,6 +33,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import { ApiError } from '../lib/api.ts';
 import { session as auth, loadSession } from '../lib/session.svelte.ts';
 import { keepPending } from '../lib/delivery.ts';
+import { deliveryInboxUrl, deliveryPublishUrl } from '../lib/router.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryInboxView from './DeliveryInboxView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
@@ -41,6 +44,9 @@ import DeliveryChangeView from './DeliveryChangeView.svelte';
 import DeliveryHistoryView from './DeliveryHistoryView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryPublishView from './DeliveryPublishView.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import EnvMark from '../components/figure/EnvMark.svelte';
+import { ENV_STATES } from '../lib/envFigure.ts';
 
 const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
@@ -265,7 +271,8 @@ describe('inbox', () => {
 });
 
 describe('environments', () => {
-  const row = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: true, frozenReason: 'x', autoHold: true, held: 1, candidate: D2, ready: 'False: CandidateUnverified', actions: ['promote', 'unfreeze'] };
+  const row = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: true, frozenReason: 'x', autoHold: true, held: 1, candidate: D2, ready: 'False: CandidateUnverified', actions: ['promote', 'unfreeze'],
+    offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }, { action: 'unfreeze', available: true, reason: 'unfreezes the Stage' }] };
 
   it('shows each service in each environment and plans before proposing', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'test', stage: 'pay-test', version: '', pointer: '', verified: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: [] }] });
@@ -492,7 +499,7 @@ describe('environments', () => {
     const up = (environment: string) => ({ kind: 'stage', namespace: environment, stage: `payments-${environment}`, environment });
     fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: tiers, page: { total: 2, offset: 0, limit: 25 }, environments: [
       r('payments', 'dev'), r('payments', 'test', { held: 2, upstream: up('dev') }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
-      r('payments', 'prod-eu', { upstream: up('test'), frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
+      r('payments', 'prod-eu', { upstream: up('test'), frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], offers: [{ action: 'unfreeze', available: true, reason: 'unfreezes the Stage' }], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
       r('payments', 'prod-us', { upstream: up('test'), failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
       r('ledger', 'staging', { verified: false }),
     ] });
@@ -630,6 +637,223 @@ function heldOperation(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+describe('board offers and links (B2)', () => {
+  const base = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false,
+    frozen: false, autoHold: false, held: 0, candidate: D2, candidateVersion: '2.0.0', ready: 'True', actions: [], state: 'verified' };
+
+  it('acts from offers: available ones plan, unavailable ones say why in words, and actions alone offer nothing', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [
+      { ...base, actions: ['promote'], offers: [
+        { action: 'promote', available: true, to: D2, reason: 'promotes the candidate' },
+        { action: 'freeze', available: false, reason: 'an agent may not raise a freeze' },
+      ] },
+      { ...base, service: 'ledger', stage: 'led', actions: ['promote', 'unfreeze'] },
+    ] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
+    const freeze = pay.querySelector('button[aria-label="Freeze payments in prod"]') as HTMLButtonElement;
+    expect(freeze.disabled).toBe(true);
+    expect(text(pay)).toContain('Freeze: an agent may not raise a freeze');
+    // A row that carries only the old actions list offers nothing: offers are the one source.
+    const ledger = target.querySelector('[data-testid="env-row-ledger"]') as HTMLElement;
+    expect(ledger.querySelector('button[aria-label^="Promote"]')).toBeNull();
+    expect(ledger.querySelector('button[aria-label^="Unfreeze"]')).toBeNull();
+    (pay.querySelector('button[aria-label="Promote payments in prod to 2.0.0"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, from: D1 });
+    destroy();
+  });
+
+  it('freezes through a plan and undoes through the undo panel on the one-service view', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [{ ...base, offers: [
+      { action: 'promote', available: false, reason: 'nothing newer: it runs the candidate' },
+      { action: 'freeze', available: true, reason: 'freezes the Stage on 1.0.0' },
+      { action: 'undo', available: true, operation: 'op-7', to: D2, reason: 'undo the change that shipped 1.0.0' },
+    ] }] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:f', type: 'delivery.pacto.trianalab.io/freeze', predicted: 'Proceeds' });
+    fns.undo.mockResolvedValue({ kind: 'none', note: 'nothing to undo' });
+    const { target, destroy } = render(DeliveryEnvironmentsView, { service: 'payments' });
+    await settle();
+    expect(text(target)).toContain('Promote: nothing newer: it runs the candidate');
+    (target.querySelector('button[aria-label="Freeze payments in prod"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/freeze' });
+    (target.querySelector('button[aria-label="Undo payments in prod"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.undo).toHaveBeenCalledWith('prod', 'op-7', 'pay');
+    expect(target.querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
+    destroy();
+  });
+
+  it('shows the Ready fix beside Cannot promote once, never the source problem as well, and the source problem only while Ready is not False', async () => {
+    const dead = { kind: 'stage', namespace: 'test', stage: 'pay-test', environment: 'test', problem: 'missing' };
+    fns.environments.mockResolvedValue({ ...listing, environments: [
+      { ...base, ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified', readyFix: 'set spec.verify on the candidate OCIRepository', upstream: dead,
+        offers: [{ action: 'promote', available: false, reason: 'no eligible candidate: set spec.verify on the candidate OCIRepository' }] },
+      { ...base, service: 'ledger', stage: 'led', upstream: dead },
+    ] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = text(target.querySelector('[data-testid="env-row-payments"]') as HTMLElement);
+    expect(pay).toContain('Cannot promote: The candidate is not verified.');
+    expect(pay).toContain('Fix: Set spec.verify on the candidate OCIRepository.');
+    expect(pay.split('set spec.verify').length + pay.split('Set spec.verify').length - 2).toBe(1);
+    expect(pay).toContain('Promote: no eligible candidate');
+    expect(target.querySelector('[data-testid="env-row-payments"] [data-testid="env-no-source"]')).toBeNull();
+    const ledger = target.querySelector('[data-testid="env-row-ledger"]') as HTMLElement;
+    expect(ledger.querySelector('[data-testid="env-no-source"]')).not.toBeNull();
+    expect(text(ledger)).not.toContain('Fix:');
+    destroy();
+  });
+
+  // EnvMarkMatchesBoardMark: the board's dot is EnvMark, with the element, classes, name and fill the board drew inline before.
+  it('draws each board dot with EnvMark, as the board drew it before (EnvMarkMatchesBoardMark)', async () => {
+    // The fill the board's own .s-* rules declared before the swap.
+    const BEFORE: Record<string, string> = { verified: 'var(--c-ok)', waiting: 'var(--c-warn)', failed: 'var(--c-err)', frozen: 'var(--c-warn)', autohold: 'var(--c-info)', unverified: '', empty: '' };
+    const fills = (file: string) => {
+      const ast = parse(readFileSync(new URL(file, import.meta.url), 'utf8'), { modern: true });
+      const out: Record<string, string> = {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the svelte CSS AST
+      for (const rule of (ast.css?.children ?? []) as any[]) {
+        const sel = rule.prelude?.children?.map((c: { children: unknown[] }) => JSON.stringify(c)).join(',') ?? '';
+        const m = sel.match(/"name":"s-(\w+)"/);
+        if (!m) continue;
+        out[m[1]] = rule.block.children.find((d: { property: string }) => d.property === 'background')?.value ?? '';
+      }
+      return out;
+    };
+    const mark = fills('../components/figure/EnvMark.svelte');
+    for (const s of ENV_STATES) expect([s.key, mark[s.key] ?? '']).toEqual([s.key, BEFORE[s.key]]);
+    // The board keeps no copy of its own that could drift from EnvMark.
+    expect(fills('./DeliveryEnvironmentsView.svelte')).toEqual({});
+
+    const envs = ENV_STATES.map((s) => `e-${s.key}`);
+    const over: Record<string, object> = { failed: { failed: true, verified: false }, frozen: { frozen: true }, autohold: { autoHold: true }, waiting: { held: 1 },
+      unverified: { verified: false }, empty: { pointer: '', version: '', verified: false }, verified: {} };
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: {}, page: { total: 1, offset: 0, limit: 25 },
+      environments: ENV_STATES.map((s) => ({ ...base, environment: `e-${s.key}`, stage: s.key, namespace: s.key, ...over[s.key] })) });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const own = (el: Element) => [...el.classList].filter((c) => !c.startsWith('svelte-')).sort();
+    for (const s of ENV_STATES) {
+      const dot = target.querySelector(`button[data-testid="env-dot"][data-env="e-${s.key}"]`) as HTMLButtonElement;
+      const boardMark = dot.querySelector('[data-testid="env-state-mark"]') as HTMLElement;
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const alone = mount(EnvMark, { target: host, props: { state: s.key, decorative: true } });
+      const ref = host.querySelector('[data-testid="env-state-mark"]') as HTMLElement;
+      const [a, b] = [boardMark.querySelector('.ev-dot') as HTMLElement, ref.querySelector('.ev-dot') as HTMLElement];
+      expect([s.key, a.tagName, own(a)]).toEqual([s.key, b.tagName, ['ev-dot', `s-${s.key}`]]);
+      expect(own(b)).toEqual(own(a));
+      expect(getComputedStyle(a).backgroundColor).toBe(getComputedStyle(b).backgroundColor);
+      // The dot itself is decorative: the button around it names the environment and its state.
+      expect(boardMark.getAttribute('aria-hidden')).toBe('true');
+      expect(boardMark.hasAttribute('title')).toBe(false);
+      expect(dot.getAttribute('aria-label')).toContain(`e-${s.key}`);
+      unmount(alone);
+      host.remove();
+    }
+    destroy();
+  });
+
+  it('links a version to its revision and the service to its page, and shows the newest re-check', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [
+      { ...base, revision: 'payments@sha256:c', lastCheck: { at: '2026-11-04T09:58:00Z', result: 'Unknown', current: false, verdicts: [] } },
+    ] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
+    expect(pay.querySelector('a.ev-version')?.getAttribute('href')).toBe('#/fleet/revisions/payments%40sha256%3Ac');
+    expect(linkTo(pay, '#/delivery/history?namespace=prod&stage=pay')).toBeDefined();
+    expect(pay.querySelector('th a')?.getAttribute('href')).toBe('#/services/payments');
+    expect(text(pay.querySelector('[data-testid="env-check"]') as HTMLElement)).toBe('Re-checked 2026-11-04 09:58 UTC, Unknown, stale: about an earlier version');
+    destroy();
+  });
+});
+
+describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
+  const frozenRow = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozenReason: 'Errored', verified: false, failed: false, frozen: true, autoHold: false, held: 0, actions: [] };
+
+  it('narrows the inbox to one service, keeps environment and except on every link and clears with the chip', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, errored: [], frozen: [],
+      heldPage: { total: 60, offset: 0, limit: 25 },
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-checkout'], consumers: [] }] });
+    const { target, destroy } = render(DeliveryInboxView, { service: 'payments', domain: 'ghcr.io/a', environment: 'prod' });
+    await settle();
+    expect(fns.inbox).toHaveBeenCalledWith(expect.objectContaining({ service: 'payments', domain: 'ghcr.io/a', environment: 'prod' }));
+    const chip = target.querySelector('[data-testid="delivery-service-filter"]') as HTMLElement;
+    expect(text(chip)).toContain('payments in ghcr.io/a');
+    expect(chip.querySelector('a')?.getAttribute('href')).toBe(deliveryInboxUrl({ environment: 'prod' }));
+    // Back to every environment, the service stays.
+    expect(linkTo(target, deliveryInboxUrl({ service: 'payments', domain: 'ghcr.io/a' }))).toBeDefined();
+    // The pager keeps the environment, the service and its domain.
+    expect(target.querySelector('[data-testid="inbox-held-pager-next"]')?.getAttribute('href'))
+      .toBe(deliveryInboxUrl({ held: 25, environment: 'prod', service: 'payments', domain: 'ghcr.io/a' }));
+    destroy();
+    const ex = render(DeliveryInboxView, { service: 'payments', except: '["prod"]' });
+    await settle();
+    expect(fns.inbox).toHaveBeenLastCalledWith(expect.objectContaining({ service: 'payments', except: ['prod'] }));
+    expect((ex.target.querySelector('[data-testid="delivery-service-filter"] a') as HTMLAnchorElement).getAttribute('href')).toBe(deliveryInboxUrl({ except: '["prod"]' }));
+    ex.destroy();
+  });
+
+  it('unfreezes a frozen Stage from the inbox through a plan, or says why it is not offered', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, held: [], errored: [], frozen: [
+      { ...frozenRow, offers: [{ action: 'promote', available: false, reason: 'frozen' }, { action: 'unfreeze', available: true, reason: 'unfreezes the Stage' }] },
+      { ...frozenRow, service: 'ledger', stage: 'led', offers: [{ action: 'unfreeze', available: false, reason: 'only a person of team team-ledger may unfreeze it; that team or break-glass can' }] },
+    ] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:u', type: 'delivery.pacto.trianalab.io/unfreeze', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const frozen = target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement;
+    expect(text(frozen)).toContain('Unfreeze: only a person of team team-ledger may unfreeze it; that team or break-glass can');
+    expect((frozen.querySelector('button[aria-label="Unfreeze ledger in prod"]') as HTMLButtonElement).disabled).toBe(true);
+    // Only unfreeze: the inbox offers no promote.
+    expect(frozen.querySelector('button[aria-label^="Promote"]')).toBeNull();
+    (frozen.querySelector('button[aria-label="Unfreeze payments in prod"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/unfreeze' });
+    expect(frozen.querySelector('[data-testid="propose-panel"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('narrows published versions to one service, keeps signed on its links, says what a source revision is and opens a version\'s lifecycle', async () => {
+    fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
+      { digest: D2, version: '2.0.0', signature: 'signed', sourceRevision: 'abc123def', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
+    ] }] });
+    fns.lifecycle.mockResolvedValue({ ...listing, service: 'payments', digest: D2, version: '2.0.0', signature: 'signed', signedOn: ['test/pay'], note: '', sourceRevision: 'abc123def', stages: [
+      { namespace: 'prod', stage: 'pay', environment: 'prod', completeness: 'complete', running: true, offered: false, recordsVerified: true, source: 'records', verified: 'yes', failed: 'no',
+        events: [{ role: 'arrived', type: 'delivery.pacto.trianalab.io/promote', operation: 'op-1', actor: 'carol', applied: '2026-11-04T09:58:00Z', approvals: [] }] },
+      { namespace: 'test', stage: 'pay', environment: 'test', completeness: 'complete', running: false, offered: false, recordsVerified: true, source: 'records', verified: 'unknown', failed: 'unknown', events: [] },
+      { namespace: 'stage', stage: 'pay', environment: 'staging', completeness: 'partial', running: false, offered: false, recordsVerified: false, source: 'status', verified: 'unknown', failed: 'no', events: [] },
+    ] });
+    const { target, destroy } = render(DeliveryPublishView, { service: 'payments', domain: 'ghcr.io/a', signed: 'yes' });
+    await settle();
+    expect(fns.published).toHaveBeenCalledWith(expect.objectContaining({ service: 'payments', domain: 'ghcr.io/a', signed: 'yes' }));
+    const chip = target.querySelector('[data-testid="delivery-service-filter"]') as HTMLElement;
+    expect(chip.querySelector('a')?.getAttribute('href')).toBe(deliveryPublishUrl({ signed: 'yes' }));
+    // Every service again, the narrowed service kept.
+    expect(linkTo(target, deliveryPublishUrl({ service: 'payments', domain: 'ghcr.io/a' }))).toBeDefined();
+    const row = target.querySelector('li.pv-row') as HTMLElement;
+    expect(text(row)).toContain('Source revision abc123def, an annotation, not signed');
+    expect(text(row)).not.toMatch(/unsigned/i);
+    (row.querySelector('button[aria-label="Lifecycle of payments 2.0.0"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.lifecycle).toHaveBeenCalledWith({ service: 'payments', domain: 'ghcr.io/a', digest: D2 });
+    const lc = row.querySelector('[data-testid="delivery-lifecycle"]') as HTMLElement;
+    expect(text(lc)).toContain('Signature checked');
+    expect(text(lc)).toContain('arrived');
+    expect(text(lc)).toContain('from status, not signed');
+    expect(text(lc)).toContain('not reached');
+    expect(text(lc)).toContain('verified: not known');
+    expect(text(lc)).toContain('not seen in the history read (partial)');
+    destroy();
+  });
+});
 
 describe('change detail', () => {
   it('lists a dozen affected services with Show all, and reads its timeline in minutes', async () => {
@@ -1570,8 +1794,8 @@ describe('history and published', () => {
     // One line per version: short digests with a copy button, and environments as a count.
     const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
     expect(rows).toEqual([
-      '2.0.0 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
-      'Signature not known here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
+      '2.0.0 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running Lifecycle',
+      'Signature not known here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed Lifecycle',
     ]);
     // The signature state is said once; only the version that differs carries a badge.
     expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature checked on every version shown, except where marked.');
@@ -1700,7 +1924,8 @@ describe('names, versions and one clear sentence', () => {
 
   it('promotes to a version, not a digest', async () => {
     const row = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', candidate: D2, candidateVersion: '2.0.0',
-      verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: ['promote'] };
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: ['promote'],
+      offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }] };
     fns.environments.mockResolvedValue({ ...listing, environments: [row] });
     fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' });
     const { target, destroy } = render(DeliveryEnvironmentsView);

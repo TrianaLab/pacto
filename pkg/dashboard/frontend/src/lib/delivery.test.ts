@@ -4,7 +4,7 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
-  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand,
+  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, offerReason, lifecycleWords,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -327,6 +327,28 @@ describe('what a Stage row says', () => {
     expect(offerLabel('freeze')).toBe('Freeze');
     expect(offerLabel('undo')).toBe('Undo');
     expect(offerLabel('other')).toBe('other');
+  });
+  it('turns an offer into the request it plans, naming the version only for the candidate', () => {
+    const r = { namespace: 'prod', stage: 'pay', pointer: 'sha256:a', candidate: 'sha256:b', candidateVersion: '2.0.0' };
+    expect(offerRequest(r, { action: 'promote', available: true, reason: '', to: 'sha256:b' })).toEqual({
+      request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: 'sha256:b', from: 'sha256:a' }, version: '2.0.0' });
+    expect(offerRequest({ ...r, pointer: '' }, { action: 'promote', available: true, reason: '', to: 'sha256:c' })).toEqual({
+      request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: 'sha256:c', from: undefined }, version: '' });
+    expect(offerRequest(r, { action: 'freeze', available: true, reason: '' })).toEqual({ request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/freeze' }, version: '' });
+  });
+  it('never says the Ready fix twice: an offer reason drops the fix the row already shows', () => {
+    const o = { action: 'promote' as const, available: false, reason: 'no eligible candidate: set spec.verify' };
+    expect(offerReason(o, 'set spec.verify')).toBe('no eligible candidate');
+    expect(offerReason(o, '')).toBe('no eligible candidate: set spec.verify');
+    expect(offerReason(o, 'something else')).toBe('no eligible candidate: set spec.verify');
+  });
+  it('words a lifecycle answer: unknown never reads as yes or no', () => {
+    expect(lifecycleWords.signature.signed).toBe('Signature checked');
+    expect(lifecycleWords.signature.unsigned).toBe('Not signed');
+    expect(lifecycleWords.signature.unknown).toBe('Signature not known here');
+    expect(lifecycleWords.verified.unknown).toBe('verified: not known');
+    expect(lifecycleWords.failed.unknown).toBe('failed: not known');
+    expect(lifecycleWords.role.left).toBe('moved off it');
   });
   it('says when the newest re-check ran and what it found, and when it is stale', () => {
     expect(checkText({ at: '2026-11-04T09:58:00Z', result: 'Unknown', current: true })).toBe('Re-checked 2026-11-04 09:58 UTC, Unknown');
