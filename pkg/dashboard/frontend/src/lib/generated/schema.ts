@@ -4700,7 +4700,7 @@ export interface components {
                 [key: string]: string;
             };
             stage: string;
-            /** @description The digest of the trust config it was verified with */
+            /** @description The digest of the trust config it was verified with; a host with no trust config, such as the WASM demo, names the key instead */
             trust?: string;
             /** @description Every gate verdict the record keeps, with how to run its citation again */
             verdicts: components["schemas"]["Delivery.ExplainedVerdict"][] | null;

@@ -7,7 +7,7 @@ type RecordView struct {
 	Stage        string             `json:"stage"`
 	Record       string             `json:"record"`
 	Verified     bool               `json:"verified" doc:"Its signature was checked against a trust config"`
-	Trust        string             `json:"trust,omitempty" doc:"The digest of the trust config it was verified with"`
+	Trust        string             `json:"trust,omitempty" doc:"The digest of the trust config it was verified with; a host with no trust config, such as the WASM demo, names the key instead"`
 	Entry        HistoryEntry       `json:"entry"`
 	IntentReason string             `json:"intentReason,omitempty"`
 	OnBehalfOf   string             `json:"onBehalfOf,omitempty" doc:"Asserted by the actor, not verified"`
