@@ -655,3 +655,31 @@ func TestDemoProgressStates(t *testing.T) {
 		t.Error("no Stage is frozen")
 	}
 }
+
+// TestDemoHistoryFilters: B1's promote to prod carries a change ticket, so
+// the correlation filter finds it, and the cause filter finds the rollback
+// and step-down its failed health check raised.
+func TestDemoHistoryFilters(t *testing.T) {
+	_, h := demoServer(t)
+	ops := func(query string) []string {
+		var out struct {
+			Histories []struct {
+				Entries []delivery.HistoryEntry `json:"entries"`
+			} `json:"histories"`
+		}
+		if code := call(t, h, "GET", "/api/delivery/history?namespace="+story.Prod+"&stage=payments&"+query, "", &out); code != 200 || len(out.Histories) != 1 {
+			t.Fatalf("history %s: %d %+v", query, code, out)
+		}
+		var names []string
+		for _, e := range out.Histories[0].Entries {
+			names = append(names, e.Operation)
+		}
+		return names
+	}
+	if got := ops("correlationID=" + demoCorrelation); !slices.Equal(got, []string{"payments-promote-2"}) {
+		t.Errorf("correlation: %v", got)
+	}
+	if got := ops("cause=error+ratio"); !slices.Equal(got, []string{"payments-autonomy-4", "payments-rollback-3"}) {
+		t.Errorf("cause: %v", got)
+	}
+}

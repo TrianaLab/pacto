@@ -73,6 +73,11 @@ type demoDelivery struct {
 	key     ed25519.PrivateKey
 	keyHint string
 
+	// correlation is the correlation id the next operation spec takes, as a
+	// change-management pipeline that applies an Operation sets one; spec
+	// clears it. ponytail: one pending id, since replay raises one change at a time.
+	correlation string
+
 	// views are the copies the reads hand out, made once per change: a
 	// copy per Stage on every read was most of each answer's time on a
 	// large fleet. changed drops them.
@@ -238,6 +243,10 @@ func (d *demoDelivery) ownPaths() {
 	d.stages = append(d.stages, audit, notify)
 }
 
+// demoCorrelation is the change ticket B1's promote to prod carries, so the
+// history's correlation filter has a change to find.
+const demoCorrelation = "CHG-2041"
+
 // ready is the Ready condition the stage reconciler writes on a Stage that
 // can promote (candidateReady).
 var ready = delivery.Condition{Type: delivery.ConditionReady, Status: "True", Reason: delivery.ConditionReady, Message: "the Stage can promote published versions"}
@@ -297,7 +306,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 	}
 	steps := []struct{ svc, env, to string }{
 		{"payments", story.Test, "2.4.0"}, // B1 in test
-		{"payments", story.Prod, "2.4.0"}, // B1, then the health check fails, B2 rolls it back and prod steps down
+		{"payments", story.Prod, "2.4.0"}, // B1 under change ticket demoCorrelation, then the health check fails, B2 rolls it back and prod steps down
 		{"payments", story.Test, "2.4.1"}, // the environment beat: 2.4.1 declares test values only
 		{"payments", story.Prod, "2.4.1"}, // so prod holds it for team payments, who reject it
 		{"payments", story.Test, "2.4.2"}, // B3: the claim check fails, and test steps down
@@ -309,6 +318,9 @@ func (d *demoDelivery) replay(start time.Time) error {
 		{"pay-agent", story.Test, "1.1.0"}, // and 1.1.0 passes 1 of 2, rolls back and steps test down
 	}
 	for _, s := range steps {
+		if s.svc == "payments" && s.env == story.Prod && s.to == "2.4.0" {
+			d.correlation = demoCorrelation
+		}
 		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to)}
 		o, _, err := d.propose(req, story.PayAgent)
 		if err != nil {
@@ -602,7 +614,8 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 		return delivery.OperationSpec{}, dashboard.Refuse(http.StatusBadRequest, "UnknownType", "unknown operation type "+typ)
 	}
 	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, Cause: req.Cause,
-		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}}
+		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}, CorrelationID: d.correlation}
+	d.correlation = ""
 	switch {
 	case typ == delivery.TypeRollback:
 		cited := d.op(req.Namespace, req.Undoes)
