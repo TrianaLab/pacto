@@ -53,7 +53,7 @@ bounded like `pacto delivery history --all` (500 Stages in two minutes).
 `progress` to each row: a `state`, a one-sentence `summary`, every reason with
 its fix and the promote planned for you. The plan is a dry run and proposes
 nothing. A status answer plans at most 16 Stages and names the rest in its
-`note`.
+`note`; name a namespace with `-n` to plan the others.
 
 | State | Meaning |
 |---|---|

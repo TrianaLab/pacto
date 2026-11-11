@@ -13,7 +13,8 @@ a candidate cannot move yet, with each reason's fix and a dry-run plan that
 proposes nothing. Offers go unavailable when RBAC denies or cannot answer, and
 when the delivery identity policy cannot be read, with a `--delivery-namespace`
 hint when it is not found. A Stage whose admission policies are missing (Ready
-False `Unguarded`) offers no promote, and none appears in `actions`.
+False `Unguarded`) and a Stage that observes (including one that reports no
+level) offer no promote, and none appears in `actions`.
 
 `pacto delivery lifecycle`, `pacto_delivery_lifecycle` and
 `/api/delivery/lifecycle` follow one version through every Stage, and
@@ -24,8 +25,10 @@ also accepts durations for `since` and `until`); both narrow the timeline too.
 The CLI history shows applied, cause and correlation columns and marks lines
 that are not signed. `/api/delivery/plan` and propose return the full plan
 answer (`next`, `precedent` and `order`). Published versions show the source
-revision `pacto publish` stamps, an annotation, not signed, and delivery
-service filters match the service name exactly. A fleet service detail carries
+revision `pacto publish` stamps, an annotation, not signed, and link their
+fleet revision; a service whose Stages name two domains is listed once per
+domain. Delivery service filters match the service name exactly. A Stage
+waiting on exactly one held change names it (`heldOperation`). A fleet service detail carries
 `placement`, where its targets report it runs. The CLI labels an evidence
 gate's Pass as Checked, `pacto.contract` verdicts cite each Pacto's target,
 status, evaluation time and findings, a held promote on a frozen Stage names

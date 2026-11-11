@@ -30,9 +30,9 @@ phone, **Menu** in the top bar opens the same list.
 
 ## What to look at
 
-- **Fleet overview**: thirty-nine made-up services and who calls whom: the
-  services of the [CLI tour](demo-tour.md) plus two from a partner registry,
-  a second domain. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
+- **Fleet overview**: forty-four made-up services and who calls whom: the
+  services of the [CLI tour](demo-tour.md), two from a partner registry (a
+  second domain) and the services of the delivery story. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data
   sources stay open below it. Pacto always reports what it could not see.
 - **One service's dependency graph**: `payments-service` has six published
