@@ -134,7 +134,7 @@
               {#if p.unknown}<span class="badge badge-neutral"><span class="sd-hatch hatch" aria-hidden="true"></span>{p.unknown} unknown</span>{/if}
             </span>
             <span class="sd-line">
-              {#each p.revisions ?? [] as v (v.key)}<a href={v.href} title={v.label}><bdi>{v.version || v.label}</bdi></a>{/each}
+              {#each p.revisions ?? [] as v (v.key)}<a href={v.href} title={v.version || v.label}><bdi>{v.version || v.label}</bdi></a>{/each}
               {#if p.revisionsTruncated}<span class="t-meta">and {p.revisionsTotal - (p.revisions?.length ?? 0)} more</span>{/if}
             </span>
           </li>

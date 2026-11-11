@@ -231,7 +231,7 @@ export function installScaleFixture(): void {
       const pl = (doc.service as Record<string, unknown> | undefined)?.placement as { items?: Record<string, unknown>[] } | undefined;
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
-        for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) { v.label = longName(String(v.label)); v.version = longName(String(v.version ?? 'v')); }
+        for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
       }
     }
     if (route === '/api/delivery/history') {
@@ -819,6 +819,7 @@ export const ROUTES: Route[] = [
       await serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments')(page);
       await page.locator('details.sd-why summary').first().click();
       await expect(page.locator('[data-testid="service-delivery-why"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the summary into view; the gate reads from the top
     },
   },
   { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
