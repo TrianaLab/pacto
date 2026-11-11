@@ -855,6 +855,22 @@ describe('inbox, publish and autonomy narrowed to one service (B2)', () => {
   });
 });
 
+describe('change page backlinks (B4)', () => {
+  it('links the service and each version with a known revision, and nothing it does not know', async () => {
+    const op = heldOperation({ versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, revisions: { [D2]: 'story/payments@sha256:c2' } });
+    op.explanation.stage = { ...op.explanation.stage, service: { name: 'payments' } } as typeof op.explanation.stage;
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const svc = target.querySelector('[data-testid="change-service"] a') as HTMLAnchorElement;
+    expect(svc.textContent).toBe('payments');
+    expect(svc.getAttribute('href')).toBe('#/services/payments');
+    const revs = [...target.querySelectorAll('[data-testid="change-revision"]')] as HTMLAnchorElement[];
+    expect(revs.map((a) => a.getAttribute('href'))).toEqual(['#/fleet/revisions/' + encodeURIComponent('story/payments@sha256:c2')]);
+    destroy();
+  });
+});
+
 describe('change detail', () => {
   it('lists a dozen affected services with Show all, and reads its timeline in minutes', async () => {
     const op = heldOperation();

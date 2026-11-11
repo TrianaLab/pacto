@@ -52,6 +52,20 @@ describe('changeModel stations (G3)', () => {
     expect(m.stations[3]).toMatchObject({ tone: 'neutral', sub: 'not needed' });
   });
 
+  it('reads the checks after release from the Stage\'s newest re-check when it is about this change', () => {
+    const shipped = { phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', applied: true };
+    const withCheck = (digest: string, result: string) => {
+      const c = change(shipped);
+      c.explanation.stage.lastCheck = { operation: 'u1', digest, at: '2026-11-11T09:58:00Z', verdicts: [{ gate: 'mira.health', phase: 'verify', result: 'Pass' }, { gate: 'pacto.contract', phase: 'verify', result }] };
+      return changeModel(c, 'prod').stations[6];
+    };
+    expect(withCheck(TO, 'Fail')).toMatchObject({ tone: 'err', sub: 're-checked after release: failed' });
+    expect(withCheck(TO, 'Unknown')).toMatchObject({ tone: 'neutral', hatch: true, sub: 're-checked after release: could not decide' });
+    expect(withCheck(TO, 'Pass')).toMatchObject({ tone: 'ok', sub: 're-checked after release: passed' });
+    // A re-check of another version says nothing about this change.
+    expect(withCheck(FROM, 'Fail')).toMatchObject({ tone: 'ok', sub: 'verified' });
+  });
+
   it('draws an accepted unknown as the hatch, never ok', () => {
     const m = changeModel(change({ phase: 'Concluded', outcome: 'Succeeded', verification: 'AcceptedUnknown', applied: true, approvals: [{ decision: 'accept-unknown' }] }), 'prod');
     expect(m.stations[6]).toMatchObject({ tone: 'neutral', hatch: true, sub: 'a person accepted the unknown' });

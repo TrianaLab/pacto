@@ -186,9 +186,9 @@
         {#if detail.service}
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} />
         {:else if detail.revision}
-          <RevisionEntity {detail} />
+          <RevisionEntity {detail} {deliveryState} {miraURL} />
         {:else if detail.target}
-          <TargetEntity {detail} />
+          <TargetEntity {detail} {deliveryState} />
         {:else if detail.owner}
           <OwnerEntity {detail} />
         {:else if detail.source}

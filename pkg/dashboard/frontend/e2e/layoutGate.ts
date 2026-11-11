@@ -293,6 +293,9 @@ export function installScaleFixture(): void {
     if (route === '/api/delivery/lifecycle') {
       doc.note = longName(String(doc.note || 'note'));
       for (const k of ['signedOn', 'unsignedOn']) if (Array.isArray(doc[k])) doc[k] = (doc[k] as string[]).map(longName);
+      // Many Stages: the demo's, repeated under distinct long names.
+      const base = (doc.stages as Record<string, unknown>[] | undefined) ?? [];
+      if (base.length) doc.stages = Array.from({ length: 12 }, (_, i) => ({ ...base[i % base.length], stage: `${base[i % base.length].stage}-${i}` }));
       for (const st of (doc.stages as Record<string, unknown>[] | undefined) ?? []) {
         st.environment = longName(String(st.environment));
         st.stage = longName(String(st.stage));
@@ -394,9 +397,8 @@ export async function layoutProblems(page: Page): Promise<string[]> {
         const cs = getComputedStyle(p);
         if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return true;
         if (cs.position === 'absolute' && (cs.clip === 'rect(0px, 0px, 0px, 0px)' || cs.clipPath === 'inset(50%)')) return true;
-        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && p !== el.closest('summary')?.parentElement) {
-          if (!el.closest('summary')) return true;
-        }
+        // A closed disclosure shows only its own summary: a nested disclosure's summary inside it is hidden too.
+        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && !p.querySelector(':scope > summary')?.contains(el)) return true;
       }
       return false;
     };
@@ -911,6 +913,30 @@ export const ROUTES: Route[] = [
       await deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED)(page);
       await page.locator('button[aria-label^="Lifecycle of"]').first().click();
       await expect(page.locator('[data-testid="delivery-lifecycle"] li').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'revision page, Delivery lifecycle list',
+    open: async (page) => {
+      await page.goto('/#/fleet/revisions/registry.example%252Fstory%2Fpayments@sha256:8c4f595146e5154efc1fe8d58960e0632e2d3668eb390fa75da0db6390a6494a');
+      await expect(page.locator('[data-testid="revision-delivery"] .lc-stage').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page with a Delivery link',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FCronJob%2Faudit-log');
+      await expect(page.locator('[data-testid="target-delivery"] a').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'change page with service and revision links',
+    open: async (page) => {
+      await page.goto('/#/delivery/changes/prod/payments-promote-6');
+      await page.locator('[data-testid="change-details"] > summary').click();
+      await expect(page.locator('[data-testid="change-service"] a')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="change-revision"]').first()).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },

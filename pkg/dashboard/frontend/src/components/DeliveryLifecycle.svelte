@@ -1,23 +1,41 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { lifecycleWords as W, typeLabel, timeLabel, sentence, andList } from '../lib/delivery.ts';
+  import { lifecycleWords as W, typeLabel, timeLabel, sentence, andList, verificationLabel, checkText, shortDigest } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
+  import RecordPanel from './RecordPanel.svelte';
 
   // One artifact's way through a service's Stages: whether its signature was checked,
   // then per Stage each change that moved it there or off it, with its time and
-  // whether a signed record says so. Read once, when it is first shown (one walk of
-  // the service's Stages and their history). `query` is the lifecycle question:
-  // service, domain and one of digest, version or contract.
-  let { query } = $props();
+  // whether a signed record says so, and the newest re-check that judged it. Read
+  // once, when it is first shown (one walk of the service's Stages and their history).
+  // `query` is the lifecycle question: service, domain and one of digest, version or
+  // contract. `subject` names what was asked for ("version" or "revision") when no
+  // Stage names it; `onUnavailable` hears that delivery is not installed here.
+  let { query, subject = 'version', miraURL = '', onUnavailable = () => {} } = $props();
   let data = $state(null);
   let error = $state(null);
-  onMount(() => { api.deliveryLifecycle(query).then((d) => { data = d; }, (e) => { error = e; }); });
+  let reading = $state('');
+  onMount(() => {
+    api.deliveryLifecycle(query).then((d) => { data = d; }, (e) => {
+      error = e;
+      if (e?.code === 'DeliveryNotInstalled') onUnavailable();
+    });
+  });
   const SIG_TONE = { signed: 'badge-ok', unsigned: 'badge-warn', unknown: 'badge-neutral' };
+  // No Stage names it: a neutral answer, never an error (a revision from a local or
+  // derived-digest source never matches a Stage's manifest digest). Several matches stay an error.
+  const unmatched = $derived(error?.code === 'LifecycleUnresolved' && /^no /.test(error?.message ?? ''));
+  const worst = (vs) => { const rs = (vs ?? []).map((v) => v.result); return rs.includes('Fail') ? 'Fail' : rs.includes('Unknown') ? 'Unknown' : 'Pass'; };
+  const recKey = (st, id) => `${st.namespace}/${st.stage}/${id}`;
 </script>
 
 <div class="lc" data-testid="delivery-lifecycle">
-  {#if error}
+  {#if error?.code === 'DeliveryNotInstalled'}
+    <!-- Nothing to claim without delivery. -->
+  {:else if unmatched}
+    <p class="t-meta" data-testid="lifecycle-unmatched">No Stage of this service you can see names this {subject}.</p>
+  {:else if error}
     <p class="t-meta lc-warn" role="alert">Pacto could not read its lifecycle: {error.message || String(error)}</p>
   {:else if !data}
     <p class="t-meta" role="status">Reading its lifecycle</p>
@@ -40,6 +58,7 @@
               <span>{W.verified[st.verified] ?? W.verified.unknown}</span>
               {#if W.failed[st.failed]}<span>{W.failed[st.failed]}</span>{/if}
             </span>
+            {#if st.lastCheck}<span class="t-meta">{checkText({ at: st.lastCheck.at, result: worst(st.lastCheck.verdicts), current: true })}</span>{/if}
             {#if st.events?.length}
               <ol class="lc-events">
                 {#each st.events as ev, i (i)}
@@ -47,8 +66,12 @@
                     <span>{W.role[ev.role] ?? ev.role}: {typeLabel(ev.type)}</span>
                     {#if ev.applied || ev.finished}<time datetime={ev.applied || ev.finished}>{timeLabel(ev.applied || ev.finished)}</time>{/if}
                     <!-- A line read from an Operation's status has no record: its time and cause are not signed. -->
-                    {#if ev.record}<span>record <bdi class="lc-mono">{ev.record}</bdi></span>{:else}<span class="lc-unsigned">from status, not signed</span>{/if}
+                    {#if ev.verification}<span>{verificationLabel(ev.verification)}</span>{/if}
+                    {#if ev.record}<span>record <bdi class="lc-mono" title={ev.record}>{shortDigest(ev.record)}</bdi></span><button type="button" class="btn btn-sm" aria-label={`Read record ${ev.record}`} aria-expanded={reading === recKey(st, ev.record)} onclick={() => { reading = reading === recKey(st, ev.record) ? '' : recKey(st, ev.record); }}>Read</button>{:else}<span class="lc-unsigned">from status, not signed</span>{/if}
                   </li>
+                  {#if ev.record && reading === recKey(st, ev.record)}
+                    <li><RecordPanel namespace={st.namespace} stage={st.stage} id={ev.record} {miraURL} onClose={() => { reading = ''; }} /></li>
+                  {/if}
                 {/each}
               </ol>
             {:else}

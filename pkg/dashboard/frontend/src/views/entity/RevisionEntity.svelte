@@ -24,6 +24,7 @@
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
   import RevisionFigures from '../../components/figure/RevisionFigures.svelte';
+  import DeliveryLifecycle from '../../components/DeliveryLifecycle.svelte';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -45,7 +46,9 @@
   // and never pretends to have read it. Documentation and policy and configuration
   // schemas are the exceptions: RevisionDocs reads one doc body on demand, and the
   // backend reads schema content when this page is requested.
-  let { detail } = $props();
+  // `deliveryState` is whether this dashboard serves delivery: only 'enabled' asks
+  // for the revision's way through its service's Stages.
+  let { detail, deliveryState = 'unknown', miraURL = '' } = $props();
   const d = $derived(detail.revision ?? {});
   const id = $derived(d.identity ?? {});
   const r = $derived(d.readiness ?? null);
@@ -54,6 +57,7 @@
   const state = $derived(d.state ?? null);
   // The parent ServiceKey comes from the backend ref, never parsed out of the revision
   // key: a RevisionKey is not a ServiceKey with a suffix.
+  let noDelivery = $state(false);
   const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
 
   // The SBOM summary. The backend already bucketed every package by license over the
@@ -138,6 +142,17 @@
   </section>
 
   <RevisionFigures {stages} revision={d} self={detail.entity?.key ?? ''} service={d.service?.label ?? ''} {historyHref} />
+
+  {#if deliveryState === 'enabled' && id.digest && d.service?.label && !noDelivery}
+    <!-- Delivery: this revision's artifact on its service's Stages, as an HTML list
+         (the Rail above is the Validation Rail; delivery draws no figure here). -->
+    <section class="re-delivery" id="sec-delivery" data-toc="Delivery" data-testid="revision-delivery" aria-labelledby="re-delivery-title">
+      <h2 id="re-delivery-title" class="t-section-title">Delivery</h2>
+      {#key id.digest}
+        <DeliveryLifecycle query={{ service: d.service.label, domain: d.service.domain ?? '', contract: id.digest }} subject="revision" {miraURL} onUnavailable={() => { noDelivery = true; }} />
+      {/key}
+    </section>
+  {/if}
 
   {#if id.digest || id.resolvedRef || id.requestedRef}
     <!-- The immutable content identity, in full and still copyable, one click away. Three rows of 71-character hex were the second thing on the
@@ -537,6 +552,8 @@
   .re-contactrow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-cpurpose { font-size: var(--text-sm); color: var(--c-text-3); }
   .re-ctrunc { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
+  .re-delivery { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .re-delivery h2 { margin: 0; }
   .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .re-readiness { display: flex; flex-direction: column; gap: var(--sp-3); }
   .rr-head { display: flex; align-items: center; gap: var(--sp-3); }
