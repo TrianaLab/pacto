@@ -49,11 +49,11 @@ type Events struct {
 // emit sends the events of one newly written operation record in the
 // background. A service event goes out only when the pointer moved and Flux
 // applied it.
-func (e *Events) emit(ctx context.Context, stage *dv1.Stage, st delivery.Statement, id string, applied bool) {
+func (e *Events) emit(ctx context.Context, stage *dv1.Stage, st delivery.Statement, id string, applied bool, now time.Time) {
 	if e == nil || st.Predicate.Kind != delivery.RecordOperation {
 		return
 	}
-	events := cdEvents(e.Source, stage, st, id, applied)
+	events := cdEvents(e.Source, stage, st, id, applied, now)
 	log := ctrl.LoggerFrom(ctx)
 	go func() {
 		for _, ev := range events {
@@ -83,8 +83,8 @@ func (e *Events) emitEnvironment(ctx context.Context, stage *dv1.Stage, created 
 // one Stage. The subject is the Stage's stream id, unique per Stage, so two
 // Stages of one environment or two services of one name never collide; the
 // CDEvents environment content holds only its name, so the service, domain and
-// Stage go in customData. A delete with no deletionTimestamp has no time and
-// carries observedAt, the moment the recorder saw it, instead.
+// Stage go in customData. A delete with no deletionTimestamp has no time (see
+// cloudEvent).
 func environmentEvent(source string, stage *dv1.Stage, created bool, now time.Time) map[string]any {
 	typ, suffix, at := eventEnvironmentCreated, "/created", stage.CreationTimestamp.UTC().Format(time.RFC3339)
 	custom := map[string]any{"stage": stage.Namespace + "/" + stage.Name, "stageUID": string(stage.UID),
@@ -93,18 +93,11 @@ func environmentEvent(source string, stage *dv1.Stage, created bool, now time.Ti
 		typ, suffix, at = eventEnvironmentDeleted, "/deleted", ""
 		if t := stage.DeletionTimestamp; t != nil {
 			at = t.UTC().Format(time.RFC3339)
-		} else {
-			custom["observedAt"] = now.UTC().Format(time.RFC3339)
 		}
 	}
-	ev := cloudEvent(source, string(stage.UID)+suffix, typ, at, map[string]any{
+	return cloudEvent(source, string(stage.UID)+suffix, typ, at, now, map[string]any{
 		"id": stage.Status.Stream.ID, "source": source, "content": map[string]any{"name": stage.Spec.Environment},
-	})
-	ev["data"].(map[string]any)["customData"] = custom
-	if at == "" {
-		delete(ev, "time") // an absent CloudEvent time, never a made-up one
-	}
-	return ev
+	}, custom)
 }
 
 func (e *Events) post(ev map[string]any) error {
@@ -133,17 +126,17 @@ func (e *Events) post(ev map[string]any) error {
 
 // cdEvents builds the CloudEvents of one record: the concluded event always,
 // and a service event when the pointer moved and Flux applied it.
-func cdEvents(source string, stage *dv1.Stage, st delivery.Statement, id string, applied bool) []map[string]any {
+func cdEvents(source string, stage *dv1.Stage, st delivery.Statement, id string, applied bool, now time.Time) []map[string]any {
 	p := st.Predicate
 	typ := ""
 	if p.Type != nil {
 		typ = p.Type.ID
 	}
-	concluded := cloudEvent(source+"/records", id, eventConcluded, p.Time.Finished, map[string]any{
+	concluded := cloudEvent(source+"/records", id, eventConcluded, p.Time.Finished, now, map[string]any{
 		"id": p.Chain.Stream, "source": source, "type": "pacto-operation",
 		"content": map[string]any{"record": id, "operation": p.Intent.Name, "operationType": typ, "seq": p.Chain.Seq,
 			"outcome": p.Outcome.Result, "verification": p.Outcome.Verification, "stage": stage.Namespace + "/" + stage.Name},
-	})
+	}, nil)
 	out := append(make([]map[string]any, 0, 2), concluded)
 	ptr := p.Outcome.Pointer
 	if !applied || ptr.After == "" {
@@ -157,22 +150,39 @@ func cdEvents(source string, stage *dv1.Stage, st delivery.Statement, id string,
 		kind = eventDeployed
 	}
 	service := stage.Spec.Service.Name
-	return append(out, cloudEvent(source, id, kind, p.Time.Finished, map[string]any{
+	return append(out, cloudEvent(source, id, kind, p.Time.Finished, now, map[string]any{
 		"id": service, "source": source,
 		"content": map[string]any{
 			"environment": map[string]any{"id": stage.Spec.Environment, "source": source},
 			"artifactId":  "pkg:oci/" + service + "@" + ptr.After,
 		},
-	}))
+	}, nil))
 }
 
-func cloudEvent(source, id, typ, at string, subject map[string]any) map[string]any {
-	return map[string]any{
-		"specversion": "1.0", "id": id, "source": source, "type": typ, "time": at,
-		"datacontenttype": "application/json",
-		"data": map[string]any{
-			"context": map[string]any{"version": cdeventsVersion, "id": id, "source": source, "type": typ, "timestamp": at},
-			"subject": subject,
-		},
+// cloudEvent wraps one CDEvent (context.specversion and a date-time
+// context.timestamp, both required by v0.5.1). When the occurrence time at is
+// unknown the CloudEvent carries no time, never a made-up one, and the
+// required CDEvents timestamp is now, the moment the recorder saw it, which
+// customData.observedAt states.
+func cloudEvent(source, id, typ, at string, now time.Time, subject, custom map[string]any) map[string]any {
+	ce := map[string]any{"specversion": "1.0", "id": id, "source": source, "type": typ, "datacontenttype": "application/json"}
+	stamp := at
+	if at == "" {
+		stamp = now.UTC().Format(time.RFC3339)
+		if custom == nil {
+			custom = map[string]any{}
+		}
+		custom["observedAt"] = stamp
+	} else {
+		ce["time"] = at
 	}
+	data := map[string]any{
+		"context": map[string]any{"specversion": cdeventsVersion, "id": id, "source": source, "type": typ, "timestamp": stamp},
+		"subject": subject,
+	}
+	if custom != nil {
+		data["customData"] = custom
+	}
+	ce["data"] = data
+	return ce
 }

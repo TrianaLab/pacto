@@ -243,7 +243,7 @@ when a Stage is created or deleted:
 | Event | Sent when | `time` |
 |-------|-----------|--------|
 | `environment.created` | the promoter first gives the Stage its stream id | the Stage's `creationTimestamp` |
-| `environment.deleted` | the Stage is deleted after it got its stream id | its `deletionTimestamp`; absent when the deleted Stage has none, with `customData.observedAt` holding when the recorder saw the delete |
+| `environment.deleted` | the Stage is deleted after it got its stream id | its `deletionTimestamp`; absent when the deleted Stage has none, with `customData.observedAt` holding when the recorder saw the delete (CDEvents requires `context.timestamp`, so it holds that time too) |
 
 About these two events:
 
@@ -251,13 +251,16 @@ About these two events:
   sink can deduplicate.
 - The subject id is the Stage's stream id, unique per Stage, and its
   `content.name` is the environment (the CDEvents environment content holds
-  only `name` and `url`, so `service` and `domain` go in `customData`).
+  only `name` and `uri`, so `service` and `domain` go in `customData`).
 - `customData` carries `service`, `domain`, `stage`, `stageUID`, `createdAt`
   and, on a delete with no `deletionTimestamp`, `observedAt`.
 - A recorder restart sends neither again. A Stage whose status was reset sends
   `environment.created` again with its original `createdAt`.
 - Each event names one Stage; other Stages for the same environment are
   unaffected.
+- Every event's `data` follows the CDEvents v0.5.1 schemas. Any event whose
+  occurrence time is unknown has no CloudEvent `time`, and its
+  `context.timestamp` and `customData.observedAt` hold when the recorder saw it.
 
 ## Limits
 

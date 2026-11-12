@@ -481,7 +481,7 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	}
 	rec, err := w.sign(ctx, st, l, &in)
 	if err == nil {
-		w.Events.emit(ctx, w.stage, rec.Statement, rec.ID, op.Status.Applied)
+		w.Events.emit(ctx, w.stage, rec.Statement, rec.ID, op.Status.Applied, w.Now())
 	}
 	return rec, err
 }
