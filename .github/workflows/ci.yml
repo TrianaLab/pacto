@@ -256,21 +256,20 @@ jobs:
       - uses: ./.github/actions/ci
         with:
           target: test-acceptance-local
-      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+      - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: examples
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
-      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+      - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: integration
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
 
-  # One job per Go package behind the 100% gate, each its own Aval test from
-  # aval.yaml (go.*): the package's tests with -race and its 100% coverage, reused
-  # while neither the package nor what it imports changed. The list skips the
-  # packages ci-test leaves out of the gate (COVER_PKGS in ci.mk).
+  # One job per go.* test in aval.yaml (make aval-gen): a Go package's tests
+  # with -race and its 100% coverage, reused while neither the package nor what
+  # it imports changed.
   go-packages-list:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
@@ -284,9 +283,7 @@ jobs:
           persist-credentials: false
       - id: list
         run: |
-          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.yaml | sed 's/.*name: //' \
-            | grep -vE '^go\.(tests|examples)\.|\.testutil$|^go\.cmd\.gen(docs|bundle)$|^go\.internal\.runtimewatch\.ebpf$' \
-            | jq -R . | jq -sc .)
+          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.yaml | sed 's/.*name: //' | jq -R . | jq -sc .)
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
 
   go-packages:
@@ -309,7 +306,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+      - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: ${{ matrix.test }}
           registry-username: ${{ github.actor }}
@@ -334,7 +331,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+      - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: ui
           registry-username: ${{ github.actor }}
@@ -375,7 +372,7 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 25
-        uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+        uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: browser-${{ matrix.shard }}
           registry-username: ${{ github.actor }}
@@ -839,7 +836,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: TrianaLab/aval/integrations/github/publish@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+      - uses: TrianaLab/aval/integrations/github/publish@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           # Hits and misses go to the shared Aval statistics.
           stats: true

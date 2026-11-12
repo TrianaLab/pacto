@@ -7,7 +7,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 # Pinned Repowise CLI version for the advisory ci-arch architecture-health leg.
 REPOWISE_VERSION ?= 0.36.0
 
-.PHONY: ci aval-gen-check ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
+.PHONY: ci aval-gen aval-gen-check ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
@@ -30,16 +30,25 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # holds the one-publisher, demo-ref and release-plan gates. Both live under
 # /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
 # here and an ALWAYS-run CI job — a gate that never runs is not a gate.
-# AVAL_VERSION is the aval release behind `aval gen go --check`; keep it at
-# the version the workflow's Aval actions pin.
-AVAL_VERSION = v0.10.0
+# AVAL_VERSION is the aval release behind `make aval-gen`; keep it at the
+# version the workflow's Aval actions pin. AVAL_GEN_GO writes aval.yaml's go.*
+# entries: one test per Go package with its own 100% coverage gate, except the
+# packages COVER_PKGS leaves out of the gate, which keep their fragment (their
+# files stay in the scope of the tests that import them) and get no test.
+AVAL_VERSION = v0.11.0
+AVAL_GEN_GO = gen go --go-cover --no-test 'tests/**' --no-test '**/testutil' \
+	--no-test cmd/gendocs --no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
+AVAL = GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
 ci-gates: aval-gen-check
 	go test ./tests/architecture/... ./tests/release/...
 
-# aval.yaml holds one Aval test per Go package (the go.* entries); fail when it no longer
-# matches the import graph (regenerate with the same command without --check).
+# aval-gen rewrites aval.yaml's go.* entries from the import graph;
+# aval-gen-check fails when they no longer match it.
+aval-gen:
+	$(AVAL) $(AVAL_GEN_GO)
+
 aval-gen-check:
-	GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION) gen go --go-cover --check
+	$(AVAL) $(AVAL_GEN_GO) --check
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine
