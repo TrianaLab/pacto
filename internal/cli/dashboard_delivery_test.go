@@ -154,6 +154,8 @@ func TestDashDeliveryAdapterReads(t *testing.T) {
 	expect(t, err == nil && st.Metadata.Name == "payments-prod", "stage %v %v", st, err)
 	b, err := api.Blame(ctx, "prod", "payments-prod", "")
 	expect(t, err == nil && b.Stage.Name == "payments-prod", "blame %v %v", b, err)
+	_, err = api.Record(ctx, "prod", "payments-prod", "sha256:r")
+	expect(t, isRefusal(err, http.StatusUnprocessableEntity) && strings.Contains(err.Error(), "has no records"), "record of a Stage with no stream: %v", err)
 	_, err = api.Undo(ctx, "prod", "missing", "")
 	expect(t, isRefusal(err, http.StatusNotFound), "undo of an operation that is not there keeps the 404: %v", err)
 }
@@ -162,9 +164,10 @@ func TestDashDeliveryAdapterActions(t *testing.T) {
 	_, api := localAPI(t)
 	ctx := context.Background()
 	p, err := api.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB})
-	expect(t, err == nil && p.IntentDigest != "", "plan %v %v", p, err)
+	expect(t, err == nil && p.IntentDigest != "" && len(p.Next) > 0, "plan answers what proposing leads to: %v %v", p, err)
 	_, _, err = api.Propose(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB, IntentDigest: "sha256:old"})
-	expect(t, isRefusal(err, http.StatusConflict), "a stale plan is a 409 with the fresh plan: %v", err)
+	expect(t, isRefusal(err, http.StatusConflict) && len(err.(*dashboard.DeliveryError).Plan.Next) > 0,
+		"a stale plan is a 409 with the fresh plan and its next: %v", err)
 	n, err := api.Approve(ctx, "prod", "held", delivery.Approve, "")
 	expect(t, err == nil && n == "held-1", "approve %q %v", n, err)
 	err = api.Cancel(ctx, "prod", "missing")

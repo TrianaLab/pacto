@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
@@ -194,10 +195,13 @@ func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d de
 	}
 	view := mcpFleetView(cmd, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
+	// view is nil for an HTTP server without --auth-issuer too, so only the
+	// transport says whether the caller is this process's own user.
+	transport, _ := cmd.Flags().GetString("transport")
 	return pactomcp.NewFleetServer(version, src, mcpAuthoring(cmd, svc), pactomcp.FleetOptions{
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
-		Impact: mcpImpactProvider(cmd, svc, view == nil), View: view, DashboardURL: url,
+		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
 	}), nil
 }
 
@@ -403,21 +407,58 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 // mcpImpactProvider builds the impact provider for pacto_impact. It analyses
 // over the snapshot the fleet tools answer from; with addMissing it adds the new
 // revision, rebuilt from the same fleet source flags, when no source holds the
-// changed service. Extracted so the wiring is directly testable.
-func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, addMissing bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+// changed service. Only a trusted server (stdio: the caller is this process's
+// own user, as mcpAuthoring decides) reads a traces file, a local ref or
+// delivery: over HTTP every caller would read them as this process.
+// Extracted so the wiring is directly testable.
+func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 	fopts := fleetOptions(cmd)
-	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
+		if err := refuseUntrustedImpact(req, trusted); err != nil {
+			return nil, err
+		}
 		var traces []byte
-		if tracesPath != "" {
+		if req.TracesPath != "" {
 			var err error
-			if traces, err = os.ReadFile(tracesPath); err != nil {
+			if traces, err = os.ReadFile(req.TracesPath); err != nil {
 				return nil, err
 			}
-			includeObserved = true
+			req.IncludeObserved = true
 		}
-		opts := app.ImpactOptions{OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved, Traces: traces}
+		if req.Event != nil {
+			opts := app.ImpactEventOptions{Event: *req.Event, Traces: traces}
+			opts.ReadRegression = func(ctx context.Context, ev impact.Event) *impact.Regression {
+				return mcpRegression(ctx, cmd, d, ev, trusted)
+			}
+			return svc.ImpactEventOnSnapshot(ctx, opts, snap)
+		}
+		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
+}
+
+// refuseUntrustedImpact keeps an HTTP caller from naming a file path or a
+// local ref: the server would read them with its own access.
+func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool) error {
+	switch {
+	case trusted:
+		return nil
+	case req.TracesPath != "":
+		return errors.New("this server answers over HTTP: it reads no file path a caller names")
+	case req.Event == nil && (graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal()):
+		return errors.New("this server answers over HTTP: pass oci:// references")
+	}
+	return nil
+}
+
+// mcpRegression reads delivery about a regressed revision for a trusted
+// caller, with the kubeconfig the server runs under, which is the caller's.
+func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
+	if !trusted {
+		return &impact.Regression{Unavailable: "this server answers over HTTP and reads no delivery for its callers; " +
+			"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"}
+	}
+	return readRegression(ctx, cmd, d, ev)
 }
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in

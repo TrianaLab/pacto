@@ -451,3 +451,53 @@ func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
 		}
 	}
 }
+
+// ServiceRef and OwnerRef are the exported forms of the package's own refs.
+func TestExportedRefs(t *testing.T) {
+	s := &ServiceRecord{Key: "shop/api", Name: "api", Domain: "shop", BusinessDomain: "payments"}
+	if ServiceRef(s) != serviceEntityRef(s) {
+		t.Errorf("ServiceRef = %+v", ServiceRef(s))
+	}
+	if got := OwnerRef("team:shop"); got != (EntityRef{Kind: KindOwner, Key: "team:shop", Label: "shop", Secondary: "Team"}) {
+		t.Errorf("OwnerRef = %+v", got)
+	}
+}
+
+// UsesOf lists every declared use of a provider, whether or not it provides
+// an offering, with provisioning; offering uses leave the plain one out.
+func TestUsesOfAnyProvider(t *testing.T) {
+	plain := svc24("plain", "16.1.0", "")
+	plain.Configurations = []contract.Configuration{{Name: "db", Schema: "s.json"}}
+	snap := provisioningSnap(t, 0, &Collection{Revisions: []RawRevision{ociRev(acme, plain, nil), consumer("orders", "1.3.0", "plain")}})
+	q := NewQuery(snap)
+	uses, _ := q.UsesOf(NewServiceKeyDomain(acme, "plain"))
+	if len(uses) != 1 || uses[0].Consumer.Label != "orders" || uses[0].Via != RelationshipConfigRef || len(uses[0].Provisioning) != 1 {
+		t.Fatalf("uses = %+v", uses)
+	}
+	if off, _ := q.offeringUses(func(*ServiceRecord) bool { return true }, ""); len(off) != 0 {
+		t.Errorf("offering uses = %+v", off)
+	}
+}
+
+// TemplatesReferencing lists each visible golden path once that references
+// the provider through a resolved policy reference.
+func TestTemplatesReferencing(t *testing.T) {
+	p := ServiceKey("policy")
+	edge := func(from ServiceKey, mut func(*Relationship)) Relationship {
+		r := Relationship{FromService: from, ToService: p, Type: RelationshipPolicyRef, Resolved: true}
+		if mut != nil {
+			mut(&r)
+		}
+		return r
+	}
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"b-path": {}, "a-path": {}}, templateEdges: []Relationship{
+		edge("b-path", nil), edge("a-path", nil), edge("b-path", nil),
+		edge("a-path", func(r *Relationship) { r.Type = RelationshipConfigRef }),
+		edge("gone", nil),
+		edge("a-path", func(r *Relationship) { r.Resolved = false; r.ToService = "else" }),
+		edge("b-path", func(r *Relationship) { r.Hidden = true; r.ToService = "else" }),
+	}}
+	if got := NewQuery(snap).TemplatesReferencing(p); !slices.Equal(got, []ServiceKey{"a-path", "b-path"}) {
+		t.Errorf("templates = %v", got)
+	}
+}

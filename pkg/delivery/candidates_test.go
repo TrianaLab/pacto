@@ -129,3 +129,32 @@ func TestCandidatesResolve(t *testing.T) {
 		t.Fatalf("no candidate at all: %v", err)
 	}
 }
+
+func TestCandidatesNoteUsesReady(t *testing.T) {
+	oci := Candidates{OCIRepositoryRef: &LocalRef{Name: "payments-candidates"}}
+	ready := func(c Candidates, status, reason string) StageObject {
+		return candidateStage(c, StageStatus{Conditions: []Condition{{Type: ConditionReady, Status: status, Reason: reason, Message: "the reason"}}})
+	}
+	const flux = "Flux has verified no signed version on payments-candidates yet: publish one with pacto publish"
+	one := []CandidateVersion{{Digest: cand1}}
+	for _, c := range []struct {
+		name  string
+		stage StageObject
+		vs    []CandidateVersion
+		want  string
+	}{
+		{"unverified", ready(oci, "False", ReadyReasonCandidateUnverified), nil, "the reason: " + ReadyFix(ReadyReasonCandidateUnverified)},
+		{"no source", ready(Candidates{}, "False", ReadyReasonNoCandidateSource), nil, "the reason: " + ReadyFix(ReadyReasonNoCandidateSource)},
+		{"ready", ready(oci, "True", ConditionReady), nil, flux},
+		{"applier", ready(oci, "False", ReadyReasonApplierNotAutomated), nil, flux},
+		{"unguarded", ready(oci, "False", ReadyReasonUnguarded), nil, flux},
+		{"candidates present", ready(oci, "False", ReadyReasonCandidateUnverified), one, ""},
+	} {
+		if got := candidatesNote(c.stage, nil, "", c.vs); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := candidatesNote(ready(oci, "False", ReadyReasonCandidateUnverified), nil, "", nil); !strings.Contains(got, "spec.verify") {
+		t.Fatalf("CandidateUnverified points at spec.verify: %s", got)
+	}
+}

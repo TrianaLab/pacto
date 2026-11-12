@@ -36,6 +36,22 @@ function render(reduced: boolean) {
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; });
 
 describe('ImpactFigure', () => {
+  it('keeps two owners that share a label apart and names their namespace', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    im.consumers.byOwner = [
+      { owner: 'shop', ownerKey: 'dri:shop', consumers: 2, incompatible: 0 },
+      { owner: 'shop', ownerKey: 'team:shop', consumers: 1, incompatible: 1 },
+      { owner: 'core', ownerKey: 'team:core', consumers: 1, incompatible: 0 },
+    ];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    const rows = [...target.querySelectorAll('[data-testid="impact-owners"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(rows).toEqual(['shop (DRI)2 consumers', 'shop (Team)1 consumer, 1 incompatible', 'core1 consumer']);
+    unmount(c);
+  });
   it('renders the same drawing as its final frame and under reduced motion (G2)', async () => {
     const a = render(false);
     await vi.waitFor(() => expect(a.target.querySelector('.ring-on')).toBeTruthy());
@@ -84,6 +100,52 @@ describe('ImpactFigure', () => {
     expect(target.querySelector('.lane-sub .nd.t-err path.gp')?.getAttribute('d')).toBe(GLYPH_PATH.err);
     expect(card).toContain('3, not counted and never named');
     expect(target.querySelector('figcaption')?.textContent).toContain('If this revision is published, it breaks 37 of at least 1,284 consumers');
+    unmount(c);
+  });
+  it('draws an event answer from one neutral subject node, with no earlier or later layer', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    Object.assign(im, {
+      event: { kind: 'unavailable', service: 'payments-service' }, oldRevision: undefined, newRevision: undefined, classification: '', gate: 'unverified',
+      gateReason: '1 required consumer runs on prod/eu-1', changedOwner: { kind: 'owner', key: 'team:pay', label: 'pay', href: '/fleet/owners/team%3Apay' },
+    });
+    im.consumers.byOutcome = [{ key: 'breaks', count: 2 }, { key: 'may-degrade', count: 1 }, { key: 'unknown', count: 0 }];
+    im.consumers.total = 3; im.consumers.direct = 2; im.consumers.hidden = 0;
+    im.consumers.highlights = [consumer('checkout-web', { effect: 'breaks' })];
+    im.consumers.byOwner = [{ owner: 'team-a', ownerKey: 'team:team-a', consumers: 2, incompatible: 2 }, { owner: 'team-b', ownerKey: 'team:team-b', consumers: 1, incompatible: 1 }];
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    expect(target.querySelectorAll('[data-m="subject"]')).toHaveLength(1);
+    expect(target.querySelector('[data-m="subject"]')?.classList.contains('t-neutral')).toBe(true);
+    expect(target.querySelector('[data-m="next"]')).toBeNull();
+    expect(target.querySelector('[data-m="prev"]')).toBeNull();
+    expect([...target.querySelectorAll('.lane-name')].map((n) => n.textContent)).toEqual(['Breaks', 'May degrade', 'Unknown', 'Unread sources']);
+    expect(target.querySelector('figcaption')?.textContent).toContain('If payments-service becomes unavailable: at least 2 consumers break and 1 may degrade.');
+    const card = target.querySelector('[data-testid="changes-answer"]')!;
+    expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Gate Needs a person: 1 required consumer runs on prod/eu-1.');
+    expect(card.querySelector('[data-testid="impact-changed-owner"] a')?.getAttribute('href')).toBe('#/fleet/owners/team%3Apay');
+    expect(card.textContent?.replace(/\s+/g, ' ')).toContain('Question What happens if payments-service becomes unavailable?');
+    expect(card.querySelector('[data-testid="impact-templates"]')).toBeNull();
+    // No version is judged in an event: an owner's consumers break, never "incompatible".
+    const owners = [...card.querySelectorAll('[data-testid="impact-owners"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(owners).toEqual(['team-a2 consumers, 2 break', 'team-b1 consumer, 1 breaks']);
+    unmount(c);
+  });
+  it('lists the golden paths that reference a changed policy, never as consumers', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const im = impact();
+    im.templates = { total: 3, count: 2, truncated: true, items: [
+      { kind: 'service', key: 'http-path', label: 'http-path', href: '/fleet/services/http-path' },
+      { kind: 'service', key: 'grpc-path', label: 'grpc-path', href: '/fleet/services/grpc-path' }] };
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ImpactFigure, { target, props: { impact: im } });
+    flushSync();
+    const row = target.querySelector('[data-testid="impact-templates"]')!;
+    expect([...row.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['#/fleet/services/http-path', '#/fleet/services/grpc-path']);
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('grpc-path and 1 more. They run nowhere, so they never hold the gate.');
     unmount(c);
   });
 });

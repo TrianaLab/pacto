@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderCategoryStackedBars, renderPriorityQuadrant, renderHeatmap, renderVersionTimeline } from './charts';
+import { renderCategoryStackedBars, renderHeatmap, renderVersionTimeline } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -68,53 +68,6 @@ describe('renderCategoryStackedBars', () => {
     const data = [{ category: 'test', done: 1, partial: 1, notDone: 1, deferred: 1 }];
     renderCategoryStackedBars(container, data);
     expect(container.querySelector('defs linearGradient')).not.toBeNull();
-  });
-});
-
-describe('renderPriorityQuadrant', () => {
-  it('draws a dot per datum and empty state', () => {
-    const container = document.createElement('div');
-    renderPriorityQuadrant(container, [{ name: 'a', x: -20, y: 9, status: 'NonCompliant' }, { name: 'b', x: 40, y: 1, status: 'Compliant' }]);
-    expect(container.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(2);
-    const c2 = document.createElement('div');
-    renderPriorityQuadrant(c2, []);
-    expect(c2.textContent).toContain('No readiness data');
-  });
-
-  // The divider is the gate, and it has to be ON the plot to be read as one -- even
-  // when the whole fleet sits on one side of it.
-  it('keeps the threshold divider on the plot when every service clears its gate', () => {
-    const c = document.createElement('div');
-    renderPriorityQuadrant(c, [{ name: 'a', x: 10, y: 1, status: 'Compliant' }, { name: 'b', x: 40, y: 2, status: 'Compliant' }]);
-    expect(c.textContent).toContain('meets its own threshold');
-    const dashed = [...c.querySelectorAll('line')].filter((l) => l.getAttribute('stroke-dasharray'));
-    const vertical = dashed.find((l) => l.getAttribute('x1') === l.getAttribute('x2'));
-    expect(vertical).toBeDefined();
-    expect(Number(vertical!.getAttribute('x1'))).toBeGreaterThanOrEqual(0);
-  });
-
-  // Dots used to be sized by blast radius, which is already the y position: the same
-  // number said twice, once by height and once by area. Read under reduced motion so
-  // the assertion sees the resting radius rather than the entrance's starting 0.
-  it('draws every dot the same size, because impact is on the axis', () => {
-    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
-    try {
-      const c = document.createElement('div');
-      renderPriorityQuadrant(c, [{ name: 'a', x: 0, y: 100, status: 'Compliant' }, { name: 'b', x: 0, y: 1, status: 'Compliant' }]);
-      const plot = c.querySelector('svg > g');
-      const radii = new Set([...plot!.querySelectorAll('circle')].map((el) => el.getAttribute('r')));
-      expect(radii).toEqual(new Set(['8']));
-    } finally {
-      mm.mockRestore();
-    }
-  });
-
-  // Four of the seven statuses had no key to read them by.
-  it('keys every status it plotted, including the ones nobody hand-listed', () => {
-    const c = document.createElement('div');
-    renderPriorityQuadrant(c, [{ name: 'a', x: 0, y: 1, status: 'Invalid' }, { name: 'b', x: 0, y: 2, status: 'NotEvaluated' }]);
-    expect(c.textContent).toContain('Invalid');
-    expect(c.textContent).toContain('Not evaluated');
   });
 });
 

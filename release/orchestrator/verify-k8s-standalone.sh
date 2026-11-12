@@ -44,7 +44,7 @@ mkdir -p "$WORK/consumer"
 cat > "$WORK/consumer/go.mod" <<EOF
 module pacto-k8s-consumer
 
-go 1.27.3
+go 1.27.4
 EOF
 cat > "$WORK/consumer/main.go" <<EOF
 // External consumer of the released Kubernetes integration module. It imports a

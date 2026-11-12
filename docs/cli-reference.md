@@ -48,7 +48,7 @@ Pacto exits `0`, `1` or `2`, apart from `pacto run` (below). `0` means the
 command produced its result and the result was acceptable. `1` means the check
 failed or the command could not run, so **the exit status alone cannot
 distinguish "the check failed" from "the command could not run"**. `2` means
-`pacto impact` could not show that a breaking change is safe, and no other
+`pacto impact` could not show that a change or an event is safe, and no other
 command exits `2` for its own result. `pacto run` exits with the exit code of
 the command it wraps, whatever it is, or `1` when that command exits `0` and
 the final verdict fails `--fail-on`.
@@ -58,12 +58,13 @@ the final verdict fails `--fail-on`.
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target | `pacto impact` where the gate is `clear`: the change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one |
+| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
 | **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
 
 | Exits `2` |
 | --- |
-| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe |
+| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe; or a change of any classification with a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved |
+| `pacto impact --unavailable`, `--removed` or `--regressed` when anything depends on the service or the answer is partial. An event never exits `1` for its result |
 
 Two cases affect CI gates:
 
@@ -399,13 +400,34 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
-      --all[=true|false]    walk every Stage in the namespace given with -n, or in every namespace you can list
-      --domain string       with --service, its registry domain; a Stage that names none matches any
-  -h, --help[=true|false]   help for history
-      --service string      with --all, only the Stages of this service
-      --since string        only changes at or after this RFC 3339 time, or this long before now (2h)
-      --stage string        the Stage (this or --all)
-      --until string        only changes at or before this RFC 3339 time, or this long before now (30m)
+      --all[=true|false]        walk every Stage in the namespace given with -n, or in every namespace you can list
+      --cause string            only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too
+      --correlation-id string   only changes with exactly this correlation id; it narrows the timeline too
+      --domain string           with --service, its registry domain; a Stage that names none matches any
+  -h, --help[=true|false]       help for history
+      --service string          with --all, only the Stages of this service
+      --since string            only changes at or after this RFC 3339 time, or this long before now (2h)
+      --stage string            the Stage (this or --all)
+      --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
+```
+
+### `pacto delivery lifecycle`
+
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+
+```
+pacto delivery lifecycle [flags]
+```
+
+**Flags:**
+
+```
+      --contract string     its contract: a manifest digest or a digest-pinned reference
+      --digest string       the artifact digest Stages point at
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for lifecycle
+      --service string      the service the version belongs to (required)
+      --version string      the version its contract declares
 ```
 
 ### `pacto delivery plan`
@@ -470,6 +492,21 @@ pacto delivery record [flags]
   -h, --help[=true|false]   help for record
 ```
 
+#### `pacto delivery record get`
+
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
+
+```
+pacto delivery record get <id> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for get
+      --stage string        the Stage whose stream holds the record (required)
+```
+
 #### `pacto delivery record verify`
 
 Verify every record of a Stage's stream against the trust config and check the chain
@@ -484,6 +521,23 @@ pacto delivery record verify [flags]
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
       --stage string        the Stage (this or --all)
+```
+
+### `pacto delivery status`
+
+Lists every Stage of one service you can see, in promotion order from each Stage's spec.candidates: the version it runs, its state as the dashboard counts it, its upstream, its candidate, its newest re-check, its level and the actions you may ask for (promote, unfreeze, freeze, undo), each with why or why not. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named. With --why it also plans the promote of each candidate, proposes nothing and says what holds it back.
+
+```
+pacto delivery status [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for status
+      --service string      the service whose Stages to show (required)
+      --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
 ```
 
 ### `pacto delivery types`
@@ -1115,16 +1169,18 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
+With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
+
 The answer ends in a release gate, and the exit status follows it:
-  0  clear: the change is not BREAKING, or the snapshot is complete and no service depends on the changed one.
-  1  blocked: the change is BREAKING and a consumer that does not accept the new version runs on a known target.
-  2  unverified: the change is BREAKING and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
+  0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
+  1  blocked: a consumer that runs on a known target does not accept the new version of a BREAKING change, or its contract fails the changed service's new policy, whatever the classification.
+  2  unverified: nothing is shown to block the change, but the answer cannot clear it: a BREAKING change whose answer is partial or whose consumers none is shown to be safe, or a service that references the changed policy and fails it running nowhere known, could not be checked or could not be resolved. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
 A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
 Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
 
 ```
-pacto impact <old> <new> [flags]
+pacto impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
 ```
 
 **Examples:**
@@ -1135,6 +1191,13 @@ pacto impact <old> <new> [flags]
 
   # Include observed (runtime) evidence and emit JSON
   pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
+
+  # What breaks if redis becomes unavailable, or postgresql is removed
+  pacto impact --unavailable redis --local .
+  pacto impact --removed postgresql --local . --target-state targets.yaml
+
+  # What a regressed artifact affects, with delivery's recorded failures
+  pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
 
 **Flags:**
@@ -1154,9 +1217,12 @@ pacto impact <old> <new> [flags]
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
+      --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
+      --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable
 ```
 
 ---

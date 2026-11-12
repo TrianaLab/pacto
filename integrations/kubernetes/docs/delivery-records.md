@@ -142,6 +142,7 @@ to write it, rotate the recorder's key and revoke a leaked one is in
 ```bash
 pacto delivery history -n prod --stage payments --trust recorder.pub
 pacto delivery history --all --trust recorder.pub
+pacto delivery history --all --correlation-id inc-4211 --since 24h
 pacto delivery blame -n prod --stage payments
 pacto delivery undo -n prod <operation>
 ```
@@ -152,6 +153,14 @@ Every answer says when it was read (`asOf`), its `source` (`records`, or
 whole. `problems` lists what the records show is wrong, and `unreadable` what
 could not be read. On a partial answer a missing change may still have
 happened. `--all` walks every Stage you can list, up to 500 in two minutes.
+
+`--cause` keeps the changes whose cause (reason, operation or cited verdict)
+names a text, ignoring case, and `--correlation-id` those with exactly that
+id; both narrow the timeline too. Each line shows when it was applied, its
+cause and its correlation id. A line with record `-` is read from the
+Operation's status, so those three are not signed, and the output says so.
+`pacto delivery record get` reads one record by its id; see
+[status, progress and lifecycle](delivery-status.md).
 
 `blame` names the change that moved the Stage to what it runs: who asked, who
 approved, what each check said. No change on a partial history means unknown,

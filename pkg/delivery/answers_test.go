@@ -195,14 +195,24 @@ func TestUndoOf(t *testing.T) {
 		}
 	}
 	u, req := UndoOf(&runs, false, st)
-	u.Planned(*req, Plan{IntentDigest: "sha256:i"})
+	u.Planned(*req, PlanAnswer{Plan: Plan{IntentDigest: "sha256:i"}})
 	if u.Plan == nil || u.Command != `pacto delivery propose -n prod --stage payments-prod --type rollback --undoes b --reason "undo b" --intent-digest sha256:i` {
 		t.Fatalf("rollback command = %q", u.Command)
 	}
 	u, req = UndoOf(&runs, true, st)
-	u.Planned(*req, Plan{IntentDigest: "sha256:i"})
+	u.Planned(*req, PlanAnswer{Plan: Plan{IntentDigest: "sha256:i"}})
 	if !strings.Contains(u.Command, "--type promote --to "+ansA) {
 		t.Fatalf("promote command = %q", u.Command)
+	}
+}
+
+func TestUndoPlannedKeepsNext(t *testing.T) {
+	st := ansStage()
+	runs := ansOp("b", "u2", 2, ansA, ansB)
+	u, req := UndoOf(&runs, false, st)
+	u.Planned(*req, PlanAnswer{Plan: Plan{IntentDigest: "sha256:i"}, Next: []string{"a person approves it"}})
+	if u.Plan == nil || len(u.Plan.Next) != 1 || u.Plan.IntentDigest != "sha256:i" {
+		t.Fatalf("undo plan = %+v", u.Plan)
 	}
 }
 

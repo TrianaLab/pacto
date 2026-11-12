@@ -107,12 +107,12 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 	}
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
-	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
+	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	out.hiddenConsumers = hiddenConsumers
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
-	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents, origins, hiddenCreated)...)
+	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	// An allowlist: a report stays only when its consumer is visible, so an
 	// orphaned report or one about a hidden service never reaches the view.
@@ -333,9 +333,12 @@ func targetPlacementKnown(s *FleetSnapshot) bool {
 // services, and returns, per visible service, the hidden services it depends
 // on, that depend on it and that consume it (see [ConsumesEdge]; observed
 // callers depend on a service without consuming it). An edge to a visible
-// service that resolved to a dropped revision loses that resolution.
-func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool, dropped map[RevisionKey]bool) (deps, dependents, consumers map[ServiceKey]map[ServiceKey]bool) {
+// service that resolved to a dropped revision loses that resolution. It also
+// returns the hidden services that reference each one through a policy
+// reference.
+func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool, dropped map[RevisionKey]bool) (deps, dependents, consumers, referrers map[ServiceKey]map[ServiceKey]bool) {
 	deps, dependents, consumers = map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
+	referrers = map[ServiceKey]map[ServiceKey]bool{}
 	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
 		if m[at] == nil {
 			m[at] = map[ServiceKey]bool{}
@@ -356,6 +359,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			if ConsumesEdge(rel) {
 				count(consumers, rel.ToService, rel.FromService)
 			}
+			countPolicyReferrer(referrers, rel)
 			continue
 		case to:
 			if rel.Provenance == ProvenanceObserved {
@@ -364,19 +368,36 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			if ConsumesEdge(rel) {
 				count(deps, rel.FromService, rel.ToService)
 			}
-			rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
-			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
-			// What the hidden provider offers and deprecates is its own contract.
-			rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
-			if rel.GuaranteeStatus != "" {
-				rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
-			}
+			hideProvider(&rel)
 		case dropped[rel.ResolvedRevision]:
 			rel.ResolvedRevision, rel.LockedDigest = "", ""
 		}
 		out.Relationships = append(out.Relationships, rel)
 	}
-	return deps, dependents, consumers
+	return deps, dependents, consumers, referrers
+}
+
+// countPolicyReferrer records rel, an edge from a hidden service, in
+// referrers when it is a resolved policy reference.
+func countPolicyReferrer(referrers map[ServiceKey]map[ServiceKey]bool, rel Relationship) {
+	if rel.Type != RelationshipPolicyRef || rel.ToService == "" {
+		return
+	}
+	if referrers[rel.ToService] == nil {
+		referrers[rel.ToService] = map[ServiceKey]bool{}
+	}
+	referrers[rel.ToService][rel.FromService] = true
+}
+
+// hideProvider blanks what rel, an edge to a hidden service, says about it.
+func hideProvider(rel *Relationship) {
+	rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
+	rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
+	// What the hidden provider offers and deprecates is its own contract.
+	rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
+	if rel.GuaranteeStatus != "" {
+		rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
+	}
 }
 
 // restrictRevalidation validates again, against out, each visible revision
@@ -445,11 +466,29 @@ func restrictOrigins(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool) (map[Servi
 	return origins, hiddenCreated
 }
 
+// hiddenCounts are, per visible service, the hidden services it depends on,
+// that depend on it and that reference it through a policy reference.
+type hiddenCounts struct {
+	deps, dependents, referrers map[ServiceKey]map[ServiceKey]bool
+}
+
+// referrersBeyondDependents counts the hidden policy referrers of k that are
+// not already counted as its hidden dependents.
+func (h hiddenCounts) referrersBeyondDependents(k ServiceKey) int {
+	n := 0
+	for r := range h.referrers[k] {
+		if !h.dependents[k][r] {
+			n++
+		}
+	}
+	return n
+}
+
 // restrictServices sets out.Services to the visible services, copying any
 // that lost a target or a revision, gained a hidden count or changed origin,
 // and returns the names and keys of the hidden ones. It never writes through a
 // record of services. out.Targets and out.Revisions must already be restricted.
-func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int) []string {
+func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
 	for k, svc := range services {
@@ -462,13 +501,15 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		origin, reorigin := origins[k]
 		// A revision revalidated against the view may change the status; it is
 		// read last, once every revision of svc is known to be in out.
-		if len(targets) == len(svc.Targets) && len(revisions) == len(svc.Revisions) && deps[k] == nil && dependents[k] == nil &&
+		referrers := hidden.referrersBeyondDependents(k)
+		if len(targets) == len(svc.Targets) && len(revisions) == len(svc.Revisions) && hidden.deps[k] == nil && hidden.dependents[k] == nil && referrers == 0 &&
 			!reorigin && hiddenCreated[k] == 0 && serviceStatus(out, svc) == svc.Status {
 			out.Services[k] = svc
 			continue
 		}
 		cp := *svc
-		cp.Targets, cp.Revisions, cp.HiddenDependencies, cp.HiddenDependents = targets, revisions, len(deps[k]), len(dependents[k])
+		cp.Targets, cp.Revisions, cp.HiddenDependencies, cp.HiddenDependents = targets, revisions, len(hidden.deps[k]), len(hidden.dependents[k])
+		cp.HiddenPolicyReferrers = referrers
 		cp.HiddenCreated = hiddenCreated[k]
 		if reorigin {
 			cp.Origin = origin

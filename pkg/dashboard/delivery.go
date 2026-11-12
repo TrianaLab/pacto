@@ -29,8 +29,8 @@ type DeliveryAPI interface {
 	// History reads a Stage's history. listed, when not nil, is the Stage as
 	// the caller just read it, so the host need not read it again.
 	History(ctx context.Context, namespace, stage string, listed *delivery.StageObject) (*delivery.History, error)
-	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
-	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
+	Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error)
+	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error)
 	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)
 	Cancel(ctx context.Context, namespace, name string) error
 	// Describe reads what a Stage's artifact digest carries: its contract and
@@ -41,6 +41,8 @@ type DeliveryAPI interface {
 	// finds an operation that is gone from the cluster in the records.
 	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
+	// Record reads one record of a Stage's stream by its id.
+	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
 	// PublishRefusals are the publishes Pacto refused for services with Stages
 	// in namespace ("" for all). Nil with no error means this host keeps no
 	// record of refused publishes.
@@ -62,7 +64,7 @@ type DeliveryError struct {
 	Code   string `json:"code"`
 	Detail string `json:"detail"`
 	// Plan is the fresh plan of a PlanStale refusal.
-	Plan *delivery.Plan `json:"plan,omitempty"`
+	Plan *delivery.PlanAnswer `json:"plan,omitempty"`
 }
 
 func (e *DeliveryError) Error() string { return e.Code + ": " + e.Detail }
@@ -144,8 +146,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
 			"frozen Stages of the caller's services and the Errored operations on them."}), s.deliveryInbox)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
-		Summary:     "Every Stage",
-		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold."}), s.deliveryEnvironments)
+		Summary: "Every Stage",
+		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
+			"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo."}), s.deliveryEnvironments)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-autonomy", Method: http.MethodGet, Path: "/api/delivery/autonomy",
 		Summary: "The path to autonomy",
 		Description: "How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for " +
@@ -167,6 +170,16 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Summary: "How to undo a change",
 		Description: "A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it " +
 			"replaced when something changed since, or nothing. It never acts; propose the plan to carry it out."}), s.deliveryUndo)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-record", Method: http.MethodGet, Path: "/api/delivery/record",
+		Summary: "One signed record",
+		Description: "One record of a Stage's stream by id: the change it records, who asked and approved, every verdict with its citation " +
+			"and how to run it again, and whether its signature was checked."}), s.deliveryRecord)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-lifecycle", Method: http.MethodGet, Path: "/api/delivery/lifecycle",
+		Summary: "One version's way through delivery",
+		Description: "For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the " +
+			"service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line. A version or contract no artifact names is " +
+			"404 LifecycleNotFound only when the search read every artifact the Stages know on a complete listing; a search that left any " +
+			"unread is 400 LifecycleUnresolved and names what it did not read."}), s.deliveryLifecycle)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
 		Summary: "Publishes Pacto refused",
 		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
@@ -174,8 +187,13 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-progress", Method: http.MethodGet, Path: "/api/delivery/progress",
+		Summary: "Why a Stage can or cannot move",
+		Description: "Whether the Stage can move to its newest candidate and, when not, every reason with what clears it: its Ready condition, " +
+			"the candidate, a freeze or auto-hold, changes waiting for a person, its level and the promote planned for you and not proposed. " +
+			"It never proposes anything."}), s.deliveryProgress)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-plan", Method: http.MethodPost, Path: "/api/delivery/plan",
-		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question."}), s.deliveryPlan)
+		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you."}), s.deliveryPlan)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",
 		DefaultStatus: http.StatusCreated, Summary: "Propose a change",
 		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)

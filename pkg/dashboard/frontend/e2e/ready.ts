@@ -48,7 +48,8 @@ export async function settle(page: Page): Promise<void> {
 // services in two domains, so matching on the visible name alone can silently open
 // whichever of them happens to sort first.
 export async function openMermaidDoc(page: Page) {
-  await page.goto('/#/fleet/services');
+  // Narrowed by name: the story's services push it off the list's first page.
+  await page.goto('/#/fleet/services?text=payments-service');
   await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: 20_000 });
   await page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first().click();
   await expect(page).toHaveURL(/#\/fleet\/services\/payments-service$/);

@@ -3,7 +3,7 @@
  * decision a person left behind when a fresh login took them to the identity
  * provider.
  */
-import type { DeliveryDecision, DeliveryOperation } from './api.ts';
+import type { DeliveryDecision, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -587,4 +587,109 @@ export function proposalText(level: string | undefined, proposal: { level?: stri
   const n = proposal.evidence?.length ?? 0;
   const what = level === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
   return `Pacto proposes ${levelLabel(proposal.level)}: ${n} ${what}, no incident.`;
+}
+
+const OFFERS: Record<DeliveryOffer['action'], string> = { promote: 'Promote', unfreeze: 'Unfreeze', freeze: 'Freeze', undo: 'Undo' };
+
+/** offerLabel names an action a Stage row offers. */
+export function offerLabel(action: string): string {
+  return OFFERS[action as DeliveryOffer['action']] ?? action;
+}
+
+type OfferRow = { namespace: string; stage: string; pointer?: string; candidate?: string; candidateVersion?: string };
+
+/**
+ * offerRequest is the propose request an offer opens (promote, unfreeze or freeze; undo
+ * opens the undo panel instead) and the version a promote names, known only for the
+ * Stage's candidate. Offers only describe: the request is planned, then proposed with
+ * the caller's own identity, and admission decides.
+ */
+export function offerRequest(r: OfferRow, o: DeliveryOffer) {
+  const request: { namespace: string; stage: string; type: string; to?: string; from?: string } = { namespace: r.namespace, stage: r.stage, type: `delivery.pacto.trianalab.io/${o.action}` };
+  const to = o.to || r.candidate;
+  if (o.action === 'promote') Object.assign(request, { to, from: r.pointer || undefined });
+  return { request, version: o.action === 'promote' && to === r.candidate ? (r.candidateVersion ?? '') : '' };
+}
+
+/**
+ * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
+ * ("unsigned" only for an artifact Flux never verified), and unknown never as yes or no.
+ */
+export const lifecycleWords = {
+  signature: { signed: 'Signature checked', unsigned: 'Not signed', unknown: 'Signature not known here' },
+  verified: { yes: 'verified', no: 'not verified', unknown: 'verified: not known' },
+  failed: { yes: 'failed', no: '', unknown: 'failed: not known' },
+  role: { arrived: 'arrived', left: 'moved off it', attempted: 'attempted, moved nothing' },
+} as const;
+
+/**
+ * checkText says when the newest re-check of a Stage ran and its worst
+ * verdict. A check about an earlier version or change reads stale: its age
+ * comes from when it ran, never from now.
+ */
+export function checkText(c: { at?: string; result?: string; current?: boolean } | null | undefined): string {
+  if (!c) return '';
+  return `Re-checked ${timeLabel(c.at)}, ${c.result}${c.current ? '' : ', stale: about an earlier version'}`;
+}
+
+const WATCH: Record<string, string> = { True: 'Watched: the newest re-check passed', False: 'The newest re-check failed' };
+
+/** watchText says whether the running version still passes its re-checks. */
+export function watchText(w: { status?: string; reason?: string } | null | undefined): string {
+  if (!w) return '';
+  if (w.reason === 'NotRechecked') return 'Not re-checked since it shipped';
+  return WATCH[w.status ?? ''] ?? 'The newest re-check could not decide';
+}
+
+const PROGRESS_STAMP: Record<string, { label: string; tone: string }> = {
+  'up-to-date': { label: 'Up to date', tone: 'ok' },
+  'can-promote': { label: 'Can promote', tone: 'accent' },
+  'needs-person': { label: 'Needs a person', tone: 'warn' },
+  blocked: { label: 'Blocked', tone: 'err' },
+};
+
+/** progressStamp is the AnswerCard stamp for where a Stage stands against its candidate; anything else is not known. */
+export function progressStamp(state: string | undefined): { label: string; tone: string } {
+  return PROGRESS_STAMP[state ?? ''] ?? { label: 'Not known', tone: 'neutral' };
+}
+
+/** isCommand says whether a fix is a pacto command to copy rather than words about who acts. */
+export function isCommand(fix: string | undefined): boolean {
+  return !!fix?.startsWith('pacto ');
+}
+
+/**
+ * causeText says why a change was raised, as its intent said: the reason, else the
+ * check whose verdict raised it, else the change that caused it.
+ */
+export function causeText(c: { reason?: string; operation?: string; verdict?: { gate: string; message?: string } | null } | null | undefined): string {
+  if (!c) return '';
+  if (c.reason) return c.reason;
+  if (c.verdict) return c.verdict.message ? `${c.verdict.gate}: ${c.verdict.message}` : c.verdict.gate;
+  return c.operation ? `operation ${c.operation}` : '';
+}
+
+/** The windows the history offers, as the time before now each keeps. */
+export const HISTORY_WINDOWS = [
+  { key: '24h', label: 'Last 24 hours', ms: 864e5 },
+  { key: '7d', label: 'Last 7 days', ms: 7 * 864e5 },
+  { key: '30d', label: 'Last 30 days', ms: 30 * 864e5 },
+] as const;
+
+/**
+ * historyWindow names the window a history URL holds: all with no since, custom for a
+ * timeline slice (until or timed) or a since no window names.
+ */
+export function historyWindow(since: string, until: string, timed: string, now = Date.now()): string {
+  if (until || timed) return 'custom';
+  if (!since) return 'all';
+  const age = now - Date.parse(since);
+  // ponytail: within a tenth of the window, so a page left open a while keeps its name; a since entered by hand that lands there reads as the window
+  return HISTORY_WINDOWS.find((w) => Math.abs(age - w.ms) <= w.ms / 10)?.key ?? 'custom';
+}
+
+/** windowSince is the RFC 3339 since a window keeps changes from; none for all. */
+export function windowSince(key: string, now = Date.now()): string | undefined {
+  const w = HISTORY_WINDOWS.find((x) => x.key === key);
+  return w ? new Date(now - w.ms).toISOString().replace(/\.\d+Z$/, 'Z') : undefined;
 }

@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -255,6 +257,139 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	})
 }
 
+// TestPrintHistoryColumns: the table says who (with their class), when it
+// was applied, why and the correlation id.
+func TestPrintHistoryColumns(t *testing.T) {
+	var b strings.Builder
+	printHistory(&b, &delivery.History{Entries: []delivery.HistoryEntry{
+		{Seq: 1, Operation: "op1", Type: delivery.TypePromote, Actor: "alice", ActorClass: delivery.ClassHuman, Applied: "2026-11-05T10:00:00Z",
+			Cause: &delivery.Cause{Reason: "INC-7 hotfix"}, CorrelationID: "INC-7", Record: "rec-1"},
+		{Seq: 2, Operation: "op2", ActorClass: delivery.ClassController, Cause: &delivery.Cause{Verdict: &delivery.Verdict{Gate: "health", Result: delivery.Fail}}, Record: "rec-2"},
+		{Seq: 3, Operation: "op3", Actor: "bot", Cause: &delivery.Cause{Operation: "0123456789abcdef"}, Record: "rec-3"},
+		{Seq: 4, Operation: "op4", Cause: &delivery.Cause{}, Record: "rec-4"},
+	}})
+	out := b.String()
+	if h := strings.Fields(strings.Split(out, "\n")[1]); strings.Join(h, " ") != "SEQ OPERATION TYPE TO ACTOR RESULT APPLIED CAUSE CORRELATION REASON RECORD" {
+		t.Fatalf("columns = %v", h)
+	}
+	for _, w := range []string{
+		"alice (human)", "2026-11-05T10:00:00Z", "INC-7 hotfix", "INC-7", "controller", "verdict health Fail", "bot ", "operation 01234567"} {
+		if !strings.Contains(out, w) {
+			t.Fatalf("history lacks %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "not signed") {
+		t.Fatalf("every line has a record, so no footnote:\n%s", out)
+	}
+	for _, c := range []struct {
+		e    delivery.HistoryEntry
+		want string
+	}{{delivery.HistoryEntry{}, "-"}, {delivery.HistoryEntry{Actor: "a"}, "a"}} {
+		if got := actorCell(c.e); got != c.want {
+			t.Fatalf("actorCell(%+v) = %q", c.e, got)
+		}
+	}
+	if causeCell(nil) != "-" || causeCell(&delivery.Cause{}) != "-" {
+		t.Fatal("an absent cause is -")
+	}
+}
+
+// TestPrintHistoryMarksUnsigned: a line read from an Operation's status
+// carries an unsigned cause, correlation and applied time, and says so.
+func TestPrintHistoryMarksUnsigned(t *testing.T) {
+	var b strings.Builder
+	printHistory(&b, &delivery.History{Entries: []delivery.HistoryEntry{{Operation: "op1", Record: "rec-1"}, {Operation: "op2"}}})
+	if !strings.Contains(b.String(), "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed") {
+		t.Fatalf("no unsigned footnote:\n%s", b.String())
+	}
+}
+
+// historyOps adds two promotes to the fake cluster: one an hour ago tied to
+// INC-1 by a latency alert, one with no cause.
+func historyOps(d deps) deps {
+	plain := d.newDynamic
+	d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := plain()
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		at := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+		for i, op := range []map[string]any{
+			{"name": "tied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "correlationID": "INC-1",
+				"cause": map[string]any{"reason": "Latency alert"}}},
+			{"name": "untied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"}},
+		} {
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", op["name"].(string), map[string]any{
+				"spec":   op["spec"],
+				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": at, "finished": at}}}),
+				metav1.CreateOptions{})
+		}
+		return c, err
+	}
+	return d
+}
+
+// TestHistoryCorrelationFlag: --correlation-id and --cause keep only the
+// changes they name, in both modes, and the note says so.
+func TestHistoryCorrelationFlag(t *testing.T) {
+	d := historyOps(deliveryDeps("alice", nil))
+	history := []string{"history", "-n", "prod", "--stage", "payments-prod"}
+	for _, args := range [][]string{append(slices.Clone(history), "--correlation-id", "INC-1"), {"history", "--all", "--cause", "latency"}} {
+		out, err := runDelivery(t, d, "text", args...)
+		if err != nil || !strings.Contains(out, "tied") || strings.Contains(out, "untied") || strings.Contains(out, " held ") ||
+			!strings.Contains(out, "; only changes ") {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	out, err := runDelivery(t, d, "json", append(slices.Clone(history), "--cause", "no such cause")...)
+	if err != nil || !strings.Contains(out, `"entries": []`) {
+		t.Fatalf("nothing kept must say []: %v\n%s", err, out)
+	}
+}
+
+// TestHistoryTimelineAfterFilter: the timeline counts only the changes the
+// filter keeps, in both modes.
+func TestHistoryTimelineAfterFilter(t *testing.T) {
+	d := historyOps(deliveryDeps("alice", nil))
+	total := func(args ...string) int {
+		out, err := runDelivery(t, d, "json", args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		var v struct{ Timeline delivery.HistoryTimeline }
+		if err := json.Unmarshal([]byte(out), &v); err != nil {
+			t.Fatal(err)
+		}
+		c := v.Timeline.Totals
+		return c.Failed + c.Held + c.AcceptedUnknown + c.Unverified + c.Released + c.Other + c.Missing + v.Timeline.Untimed
+	}
+	for _, base := range [][]string{{"history", "-n", "prod", "--stage", "payments-prod"}, {"history", "--all"}} {
+		all, kept := total(base...), total(append(slices.Clone(base), "--correlation-id", "INC-1")...)
+		if kept != 1 || all <= kept {
+			t.Fatalf("%v: timeline counts %d unfiltered, %d for INC-1", base, all, kept)
+		}
+	}
+}
+
+// TestExplainTextUnchanged pins explain's text: record get shares its
+// verdict printers, and sharing them must not move a line of it.
+func TestExplainTextUnchanged(t *testing.T) {
+	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
+	want := "prod/held\n" +
+		"delivery.pacto.trianalab.io/promote on Stage payments-prod, (none) -> (none) waits for a person: Approve? If nobody decides by " +
+		"2026-10-30T09:00:00Z (the approval deadline), the operation concludes Expired and nothing changes on the Stage. Propose again to ask again.\n" +
+		"  pacto.diff        pre    Checked  \n" +
+		"      query: {}\n" +
+		"      re-run: pacto delivery plan computes it again from the same contracts and cluster\n" +
+		"  x                 pre    Pass     \n" +
+		"move first: Ship orders first.\n" +
+		"  may be incomplete: the graph is partial\n" +
+		"stage payments-prod runs " + cliA + ", frozen: a rollback failed, on auto-hold\n" +
+		"last re-check 2026-10-20T10:00:00Z of " + cliA + ":\n" +
+		"  health            Unknown  too few spans\n"
+	if err != nil || out != want {
+		t.Fatalf("explain moved: %v\n%q\nwant\n%q", err, out, want)
+	}
+}
+
 // A verdict with nothing to run again prints no re-run line.
 func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
 	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
@@ -385,6 +520,8 @@ func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"candidates", "--stage", "s"},
 		{"approve", "x", "--oidc-issuer-url", "https://idp"},
 		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
+		{"record", "get", "sha256:r", "--stage", "s"},
+		{"lifecycle", "--service", "s", "--digest", cliA},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
 			t.Fatalf("%v: %v", args, err)
@@ -460,5 +597,18 @@ func TestPrintCandidatesNote(t *testing.T) {
 	if !strings.Contains(out.String(), "runs none,") || !strings.Contains(out.String(), "?        "+cliB+"  manifest unknown") ||
 		!strings.Contains(out.String(), "note: some candidates could not be read") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestPrintPlanLabelsEvidenceGates(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Verdicts: []delivery.Verdict{
+		{Gate: delivery.GateImpact, Result: delivery.Pass, Message: "breaks ledger"},
+		{Gate: delivery.GateContract, Result: delivery.Pass, Message: "readable"},
+	}}})
+	for _, want := range []string{"  pacto.impact      Checked  breaks ledger\n", "  pacto.contract    Pass     readable\n"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
 	}
 }

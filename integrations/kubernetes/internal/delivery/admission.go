@@ -213,7 +213,7 @@ func stageOps(ctx context.Context, c client.Reader, ns, stage string) ([]dv1.Ope
 }
 
 // ReasonUnguarded holds an operation while an admission policy is missing.
-const ReasonUnguarded = "Unguarded"
+const ReasonUnguarded = delivery.ReadyReasonUnguarded
 
 // unguarded parks op while the admission policies in r.AdmissionPolicies do
 // not guard (unguardedBy). A failed read is an error, so an unreadable policy

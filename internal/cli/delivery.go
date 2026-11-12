@@ -85,6 +85,8 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
 		newDeliveryCandidatesCommand(v, d),
+		newDeliveryStatusCommand(v, d),
+		newDeliveryLifecycleCommand(v, d),
 		newDeliveryPlanCommand(v, d),
 		newDeliveryProposeCommand(v, d),
 		newDeliveryGetCommand(v, d),
@@ -288,12 +290,18 @@ func printCandidates(out io.Writer, c *delivery.CandidateVersions) {
 	}
 }
 
+// printVerdict prints one verdict as a person reads it: an evidence gate's
+// Pass reads Checked, as the dashboard shows it (delivery.VerdictLabel).
+func printVerdict(w io.Writer, indent string, v delivery.Verdict) {
+	_, _ = fmt.Fprintf(w, "%s%-17s %-8s %s\n", indent, v.Gate, delivery.VerdictLabel(v), v.Message)
+}
+
 func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "intent:    %s\n", p.IntentDigest)
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
 	for _, v := range p.Verdicts {
-		_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", v.Gate, v.Result, v.Message)
+		printVerdict(w, "  ", v)
 	}
 	if p.Question != "" {
 		_, _ = fmt.Fprintf(w, "question:  %s\n", p.Question)
@@ -394,7 +402,7 @@ func newDeliveryGetCommand(v *viper.Viper, d deps) *cobra.Command {
 					_, _ = fmt.Fprintf(w, "reason:    %s: %s\n", s.Reason, s.Message)
 				}
 				for _, v := range s.Verdicts {
-					_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", v.Gate, v.Result, v.Message)
+					printVerdict(w, "  ", v)
 				}
 				if s.Question != "" {
 					_, _ = fmt.Fprintf(w, "question:  %s\n", s.Question)
@@ -542,22 +550,34 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "%s\n%s\n", e.Operation, e.Summary)
 				for _, x := range e.Verdicts {
-					_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, x.Result, x.Message)
-					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
-						if k == "runnerBundle" { // the runner's signed answer: -o json shows it
-							continue
-						}
-						_, _ = fmt.Fprintf(w, "      %s: %s\n", k, x.Citation[k])
-					}
-					if x.Rerun != "" {
-						_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
-					}
+					printExplainedVerdict(w, x)
 				}
 				printOrder(w, e.Order)
 				printStageNow(w, e.Stage)
 				return nil
 			}, nil)
 		},
+	}
+}
+
+// printExplainedVerdict prints a verdict with its phase, its citation and
+// how to run it again, as explain and record get show it.
+func printExplainedVerdict(w io.Writer, x delivery.ExplainedVerdict) {
+	_, _ = fmt.Fprintf(w, "  %-17s %-6s %-8s %s\n", x.Gate, x.Phase, delivery.VerdictLabel(x.Verdict), x.Message)
+	printCitations(w, x.Citation, x.Rerun)
+}
+
+// printCitations prints a verdict's citation, sorted by key, then how to run
+// it again. The runner's signed answer is for -o json.
+func printCitations(w io.Writer, citation map[string]string, rerun string) {
+	for _, k := range slices.Sorted(maps.Keys(citation)) {
+		if k == "runnerBundle" {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "      %s: %s\n", k, citation[k])
+	}
+	if rerun != "" {
+		_, _ = fmt.Fprintf(w, "      re-run: %s\n", rerun)
 	}
 }
 
@@ -573,7 +593,7 @@ func printStageNow(w io.Writer, s delivery.StageNow) {
 	if lc := s.LastCheck; lc != nil {
 		_, _ = fmt.Fprintf(w, "last re-check %s of %s:\n", lc.At, lc.Digest)
 		for _, x := range lc.Verdicts {
-			_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", x.Gate, x.Result, x.Message)
+			printVerdict(w, "  ", x)
 		}
 	}
 }
@@ -596,6 +616,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			f := entryFilter(cmd)
 			if all {
 				hs, err := c.HistoryAll(cmd.Context(), ns, of)
 				if err != nil {
@@ -604,7 +625,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 				start, end := delivery.TimelineWindow(since, until, c.Now())
 				var all []delivery.HistoryEntry
 				for i := range hs.Histories {
-					hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+					hs.Histories[i].History = delivery.FilterEntries(delivery.WindowEntries(hs.Histories[i].History, since, until), f)
 					all = append(all, hs.Histories[i].Entries...)
 				}
 				hs.Timeline = new(delivery.Timeline(all, start, end))
@@ -624,7 +645,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			*h = delivery.WindowEntries(*h, since, until)
+			*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
 			start, end := delivery.TimelineWindow(since, until, c.Now())
 			h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
@@ -640,7 +661,17 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("until", "", "only changes at or before this RFC 3339 time, or this long before now (30m)")
 	cmd.Flags().String("service", "", "with --all, only the Stages of this service")
 	cmd.Flags().String("domain", "", "with --service, its registry domain; a Stage that names none matches any")
+	cmd.Flags().String("cause", "", "only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too")
+	cmd.Flags().String("correlation-id", "", "only changes with exactly this correlation id; it narrows the timeline too")
 	return cmd
+}
+
+// entryFilter reads --cause and --correlation-id.
+func entryFilter(cmd *cobra.Command) delivery.EntryFilter {
+	var f delivery.EntryFilter
+	f.Cause, _ = cmd.Flags().GetString("cause")
+	f.CorrelationID, _ = cmd.Flags().GetString("correlation-id")
+	return f
 }
 
 // historyFilters reads --since, --until, --service and --domain; a duration
@@ -667,16 +698,11 @@ func historyFilters(cmd *cobra.Command, all bool, now time.Time) (since, until t
 // now; empty is no bound.
 func whenFlag(cmd *cobra.Command, name string, now time.Time) (time.Time, error) {
 	v, _ := cmd.Flags().GetString(name)
-	if v == "" {
-		return time.Time{}, nil
+	t, err := delivery.ParseWhen(v, now)
+	if err != nil {
+		return t, fmt.Errorf("--%s %w", name, err)
 	}
-	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t, nil
-	}
-	if d, err := time.ParseDuration(v); err == nil {
-		return now.Add(-d), nil
-	}
-	return time.Time{}, fmt.Errorf("--%s takes an RFC 3339 time or a duration before now, such as 2h: %q", name, v)
+	return t, nil
 }
 
 // stageOrAll reads --stage and --all: exactly one must be set. With --all and
@@ -696,13 +722,19 @@ func stageOrAll(cmd *cobra.Command, ns *string) (string, bool, error) {
 func printHistory(out io.Writer, h *delivery.History) {
 	printStageNow(out, h.Stage)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
+	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
+	unsigned := false
 	for _, e := range h.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
-			orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, recordCell(e))
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
+			orNone([]string{e.To}), actorCell(e), cmp.Or(result, string(e.Phase)), cmp.Or(e.Applied, "-"), causeCell(e.Cause),
+			cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
+		unsigned = unsigned || e.Record == ""
 	}
 	_ = w.Flush()
+	if unsigned {
+		_, _ = fmt.Fprintln(out, "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed")
+	}
 	printAnswerNotes(out, h.Problems, h.Unreadable)
 	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
 }
@@ -726,6 +758,33 @@ func shortRecord(id string) string {
 		return "-"
 	}
 	return id[:min(len(id), 19)]
+}
+
+// actorCell is who made a change and their class: user (class).
+func actorCell(e delivery.HistoryEntry) string {
+	switch {
+	case e.Actor == "":
+		return cmp.Or(string(e.ActorClass), "-")
+	case e.ActorClass == "":
+		return e.Actor
+	}
+	return e.Actor + " (" + string(e.ActorClass) + ")"
+}
+
+// causeCell is why a change was raised, in a few words: its reason, else the
+// verdict it cites, else the operation that caused it.
+func causeCell(c *delivery.Cause) string {
+	switch {
+	case c == nil:
+		return "-"
+	case c.Reason != "":
+		return c.Reason
+	case c.Verdict != nil:
+		return "verdict " + c.Verdict.Gate + " " + string(c.Verdict.Result)
+	case c.Operation != "":
+		return "operation " + c.Operation[:min(len(c.Operation), 8)]
+	}
+	return "-"
 }
 
 // recordCell is a history line's record: its id, "unverified" for a record
@@ -776,7 +835,7 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 						_, _ = fmt.Fprintf(w, "decided:   %s %s %s\n", a.By, a.Decision, a.Note)
 					}
 					for _, x := range b.Verdicts {
-						_, _ = fmt.Fprintf(w, "  %-17s %-8s %s\n", x.Gate, x.Result, x.Message)
+						printVerdict(w, "  ", x)
 					}
 				}
 				printAnswerNotes(w, nil, b.Unreadable)
@@ -810,7 +869,7 @@ func newDeliveryUndoCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "undo %s: %s: %s\n", u.Operation, u.Kind, u.Note)
 				if u.Plan != nil {
-					printPlan(w, delivery.PlanAnswer{Plan: *u.Plan})
+					printPlan(w, *u.Plan)
 					_, _ = fmt.Fprintf(w, "nothing was proposed; to propose it:\n  %s\n", u.Command)
 				}
 				return nil
@@ -858,8 +917,67 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 	}
 	verify.Flags().String("stage", "", "the Stage (this or --all)")
 	verify.Flags().Bool("all", false, "verify every Stage's stream in the namespace given with -n, or in every namespace you can list")
-	cmd.AddCommand(verify)
+	cmd.AddCommand(verify, newDeliveryRecordGetCommand(v, d))
 	return cmd
+}
+
+func newDeliveryRecordGetCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Read one signed record of a Stage's stream by its id: the change, who asked and approved and every verdict",
+		Long: "Reads one signed record of a Stage's stream by its full id or by the short id a text history prints " +
+			"(sha256: and 12 hex characters), when only one record starts with it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			r, err := c.Record(cmd.Context(), ns, stage, args[0])
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), r, func() error {
+				printRecordView(cmd.OutOrStdout(), r)
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the Stage whose stream holds the record (required)")
+	_ = cmd.MarkFlagRequired("stage")
+	return cmd
+}
+
+// printRecordView prints one record: the change it records, who asked, for
+// whom and why, then the verdicts as explain prints them.
+func printRecordView(w io.Writer, r *delivery.RecordView) {
+	e := r.Entry
+	_, _ = fmt.Fprintf(w, "record %s seq %d (%s), %s\n", r.Record, e.Seq, e.Kind, r.Note)
+	result := strings.TrimSuffix(string(e.Outcome)+"/"+string(e.Verification), "/")
+	if e.Reason != "" {
+		result += ": " + e.Reason
+	}
+	_, _ = fmt.Fprintf(w, "operation %s: %s %s -> %s, %s\n", e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"),
+		orNone([]string{e.From}), orNone([]string{e.To}), result)
+	_, _ = fmt.Fprintf(w, "asked by %s\n", actorCell(e))
+	cause := ""
+	if e.Cause != nil {
+		cause = causeCell(e.Cause)
+	}
+	for _, l := range [][3]string{{"for ", r.OnBehalfOf, " (asserted)"}, {"why: ", r.IntentReason}, {"cause: ", cause}, {"correlation: ", e.CorrelationID}} {
+		if l[1] != "" {
+			_, _ = fmt.Fprintf(w, "%s%s%s\n", l[0], l[1], l[2])
+		}
+	}
+	_, _ = fmt.Fprintf(w, "applied %s, finished %s\n", cmp.Or(e.Applied, "-"), cmp.Or(e.Finished, "-"))
+	for _, a := range e.Approvals {
+		_, _ = fmt.Fprintf(w, "decided: %s %s %s\n", a.By, a.Decision, a.Note)
+	}
+	for _, x := range r.Verdicts {
+		printExplainedVerdict(w, x)
+	}
+	_, _ = fmt.Fprintf(w, "as of %s\n", r.AsOf)
 }
 
 func printVerification(w io.Writer, res *delivery.StreamVerification) {

@@ -2,9 +2,9 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryHistoryUrl, deliveryEnvironmentsUrl } from '../lib/router.ts';
+  import { deliveryHistoryUrl, deliveryEnvironmentsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList, exceptList, exceptParam, offerLabel, offerRequest, checkText } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -16,6 +16,8 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
+  import UndoPanel from '../components/UndoPanel.svelte';
+  import EnvMark from '../components/figure/EnvMark.svelte';
   import Select from '../components/Select.svelte';
   import ShowAll from '../components/ShowAll.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
@@ -27,8 +29,9 @@
   import { ENV_STATES, servicePath, sourceProblem, MAX_PATH_MARKS } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
-  // version is verified, failed, frozen or waiting. Promote and unfreeze start
-  // from here, through a plan. The board pages by service on the server. Each
+  // version is verified, failed, frozen or waiting. Each Stage's offers start from
+  // here, through a plan: promote and unfreeze, and with one service also freeze and
+  // undo (the server computes those only then). The board pages by service on the server. Each
   // service is one row along its own path, in the order its Stages declare
   // (SPEC 21 r3), so no column claims an order the services do not share: up
   // to four environments the row holds the whole cells, past four a strip of
@@ -142,42 +145,65 @@
   });
   const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };
 
-  // The plan being looked at: one request at a time, opened in a row right
-  // under the service it is for, so the page never jumps away from it.
-  // Each request is a new object, so a second click re-plans in a new panel;
-  // closing it sends focus back to the button that opened it.
-  let proposing = $state(null);
-  let proposingVersion = $state('');
-  let proposingService = $state('');
+  // The offer being acted on: one at a time, its plan (or, for undo, the undo panel)
+  // opened in a row right under the service it is for, so the page never jumps away
+  // from it. Each click is a new object, so a second click re-plans in a new panel;
+  // closing it sends focus back to the button that opened it. Offers only describe:
+  // the panel plans, then proposes with the caller's own identity.
+  let acting = $state(null);
   let opener = null;
-  function open(e, r, req, version = '') { opener = e.currentTarget; proposingVersion = version; proposingService = r.service; proposing = req; }
-  function promote(r, e) { open(e, r, { namespace: r.namespace, stage: r.stage, type: 'delivery.pacto.trianalab.io/promote', to: r.candidate, from: r.pointer || undefined }, r.candidateVersion); }
-  function unfreeze(r, e) { open(e, r, { namespace: r.namespace, stage: r.stage, type: 'delivery.pacto.trianalab.io/unfreeze' }); }
-  function closePlan() { proposing = null; opener?.focus(); }
+  function act(e, r, o) { opener = e.currentTarget; acting = { service: r.service, row: r, offer: o, ...offerRequest(r, o) }; }
+  function closePlan() { acting = null; opener?.focus(); }
+  const notReady = (r) => !!r.ready && !r.ready.startsWith('True');
+  const offerName = (svc, env, r, o) => {
+    if (o.action !== 'promote' || !o.to) return `${offerLabel(o.action)} ${svc} in ${env}`;
+    return `Promote ${svc} in ${env} to ${offerRequest(r, o).version || shortDigest(o.to)}`;
+  };
 </script>
+
+{#snippet panel()}
+  <div class="ev-plan">
+    {#key acting}
+      {#if acting.offer.action === 'undo'}
+        <UndoPanel namespace={acting.row.namespace} stage={acting.row.stage} name={acting.offer.operation} {miraURL} onClose={closePlan} />
+      {:else}
+        <ProposePanel request={acting.request} toVersion={acting.version} {miraURL} onClose={closePlan} />
+      {/if}
+    {/key}
+  </div>
+{/snippet}
 
 {#snippet stack(svc, env)}
     {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
         {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
-          <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
-            title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
+          {#if r.revision}
+            <a class="ev-version" href={fleetEntityUrl('revision', r.revision)} title={r.pointer}>{r.version || shortDigest(r.pointer)}</a>
+            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}>History</a>
+          {:else}
+            <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
+              title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
+          {/if}
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
         </span>
         <DeliveryBadges row={r} />
         {#if r.frozen && r.frozenReason}<span class="t-meta ev-frozen">Frozen: {sentence(r.frozenReason)}</span>{/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
-        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>
+        {#if notReady(r)}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>
+          {#if r.readyFix}<span class="t-meta ev-fix">Fix: {sentence(r.readyFix)}</span>{/if}
         {:else if sourceProblem(r)}<!-- svelte-ignore a11y_no_noninteractive_tabindex (as above) --><span class="t-meta ev-ready" title={sourceProblem(r)} tabindex="0" data-testid="env-no-source">{sourceProblem(r)}</span>{/if}
-        {#if r.actions?.length}
+        {#if r.lastCheck}<span class="t-meta" data-testid="env-check">{checkText(r.lastCheck)}</span>{/if}
+        {#if r.offers?.length}
+          <!-- Every offer: an available one plans, an unavailable one says why in words, never only in a tooltip. -->
           <span class="ev-actions">
-            {#if r.actions.includes('promote')}
-              <button type="button" class="btn btn-sm" onclick={(e) => promote(r, e)} aria-label={`Promote ${svc} in ${env} to ${r.candidateVersion || shortDigest(r.candidate)}`} title={`Promote to ${r.candidateVersion || r.candidate}`}>Promote</button>
-            {/if}
-            {#if r.actions.includes('unfreeze')}
-              <button type="button" class="btn btn-sm" onclick={(e) => unfreeze(r, e)} aria-label={`Unfreeze ${svc} in ${env}`}>Unfreeze</button>
-            {/if}
+            {#each r.offers as o (o.action + (o.operation ?? ''))}
+              <span class="ev-offer">
+                <button type="button" class="btn btn-sm" disabled={!o.available} onclick={(e) => act(e, r, o)} aria-label={offerName(svc, env, r, o)}
+                  title={o.available && o.action === 'promote' && o.to ? `Promote to ${offerRequest(r, o).version || o.to}` : o.reason}>{offerLabel(o.action)}</button>
+                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {o.reason}</span>{/if}
+              </span>
+            {/each}
           </span>
         {/if}
       </div>
@@ -237,7 +263,7 @@
     {:else}
       {#if strip}
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
-          {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
+          {#each STATES as st (st.key)}<span><EnvMark state={st.key} decorative />{st.label}</span>{/each}
           <span><span class="ev-link" aria-hidden="true"></span>Fed by the one before</span>
           <HelpTip label="the paths" text="Each row is its service's own path, in the order its Stages declare their upstreams. A line joins two environments when the second is fed by the first. A tier is only what a name says. Point at a dot or tab to it for its version, press it for the rest." />
         </div>
@@ -270,7 +296,7 @@
                         <span class:linked={m.linked} data-testid="env-mark">
                           <button type="button" class="ev-mark" class:open data-testid="env-dot" data-env={m.env}
                             tabindex={i === 0 ? 0 : -1} title={dotTitle(m.env, here, fedBy)} aria-label={dotTitle(m.env, here, fedBy)}
-                            aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, m.env)}><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span><bdi class="ev-env">{m.env}</bdi>{#if deadOf(here).length}<span class="ev-nosrc" aria-hidden="true">?</span>{/if}</button>
+                            aria-expanded={open} aria-controls={open ? cellId(svc) : undefined} onclick={() => toggle(svc, m.env)}><EnvMark state={st.key} decorative /><bdi class="ev-env">{m.env}</bdi>{#if deadOf(here).length}<span class="ev-nosrc" aria-hidden="true">?</span>{/if}</button>
                         </span>
                       {/each}
                       {#if path.length > MAX_PATH_MARKS}
@@ -295,15 +321,7 @@
                     </div>
                   </td></tr>
                 {/if}
-                {#if proposing && proposingService === svc}
-                  <tr class="ev-plan-row"><td colspan="3">
-                    <div class="ev-plan">
-                      {#key proposing}
-                        <ProposePanel request={proposing} toVersion={proposingVersion} {miraURL} onClose={closePlan} />
-                      {/key}
-                    </div>
-                  </td></tr>
-                {/if}
+                {#if acting?.service === svc}<tr class="ev-plan-row"><td colspan="3">{@render panel()}</td></tr>{/if}
               {/each}
             </tbody>
           </table>
@@ -332,15 +350,7 @@
                     </ol>
                   </td>
                 </tr>
-                {#if proposing && proposingService === svc}
-                  <tr class="ev-plan-row"><td colspan="2">
-                    <div class="ev-plan">
-                      {#key proposing}
-                        <ProposePanel request={proposing} toVersion={proposingVersion} {miraURL} onClose={closePlan} />
-                      {/key}
-                    </div>
-                  </td></tr>
-                {/if}
+                {#if acting?.service === svc}<tr class="ev-plan-row"><td colspan="2">{@render panel()}</td></tr>{/if}
               {/each}
             </tbody>
           </table>
@@ -437,15 +447,6 @@
   .ev-more { font-size: var(--text-xs); }
   /* A Stage with no source Pacto can follow: unknown, never drawn as a valid entry. */
   .ev-nosrc { color: var(--c-text-3); font-size: var(--text-xs); font-weight: 600; }
-  .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px);
-    padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; box-sizing: border-box; }
-  .s-verified { background: var(--c-ok); }
-  .s-waiting { background: var(--c-warn); }
-  .s-failed { background: var(--c-err); border-radius: 2px; transform: rotate(45deg) scale(0.85); }
-  .s-frozen { background: var(--c-warn); border-radius: 2px; }
-  .s-autohold { background: var(--c-info); border-radius: 2px; }
-  .s-unverified { border-color: var(--c-text-3); }
-  .s-empty { border: 2px dashed var(--c-text-3); }
   .ev-sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-height: 1.5rem; }
   /* Rows line up on their first line: the name, the path and the first chips share one 1.5rem line, however far they wrap. */
   .ev-strip tbody th { line-height: 1.5rem; }
@@ -472,7 +473,10 @@
   .ev-cell { display: flex; flex-direction: column; gap: var(--sp-1); }
   .ev-cell + .ev-cell { margin-top: var(--sp-2); }
   .ev-version { font-weight: 600; }
-  .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+  .ev-actions { display: flex; gap: var(--sp-1) var(--sp-3); flex-wrap: wrap; }
+  .ev-offer { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1); min-inline-size: 0; overflow-wrap: anywhere; }
+  @media (pointer: coarse) { .ev-offer .btn { min-block-size: 44px; min-inline-size: 44px; } }
+  .ev-fix { overflow-wrap: anywhere; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Two lines until a reader points at it or tabs to it; then the whole reason. */
   .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }

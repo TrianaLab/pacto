@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { impactModel, outcomeOf, classificationLabel, answerText, OUTCOMES } from './impactFigure.ts';
+import { impactModel, eventModel, effectOf, outcomeOf, classificationLabel, answerText, OUTCOMES, EFFECTS } from './impactFigure.ts';
 import { timeline, sessionKey } from './narrate.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
@@ -169,5 +169,104 @@ describe('answerText', () => {
     const im = impact({ incompatible: 1, unknown: 1 }, { consumers: { byVerdict: [{ key: 'incompatible', count: 1 }, { key: 'unknown', count: 1 }], refused: 1 } });
     expect(answerText(im)).toBe('3 changes, 1 breaking.');
     expect(answerText(impact({}, { changes: { total: 0 } }))).toBe('No contract differences. No consumer is affected.');
+  });
+});
+
+// An event answer: "if redis becomes unavailable, who breaks?". Lanes by effect, the
+// gate never blocks, the caption is generated from the lanes and the deciding set.
+function event(by: Record<string, number>, o: Any = {}): Any {
+  const { consumers, completeness, ev, ...rest } = o;
+  const total = Object.values(by).reduce((a, b) => a + b, 0);
+  return impact({}, {
+    completeness, classification: '', gate: total || completeness === 'partial' ? 'unverified' : 'clear', gateReason: '',
+    oldRevision: undefined, newRevision: undefined, changes: { total: 0, count: 0, breaking: 0, potential: 0, nonBreaking: 0, truncated: false, items: [] },
+    service: { kind: 'service', key: 'redis', label: 'redis', href: '/fleet/services/redis' },
+    event: { kind: 'unavailable', service: 'redis', ...ev },
+    consumers: { total, direct: total, byOutcome: EFFECTS.map((key) => ({ key, count: by[key] ?? 0 })), noOwner: total, ...consumers },
+    ...rest,
+  });
+}
+
+describe('eventModel (an event answer)', () => {
+  it('draws the lanes Breaks, May degrade and Unknown in that order, and generates the caption from them', () => {
+    const m = eventModel(event({ breaks: 5, 'may-degrade': 3, unknown: 2 }));
+    expect(m.lanes.map((l) => [l.key, l.label, l.tone, l.hatch])).toEqual([
+      ['breaks', 'Breaks', 'err', false], ['may-degrade', 'May degrade', 'warn', false], ['unknown', 'Unknown', 'neutral', true]]);
+    expect(m.lanes.map((l) => l.decides)).toEqual([true, true, true]);
+    expect(m.gateLane).toBe(0);
+    expect(m.gate?.stamp).toBe('Needs a person');
+    expect(`${m.lead}: ${m.caption} ${m.figRef}`).toBe('If redis becomes unavailable: 5 consumers break, 3 may degrade and 2 are unknown. '
+      + 'The gate is drawn under the breaks lane; the breaks, may degrade and unknown lanes all send it to a person.');
+  });
+  it('changes the caption when the lanes change', () => {
+    const a = eventModel(event({ breaks: 5, 'may-degrade': 3, unknown: 2 }));
+    const b = eventModel(event({ breaks: 1, unknown: 1 }));
+    expect(b.caption).toBe('1 consumer breaks and 1 is unknown.');
+    expect(b.caption).not.toBe(a.caption);
+    expect(b.figRef).toBe('The gate is drawn under the breaks lane; the breaks and unknown lanes both send it to a person.');
+  });
+  it('gates a may-degrade-only answer unverified and names the may degrade lane', () => {
+    const m = eventModel(event({ 'may-degrade': 2 }));
+    expect(m.gate?.stamp).toBe('Needs a person');
+    expect(m.lanes[m.gateLane].key).toBe('may-degrade');
+    expect(m.figRef).toBe('The gate is drawn under the may degrade lane, which sends it to a person.');
+  });
+  it('puts the gate under the coverage lane when a partial answer has no consumers', () => {
+    const m = eventModel(event({}, { completeness: 'partial', meta: { completeness: 'partial', sourceCounts: { unavailable: 2 } } }));
+    const cov = m.lanes[m.gateLane];
+    expect([cov.key, cov.hatch, cov.decides]).toEqual(['coverage', true, true]);
+    expect(m.gate?.stamp).toBe('Needs a person');
+    expect(m.caption).toBe('no consumer is known to depend on it. Coverage is partial: consumers known only to the 2 unavailable sources are missing.');
+  });
+  it('says "at least" when partial, and marks the coverage lane as deciding too', () => {
+    const m = eventModel(event({ breaks: 4 }, { completeness: 'partial' }));
+    expect(m.caption.startsWith('at least 4 consumers break.')).toBe(true);
+    expect(m.lanes.filter((l) => l.decides).map((l) => l.key)).toEqual(['breaks', 'coverage']);
+  });
+  it('never blocks: a blocked gate from the wire still reads as needing a person', () => {
+    const m = eventModel(event({ breaks: 1 }, { gate: 'blocked' }));
+    expect(m.gate?.stamp).toBe('Needs a person');
+    expect(m.lanes.some((l) => l.tone === 'ok')).toBe(false);
+  });
+  it('clears only when nothing depends, with the gate under the empty answer', () => {
+    const m = eventModel(event({}));
+    expect(m.gate?.stamp).toBe('Clears');
+    expect(m.gateLane).toBe(-1);
+    expect(m.caption).toBe('no contract declares a dependency on it and no source saw a caller; a service with no contract can still call it.');
+    expect(m.gateWhy).toBe('Gate: nothing known depends on redis');
+    expect(m.figRef).toBe('No lane reaches the gate.');
+  });
+  it('hatches unknown, draws the ghost and keeps chips per effect', () => {
+    const m = eventModel(event({ breaks: 6, unknown: 1 }, { consumers: { hidden: 2, highlights: [
+      ...['a', 'b', 'c', 'd', 'e'].map((k) => consumer(k, { effect: 'breaks' })), consumer('x')] } }));
+    expect(m.lanes.find((l) => l.key === 'breaks')!.chips.map((c) => c.key)).toEqual(['a', 'b', 'c', 'd']);
+    expect(m.lanes.find((l) => l.key === 'unknown')!.chips.map((c) => c.key)).toEqual(['x']);
+    const ghost = m.lanes.find((l) => l.ghost)!;
+    expect([ghost.n, ghost.label]).toEqual([2, 'Hidden from you']);
+    expect(m.caption).toContain('2 more you may not see are not counted');
+  });
+  it('words removal and regression from the event kind', () => {
+    expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'removed' } })).lead).toBe('If redis is removed');
+    expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: '1.2.0' } })).lead).toBe('If redis regressed at 1.2.0');
+    expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: `sha256:${'a'.repeat(64)}` } })).lead).toBe('If redis regressed at sha256:aaaaaaaaaaaa');
+  });
+  it('effectOf falls back to unknown, never to compatible', () => {
+    expect(effectOf({ effect: 'breaks' })).toBe('breaks');
+    expect(effectOf({})).toBe('unknown');
+    expect(effectOf({ effect: 'compatible' as Any })).toBe('unknown');
+  });
+  it('answerText states a what-if', () => {
+    expect(answerText(event({ breaks: 1 }))).toBe('A question about the fleet as it is: nothing has changed.');
+    expect(answerText(event({}))).toBe('A question about the fleet as it is: nothing has changed. No consumer is known to depend on it.');
+  });
+  it('never says no consumer is affected over a partial or restricted answer', () => {
+    expect(answerText(event({}, { completeness: 'partial', meta: { completeness: 'partial' } })))
+      .toBe('A question about the fleet as it is: nothing has changed. No consumer you can see is known to depend on it.');
+    expect(answerText(event({}, { consumers: { hidden: 3 } })))
+      .toBe('A question about the fleet as it is: nothing has changed. No consumer you can see is known to depend on it; 3 you may not see are not counted.');
+  });
+  it('says "at least" in the reach step of a partial answer', () => {
+    expect(eventModel(event({ breaks: 4 }, { completeness: 'partial' })).steps[1].cap).toBe('It reaches at least 4 consumers that depend on redis.');
+    expect(eventModel(event({ breaks: 4 })).steps[1].cap).toBe('It reaches the 4 consumers that depend on redis.');
   });
 });

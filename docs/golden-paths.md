@@ -87,8 +87,8 @@ leaves them out. Each path shows its summary,
 its requirements, its plugins, its signature and a command to copy, pinned to
 the path's digest when a registry served it.
 
-![The dashboard's Golden paths page: a figure ranks the paths by the services they created, http-service created 1 of the 39 services and 38 declare none, above the list of paths](assets/screenshots/dashboard-golden-paths-light.png#only-light)
-![The dashboard's Golden paths page: a figure ranks the paths by the services they created, http-service created 1 of the 39 services and 38 declare none, above the list of paths](assets/screenshots/dashboard-golden-paths-dark.png#only-dark)
+![The dashboard's Golden paths page: a figure ranks the paths by the services they created, http-service created 1 of the 44 services and 43 declare none, above the list of paths](assets/screenshots/dashboard-golden-paths-light.png#only-light)
+![The dashboard's Golden paths page: a figure ranks the paths by the services they created, http-service created 1 of the 44 services and 43 declare none, above the list of paths](assets/screenshots/dashboard-golden-paths-dark.png#only-dark)
 
 A golden path never counts as a running service or as a consumer: Overview,
 owner and domain counts, attention, impact and offering consumers leave it out.

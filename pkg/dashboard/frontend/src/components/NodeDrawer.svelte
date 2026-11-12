@@ -35,7 +35,6 @@
         {#if data.sources.length}
           <div><dt>Sources</dt><dd class="drawer-sources">{#each data.sources as s}<span class="src"><SourceDot source={s} />{s}</span>{/each}</dd></div>
         {/if}
-        <div><dt>Blast radius</dt><dd>{data.blastRadius}</dd></div>
       </dl>
     {/if}
 

@@ -82,15 +82,22 @@ export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace
 export type DeliveryBlame = GetResponse<'/api/delivery/blame'>;
 export type DeliveryUndo = GetResponse<'/api/delivery/undo'>;
 export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
+/** Where one Stage stands against its newest candidate and what holds it back. */
+export type DeliveryProgress = GetResponse<'/api/delivery/progress'>;
+/** One artifact's way through a service's Stages: published, signed, then per Stage. */
+export type DeliveryLifecycle = GetResponse<'/api/delivery/lifecycle'>;
+/** One record of a Stage's stream, with its verdicts and whether its signature was checked. */
+export type DeliveryRecord = GetResponse<'/api/delivery/record'>;
 /** The paging and filter a long delivery list takes, from the generated query. */
 export type DeliveryQuery<P extends keyof paths> =
   paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
 /** Which slice of a list an answer holds. */
 export type DeliveryPage = components['schemas']['Page'];
-export type DeliveryPlan = components['schemas']['Delivery.Plan'];
+export type DeliveryPlan = components['schemas']['Delivery.PlanAnswer'];
 export type DeliveryRequest = components['schemas']['Delivery.Request'];
 export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
 export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict'];
+export type DeliveryOffer = components['schemas']['Delivery.Offer'];
 export type InboxItem = components['schemas']['InboxItem'];
 export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 
@@ -495,6 +502,12 @@ export const api = {
     unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
   deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
     unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
+  deliveryProgress: (namespace: string, stage: string): Promise<DeliveryProgress> =>
+    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
+  deliveryLifecycle: (query: DeliveryQuery<'/api/delivery/lifecycle'>): Promise<DeliveryLifecycle> =>
+    unwrap(client.GET('/api/delivery/lifecycle', { params: { query } })),
+  deliveryRecord: (namespace: string, stage: string, id: string): Promise<DeliveryRecord> =>
+    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id } } })),
   deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),

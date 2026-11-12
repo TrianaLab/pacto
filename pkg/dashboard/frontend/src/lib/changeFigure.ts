@@ -44,6 +44,7 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
   const name = (x?: string) => (!x ? '' : level ? levelLabel(x) : versionLabel(x, d.versions));
   const fromV = name(e.spec.params?.from);
   const toV = name(e.spec.params?.to);
+  const toD = level ? '' : e.spec.params?.to ?? '';
   const here = `${namespace}/${e.spec.stage}`;
   // The environment station names the Stage's spec.environment; namespace/Stage only
   // when the Stage could not be read.
@@ -84,6 +85,17 @@ export function changeModel(d: DeliveryOperation, namespace: string) {
     if (!applied) return unknown('verify', v.label, 'not run');
     if (phase === 'Verifying') return { ...v, tone: 'neutral', glyph: '', sub: 'being checked' };
     if (held) return { ...v, tone: 'warn', glyph: 'held', sub: 'ended unknown: a person decides' };
+    // The Stage's newest re-check, when it judged this change's version as this change
+    // shipped it (the operation uid, as the server's CheckSummary.current reads it):
+    // a later change that brought the same version back has its own re-check.
+    const lc = e.stage.lastCheck;
+    const uid = d.operation?.metadata?.uid;
+    if (lc && toD && lc.digest === toD && uid && lc.operation === uid) {
+      const rs = (lc.verdicts ?? []).map((x) => x.result);
+      if (rs.includes('Fail')) return { ...v, tone: 'err', glyph: 'err', sub: 're-checked after release: failed' };
+      if (rs.includes('Unknown')) return { ...v, tone: 'neutral', hatch: true, glyph: 'unknown', sub: 're-checked after release: could not decide' };
+      return { ...v, tone: 'ok', glyph: 'ok', sub: 're-checked after release: passed' };
+    }
     switch (e.status.verification) {
       case 'Verified': return { ...v, tone: 'ok', glyph: 'ok', sub: 'verified' };
       case 'AcceptedUnknown': return { ...v, tone: 'neutral', hatch: true, glyph: 'unknown', sub: 'a person accepted the unknown' };

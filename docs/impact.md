@@ -41,7 +41,7 @@ the diff classifies the revision `BREAKING`, so its consumers are listed.
 The diff is computed once over the old→new revision. The changed service is then
 looked up in the graph and traversed in the **dependents** direction, direct and
 transitive, over declared dependencies and resolved
-[configuration references](#configuration-reference-consumers). Each dependent becomes an *affected consumer*, annotated with the
+[configuration references](impact-consumers.md#configuration-reference-consumers). Each dependent becomes an *affected consumer*, annotated with the
 evidence Pacto has for that edge, and the result rolls up the **active
 targets** the change would land in and the **owners** to notify.
 
@@ -59,7 +59,9 @@ For each dependent the analysis records:
 
 | Field | Meaning |
 |-------|---------|
-| **service / domain / owner** | Who is affected and who owns them. |
+| **service / domain / owner** | Who is affected and who owns them. `owner` is the display label. |
+| **ownerKey** | The owner's canonical key, such as `team:shop`. Group and link by it: two owners can share a label. |
+| **via** | The edge types that make the service a consumer: `dependency`, `configuration_reference`, `policy_reference` or `observed`. |
 | **depth / direct / path** | `depth` is the shortest distance from the consumer to the changed service: 1 is a direct dependent and `>1` is transitive. A consumer that depends on the changed service directly is direct even when it also reaches it through another dependent. `path` is a shortest dependency chain from the consumer to the changed service. |
 | **required** | Whether the consumer declared this dependency as required. |
 | **compatibility** | The consumer's declared compatibility range against the changed service. |
@@ -68,6 +70,9 @@ For each dependent the analysis records:
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
 | **unmet** | Each [guarantee](contract-reference/dependencies-and-state.md#required-guarantees) the consumer requires that the new version does not meet, with both values. |
+| **evidence** | The facts behind the consumer and their age, newest first: its targets, observed calls, unreachable findings and, for a removal, the provider's declared lifecycle. Stale evidence is marked. |
+| **effect** | In an [event answer](impact-what-if.md), what the event does to the consumer: `breaks`, `may-degrade` or `unknown`. |
+| **resources** | In a removal answer, what the consumer asked the removed service for, with one provisioning status per environment, at most 20 (`resourcesTotal` counts them all). |
 | **note** | A plain-words qualifier. On a `BREAKING` change a `compatible` verdict only means the range accepts the new version, so the note says to check that the consumer does not use what the change removes. An open range such as `>=1.0.0` accepts every new major version, and the note says so. |
 
 ### Confidence model
@@ -93,36 +98,9 @@ affected-consumer claim.
 > let a direct edge become `observed` or `corroborated`.
 
 A `partial` snapshot is incomplete knowledge, an `unknown` verdict is
-uncertainty and an `inferred` consumer is a lead to verify.
-
-### Configuration-reference consumers
-
-A service that takes a configuration schema from the changed service by `ref`
-is a consumer too. Pacto selects its configuration in the new revision and
-checks its inline and environment values against that schema. With a
-dependency too, the stricter of the range and values verdicts speaks.
-
-- Values that pass give `compatible`.
-- Values that fail give `incompatible`, and the note lists each violation as
-  `configuration <name>: <violation> against <provider>@<version>`.
-- A selection that fails in a 2.4 consumer gives `incompatible`.
-- `unknown` remains when the consumer's values or the new schema cannot be
-  read, or an older consumer's selection fails, and the note says why.
-
-These consumers carry `declared` confidence and feed the
-[release gate](#release-gate-and-exit-status): a `BREAKING` change with one of
-them never ends `clear`.
-
-A configuration reference that is neither digest-pinned nor locked cannot be
-placed on a revision. When such references name the changed service, by
-repository or by name, the
-answer adds a `CONFIG_REF_CONSUMERS_UNRESOLVED` limitation and its
-completeness is `partial`, so the gate stays `unverified`.
-
-Observed edges come from OpenTelemetry traces via `--traces <file>`. Beyond
-corroborating declared consumers, traces surface **observed-only (shadow)
-consumers**: services seen calling the changed service without declaring the
-dependency. With traces they appear as direct consumers at `observed` confidence.
+uncertainty and an `inferred` consumer is a lead to verify. Evidence older than
+24 hours before `asOf` makes confidence `unknown`; see
+[evidence freshness](impact-consumers.md#evidence-freshness).
 
 ## CLI
 
@@ -165,9 +143,9 @@ The CLI exits on it, and the MCP tool returns it:
 
 | `gate` | Exit | When |
 |--------|------|------|
-| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. |
-| `unverified` | `2` | The change is `BREAKING` and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. |
-| `clear` | `0` | The change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one. |
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. |
+| `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
+| `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one. |
 
 A command that could not run also exits `1`, with nothing on stdout.
 
@@ -188,6 +166,7 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+    path: web > api  provenance: declared  via: dependency
 By outcome: 1 incompatible, 0 unknown, 0 compatible
 Most affected owners: frontend 1 (1 incompatible)
 Release gate: unverified
@@ -196,8 +175,8 @@ $ echo $?
 2
 ```
 
-Give the snapshot a source that knows where things run and the same command
-blocks:
+Give the snapshot a source that knows where things run, with evidence from
+the last 24 hours, and the same command blocks:
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml
@@ -207,6 +186,8 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+    path: web > api  provenance: declared  via: dependency
+    evidence: target production/kubernetes-workload/shop%2Fweb 10m0s before asOf
 By outcome: 1 incompatible, 0 unknown, 0 compatible
 Most affected owners: frontend 1 (1 incompatible)
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
@@ -239,7 +220,8 @@ to the **fleet query**
 that family's boundaries: it projects the operational graph. It is read-only and grants no permission.
 It analyses over the same snapshot as the `pacto_fleet_*` tools, so an impact
 answer and a graph answer from the same interval carry the same `snapshotId`,
-unless the impact answer carries `newRevisionAdded: true`.
+unless the impact answer carries `newRevisionAdded: true`. Its `event`
+argument and the workspace's event mode [ask what happens if](impact-what-if.md).
 
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are
@@ -255,6 +237,10 @@ declares an observation source, because observed evidence needs a real source.
 
 ## What's next
 
+- [Ask what happens if](impact-what-if.md): impact for a service that becomes
+  unavailable, is removed or regresses
+- [Impact consumers and evidence](impact-consumers.md): configuration and
+  policy referrers, observed callers and evidence freshness
 - [The Pacto Operational Graph](operational-graph.md): the read model impact
   projects onto, and the knowledge vocabulary every answer carries
 - [Change classification rules](contract-reference/diff.md): the semantic diff

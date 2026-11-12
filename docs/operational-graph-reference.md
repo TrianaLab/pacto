@@ -218,13 +218,24 @@ missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
 `search` before you treat a subject miss as an absence.
 
+### Where a service runs
+
+| `placement` | Detail |
+|---|---|
+| Read from | A service's detail: `pacto fleet entity service <key>`, `pacto_fleet_entity` and the dashboard's service page. Observed from targets, so it covers services delivered without Pacto delivery too |
+| Groups | One per `delivery.pacto.trianalab.io/environment` label the targets report; no label or conflicting labels form one unlabelled group |
+| Order | Alphabetical (natural order), unlabelled last; never a promotion order, which [delivery status](integrations/kubernetes/delivery-status.md) gives |
+| Counts | `targets`, then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment |
+| Revisions | The newest 8 distinct revisions, with `revisionsTotal` and `revisionsTruncated` |
+| Restricted | Only targets your view may see count; on a partial answer the CLI heading reads "Runs in (observed, targets Pacto can see)" |
+
 ### Configuration-reference consumers
 
 A service that takes a configuration schema from another contract by `ref`
 consumes that contract. Once the reference resolves to a revision in the
 snapshot, by digest or through the consumer's `pacto.lock`, the edge counts
 like a declared dependency: graph traversal, `dependents`, the neighborhood
-and hidden counts include it, and [impact](impact.md#configuration-reference-consumers)
+and hidden counts include it, and [impact](impact-consumers.md#configuration-reference-consumers)
 judges the consumer. A neighborhood edge carries the relation
 `configuration_reference` and no declared-against-observed comparison, because
 a reference never produces runtime calls. Policy references stay out: a policy

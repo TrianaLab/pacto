@@ -166,6 +166,8 @@ a.lane-count:hover b, .lane-more:hover { text-decoration: underline; }
 .stack-name { grid-area: name; justify-self: start; font-weight: 600; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .stack-labels { display: grid; gap: 4px; font-size: var(--text-xs); line-height: 1.4; color: var(--c-text-2); }
 .stack-labels > span { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--sp-2); }
+/* An event's verb may carry a digest: it breaks anywhere rather than spill. */
+.stack-labels .ev-verb { min-width: 0; overflow-wrap: anywhere; }
 .splitcell { grid-area: split; display: grid; place-items: center; }
 .impact > .lanes { grid-area: lanes; }
 .fig[data-w="col"] .impact { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "name name" "stack stack" "split ." ". lanes"; row-gap: var(--sp-3); }

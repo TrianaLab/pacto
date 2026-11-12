@@ -5,8 +5,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -87,6 +89,44 @@ func TestDemoConfigRefEdgeResolves(t *testing.T) {
 	t.Error("impact does not list catalog-service")
 }
 
+// demoEvent answers an event about service over the fleet `pacto fleet --local
+// examples/demo/bundles` builds.
+func demoEvent(t *testing.T, kind, service string) *impact.Result {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: kind, Service: service}})
+}
+
+// TestDemoEventUnavailableRedis: redis has required dependents (auth-service
+// among them) and one optional one, pricing-service, so both lanes show.
+func TestDemoEventUnavailableRedis(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "redis")
+	effects := map[string]string{}
+	for _, c := range res.Consumers {
+		effects[c.Service] = c.Effect
+	}
+	if effects["auth-service"] != impact.EffectBreaks || effects["pricing-service"] != impact.EffectMayDegrade || res.Gate != impact.GateUnverified {
+		t.Errorf("effects %v, gate %s (%s)", effects, res.Gate, res.GateReason)
+	}
+}
+
+// TestDemoEventUnavailablePaymentsBreaksOnly: every path to payments-service
+// is a required dependency.
+func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "payments-service")
+	if len(res.Consumers) == 0 {
+		t.Fatal("payments-service has no consumers")
+	}
+	for _, c := range res.Consumers {
+		if c.Effect != impact.EffectBreaks {
+			t.Errorf("%s effect %s via %v", c.Service, c.Effect, c.Path)
+		}
+	}
+}
+
 // TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
 // reports to the revisions they name: each digest is the local content identity
 // of its consumer bundle, so an edit to a bundle (its pacto.lock included) that
@@ -105,6 +145,54 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 	}
 	if len(snap.Provisioning) != 2 {
 		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	}
+}
+
+// TestDemoPlacement: the CLI demo's targets say where three services run.
+// payments-service runs in production; audit-log's target names the
+// environment of its own Stage (an exact match, so the page links the two);
+// notification-worker runs in staging, which none of its Stages covers.
+func TestDemoPlacement(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	placed := func(svc string) []string {
+		d, err := q.EntityDetail(fleet.KindService, svc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envs []string
+		for _, p := range d.Service.Placement.Items {
+			envs = append(envs, p.Environment)
+		}
+		return envs
+	}
+	d, err := newDemoDelivery(time.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages, _ := d.Stages(t.Context(), "")
+	envsOf := func(svc string) []string {
+		var envs []string
+		for _, st := range stages {
+			if st.Spec.Service.Name == svc {
+				envs = append(envs, st.Spec.Environment)
+			}
+		}
+		return envs
+	}
+	if got := placed("payments-service"); !slices.Contains(got, "production") {
+		t.Errorf("payments-service placement %v, want production", got)
+	}
+	audit := envsOf("audit-log")
+	if got := placed("audit-log"); len(audit) != 1 || !slices.Contains(got, audit[0]) {
+		t.Errorf("audit-log placement %v, want its Stage's environment %v", got, audit)
+	}
+	if got, covered := placed("notification-worker"), envsOf("notification-worker"); !slices.Contains(got, "staging") || slices.Contains(covered, "staging") {
+		t.Errorf("notification-worker placement %v with Stages in %v, want staging beside them", got, covered)
 	}
 }
 

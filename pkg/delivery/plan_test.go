@@ -1144,3 +1144,15 @@ func TestImpactGateUnresolvedConfigRef(t *testing.T) {
 		t.Fatalf("an unresolved configuration reference must make the gate unverified: %+v", p)
 	}
 }
+
+func TestDescribeRangesNamesPolicyReferrers(t *testing.T) {
+	got := describeRanges([]impact.AffectedConsumer{
+		{Service: "checkout", Compatibility: "^3.0.0"},
+		{Service: "audit", Via: []string{fleet.RelationshipPolicyRef}},
+		{Service: "ledger", Compatibility: "^2.0.0", Via: []string{fleet.RelationshipDependency, fleet.RelationshipPolicyRef}},
+	})
+	want := "checkout (accepts ^3.0.0), audit (fails its new policy), ledger (accepts ^2.0.0 and references its policy)"
+	if got != want {
+		t.Fatalf("describeRanges = %q, want %q", got, want)
+	}
+}

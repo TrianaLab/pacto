@@ -104,6 +104,21 @@ func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 	}
 }
 
+// TestShadowHeldOnFrozenKeepsQuestion: a frozen observe Stage whose shadow
+// plan needs a person keeps the question that person is asked; the freeze is
+// a conflict of the plan, never the question.
+func TestShadowHeldOnFrozenKeepsQuestion(t *testing.T) {
+	e := observeEnv(t)
+	e.setStage(func(st *delivery.StageStatus) { st.Frozen, st.FrozenReason = true, "a person froze it" })
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	b := shadowOf(e.getStage().Status, dB)
+	if b == nil || b.Predicted != delivery.PredictHeld || b.Question == "" || strings.HasPrefix(b.Question, "StageFrozen:") {
+		t.Fatalf("a held shadow on a frozen Stage keeps its question: %+v", b)
+	}
+}
+
 // TestShadowWouldHaveRefused: what GitOps applied that pacto publish never
 // published is planned as a fully automatic Stage would: rejected.
 func TestShadowWouldHaveRefused(t *testing.T) {

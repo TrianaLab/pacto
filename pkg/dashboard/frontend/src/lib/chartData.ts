@@ -1,44 +1,5 @@
 import { ownerKey, UNOWNED_KEY } from './owners';
 
-/**
- * Quadrant data: distance from a service's own readiness threshold (x) vs blast
- * radius (y).
- *
- * x is `score - minScore`, not the raw score, because the threshold is per service.
- * The chart's whole claim is "left of the line needs work", and against a fixed
- * midpoint that claim was false: a service scoring 60 against a gate of 80 sat on the
- * healthy side of a line drawn at 50 while failing its own gate, and a service scoring
- * 45 against a gate of 40 sat on the failing side while passing. Relative to its own
- * threshold, 0 is the gate for every point on the plot.
- *
- * A service with no declared threshold is measured against 0 — every score clears it,
- * which is exactly what "nobody set a bar" means.
- */
-export interface QuadrantItem {
-  name: string;
-  x: number; // score - minScore: negative is below its own gate
-  y: number; // blastRadius
-  status: string;
-}
-
-export function quadrantData(
-  services: Array<{
-    name: string;
-    contractStatus?: string;
-    blastRadius?: number;
-    readiness?: { score?: number; minScore?: number } | null;
-  }>
-): QuadrantItem[] {
-  return services
-    .filter((svc) => svc.readiness?.score != null)
-    .map((svc) => ({
-      name: svc.name,
-      x: svc.readiness!.score! - (svc.readiness!.minScore ?? 0),
-      y: svc.blastRadius ?? 0,
-      status: svc.contractStatus || '',
-    }));
-}
-
 /** Heatmap cell: owner × category with aggregated score. */
 export interface HeatmapCell {
   owner: string;

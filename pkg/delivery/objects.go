@@ -5,6 +5,7 @@ type ObjectMeta struct {
 	Name              string            `json:"name"`
 	Namespace         string            `json:"namespace,omitempty"`
 	UID               string            `json:"uid,omitempty"`
+	Generation        int64             `json:"generation,omitempty"`
 	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
 	Finalizers        []string          `json:"finalizers,omitempty"`
@@ -102,6 +103,7 @@ type StageNow struct {
 type HistoryEntry struct {
 	Seq          int64        `json:"seq,omitempty"`
 	Operation    string       `json:"operation"`
+	OperationUID string       `json:"operationUID,omitempty" doc:"The Operation's uid, when known"`
 	Type         string       `json:"type"`
 	From         string       `json:"from,omitempty"`
 	To           string       `json:"to,omitempty"`
@@ -237,10 +239,10 @@ type Blame struct {
 type Undo struct {
 	Operation string `json:"operation"`
 	// Kind is rollback, promote or none.
-	Kind    string `json:"kind"`
-	Note    string `json:"note"`
-	Plan    *Plan  `json:"plan,omitempty"`
-	Command string `json:"command,omitempty"`
+	Kind    string      `json:"kind"`
+	Note    string      `json:"note"`
+	Plan    *PlanAnswer `json:"plan,omitempty"`
+	Command string      `json:"command,omitempty"`
 }
 
 // RecordCheck is one record a verification read.

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,8 +13,13 @@ import (
 	"testing"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"k8s.io/client-go/dynamic"
+
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 func TestMCPCommand_Help(t *testing.T) {
@@ -381,4 +387,157 @@ func waitForServer(t *testing.T, url string, timeout time.Duration) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("server not ready at %s after %s", url, timeout)
+}
+
+// mcpImpactSession builds a fleet MCP server over a local fleet holding
+// orders with flags set, and connects a client to it.
+func mcpImpactSession(t *testing.T, flags map[string]string) *mcpsdk.ClientSession {
+	t.Helper()
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	local := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(local, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "orders", "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: orders\n  version: \"1.0.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flags["fleet"], flags["local"] = "true", local
+	for k, v := range flags {
+		if err := cmd.Flags().Set(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+// callImpact calls pacto_impact and returns its text and whether it failed.
+func callImpact(t *testing.T, s *mcpsdk.ClientSession, args map[string]any) (string, bool) {
+	t.Helper()
+	res, err := s.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_impact", Arguments: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Content[0].(*mcpsdk.TextContent).Text, res.IsError
+}
+
+// writeTraces writes an empty OTLP/JSON trace document.
+func writeTraces(t *testing.T) string {
+	t.Helper()
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tf
+}
+
+// TestMCPImpactHTTPNoAuthNoDelivery: an HTTP server without --auth-issuer
+// answers a regressed event without reading delivery as itself.
+func TestMCPImpactHTTPNoAuthNoDelivery(t *testing.T) {
+	s := mcpImpactSession(t, map[string]string{"transport": "http"})
+	text, failed := callImpact(t, s, map[string]any{"event": "regressed", "service": "orders", "revision": "sha256:a"})
+	if failed || !strings.Contains(text, "DELIVERY_EVIDENCE_UNAVAILABLE") || !strings.Contains(text, "reads no delivery for its callers") {
+		t.Fatalf("regressed over HTTP:\n%s", text)
+	}
+}
+
+// TestMCPImpactHTTPNoAuthRefusesTraces: an HTTP server without --auth-issuer
+// reads no traces path and no local ref a caller names.
+func TestMCPImpactHTTPNoAuthRefusesTraces(t *testing.T) {
+	s := mcpImpactSession(t, map[string]string{"transport": "http"})
+	if text, failed := callImpact(t, s, map[string]any{"event": "unavailable", "service": "orders", "traces": writeTraces(t)}); !failed || !strings.Contains(text, "reads no file path") {
+		t.Fatalf("traces over HTTP:\n%s", text)
+	}
+	if text, failed := callImpact(t, s, map[string]any{"old_ref": "./a", "new_ref": "oci://x/a:1"}); !failed || !strings.Contains(text, "pass oci:// references") {
+		t.Fatalf("local ref over HTTP:\n%s", text)
+	}
+}
+
+// TestMCPImpactStdioReadsTraces: a stdio server is its own user's, so it
+// reads the traces file and answers the event.
+func TestMCPImpactStdioReadsTraces(t *testing.T) {
+	s := mcpImpactSession(t, map[string]string{})
+	text, failed := callImpact(t, s, map[string]any{"event": "unavailable", "service": "orders", "traces": writeTraces(t)})
+	if failed || !strings.Contains(text, `"gate": "clear"`) {
+		t.Fatalf("stdio event with traces:\n%s", text)
+	}
+	// The file is read: a document that is not OTLP/JSON fails the call.
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if text, failed := callImpact(t, s, map[string]any{"event": "unavailable", "service": "orders", "traces": bad}); !failed || !strings.Contains(text, "parse traces") {
+		t.Fatalf("a bad traces file is read and refused:\n%s", text)
+	}
+	if text, failed := callImpact(t, s, map[string]any{"event": "unavailable", "service": "orders", "traces": "/nonexistent/traces.json"}); !failed {
+		t.Fatalf("a missing traces file is an error:\n%s", text)
+	}
+}
+
+// signedInImpact is the provider a server whose callers sign in gets: it adds
+// no revision and is not trusted.
+func signedInImpact(t *testing.T, d deps) func(context.Context, *fleet.FleetSnapshot, pactomcp.ImpactRequest) (*impact.Result, error) {
+	t.Helper()
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", d)
+	cmd.SetContext(context.Background())
+	return mcpImpactProvider(cmd, svc, d, false, false)
+}
+
+func TestMCPImpactSignedInRefusesTraces(t *testing.T) {
+	_, err := signedInImpact(t, defaultDeps())(context.Background(), &fleet.FleetSnapshot{}, pactomcp.ImpactRequest{OldRef: "oci://x/a:1", NewRef: "oci://x/a:2", TracesPath: writeTraces(t)})
+	if err == nil || !strings.Contains(err.Error(), "reads no file path") {
+		t.Fatalf("traces for a signed-in caller: %v", err)
+	}
+}
+
+func TestMCPImpactSignedInRefusesLocalRefs(t *testing.T) {
+	provide := signedInImpact(t, defaultDeps())
+	for _, req := range []pactomcp.ImpactRequest{{OldRef: "./old", NewRef: "oci://x/a:2"}, {OldRef: "oci://x/a:1", NewRef: "/tmp/new"}} {
+		if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, req); err == nil || !strings.Contains(err.Error(), "pass oci:// references") {
+			t.Errorf("%+v: %v", req, err)
+		}
+	}
+}
+
+func TestMCPImpactSignedInNoDelivery(t *testing.T) {
+	d := defaultDeps()
+	d.newDynamic = func() (dynamic.Interface, error) {
+		t.Fatal("a signed-in caller's request never reads delivery as this process")
+		return nil, nil
+	}
+	res, err := signedInImpact(t, d)(context.Background(), &fleet.FleetSnapshot{},
+		pactomcp.ImpactRequest{Event: &impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}})
+	if err != nil || !strings.Contains(res.GateReason, "not read in full") {
+		t.Fatalf("signed-in regressed = %+v %v", res, err)
+	}
+}
+
+// TestMCPImpactStdioReadsDelivery: a stdio server reads delivery for a
+// regressed event with its own kubeconfig.
+func TestMCPImpactStdioReadsDelivery(t *testing.T) {
+	d := defaultDeps()
+	d.newDynamic = func() (dynamic.Interface, error) { return nil, errors.New("no kubeconfig") }
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", d)
+	cmd.SetContext(context.Background())
+	res, err := mcpImpactProvider(cmd, svc, d, true, true)(context.Background(), &fleet.FleetSnapshot{},
+		pactomcp.ImpactRequest{Event: &impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}})
+	if err != nil || len(res.Limitations) == 0 || !strings.Contains(res.Limitations[len(res.Limitations)-1].Message+res.Limitations[0].Message, "no cluster to read delivery from") {
+		t.Fatalf("stdio regressed = %+v %v", res, err)
+	}
 }

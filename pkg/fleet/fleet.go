@@ -448,6 +448,10 @@ type ServiceRecord struct {
 	// named. Zero outside a restricted answer.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
+	// HiddenPolicyReferrers counts the hidden services that reference this
+	// one through a policy reference and are not already counted in
+	// HiddenDependents. They are never named. Zero outside a restricted answer.
+	HiddenPolicyReferrers int `json:"hiddenPolicyReferrers,omitempty"`
 	// Template marks a golden path: its newest readable revision declares
 	// service.template and the fleet knows it runs nowhere (see deriveTemplate).
 	// A golden path consumes nothing, provides no offering and stays out of the

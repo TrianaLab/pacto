@@ -324,6 +324,9 @@ type Caller struct {
 	// Policy is the published ClassPolicy the caller was classified with,
 	// for the teams and person checks a client makes before it offers.
 	Policy ClassPolicy `json:"-"`
+	// PolicyErr says why the published policy could not be read, so Policy
+	// is the defaults and Class may be wrong: offers are then unavailable.
+	PolicyErr string `json:"-"`
 }
 
 // InTeams reports whether groups name one of the teams: the group T, or with

@@ -90,6 +90,7 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"press Propose on fraud", "Propose Advise for fraud in test"},
 		{"press Roll back this change", "change-rollback"},
 		{"press Compare revisions", "#sec-revisions button[type=submit]"},
+		{"press Ask", "#sec-revisions button[type=submit]"},
 		{"set Earlier revision", "#impact-old-rev"},
 		{"typing orders", "graph-discovery"},
 		{"Open orders-service", "graph-focus-link"},

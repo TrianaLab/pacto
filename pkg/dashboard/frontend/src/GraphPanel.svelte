@@ -65,7 +65,7 @@
       <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>
       <span class="legend-sep">|</span>
       <span class="legend-item" data-tip="On focus: what this service depends on"><span class="legend-line dep"></span> depends on</span>
-      <span class="legend-item" data-tip="On focus: what depends on this service (blast radius)"><span class="legend-line dependent"></span> depended on by</span>
+      <span class="legend-item" data-tip="On focus: what depends on this service"><span class="legend-line dependent"></span> depended on by</span>
     </div>
   {/if}
 </div>

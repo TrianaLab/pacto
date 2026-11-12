@@ -195,6 +195,10 @@ export function installScaleFixture(): void {
         const environment = longName(`prod-${i}`);
         return { environment, errored: (i * 37) % 1300, held: (i * 53) % 900, frozen: i % 4, upstream: i ? [longName(`prod-${i - 1}`)] : [] };
       });
+      // A frozen row's unfreeze offer at its longest reason.
+      for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -207,6 +211,32 @@ export function installScaleFixture(): void {
           upstream: i ? [longName(`prod-${i - 1}`)] : [],
         }));
       }
+      // The Stage rows' free text at its longest (the service page reads it per row);
+      // keys, digests and hrefs stay the engine's.
+      for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
+        if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+        for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
+        const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
+        for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+      }
+    }
+    // The Why card at its longest: many reasons, each with a long message and fix.
+    if (route === '/api/delivery/progress') {
+      const base = (doc.reasons as Record<string, unknown>[] | null) ?? [];
+      doc.summary = longName(String(doc.summary ?? 'summary'));
+      doc.reasons = Array.from({ length: 12 }, (_, i) => ({ ...(base[i % Math.max(base.length, 1)] ?? { code: 'NotReady' }),
+        message: longName(`reason-${i}`), fix: i % 2 ? `pacto delivery approve -n ${longName(`ns-${i}`)} op-${i}` : longName(`fix-${i}`) }));
+      if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
+    }
+    // Where a service runs, observed: long environment names and version labels
+    // (keys and hrefs stay the engine's).
+    if (route === '/api/fleet/entities/service') {
+      const pl = (doc.service as Record<string, unknown> | undefined)?.placement as { items?: Record<string, unknown>[] } | undefined;
+      for (const it of pl?.items ?? []) {
+        if (it.environment) it.environment = longName(String(it.environment));
+        for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
+      }
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -214,6 +244,30 @@ export function installScaleFixture(): void {
         tl.buckets.forEach((b, i) => { b.released = 1200 + i * 37; b.failed = (i * 13) % 40; b.held = (i * 7) % 25; b.other = 300; });
         for (const k of ['released', 'failed', 'held', 'other']) tl.totals[k] = tl.buckets.reduce((n, b) => n + b[k], 0);
       }
+      // The History columns at their longest: every change's cause and correlation id,
+      // and undo offers with long reasons, every other one refused so both forms show.
+      // Operation names, record ids and hrefs stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        for (const en of (h.entries as Record<string, unknown>[] | undefined) ?? []) {
+          if (!en.operation) continue;
+          const c = (en.cause as Record<string, unknown> | undefined) ?? {};
+          const v = c.verdict as Record<string, unknown> | undefined;
+          if (v) v.message = longName(`verdict-${en.operation}`);
+          en.cause = { ...c, reason: longName(`cause-${en.operation}`) };
+          en.correlationID = longName(`correlation-${en.operation}`);
+        }
+        Object.values((h.undoOffers as Record<string, Record<string, unknown>> | undefined) ?? {}).forEach((o, i) => {
+          o.reason = longName(`undo-${o.operation}`);
+          if (i % 2) o.available = false;
+        });
+      }
+    }
+    // One record at its longest: many verdicts with long messages and citations.
+    if (route === '/api/delivery/record') {
+      const base = ((doc.verdicts as Record<string, unknown>[] | null) ?? [])[0] ?? { gate: 'pacto.diff', phase: 'pre', result: 'Pass' };
+      doc.verdicts = Array.from({ length: 12 }, (_, i) => ({ ...base, message: longName(`verdict-${i}`),
+        citation: Object.fromEntries(Array.from({ length: 6 }, (_, j) => [longName(`key-${i}-${j}`).slice(0, 40), longName(`value-${i}-${j}`)])) }));
+      if (typeof doc.intentReason === 'string') doc.intentReason = longName(doc.intentReason || 'reason');
     }
     // The publish figure at fleet scale: thousands of services and versions, and the
     // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
@@ -229,6 +283,26 @@ export function installScaleFixture(): void {
         pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'unknown' ? 700 : q.get('signed') === 'yes' ? 2500 : 5000;
         if (pg.offset + pg.limit < pg.total) pg.nextOffset = pg.offset + pg.limit;
       }
+      // Each version's source revision at its longest; digests stay the engine's.
+      for (const svc of (doc.services as { versions?: Record<string, unknown>[] }[] | undefined) ?? []) {
+        for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
+      }
+    }
+    // A version's lifecycle at its longest: long environment, Stage and record names, a
+    // long note and the newest 50 events on every Stage.
+    if (route === '/api/delivery/lifecycle') {
+      doc.note = longName(String(doc.note || 'note'));
+      for (const k of ['sourceRevision', 'version']) if (typeof doc[k] === 'string') doc[k] = longName(doc[k] as string);
+      for (const k of ['signedOn', 'unsignedOn']) if (Array.isArray(doc[k])) doc[k] = (doc[k] as string[]).map(longName);
+      // Many Stages: the demo's, repeated under distinct long names.
+      const base = (doc.stages as Record<string, unknown>[] | undefined) ?? [];
+      if (base.length) doc.stages = Array.from({ length: 12 }, (_, i) => ({ ...base[i % base.length], stage: `${base[i % base.length].stage}-${i}` }));
+      for (const st of (doc.stages as Record<string, unknown>[] | undefined) ?? []) {
+        st.environment = longName(String(st.environment));
+        st.stage = longName(String(st.stage));
+        const evs = (st.events as Record<string, unknown>[] | undefined) ?? [];
+        if (evs.length) st.events = Array.from({ length: 50 }, (_, i) => ({ ...evs[i % evs.length], record: i % 3 ? longName(`record-${i}`) : undefined }));
+      }
     }
     if (route === '/api/delivery/autonomy') {
       doc.byLevel = [{ level: 'observe', stages: 1200 }, { level: 'advise', stages: 2300 }, { level: 'auto-nonbreaking', stages: 1100 }, { level: 'autonomous', stages: 380 }, { level: '', stages: 20 }];
@@ -242,38 +316,114 @@ export function installScaleFixture(): void {
         ...Array.from({ length: 9 }, (_, i) => longName(`consumer-${i}`)),
       ];
       const V = ['incompatible', 'unknown', 'compatible'];
+      const E = ['breaks', 'may-degrade', 'unknown'];
+      let req: Record<string, unknown> = {};
+      try { req = JSON.parse(body ?? '{}'); } catch { /* no body */ }
+      const outcome = String(req.outcome ?? '');
+      const event = String(req.event ?? '');
+      // Every fact the table renders, long: via, evidence (one stale), more than 20
+      // targets, resources with phases and an owner link, on items and highlights alike.
       const consumer = (name: string, i: number) => {
         const key = `domain-load/consumer-${i}`;
+        const targets = Array.from({ length: 21 }, (_, t) => ({ kind: 'target', key: `prod/k8s/${key}-${t}`, label: longName(`prod-eu-west-1/${name}-target-${t}`), href: `/fleet/targets/${encodeURIComponent(`prod/k8s/${key}-${t}`)}` }));
         return {
           service: { kind: 'service', key, label: name, domain: 'domain-load', href: `/fleet/services/${encodeURIComponent(key)}` },
-          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: V[i % 3], compatibility: '^1.0.0',
-          blocking: i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
+          direct: true, depth: 1, confidence: 'declared', compatibilityVerdict: event ? 'unknown' : V[i % 3], compatibility: event ? undefined : '^1.0.0',
+          blocking: !event && i === 0, owner: longName(`team-${i}`), path: [], pathTotal: 0, pathTruncated: false,
+          ownerRef: { kind: 'owner', key: `team:team-${i}`, label: longName(`team-${i}`), href: `/fleet/owners/${encodeURIComponent(`team:team-${i}`)}` },
+          provenance: 'declared+observed', via: ['dependency', 'configuration_reference', 'policy_reference'], required: i % 2 === 0,
+          effect: event ? E[i % 3] : undefined, uncontracted: event && i === 2 ? true : undefined,
+          targets: targets.slice(0, 20), targetsTotal: 37,
+          evidence: [
+            { kind: 'target', provenance: 'observed', source: targets[0].key, message: `runs on ${targets[0].label}`, at: '2026-11-10T08:00:00Z' },
+            { kind: 'observed-call', provenance: 'observed', source: longName('mira-observation-source'), message: `${name} called it ${longName('through the mesh sidecar')}`, at: '2026-11-08T08:00:00Z', stale: true },
+            { kind: 'unreachable', provenance: 'observed', message: longName('DEPENDENCY_UNREACHABLE reported on the consumer target'), at: '2026-11-10T07:00:00Z' },
+            { kind: 'lifecycle', provenance: 'declared', message: 'the provider declares itself deprecated' },
+          ],
+          resources: event === 'removed' ? Array.from({ length: 3 }, (_, r) => ({ entry: longName(`database-${r}`), environment: longName(`production-${r}`), phase: ['Ready', 'Failed', 'Provisioning'][r], provenance: 'observed', verified: true })) : undefined,
+          resourcesTotal: event === 'removed' ? 24 : undefined,
         };
       };
       const all = names.map(consumer);
-      // One consistent population: byVerdict judges the range alone (6 carry a verdict
-      // this engine does not know); the 5 refused accept the range, so the outcome
-      // tally counts them with the incompatible: 14 + 5 = 19.
-      const byOutcome = [{ key: 'incompatible', count: 19 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1207 }, { key: 'unclassified', count: 6 }];
-      let outcome = '';
-      try { outcome = String(JSON.parse(body ?? '{}').outcome ?? ''); } catch { /* no body */ }
-      const listed = outcome ? all.filter((c) => c.compatibilityVerdict === outcome) : all;
-      Object.assign(cs, {
-        items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: Math.min(10, listed.length), offset: 0, limit: 10,
-        nextOffset: 10, truncated: true, hidden: 3, refused: 5,
-        outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)!.count : 1284,
-        byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1212 }, { key: 'novel', count: 6 }],
-        byOutcome,
-        byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
-        beyondRanking: 400, noOwner: 84, owners: 300,
-      });
-      if (meta) meta.completeness = 'partial';
+      // A leaf (the real answer lists no consumer) draws the clear answer: every lane
+      // empty and the gate under them, the shape a complete snapshot gives it.
+      const leaf = !!event && !cs.total;
+      if (leaf) {
+        doc.gate = 'clear';
+        doc.gateReason = longName('no contract in the complete snapshot declares a dependency on it and no observation source saw a caller; a service with no contract can still call it');
+      } else if (event) {
+        // The event population: lanes by effect sum to the total, and each lane's list
+        // (filtered by effect, never by verdict) totals its lane.
+        const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
+        const listed = outcome ? all.filter((c) => c.effect === outcome) : all;
+        Object.assign(cs, {
+          items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 4000, direct: 1400, count: Math.min(10, listed.length), offset: 0, limit: 10,
+          nextOffset: 10, truncated: true, hidden: 3, refused: 0,
+          outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)?.count ?? 0 : 4000,
+          byVerdict: [{ key: 'unknown', count: 4000 }], byOutcome,
+          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), ownerKey: `team:team-${i}`, consumers: 200 - i * 20, incompatible: 40 - i * 9 })),
+          beyondRanking: 3200, noOwner: 84, owners: 300,
+        });
+        if (event === 'regressed') {
+          const digest = String(req.revision ?? '');
+          const lim = doc.limitations as { items: Record<string, unknown>[]; total: number; count: number };
+          if (digest.startsWith('sha256:c1ea')) {
+            // Read in full and clean: no failure recorded, nothing unread.
+            doc.regression = [];
+            const kept = lim.items.filter((l) => l.code !== 'DELIVERY_EVIDENCE_UNAVAILABLE');
+            lim.total -= lim.items.length - kept.length; lim.count = kept.length; lim.items = kept;
+          } else if (digest.startsWith('sha256:')) {
+            doc.regression = Array.from({ length: 6 }, (_, i) => ({
+              kind: ['failed', 'check', 'rollback'][i % 3], digest, namespace: longName(`shop-namespace-${i}`), stage: longName(`production-eu-west-${i}`),
+              gate: i % 3 === 1 ? longName('smoke-error-rate') : undefined, message: longName(`the check found ${i} errors in the last window of the canary analysis`),
+              at: '2026-11-10T07:00:00Z', record: i % 2 ? longName(`record-${i}`) : undefined,
+            }));
+          } else {
+            if (!lim.items.some((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE')) {
+              lim.items.unshift({ code: 'DELIVERY_EVIDENCE_UNAVAILABLE', message: longName('name the artifact digest (sha256:...) to read delivery evidence: a version does not identify one artifact') });
+              lim.total += 1; lim.count += 1;
+            }
+          }
+        }
+      } else {
+        // One consistent population: byVerdict judges the range alone (6 carry a verdict
+        // this engine does not know); the 5 refused accept the range, so the outcome
+        // tally counts them with the incompatible: 14 + 5 = 19.
+        const byOutcome = [{ key: 'incompatible', count: 19 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1207 }, { key: 'unclassified', count: 6 }];
+        const listed = outcome ? all.filter((c) => c.compatibilityVerdict === outcome) : all;
+        Object.assign(cs, {
+          items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 1284, direct: 412, count: Math.min(10, listed.length), offset: 0, limit: 10,
+          nextOffset: 10, truncated: true, hidden: 3, refused: 5,
+          outcome: outcome || undefined, matching: outcome ? byOutcome.find((b) => b.key === outcome)!.count : 1284,
+          byVerdict: [{ key: 'incompatible', count: 14 }, { key: 'unknown', count: 52 }, { key: 'compatible', count: 1212 }, { key: 'novel', count: 6 }],
+          byOutcome,
+          byOwner: Array.from({ length: 5 }, (_, i) => ({ owner: longName(`team-${i}`), consumers: 200 - i * 20, incompatible: 9 - i })),
+          beyondRanking: 400, noOwner: 84, owners: 300,
+        });
+        // Golden paths to review, with long names, past the bound.
+        doc.templates = { total: 240, count: 3, truncated: true, items: Array.from({ length: 3 }, (_, i) => {
+          const key = `domain-load/${longName(`golden-path-${i}`)}`;
+          return { kind: 'service', key, label: longName(`golden-path-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+        }) };
+      }
+      if (meta) meta.completeness = leaf ? 'complete' : 'partial';
     }
     walk(doc);
   };
 
+  // A service page asks delivery for its service by the page's (lengthened) label: ask
+  // the engine for the name it knows, and the rows come back under the long name.
+  const engineName = (path: string): string => {
+    const [route, query = ''] = path.split('?');
+    const q = new URLSearchParams(query);
+    const asked = q.get('service');
+    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+    if (!short) return path;
+    q.set('service', short);
+    return `${route}?${q}`;
+  };
   const wrapped: Serve = async (method, path, body) => {
-    const res = await (real as Serve)(method, path, body);
+    const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -313,9 +463,8 @@ export async function layoutProblems(page: Page): Promise<string[]> {
         const cs = getComputedStyle(p);
         if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return true;
         if (cs.position === 'absolute' && (cs.clip === 'rect(0px, 0px, 0px, 0px)' || cs.clipPath === 'inset(50%)')) return true;
-        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && p !== el.closest('summary')?.parentElement) {
-          if (!el.closest('summary')) return true;
-        }
+        // A closed disclosure shows only its own summary: a nested disclosure's summary inside it is hidden too.
+        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && !p.querySelector(':scope > summary')?.contains(el)) return true;
       }
       return false;
     };
@@ -708,6 +857,28 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
+const serviceWithStages = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-delivery-row"]').first()).toBeVisible({ timeout: 30_000 });
+};
+
+const observedStrip = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-placement"]')).toBeVisible({ timeout: 30_000 });
+};
+
+/** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
+const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="delivery-service-filter"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(landmark).first()).toBeVisible({ timeout: 30_000 });
+};
+// What each list shows once its answer is in.
+const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
+const PUBLISH_LOADED = 'li.pv-row';
+const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -742,6 +913,21 @@ export const ROUTES: Route[] = [
       await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
     },
   },
+  { name: 'change analysis event idle', hash: '#/fleet/changes/redis?mode=event' },
+  {
+    name: 'change analysis event answered',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes/redis?mode=event');
+      await page.locator('#impact-event').selectOption('unavailable');
+      await page.getByRole('button', { name: /^Ask$/ }).click();
+      await expect(page.locator('#sec-affected-consumers')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  { name: 'change analysis event removed', hash: '#/fleet/changes/postgresql?event=removed' },
+  { name: 'change analysis event regressed', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'ab12'.repeat(16)}` },
+  { name: 'change analysis event regressed unread', hash: '#/fleet/changes/redis?event=regressed&rev=1.0.0' },
+  { name: 'change analysis event clear', hash: '#/fleet/changes/storefront-web?event=unavailable' },
+  { name: 'change analysis event regressed clean', hash: `#/fleet/changes/redis?event=regressed&rev=sha256:${'c1ea'.repeat(16)}` },
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
@@ -759,10 +945,96 @@ export const ROUTES: Route[] = [
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
+  {
+    name: 'history, one Stage, with the new columns and filters',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('section.hv-stage tbody tr').first()).toBeVisible({ timeout: 30_000 });
+      const [cause, corr] = await page.locator('[data-testid="history-filters"] input').all();
+      await cause.fill('reconciliation-settlement-ledger-export-worker-eu-west-partner-feed-compliance-archive');
+      await corr.fill('incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export');
+    },
+  },
+  {
+    name: 'history, every Stage, filtered by correlation id',
+    hash: '#/delivery/history?correlationID=CHG-2041',
+  },
+  {
+    name: 'history, record panel open',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await page.locator('button[aria-label^="Read record"]').first().click();
+      await expect(page.locator('[data-testid="record-verdicts"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+  { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
+  { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
+  {
+    name: 'service page, Why card open',
+    open: async (page) => {
+      await serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments')(page);
+      await page.locator('details.sd-why summary').first().click();
+      await expect(page.locator('[data-testid="service-delivery-why"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the summary into view; the gate reads from the top
+    },
+  },
+  { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
+  { name: 'service page, observed strip beside Stages', open: observedStrip('#/fleet/services/notification-worker') },
+  { name: 'inbox filtered by service', open: deliveryOfService('#/delivery/inbox?service=payments', INBOX_LOADED) },
+  { name: 'publish filtered by service', open: deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED) },
+  { name: 'autonomy filtered by service', open: deliveryOfService('#/delivery/autonomy?service=payments', AUTONOMY_LOADED) },
+  {
+    name: 'publish, version lifecycle open',
+    open: async (page) => {
+      await deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED)(page);
+      await page.locator('button[aria-label^="Lifecycle of"]').first().click();
+      await expect(page.locator('[data-testid="delivery-lifecycle"] li').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'revision page, Delivery lifecycle list',
+    open: async (page) => {
+      await page.goto('/#/fleet/revisions/registry.example%252Fstory%2Fpayments@sha256:8c4f595146e5154efc1fe8d58960e0632e2d3668eb390fa75da0db6390a6494a');
+      await expect(page.locator('[data-testid="revision-delivery"] .lc-stage').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page with a Delivery link',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FCronJob%2Faudit-log');
+      await expect(page.locator('[data-testid="target-delivery"] a').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'revision page, no Stage names it',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=storefront-web', '/fleet/revisions/')(page);
+      await expect(page.locator('[data-testid="lifecycle-unmatched"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page, no Stage delivers it here',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+      await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'change page with service and revision links',
+    open: async (page) => {
+      await page.goto('/#/delivery/changes/prod/payments-promote-6');
+      await page.locator('[data-testid="change-details"] > summary').click();
+      await expect(page.locator('[data-testid="change-service"] a')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="change-revision"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

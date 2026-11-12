@@ -1,15 +1,17 @@
 <script>
   import Person from '../components/Person.svelte';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, sentence,
-    verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS } from '../lib/delivery.ts';
+    verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS,
+    causeText, HISTORY_WINDOWS, historyWindow, windowSince } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
+  import RecordPanel from '../components/RecordPanel.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -33,7 +35,9 @@
   // since and until (RFC 3339) keep the changes that ran in that window; the
   // server keeps those with no time and those still in flight. timed (a timeline
   // column's link) keeps only the changes timed inside, so the list is the count.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', refreshTick = 0, miraURL = '' } = $props();
+  // cause (any case, part of the reason, operation or check) and correlationID
+  // (exact) narrow the changes and the timeline, never the Stages.
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', cause = '', correlationID = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
   // The exact service filter narrows every Stage; one Stage is already one.
@@ -42,10 +46,14 @@
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage, {
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined, timed: timed ? true : undefined,
+    cause: cause || undefined, correlationID: correlationID || undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}`);
+  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}`);
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}`);
+  // Every link on the page keeps the cause and correlation filters.
+  const by = $derived({ cause, correlationID });
+  const filtered = $derived(!!(q || cause || correlationID));
   // The window in words, when there is one.
   const windowText = $derived(timed && (since || until) ? `with a time${since ? ` at or after ${timeLabel(since)}` : ''}${since && until ? ' and' : ''}${until ? ` before ${timeLabel(until)}` : ''}`
     : since && until ? `between ${timeLabel(since)} and ${timeLabel(until)}`
@@ -59,7 +67,21 @@
   const histories = $derived(data?.histories ?? []);
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
-  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, ...by, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+
+  // The filter form: cause and correlation commit on submit; a window commits when
+  // chosen, clears a timeline slice (until and timed) and keeps the rest.
+  let causeDraft = $state(untrack(() => cause));
+  let corrDraft = $state(untrack(() => correlationID));
+  $effect(() => { causeDraft = cause; corrDraft = correlationID; });
+  const win = $derived(historyWindow(since, until, timed));
+  function filterBy(e) {
+    e.preventDefault();
+    location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, cause: causeDraft.trim(), correlationID: corrDraft.trim() });
+  }
+  function pickWindow(e) {
+    location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since: windowSince(e.currentTarget.value), ...by });
+  }
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
@@ -77,6 +99,8 @@
   function show(e, panel) { opener = e.currentTarget; open = panel; }
   function close() { open = null; opener?.focus(); }
   const isOpen = (kind, ns, key) => open?.kind === kind && open.ns === ns && open.key === key;
+  // Undo is offered only where the server says so, with why when it is not.
+  const undoOf = (h, en) => (en?.operation ? h.undoOffers?.[en.operation] : undefined);
 
   /** Where a history came from, in words. */
   function sourceLabel(h) {
@@ -114,7 +138,7 @@
   const tlProblems = $derived(one && histories[0] ? (histories[0].problemCount ?? histories[0].problems?.length ?? 0) + (histories[0].unreadableCount ?? histories[0].unreadable?.length ?? 0) : 0);
   // A column opens the changes it counts (T3): those timed in its slice. The last
   // column of a window that ends now is left open, so a change at the end stays in it.
-  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1' });
+  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1', ...by });
   const figQuestion = $derived(`What happened ${since || until ? 'in this window' : 'in the last 24 hours'}${one ? ' on this Stage' : ''}, and where is the record missing?`);
 
   const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
@@ -183,17 +207,18 @@
   });
   const grouped = (ns) => (perNamespace[ns] ?? 0) > 1;
 
-  // One Stage: a run of changes alike but for their versions (same kind, who
-  // asked, how it ended, who decided, record or not, Undo or not) folds into
-  // its first row, with a count that opens the rest.
+  // One Stage: a run of changes alike but for their versions and times (same
+  // kind, who asked, how it ended, who decided, cause, correlation, record or
+  // not, Undo or not) folds into its first row, with a count that opens the rest.
   const RUN = 3;
-  const alike = (en) => JSON.stringify([en.kind, en.type, en.actor, en.actorClass, en.phase, en.outcome, en.verification, en.reason,
-    !!en.record, !!en.unverifiedRecord, !!(en.operation && en.pointer?.after), en.approvals === undefined, deciders(en).map((a) => [a.by, a.decision])]);
+  const alike = (h, en) => { const u = undoOf(h, en); return JSON.stringify([en.kind, en.type, en.actor, en.actorClass, en.phase, en.outcome, en.verification, en.reason,
+    !!en.record, !!en.unverifiedRecord, u ? [u.available, u.reason] : null, causeText(en.cause), en.correlationID, en.approvals === undefined, deciders(en).map((a) => [a.by, a.decision])]); };
   /** For each change, the index of the run it belongs to (its first row) and, for a first row, the run's length. */
-  function runsOf(entries) {
+  function runsOf(h) {
+    const entries = h.entries ?? [];
     const start = [], len = {};
     entries.forEach((en, i) => {
-      const s = i && alike(entries[i - 1]) === alike(en) ? start[i - 1] : i;
+      const s = i && alike(h, entries[i - 1]) === alike(h, en) ? start[i - 1] : i;
       start.push(s);
       len[s] = (len[s] ?? 0) + 1;
     });
@@ -202,6 +227,18 @@
   let unfolded = $state({});
   const runKey = (h, i) => `${h.namespace}/${h.stage.name}@@${question}#${i}`;
 </script>
+
+<!-- A line read from an Operation's status has no record: its applied time, cause and correlation are not signed. -->
+{#snippet unsigned(en)}{#if !en.record}{' '}<span class="t-meta hv-unsigned" title="Read from the Operation's status: its applied time, cause and correlation are not in a signed record">from status, not signed</span>{/if}{/snippet}
+
+{#snippet undoCell(h, en)}
+  {@const uo = undoOf(h, en)}
+  {#if uo?.available}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>
+  {:else if uo}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
+    <span class="hv-reason" tabindex="0" title={uo.reason} data-testid="history-undo-reason">No undo: {uo.reason}</span>
+  {/if}
+{/snippet}
 
 {#snippet when(en)}{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{:else if en?.since}<span class="hv-class" title={`Waiting since ${en.since}`}><span class="visually-hidden">{'Waiting since '}</span><time datetime={en.since}>{timeLabel(en.since)}</time></span>{/if}{/snippet}
 
@@ -216,13 +253,26 @@
   </PageHeader>
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2 go"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
-  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until, timed: tm })} />
+  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until, timed: tm, ...by })} />
   {#if windowText}
-    <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show all changes</a></p>
+    <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, ...by })}>Show all changes</a></p>
   {/if}
-  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until, timed: tm })} testid="history-filter"
+  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until, timed: tm, ...by })} testid="history-filter"
     label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
     placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
+  <form class="hv-filters" role="search" aria-label="Filter changes by cause, correlation id and window" onsubmit={filterBy} data-testid="history-filters">
+    <label class="hv-field"><span class="t-meta">Cause</span><input class="input" type="search" bind:value={causeDraft} placeholder="Reason, operation or check" /></label>
+    <label class="hv-field"><span class="t-meta">Correlation id</span><input class="input" type="search" bind:value={corrDraft} placeholder="The exact id" /></label>
+    <button type="submit" class="btn">Filter</button>
+    <label class="hv-field hv-window"><span class="t-meta">Window</span>
+      <select value={win} onchange={pickWindow} data-testid="history-window-select">
+        {#each HISTORY_WINDOWS as w (w.key)}<option value={w.key}>{w.label}</option>{/each}
+        <option value="all">All changes</option>
+        {#if win === 'custom'}<option value="custom" disabled>Custom</option>{/if}
+      </select>
+    </label>
+    {#if cause || correlationID}<a class="hv-link t-body-2" href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm })}>Clear cause and correlation</a>{/if}
+  </form>
 
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
@@ -252,7 +302,7 @@
                   <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
                 </th></tr>
               {/if}
-              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm })}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm, ...by })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
@@ -269,8 +319,9 @@
                     <div class="cell-stack">
                       <span>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
                       {#if en.from || en.to}<span class="t-meta cell-clip" title={moveTitle(en)}>{move(en)}</span>{/if}
+                      {@render undoCell(h, en)}
                     </div>
-                  {:else}<span class="hv-none">{windowText ? 'None in this window' : 'None kept'}</span>{/if}
+                  {:else}<span class="hv-none">{cause || correlationID ? 'None matches the filter' : windowText ? 'None in this window' : 'None kept'}</span>{/if}
                 </td>
                 <td data-label="How it ended">{#if en}<span class="badge status-badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
                 <td data-label="When">{@render when(en)}</td>
@@ -281,6 +332,11 @@
                   </div>
                 </td>
               </tr>
+              {#if undoOf(h, en)?.available && isOpen('undo', h.namespace, en.operation)}
+                <tr class="hv-undo-row"><td colspan="6">
+                  <UndoPanel namespace={h.namespace} stage={h.stage.name} name={en.operation} {miraURL} onClose={close} />
+                </td></tr>
+              {/if}
             {/each}
           </tbody>
         </table>
@@ -288,7 +344,7 @@
     {:else}
       {#each histories as h (h.namespace + '/' + h.stage.name)}
         {@const known = knownIds(h)}
-        {@const runs = runsOf(h.entries ?? [])}
+        {@const runs = runsOf(h)}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
           <h2 class="t-section-title" class:visually-hidden={histories.length === 1}>{h.namespace}/{h.stage.name}</h2>
           <div class="hv-facts t-body-2">
@@ -315,13 +371,14 @@
             <BlamePanel namespace={h.namespace} stage={h.stage.name} {miraURL} onClose={close} />
           {/if}
           {#if (h.entries ?? []).length === 0}
-            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : windowText ? 'No change in this window.' : 'No change kept for this Stage.'}</p>
+            <p class="t-body-2 hv-none">{filtered ? 'No change matches the filter.' : windowText ? 'No change in this window.' : 'No change kept for this Stage.'}</p>
           {:else}
-            <div class="data-scroll cq-cards">
+            <div class="data-scroll cq-cards cq-cards-xl">
               <table class="data-table hv-table">
                 <caption class="visually-hidden">Changes on {h.namespace}/{h.stage.name}, newest first</caption>
-                <colgroup><col style="width: 6.5rem" /><col style="width: 14%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 15%" /><col style="width: 16%" /><col /></colgroup>
-                <thead><tr><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th></tr></thead>
+                <!-- Every column has a floor (its words, a badge's chrome and the cell padding), so none collapses beside the others; below the floors' sum the table turns into cards (components.css, dtable-xl). -->
+                <colgroup><col style="width: 6.5rem" /><col style="width: max(calc(9ch + 1.5rem), 9%)" /><col style="width: max(calc(10ch + 3rem), 12%)" /><col style="width: max(calc(9ch + 1.5rem), 9%)" /><col style="width: max(calc(10ch + 3rem), 12%)" /><col style="width: max(calc(9ch + 1.5rem), 9%)" /><col style="width: max(calc(9ch + 1.5rem), 9%)" /><col style="width: max(calc(8ch + 1.5rem), 10%)" /><col style="width: max(calc(8ch + 1.5rem), 10%)" /><col style="width: max(calc(8ch + 1.5rem), 10%)" /></colgroup>
+                <thead><tr><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Applied</th><th scope="col">Cause</th><th scope="col">Correlation</th><th scope="col">Record</th></tr></thead>
                 <tbody>
                   {#each h.entries as en, i (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}/${i}`)}
                     {@const reason = reasonAfter(en.reason, en.outcome, en.phase, en.verification)}
@@ -332,7 +389,7 @@
                       <td data-label="Change">
                         <div class="cell-stack">
                           <span>{#if en.seq}<span class="hv-seq">#{en.seq}</span>{' '}{/if}{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
-                          {#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}
+                          {@render undoCell(h, en)}
                           {#if run && runs.start[i] === i}<button type="button" class="btn btn-sm hv-fold" data-testid="history-run" aria-expanded={runOpen}
                             aria-label={runOpen ? 'Fold the changes like this one' : `Show ${formatCount(run - 1)} more changes like this one`}
                             onclick={() => { unfolded[runKey(h, i)] = !runOpen; }}>{runOpen ? 'Fold' : `${formatCount(run - 1)} more`}</button>{/if}
@@ -350,11 +407,24 @@
                         </div>
                       </td>
                       <td data-label="When">{@render when(en)}</td>
-                      <td data-label="Record">{#if en.record}<span class="cell-clip" title={en.record}><DigestText text={en.record} known={[en.record]} /></span>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}<span class="hv-nowrap">Not recorded yet</span>{:else}–{/if}</td>
+                      <td data-label="Applied">{#if en.applied}<time datetime={en.applied} title={en.applied}>{timeLabel(en.applied)}</time>{@render unsigned(en)}{:else}–{/if}</td>
+                      <td data-label="Cause">
+                        {#if causeText(en.cause)}
+                          <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the cause for a keyboard reader; it is whole in the DOM for a screen reader) -->
+                          <div class="cell-stack"><bdi class="hv-reason" tabindex="0" title={causeText(en.cause)}>{causeText(en.cause)}</bdi>{@render unsigned(en)}</div>
+                        {:else}–{/if}
+                      </td>
+                      <td data-label="Correlation">{#if en.correlationID}<div class="cell-stack"><bdi class="cell-clip hv-mono" title={en.correlationID}>{en.correlationID}</bdi>{@render unsigned(en)}</div>{:else}–{/if}</td>
+                      <td data-label="Record">{#if en.record}<div class="cell-stack"><span class="cell-clip" title={en.record}><DigestText text={en.record} known={[en.record]} /></span><button type="button" class="btn btn-sm" aria-label={`Read record ${en.record}`} aria-expanded={isOpen('record', h.namespace, en.record)} onclick={(e) => show(e, { kind: 'record', ns: h.namespace, key: en.record })}>Read</button></div>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}<span class="hv-nowrap">Not recorded yet</span>{:else}–{/if}</td>
                     </tr>
-                    {#if en.operation && isOpen('undo', h.namespace, en.operation)}
-                      <tr class="hv-undo-row"><td colspan="7">
+                    {#if undoOf(h, en)?.available && isOpen('undo', h.namespace, en.operation)}
+                      <tr class="hv-undo-row"><td colspan="10">
                         <UndoPanel namespace={h.namespace} stage={h.stage.name} name={en.operation} {miraURL} onClose={close} />
+                      </td></tr>
+                    {/if}
+                    {#if en.record && isOpen('record', h.namespace, en.record)}
+                      <tr class="hv-undo-row"><td colspan="10">
+                        <RecordPanel namespace={h.namespace} stage={h.stage.name} id={en.record} {miraURL} onClose={close} />
                       </td></tr>
                     {/if}
                     {/if}
@@ -402,6 +472,12 @@
   .hv-asked { overflow-wrap: anywhere; }
   .hv-asked > :global(*) { min-width: 0; max-width: 100%; }
   .hv-nowrap { white-space: nowrap; }
+  .hv-mono { font-family: var(--font-mono); }
+  .hv-unsigned { color: var(--c-text-2); }
+  /* Cause, correlation and window side by side, wrapping on a narrow page. */
+  .hv-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3); }
+  .hv-field { display: flex; flex-direction: column; gap: var(--sp-1); flex: 1 1 14rem; min-width: 0; max-width: 24rem; }
+  .hv-field.hv-window { flex: 0 1 12rem; }
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hv-group th { padding-top: var(--sp-3); font-weight: 600; background: var(--c-surface-inset); overflow-wrap: anywhere; }
   .hv-group-source { margin-left: var(--sp-3); font-weight: 400; }
