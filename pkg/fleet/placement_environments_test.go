@@ -291,3 +291,29 @@ func TestTargetEnvironmentOwnerImmutable(t *testing.T) {
 		t.Errorf("the snapshot's owner changed: %+v", owner)
 	}
 }
+
+// When a newer revision is published but not running, provisioning slots are
+// seeded from it: an environment only the running revision declares reads
+// unknown, naming that revision, and never "no offering use provisions".
+func TestPlacementProvisioningSeededFromNewerRevision(t *testing.T) {
+	running := consumer("orders", "1.2.0", "postgresql")
+	running.Bundle.Contract.Environments = []contract.Environment{{Name: "production", File: "p.yaml"}, {Name: "staging", File: "s.yaml"}}
+	published := consumer("orders", "1.3.0", "postgresql")
+	published.Bundle.Contract.Environments = []contract.Environment{{Name: "production", File: "p.yaml"}}
+	snap := provisioningSnap(t, 0, &Collection{
+		Revisions: []RawRevision{provider("postgresql"), running, published},
+		Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "orders", Service: "orders", Domain: acme, Digest: testDigest(acme, "orders", "1.2.0"),
+			Compliance: StatusCompliant, Labels: map[string]string{TargetEnvironmentLabel: "staging"}}},
+	})
+	p := servicePlacement(t, NewQuery(snap), "orders")
+	if p.CurrentRevision == nil || p.CurrentRevision.Label != "orders 1.2.0" {
+		t.Fatalf("current revision = %+v, want the running 1.2.0", p.CurrentRevision)
+	}
+	st := placementItem(t, p, "staging")
+	if st.ProvisioningTracked || st.ProvisioningReason == noProvisioningHere || !strings.Contains(st.ProvisioningReason, "seeded from orders 1.3.0") {
+		t.Errorf("staging = tracked %v, reason %q", st.ProvisioningTracked, st.ProvisioningReason)
+	}
+	if pr := placementItem(t, p, "production"); !pr.ProvisioningTracked {
+		t.Errorf("production is seeded by 1.3.0 too, so it is tracked: %+v", pr)
+	}
+}

@@ -87,6 +87,7 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 	revs := q.countTargets(group, targets)
 	tally := provisioningByEnvironment(uses)
 	complete := !q.snap.targetsHidden[key] && targetPlacementKnown(q.snap)
+	seed := q.provisioningSeed(key)
 	items := make([]EnvironmentPlacement, 0, len(groups))
 	for env, g := range groups {
 		shown, total, truncated := boundSlice(chronologicalRevisionRefs(revs[env]), MaxPlacementRevisions)
@@ -98,6 +99,9 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 		g.Provisioning, g.ProvisioningTracked = tally[env], tally[env] != PhaseTally{}
 		if !g.ProvisioningTracked {
 			g.ProvisioningReason = provisioningReason(env, g.Declaration != nil, len(declared) > 0)
+			if g.Declaration != nil && seed != nil && seed.Key != cur.Key {
+				g.ProvisioningReason = fmt.Sprintf("provisioning is seeded from %s, which does not declare %s, so its status here is unknown", revisionEntityRef(seed).Label, env)
+			}
 		}
 		if g.TargetsComplete = complete; !complete {
 			g.TargetsReason = targetsIncompleteReason
@@ -121,6 +125,25 @@ func (q *Query) placement(key ServiceKey, targets []*TargetRecord, cur *Contract
 		p.DifferencesTotal, p.DifferencesError = rec.differencesTotal, rec.differencesErr
 	}
 	return p
+}
+
+// provisioningSeed is the revision whose environments seed the provisioning
+// slots of key's offering uses: the newest revision with an offering edge,
+// the revision offeringUsesIn keeps, which need not be the one running.
+// ponytail: one seed for the service; per-use seeds matter only if two uses
+// ever keep different revisions.
+func (q *Query) provisioningSeed(key ServiceKey) *ContractRevision {
+	var seed *ContractRevision
+	for i := range q.snap.Relationships {
+		rel := &q.snap.Relationships[i]
+		if p := q.snap.Services[rel.ToService]; !offeringRelationship(rel, key) || rel.Type == RelationshipPolicyRef || p == nil || p.Offering == "" {
+			continue
+		}
+		if r := q.snap.Revisions[rel.FromRevision]; r != nil && (seed == nil || lessRevisionChrono(seed, r)) {
+			seed = r
+		}
+	}
+	return seed
 }
 
 // countTargets adds each target to the group of the environment it reports
