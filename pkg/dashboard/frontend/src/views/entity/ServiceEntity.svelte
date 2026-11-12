@@ -9,6 +9,7 @@
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
+  import ServiceEnvironments from '../../components/ServiceEnvironments.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -45,6 +46,10 @@
   // them would quietly turn "the first 200 targets" into "this service".
   let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '' } = $props();
   const d = $derived(detail.service ?? {});
+  // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
+  let deliveryRows = $state([]);
+  let deliveryCompleteness = $state('');
+  let deliveryListing = $state('');
   const key = $derived(detail.entity?.key ?? '');
   const bd = $derived(detail.entity?.businessDomain ?? '');
   // The graph focus is a meaningful continuation for the neighborhood previews
@@ -474,8 +479,14 @@
     <ServiceRevisionsFigure revisions={d.revisions} current={d.currentRevision ?? null} {self} allHref={allRevisionsHref} />
   {/if}
 
+  <div class="se-wrap" data-testid="service-environments">
+    <ServiceEnvironments placement={d.placement ?? null} history={d.environmentHistory ?? null} stageRows={deliveryRows} stagesState={deliveryListing}
+      stagesCompleteness={deliveryCompleteness} asOf={detail.meta?.asOf ?? ''} completeness={detail.meta?.completeness ?? ''} service={key} />
+  </div>
+
   <div class="se-wrap" data-testid="service-delivery">
-    <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} placement={d.placement ?? null} meta={detail.meta ?? null} />
+    <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick}
+      bind:rows={deliveryRows} bind:completeness={deliveryCompleteness} bind:listing={deliveryListing} />
   </div>
 
   <div class="se-grid se-grid--two">

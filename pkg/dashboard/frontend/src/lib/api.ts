@@ -100,6 +100,13 @@ export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict']
 export type DeliveryOffer = components['schemas']['Delivery.Offer'];
 export type InboxItem = components['schemas']['InboxItem'];
 export type EnvironmentRow = components['schemas']['EnvironmentRow'];
+// A service's environments (#467): the per-service list, its owners, differences and history.
+export type ProductPlacementPreview = components['schemas']['ProductPlacementPreview'];
+export type ProductEnvironmentPlacement = components['schemas']['ProductEnvironmentPlacement'];
+export type EnvironmentOwner = components['schemas']['ProductEnvironmentOwner'];
+export type EnvironmentDifference = components['schemas']['Validation.EnvironmentDifference'];
+export type EnvironmentHistory = components['schemas']['ProductEnvironmentHistoryPreview'];
+export type EnvironmentEvent = components['schemas']['ProductEnvironmentEvent'];
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
 /** One canonical entity reference as the backend emits it, href and all. */

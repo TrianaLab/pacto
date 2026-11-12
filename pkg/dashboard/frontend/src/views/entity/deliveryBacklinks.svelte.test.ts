@@ -234,3 +234,29 @@ describe('VerdictList contract citations (B4)', () => {
     destroy();
   });
 });
+
+describe('target page environment declaration (#467)', () => {
+  it('shows the declared lifetime, an inferred expiry with the answer time and the declared owner', async () => {
+    const detail = targetDetail('preview');
+    detail.target.environment = { name: 'preview', declared: 'declared', check: { name: 'preview', file: 'environments/preview.yaml', status: 'pass',
+      lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true, owner: { team: 'storefront-qa' } } } as typeof detail.target.environment;
+    const { target, destroy } = render(TargetEntity, { detail: { ...detail, meta: { asOf: '2026-11-12T10:00:00Z' } } });
+    await settle();
+    const t = text(target.querySelector('[data-testid="target-environment"]'));
+    expect(t).toContain('Temporary');
+    expect(t).toContain('Expired (inferred, as of 2026-11-12 10:00 UTC)');
+    expect(t).toContain('Owner storefront-qa (declared)');
+    destroy();
+  });
+
+  it('never reads an absent lifetime as persistent', async () => {
+    const detail = targetDetail('prod');
+    detail.target.environment = { name: 'prod', declared: 'declared', check: { name: 'prod', file: 'p.yaml', status: 'pass', lifetime: 'not-declared' } } as typeof detail.target.environment;
+    const { target, destroy } = render(TargetEntity, { detail });
+    await settle();
+    const t = text(target.querySelector('[data-testid="target-environment"]'));
+    expect(t).toContain('Lifetime not declared');
+    expect(t).not.toContain('Persistent');
+    destroy();
+  });
+});
