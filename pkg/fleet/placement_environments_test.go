@@ -184,6 +184,29 @@ func TestPlacementDifferencesUnreadable(t *testing.T) {
 	}
 }
 
+// A contract-only revision (no document, no files) declaring two environments
+// states that their values were not read, so "the same values" is never shown.
+func TestPlacementDifferencesContractOnly(t *testing.T) {
+	src := NewMemorySource("a", "local", &Collection{
+		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: mustParse(t, envLeafYAML)}, Digest: "sha256:env"}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := servicePlacement(t, NewQuery(snap), "env-svc")
+	if !strings.Contains(p.DifferencesError, "no bundle files") || len(p.Differences) != 0 {
+		t.Errorf("contract-only differences = %+v, error %q", p.Differences, p.DifferencesError)
+	}
+	// A later contribution that read the document replaces the reason.
+	existing := &ContractRevision{differencesErr: "no bundle files"}
+	diffs := []validation.EnvironmentDifference{{Configuration: "app", Path: "replicas"}}
+	mergeRevision(existing, &ContractRevision{validated: true, differences: diffs})
+	if existing.differencesErr != "" || len(existing.differences) != 1 {
+		t.Errorf("a validated contribution's comparison wins: %+v %q", existing.differences, existing.differencesErr)
+	}
+}
+
 func TestMergeRevisionKeepsDifferences(t *testing.T) {
 	diffs := []validation.EnvironmentDifference{{Configuration: "app", Path: "replicas"}}
 	existing := &ContractRevision{}

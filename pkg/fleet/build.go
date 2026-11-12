@@ -284,6 +284,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 // documents and the lock — are not fill-the-empty-side: they get the stricter
 // treatment in mergeRevisionDocs and mergeRevisionLock.
 func mergeRevision(existing, add *ContractRevision) []Limitation {
+	existingValidated := existing.validated
 	existing.Sources = appendUnique(existing.Sources, add.Source)
 	if existing.Readiness == nil {
 		existing.Readiness = add.Readiness
@@ -298,7 +299,9 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if len(existing.Stages) == 0 && len(add.Stages) > 0 {
 		existing.Stages, existing.Environments = add.Stages, add.Environments
 	}
-	if existing.differences == nil && existing.differencesErr == "" {
+	// A contribution that read the document also read the values files its
+	// environments name, so its comparison replaces one that could not.
+	if existing.differences == nil && existing.differencesErr == "" || !existingValidated && add.validated {
 		existing.differences, existing.differencesTotal, existing.differencesErr = add.differences, add.differencesTotal, add.differencesErr
 	}
 	if len(existing.Tools) == 0 {
@@ -805,6 +808,9 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		setDifferences(rev, c, b.FS)
 	} else {
 		rev.Environments = EnvironmentResults(c.Environments, nil)
+		// Two environments with no values read are compared or stated
+		// unreadable, so an empty list never reads as "the same values".
+		setDifferences(rev, c, b.FS)
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
 	rev.Tools, rev.SpecsRead = toolsFrom(c, b.FS)
