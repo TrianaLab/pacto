@@ -46,6 +46,9 @@ of an offering; the dashboard's View all consumers link,
 provisioning status of that offering in that phase, and `--environment` narrows
 those statuses to one environment, such as
 `pacto fleet entities --kind service --consumes postgresql --phase failed --environment production`.
+That answer carries a `PROVISIONING_ENVIRONMENT_SCOPED` limitation: consumers
+whose current revision does not declare the environment have no provisioning
+status there.
 
 A service's detail lists the offerings it consumes (`consumedOfferings`) and,
 separately, inferred suggestions (`inferredOfferings`). A suggestion is an

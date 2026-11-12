@@ -248,6 +248,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		printNonCompliantRanking(w, &res.Aggregate)
 		printOriginRanking(w, &res.Aggregate.Origins)
 		warnProductPartial(cmd, res.Meta)
+		noteScopedPhase(cmd, res.Meta)
 		return nil
 	}, nil)
 }
@@ -653,6 +654,20 @@ func printFleetNeighborhood(cmd *cobra.Command, nb *fleet.Neighborhood, format s
 		warnProductPartial(cmd, nb.Meta)
 		return nil
 	}, nil)
+}
+
+// noteScopedPhase prints, on a complete answer (a partial one already lists
+// every limitation), that a phase list scoped to one environment omits the
+// consumers whose current revision does not declare it.
+func noteScopedPhase(cmd *cobra.Command, m fleet.ProductMeta) {
+	if m.Completeness != fleet.CompletenessComplete {
+		return
+	}
+	for _, l := range m.Limitations {
+		if l.Code == fleet.LimitationProvisioningEnvironmentScoped {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+		}
+	}
 }
 
 // warnProductPartial is warnPartial for a product answer's meta.

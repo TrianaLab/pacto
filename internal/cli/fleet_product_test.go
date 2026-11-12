@@ -311,8 +311,11 @@ func TestFleetEntitiesEnvironmentFlag(t *testing.T) {
 	if _, _, err := execFleet(t, "fleet", "entities", "--local", root, "--environment", "production"); err == nil || !strings.Contains(err.Error(), "consumes and phase") {
 		t.Errorf("--environment alone on services = %v, want the consumes and phase error", err)
 	}
-	out, _, err := execFleet(t, "fleet", "entities", "--local", root, "--consumes", "postgresql", "--phase", "failed", "--environment", "production")
+	out, stderr, err := execFleet(t, "fleet", "entities", "--local", root, "--consumes", "postgresql", "--phase", "failed", "--environment", "production")
 	if err != nil || !strings.Contains(out, "0 of 0 entit(ies)") {
 		t.Errorf("failed in production = %v:\n%s", err, out)
+	}
+	if !strings.Contains(stderr, "note: [PROVISIONING_ENVIRONMENT_SCOPED] consumers whose current revision does not declare production") {
+		t.Errorf("the text answer hides the scoped limitation:\n%s", stderr)
 	}
 }
