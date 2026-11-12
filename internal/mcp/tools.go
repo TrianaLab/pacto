@@ -407,7 +407,7 @@ func checkTool() *mcpsdk.Tool {
 			"or an external dependency whose compatibility can never be confirmed.",
 		InputSchema: inputSchema(map[string]property{
 			"path":         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
-			"environments": {Type: "string", Description: "Comma-separated environment names, such as test,production: the result also lists the configuration values that differ between them (all declared environments when empty and the contract declares two or more)"},
+			"environments": {Type: "string", Description: "Comma-separated names of two or more distinct environments, such as test,production: the result lists the environments compared in comparedEnvironments and the configuration values that differ between them in environmentDifferences, absent when they agree (all declared environments when empty and the contract declares two or more)"},
 		}, nil),
 	}
 }

@@ -360,20 +360,14 @@ func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfi
 // into result. An error fails explain only when names were given; otherwise
 // it is reported and explain still answers.
 func explainDifferences(result *ExplainResult, c *contract.Contract, bundleFS fs.FS, names []string) error {
-	compared := names
-	if len(compared) == 0 {
-		for _, env := range c.Environments {
-			compared = append(compared, env.Name)
-		}
-	}
 	rows, err := validation.EnvironmentDifferences(c, bundleFS, names)
 	switch {
 	case err != nil && len(names) > 0:
 		return err
 	case err != nil:
 		result.EnvironmentDifferencesError = err.Error()
-	case len(compared) > 1:
-		result.ComparedEnvironments, result.EnvironmentDifferences = compared, rows
+	default:
+		result.ComparedEnvironments, result.EnvironmentDifferences = validation.ComparedEnvironments(c, names), rows
 	}
 	return nil
 }

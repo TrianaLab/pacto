@@ -822,7 +822,7 @@ pacto explain [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-      --environments strings   compare the effective configuration values of these environments, such as test,production
+      --environments strings   compare the effective configuration values of two or more environments, such as test,production
   -h, --help[=true|false]      help for explain
       --set stringArray        set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray     values file to merge into the contract (can be repeated; last wins)

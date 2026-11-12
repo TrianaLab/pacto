@@ -83,8 +83,9 @@ Every mode except `--root` carries these four.
 
 **`pacto_check` compares environments:**
 
-- `environments` takes comma-separated names, such as `production,pr-482`, and the result also lists the configuration values those environments disagree on, as `pacto explain --environments` does.
+- `environments` takes two or more distinct comma-separated names, such as `production,pr-482`, and the result also lists the configuration values those environments disagree on, as `pacto explain --environments` does.
 - Left empty, it compares every declared environment when the contract declares two or more.
+- `comparedEnvironments` names the environments compared. When it is present and `environmentDifferences` is absent, the environments agree.
 
 **`add_config_properties` writes the schema.** `pacto_edit` merges the properties into the first configuration's local schema file (`configuration/schema.json` when it has to declare one). A property already in the schema is replaced and `required` names are unioned.
 

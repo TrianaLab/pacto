@@ -235,6 +235,10 @@ type CheckResult struct {
 	// and the one command to run now.
 	Stages []validation.Stage `json:"stages,omitempty"`
 	Next   string             `json:"next,omitempty"`
+	// ComparedEnvironments are the environments EnvironmentDifferences
+	// compares; absent when fewer than two were compared, so an absent
+	// environmentDifferences beside it means they agree.
+	ComparedEnvironments []string `json:"comparedEnvironments,omitempty"`
 	// EnvironmentDifferences are the configuration values the environments
 	// asked for, or every declared one, disagree on; the same rows as
 	// `pacto explain`.
@@ -1499,8 +1503,9 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		return nil, err
 	case err != nil:
 		cr.EnvironmentDifferencesError = err.Error()
+	default:
+		cr.ComparedEnvironments, cr.EnvironmentDifferences = validation.ComparedEnvironments(c, envs), rows
 	}
-	cr.EnvironmentDifferences = rows
 
 	return cr, nil
 }

@@ -340,8 +340,10 @@ func TestEnvironmentDifferencesNone(t *testing.T) {
 	if got, err := EnvironmentDifferences(diffContract(), fstest.MapFS{"dev.yaml": {}, "test.yaml": {}, "prod.yaml": {}}, nil); err != nil || len(got) != 0 {
 		t.Fatalf("defaults equal everywhere: %v, %v", got, err)
 	}
-	if got, err := EnvironmentDifferences(diffContract(), diffFiles, []string{"dev"}); err != nil || got != nil {
-		t.Fatalf("one environment: %v, %v", got, err)
+	c := diffContract()
+	c.Environments = c.Environments[:1]
+	if got, err := EnvironmentDifferences(c, diffFiles, nil); err != nil || got != nil {
+		t.Fatalf("one declared environment: %v, %v", got, err)
 	}
 }
 
@@ -366,7 +368,45 @@ func TestEnvironmentDifferencesLeaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diffRows(got) != "x.,x.a" || got[0].Values["dev"] != float64(3) {
-		t.Fatalf("values that are not an object and a nested empty object are leaves: %+v", got)
+	if diffRows(got) != "x." || got[0].Values["dev"] != float64(3) || got[0].Values["test"] == nil {
+		t.Fatalf("an object and a value that is not one compare whole: %+v", got)
+	}
+}
+
+// A named comparison needs two distinct environments: one name or a repeated
+// one would compare nothing or an environment with itself.
+func TestEnvironmentDifferencesNamesTwoDistinct(t *testing.T) {
+	for names, want := range map[string]string{
+		"dev":          "name at least two environments",
+		"test,test":    `environment "test" is named twice`,
+		"dev,test,dev": `environment "dev" is named twice`,
+	} {
+		if _, err := EnvironmentDifferences(diffContract(), diffFiles, strings.Split(names, ",")); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", names, err, want)
+		}
+	}
+}
+
+// A dot inside a key never collides with a nested path, and an empty object
+// against a non-empty one compares whole instead of reading "not set".
+func TestEnvironmentDifferencesPaths(t *testing.T) {
+	c := diffContract()
+	c.Environments = c.Environments[:2]
+	c.Configurations = []contract.Configuration{{Name: "app"}}
+	got, err := EnvironmentDifferences(c, fstest.MapFS{
+		"dev.yaml":  {Data: []byte("app:\n  log.level: debug\n  annotations: {}\n")},
+		"test.yaml": {Data: []byte("app:\n  log: {level: debug}\n  annotations: {team: qa}\n")},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := diffRows(got); rows != `app.annotations,app.log.level,app.log\.level` {
+		t.Fatalf("rows = %s", rows)
+	}
+	if v := got[0].Values; len(v) != 2 || v["test"] == nil {
+		t.Errorf("annotations is set in both environments: %v", v)
+	}
+	if v := got[1].Values; len(v) != 1 || v["test"] != "debug" {
+		t.Errorf("nested log.level is test's only: %v", v)
 	}
 }

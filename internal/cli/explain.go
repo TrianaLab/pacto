@@ -36,7 +36,7 @@ func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 
 	addOverrideFlags(cmd)
-	cmd.Flags().StringSliceVar(&environments, "environments", nil, "compare the effective configuration values of these environments, such as test,production")
+	cmd.Flags().StringSliceVar(&environments, "environments", nil, "compare the effective configuration values of two or more environments, such as test,production")
 
 	return cmd
 }

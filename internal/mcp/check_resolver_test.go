@@ -277,10 +277,13 @@ func TestCheckEnvironmentDifferences(t *testing.T) {
 	if err != nil || len(res.EnvironmentDifferences) != 1 || res.EnvironmentDifferences[0].Path != "LOG_LEVEL" || len(res.EnvironmentDifferences[0].Values) != 3 {
 		t.Fatalf("all environments: %+v, %v", res, err)
 	}
-	if res, err = Check(context.Background(), nil, dir, []string{"staging", "test"}); err != nil || res.EnvironmentDifferences != nil {
-		t.Fatalf("equal environments: %+v, %v", res, err)
+	if res, err = Check(context.Background(), nil, dir, []string{"staging", "test"}); err != nil || res.EnvironmentDifferences != nil || strings.Join(res.ComparedEnvironments, ",") != "staging,test" {
+		t.Fatalf("equal environments say they were compared: %+v, %v", res, err)
 	}
-	if _, err = Check(context.Background(), nil, dir, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
+	if _, err = Check(context.Background(), nil, dir, []string{"staging"}); err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("one name compares nothing, so it is an error: %v", err)
+	}
+	if _, err = Check(context.Background(), nil, dir, []string{"staging", "nope"}); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
 		t.Fatalf("undeclared: %v", err)
 	}
 	if err := os.Remove(filepath.Join(dir, "p.yaml")); err != nil {
@@ -312,9 +315,9 @@ func TestDifferencesParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _ := json.Marshal(explained.EnvironmentDifferences)
-	b, _ := json.Marshal(checked.EnvironmentDifferences)
-	if string(a) != string(b) || len(explained.EnvironmentDifferences) == 0 {
+	a, _ := json.Marshal([]any{explained.ComparedEnvironments, explained.EnvironmentDifferences})
+	b, _ := json.Marshal([]any{checked.ComparedEnvironments, checked.EnvironmentDifferences})
+	if string(a) != string(b) || len(explained.EnvironmentDifferences) == 0 || len(checked.ComparedEnvironments) != 3 {
 		t.Fatalf("explain %s, pacto_check %s", a, b)
 	}
 }

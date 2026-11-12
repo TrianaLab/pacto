@@ -1139,7 +1139,10 @@ func TestExplainEnvironmentsFlag(t *testing.T) {
 	if out, _ = run(); !strings.Contains(out, "\nDifferences between production, staging, test (2):\n") {
 		t.Fatalf("without the flag every environment is compared: %q", out)
 	}
-	if _, err = run("--environments", "nope"); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
+	if _, err = run("--environments", "production,production"); err == nil || !strings.Contains(err.Error(), "named twice") {
+		t.Fatalf("a repeated name: %v", err)
+	}
+	if _, err = run("--environments", "staging,nope"); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
 		t.Fatalf("err = %v", err)
 	}
 }
