@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -762,12 +763,14 @@ func orphanEnvironmentFiles(before, after []contract.Environment, files map[stri
 		if slices.ContainsFunc(after, func(e contract.Environment) bool { return e.Name == env.Name }) {
 			continue
 		}
-		if i := slices.IndexFunc(after, func(e contract.Environment) bool { return e.File == env.File }); i >= 0 {
-			changes = append(changes, fmt.Sprintf("kept %s: environment %q still names it", env.File, after[i].Name))
+		// Only a clean path inside the bundle is deleted, keyed as the
+		// validation FS and the write both see it, and never pacto.yaml.
+		if !fs.ValidPath(env.File) || env.File == "pacto.yaml" {
+			changes = append(changes, fmt.Sprintf("kept %s: it is not a clean path to an environment file inside the bundle", env.File))
 			continue
 		}
-		if !filepath.IsLocal(env.File) {
-			changes = append(changes, fmt.Sprintf("kept %s: it is outside the bundle", env.File))
+		if i := slices.IndexFunc(after, func(e contract.Environment) bool { return path.Clean(e.File) == env.File }); i >= 0 {
+			changes = append(changes, fmt.Sprintf("kept %s: environment %q still names it", env.File, after[i].Name))
 			continue
 		}
 		files[env.File] = nil

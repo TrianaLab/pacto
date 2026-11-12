@@ -735,10 +735,43 @@ func TestRemoveEnvironmentKeepsSharedFile(t *testing.T) {
 		pacto:   ordersEnv + "  - {name: pr-1, file: ../pr-1.yaml}\n",
 		files:   map[string]string{"environments/prod.yaml": "{}\n", "../pr-1.yaml": "{}\n"},
 		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
-		changes: []string{`removed environment "pr-1"`, "kept ../pr-1.yaml: it is outside the bundle"},
+		changes: []string{`removed environment "pr-1"`, "kept ../pr-1.yaml: it is not a clean path to an environment file inside the bundle"},
 		check: func(t *testing.T, dir string) {
 			if _, err := os.Stat(filepath.Join(dir, "../pr-1.yaml")); err != nil {
 				t.Errorf("outside file removed: %v", err)
+			}
+		},
+	}, {
+		name:    "a path that resolves to pacto.yaml never deletes the contract just written",
+		pacto:   ordersEnv + "  - {name: pr-1, file: environments/../pacto.yaml}\n",
+		files:   map[string]string{"environments/prod.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, "kept environments/../pacto.yaml: it is not a clean path to an environment file inside the bundle"},
+		check: func(t *testing.T, dir string) {
+			if c := readContract(t, dir); len(c.Environments) != 1 || c.Environments[0].Name != "prod" {
+				t.Errorf("pacto.yaml lost or wrong: %+v", c.Environments)
+			}
+		},
+	}, {
+		name:    "an unclean spelling of a file another environment names stays",
+		pacto:   ordersEnv + "  - {name: pr-1, file: ./environments/prod.yaml}\n",
+		files:   map[string]string{"environments/prod.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, "kept ./environments/prod.yaml: it is not a clean path to an environment file inside the bundle"},
+		check: func(t *testing.T, dir string) {
+			if _, err := os.Stat(filepath.Join(dir, "environments/prod.yaml")); err != nil {
+				t.Errorf("prod's file removed: %v", err)
+			}
+		},
+	}, {
+		name:    "pacto.yaml itself is never removed",
+		pacto:   ordersEnv + "  - {name: pr-1, file: pacto.yaml}\n",
+		files:   map[string]string{"environments/prod.yaml": "{}\n"},
+		input:   EditInput{RemoveEnvironments: []string{"pr-1"}},
+		changes: []string{`removed environment "pr-1"`, "kept pacto.yaml: it is not a clean path to an environment file inside the bundle"},
+		check: func(t *testing.T, dir string) {
+			if c := readContract(t, dir); len(c.Environments) != 1 {
+				t.Errorf("pacto.yaml lost or wrong: %+v", c.Environments)
 			}
 		},
 	}})
