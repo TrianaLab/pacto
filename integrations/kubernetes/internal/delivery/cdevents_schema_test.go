@@ -80,7 +80,7 @@ func TestCDEventsConformToSpec(t *testing.T) {
 			Time:    delivery.RecordTime{Finished: finished},
 			Outcome: &delivery.RecordOutcome{Result: delivery.Succeeded, Pointer: delivery.PointerChange{Before: before, After: after}}}}
 	}
-	var events []map[string]any
+	events := make([]map[string]any, 0, 6)
 	for _, st := range []delivery.Statement{
 		op(delivery.TypePromote, "", dA, "2026-10-20T09:00:00Z"),
 		op(delivery.TypePromote, dA, dB, ""),
