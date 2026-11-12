@@ -68,13 +68,15 @@ func TestEnvironmentHistory(t *testing.T) {
 	if got := historyText(h); !slices.Equal(got, want) {
 		t.Errorf("history:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if h.Total != 6 || h.Count != 6 || h.Truncated || h.Gaps != 0 || h.Completeness != "complete" || h.CompletenessReason != "" {
+	// No source lists every version, so a history that compares versions is
+	// partial: a change sits between the versions held.
+	if h.Total != 6 || h.Count != 6 || h.Truncated || h.Gaps != 0 || h.Completeness != "partial" || h.CompletenessReason != versionsHeldReason {
 		t.Errorf("counts: %+v", h)
 	}
 	if h.Items[0].Revision.Kind != KindRevision || h.Items[0].Revision.Key != "svc@v1.2.0" {
 		t.Errorf("revision ref = %+v", h.Items[0].Revision)
 	}
-	if l := h.Lines(); l[1] != "  svc v1.1.0  changed preview (lifetime, owner)  time not recorded" || l[0] != "  svc v1.2.0  removed staging  time not recorded" {
+	if l := h.Lines(); l[1] != "  svc v1.1.0  changed preview (lifetime, owner), compared with svc v1.0.0  time not recorded" || l[0] != "  svc v1.2.0  removed staging, compared with svc v1.1.0  time not recorded" {
 		t.Errorf("lines = %q", l)
 	}
 	b, err := json.Marshal(h)
@@ -96,6 +98,9 @@ func TestEnvironmentHistoryOldestIsPresentNotAdded(t *testing.T) {
 	if got := historyText(h); !slices.Equal(got, []string{"v2.0.0 present prod  -"}) {
 		t.Errorf("history = %q", got)
 	}
+	if h.Completeness != "complete" {
+		t.Errorf("one revision places no change between versions: %+v", h)
+	}
 	if l := h.Lines(); len(l) != 1 || !strings.Contains(l[0], "declared since at least svc v2.0.0") || strings.Contains(l[0], "added") {
 		t.Errorf("lines = %q", l)
 	}
@@ -108,7 +113,7 @@ func TestEnvironmentHistoryRestrictedTemplateViewPartial(t *testing.T) {
 	q, _ := historyQuery([]string{"v1.0.0", "v2.0.0"}, [][]contract.Environment{{env("dev", "d.yaml")}, {env("dev", "d.yaml")}})
 	q.snap.Services["svc"].Template = true
 	q.snap.Revisions["svc@v2.0.0"].Contract.Service.Template = &contract.Template{}
-	if full := q.serviceEnvironmentHistory(q.snap.Services["svc"]); full.Completeness != "complete" {
+	if full := q.serviceEnvironmentHistory(q.snap.Services["svc"]); full.CompletenessReason != versionsHeldReason {
 		t.Fatalf("unrestricted: %+v", full)
 	}
 	r := q.Restrict(func(string) bool { return false })
@@ -117,7 +122,7 @@ func TestEnvironmentHistoryRestrictedTemplateViewPartial(t *testing.T) {
 		t.Fatalf("restricted revisions = %v", s.Revisions)
 	}
 	h := r.serviceEnvironmentHistory(s)
-	if h.Completeness != "partial" || h.CompletenessReason == "" || strings.Contains(h.CompletenessReason, "v1.0.0") {
+	if h.Completeness != "partial" || h.CompletenessReason != historyPartialReason || strings.Contains(h.CompletenessReason, "v1.0.0") {
 		t.Errorf("restricted: %+v", h)
 	}
 	if got := historyText(h); !slices.Equal(got, []string{"v2.0.0 present dev  -"}) {

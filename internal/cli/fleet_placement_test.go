@@ -49,7 +49,7 @@ func TestPrintEnvironmentHistory(t *testing.T) {
 		{Environment: "dev", Change: "present", Revision: rev},
 	}})
 	want := "Environment history, version order (2 of 2, partial: r):\n" +
-		"  web 1.1.0  added prod  time not recorded\n" +
+		"  web 1.1.0  added prod, compared with web 1.0.0  time not recorded\n" +
 		"  web 1.0.0  dev declared since at least web 1.0.0  time not recorded\n"
 	if b.String() != want {
 		t.Errorf("history:\n%s\nwant:\n%s", b.String(), want)

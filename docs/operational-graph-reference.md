@@ -235,9 +235,9 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 
 | `environmentHistory` | Detail |
 |---|---|
-| Items | Consecutive revisions compared in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision the answer holds. Not a timeline: no item carries a time |
+| Items | The revisions the answer holds, each compared with the previous one held in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision held. `revision` is the first held revision that shows the change and `previous` the one it was compared with. Not a timeline: no item carries a time |
 | Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
-| Completeness | `partial` when your view or a source holds only some of the service's revisions |
+| Completeness | `partial` when your view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held |
 
 ### Configuration-reference consumers
 

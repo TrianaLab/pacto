@@ -100,10 +100,13 @@ Below the rows:
 - **Differences between environments** lists each value the declared
   environments disagree on, one row per environment, with **not set** for a
   value an environment leaves out.
-- **Changes between versions (version order)** compares consecutive revisions:
-  each environment added, removed or changed and the fields that changed. The
+- **Changes between versions (version order)** compares each revision Pacto
+  holds with the previous one it holds: each environment added, removed or
+  changed, the fields that changed and the revision it was compared with. The
   oldest revision Pacto holds reads **declared since at least** that revision.
-  No change carries a time, and a revision Pacto could not read is counted.
+  No source lists every version, so the list is partial: a change happened
+  between the two versions named. No change carries a time, and a revision
+  Pacto could not read is counted.
 - An expired environment is never deleted; see
   [temporary environments](contract-reference/environments.md#temporary-environments).
 

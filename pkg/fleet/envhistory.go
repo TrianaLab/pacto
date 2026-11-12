@@ -16,8 +16,8 @@ type EnvironmentEvent struct {
 	Environment string     `json:"environment"`
 	Change      string     `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision)"`
 	Fields      []string   `json:"fields,omitempty" doc:"changed: which declared fields changed (file, lifetime, expires, owner)"`
-	Revision    EntityRef  `json:"revision" doc:"The revision that made the change"`
-	Previous    *EntityRef `json:"previous,omitempty" doc:"The revision it was compared with"`
+	Revision    EntityRef  `json:"revision" doc:"The first revision this answer holds that shows the change; versions between it and previous may not be held"`
+	Previous    *EntityRef `json:"previous,omitempty" doc:"The revision it was compared with: the change happened after it, at or before revision"`
 }
 
 // EnvironmentHistoryPreview is how a service's declared environments changed
@@ -26,14 +26,19 @@ type EnvironmentHistoryPreview struct {
 	Total              int                `json:"total"`
 	Count              int                `json:"count"`
 	Truncated          bool               `json:"truncated"`
-	Items              []EnvironmentEvent `json:"items" doc:"Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's"`
+	Items              []EnvironmentEvent `json:"items" doc:"Newest first. Differences between consecutive versions this answer holds, in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's"`
 	Gaps               int                `json:"gaps" doc:"Revisions whose contract could not be read; no change is reported across them"`
-	Completeness       string             `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions"`
+	Completeness       string             `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held"`
 	CompletenessReason string             `json:"completenessReason,omitempty"`
 }
 
 // historyPartialReason never names what the view dropped.
 const historyPartialReason = "this view or a source holds only some of the service's revisions"
+
+// versionsHeldReason is why a history that compares versions is partial: no
+// source lists every version of a service, so versions between two held
+// ones may be missing.
+const versionsHeldReason = "the sources hold only some versions; a change is placed between the versions held"
 
 // serviceEnvironmentHistory is the environment history of s's revisions in
 // q, partial when the view dropped some of them or a source is not fully
@@ -80,8 +85,11 @@ func (q *Query) environmentHistory(revs []*ContractRevision, partial bool) Envir
 	}
 	h.Items, h.Total, h.Truncated = boundSlice(items, MaxDetailPreview)
 	h.Count = len(h.Items)
-	if partial {
+	switch {
+	case partial:
 		h.Completeness, h.CompletenessReason = string(CompletenessPartial), historyPartialReason
+	case len(groups) > 1:
+		h.Completeness, h.CompletenessReason = string(CompletenessPartial), versionsHeldReason
 	}
 	return h
 }
@@ -152,8 +160,9 @@ func (h EnvironmentHistoryPreview) Heading() string {
 	return s + ")"
 }
 
-// Lines is one line per event: the revision, the change and the environment.
-// No event has a time, and every line says so.
+// Lines is one line per event: the revision, the change, the environment and
+// the revision it was compared with. No event has a time, and every line says
+// so.
 func (h EnvironmentHistoryPreview) Lines() []string {
 	out := make([]string, 0, len(h.Items))
 	for _, e := range h.Items {
@@ -163,6 +172,9 @@ func (h EnvironmentHistoryPreview) Lines() []string {
 			what = e.Environment + " declared since at least " + e.Revision.Label
 		case len(e.Fields) > 0:
 			what += " (" + strings.Join(e.Fields, ", ") + ")"
+		}
+		if e.Previous != nil {
+			what += ", compared with " + e.Previous.Label
 		}
 		out = append(out, "  "+e.Revision.Label+"  "+what+"  time not recorded")
 	}

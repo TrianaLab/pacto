@@ -4059,7 +4059,7 @@ export interface components {
         };
         ProductEnvironmentHistoryPreview: {
             /**
-             * @description partial when this view or a source holds only some of the service's revisions
+             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
              * @enum {string}
              */
             completeness: "complete" | "partial";
