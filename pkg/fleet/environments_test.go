@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -171,5 +172,51 @@ func TestStageSummariesMarkUnverified(t *testing.T) {
 	})
 	if !got[0].Unverified || got[1].Unverified || got[2].Unverified {
 		t.Fatalf("unverified marks: %+v", got)
+	}
+}
+
+func TestEnvironmentResultsLifetimeNotDeclared(t *testing.T) {
+	for _, r := range EnvironmentResults(envs("staging"), nil) {
+		if r.Lifetime != LifetimeNotDeclared || r.Expires != "" || r.Owner != nil || r.Expired {
+			t.Errorf("an environment that declares nothing: %+v", r)
+		}
+	}
+}
+
+func TestEnvironmentResultsDeclaredFields(t *testing.T) {
+	owner := &contract.Owner{Team: "previews", Contacts: []contract.OwnerContact{{Type: "email", Value: "a@b.c"}}}
+	in := []contract.Environment{{Name: "pr-1", File: "pr-1.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-01-01T00:00:00Z", Owner: owner}}
+	r := EnvironmentResults(in, nil)[0]
+	if r.Lifetime != "temporary" || r.Expires != "2026-01-01T00:00:00Z" || r.Owner == nil || r.Owner.Team != "previews" {
+		t.Fatalf("declared fields: %+v", r)
+	}
+	r.Owner.Contacts[0].Value = "x"
+	if owner.Contacts[0].Value != "a@b.c" {
+		t.Error("the result's owner aliases the contract's")
+	}
+}
+
+func TestMarkExpired(t *testing.T) {
+	asOf := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	owner := &contract.Owner{Team: "a", Contacts: []contract.OwnerContact{{Value: "v"}}}
+	in := []EnvironmentResult{
+		{Name: "past", Expires: "2026-07-01T00:00:00Z", Owner: owner},
+		{Name: "equal", Expires: "2026-07-29T12:00:00Z"},
+		{Name: "future", Expires: "2026-08-01T00:00:00Z"},
+		{Name: "none"},
+		{Name: "malformed", Expires: "next week"},
+	}
+	got := MarkExpired(in, asOf)
+	want := map[string]bool{"past": true, "equal": true}
+	for _, r := range got {
+		if r.Expired != want[r.Name] {
+			t.Errorf("%s: expired = %v", r.Name, r.Expired)
+		}
+	}
+	if in[0].Expired || got[0].Owner == owner {
+		t.Error("MarkExpired changed its input or shares an owner with it")
+	}
+	if MarkExpired(nil, asOf) != nil {
+		t.Error("nil in, nil out")
 	}
 }

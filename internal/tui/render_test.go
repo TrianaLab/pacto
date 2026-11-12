@@ -340,16 +340,23 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 		},
 	}
 	r.Interfaces[0].Visibility = "internal"
-	r.Environments = []contract.Environment{{Name: "staging", File: "envs/staging.yaml"}, {Name: "prod", File: "envs/prod.yaml"}}
+	r.Environments = []contract.Environment{{Name: "staging", File: "envs/staging.yaml"}, {Name: "prod", File: "envs/prod.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: &contract.Owner{Team: "perf"}}}
 	got := renderExplain(r)
 	for _, want := range []string{"api (grpc, internal)", "auth-svc: oci://example.com/auth:1.0 (^1.0) [required]",
-		"model: external, version v1 (cannot be checked)", "Environments (2)", "staging: envs/staging.yaml", "prod: envs/prod.yaml"} {
+		"model: external, version v1 (cannot be checked)", "Environments (2)", "staging: envs/staging.yaml, lifetime not declared", "prod: envs/prod.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, owner perf"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("render should include %q: %s", want, got)
 		}
 	}
 	if !strings.Contains(got, "model: external, version v1") {
 		t.Fatal("render should show an external dependency's version")
+	}
+	if strings.Contains(got, ", expired") {
+		t.Fatal("with no asOf nothing reads expired")
+	}
+	r.AsOf = "2026-11-21T00:00:00Z"
+	if got := renderExplain(r); !strings.Contains(got, "owner perf, expired") || strings.Contains(got, "not declared, expired") {
+		t.Fatalf("an environment past its expiry reads expired, as in pacto explain: %s", got)
 	}
 	if !strings.Contains(got, "database") {
 		t.Fatal("render should include capabilities")

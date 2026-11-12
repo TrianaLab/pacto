@@ -5,7 +5,7 @@ import { touchProblems } from './layoutGate';
 
 // The delivery lifecycle journeys of #466, over the browser demo's simulated
 // delivery (examples/demo/source_delivery.go): the service page's Stage rows, Why
-// card, offers and observed strip, the history filters and record panel, the
+// card and offers, the Environments section beside them (#467), the history filters and record panel, the
 // revision page's lifecycle list and the target page's link back to its Stage.
 // The demo signs in as pay-agent, an agent, so its offers carry the agent's
 // refusals. Every test opens its own page, so the file passes alone in any shard.
@@ -101,28 +101,40 @@ test.describe('delivery lifecycle in the demo', () => {
     await audit(page, 'publish, source revisions');
   });
 
-  test('a service with no Stage shows where it runs, observed from targets', async ({ page }) => {
+  test('a service with no Stage shows its environments, observed from targets', async ({ page }) => {
     await page.goto('/#/fleet/services/storefront-web');
-    const strip = page.getByTestId('service-placement');
-    await expect(strip).toBeVisible({ timeout: T });
-    await expect(strip.getByRole('heading', { name: /^Where it runs \(observed/ })).toBeVisible();
-    await expect(strip.getByText('Each row is observed from targets, not a promotion step.', { exact: false })).toBeVisible();
-    await expect(strip.getByText(/^As of /)).toBeVisible();
-    const row = strip.getByTestId('service-placement-row').filter({ hasText: 'production' });
+    const section = page.locator('#sec-environments');
+    const row = section.locator('[data-testid="service-environment"][data-env="production"]');
+    await expect(row).toBeVisible({ timeout: T });
+    await expect(section.getByTestId('environments-footer')).toContainText(/^As of /);
     // Its target is linked to 1.1.0 by a mutable tag only: inferred, so neither
     // declared nor a revision it is known to run.
-    await expect(row).toContainText('1 unknown');
-    await expect(row.locator('a[href*="/fleet/revisions/"]')).toHaveCount(0);
+    await expect(row.locator('[data-cell="observed"]')).toContainText('1 unknown');
+    await expect(row.locator('[data-cell="observed"] a[href*="/fleet/revisions/"]')).toHaveCount(0);
     await expect(page.getByTestId('service-delivery-row')).toHaveCount(0);
-    await audit(page, 'service page, observed strip');
+    await audit(page, 'service page, environments without Stages');
   });
 
   test('targets in an environment no Stage covers show beside the Stages', async ({ page }) => {
     await stageRow(page, '#/fleet/services/notification-worker', 'prod');
-    const strip = page.getByTestId('service-placement');
-    await expect(strip).toBeVisible({ timeout: T });
-    await expect(strip.getByTestId('service-placement-row').filter({ hasText: 'staging' })).toContainText('1 unknown');
-    await audit(page, 'service page, observed strip beside Stages');
+    const staging = page.locator('#sec-environments [data-testid="service-environment"][data-env="staging"]');
+    await expect(staging).toBeVisible({ timeout: T });
+    await expect(staging.locator('[data-cell="observed"]')).toContainText('1 unknown');
+    await expect(staging.locator('[data-cell="stage"]')).toContainText('No Stage you can see');
+    // prod is a Stage only: notification-worker declares no prod and no target you can see reports it.
+    const prod = page.locator('#sec-environments [data-testid="service-environment"][data-env="prod"]');
+    await expect(prod.locator('[data-cell="declared"]')).toContainText('Stage only: not declared by');
+    await expect(prod.locator('[data-cell="stage"] a[href*="stage="]')).toBeVisible();
+    await audit(page, 'service page, environments beside Stages');
+  });
+
+  test('a Stage joined to an observed environment says an admin declared it', async ({ page }) => {
+    await stageRow(page, '#/fleet/services/audit-log', 'prod');
+    const stage = page.locator('#sec-environments [data-testid="service-environment"][data-env="prod"] [data-cell="stage"]');
+    await expect(stage).toContainText('state observed, environment declared by a Stage (admin)', { timeout: T });
+    await expect(stage.locator('[data-testid="env-state-mark"]')).toBeVisible();
+    await expect(stage.locator('a[href*="/delivery/history"]')).toHaveAttribute('href', /namespace=prod&stage=audit-log/);
+    await audit(page, 'service page, environment joined to its Stage');
   });
 
   test('history filters by correlation id and cause, and a record reads in its panel', async ({ page }) => {

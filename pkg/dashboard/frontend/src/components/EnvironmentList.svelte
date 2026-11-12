@@ -4,14 +4,17 @@
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import CappedList from './CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
-  import { environmentBadge, locationText } from '../lib/behavior.ts';
+  import { environmentBadge, locationText, lifetimeBadge, expiryText, ownerLabel } from '../lib/behavior.ts';
 
   // Each declared environment, the values file it names and what checking those values
   // against the configuration schemas found. Failed and Not verified are different
   // answers: a failure is a value the schema rejects, located in its file; Not verified
   // means Pacto could not check, and Not checked that the check never ran (the reason
   // says which earlier stage stopped it). Neither of the last two is a pass.
-  let { items = [] } = $props();
+  // Each also shows its declared lifetime, expiry and owner. An expiry is inferred against
+  // `asOf`, the answer time, when the caller has one; the revision page has no service
+  // owner to fall back to, so an absent owner reads No owner declared.
+  let { items = [], asOf = '' } = $props();
   // Every message names its environment, which this card already does.
   const message = (env, f) => {
     const prefix = `environment ${env.name}: `;
@@ -23,12 +26,19 @@
   {#each items as env, i (`${env.name}:${i}`)}
     {@const badge = environmentBadge(env.status)}
     {@const findings = env.findings?.items ?? []}
+    {@const life = lifetimeBadge(env.lifetime)}
+    {@const expiry = expiryText(env, asOf)}
     <li class="env" data-testid="environment">
       <div class="env-head">
         <span class="env-name" title={env.name}>{env.name}</span>
         <IdentityBadge label={badge.label} tone={badge.tone} />
         {#if env.file}<span class="env-file"><span class="env-k">File</span><CopyableIdentifier value={env.file} label="values file" /></span>{/if}
       </div>
+      <p class="env-decl" data-testid="environment-declared">
+        <IdentityBadge label={life.label} tone={life.tone} title={life.title} />
+        {#if expiry}<span class:env-expired={env.expired}>{expiry}</span>{/if}
+        <span>{ownerLabel(env.owner)}</span>
+      </p>
       {#if env.status === 'skip' && env.reason}
         <p class="env-note">Not checked: {env.reason}.</p>
       {/if}
@@ -59,6 +69,8 @@
   .env-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .env-file { display: inline-flex; gap: var(--sp-2); align-items: center; min-width: 0; max-width: 100%; }
   .env-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .env-decl { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0; font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
+  .env-expired { color: var(--c-warn); }
   .env-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); overflow-wrap: anywhere; }
   .env :global(.cl) { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .env-f { display: flex; gap: var(--sp-2); align-items: flex-start; min-width: 0; }

@@ -491,6 +491,7 @@ func (h hiddenCounts) referrersBeyondDependents(k ServiceKey) int {
 func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, hidden hiddenCounts, origins map[ServiceKey]*ServiceOrigin, hiddenCreated map[ServiceKey]int) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
+	out.revisionsHidden = map[ServiceKey]bool{}
 	for k, svc := range services {
 		if hiddenSvc[k] {
 			hiddenNames = append(hiddenNames, svc.Name, string(k))
@@ -498,6 +499,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		}
 		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
 		revisions := slices.DeleteFunc(slices.Clone(svc.Revisions), func(rk RevisionKey) bool { return out.Revisions[rk] == nil })
+		out.revisionsHidden[k] = len(revisions) != len(svc.Revisions)
 		origin, reorigin := origins[k]
 		// A revision revalidated against the view may change the status; it is
 		// read last, once every revision of svc is known to be in out.

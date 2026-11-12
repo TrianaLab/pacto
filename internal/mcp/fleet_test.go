@@ -794,3 +794,35 @@ func TestFleetSearchTemplateArg(t *testing.T) {
 		t.Errorf("template=exclude search = %+v", out.Services)
 	}
 }
+
+func TestFleetEntitiesEnvironmentArg(t *testing.T) {
+	props := fleetEntitiesTool().InputSchema.(map[string]any)["properties"].(map[string]any)
+	env, _ := props["environment"].(map[string]any)
+	if d, _ := env["description"].(string); !strings.HasPrefix(d, "Needs consumes and phase") || strings.Contains(d, "filters targets") {
+		t.Errorf("environment property = %v", env)
+	}
+	q := offeringFleet(t)
+	for _, args := range []map[string]any{{"environment": "production"}, {"kind": "service", "consumes": "postgresql", "environment": "production"}} {
+		res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), args)
+		if text := resultText(t, res); !res.IsError || !strings.Contains(text, "needs consumes and phase") || strings.Contains(text, "target") {
+			t.Errorf("%v = %s, want the consumes and phase error without a target hint this tool cannot follow", args, text)
+		}
+	}
+	var out fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false),
+		map[string]any{"consumes": "postgresql", "phase": "unknown", "environment": "production"}), &out)
+	if !slices.ContainsFunc(out.Meta.Limitations, func(l fleet.Limitation) bool { return l.Code == fleet.LimitationProvisioningEnvironmentScoped }) {
+		t.Errorf("meta = %+v, want the environment-scoped limitation", out.Meta.Limitations)
+	}
+}
+
+// The entity tool names the service fields that carry environment provenance,
+// and says the history is no timeline.
+func TestFleetEntityToolNamesEnvironmentFields(t *testing.T) {
+	d := fleetEntityTool().Description
+	for _, want := range []string{"'placement'", "'environmentHistory'", "never a timeline", "'gaps'", "inferred or unknown"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("description lacks %s", want)
+		}
+	}
+}

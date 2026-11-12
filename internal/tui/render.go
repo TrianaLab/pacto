@@ -190,8 +190,13 @@ func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
 	}
 	if len(r.Environments) > 0 {
 		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
+		asOf, _ := time.Parse(time.RFC3339, r.AsOf) // zero when absent: nothing reads expired
 		for _, env := range r.Environments {
-			fmt.Fprintf(b, "  %s: %s\n", safeText(env.Name), safeText(env.File))
+			expired := ""
+			if env.ExpiredAt(asOf) {
+				expired = ", expired"
+			}
+			fmt.Fprintf(b, "  %s%s\n", safeText(env.Summary()), expired)
 		}
 	}
 }

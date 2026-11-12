@@ -270,3 +270,24 @@ func TestPrintInitSteps(t *testing.T) {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}
 }
+
+// TestInitDeliveryDeclaresEnvironments: --delivery --env declares each
+// environment in pacto.yaml with an empty values file.
+func TestInitDeliveryDeclaresEnvironments(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "blank")
+	if out, err := runInit(t, dir, "--owner", "billing", "--delivery", "--env", "test,pr-1"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{`pactoVersion: "2.3"`, "  - name: test\n    file: environments/test.yaml\n", "  - name: pr-1\n    file: environments/pr-1.yaml\n"} {
+		if !strings.Contains(string(data), s) {
+			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
+		}
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "environments", "pr-1.yaml")); err != nil || !strings.HasSuffix(string(raw), "{}\n") {
+		t.Errorf("environments/pr-1.yaml: %q %v", raw, err)
+	}
+}

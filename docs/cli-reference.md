@@ -805,7 +805,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top. With two or more environments it also lists the values they disagree on, for every environment or the ones --environments names.
 
 ```
 pacto explain [dir | oci://ref] [flags]
@@ -816,14 +816,16 @@ pacto explain [dir | oci://ref] [flags]
 ```
   pacto explain my-service
   pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json
+  pacto explain my-service --environments test,production
 ```
 
 **Flags:**
 
 ```
-  -h, --help[=true|false]    help for explain
-      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
-  -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
+      --environments strings   compare the effective configuration values of two or more environments, such as test,production
+  -h, --help[=true|false]      help for explain
+      --set stringArray        set a contract value (e.g. --set service.version=2.0.0)
+  -f, --values stringArray     values file to merge into the contract (can be repeated; last wins)
 ```
 
 **What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. To read `configurations` and `policies`, use `pacto doc` or open `pacto.yaml`. `metadata` is carried by `--output-format json` only; the text output omits it.
@@ -893,6 +895,7 @@ pacto fleet entities [text] [flags]
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
+      --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, owner, domain, offering; empty lists all four)
@@ -1308,10 +1311,10 @@ pacto init [dir...] [flags]
 
 ```
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
-      --delivery[=true|false]              also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
       --describe-only[=true|false]         write a contract that only describes the service: no publish section, so no signing key
       --domain string                      business domain, such as payments
-      --env strings                        environments for --delivery, in promotion order (default [test,prod])
+      --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init

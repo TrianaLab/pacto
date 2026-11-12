@@ -1128,8 +1128,11 @@ export interface components {
             platforms?: string[] | null;
         };
         "Contract.Environment": {
+            expires?: string;
             file: string;
+            lifetime?: string;
             name: string;
+            owner?: components["schemas"]["Contract.Owner"];
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;
@@ -2405,9 +2408,20 @@ export interface components {
             version?: string;
         };
         "Fleet.EnvironmentResult": {
+            /** @description Inferred: expires is at or before this answer's asOf. Nothing is deleted */
+            expired?: boolean;
+            /** @description Declared RFC 3339 time a temporary environment is meant to end */
+            expires?: string;
             file: string;
             findings: components["schemas"]["Fleet.LocatedFindingsPreview"];
+            /**
+             * @description Declared lifetime; not-declared when the environment declares none, never read as persistent
+             * @enum {string}
+             */
+            lifetime: "temporary" | "persistent" | "not-declared";
             name: string;
+            /** @description Declared owner of this environment */
+            owner?: components["schemas"]["Contract.Owner"];
             reason?: string;
             /** @enum {string} */
             status: "pass" | "fail" | "unverified" | "skip";
@@ -4029,19 +4043,70 @@ export interface components {
             severity?: "error" | "warning" | "info";
             view: string;
         };
+        ProductEnvironmentEvent: {
+            /**
+             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
+             * @enum {string}
+             */
+            change: "present" | "added" | "removed" | "changed";
+            environment: string;
+            /** @description changed: which declared fields changed (file, lifetime, expires, owner) */
+            fields?: string[] | null;
+            /** @description The revision it was compared with */
+            previous?: components["schemas"]["ProductRef"];
+            /** @description The revision that made the change */
+            revision: components["schemas"]["ProductRef"];
+        };
+        ProductEnvironmentHistoryPreview: {
+            /**
+             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            completenessReason?: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Revisions whose contract could not be read; no change is reported across them
+             */
+            gaps: number;
+            /** @description Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's */
+            items: components["schemas"]["ProductEnvironmentEvent"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductEnvironmentOwner: {
+            owner?: string;
+            /** @enum {string} */
+            provenance: "declared" | "inferred" | "unknown";
+            reason?: string;
+            ref?: components["schemas"]["ProductRef"];
+        };
         ProductEnvironmentPlacement: {
+            /** @description Declared: the current revision's entry for this environment with its values check, lifetime, expiry and owner. Absent when the current revision does not declare it */
+            declaration?: components["schemas"]["Fleet.EnvironmentResult"];
             /**
              * Format: int64
              * @description Targets whose exactly linked revision declares this environment
              */
             declared: number;
-            /** @description The environment label; empty for targets that report none or whose sources disagree */
+            /** @description The environment name; empty for targets that report no label or whose sources disagree */
             environment?: string;
             /**
              * Format: int64
              * @description Targets whose exactly linked revision does not declare it
              */
             notDeclared: number;
+            /** @description Who owns the environment: declared on it, inferred from the service owner, or unknown */
+            owner: components["schemas"]["ProductEnvironmentOwner"];
+            /** @description Observed provisioning statuses of the service's offering uses in this environment, by phase; Unknown until a provider reports */
+            provisioning: components["schemas"]["Fleet.PhaseTally"];
+            /** @description Why provisioning is not tracked here */
+            provisioningReason?: string;
+            /** @description False when no provider is asked about this environment for the current revision; the tally is then not a zero */
+            provisioningTracked: boolean;
             revisions: components["schemas"]["ProductRef"][] | null;
             /**
              * Format: int64
@@ -4050,8 +4115,15 @@ export interface components {
             revisionsTotal: number;
             /** @description revisions holds only the newest 8 of revisionsTotal */
             revisionsTruncated: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Observed: the targets you can see that report this environment
+             */
             targets: number;
+            /** @description False when the caller may not see every target of the service or a target source is unavailable; targets then counts only the visible ones */
+            targetsComplete: boolean;
+            /** @description Why the target count may be incomplete; never names a hidden environment */
+            targetsReason?: string;
             /**
              * Format: int64
              * @description Targets Pacto cannot check: no label, conflicting labels, no linked revision or one linked only by a mutable tag or version (inferred, not proof)
@@ -4325,6 +4397,14 @@ export interface components {
         ProductPlacementPreview: {
             /** Format: int64 */
             count: number;
+            /** @description The revision whose declarations these are */
+            currentRevision?: components["schemas"]["ProductRef"];
+            /** @description Declared configuration values that differ between the current revision's environments */
+            differences: components["schemas"]["Validation.EnvironmentDifference"][] | null;
+            /** @description Why the differences are unknown */
+            differencesError?: string;
+            /** Format: int64 */
+            differencesTotal: number;
             items: components["schemas"]["ProductEnvironmentPlacement"][] | null;
             /** Format: int64 */
             total: number;
@@ -4525,6 +4605,8 @@ export interface components {
             dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
+            /** @description How the service's declared environments changed across its revisions (declared) */
+            environmentHistory: components["schemas"]["ProductEnvironmentHistoryPreview"];
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
@@ -4980,6 +5062,7 @@ export interface components {
             docs?: components["schemas"]["DocInfo"][] | null;
             domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            environmentsAsOf?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;
@@ -5217,6 +5300,14 @@ export interface components {
              * @example https://example.com/errors/example
              */
             type: string;
+        };
+        "Validation.EnvironmentDifference": {
+            configuration: string;
+            path: string;
+            /** @description Each environment's effective value; an absent environment does not set it */
+            values: {
+                [key: string]: unknown;
+            };
         };
         ValidationInfo: {
             errors?: components["schemas"]["ValidationIssue"][] | null;
@@ -6766,7 +6857,7 @@ export interface operations {
                 domain?: string;
                 /** @description Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
                 businessDomain?: string;
-                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
+                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;

@@ -33,7 +33,7 @@ async function settle() {
 function render(props: Record<string, unknown>) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const p = $state({ service: 'orders', state: 'enabled', refreshTick: 0, ...props });
+  const p = $state<Record<string, any>>({ service: 'orders', state: 'enabled', refreshTick: 0, rows: [], completeness: '', listing: '', ...props }); // eslint-disable-line @typescript-eslint/no-explicit-any
   const c = mount(ServiceDelivery, { target, props: p });
   return { target, p, destroy: () => { unmount(c); target.remove(); } };
 }
@@ -362,72 +362,45 @@ describe('ServiceDelivery', () => {
     v.destroy();
   });
 
-  const placement = (items: unknown[]) => ({ total: items.length, count: items.length, truncated: false, items });
-  const env = (environment: string, over = {}) => ({ environment, targets: 2, declared: 1, notDeclared: 1, unknown: 0,
-    revisions: [{ kind: 'revision', key: `r-${environment}`, label: 'orders 1.2.0', version: '1.2.0', href: `#/fleet/revisions/r-${environment}` }],
-    revisionsTotal: 1, revisionsTruncated: false, ...over });
-  const META = { asOf: '2026-11-04T09:00:00Z', completeness: 'complete' };
-
-  it('without delivery, shows where the service runs as observed from targets', async () => {
-    const v = render({ state: 'not-served', placement: placement([env('prod'), env('', { declared: 0, notDeclared: 0, unknown: 2 })]), meta: META });
-    await settle();
-    const strip = v.target.querySelector('[data-testid="service-placement"]')!;
-    const t = strip.textContent ?? '';
-    expect(t).toContain('Where it runs (observed)');
-    expect(t).not.toContain('targets Pacto can see');
-    expect(t).toContain('observed from targets, not a promotion step');
-    expect(t).toContain('2026-11-04 09:00 UTC');
-    expect(t).toContain('Complete');
-    const rows = [...strip.querySelectorAll('[data-testid="service-placement-row"]')];
-    expect(rows.length).toBe(2);
-    expect(rows[0].textContent).toContain('prod');
-    for (const x of ['2 targets', '1 declared', '1 not declared']) expect(rows[0].textContent).toContain(x);
-    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/revisions/r-prod');
-    expect(rows[1].textContent).toContain('no environment label');
-    expect(rows[1].textContent).toContain('2 unknown');
-    v.destroy();
-  });
-
-  it('a partial fleet answer reads targets Pacto can see and counts truncated revisions', async () => {
+  // The Environments section owns where a service runs (#467): this section draws no
+  // observed strip and hands its Stage rows, listing completeness and state out by binding.
+  it('draws no observed strip, under either heading', async () => {
     environments.mockResolvedValue(answer([]));
-    const v = render({ placement: placement([env('prod', { revisionsTotal: 11, revisionsTruncated: true })]), meta: { ...META, completeness: 'partial' } });
-    await settle();
-    const strip = v.target.querySelector('[data-testid="service-placement"]')!;
-    expect(strip.textContent).toContain('Where it runs (observed, targets Pacto can see)');
-    expect(strip.textContent).toContain('and 10 more');
-    expect(strip.textContent).toContain('2026-11-04 09:00 UTC');
-    v.destroy();
-  });
-
-  it('when delivery is not installed, shows the observed strip', async () => {
-    environments.mockRejectedValue(new ApiError(404, 'no delivery', 'DeliveryNotInstalled'));
-    const v = render({ placement: placement([env('prod')]), meta: META });
-    await settle();
-    expect(v.target.querySelector('[data-testid="service-placement"]')).not.toBeNull();
-    v.destroy();
-  });
-
-  it('beside Stages, shows only environments no Stage covers, and only on a complete listing', async () => {
-    environments.mockResolvedValue(answer([row({ environment: 'prod' })]));
-    const v = render({ placement: placement([env('prod'), env('staging')]), meta: META });
-    await settle();
-    const rows = [...v.target.querySelectorAll('[data-testid="service-placement-row"]')];
-    expect(rows.map((r) => r.querySelector('bdi')?.textContent)).toEqual(['staging']);
-    v.destroy();
-
-    environments.mockResolvedValue(answer([row({ environment: 'prod' })], { completeness: 'partial', unreadable: ['team-b'] }));
-    const w = render({ placement: placement([env('prod'), env('staging')]), meta: META });
-    await settle();
-    expect(w.target.querySelector('[data-testid="service-placement"]')).toBeNull();
-    w.destroy();
-  });
-
-  it('no strip when every environment has a Stage', async () => {
-    environments.mockResolvedValue(answer([row({ environment: 'prod' })]));
-    const v = render({ placement: placement([env('prod')]), meta: META });
+    const v = render({ placement: { total: 1, count: 1, truncated: false, items: [{ environment: 'prod', targets: 2 }] } });
     await settle();
     expect(v.target.querySelector('[data-testid="service-placement"]')).toBeNull();
+    expect(v.target.textContent).not.toContain('Where it runs');
     v.destroy();
+  });
+
+  it('binds out its Stage rows, the listing completeness and its state', async () => {
+    environments.mockResolvedValue(answer([row({ environment: 'prod' }), row({ service: 'other', stage: 'other' })], { completeness: 'partial', unreadable: ['team-b'] }));
+    const v = render({});
+    flushSync();
+    expect(v.p.listing).toBe('loading');
+    await settle();
+    expect(v.p.rows.map((r: { stage: string }) => r.stage)).toEqual(['orders']);
+    expect(v.p.completeness).toBe('partial');
+    expect(v.p.listing).toBe('served');
+    v.destroy();
+
+    const w = render({ state: 'not-served' });
+    await settle();
+    expect(w.p.listing).toBe('none');
+    expect(w.p.rows).toEqual([]);
+    w.destroy();
+
+    environments.mockRejectedValue(new ApiError(404, 'no delivery', 'DeliveryNotInstalled'));
+    const x = render({});
+    await settle();
+    expect(x.p.listing).toBe('none');
+    x.destroy();
+
+    environments.mockRejectedValue(new ApiError(503, 'cluster unreachable', 'ClusterUnreachable'));
+    const y = render({});
+    await settle();
+    expect(y.p.listing).toBe('error');
+    y.destroy();
   });
 
   it('shows the newest change per Stage with applied, cause and correlation, marking unsigned cells', async () => {

@@ -418,3 +418,43 @@ func TestExplainConfigurations_NoBundleFiles(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+// Explain compares every declared environment, or the ones named.
+func TestExplainEnvironmentDifferences(t *testing.T) {
+	dir := writeRequestBundle(t, "database:\n  size: small\n")
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := json.Marshal(result.EnvironmentDifferences)
+	want := `[{"configuration":"database","path":"backups.retentionDays","values":{"production":14,"staging":7}},` +
+		`{"configuration":"database","path":"size","values":{"production":"medium","staging":"small"}}]`
+	if string(got) != want || strings.Join(result.ComparedEnvironments, ",") != "production,staging" {
+		t.Fatalf("differences = %s, compared %v", got, result.ComparedEnvironments)
+	}
+	result, err = NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir, Environments: []string{"staging", "production"}})
+	if err != nil || len(result.EnvironmentDifferences) != 2 || strings.Join(result.ComparedEnvironments, ",") != "staging,production" {
+		t.Fatalf("named: %+v, %v", result, err)
+	}
+	if _, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir, Environments: []string{"nope", "staging"}}); err == nil ||
+		!strings.Contains(err.Error(), "declared: production, staging") {
+		t.Fatalf("an undeclared name fails explain: %v", err)
+	}
+}
+
+// Without names, a comparison that cannot run is reported and explain still
+// answers.
+func TestExplainDifferencesErrorWithoutNames(t *testing.T) {
+	dir := t.TempDir()
+	content := "pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\nenvironments:\n  - name: a\n    file: a.yaml\n  - name: b\n    file: b.yaml\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil || !strings.Contains(result.EnvironmentDifferencesError, "environment a: cannot read a.yaml") || result.EnvironmentDifferences != nil {
+		t.Fatalf("got %+v, %v", result, err)
+	}
+	if _, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir, Environments: []string{"a", "b"}}); err == nil {
+		t.Fatal("with names, the error fails explain")
+	}
+}

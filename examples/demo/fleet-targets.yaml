@@ -114,6 +114,28 @@ targets:
     compliance: Unknown
     labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
 
+  # storefront-web runs 1.1.0 in production, which that revision declares, and
+  # in canary, which it does not: an observed environment with no declaration.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: commerce/storefront-web
+    service: storefront-web
+    resolvedRef: oci://ghcr.io/trianalab/pacto/storefront-web:1.1.0
+    compliance: Compliant
+    coverage: { evaluated: 4, required: 4 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
+
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: commerce/storefront-web-canary
+    service: storefront-web
+    resolvedRef: oci://ghcr.io/trianalab/pacto/storefront-web:1.1.0
+    compliance: Compliant
+    coverage: { evaluated: 4, required: 4 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: canary }
+
 provisioning:
   - service: catalog-service
     digest: sha256:32b570087a9cd70b16772e9cb5d3cbc1a6aea6fc31b1c021d9d848c10424b518

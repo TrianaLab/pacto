@@ -1079,7 +1079,23 @@ grep -q '^pacto_delivery_operations_total{.*type="delivery.pacto.trianalab.io/pr
 grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
 kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"
 kubectl -n test get events --field-selector involvedObject.kind=Operation,reason=Held -o name | grep -q . || fail "no held operation emitted an Event"
-pass "concluded operations are counted, the frozen Stage is in its gauge and holds and freezes emit Events"
+# A throwaway Stage that reads nothing: its creation and deletion each emit one Event on it.
+stage_event() { kubectl -n test get events --field-selector "involvedObject.kind=Stage,involvedObject.name=payments-envevent,reason=$1" -o name | grep -q .; }
+kubectl -n test apply -f - >/dev/null <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments-envevent}
+spec:
+  service: {name: payments}
+  environment: envevent
+  applyRef: {name: payments-envevent}
+  startLevel: observe
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
+YAML
+eventually 60 stage_event EnvironmentCreated || fail "the new Stage test/payments-envevent emitted no EnvironmentCreated Event"
+kubectl -n test delete stage payments-envevent --wait=true >/dev/null
+eventually 60 stage_event EnvironmentDeleted || fail "the deleted Stage test/payments-envevent emitted no EnvironmentDeleted Event"
+pass "concluded operations are counted, the frozen Stage is in its gauge and holds, freezes and Stage creation and deletion emit Events"
 share B C F OPC OPF C120
 
 echo "DELIVERY CORE PASS"

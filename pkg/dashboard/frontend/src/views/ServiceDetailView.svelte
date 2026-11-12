@@ -453,7 +453,7 @@
 
   <ConfigSection id="section-config" configs={detail.configurations || []} bind:open={openSections.config} />
 
-  <EnvironmentsSection id="section-environments" environments={detail.environments || []} bind:open={openSections.environments} />
+  <EnvironmentsSection id="section-environments" environments={detail.environments || []} asOf={detail.environmentsAsOf || ''} bind:open={openSections.environments} />
 
   <PolicySection id="section-policy" policies={detail.policies || []} bind:open={openSections.policy} />
 

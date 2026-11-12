@@ -284,6 +284,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 // documents and the lock — are not fill-the-empty-side: they get the stricter
 // treatment in mergeRevisionDocs and mergeRevisionLock.
 func mergeRevision(existing, add *ContractRevision) []Limitation {
+	existingValidated := existing.validated
 	existing.Sources = appendUnique(existing.Sources, add.Source)
 	if existing.Readiness == nil {
 		existing.Readiness = add.Readiness
@@ -297,6 +298,11 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	// not read the document lacks; two that both validated read the same bytes.
 	if len(existing.Stages) == 0 && len(add.Stages) > 0 {
 		existing.Stages, existing.Environments = add.Stages, add.Environments
+	}
+	// A contribution that read the document also read the values files its
+	// environments name, so its comparison replaces one that could not.
+	if existing.differences == nil && existing.differencesErr == "" || !existingValidated && add.validated {
+		existing.differences, existing.differencesTotal, existing.differencesErr = add.differences, add.differencesTotal, add.differencesErr
 	}
 	if len(existing.Tools) == 0 {
 		existing.Tools = add.Tools
@@ -799,8 +805,12 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		rev.localStages = validation.ValidateDocumentStages(c, doc, b.FS)
 		setStages(rev, rev.localStages)
 		rev.validated = true
+		setDifferences(rev, c, b.FS)
 	} else {
 		rev.Environments = EnvironmentResults(c.Environments, nil)
+		// Two environments with no values read are compared or stated
+		// unreadable, so an empty list never reads as "the same values".
+		setDifferences(rev, c, b.FS)
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
 	rev.Tools, rev.SpecsRead = toolsFrom(c, b.FS)
@@ -2504,4 +2514,19 @@ func appendUnique[T ~string](s []T, v T) []T {
 		}
 	}
 	return append(s, v)
+}
+
+// setDifferences records the configuration values rev's environments disagree
+// on, bounded, or why they cannot be read. Fewer than two environments compare
+// nothing.
+func setDifferences(rev *ContractRevision, c *contract.Contract, fsys fs.FS) {
+	if len(c.Environments) < 2 {
+		return
+	}
+	diffs, err := validation.EnvironmentDifferences(c, fsys, nil)
+	if err != nil {
+		rev.differencesErr = err.Error()
+		return
+	}
+	rev.differences, rev.differencesTotal, _ = boundSlice(diffs, MaxDetailPreview)
 }

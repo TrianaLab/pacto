@@ -5,6 +5,7 @@
     targetEnvironmentLabel, targetEnvironmentTone,
   } from '../../lib/entityLabels.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
+  import { lifetimeBadge, expiryText, ownerLabel } from '../../lib/behavior.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
@@ -113,6 +114,13 @@
       <span class="te-k">Environment</span>
       <IdentityBadge label={targetEnvironmentLabel(d.environment)} tone={targetEnvironmentTone(d.environment)} />
       {#if d.environment?.declared === 'declared' && d.environment?.check?.status}<span class="te-note">Values check: {d.environment.check.status}</span>{/if}
+      {#if d.environment?.declared === 'declared' && d.environment?.check}
+        {@const check = d.environment.check}
+        {@const life = lifetimeBadge(check.lifetime)}
+        <IdentityBadge label={life.label} tone={life.tone} title={life.title} />
+        {#if expiryText(check, detail.meta?.asOf ?? '')}<span class="te-note" class:te-expired={check.expired}>{expiryText(check, detail.meta?.asOf ?? '')}</span>{/if}
+        <span class="te-note">{ownerLabel(check.owner)}</span>
+      {/if}
       {#if d.environment?.reason}<span class="te-note te-env-reason">{d.environment.reason}</span>{/if}
     </div>
     {#if delivery}
@@ -227,5 +235,6 @@
   .te-rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .te-rr-head h2 { margin: 0; }
   .te-rr-line, .te-note { margin: 0; }
+  .te-expired { color: var(--c-warn); }
   .te-env-reason { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

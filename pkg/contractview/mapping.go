@@ -91,7 +91,7 @@ func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source strin
 		result := validation.Merged(stages)
 		svc.Validation = validationInfoFromResult(result)
 		svc.Stages = fleet.StageSummaries(stages)
-		svc.Environments = fleet.EnvironmentResults(c.Environments, stages)
+		svc.Environments = fleet.MarkExpired(fleet.EnvironmentResults(c.Environments, stages), now)
 		if result.IsValid() {
 			// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,
 			// not Compliant (B8 fix). A reference-only contract declares no workload.
@@ -105,7 +105,10 @@ func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source strin
 			svc.ContractStatus = StatusInvalid
 		}
 	} else {
-		svc.Environments = fleet.EnvironmentResults(c.Environments, nil)
+		svc.Environments = fleet.MarkExpired(fleet.EnvironmentResults(c.Environments, nil), now)
+	}
+	if len(svc.Environments) > 0 {
+		svc.EnvironmentsAsOf = now.UTC().Format(time.RFC3339)
 	}
 
 	svc.Compliance = ComputeCompliance(svc.ContractStatus)

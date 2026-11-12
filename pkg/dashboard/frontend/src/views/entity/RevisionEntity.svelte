@@ -261,7 +261,7 @@
       count={d.environments?.count ?? 0}
       truncated={d.environments?.truncated}
     >
-      <EnvironmentList items={envItems} />
+      <EnvironmentList items={envItems} asOf={detail.meta?.asOf ?? ''} />
     </PreviewSection>
   {/if}
 

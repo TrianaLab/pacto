@@ -933,13 +933,13 @@ func behaviorSnapshot() *contractview.ServiceDetails {
 			Warnings: []contractview.ValidationIssue{{Code: "OLD", Path: "service", Message: "old"}},
 		},
 		Environments: []fleet.EnvironmentResult{
-			{Name: "production", File: "envs/production.yaml", Status: fleet.EnvironmentFail, Findings: fleet.LocatedFindingsPreview{
+			{Name: "production", File: "envs/production.yaml", Status: fleet.EnvironmentFail, Lifetime: "persistent", Owner: &contract.Owner{Team: "platform"}, Findings: fleet.LocatedFindingsPreview{
 				Total: 7, Count: 2, Truncated: true, Items: []fleet.LocatedFinding{
 					{Code: "ENVIRONMENT_VALUES_INVALID", Severity: "error", Path: "environments[0]", Message: "environment production: replicas must be >= 1", File: "envs/production.yaml", Line: 3, Column: 5},
 					{Code: "ENVIRONMENT_VALUES_INVALID", Severity: "error", Path: "environments[0]", Message: "host missing", File: "envs/production.yaml"},
 				}}},
-			{Name: "staging", File: "envs/staging.yaml", Status: fleet.EnvironmentPass},
-			{Name: "preview", File: "envs/preview.yaml", Status: fleet.EnvironmentUnverified},
+			{Name: "staging", File: "envs/staging.yaml", Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
+			{Name: "preview", File: "envs/preview.yaml", Status: fleet.EnvironmentUnverified, Lifetime: "temporary", Expires: "2026-10-01T00:00:00Z", Expired: true},
 			{Name: "dev", File: "envs/dev.yaml", Status: fleet.EnvironmentSkip, Reason: "the policy stage failed"},
 		},
 	}
@@ -969,9 +969,10 @@ func TestGenerate_Behavior(t *testing.T) {
 		"**Errors**\n\n| Code | Path | Message |\n|------|------|---------|\n| `BAD_REF` | `interfaces[0].ref` | file \\| missing |\n",
 		"**Warnings**\n\n| Code | Path | Message |\n|------|------|---------|\n| `OLD` | `service` | old |\n",
 		"## 3. Environments\n\n1 failed, 1 not verified and 1 not checked.\n\n" +
-			"| Environment | File | Check |\n|-------------|------|-------|\n" +
-			"| `production` | `envs/production.yaml` | Failed |\n| `staging` | `envs/staging.yaml` | Passed |\n" +
-			"| `preview` | `envs/preview.yaml` | Not verified |\n| `dev` | `envs/dev.yaml` | Not checked: the policy stage failed |\n",
+			"| Environment | File | Check | Lifetime | Owner |\n|-------------|------|-------|----------|-------|\n" +
+			"| `production` | `envs/production.yaml` | Failed | persistent | platform |\n| `staging` | `envs/staging.yaml` | Passed | Not declared | Not declared |\n" +
+			"| `preview` | `envs/preview.yaml` | Not verified | temporary, expires `2026-10-01T00:00:00Z` (expired as of 2026-10-30T00:00:00Z) | Not declared |\n" +
+			"| `dev` | `envs/dev.yaml` | Not checked: the policy stage failed | Not declared | Not declared |\n",
 		"| Environment | Severity | Code | Message | Location |\n|-------------|----------|------|---------|----------|\n" +
 			"| `production` | error | `ENVIRONMENT_VALUES_INVALID` | replicas must be >= 1 | `envs/production.yaml:3:5` |\n" +
 			"| `production` | error | `ENVIRONMENT_VALUES_INVALID` | host missing | `envs/production.yaml` |\n",

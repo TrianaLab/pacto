@@ -190,6 +190,9 @@ type ServiceDetails struct {
 	// Environments is each declared environment (pactoVersion 2.3) and the
 	// check of its values, with findings located in its values file.
 	Environments []fleet.EnvironmentResult `json:"environments,omitempty"`
+	// EnvironmentsAsOf is the RFC 3339 time each environment's expired flag
+	// was inferred against. Empty when there are no environments.
+	EnvironmentsAsOf string `json:"environmentsAsOf,omitempty"`
 
 	// Lock surfaces the committed pacto.lock pins. Nil when no lockfile is present
 	// (or for sources that cannot read it from disk, e.g. OCI/cache/k8s).

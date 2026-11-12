@@ -1228,7 +1228,8 @@ fields:
         evidence: unverified
         reason: 'no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped'
   environments:
-    meaning: The environments the service runs in, each with the configuration values it uses there (pactoVersion 2.3).
+    meaning: The environments the service runs in, each with the configuration values it uses there (pactoVersion 2.3) and
+      optionally its lifetime, expiry and owner (pactoVersion 2.4).
     runtime: static-only
     evidence: 'none: pacto validate checks the declared values against the configuration schemas'
     rule: 'schema: array; an older pactoVersion refuses it'
@@ -1246,7 +1247,7 @@ fields:
     meaning: One environment and the bundle file holding its configuration values.
     runtime: static-only
     evidence: 'none: the values are checked when the contract is validated'
-    rule: 'schema: object with name and file; no other key'
+    rule: 'schema: object with name and file, and in 2.4 lifetime, expires and owner; no other key'
     outcomes: SCHEMA_VIOLATION
     limitations: values hold references to secrets; secret material stays out of the file
     tests:
@@ -1290,6 +1291,262 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid
       e2e: []
+  environments[].lifetime:
+    meaning: How long the environment is meant to live, temporary or persistent (pactoVersion 2.4); absent reads not declared,
+      never persistent.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_4 in an older contract
+    limitations: nothing creates or deletes an environment for its lifetime
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds24EnvironmentFields
+      - pkg/contract/environment_test.go:TestEnvironmentSummary
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].lifetime/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].lifetime/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].lifetime/needs-2.4
+      e2e: []
+    values:
+      temporary:
+        meaning: meant to end, such as a preview; may carry expires
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].lifetime=temporary
+          e2e: []
+      persistent:
+        meaning: meant to stay, such as production; carries no expires
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].lifetime=persistent
+          e2e: []
+  environments[].expires:
+    meaning: The RFC 3339 time a temporary environment is meant to end (pactoVersion 2.4).
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: 'cross-field: an RFC 3339 time, only with lifetime temporary'
+    outcomes: INVALID_ENVIRONMENT_EXPIRES, ENVIRONMENT_EXPIRES_NOT_TEMPORARY; NEEDS_PACTO_2_4 in an older contract
+    limitations: Pacto deletes nothing when it passes
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestEnvironmentLifetimeChecks
+      - pkg/contract/environment_test.go:TestEnvironmentExpiresAt
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].expires/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].expires/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].expires/not-temporary
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].expires/needs-2.4
+      e2e: []
+  environments[].owner:
+    meaning: Who owns the environment when that is not the service owner (pactoVersion 2.4); the service owner is shown, labelled inferred, when it is absent.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: 'schema: at least one of team or dri'
+    outcomes: SCHEMA_VIOLATION when empty; NEEDS_PACTO_2_4 in an older contract
+    limitations: ownership is metadata; no CRD or cluster object carries it
+    tests:
+      unit:
+      - pkg/validation/fieldcoverage_test.go:TestEnvironmentOwnerSchemaMatchesServiceOwner
+      - pkg/validation/structural_test.go:TestNeeds24EnvironmentFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner/unknown-key
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner/needs-2.4
+      e2e: []
+  environments[].owner.team:
+    meaning: Owning team identifier.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: schema pattern
+    outcomes: SCHEMA_VIOLATION
+    limitations: not checked against any directory
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwnerKey_TeamAndDRINamespacesNeverCollide
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.team/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.team/invalid
+      e2e: []
+  environments[].owner.dri:
+    meaning: Directly responsible individual.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: schema pattern
+    outcomes: SCHEMA_VIOLATION
+    limitations: not checked against any directory
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_DisplayString
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.dri/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.dri/invalid
+      e2e: []
+  environments[].owner.contacts:
+    meaning: Ways to reach the owner.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: 'schema: array of contact objects'
+    outcomes: PARSE_ERROR when not a list
+    limitations: treated as a set; order is irrelevant
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_EqualComparesContactsAsASet
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts/invalid
+      e2e: []
+  environments[].owner.contacts[]:
+    meaning: One contact entry.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: 'schema: object with type and value'
+    outcomes: PARSE_ERROR when not an object
+    limitations: never contacted or verified
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_ContactSetOrdersByTypeThenValueThenPurpose
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[]/invalid
+      e2e: []
+  environments[].owner.contacts[].type:
+    meaning: Channel of the contact.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: the value is not checked to match the channel (an email type may hold a URL)
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type/invalid
+      e2e: []
+    values:
+      email:
+        meaning: an email address
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=email
+          e2e: []
+      url:
+        meaning: a web page or form
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=url
+          e2e: []
+      group:
+        meaning: a mailing list or directory group
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=group
+          e2e: []
+      oncall:
+        meaning: a paging rotation
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=oncall
+          e2e: []
+      chat:
+        meaning: a chat channel
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=chat
+          e2e: []
+      other:
+        meaning: any other channel
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].type=other
+          e2e: []
+  environments[].owner.contacts[].value:
+    meaning: Address of the contact.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: 'schema: required, non-empty'
+    outcomes: SCHEMA_VIOLATION
+    limitations: never validated as reachable
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].value/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].value/invalid
+      e2e: []
+  environments[].owner.contacts[].purpose:
+    meaning: Why to use this contact.
+    runtime: static-only
+    evidence: 'none: declared only'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: informational
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose/invalid
+      e2e: []
+    values:
+      ownership:
+        meaning: accountable owner
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose=ownership
+          e2e: []
+      support:
+        meaning: day-to-day questions
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose=support
+          e2e: []
+      escalation:
+        meaning: when support does not answer
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose=escalation
+          e2e: []
+      oncall:
+        meaning: operational incidents
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose=oncall
+          e2e: []
+      notifications:
+        meaning: announcements and change notices
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].owner.contacts[].purpose=notifications
+          e2e: []
   policies:
     meaning: Policies the contract itself must satisfy.
     runtime: static-only

@@ -9,7 +9,8 @@
 
   // Each declared environment and the check of its values file against the
   // configuration schemas, rendered by the same list the revision page uses.
-  let { environments = [], open = $bindable(false), id = '' } = $props();
+  // asOf is the time an expiry was inferred against.
+  let { environments = [], asOf = '', open = $bindable(false), id = '' } = $props();
 
   const count = (status) => environments.filter((e) => e.status === status).length;
   // The closed section still says what needs attention: a failure, or a value set
@@ -23,7 +24,7 @@
 {#if environments?.length > 0}
   <CollapsibleSection title="Environments" count={environments.length} bind:open {id}>
     <p class="env-summary" class:env-failed={count('fail') > 0} data-testid="environments-summary">{summary}</p>
-    <EnvironmentList items={rows.slice(environments)} />
+    <EnvironmentList items={rows.slice(environments)} {asOf} />
     <ShowAll cap={rows} total={environments.length} noun="environments" />
   </CollapsibleSection>
 {:else}

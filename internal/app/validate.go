@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -94,6 +95,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		resolver = s.PolicyResolver(ref)
 	}
 	stages = append(stages, validation.ValidateStagesWithResolverAt(ctx, bundle.Contract, rawYAML, bundle.FS, resolver, s.env().now())...)
+	stages = withExpiredEnvironments(stages, bundle.Contract, s.env().now())
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -116,6 +118,18 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	}
 
 	return newValidateResult(ref, opts, rawYAML, stages...), nil
+}
+
+// withExpiredEnvironments adds an ENVIRONMENT_EXPIRED warning to the
+// environments stage for every environment expired at now. The stage keeps its
+// status and reason: a skipped stage still warns.
+func withExpiredEnvironments(stages []validation.Stage, c *contract.Contract, now time.Time) []validation.Stage {
+	for i := range stages {
+		if stages[i].Name == "environments" {
+			stages[i].Warnings = append(stages[i].Warnings, validation.ExpiredEnvironmentWarnings(c, now)...)
+		}
+	}
+	return stages
 }
 
 // failedStage is the stage name, failed with err under code.

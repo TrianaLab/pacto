@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   guaranteeTerms, mismatchText, guaranteeBadge, sunsetPassed, lifecycleBadge, lifecycleText,
-  environmentBadge, stageBadge, locationText,
+  environmentBadge, stageBadge, locationText, lifetimeBadge, expiryText, ownerLabel,
 } from './behavior.ts';
 import { todayUTC } from './dateFormat.ts';
 
@@ -91,5 +91,31 @@ describe('environment and stage words', () => {
     expect(locationText({ file: 'envs/prod.yaml', line: 3 })).toBe('envs/prod.yaml:3');
     expect(locationText({ file: 'envs/prod.yaml' })).toBe('envs/prod.yaml');
     expect(locationText({ line: 3 })).toBe('');
+  });
+});
+
+describe('environment declarations', () => {
+  it('names a lifetime nobody declared as not declared, never persistent', () => {
+    expect(lifetimeBadge('temporary')).toMatchObject({ label: 'Temporary', tone: 'info' });
+    expect(lifetimeBadge('persistent')).toMatchObject({ label: 'Persistent' });
+    expect(lifetimeBadge('not-declared')).toMatchObject({ label: 'Lifetime not declared', tone: 'neutral' });
+    expect(lifetimeBadge(undefined).label).toBe('Lifetime not declared');
+  });
+  it('reads an expiry as inferred, with the answer time when there is one', () => {
+    expect(expiryText({ expires: '2030-01-01T00:00:00Z' })).toBe('Expires 2030-01-01 00:00 UTC');
+    expect(expiryText({ expires: '2026-09-30T00:00:00Z', expired: true }, '2026-11-12T10:00:00Z')).toBe('Expired (inferred, as of 2026-11-12 10:00 UTC)');
+    expect(expiryText({ expires: '2026-09-30T00:00:00Z', expired: true })).toBe('Expired (inferred)');
+    expect(expiryText({})).toBe('');
+  });
+  it('labels the owner declared, inferred from the service or unknown with its reason', () => {
+    expect(ownerLabel({ owner: 'storefront-qa', provenance: 'declared' })).toBe('Owner storefront-qa (declared)');
+    expect(ownerLabel({ owner: 'web-team', provenance: 'inferred', reason: 'r' })).toBe('Owner web-team (service owner, inferred)');
+    expect(ownerLabel({ provenance: 'unknown', reason: 'not declared by the current revision' })).toBe('Owner unknown: not declared by the current revision');
+    expect(ownerLabel({ provenance: 'unknown' })).toBe('Owner unknown');
+    expect(ownerLabel({ provenance: 'inferred', reason: 'r' })).toBe('Owner declared by contacts only (service owner, inferred)');
+    expect(ownerLabel({ team: 'qa' })).toBe('Owner qa (declared)');
+    expect(ownerLabel({ dri: 'ana' })).toBe('Owner ana (declared)');
+    expect(ownerLabel({ contacts: [{ type: 'email', value: 'a@b' }] })).toBe('Owner declared by contacts only');
+    expect(ownerLabel(undefined)).toBe('No owner declared');
   });
 });

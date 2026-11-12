@@ -229,14 +229,58 @@ export function installScaleFixture(): void {
         message: longName(`reason-${i}`), fix: i % 2 ? `pacto delivery approve -n ${longName(`ns-${i}`)} op-${i}` : longName(`fix-${i}`) }));
       if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
     }
-    // Where a service runs, observed: long environment names and version labels
-    // (keys and hrefs stay the engine's).
+    // A service's environments: long environment names, owners, reasons and version
+    // labels (keys and hrefs stay the engine's). storefront-web holds 200 environments,
+    // 200 differences and 200 history events, so the section is drawn at fleet scale.
     if (route === '/api/fleet/entities/service') {
-      const pl = (doc.service as Record<string, unknown> | undefined)?.placement as { items?: Record<string, unknown>[] } | undefined;
+      const svc = doc.service as Record<string, unknown> | undefined;
+      const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      const hist = svc?.environmentHistory as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      if (pl && hist && (doc.entity as { key?: string } | undefined)?.key === 'storefront-web') {
+        const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
+        const names = Array.from({ length: 200 }, (_, i) => `env-${i}`);
+        pl.items = names.map((n, i) => ({ ...tpl, environment: n, targetsComplete: i % 4 !== 0, targetsReason: i % 4 ? undefined : 'reason-targets',
+          provisioningTracked: i % 5 !== 0, provisioningReason: i % 5 ? undefined : `reason-provisioning-${i}`,
+          declaration: i % 7 === 0 ? undefined : { ...(tpl.declaration as Record<string, unknown>), name: n, lifetime: ['temporary', 'persistent', 'not-declared'][i % 3],
+            expires: i % 3 === 0 ? '2026-09-30T00:00:00Z' : undefined, expired: i % 6 === 0, owner: i % 2 ? { team: `owner-${i}` } : undefined },
+          owner: i % 2 ? { provenance: 'declared', owner: `owner-${i}` } : { provenance: 'inferred', owner: 'service-owner', reason: 'reason-owner' } }));
+        pl.total = 200; pl.count = 200; pl.truncated = false;
+        pl.differences = Array.from({ length: 200 }, (_, i) => ({ configuration: `config-${i % 5}`, path: `spec.path-${i}`,
+          values: Object.fromEntries(names.slice(i % 190, (i % 190) + 4).map((n, j) => [n, j ? `value-${i}-${j}` : { nested: `value-${i}` }])) }));
+        pl.differencesTotal = 240;
+        const rev = (hist.items ?? [])[0]?.revision ?? pl.currentRevision;
+        hist.items = Array.from({ length: 200 }, (_, i) => ({ change: ['added', 'removed', 'changed', 'present'][i % 4], environment: names[i],
+          fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined, revision: rev }));
+        hist.total = 200; hist.count = 200; hist.truncated = false; hist.gaps = 3; hist.completeness = 'partial'; hist.completenessReason = 'reason-history';
+      }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
         for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
+        for (const k of ['targetsReason', 'provisioningReason']) if (typeof it[k] === 'string') it[k] = longName(it[k] as string);
+        const o = it.owner as Record<string, unknown> | undefined;
+        if (o) for (const k of ['owner', 'reason']) if (typeof o[k] === 'string') o[k] = longName(o[k] as string);
+        const d = it.declaration as Record<string, unknown> | undefined;
+        if (d) { d.name = it.environment; d.file = longName(String(d.file ?? 'file')); if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) }; }
       }
+      for (const df of (pl?.differences as Record<string, unknown>[] | undefined) ?? []) {
+        df.configuration = longName(String(df.configuration)); df.path = longName(String(df.path));
+        df.values = Object.fromEntries(Object.entries(df.values as Record<string, unknown>).map(([k, v]) => [longName(k), typeof v === 'string' ? longName(v) : v]));
+      }
+      for (const e of hist?.items ?? []) e.environment = longName(String(e.environment));
+      if (typeof hist?.completenessReason === 'string') hist.completenessReason = longName(hist.completenessReason);
+    }
+    // A revision's and a target's environments at their longest: names, files and owners.
+    const lengthenEnv = (d: Record<string, unknown> | undefined) => {
+      if (!d) return;
+      d.name = longName(String(d.name ?? 'env')); d.file = longName(String(d.file ?? 'file'));
+      if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
+    };
+    if (route === '/api/fleet/entities/revision') {
+      for (const d of ((doc.revision as Record<string, unknown> | undefined)?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+    }
+    if (route === '/api/fleet/entities/target') {
+      const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;
+      if (env?.check) lengthenEnv(env.check as Record<string, unknown>);
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -863,9 +907,10 @@ const serviceWithStages = (hash: string) => async (page: Page) => {
   await expect(page.locator('[data-testid="service-delivery-row"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
-const observedStrip = (hash: string) => async (page: Page) => {
+/** Opens a service page and waits for its Environments section. */
+const serviceEnvironments = (hash: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
-  await expect(page.locator('[data-testid="service-placement"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
 /** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
@@ -983,8 +1028,39 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the summary into view; the gate reads from the top
     },
   },
-  { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
-  { name: 'service page, observed strip beside Stages', open: observedStrip('#/fleet/services/notification-worker') },
+  { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
+  { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
+  { name: 'service environments', hash: '#/fleet/services/storefront-web' },
+  {
+    name: 'service environments with Stage cells',
+    open: async (page) => {
+      await serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments')(page);
+      await expect(page.locator('#sec-environments [data-cell="stage"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'revision entity with environments',
+    open: async (page) => {
+      // storefront-web 1.1.0 declares lifetimes, an expiry and an owner.
+      await page.goto('/#/fleet/revisions?service=storefront-web');
+      const a = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: /\b1\.1\.0\b/ }).first();
+      await expect(a).toBeVisible({ timeout: 20_000 });
+      await page.goto(`/${await a.getAttribute('href')}`);
+      // The section starts closed when every value set passed: open it either way.
+      const envs = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: 'Environments' }) }).first();
+      await expect(envs).toBeAttached({ timeout: 30_000 });
+      await envs.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(page.locator('[data-testid="environment-declared"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'target entity with environment',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FDeployment%2Fstorefront-web');
+      await expect(page.locator('[data-testid="target-environment"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'inbox filtered by service', open: deliveryOfService('#/delivery/inbox?service=payments', INBOX_LOADED) },
   { name: 'publish filtered by service', open: deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED) },
   { name: 'autonomy filtered by service', open: deliveryOfService('#/delivery/autonomy?service=payments', AUTONOMY_LOADED) },

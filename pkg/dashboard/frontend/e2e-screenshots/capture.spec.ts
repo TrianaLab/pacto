@@ -16,7 +16,7 @@ const OUT = '../../../docs/assets/screenshots';
 const NOW = '2026-11-09T12:00:00Z';
 const WORKER_CLOCK = `{const T=Date.parse('${NOW}'),D=Date;self.Date=class extends D{constructor(...a){super(...(a.length?a:[T]))}static now(){return T}}}\n`;
 
-const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number } }[] = [
+const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; element?: string }[] = [
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
   { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await p.waitForTimeout(1500); } },
@@ -43,6 +43,12 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
   { name: 'delivery-stages', open: (p) => go(p, '/#/delivery/environments', 'Stages') },
   { name: 'autonomy', open: (p) => go(p, '/#/delivery/autonomy', 'Autonomy') },
   { name: 'golden-paths', open: (p) => go(p, '/#/fleet/golden-paths', 'Golden paths') },
+  // storefront-web's Environments section alone: declared, expired, observed-only and Stage-less.
+  {
+    name: 'service-environments',
+    open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
+    element: '#sec-environments',
+  },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
 ];
@@ -94,7 +100,16 @@ for (const theme of ['light', 'dark'] as const) {
         });
         await finish(page);
         await page.evaluate(() => window.scrollTo(0, 0));
-        await page.screenshot({ path: `${OUT}/dashboard-${s.name}-${theme}.png`, animations: 'disabled', caret: 'hide', clip: s.clip });
+        const path = `${OUT}/dashboard-${s.name}-${theme}.png`;
+        if (s.element) {
+          // A section taller than the viewport would be stitched from scrolled frames with
+          // the sticky top bar drawn over it, so grow the viewport to hold the whole section.
+          const box = await page.locator(s.element).boundingBox();
+          if (box) await page.setViewportSize({ width: 1600, height: Math.max(1000, Math.ceil(box.y + box.height) + 16) });
+          await finish(page);
+          await page.locator(s.element).screenshot({ path, animations: 'disabled', caret: 'hide' });
+        }
+        else await page.screenshot({ path, animations: 'disabled', caret: 'hide', clip: s.clip });
       });
     }
   });
