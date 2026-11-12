@@ -893,10 +893,23 @@ func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) 
 	return names, owners
 }
 
+// describeRanges names each consumer with the range it accepts and, for one
+// that references the service's policy, that the policy also speaks: a
+// policy referrer with no range fails the new policy.
 func describeRanges(cs []impact.AffectedConsumer) string {
 	parts := make([]string, 0, len(cs))
 	for _, c := range cs {
-		parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
+		policy := slices.Contains(c.Via, fleet.RelationshipPolicyRef)
+		switch {
+		case c.Compatibility != "" && policy:
+			parts = append(parts, fmt.Sprintf("%s (accepts %s and references its policy)", c.Service, c.Compatibility))
+		case c.Compatibility != "":
+			parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
+		case policy:
+			parts = append(parts, c.Service+" (fails its new policy)")
+		default:
+			parts = append(parts, c.Service)
+		}
 	}
 	return strings.Join(parts, ", ")
 }
