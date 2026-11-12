@@ -1052,7 +1052,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // still on screen, which is the point of the feature: the reader gets a moment to see
     // what was done for them.
     const log = await page.evaluate(() => (window as unknown as { __tourLog: string[] }).__tourLog);
-    expect(log).toContain('5 / 15|true');
+    expect(log).toContain('5 / 16|true');
   });
 
   // Waiting must be bounded: a gate that never opens has to move the reader on rather than
@@ -1130,7 +1130,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     const log = await page.evaluate(() => (window as unknown as { __hintLog: string[] }).__hintLog);
     // Announced while step 2 was still up: the reader connects the search they ran to the
     // result it produced, and is told the tour is about to move rather than discovering it.
-    expect(log).toContain('2 / 15|Done. Moving on.');
+    expect(log).toContain('2 / 16|Done. Moving on.');
     // The step they land on says what IT is waiting for, so the region is never emptied.
     await expect(hint).toHaveText('Waiting for the payments-service page to open.');
   });
