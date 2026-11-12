@@ -168,11 +168,8 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData, c fleet
 	}
 	if s.Placement.Total > 0 {
 		section(b, fleet.PlacementHeading(c))
-		for _, e := range s.Placement.Items {
-			fmt.Fprintf(b, "  %s\n", safeText(e.Line()))
-		}
-		if s.Placement.Truncated {
-			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d more environments", s.Placement.Total-s.Placement.Count)) + "\n")
+		for _, l := range s.Placement.Lines() {
+			b.WriteString(safeText(l) + "\n")
 		}
 	}
 	renderTemplateDetail(b, s.Template)

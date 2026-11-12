@@ -373,7 +373,7 @@ type ServiceDetailData struct {
 	// first.
 	Signatures   RevisionSignaturesPreview `json:"signatures"`
 	Deployments  RefPreview                `json:"deployments"`
-	Placement    PlacementPreview          `json:"placement" doc:"Where the service runs, grouped by the delivery.pacto.trianalab.io/environment label its targets report. Observed, never a promotion order"`
+	Placement    PlacementPreview          `json:"placement" doc:"Each environment the service's current revision declares or its targets report, with what is declared, observed and inferred about it. Listed alphabetically, never a promotion order"`
 	Dependencies RefPreview                `json:"dependencies"`
 	Dependents   RefPreview                `json:"dependents"`
 	// HiddenDependencies and HiddenDependents count the services, or callers
@@ -592,7 +592,7 @@ func (q *Query) targetEnvironment(t *TargetRecord) TargetEnvironment {
 	case rev == nil:
 		return TargetEnvironment{Name: name, Declared: "unknown", Reason: "Pacto cannot tell which revision runs here, so it cannot check the environment against a contract."}
 	}
-	for _, e := range rev.Environments {
+	for _, e := range MarkExpired(rev.Environments, q.snap.GeneratedAt) {
 		if e.Name == name {
 			return TargetEnvironment{Name: name, Declared: "declared", Check: &e}
 		}
@@ -985,7 +985,8 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
-	current, cfgs, pols := q.currentRevisionContent(newestInUse(active, view.Revisions))
+	cur := newestInUse(active, view.Revisions)
+	current, cfgs, pols := q.currentRevisionContent(cur)
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
 	data := &ServiceDetailData{
@@ -1008,7 +1009,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		ActiveRevisions:    refPreview(chronologicalRevisionRefs(active)),
 		Signatures:         revisionSignatures(active),
 		Deployments:        refPreview(targetRefs(view.Targets)),
-		Placement:          q.placement(view.Targets),
+		Placement:          q.placement(s.Key, view.Targets, cur, ownership, consumed),
 		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,
@@ -1054,7 +1055,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Readiness:            productReadiness(rev.Readiness),
 		Validation:           findingsPreview(rev.Validation),
 		Stages:               append([]ValidationStage{}, rev.Stages...),
-		Environments:         environmentsPreview(rev.Environments),
+		Environments:         environmentsPreview(MarkExpired(rev.Environments, q.snap.GeneratedAt)),
 		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Workload:             rev.Contract.Workload,

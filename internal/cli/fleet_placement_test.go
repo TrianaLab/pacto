@@ -5,31 +5,38 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-func TestPrintFleetEntityPlacement(t *testing.T) {
+func TestPrintFleetEntityEnvironments(t *testing.T) {
 	p := fleet.PlacementPreview{Total: 3, Count: 2, Truncated: true, Items: []fleet.EnvironmentPlacement{
-		{Environment: "prod", Targets: 2, Declared: 1, NotDeclared: 1, RevisionsTotal: 3, RevisionsTruncated: true,
-			Revisions: []fleet.EntityRef{{Version: "1.2.0"}, {Label: "svc"}}},
-		{Targets: 1, Unknown: 1, Revisions: []fleet.EntityRef{}},
-	}}
+		{Environment: "prod", Targets: 2, Declared: 2, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.2.0"}},
+			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: "persistent"},
+			Owner:       fleet.EnvironmentOwner{Owner: "payments", Provenance: "inferred"}, TargetsComplete: true,
+			Provisioning: fleet.PhaseTally{Ready: 2, Failed: 1}, ProvisioningTracked: true},
+		{Environment: "staging", Owner: fleet.EnvironmentOwner{Provenance: "unknown", Reason: "not declared by the current revision"},
+			ProvisioningReason: "the current revision does not declare staging, so no provider is asked about it there"},
+	}, DifferencesTotal: 1, Differences: []validation.EnvironmentDifference{{Configuration: "app", Path: "replicas", Values: map[string]any{"prod": 3}}}}
 	var b strings.Builder
-	printPlacement(&b, p, fleet.CompletenessComplete)
-	want := "Runs in (observed):\n" +
-		"  prod: 2 targets, 1.2.0, svc and 1 more; 1 declared, 1 not declared, 0 unknown\n" +
-		"  (no environment label): 1 target, no known revision; 0 declared, 0 not declared, 1 unknown\n" +
-		"  1 more environments\n"
+	printPlacement(&b, "web", p, fleet.CompletenessComplete)
+	want := "Environments:\n" +
+		"  prod: declared: values pass, persistent; owner payments (inferred); targets you can see: 2, 1.2.0; provisioning 2 ready, 1 failed of 3\n" +
+		"  staging: not declared; owner unknown: not declared by the current revision; targets you can see: 0 (incomplete); " +
+		"provisioning not tracked: the current revision does not declare staging, so no provider is asked about it there\n" +
+		"  1 more environments\n" +
+		"Differences (1 of 1):\n  app.replicas:\n    prod  3\n" +
+		"Stages: pacto delivery status --service web\n"
 	if b.String() != want {
-		t.Errorf("placement:\n%s\nwant:\n%s", b.String(), want)
+		t.Errorf("environments:\n%s\nwant:\n%s", b.String(), want)
 	}
 	b.Reset()
-	printPlacement(&b, p, fleet.CompletenessPartial)
-	if !strings.HasPrefix(b.String(), "Runs in (observed, targets Pacto can see):\n") {
+	printPlacement(&b, "web", p, fleet.CompletenessPartial)
+	if !strings.HasPrefix(b.String(), "Environments (targets Pacto can see):\n") {
 		t.Errorf("partial heading:\n%s", b.String())
 	}
 	b.Reset()
-	printPlacement(&b, fleet.PlacementPreview{}, fleet.CompletenessComplete)
+	printPlacement(&b, "web", fleet.PlacementPreview{}, fleet.CompletenessComplete)
 	if b.Len() != 0 {
-		t.Errorf("no targets prints nothing, got:\n%s", b.String())
+		t.Errorf("no environments prints nothing, got:\n%s", b.String())
 	}
 }

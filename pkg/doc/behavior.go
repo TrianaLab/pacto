@@ -193,8 +193,8 @@ func writeEnvironments(b *strings.Builder, d *contractview.ServiceDetails, num *
 		return
 	}
 	fmt.Fprintf(b, "## %s. Environments\n\n%s\n\n", num.Next(1), environmentSummary(d.Environments))
-	fmt.Fprintln(b, "| Environment | File | Check |")
-	fmt.Fprintln(b, "|-------------|------|-------|")
+	fmt.Fprintln(b, "| Environment | File | Check | Lifetime | Owner |")
+	fmt.Fprintln(b, "|-------------|------|-------|----------|-------|")
 	for _, e := range d.Environments {
 		check := environmentLabel[e.Status]
 		if check == "" {
@@ -203,10 +203,30 @@ func writeEnvironments(b *strings.Builder, d *contractview.ServiceDetails, num *
 		if e.Status == fleet.EnvironmentSkip && e.Reason != "" {
 			check += ": " + dashText(e.Reason)
 		}
-		fmt.Fprintf(b, "| %s | %s | %s |\n", dash(e.Name), dash(e.File), check)
+		owner := "Not declared"
+		if e.Owner != nil && !e.Owner.IsEmpty() {
+			owner = dashText(e.Owner.DisplayString())
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", dash(e.Name), dash(e.File), check, environmentLifetime(e), owner)
 	}
 	fmt.Fprintln(b)
 	writeEnvironmentFindings(b, d.Environments)
+}
+
+// environmentLifetime is an environment's declared lifetime and expiry, and
+// whether it has expired (inferred against the time the document is written).
+func environmentLifetime(e fleet.EnvironmentResult) string {
+	s := "Not declared"
+	if e.Lifetime != "" && e.Lifetime != fleet.LifetimeNotDeclared {
+		s = e.Lifetime
+	}
+	if e.Expires != "" {
+		s += ", expires " + dash(e.Expires)
+	}
+	if e.Expired {
+		s += " (expired as of " + now().UTC().Format(time.RFC3339) + ")"
+	}
+	return s
 }
 
 func writeEnvironmentFindings(b *strings.Builder, envs []fleet.EnvironmentResult) {

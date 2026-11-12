@@ -315,7 +315,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
-			printPlacement(w, res.Service.Placement, res.Meta.Completeness)
+			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -582,20 +582,18 @@ func printDependents(w io.Writer, d *fleet.ServiceDetailData) {
 	}
 }
 
-// printPlacement prints where a service runs, as its targets report it, or
-// nothing when it has no target. A partial answer says the targets are only
-// those Pacto can see.
-func printPlacement(w io.Writer, p fleet.PlacementPreview, c fleet.Completeness) {
+// printPlacement prints a service's environments, declared and observed, or
+// nothing when it has none, then where its Stages are listed: the fleet holds
+// no Stages. A partial answer says the targets are only those Pacto can see.
+func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fleet.Completeness) {
 	if p.Total == 0 {
 		return
 	}
 	_, _ = fmt.Fprintln(w, fleet.PlacementHeading(c)+":")
-	for _, e := range p.Items {
-		_, _ = fmt.Fprintf(w, "  %s\n", e.Line())
+	for _, l := range p.Lines() {
+		_, _ = fmt.Fprintln(w, l)
 	}
-	if p.Truncated {
-		_, _ = fmt.Fprintf(w, "  %d more environments\n", p.Total-p.Count)
-	}
+	_, _ = fmt.Fprintf(w, "Stages: pacto delivery status --service %s\n", service)
 }
 
 // provisioningText renders one provisioning status: its phase, (unsigned) for

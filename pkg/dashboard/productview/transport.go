@@ -331,25 +331,34 @@ func productRevisionSignatures(p fleet.RevisionSignaturesPreview) ProductRevisio
 	return ProductRevisionSignaturesPreview{RevisionSignaturesPreview: p, Items: items}
 }
 
-// ProductEnvironmentPlacement is one observed environment whose revisions are
-// navigable.
+// ProductEnvironmentPlacement is one environment of a service whose
+// revisions and owner are navigable.
 type ProductEnvironmentPlacement struct {
 	fleet.EnvironmentPlacement
-	Revisions []ProductRef `json:"revisions"`
+	Revisions []ProductRef            `json:"revisions"`
+	Owner     ProductEnvironmentOwner `json:"owner" doc:"Who owns the environment: declared on it, inferred from the service owner, or unknown"`
 }
 
-// ProductPlacementPreview is where a service runs, with navigable revisions.
+// ProductEnvironmentOwner is an environment owner with a navigable ref.
+type ProductEnvironmentOwner struct {
+	fleet.EnvironmentOwner
+	Ref *ProductRef `json:"ref,omitempty"`
+}
+
+// ProductPlacementPreview is a service's environments, with navigable refs.
 type ProductPlacementPreview struct {
 	fleet.PlacementPreview
-	Items []ProductEnvironmentPlacement `json:"items"`
+	Items           []ProductEnvironmentPlacement `json:"items"`
+	CurrentRevision *ProductRef                   `json:"currentRevision,omitempty" doc:"The revision whose declarations these are"`
 }
 
 func productPlacement(p fleet.PlacementPreview) ProductPlacementPreview {
 	items := make([]ProductEnvironmentPlacement, len(p.Items))
 	for i, e := range p.Items {
-		items[i] = ProductEnvironmentPlacement{EnvironmentPlacement: e, Revisions: Refs(e.Revisions)}
+		items[i] = ProductEnvironmentPlacement{EnvironmentPlacement: e, Revisions: Refs(e.Revisions),
+			Owner: ProductEnvironmentOwner{EnvironmentOwner: e.Owner, Ref: RefPtr(e.Owner.Ref)}}
 	}
-	return ProductPlacementPreview{PlacementPreview: p, Items: items}
+	return ProductPlacementPreview{PlacementPreview: p, Items: items, CurrentRevision: RefPtr(p.CurrentRevision)}
 }
 
 // ProductServiceDetail is the navigable service-kind detail payload.

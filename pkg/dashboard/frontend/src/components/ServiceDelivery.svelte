@@ -54,7 +54,8 @@
   // no Stage covers. A partial listing may hide the Stage that covers one, so nothing.
   const noDelivery = $derived((served !== 'enabled' && served !== 'unknown') || loader.error?.code === 'DeliveryNotInstalled');
   const observed = $derived.by(() => {
-    const items = placement?.items ?? [];
+    // Declared-only environments (no target reports them) are not where it runs.
+    const items = (placement?.items ?? []).filter((p) => p.targets > 0);
     if (noDelivery || (data && !partial && !rows.length)) return items;
     if (!data || partial) return [];
     const covered = new Set(rows.map((r) => r.environment));

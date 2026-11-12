@@ -643,15 +643,19 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 	}
 }
 
-func TestRenderServicePlacement(t *testing.T) {
+func TestRenderServiceEnvironments(t *testing.T) {
 	var b strings.Builder
 	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.EnvironmentPlacement{
-		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}}},
-	}}}, fleet.CompletenessComplete)
+		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}},
+			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
+			Owner:       fleet.EnvironmentOwner{Owner: "team-a", Provenance: "declared"}, TargetsComplete: true,
+			ProvisioningReason: "no offering use of the current revision provisions a resource"},
+	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete)
 	out := b.String()
-	for _, want := range []string{"Runs in (observed)", "prod", "1 target, 1.0.0; 1 declared, 0 not declared, 0 unknown", "1 more environments"} {
+	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1, 1.0.0",
+		"provisioning not tracked", "1 more environments", "Differences unknown: environment b: cannot read b.yaml"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("placement lacks %q:\n%s", want, out)
+			t.Errorf("environments lack %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "\x1b[31m") {
@@ -659,12 +663,12 @@ func TestRenderServicePlacement(t *testing.T) {
 	}
 	b.Reset()
 	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial)
-	if !strings.Contains(b.String(), "Runs in (observed, targets Pacto can see)") {
+	if !strings.Contains(b.String(), "Environments (targets Pacto can see)") || !strings.Contains(b.String(), "targets you can see: 1 (incomplete)") {
 		t.Errorf("a partial answer says the targets are those Pacto can see:\n%s", b.String())
 	}
 	b.Reset()
 	renderServiceDetail(&b, &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
-	if strings.Contains(b.String(), "Runs in") {
-		t.Errorf("no targets, no section:\n%s", b.String())
+	if strings.Contains(b.String(), "Environments") {
+		t.Errorf("no environments, no section:\n%s", b.String())
 	}
 }

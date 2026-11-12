@@ -3,7 +3,10 @@ package fleet
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 func TestPlacementCounts(t *testing.T) {
@@ -23,13 +26,20 @@ func TestPlacementCounts(t *testing.T) {
 	}
 	// prod: not declared; staging: two declared plus one with no linked revision;
 	// unlabelled and conflicting labels share the empty group, listed last.
-	want := []row{{"prod", 1, 0, 1, 0, 1}, {"staging", 3, 2, 0, 1, 1}, {"", 2, 0, 0, 2, 1}}
-	if !slices.Equal(got, want) || p.Total != 3 || p.Count != 3 || p.Truncated {
+	// production is declared by the current revision and reported by no target.
+	want := []row{{"prod", 1, 0, 1, 0, 1}, {"production", 0, 0, 0, 0, 0}, {"staging", 3, 2, 0, 1, 1}, {"", 2, 0, 0, 2, 1}}
+	if !slices.Equal(got, want) || p.Total != 4 || p.Count != 4 || p.Truncated {
 		t.Errorf("placement = %+v (%+v)", got, p)
 	}
-	if len(p.Items[1].Revisions) != 1 || p.Items[1].Revisions[0].Kind != KindRevision {
-		t.Errorf("revisions = %+v", p.Items[1].Revisions)
+	if len(p.Items[2].Revisions) != 1 || p.Items[2].Revisions[0].Kind != KindRevision {
+		t.Errorf("revisions = %+v", p.Items[2].Revisions)
 	}
+}
+
+// observedPlacement is placement with no current revision, owner or offering
+// use: the groups the targets report, as #466 listed them.
+func observedPlacement(q *Query, targets []*TargetRecord) PlacementPreview {
+	return q.placement("svc", targets, nil, nil, nil)
 }
 
 // placementQuery builds a query over n revisions of svc, newest highest.
@@ -48,7 +58,7 @@ func TestPlacementOrderAndBounds(t *testing.T) {
 	for _, env := range []string{"env-10", "", "env-2", "Prod", "env-2"} {
 		targets = append(targets, &TargetRecord{Environment: env, ContractRevision: "svc@1"})
 	}
-	p := q.placement(targets)
+	p := observedPlacement(q, targets)
 	var envs []string
 	for _, it := range p.Items {
 		envs = append(envs, it.Environment)
@@ -60,11 +70,11 @@ func TestPlacementOrderAndBounds(t *testing.T) {
 	for i := range MaxDetailPreview + 1 {
 		targets = append(targets, &TargetRecord{Environment: fmt.Sprintf("e%d", i)})
 	}
-	p = q.placement(targets)
+	p = observedPlacement(q, targets)
 	if p.Total != MaxDetailPreview+1 || p.Count != MaxDetailPreview || !p.Truncated || len(p.Items[0].Revisions) != 0 || p.Items[0].Revisions == nil {
 		t.Errorf("bounds: total %d count %d truncated %v", p.Total, p.Count, p.Truncated)
 	}
-	if empty := q.placement(nil); empty.Items == nil || empty.Total != 0 {
+	if empty := observedPlacement(q, nil); empty.Items == nil || empty.Total != 0 {
 		t.Errorf("empty = %+v", empty)
 	}
 }
@@ -73,7 +83,7 @@ func TestPlacementOrderAndBounds(t *testing.T) {
 // unknown and names no revision.
 func TestPlacementInferredLink(t *testing.T) {
 	q := placementQuery(1)
-	p := q.placement([]*TargetRecord{{Environment: "prod", ContractRevision: "svc@1", RevisionMatch: revisionMatchInferred}})
+	p := observedPlacement(q, []*TargetRecord{{Environment: "prod", ContractRevision: "svc@1", RevisionMatch: revisionMatchInferred}})
 	if it := p.Items[0]; it.Unknown != 1 || it.Declared+it.NotDeclared != 0 || it.RevisionsTotal != 0 {
 		t.Errorf("inferred = %+v", it)
 	}
@@ -90,11 +100,11 @@ func TestPlacementRevisionsTruncated(t *testing.T) {
 		}
 		return out
 	}
-	it := q.placement(targets(11)).Items[0]
+	it := observedPlacement(q, targets(11)).Items[0]
 	if len(it.Revisions) != MaxPlacementRevisions || it.RevisionsTotal != 11 || !it.RevisionsTruncated || it.Revisions[0].Key != "svc@11" || it.Revisions[7].Key != "svc@4" {
 		t.Errorf("11 revisions: %d listed, total %d, truncated %v, first %+v", len(it.Revisions), it.RevisionsTotal, it.RevisionsTruncated, it.Revisions[0])
 	}
-	it = q.placement(targets(3)).Items[0]
+	it = observedPlacement(q, targets(3)).Items[0]
 	if len(it.Revisions) != 3 || it.RevisionsTotal != 3 || it.RevisionsTruncated || it.Targets != 6 {
 		t.Errorf("3 revisions: %+v", it)
 	}
@@ -125,24 +135,67 @@ func TestPlacementRestricted(t *testing.T) {
 }
 
 func TestPlacementLine(t *testing.T) {
+	declared := &EnvironmentResult{Status: EnvironmentPass, Lifetime: "temporary", Expires: "2026-01-01T00:00:00Z", Expired: true}
 	cases := []struct {
 		e    EnvironmentPlacement
 		want string
 	}{
-		{EnvironmentPlacement{Environment: "prod", Targets: 2, Declared: 1, NotDeclared: 1, RevisionsTotal: 3, RevisionsTruncated: true,
-			Revisions: []EntityRef{{Version: "1.2.0"}, {Label: "svc"}}},
-			"prod: 2 targets, 1.2.0, svc and 1 more; 1 declared, 1 not declared, 0 unknown"},
-		{EnvironmentPlacement{Targets: 1, Unknown: 1}, "(no environment label): 1 target, no known revision; 0 declared, 0 not declared, 1 unknown"},
+		{EnvironmentPlacement{Environment: "prod", Targets: 2, RevisionsTotal: 3, RevisionsTruncated: true, TargetsComplete: true,
+			Revisions: []EntityRef{{Version: "1.2.0"}, {Label: "svc"}}, Declaration: declared,
+			Owner:        EnvironmentOwner{Owner: "team-a", Provenance: "declared"},
+			Provisioning: PhaseTally{Ready: 2, Failed: 1}, ProvisioningTracked: true},
+			"prod: declared: values pass, temporary, expires 2026-01-01T00:00:00Z, expired (inferred); owner team-a (declared); " +
+				"targets you can see: 2, 1.2.0, svc and 1 more; provisioning 2 ready, 1 failed of 3"},
+		{EnvironmentPlacement{Environment: "staging", Declaration: &EnvironmentResult{Status: EnvironmentFail, Lifetime: LifetimeNotDeclared},
+			Owner: EnvironmentOwner{Owner: "team-b", Provenance: "inferred"}, TargetsReason: targetsIncompleteReason,
+			Provisioning: PhaseTally{Requested: 1, Provisioning: 1, Deleting: 1, Unknown: 1}, ProvisioningTracked: true},
+			"staging: declared: values fail, lifetime not declared; owner team-b (inferred); targets you can see: 0 (incomplete); " +
+				"provisioning 1 requested, 1 provisioning, 1 deleting, 1 unknown of 4"},
+		{EnvironmentPlacement{Targets: 1, Unknown: 1, TargetsComplete: true, Owner: EnvironmentOwner{Provenance: "unknown", Reason: "not declared by the current revision"},
+			ProvisioningReason: unlabelledProvisioning},
+			"(no environment label, unknown): not declared; owner unknown: not declared by the current revision; " +
+				"targets you can see: 1, no known revision; provisioning not tracked: " + unlabelledProvisioning},
 	}
 	for _, c := range cases {
 		if got := c.e.Line(); got != c.want {
-			t.Errorf("line = %q, want %q", got, c.want)
+			t.Errorf("line =\n%q\nwant\n%q", got, c.want)
 		}
 	}
 }
 
 func TestPlacementHeading(t *testing.T) {
-	if PlacementHeading(CompletenessComplete) != "Runs in (observed)" || PlacementHeading(CompletenessPartial) != "Runs in (observed, targets Pacto can see)" {
+	if PlacementHeading(CompletenessComplete) != "Environments" || PlacementHeading(CompletenessPartial) != "Environments (targets Pacto can see)" {
 		t.Errorf("headings %q %q", PlacementHeading(CompletenessComplete), PlacementHeading(CompletenessPartial))
+	}
+}
+
+func TestPlacementLines(t *testing.T) {
+	item := func(env string, declared bool) EnvironmentPlacement {
+		e := EnvironmentPlacement{Environment: env, TargetsComplete: true, Owner: EnvironmentOwner{Reason: "r"}, ProvisioningReason: "p"}
+		if declared {
+			e.Declaration = &EnvironmentResult{Status: EnvironmentPass, Lifetime: LifetimeNotDeclared}
+		}
+		return e
+	}
+	p := PlacementPreview{Total: 3, Count: 2, Truncated: true, Items: []EnvironmentPlacement{item("env-10", true), item("env-2", true)},
+		DifferencesTotal: 2, Differences: []validation.EnvironmentDifference{
+			{Configuration: "app", Path: "replicas", Values: map[string]any{"env-10": 3, "env-2": 2}},
+			{Configuration: "flags", Values: map[string]any{"env-10": []any{"a"}, "observed": true}},
+		}}
+	got := strings.Join(p.Lines(), "\n")
+	want := strings.Join([]string{
+		"  " + p.Items[0].Line(), "  " + p.Items[1].Line(), "  1 more environments",
+		"Differences (2 of 2):",
+		"  app.replicas:", "    env-2  2", "    env-10  3",
+		"  flags:", "    env-2  not set", "    env-10  [\"a\"]", "    observed  true",
+	}, "\n")
+	if got != want {
+		t.Errorf("lines:\n%s\nwant:\n%s", got, want)
+	}
+	if got := (PlacementPreview{DifferencesError: "environment b: cannot read b.yaml"}).Lines(); !slices.Equal(got, []string{"Differences unknown: environment b: cannot read b.yaml"}) {
+		t.Errorf("unreadable differences: %q", got)
+	}
+	if got := (PlacementPreview{}).Lines(); len(got) != 0 {
+		t.Errorf("nothing to list: %q", got)
 	}
 }

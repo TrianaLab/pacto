@@ -306,13 +306,13 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 		UnresolvedDependencies: fleet.UnresolvedDependenciesPreview{Total: 1, Count: 1, Items: []fleet.UnresolvedDependency{
 			{From: fleet.EntityRef{Kind: fleet.KindService, Key: "svc"}, Ref: "oci://x/db", External: true},
 		}},
-		Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{
-			{Environment: "prod", Targets: 1, Revisions: []fleet.EntityRef{rev}, RevisionsTotal: 1},
+		Placement: fleet.PlacementPreview{Total: 2, Count: 2, CurrentRevision: &rev, Items: []fleet.EnvironmentPlacement{
+			{Environment: "prod", Targets: 1, Revisions: []fleet.EntityRef{rev}, RevisionsTotal: 1,
+				Owner: fleet.EnvironmentOwner{Owner: "team-a", Ref: &fleet.EntityRef{Kind: fleet.KindOwner, Key: "team:team-a"}, Provenance: "declared"}},
+			{Environment: "preview", Owner: fleet.EnvironmentOwner{Provenance: "unknown", Reason: "r"}},
 		}},
 	})
-	if p := d.Placement.Items; len(p) != 1 || len(p[0].Revisions) != 1 || p[0].Revisions[0].Href == "" || p[0].Environment != "prod" || d.Placement.Total != 1 {
-		t.Errorf("placement = %+v", d.Placement)
-	}
+	checkProductPlacement(t, d.Placement)
 	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
 		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
 	}
@@ -326,6 +326,21 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 	}
 	if u := d.UnresolvedDependencies.Items; len(u) != 1 || u[0].From.Href == "" || !u[0].External {
 		t.Errorf("unresolvedDependencies = %+v", u)
+	}
+}
+
+// checkProductPlacement asserts the hrefs of the placement built in
+// TestProductServiceDetail_NewRefsHref.
+func checkProductPlacement(t *testing.T, pl ProductPlacementPreview) {
+	t.Helper()
+	if p := pl.Items; len(p) != 2 || len(p[0].Revisions) != 1 || p[0].Revisions[0].Href == "" || p[0].Environment != "prod" || pl.Total != 2 {
+		t.Errorf("placement = %+v", pl)
+	}
+	if o := pl.Items[0].Owner; o.Ref == nil || o.Ref.Href == "" || o.Provenance != "declared" || pl.Items[1].Owner.Ref != nil {
+		t.Errorf("placement owners = %+v / %+v", o, pl.Items[1].Owner)
+	}
+	if c := pl.CurrentRevision; c == nil || c.Href == "" {
+		t.Errorf("placement currentRevision = %+v", c)
 	}
 }
 

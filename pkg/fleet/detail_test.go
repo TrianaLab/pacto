@@ -801,3 +801,65 @@ func TestRevisionPlaceAndEvidence(t *testing.T) {
 		t.Errorf("evidence counts = %+v, want %+v", counts, want)
 	}
 }
+
+// expiryFleet is env-svc at pactoVersion 2.4 with a staging environment that
+// expired before the snapshot's asOf and a production one that has not, and a
+// target in each.
+func expiryFleet(t *testing.T) *Query {
+	t.Helper()
+	yml := strings.Replace(strings.Replace(envLeafYAML, "pactoVersion: '2.3'", "pactoVersion: '2.4'", 1),
+		"  file: envs/staging.yaml\n", "  file: envs/staging.yaml\n  lifetime: temporary\n  expires: '2026-07-01T00:00:00Z'\n", 1)
+	fsys := fstest.MapFS{
+		"app.json":             {Data: []byte(`{"type":"object"}`)},
+		"envs/staging.yaml":    {Data: []byte("app:\n  replicas: 2\n")},
+		"envs/production.yaml": {Data: []byte("app:\n  replicas: 2\n")},
+	}
+	tgt := func(env string) RawTarget {
+		return RawTarget{Scope: "ns", Kind: "k8s", Name: env, Service: "env-svc", Digest: "sha256:env", Labels: map[string]string{TargetEnvironmentLabel: env}}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("a", "local", &Collection{
+		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: mustParse(t, yml), RawYAML: []byte(yml), FS: fsys}, Digest: "sha256:env"}},
+		Targets:   []RawTarget{tgt("staging"), tgt("production")},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func TestRevisionDetailMarksExpired(t *testing.T) {
+	q := expiryFleet(t)
+	for k := range q.snap.Revisions {
+		d, err := q.EntityDetail(KindRevision, string(k))
+		if err != nil {
+			t.Fatal(err)
+		}
+		items := d.Revision.Environments.Items
+		if len(items) != 2 || !items[0].Expired || items[0].Lifetime != "temporary" || items[1].Expired || items[1].Lifetime != LifetimeNotDeclared {
+			t.Errorf("environments = %+v", items)
+		}
+		if q.snap.Revisions[k].Environments[0].Expired {
+			t.Error("the snapshot was marked")
+		}
+	}
+	p := servicePlacement(t, q, "env-svc")
+	if s := placementItem(t, p, "staging"); s.Declaration == nil || !s.Declaration.Expired {
+		t.Errorf("service placement staging = %+v", s.Declaration)
+	}
+	if len(p.Differences) != 0 || p.DifferencesTotal != 0 || p.DifferencesError != "" {
+		t.Errorf("equal values differ: %+v", p)
+	}
+}
+
+func TestTargetEnvironmentMarksExpired(t *testing.T) {
+	q := expiryFleet(t)
+	for env, expired := range map[string]bool{"staging": true, "production": false} {
+		d, err := q.EntityDetail(KindTarget, string(NewTargetKey("ns", "k8s", env)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := d.Target.Environment.Check; c == nil || c.Expired != expired {
+			t.Errorf("%s: check = %+v", env, c)
+		}
+	}
+}

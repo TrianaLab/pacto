@@ -298,6 +298,9 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if len(existing.Stages) == 0 && len(add.Stages) > 0 {
 		existing.Stages, existing.Environments = add.Stages, add.Environments
 	}
+	if existing.differences == nil && existing.differencesErr == "" {
+		existing.differences, existing.differencesTotal, existing.differencesErr = add.differences, add.differencesTotal, add.differencesErr
+	}
 	if len(existing.Tools) == 0 {
 		existing.Tools = add.Tools
 	}
@@ -799,6 +802,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		rev.localStages = validation.ValidateDocumentStages(c, doc, b.FS)
 		setStages(rev, rev.localStages)
 		rev.validated = true
+		setDifferences(rev, c, b.FS)
 	} else {
 		rev.Environments = EnvironmentResults(c.Environments, nil)
 	}
@@ -2504,4 +2508,19 @@ func appendUnique[T ~string](s []T, v T) []T {
 		}
 	}
 	return append(s, v)
+}
+
+// setDifferences records the configuration values rev's environments disagree
+// on, bounded, or why they cannot be read. Fewer than two environments compare
+// nothing.
+func setDifferences(rev *ContractRevision, c *contract.Contract, fsys fs.FS) {
+	if len(c.Environments) < 2 {
+		return
+	}
+	diffs, err := validation.EnvironmentDifferences(c, fsys, nil)
+	if err != nil {
+		rev.differencesErr = err.Error()
+		return
+	}
+	rev.differences, rev.differencesTotal, _ = boundSlice(diffs, MaxDetailPreview)
 }

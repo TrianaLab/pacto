@@ -422,6 +422,14 @@ describe('ServiceDelivery', () => {
     w.destroy();
   });
 
+  it('leaves out an environment the revision declares but no target reports', async () => {
+    const v = render({ state: 'not-served', placement: placement([env('prod'), env('preview', { targets: 0, declared: 0, notDeclared: 0, revisions: [] })]), meta: META });
+    await settle();
+    const rows = [...v.target.querySelectorAll('[data-testid="service-placement-row"]')];
+    expect(rows.map((r) => r.querySelector('bdi')?.textContent)).toEqual(['prod']);
+    v.destroy();
+  });
+
   it('no strip when every environment has a Stage', async () => {
     environments.mockResolvedValue(answer([row({ environment: 'prod' })]));
     const v = render({ placement: placement([env('prod')]), meta: META });

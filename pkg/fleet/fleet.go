@@ -561,6 +561,14 @@ type ContractRevision struct {
 	// kept when revalidateConfigRefs replaces it so a restricted view can
 	// derive the verdict again without a provider it hides.
 	localStages []validation.Stage
+	// differences are the declared configuration values the revision's
+	// environments disagree on (see [validation.EnvironmentDifferences]), at
+	// most MaxDetailPreview, with differencesTotal counting them all; or
+	// differencesErr, why they could not be read. Computed at Build because a
+	// query's revision clone carries no bundle files.
+	differences      []validation.EnvironmentDifference
+	differencesTotal int
+	differencesErr   string
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
