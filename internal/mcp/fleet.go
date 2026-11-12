@@ -432,7 +432,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"offering":          {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
-			"environment":       {Type: "string", Description: "With consumes and phase: only the consumers whose status in that phase is in this environment."},
+			"environment":       {Type: "string", Description: "Needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
 			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
@@ -469,6 +469,11 @@ type fleetEntitiesArgs struct {
 
 func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntitiesArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Environment != "" && a.Phase == "" {
+			// ponytail: this tool lists no targets, so the core's "alone it filters targets" hint never applies here.
+			return errorResult(&fleet.InvalidQueryError{Field: "environment", Value: a.Environment,
+				Reason: "needs consumes and phase: it narrows the consumers of an offering in one phase to one environment"}), nil, nil
+		}
 		kinds := fleet.ProductKinds()
 		if a.Kind != "" {
 			kinds = []string{a.Kind}
@@ -502,7 +507,12 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"shows otherwise. Tallies cover every visible item, never the preview: an " +
 			"offering's consumers carry 'range', 'phases' (requests) and 'phaseConsumers' (distinct consumers, as the phase filter lists them) and name up to 3 'failed' consumers; a service carries " +
 			"'dependentsStatus'; a revision carries its 'position' of 'revisions' (newest first), 'current', " +
-			"'serviceTargets' and 'evidenceSources' with 'evidenceSourceCounts'. Hidden services are only counted, in the hidden fields. Read-only.",
+			"'serviceTargets' and 'evidenceSources' with 'evidenceSourceCounts'. A service carries 'placement': each " +
+			"environment declared by its current revision, observed on its targets or both, with 'declaration' (lifetime, " +
+			"expires and an inferred 'expired'), 'owner' with provenance declared, inferred or unknown, 'provisioning' with " +
+			"'provisioningTracked', 'targetsComplete' and the 'differences' between the environments' values; and " +
+			"'environmentHistory', the environment changes between the versions held in version order (no time is " +
+			"recorded, so it is never a timeline), with 'gaps' and 'completeness'. Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

@@ -67,6 +67,32 @@ func TestEntitiesPhaseInEnvironment(t *testing.T) {
 	}
 }
 
+// An environment nothing visible declares or runs in gives an empty list that
+// says the name is unknown, so "prod" never reads as "nothing failed in prod".
+func TestEntitiesPhaseInUnknownEnvironment(t *testing.T) {
+	q := phaseEnvQuery(t)
+	unknown := func(l *EntityList) bool {
+		return slices.ContainsFunc(l.Meta.Limitations, func(x Limitation) bool {
+			return x.Code == LimitationProvisioningEnvironmentScoped && strings.Contains(x.Message, "no visible revision declares")
+		})
+	}
+	f := EntityFilter{Kinds: []EntityKind{KindService}, Consumes: "postgresql", Phase: PhaseBucketFailed, Environment: "prod"}
+	if got, l := phaseEnvLabels(t, q, f); len(got) != 0 || !unknown(l) {
+		t.Errorf("failed in prod = %v, limitations %+v, want none and the name called unknown", got, l.Meta.Limitations)
+	}
+	f.Phase, f.Environment = PhaseBucketReady, "production"
+	if _, l := phaseEnvLabels(t, q, f); unknown(l) {
+		t.Errorf("production has targets, so it is known: %+v", l.Meta.Limitations)
+	}
+	for _, r := range q.snap.Revisions {
+		r.Environments = []EnvironmentResult{{Name: "prod"}}
+		break
+	}
+	if !q.environmentKnown("prod") {
+		t.Error("a revision declares prod, so it is known")
+	}
+}
+
 // Under phase unknown, a consumer that runs in the environment with nothing
 // tracking it there is listed; one with a status there in another phase is not.
 func TestEntitiesUnknownInEnvironmentIncludesUndeclaredRunning(t *testing.T) {

@@ -201,8 +201,11 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
 	}
 	if f.Phase != "" && f.Environment != "" {
-		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: fmt.Sprintf(
-			"consumers whose current revision does not declare %s have no provisioning status there", f.Environment)}}
+		msg := fmt.Sprintf("consumers whose current revision does not declare %s have no provisioning status there", f.Environment)
+		if len(consumers) == 0 && !q.environmentKnown(f.Environment) {
+			msg += fmt.Sprintf("; no visible revision declares %s and no visible target reports it, so an empty list says nothing about it", f.Environment)
+		}
+		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: msg}}
 	}
 
 	x := q.crossKindSets(f)
@@ -745,6 +748,17 @@ func (q *Query) offeringConsumersInPhase(offering, phase, env string) map[Servic
 		}
 	}
 	return out
+}
+
+// environmentKnown reports whether a visible revision declares env or a
+// visible target reports it.
+func (q *Query) environmentKnown(env string) bool {
+	for _, r := range q.snap.Revisions {
+		if slices.ContainsFunc(r.Environments, func(e EnvironmentResult) bool { return e.Name == env }) {
+			return true
+		}
+	}
+	return len(q.servicesRunningIn(env)) > 0
 }
 
 // servicesRunningIn is the services a visible target labelled env runs.
