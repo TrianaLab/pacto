@@ -353,7 +353,7 @@ func printEnvironments(w io.Writer, envs []contract.Environment, asOf time.Time)
 	_, _ = fmt.Fprintf(w, "\nEnvironments (%d):\n", len(envs))
 	for _, env := range envs {
 		expired := ""
-		if at, ok := env.ExpiresAt(); ok && !asOf.IsZero() && !at.After(asOf) {
+		if env.ExpiredAt(asOf) {
 			expired = ", expired"
 		}
 		_, _ = fmt.Fprintf(w, "  - %s%s\n", env.Summary(), expired)

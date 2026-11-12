@@ -88,8 +88,7 @@ func MarkExpired(rs []EnvironmentResult, asOf time.Time) []EnvironmentResult {
 	}
 	out := make([]EnvironmentResult, len(rs))
 	for i, r := range rs {
-		at, ok := contract.Environment{Expires: r.Expires}.ExpiresAt()
-		r.Expired = ok && !at.After(asOf)
+		r.Expired = contract.Environment{Expires: r.Expires}.ExpiredAt(asOf)
 		r.Owner = cloneOwnerPtr(r.Owner)
 		out[i] = r
 	}

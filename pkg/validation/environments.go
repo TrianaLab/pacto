@@ -70,7 +70,7 @@ func EnvironmentStageWith(c *contract.Contract, bundleFS fs.FS, refs ConfigRefs)
 func ExpiredEnvironmentWarnings(c *contract.Contract, now time.Time) []contract.ValidationWarning {
 	var out []contract.ValidationWarning
 	for i, env := range c.Environments {
-		if at, ok := env.ExpiresAt(); ok && !at.After(now) {
+		if env.ExpiredAt(now) {
 			out = append(out, contract.ValidationWarning{
 				Path:    fmt.Sprintf("environments[%d].expires", i),
 				Code:    "ENVIRONMENT_EXPIRED",

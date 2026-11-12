@@ -351,6 +351,13 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 	if !strings.Contains(got, "model: external, version v1") {
 		t.Fatal("render should show an external dependency's version")
 	}
+	if strings.Contains(got, ", expired") {
+		t.Fatal("with no asOf nothing reads expired")
+	}
+	r.AsOf = "2026-11-21T00:00:00Z"
+	if got := renderExplain(r); !strings.Contains(got, "owner perf, expired") || strings.Contains(got, "not declared, expired") {
+		t.Fatalf("an environment past its expiry reads expired, as in pacto explain: %s", got)
+	}
 	if !strings.Contains(got, "database") {
 		t.Fatal("render should include capabilities")
 	}

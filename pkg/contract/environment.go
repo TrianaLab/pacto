@@ -38,6 +38,13 @@ func (e Environment) ExpiresAt() (time.Time, bool) {
 	return t, err == nil
 }
 
+// ExpiredAt reports whether Expires is at or before asOf. An unparsed Expires
+// or a zero asOf (no time known) is never expired.
+func (e Environment) ExpiredAt(asOf time.Time) bool {
+	at, ok := e.ExpiresAt()
+	return ok && !asOf.IsZero() && !at.After(asOf)
+}
+
 // Summary is the one-line text form: name, file and the declared fields, an
 // undeclared lifetime written as such.
 func (e Environment) Summary() string {

@@ -16,6 +16,14 @@ func TestEnvironmentExpiresAt(t *testing.T) {
 	}
 }
 
+func TestEnvironmentExpiredAt(t *testing.T) {
+	e := Environment{Expires: "2026-11-20T00:00:00Z"}
+	at := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	if !e.ExpiredAt(at) || e.ExpiredAt(at.Add(-time.Second)) || e.ExpiredAt(time.Time{}) || (Environment{Expires: "soon"}).ExpiredAt(at) {
+		t.Fatal("expired at or after Expires only, never with no time or an unparsed Expires")
+	}
+}
+
 func TestEnvironmentSummary(t *testing.T) {
 	for _, tc := range []struct {
 		env  Environment
