@@ -45,6 +45,9 @@
   const events = $derived(history?.items ?? []);
   const groups = cap(25);
   const paths = cap(10);
+  const hist = cap(25);
+  // Stage-only rows count too, so the heading never lists more rows than it counts.
+  const rowCount = $derived(items.length + stageOnly.length);
 </script>
 
 {#snippet stageLink(r)}
@@ -55,7 +58,9 @@
   </span>
 {/snippet}
 
-<PreviewSection title="Environments" count={items.length} total={placement?.total ?? items.length} empty="No environment declared or observed."
+<!-- clip={false}: the rows cap themselves (Show all below), and the differences, history
+     and the asOf/completeness line under them must never hide behind the section's fade. -->
+<PreviewSection title="Environments" count={rowCount} total={(placement?.total ?? items.length) + stageOnly.length} clip={false} {emptyBody}
   help="Each environment the current revision declares or a target you can see reports: its declaration, the targets observed there, provisioning and Stages.">
   <ul class="sv-list" class:sv-staged={staged}>
     {#each groups.slice(items) as g (g.environment)}
@@ -132,6 +137,8 @@
               <span class="sv-line t-meta">Stages unknown: partial listing</span>
             {:else if g.environment}
               <span class="sv-line t-meta">No Stage you can see</span>
+            {:else}
+              <span class="sv-line t-meta">Unknown: these targets report no environment to match a Stage</span>
             {/if}
           </div>
         {/if}
@@ -155,7 +162,15 @@
   </ul>
   <ShowAll cap={groups} total={items.length} noun="environments" />
   {#if placement?.truncated}<p class="t-meta">And {placement.total - placement.count} more environments.</p>{/if}
+  {@render after()}
+</PreviewSection>
 
+{#snippet emptyBody()}
+  <p class="sv-empty t-body-2" data-testid="environments-empty">The current revision declares no environment and no target you can see reports one{completeness === 'partial' ? '; this answer is partial, so one may exist' : ''}.</p>
+  {@render after()}
+{/snippet}
+
+{#snippet after()}
   {#if declaredNames.length >= 2 || placement?.differencesError}
     <section class="sv-sub" data-testid="environment-differences" aria-labelledby="sv-diff-h">
       <h3 id="sv-diff-h" class="t-subsection-title">Differences between environments</h3>
@@ -186,15 +201,17 @@
       <h3 id="sv-hist-h" class="t-subsection-title">Changes between versions (version order)</h3>
       {#if events.length}
         <ul class="sv-events">
-          {#each events as e, i (i)}
+          {#each hist.slice(events) as e, i (i)}
             <li class="sv-line" data-testid="environment-event">
               <bdi class="sv-env" title={e.environment}>{e.environment}</bdi>
               <span>{e.change === 'present' ? 'declared since at least' : `${e.fields?.length ? `${andList(e.fields, 4)} ` : ''}${EVENT[e.change] ?? e.change}`}</span>
               <a href={hashForHref(e.revision.href)}><bdi>{e.revision.version || e.revision.label}</bdi></a>
+              {#if e.previous}<span class="t-meta">compared with</span>{' '}<a href={hashForHref(e.previous.href)}><bdi>{e.previous.version || e.previous.label}</bdi></a>{/if}
               <span class="t-meta">time not recorded</span>
             </li>
           {/each}
         </ul>
+        <ShowAll cap={hist} total={events.length} noun="changes" />
         {#if history.truncated}<p class="t-meta">{history.total - history.count} more</p>{/if}
       {:else}
         <p class="t-meta">No declared environment changed between the versions Pacto holds.</p>
@@ -205,7 +222,7 @@
   {/if}
 
   <p class="t-meta sv-foot" data-testid="environments-footer">As of {timeLabel(asOf) || 'unknown'}, {completeness || 'completeness unknown'}</p>
-</PreviewSection>
+{/snippet}
 
 <style>
   /* One row per environment: four or five labelled cells side by side on a wide
@@ -236,5 +253,6 @@
   .sv-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .sv-env { font-weight: 600; }
   .sv-foot { margin: var(--sp-3) 0 0; }
+  .sv-empty { margin: 0; }
   @media (pointer: coarse) { .sv-row a, .sv-events a { display: inline-flex; align-items: center; min-block-size: 44px; } }
 </style>

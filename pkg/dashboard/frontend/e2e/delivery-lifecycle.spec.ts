@@ -121,7 +121,20 @@ test.describe('delivery lifecycle in the demo', () => {
     await expect(staging).toBeVisible({ timeout: T });
     await expect(staging.locator('[data-cell="observed"]')).toContainText('1 unknown');
     await expect(staging.locator('[data-cell="stage"]')).toContainText('No Stage you can see');
+    // prod is a Stage only: notification-worker declares no prod and no target you can see reports it.
+    const prod = page.locator('#sec-environments [data-testid="service-environment"][data-env="prod"]');
+    await expect(prod.locator('[data-cell="declared"]')).toContainText('Stage only: not declared by');
+    await expect(prod.locator('[data-cell="stage"] a[href*="stage="]')).toBeVisible();
     await audit(page, 'service page, environments beside Stages');
+  });
+
+  test('a Stage joined to an observed environment says an admin declared it', async ({ page }) => {
+    await stageRow(page, '#/fleet/services/audit-log', 'prod');
+    const stage = page.locator('#sec-environments [data-testid="service-environment"][data-env="prod"] [data-cell="stage"]');
+    await expect(stage).toContainText('state observed, environment declared by a Stage (admin)', { timeout: T });
+    await expect(stage.locator('[data-testid="env-state-mark"]')).toBeVisible();
+    await expect(stage.locator('a[href*="/delivery/history"]')).toHaveAttribute('href', /namespace=prod&stage=audit-log/);
+    await audit(page, 'service page, environment joined to its Stage');
   });
 
   test('history filters by correlation id and cause, and a record reads in its panel', async ({ page }) => {

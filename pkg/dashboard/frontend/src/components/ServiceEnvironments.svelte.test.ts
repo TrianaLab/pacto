@@ -210,6 +210,66 @@ describe('ServiceEnvironments', () => {
     expect(d.querySelector('[data-testid="difference-row"] code[title]')?.getAttribute('title')).toBe(JSON.stringify('x'.repeat(200)));
   });
 
+  it('NeverClipsDifferencesHistoryOrFooterBehindAFade', () => {
+    for (const n of [9, 200]) {
+      const names = Array.from({ length: n }, (_, i) => `env-${i}`);
+      const t = render({ placement: placement(names.map((e) => group(e)), {
+        differences: [{ configuration: 'web', path: 'replicas', values: { 'env-0': 1, 'env-1': 2 } }], differencesTotal: 1 }),
+        history: history([{ change: 'added', environment: 'env-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+      expect(t.querySelector('.ps-clipped')).toBeNull();
+      expect(t.querySelector('[data-testid="preview-show-all"]')).toBeNull();
+      for (const id of ['environment-differences', 'environment-history', 'environments-footer']) expect(t.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+      const showAll = [...t.querySelectorAll('button')].filter((b) => /Show all/.test(b.textContent ?? ''));
+      expect(showAll.map(text)).toEqual(n > 25 ? [`Show all ${n} environments`] : []);
+      cleanup?.();
+    }
+  });
+
+  it('EmptyPlacementStillShowsStagesHistoryAndFooter', () => {
+    const t = render({ placement: placement([]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')],
+      history: history([{ change: 'removed', environment: 'pr-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+    expect(text(row(t, 'prod'))).toContain('Stage only: not declared by 1.1.0');
+    expect(text(t.querySelector('[data-testid="preview-count"]'))).toBe('1 of 1');
+    expect(t.querySelector('[data-testid="environment-history"]')).not.toBeNull();
+    expect(t.querySelector('[data-testid="environments-footer"]')).not.toBeNull();
+    cleanup?.();
+    const e = render({ placement: placement([]), completeness: 'partial',
+      history: history([{ change: 'removed', environment: 'pr-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+    expect(text(e.querySelector('[data-testid="environments-empty"]'))).toContain('no target you can see reports one; this answer is partial');
+    expect(text(e.querySelector('[data-testid="environment-history"]'))).toContain('pr-1 removed in 1.1.0');
+    expect(text(e.querySelector('[data-testid="environments-footer"]'))).toBe('As of 2026-11-12 10:00 UTC, partial');
+  });
+
+  it('CountIncludesStageOnlyRows', () => {
+    const t = render({ placement: placement([group('staging'), group('production')]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')] });
+    expect(t.querySelectorAll('[data-testid="service-environment"]')).toHaveLength(3);
+    expect(text(t.querySelector('[data-testid="preview-count"]'))).toBe('3 of 3');
+  });
+
+  it('HistoryCappedWithShowAll', () => {
+    const events = Array.from({ length: 30 }, (_, i) => ({ change: 'added', environment: `pr-${i}`, revision: rev(`1.${i + 1}.0`), previous: rev(`1.${i}.0`) }));
+    const t = render({ placement: placement([group('production')]), history: history(events) });
+    const h = t.querySelector('[data-testid="environment-history"]')!;
+    expect(h.querySelectorAll('[data-testid="environment-event"]')).toHaveLength(25);
+    const btn = [...h.querySelectorAll('button')].find((b) => /Show all 30 changes/.test(b.textContent ?? ''))!;
+    btn.click();
+    flushSync();
+    expect(h.querySelectorAll('[data-testid="environment-event"]')).toHaveLength(30);
+  });
+
+  it('HistoryNamesTheRevisionComparedWith', () => {
+    const t = render({ placement: placement([group('production')]), history: history([{ change: 'added', environment: 'pr-482', revision: rev('1.3.0'), previous: rev('1.0.0') }]) });
+    const e = t.querySelector('[data-testid="environment-event"]')!;
+    expect(text(e)).toContain('pr-482 added in 1.3.0 compared with 1.0.0');
+    expect(e.querySelectorAll('a')[1]?.getAttribute('href')).toBe('#/fleet/revisions/storefront-web%401.0.0');
+  });
+
+  it('UnlabelledGroupStageCellReadsUnknown', () => {
+    const t = render({ placement: placement([group('', { declaration: undefined, targets: 1, unknown: 1, owner: { provenance: 'unknown' } })]),
+      stagesState: 'served', stagesCompleteness: 'complete', stageRows: [] });
+    expect(text(cell(t, '', 'stage'))).toContain('Unknown: these targets report no environment to match a Stage');
+  });
+
   it('states the answer time and completeness in its footer', () => {
     const t = render({ placement: placement([group('production')]), completeness: 'partial' });
     expect(text(t.querySelector('[data-testid="environments-footer"]'))).toBe('As of 2026-11-12 10:00 UTC, partial');
