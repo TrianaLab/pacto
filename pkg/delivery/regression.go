@@ -43,7 +43,7 @@ func RegressionEvidence(stages []StageObject, histories []StageHistory, digest s
 			continue
 		}
 		for _, e := range h.Entries {
-			if e.Type == TypeRollback && e.Pointer != nil && e.Pointer.Before == digest && e.Pointer.After != digest {
+			if e.Type == TypeRollback && lifecycleRole(e, digest) == "left" {
 				ev = append(ev, rollbackEvidence(h, e, digest))
 			}
 		}

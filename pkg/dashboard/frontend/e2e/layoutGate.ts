@@ -195,6 +195,10 @@ export function installScaleFixture(): void {
         const environment = longName(`prod-${i}`);
         return { environment, errored: (i * 37) % 1300, held: (i * 53) % 900, frozen: i % 4, upstream: i ? [longName(`prod-${i - 1}`)] : [] };
       });
+      // A frozen row's unfreeze offer at its longest reason.
+      for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -207,6 +211,32 @@ export function installScaleFixture(): void {
           upstream: i ? [longName(`prod-${i - 1}`)] : [],
         }));
       }
+      // The Stage rows' free text at its longest (the service page reads it per row);
+      // keys, digests and hrefs stay the engine's.
+      for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
+        if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
+        for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
+        const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
+        for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+      }
+    }
+    // The Why card at its longest: many reasons, each with a long message and fix.
+    if (route === '/api/delivery/progress') {
+      const base = (doc.reasons as Record<string, unknown>[] | null) ?? [];
+      doc.summary = longName(String(doc.summary ?? 'summary'));
+      doc.reasons = Array.from({ length: 12 }, (_, i) => ({ ...(base[i % Math.max(base.length, 1)] ?? { code: 'NotReady' }),
+        message: longName(`reason-${i}`), fix: i % 2 ? `pacto delivery approve -n ${longName(`ns-${i}`)} op-${i}` : longName(`fix-${i}`) }));
+      if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
+    }
+    // Where a service runs, observed: long environment names and version labels
+    // (keys and hrefs stay the engine's).
+    if (route === '/api/fleet/entities/service') {
+      const pl = (doc.service as Record<string, unknown> | undefined)?.placement as { items?: Record<string, unknown>[] } | undefined;
+      for (const it of pl?.items ?? []) {
+        if (it.environment) it.environment = longName(String(it.environment));
+        for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
+      }
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -214,6 +244,30 @@ export function installScaleFixture(): void {
         tl.buckets.forEach((b, i) => { b.released = 1200 + i * 37; b.failed = (i * 13) % 40; b.held = (i * 7) % 25; b.other = 300; });
         for (const k of ['released', 'failed', 'held', 'other']) tl.totals[k] = tl.buckets.reduce((n, b) => n + b[k], 0);
       }
+      // The History columns at their longest: every change's cause and correlation id,
+      // and undo offers with long reasons, every other one refused so both forms show.
+      // Operation names, record ids and hrefs stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        for (const en of (h.entries as Record<string, unknown>[] | undefined) ?? []) {
+          if (!en.operation) continue;
+          const c = (en.cause as Record<string, unknown> | undefined) ?? {};
+          const v = c.verdict as Record<string, unknown> | undefined;
+          if (v) v.message = longName(`verdict-${en.operation}`);
+          en.cause = { ...c, reason: longName(`cause-${en.operation}`) };
+          en.correlationID = longName(`correlation-${en.operation}`);
+        }
+        Object.values((h.undoOffers as Record<string, Record<string, unknown>> | undefined) ?? {}).forEach((o, i) => {
+          o.reason = longName(`undo-${o.operation}`);
+          if (i % 2) o.available = false;
+        });
+      }
+    }
+    // One record at its longest: many verdicts with long messages and citations.
+    if (route === '/api/delivery/record') {
+      const base = ((doc.verdicts as Record<string, unknown>[] | null) ?? [])[0] ?? { gate: 'pacto.diff', phase: 'pre', result: 'Pass' };
+      doc.verdicts = Array.from({ length: 12 }, (_, i) => ({ ...base, message: longName(`verdict-${i}`),
+        citation: Object.fromEntries(Array.from({ length: 6 }, (_, j) => [longName(`key-${i}-${j}`).slice(0, 40), longName(`value-${i}-${j}`)])) }));
+      if (typeof doc.intentReason === 'string') doc.intentReason = longName(doc.intentReason || 'reason');
     }
     // The publish figure at fleet scale: thousands of services and versions, and the
     // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
@@ -228,6 +282,26 @@ export function installScaleFixture(): void {
         const pg = doc.page as { total: number; offset: number; limit: number; nextOffset?: number };
         pg.total = q.get('signed') === 'no' ? 1800 : q.get('signed') === 'unknown' ? 700 : q.get('signed') === 'yes' ? 2500 : 5000;
         if (pg.offset + pg.limit < pg.total) pg.nextOffset = pg.offset + pg.limit;
+      }
+      // Each version's source revision at its longest; digests stay the engine's.
+      for (const svc of (doc.services as { versions?: Record<string, unknown>[] }[] | undefined) ?? []) {
+        for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
+      }
+    }
+    // A version's lifecycle at its longest: long environment, Stage and record names, a
+    // long note and the newest 50 events on every Stage.
+    if (route === '/api/delivery/lifecycle') {
+      doc.note = longName(String(doc.note || 'note'));
+      for (const k of ['sourceRevision', 'version']) if (typeof doc[k] === 'string') doc[k] = longName(doc[k] as string);
+      for (const k of ['signedOn', 'unsignedOn']) if (Array.isArray(doc[k])) doc[k] = (doc[k] as string[]).map(longName);
+      // Many Stages: the demo's, repeated under distinct long names.
+      const base = (doc.stages as Record<string, unknown>[] | undefined) ?? [];
+      if (base.length) doc.stages = Array.from({ length: 12 }, (_, i) => ({ ...base[i % base.length], stage: `${base[i % base.length].stage}-${i}` }));
+      for (const st of (doc.stages as Record<string, unknown>[] | undefined) ?? []) {
+        st.environment = longName(String(st.environment));
+        st.stage = longName(String(st.stage));
+        const evs = (st.events as Record<string, unknown>[] | undefined) ?? [];
+        if (evs.length) st.events = Array.from({ length: 50 }, (_, i) => ({ ...evs[i % evs.length], record: i % 3 ? longName(`record-${i}`) : undefined }));
       }
     }
     if (route === '/api/delivery/autonomy') {
@@ -337,8 +411,19 @@ export function installScaleFixture(): void {
     walk(doc);
   };
 
+  // A service page asks delivery for its service by the page's (lengthened) label: ask
+  // the engine for the name it knows, and the rows come back under the long name.
+  const engineName = (path: string): string => {
+    const [route, query = ''] = path.split('?');
+    const q = new URLSearchParams(query);
+    const asked = q.get('service');
+    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+    if (!short) return path;
+    q.set('service', short);
+    return `${route}?${q}`;
+  };
   const wrapped: Serve = async (method, path, body) => {
-    const res = await (real as Serve)(method, path, body);
+    const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -378,9 +463,8 @@ export async function layoutProblems(page: Page): Promise<string[]> {
         const cs = getComputedStyle(p);
         if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return true;
         if (cs.position === 'absolute' && (cs.clip === 'rect(0px, 0px, 0px, 0px)' || cs.clipPath === 'inset(50%)')) return true;
-        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && p !== el.closest('summary')?.parentElement) {
-          if (!el.closest('summary')) return true;
-        }
+        // A closed disclosure shows only its own summary: a nested disclosure's summary inside it is hidden too.
+        if (p.tagName === 'DETAILS' && !(p as HTMLDetailsElement).open && !p.querySelector(':scope > summary')?.contains(el)) return true;
       }
       return false;
     };
@@ -773,6 +857,28 @@ const firstLink = (list: string, href: string) => async (page: Page) => {
   await page.goto(`/${await a.getAttribute('href')}`);
 };
 
+/** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
+const serviceWithStages = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-delivery-row"]').first()).toBeVisible({ timeout: 30_000 });
+};
+
+const observedStrip = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-placement"]')).toBeVisible({ timeout: 30_000 });
+};
+
+/** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
+const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="delivery-service-filter"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(landmark).first()).toBeVisible({ timeout: 30_000 });
+};
+// What each list shows once its answer is in.
+const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
+const PUBLISH_LOADED = 'li.pv-row';
+const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -839,10 +945,96 @@ export const ROUTES: Route[] = [
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
+  {
+    name: 'history, one Stage, with the new columns and filters',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('section.hv-stage tbody tr').first()).toBeVisible({ timeout: 30_000 });
+      const [cause, corr] = await page.locator('[data-testid="history-filters"] input').all();
+      await cause.fill('reconciliation-settlement-ledger-export-worker-eu-west-partner-feed-compliance-archive');
+      await corr.fill('incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export');
+    },
+  },
+  {
+    name: 'history, every Stage, filtered by correlation id',
+    hash: '#/delivery/history?correlationID=CHG-2041',
+  },
+  {
+    name: 'history, record panel open',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await page.locator('button[aria-label^="Read record"]').first().click();
+      await expect(page.locator('[data-testid="record-verdicts"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },
   { name: 'delivery publish', list: true, hash: '#/delivery/publish' },
   { name: 'delivery change', hash: '#/delivery/changes/prod/payments-promote-2' },
   { name: 'delivery change held', hash: '#/delivery/changes/test/pay-agent-promote-17' },
+  { name: 'service page with Stages', open: serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments') },
+  { name: 'service page, Stage running nothing yet', open: serviceWithStages('#/fleet/services/audit-log') },
+  {
+    name: 'service page, Why card open',
+    open: async (page) => {
+      await serviceWithStages('#/fleet/services/registry.example%252Fstory%2Fpayments')(page);
+      await page.locator('details.sd-why summary').first().click();
+      await expect(page.locator('[data-testid="service-delivery-why"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the summary into view; the gate reads from the top
+    },
+  },
+  { name: 'service page, observed strip', open: observedStrip('#/fleet/services/storefront-web') },
+  { name: 'service page, observed strip beside Stages', open: observedStrip('#/fleet/services/notification-worker') },
+  { name: 'inbox filtered by service', open: deliveryOfService('#/delivery/inbox?service=payments', INBOX_LOADED) },
+  { name: 'publish filtered by service', open: deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED) },
+  { name: 'autonomy filtered by service', open: deliveryOfService('#/delivery/autonomy?service=payments', AUTONOMY_LOADED) },
+  {
+    name: 'publish, version lifecycle open',
+    open: async (page) => {
+      await deliveryOfService('#/delivery/publish?service=payments', PUBLISH_LOADED)(page);
+      await page.locator('button[aria-label^="Lifecycle of"]').first().click();
+      await expect(page.locator('[data-testid="delivery-lifecycle"] li').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
+    name: 'revision page, Delivery lifecycle list',
+    open: async (page) => {
+      await page.goto('/#/fleet/revisions/registry.example%252Fstory%2Fpayments@sha256:8c4f595146e5154efc1fe8d58960e0632e2d3668eb390fa75da0db6390a6494a');
+      await expect(page.locator('[data-testid="revision-delivery"] .lc-stage').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page with a Delivery link',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/prod%2FCronJob%2Faudit-log');
+      await expect(page.locator('[data-testid="target-delivery"] a').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'revision page, no Stage names it',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=storefront-web', '/fleet/revisions/')(page);
+      await expect(page.locator('[data-testid="lifecycle-unmatched"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target page, no Stage delivers it here',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
+      await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'change page with service and revision links',
+    open: async (page) => {
+      await page.goto('/#/delivery/changes/prod/payments-promote-6');
+      await page.locator('[data-testid="change-details"] > summary').click();
+      await expect(page.locator('[data-testid="change-service"] a')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="change-revision"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

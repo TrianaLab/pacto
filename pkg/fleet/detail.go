@@ -373,6 +373,7 @@ type ServiceDetailData struct {
 	// first.
 	Signatures   RevisionSignaturesPreview `json:"signatures"`
 	Deployments  RefPreview                `json:"deployments"`
+	Placement    PlacementPreview          `json:"placement" doc:"Where the service runs, grouped by the delivery.pacto.trianalab.io/environment label its targets report. Observed, never a promotion order"`
 	Dependencies RefPreview                `json:"dependencies"`
 	Dependents   RefPreview                `json:"dependents"`
 	// HiddenDependencies and HiddenDependents count the services, or callers
@@ -1007,6 +1008,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		ActiveRevisions:    refPreview(chronologicalRevisionRefs(active)),
 		Signatures:         revisionSignatures(active),
 		Deployments:        refPreview(targetRefs(view.Targets)),
+		Placement:          q.placement(view.Targets),
 		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,

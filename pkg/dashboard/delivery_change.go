@@ -3,11 +3,9 @@ package dashboard
 import (
 	"context"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
-	"golang.org/x/sync/errgroup"
 )
 
 // ── one change: its view and the actions offered on it ─────────────────
@@ -27,7 +25,7 @@ type operationOutput struct {
 		// change, in seconds; zero or absent when the Stage asks no fresh login.
 		DecisionFreshness int                    `json:"decisionFreshness,omitempty" doc:"How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides"`
 		UndoneBy          *delivery.HistoryEntry `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
-		Upstream          *Upstream              `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, from its spec; absent when the Stage could not be read"`
+		Upstream          *delivery.Upstream     `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, from its spec; absent when the Stage could not be read"`
 		Environment       string                 `json:"environment,omitempty" doc:"The environment the Stage delivers to (its spec.environment); absent when the Stage could not be read"`
 		Labels
 	}
@@ -72,7 +70,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 			out.Body.UndoneBy = undoneBy(h.Entries, in.Name, st.Pointer.After, st.Times.Finished)
 		}
 	}
-	out.Body.Versions = stageVersions(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
+	out.Body.Labels = s.stageLabels(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
 		op.Status.Pointer.Before, op.Status.Pointer.After, e.Stage.Pointer)
 	people := []string{op.Spec.Actor.User}
 	if op.Spec.OnBehalfOf != nil {
@@ -154,38 +152,6 @@ func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns 
 			answers[ns] = ok
 		}
 		return ok
-	}
-}
-
-// mayRaise drops the actions of each row whose namespace the caller's RBAC
-// refuses an Operation in. Only namespaces with something to offer are
-// asked, describeParallel at once, so a reader's board costs no review; a
-// review that fails says no.
-func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
-	var asked []string
-	for _, r := range rows {
-		if len(r.Actions) > 0 && !slices.Contains(asked, r.Namespace) {
-			asked = append(asked, r.Namespace)
-		}
-	}
-	allowed := map[string]bool{}
-	var mu sync.Mutex
-	var g errgroup.Group
-	g.SetLimit(describeParallel)
-	for _, ns := range asked {
-		g.Go(func() error {
-			ok, err := api.Can(ctx, "create", "operations", ns)
-			mu.Lock()
-			allowed[ns] = err == nil && ok
-			mu.Unlock()
-			return nil
-		})
-	}
-	_ = g.Wait()
-	for i := range rows {
-		if len(rows[i].Actions) > 0 && !allowed[rows[i].Namespace] {
-			rows[i].Actions = []string{}
-		}
 	}
 }
 

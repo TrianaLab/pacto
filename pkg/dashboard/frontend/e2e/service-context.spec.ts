@@ -10,7 +10,8 @@ const T = 20_000;
 const WIDE_FONT = '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}';
 
 async function openPaymentsService(page: Page) {
-  await page.goto('/#/fleet/services');
+  // Narrowed by name: the story's services push it off the list's first page.
+  await page.goto('/#/fleet/services?text=payments-service');
   await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
   const row = page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first();
   await expect(row).toBeVisible({ timeout: T });
@@ -51,7 +52,7 @@ test.describe('WASM demo — service context', () => {
     const n = (await declared.locator('b').innerText()).trim();
     await expect(deps.getByTestId('preview-count')).toHaveText(new RegExp(`of ${n}$`));
 
-    // No demo Stage is named after a fleet service, so the exact match finds none.
+    // payments-service has no Stage; audit-log and notification-worker do.
     const delivery = page.getByTestId('service-delivery');
     await expect(delivery.getByText('No Stages for this service. Delivery is opt-in per service.', { exact: true })).toBeVisible({ timeout: T });
 

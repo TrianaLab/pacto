@@ -95,6 +95,25 @@ targets:
     # The oldest evidenceAt in the file, by design. See the header for why every
     # timestamped target here reads as stale under a short freshness window.
 
+  # audit-log runs in the environment its delivery Stage covers (prod), and
+  # notification-worker runs in staging, which none of its Stages covers: the
+  # environment label is what links a target to a Stage, by exact name.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: platform/audit-log
+    service: audit-log
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: prod }
+
+  - scope: staging
+    kind: kubernetes-workload
+    name: platform/notification-worker
+    service: notification-worker
+    compliance: Unknown
+    labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
+
 provisioning:
   - service: catalog-service
     digest: sha256:32b570087a9cd70b16772e9cb5d3cbc1a6aea6fc31b1c021d9d848c10424b518

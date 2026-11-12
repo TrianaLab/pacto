@@ -106,8 +106,25 @@ func candidateSource(c Candidates) string {
 	return ""
 }
 
+// candidateSourceReasons are the Ready reasons that explain an empty
+// candidate list: the candidate source itself is missing, unverified or
+// untrusted. Unguarded and the applier reasons never do.
+var candidateSourceReasons = []string{ReadyReasonCandidateNotFound, ReadyReasonCandidateUnverified,
+	ReadyReasonUpstreamUntrusted, ReadyReasonUpstreamUnreadable, ReadyReasonNoCandidateSource}
+
 // candidatesNote says why a candidate list is empty or incomplete, or "".
+// When the promoter's Ready condition names a candidate-source problem, an
+// empty list is explained by it and the change that clears it.
 func candidatesNote(stage StageObject, upstream *StageStatus, why string, vs []CandidateVersion) string {
+	if r := readyOf(stage.Status); len(vs) == 0 && r != nil && r.Status == "False" && slices.Contains(candidateSourceReasons, r.Reason) {
+		return r.Message + ": " + ReadyFix(r.Reason)
+	}
+	return sourceNote(stage, upstream, why, vs)
+}
+
+// sourceNote says why a candidate list is empty or incomplete from the
+// Stage's candidate source and what it offers, or "".
+func sourceNote(stage StageObject, upstream *StageStatus, why string, vs []CandidateVersion) string {
 	c := stage.Spec.Candidates
 	switch {
 	case c.UpstreamStage == nil && c.UpstreamRecords == nil && c.OCIRepositoryRef == nil:

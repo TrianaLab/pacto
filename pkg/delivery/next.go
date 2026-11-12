@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -39,6 +40,9 @@ func PlanNext(p Plan, class ActorClass, stage StageSpec) []string {
 			"if you propose it, the operation is Held until a person decides.")
 	} else {
 		next = append(next, "If you propose it, the operation is Held until a person decides.")
+	}
+	if slices.ContainsFunc(p.Conflicts, func(c string) bool { return strings.HasPrefix(c, "StageFrozen:") }) {
+		next = append(next, "The Stage is frozen: even once approved, the promote waits until a person unfreezes it.")
 	}
 	t, _ := TypeByID(p.Type)
 	approval, _ := t.Deadlines(stage.Deadlines)

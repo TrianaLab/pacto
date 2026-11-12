@@ -400,13 +400,34 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
-      --all[=true|false]    walk every Stage in the namespace given with -n, or in every namespace you can list
-      --domain string       with --service, its registry domain; a Stage that names none matches any
-  -h, --help[=true|false]   help for history
-      --service string      with --all, only the Stages of this service
-      --since string        only changes at or after this RFC 3339 time, or this long before now (2h)
-      --stage string        the Stage (this or --all)
-      --until string        only changes at or before this RFC 3339 time, or this long before now (30m)
+      --all[=true|false]        walk every Stage in the namespace given with -n, or in every namespace you can list
+      --cause string            only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too
+      --correlation-id string   only changes with exactly this correlation id; it narrows the timeline too
+      --domain string           with --service, its registry domain; a Stage that names none matches any
+  -h, --help[=true|false]       help for history
+      --service string          with --all, only the Stages of this service
+      --since string            only changes at or after this RFC 3339 time, or this long before now (2h)
+      --stage string            the Stage (this or --all)
+      --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
+```
+
+### `pacto delivery lifecycle`
+
+Follows one artifact of a service, named by exactly one of --digest, --version or --contract, through every Stage of the service you can see: whether pacto publish published it (Flux verified its signature) and, on each Stage, when it arrived, was verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named.
+
+```
+pacto delivery lifecycle [flags]
+```
+
+**Flags:**
+
+```
+      --contract string     its contract: a manifest digest or a digest-pinned reference
+      --digest string       the artifact digest Stages point at
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for lifecycle
+      --service string      the service the version belongs to (required)
+      --version string      the version its contract declares
 ```
 
 ### `pacto delivery plan`
@@ -471,6 +492,21 @@ pacto delivery record [flags]
   -h, --help[=true|false]   help for record
 ```
 
+#### `pacto delivery record get`
+
+Reads one signed record of a Stage's stream by its full id or by the short id a text history prints (sha256: and 12 hex characters), when only one record starts with it.
+
+```
+pacto delivery record get <id> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for get
+      --stage string        the Stage whose stream holds the record (required)
+```
+
 #### `pacto delivery record verify`
 
 Verify every record of a Stage's stream against the trust config and check the chain
@@ -485,6 +521,23 @@ pacto delivery record verify [flags]
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
       --stage string        the Stage (this or --all)
+```
+
+### `pacto delivery status`
+
+Lists every Stage of one service you can see, in promotion order from each Stage's spec.candidates: the version it runs, its state as the dashboard counts it, its upstream, its candidate, its newest re-check, its level and the actions you may ask for (promote, unfreeze, freeze, undo), each with why or why not. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named. With --why it also plans the promote of each candidate, proposes nothing and says what holds it back.
+
+```
+pacto delivery status [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       the service's registry domain; a Stage that names none matches any
+  -h, --help[=true|false]   help for status
+      --service string      the service whose Stages to show (required)
+      --why[=true|false]    also plan the promote of each Stage's candidate (proposing nothing) and say what holds it back
 ```
 
 ### `pacto delivery types`

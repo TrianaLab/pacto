@@ -40,7 +40,7 @@ const (
 	statusTrue     = "True"
 	statusFalse    = "False"
 	statusUnknown  = "Unknown"
-	conditionReady = "Ready"
+	conditionReady = delivery.ConditionReady
 )
 
 // Reasons RecordStoreReady is False.

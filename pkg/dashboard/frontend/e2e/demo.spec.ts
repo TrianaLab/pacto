@@ -148,7 +148,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('the embedded fleet loads (product service list)', async ({ page }) => {
     await page.goto('/#/fleet/services');
-    await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('analytics-pipeline').first()).toBeVisible({ timeout: 20_000 });
   });
 
   // Part 1 dual-UI elimination: on the Fleet-capable demo, every legacy route that has a

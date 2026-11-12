@@ -29,7 +29,8 @@ async function boot(page: Page) {
 }
 
 async function openPaymentsService(page: Page) {
-  await page.goto('/#/fleet/services');
+  // Narrowed by name: the story's services push it off the list's first page.
+  await page.goto('/#/fleet/services?text=payments-service');
   await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: T });
   // By canonical key, not by label: the demo publishes same-named services in two
   // domains, so a visible name is not an identity.

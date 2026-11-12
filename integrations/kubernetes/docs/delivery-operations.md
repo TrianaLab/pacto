@@ -5,7 +5,10 @@
 
 How a change is planned, proposed and approved, for
 [Pacto delivery](delivery.md). Setting up a Stage is in
-[Delivery reference: setup and gates](delivery-setup.md).
+[Delivery reference: setup and gates](delivery-setup.md). To see first where
+each Stage stands and why a version cannot move yet, run
+`pacto delivery status --service <service> --why`; see
+[status, progress and lifecycle](delivery-status.md).
 
 ```bash
 pacto delivery candidates -n prod --stage payments
@@ -24,11 +27,16 @@ recent sign-in, it makes you log in again in your browser through its own
 (`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). See
 [approve from the terminal](delivery-identity.md#approve-from-the-terminal).
 
+## What a plan says
+
 `plan` predicts each gate's verdict and the one question a person would be
 asked. Its `next` lines say which teams must sign, that an agent cannot answer
 and that an operation nobody decides before its approval deadline (24 hours
 unless the Stage's `deadlines.approval` says otherwise) concludes Expired. A
-Rejected plan asks nobody anything; its failing verdict says what to do first. `propose` with the plan's intent digest refuses with
+Rejected plan asks nobody anything; its failing verdict says what to do first.
+A promote held for a person on a frozen Stage also lists the `StageFrozen`
+conflict, and `next` says that even once approved it waits until a person
+unfreezes the Stage. `propose` with the plan's intent digest refuses with
 `PlanStale` if anything moved since. The digest also binds the reason and the
 on-behalf-of person, so pass the same ones you planned with: when they explain
 the difference, `PlanStale` names them.

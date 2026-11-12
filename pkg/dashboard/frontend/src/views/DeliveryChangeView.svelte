@@ -3,7 +3,7 @@
   import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl } from '../lib/router.ts';
+  import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
     undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked } from '../lib/delivery.ts';
@@ -241,11 +241,12 @@
       <Fold title="Details" meta="environment, versions, decisions, timeline" testid="change-details">
         <dl class="cd-facts t-body-2">
           {#if st?.question}<dt>Question</dt><dd data-testid="change-question">{shortDigests(st.question)}</dd>{/if}
+          {#if e.stage.service?.name}<dt>Service</dt><dd data-testid="change-service"><a href={deliveryServiceUrl(e.stage.service.name)}><bdi>{e.stage.service.name}</bdi></a></dd>{/if}
           <dt>Environment</dt><dd data-testid="change-environment">{#if data.environment}<bdi>{data.environment}</bdi>, the Stage{' '}{/if}<a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
           {#if data.level}<dt>Level</dt><dd data-testid="change-level"><span class="badge badge-neutral">{levelLabel(data.level)}</span>{' '}<HelpTip label={levelLabel(data.level)} text={levelHelp(data.level)} /></dd>{/if}
           {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
             {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>
-            {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
+            {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}{#if data.revisions?.[d]}{' '}<a href={fleetEntityUrl('revision', data.revisions[d])} aria-label={`revision of ${data.versions?.[d] || shortDigest(d)}`} data-testid="change-revision">revision</a>{/if}</dd>{/if}
           {/each}
           <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} />{/if}</dd>
           {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}

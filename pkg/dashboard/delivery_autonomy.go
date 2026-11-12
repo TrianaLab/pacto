@@ -141,6 +141,9 @@ type autonomyInput struct {
 	Blockers int `query:"blockers" minimum:"0" doc:"Where the page of blockers starts; limit and q apply to it too"`
 	// Level is the figure's card: its count opens the Stages it counts.
 	Level string `query:"level" enum:"observe,advise,auto-nonbreaking,autonomous,none" doc:"Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers"`
+	// Service and Domain narrow the Stages and byLevel, like q.
+	Service string `query:"service" doc:"Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 }
 
 type autonomyOutput struct {
@@ -155,7 +158,7 @@ type autonomyOutput struct {
 		BlockersPage            Page              `json:"blockersPage" doc:"Which blockers this page holds, grouped by kind"`
 		BlockerKinds            []BlockerKind     `json:"blockerKinds" doc:"How many blockers of each kind match, over every page, in page order"`
 		CanMoveUp               int               `json:"canMoveUp" doc:"Stages, over every page, Pacto proposes a next level for"`
-		ByLevel                 []LevelCount      `json:"byLevel" doc:"Stages at each level, over every page after q: observe, advise, auto-nonbreaking, autonomous, then those that report none"`
+		ByLevel                 []LevelCount      `json:"byLevel" doc:"Stages at each level, over every page after q, service and domain: observe, advise, auto-nonbreaking, autonomous, then those that report none"`
 	}
 }
 
@@ -214,7 +217,13 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 	b.Listing = l
 	rows, blockers, count := autonomy(stages, callers)
 	b.PromotionsWithoutPerson = count
-	rows = filter(rows, func(r AutonomyStage) bool { return matches(in.Q, r.Namespace+"/"+r.Stage, r.Service, r.Environment) })
+	ofService := map[string]bool{}
+	for _, st := range stages {
+		ofService[st.Metadata.Namespace+"/"+st.Metadata.Name] = delivery.OfService(st, in.Service, in.Domain)
+	}
+	rows = filter(rows, func(r AutonomyStage) bool {
+		return ofService[r.Namespace+"/"+r.Stage] && matches(in.Q, r.Namespace+"/"+r.Stage, r.Service, r.Environment)
+	})
 	blockers = filter(blockers, func(x AutonomyBlocker) bool {
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
 	})

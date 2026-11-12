@@ -22,7 +22,7 @@ func (d *Delivery) RegressionEvidence(ctx context.Context, ev impact.Event) *imp
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
 	domain, name := fleet.ParseServiceKey(fleet.ServiceKey(ev.Service))
-	stages, forbidden, err := d.auditStages(ctx, "", delivery.ServiceRef{Domain: domain, Name: name})
+	w, err := d.auditStages(ctx, "", delivery.ServiceRef{Domain: domain, Name: name})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return &impact.Regression{Unavailable: "this cluster does not serve delivery.pacto.trianalab.io: " + err.Error()}
@@ -31,11 +31,11 @@ func (d *Delivery) RegressionEvidence(ctx context.Context, ev impact.Event) *imp
 	}
 	// Every Stage's history is read: a person's rollback off the digest
 	// leaves failedDigests unchanged, so the list cannot narrow the read.
-	hs := d.Histories(ctx, stages)
-	evidence, unknown := delivery.RegressionEvidence(stages, hs.Histories, ev.Revision)
+	hs := d.Histories(ctx, w.Stages)
+	evidence, unknown := delivery.RegressionEvidence(w.Stages, hs.Histories, ev.Revision)
 	var why []string
-	if len(forbidden) > 0 {
-		why = append(why, "evidence from these namespaces was not read: "+strings.Join(forbidden, "; "))
+	if len(w.Forbidden) > 0 {
+		why = append(why, "evidence from these namespaces was not read: "+strings.Join(w.Forbidden, "; "))
 	}
 	if len(hs.Unreadable) > 0 {
 		why = append(why, "the histories of these Stages were not read: "+strings.Join(hs.Unreadable, "; "))

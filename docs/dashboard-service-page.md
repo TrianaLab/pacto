@@ -57,7 +57,34 @@ page of every service with that name. When the service has a domain, such a row
 reads **Stage names no domain**: the match is by service name only. When
 no Stage matches, the section says so: delivery is opt-in per service. When the
 dashboard does not serve delivery, the section says why, and when Pacto cannot
-reach the cluster it shows the error with a retry.
+reach the cluster it shows the error with a retry. When Pacto could not list
+every namespace, the section reads **No Stages of this service that you can
+see** and names what it could not list.
+
+## Stages, actions and why
+
+Each Stage row shows its state, the version it runs linked to its revision, the
+contract behind it and the source revision `pacto publish` stamped (an
+annotation, not signed). A Stage that cannot promote says why and how to fix
+it. The row shows the newest re-check, marked stale when it is about an
+earlier version, and the newest change. A change read from an Operation's
+status is marked **from status, not signed**.
+
+The buttons under a row are the actions you may take: promote, unfreeze,
+freeze and undo. An action you may not take stays disabled, with the reason
+beside it. Every action proposes with your identity.
+**Why** asks the cluster, as you, what holds the Stage back, with each fix as
+a command when you may run it.
+
+## Where it runs (observed)
+
+A service with no Stage, or with targets in environments no Stage covers,
+shows **Where it runs (observed)**: one row per environment its targets report,
+with the revisions they run. These rows are observed from targets, not
+promotion steps. When the fleet answer is partial, the heading adds **targets
+Pacto can see**, and a missing environment may still run the service.
+
+## Delivery links
 
 The **Delivery history** and **Open in Delivery** links open the delivery
 history and the environments board narrowed to the same Stages. Both pages name

@@ -214,13 +214,20 @@ func TestOperationUndoneBy(t *testing.T) {
 
 // A row that offers nothing asks no access review, so a reader's board costs
 // none; a namespace RBAC refuses loses its actions.
-func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
+func TestNarrowRowsAsksOnlyForAnAction(t *testing.T) {
 	f := &fakeDelivery{deny: map[string]bool{"create operations team-b": true}}
-	rows := []EnvironmentRow{{Namespace: "team-a", Actions: []string{"promote"}}, {Namespace: "team-b", Actions: []string{"unfreeze"}},
-		{Namespace: "team-c", Actions: []string{}}}
-	mayRaise(context.Background(), f, rows)
+	promote := []delivery.Offer{{Action: "promote", Available: true, Reason: "promotes 1.1.0"}}
+	freeze := []delivery.Offer{{Action: "freeze", Available: true, Reason: "freezes the Stage on 1.0.0"}}
+	rows := []EnvironmentRow{{StageRow: delivery.StageRow{Namespace: "team-a", Actions: []string{"promote"}, Offers: promote}},
+		{StageRow: delivery.StageRow{Namespace: "team-b", Actions: []string{"unfreeze"}, Offers: freeze}},
+		{StageRow: delivery.StageRow{Namespace: "team-c", Actions: []string{}}},
+		{StageRow: delivery.StageRow{Namespace: "team-d", Actions: []string{}, Offers: []delivery.Offer{{Action: "promote", Reason: "no"}}}}}
+	narrowRows(context.Background(), f, rows)
 	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
+	}
+	if o := rows[1].Offers[0]; o.Available || o.Reason != "your Kubernetes RBAC does not let you create Operations in team-b" {
+		t.Errorf("a refused namespace's offers say why: %+v", o)
 	}
 }
 
@@ -405,12 +412,12 @@ func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
 		st("downstream", delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "staging"}}, delivery.StageStatus{Pointer: dRun, Verified: []string{dNext}, Offered: []string{dNext}}),
 		st("records", delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{}}, delivery.StageStatus{Pointer: dRun}),
 	}
-	by, _ := publishedDigests(stages, "")
+	by, _ := publishedDigests(stages, "", "", "")
 	got := map[string]string{}
 	for svc, vs := range by {
-		got[svc+"/run"] = vs[dRun].Signature
+		got[svc.Service+"/run"] = vs[dRun].Signature
 		if v := vs[dNext]; v != nil {
-			got[svc+"/next"] = v.Signature
+			got[svc.Service+"/next"] = v.Signature
 		}
 	}
 	want := map[string]string{"entry/run": "unsigned", "entry/next": "signed", "capped/run": "unknown",
@@ -418,6 +425,21 @@ func TestPublishedSignatureNeverGuessesUnsigned(t *testing.T) {
 	expect(t, maps.Equal(got, want), "%v", got)
 	c := countPublished(by)
 	expect(t, c.UnsignedServices == 1 && c.UnknownServices == 3 && c.Unsigned == 1 && c.Unknown == 3 && fmt.Sprint(c.FirstUnsigned) == "[entry]", "%+v", c)
+}
+
+// A service whose Stages name two domains is listed once per domain, so the
+// lifecycle of each version asks the domain its Stages name.
+func TestPublishedServicePerDomain(t *testing.T) {
+	plain, scoped := stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun}), stage("test", "payments", "payments", delivery.StageStatus{Pointer: dNext})
+	scoped.Spec.Service.Domain = "acme"
+	by, _ := publishedDigests([]delivery.StageObject{plain, scoped}, "", "", "")
+	expect(t, len(by) == 2 && by[publishedKey{"payments", ""}][dRun] != nil && by[publishedKey{"payments", "acme"}][dNext] != nil, "%v", by)
+	f := sampleCluster("acme:team-checkout")
+	f.stages = []delivery.StageObject{plain, scoped}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published", nil)
+	svcs := pub["services"].([]any)
+	expect(t, len(svcs) == 2 && svcs[0].(map[string]any)["domain"] == nil && svcs[1].(map[string]any)["domain"] == "acme", "%v", svcs)
 }
 
 // Autonomy: Stages per level over every page, every level present, a level
@@ -438,4 +460,15 @@ func TestAutonomyCountsByLevel(t *testing.T) {
 	}
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/autonomy?level=warp", nil)
 	expect(t, code == http.StatusUnprocessableEntity, "an unknown level is refused: %d", code)
+}
+
+// service narrows the Stages and byLevel; level still does not narrow byLevel.
+func TestAutonomyServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "[map[level:observe stages:0] map[level:advise stages:1] map[level:auto-nonbreaking stages:0] map[level:autonomous stages:0] map[level: stages:0]]"
+	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?service=payments", nil)
+	expect(t, fmt.Sprint(au["byLevel"]) == want && page(au["page"])["total"] == float64(1), "only payments: %v %v", au["byLevel"], au["page"])
+	_, au = call(t, http.MethodGet, base+"/api/delivery/autonomy?service=payments&level=observe", nil)
+	expect(t, fmt.Sprint(au["byLevel"]) == want && page(au["page"])["total"] == float64(0), "level narrows the Stages only: %v", au)
 }

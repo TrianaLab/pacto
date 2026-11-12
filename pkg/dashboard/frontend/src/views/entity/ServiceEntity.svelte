@@ -475,7 +475,7 @@
   {/if}
 
   <div class="se-wrap" data-testid="service-delivery">
-    <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} />
+    <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} placement={d.placement ?? null} meta={detail.meta ?? null} />
   </div>
 
   <div class="se-grid se-grid--two">

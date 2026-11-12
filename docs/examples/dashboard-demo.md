@@ -17,8 +17,8 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
-![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
-![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
 The sidebar groups the pages: **Overview** and **Needs attention** first,
 then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
@@ -30,9 +30,9 @@ phone, **Menu** in the top bar opens the same list.
 
 ## What to look at
 
-- **Fleet overview**: thirty-nine made-up services and who calls whom: the
-  services of the [CLI tour](demo-tour.md) plus two from a partner registry,
-  a second domain. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
+- **Fleet overview**: forty-four made-up services and who calls whom: the
+  services of the [CLI tour](demo-tour.md), two from a partner registry (a
+  second domain) and the services of the delivery story. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data
   sources stay open below it. Pacto always reports what it could not see.
 - **One service's dependency graph**: `payments-service` has six published
@@ -66,8 +66,8 @@ can see how Pacto reports them.
 
 The delivery screens play the payments story, the scenario every demo shares.
 
-![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment](../assets/screenshots/dashboard-delivery-stages-light.png#only-light)
-![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment](../assets/screenshots/dashboard-delivery-stages-dark.png#only-dark)
+![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-light.png#only-light)
+![The Stages tab: a figure of where the services stand in test, prod, prod-eu and prod-us, and below it each service with its running version, autonomy level and check result per environment, why a Stage cannot promote with its fix and the actions you may take](../assets/screenshots/dashboard-delivery-stages-dark.png#only-dark)
 
 Before the tour starts, the tab has already played its first steps, so the
 screens show:
@@ -99,6 +99,14 @@ screens show:
   the suite through a runner that signs its count. 1.0.0 passed 2 of 2.
   1.1.0 passed 1 of 2, so it rolled back and test stepped down. The
   **Checks** on the change page say who ran the suite and signed the result.
+- **A re-check after release.** Pacto ran the checks again on each version
+  that shipped verified, so its Stage reads watched. Once a Stage moves to a
+  newer version, it reads not re-checked until the next re-check.
+- **A frozen Stage with a held promote.** checkout in prod-us is frozen and
+  advises, so its promote of 1.9.0 waits for a person of team checkout and,
+  once approved, still waits until someone unfreezes the Stage.
+- **A Stage that is not ready.** audit-log's candidate OCIRepository names no
+  publisher to verify, so its Stage never promotes and says what to set.
 
 ## Limitations
 

@@ -101,7 +101,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
 		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
-		renderServiceDetail(&b, d.Service)
+		renderServiceDetail(&b, d.Service, d.Meta.Completeness)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
 	case d.Target != nil:
@@ -147,7 +147,7 @@ func section(b *strings.Builder, title string) {
 	b.WriteString("\n" + headerStyle.Render(title) + "\n")
 }
 
-func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
+func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData, c fleet.Completeness) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
 		field(b, "owner", s.Ownership.Owner)
@@ -164,6 +164,15 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 		}
 		if s.ActiveRevisions.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.ActiveRevisions.Total-len(s.ActiveRevisions.Items))) + "\n")
+		}
+	}
+	if s.Placement.Total > 0 {
+		section(b, fleet.PlacementHeading(c))
+		for _, e := range s.Placement.Items {
+			fmt.Fprintf(b, "  %s\n", safeText(e.Line()))
+		}
+		if s.Placement.Truncated {
+			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d more environments", s.Placement.Total-s.Placement.Count)) + "\n")
 		}
 	}
 	renderTemplateDetail(b, s.Template)
