@@ -290,7 +290,7 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},
-		// One of the three targets whose Pacto carries the environment label, so its
+		// One of the targets whose Pacto carries the environment label, so its
 		// page names the environment it runs in and checks it against the revision's
 		// declared production values. audit-log in prod (the environment of its
 		// delivery Stage, matched by exact name) and notification-worker in staging
@@ -299,6 +299,12 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "production"}),
 			ObservedRuntime: map[string]any{"replicas": 6, "ingress": "https://shop.example.com"}},
+		// The same revision in canary, an environment storefront-web 1.1.0 does not
+		// declare: the service page lists it as observed, not declared.
+		{Scope: "prod", Kind: "Deployment", Name: "storefront-web-canary", Service: "storefront-web", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "canary"}),
+			ObservedRuntime: map[string]any{"replicas": 1, "ingress": "https://canary.shop.example.com"}},
 		{Scope: "prod", Kind: "Deployment", Name: "pricing-service", Service: "pricing-service", Compliance: fleet.StatusUnknown,
 			ResolvedRef: demoRegistry + "pricing-service:1.1.0", Coverage: cov(2, 4), EvidenceAt: at(stale), ReconciledAt: at(stale),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},

@@ -1,0 +1,10 @@
+# The pull request 482 preview: production's values on a single replica.
+app:
+  LOG_LEVEL: warn
+chart:
+  replicaCount: 1
+  ingress:
+    className: nginx
+  resources:
+    cpu: 500m
+    memory: 512Mi

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -223,4 +224,100 @@ func readBundle(t *testing.T, dir string) (*contract.Contract, fs.FS) {
 		t.Fatal(err)
 	}
 	return c, os.DirFS(dir)
+}
+
+// cliStorefront is storefront-web's detail as the CLI demo builds it.
+func cliStorefront(t *testing.T) *fleet.ServiceDetailData {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "storefront-web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Service
+}
+
+// TestDemoStorefrontEnvironments: storefront-web shows every environment
+// state. preview is temporary and expired, staging declares its own owner,
+// production falls back to the service owner and canary runs without being
+// declared.
+func TestDemoStorefrontEnvironments(t *testing.T) {
+	p := cliStorefront(t).Placement
+	lifetime := func(g fleet.EnvironmentPlacement) string {
+		if g.Declaration == nil {
+			return "-"
+		}
+		return g.Declaration.Lifetime
+	}
+	want := map[string]func(g fleet.EnvironmentPlacement) bool{
+		"canary":  func(g fleet.EnvironmentPlacement) bool { return g.Declaration == nil && g.Targets == 1 },
+		"preview": func(g fleet.EnvironmentPlacement) bool { return lifetime(g) == "temporary" && g.Declaration.Expired },
+		"pr-482":  func(g fleet.EnvironmentPlacement) bool { return lifetime(g) == "temporary" && !g.Declaration.Expired },
+		"staging": func(g fleet.EnvironmentPlacement) bool {
+			return g.Owner.Provenance == "declared" && g.Owner.Owner == "storefront-qa"
+		},
+		"production": func(g fleet.EnvironmentPlacement) bool {
+			return lifetime(g) == "persistent" && g.Targets == 1 && g.Owner.Provenance == "inferred"
+		},
+	}
+	for _, g := range p.Items {
+		if ok, listed := want[g.Environment]; listed && !ok(g) {
+			t.Errorf("%s = %+v (declaration %+v)", g.Environment, g, g.Declaration)
+		}
+		delete(want, g.Environment)
+	}
+	for env := range want {
+		t.Errorf("%s is not listed", env)
+	}
+	if len(p.Differences) == 0 || p.DifferencesError != "" {
+		t.Errorf("differences = %v (%s), want some", p.Differences, p.DifferencesError)
+	}
+}
+
+// TestDemoEnvironmentHistory: 1.1.0 adds the pr-482 environment and 1.2.0,
+// which declares no lifetimes or environment owners, drops it again.
+func TestDemoEnvironmentHistory(t *testing.T) {
+	h := cliStorefront(t).EnvironmentHistory
+	find := func(env, change, version string) *fleet.EnvironmentEvent {
+		for i, e := range h.Items {
+			if e.Environment == env && e.Change == change && e.Revision.Version == version {
+				return &h.Items[i]
+			}
+		}
+		return nil
+	}
+	if find("pr-482", "added", "1.1.0") == nil || find("pr-482", "removed", "1.2.0") == nil {
+		t.Errorf("history %+v, want pr-482 added in 1.1.0 and removed in 1.2.0", h.Items)
+	}
+	if e := find("staging", "changed", "1.2.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
+		t.Errorf("staging change in 1.2.0 = %+v, want lifetime and owner", e)
+	}
+}
+
+// TestDemoStorefrontCurrentRevisionMatches: the CLI demo (fleet-targets.yaml)
+// and the browser demo (source_fleet.go, built only for wasm, so read as
+// text) run storefront-web at the same revision, so both read the same
+// current environments.
+func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
+	raw, err := os.ReadFile("source_fleet.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := regexp.MustCompile(`"storefront-web:([0-9.]+)"`).FindAllStringSubmatch(string(raw), -1)
+	if len(refs) < 2 {
+		t.Fatalf("source_fleet.go storefront-web refs = %v, want the production and canary targets", refs)
+	}
+	cur := cliStorefront(t).Placement.CurrentRevision
+	if cur == nil {
+		t.Fatal("the CLI demo has no current storefront-web revision")
+	}
+	for _, r := range refs {
+		if r[1] != cur.Version {
+			t.Errorf("source_fleet.go runs storefront-web %s, the CLI demo %s", r[1], cur.Version)
+		}
+	}
 }

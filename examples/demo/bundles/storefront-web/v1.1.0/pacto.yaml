@@ -1,4 +1,4 @@
-pactoVersion: '2.3'
+pactoVersion: '2.4'
 service:
   name: storefront-web
   version: 1.1.0
@@ -50,10 +50,20 @@ dependencies:
 environments:
 - name: staging
   file: environments/staging.yaml
+  lifetime: persistent
+  owner:
+    team: storefront-qa
 - name: production
   file: environments/production.yaml
+  lifetime: persistent
 - name: preview
   file: environments/preview.yaml
+  lifetime: temporary
+  expires: '2026-09-30T00:00:00Z'
+- name: pr-482
+  file: environments/pr-482.yaml
+  lifetime: temporary
+  expires: '2030-01-01T00:00:00Z'
 workload: service
 state:
   type: stateless
