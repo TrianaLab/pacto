@@ -12,8 +12,9 @@ Potentially breaking changes: 8
 Affected consumers (5):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
     path: api-gateway > payments-service  provenance: declared  via: dependency
-  audit-log                    direct     confidence=observed     compat=unknown      owner=platform-foundations-security
+  audit-log                    direct     confidence=unknown      compat=unknown      owner=platform-foundations-security
     path: audit-log > payments-service  provenance: observed  via: observed
+    evidence: target production-eu/kubernetes-workload/platform%2Faudit-log stale
     evidence: observed-call traces file no observation window
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
     path: frontend > api-gateway > payments-service  provenance: inferred  via: -

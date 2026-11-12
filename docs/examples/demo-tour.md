@@ -180,12 +180,13 @@ Then ask where the change actually lands:
 --8<-- "examples/demo/generated/_beat-09.md"
 
 The consumer list is identical. The active targets are new, and the gate turns
-from `unverified` to `blocked`. Two deployed targets sit in its path:
-`orders-service`, one of the five consumers, and `payments-service` itself. The
-command exits 1.
+from `unverified` to `blocked`. Three deployed targets sit in its path:
+`orders-service` and `audit-log`, two of the five consumers, and
+`payments-service` itself. The command exits 1.
 
-`orders-service` now reads `confidence=unknown`: its target evidence is older
-than 24h before the answer. It still blocks, since nothing says it stopped.
+`orders-service` and `audit-log` now read `confidence=unknown`: their target
+evidence is older than 24h before the answer. `orders-service` still blocks,
+since nothing says it stopped.
 
 ## Story 5: Compare declared and observed dependencies
 
