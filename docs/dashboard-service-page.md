@@ -13,7 +13,7 @@ its capabilities and the sources that saw it. The operational summary shows
 compliance, how certainly each target is matched to a revision, how recently it
 was observed and how the declared dependencies compare with observed traffic.
 The sections below list findings, observed traffic, operational targets,
-delivery, revisions, expected dependencies, dependents, signatures, policies,
+environments, delivery, revisions, expected dependencies, dependents, signatures, policies,
 configuration, recent evidence and the limitations that make any of it
 uncertain.
 
@@ -76,13 +76,36 @@ beside it. Every action proposes with your identity.
 **Why** asks the cluster, as you, what holds the Stage back, with each fix as
 a command when you may run it.
 
-## Where it runs (observed)
+## Environments
 
-A service with no Stage, or with targets in environments no Stage covers,
-shows **Where it runs (observed)**: one row per environment its targets report,
-with the revisions they run. These rows are observed from targets, not
-promotion steps. When the fleet answer is partial, the heading adds **targets
-Pacto can see**, and a missing environment may still run the service.
+The **Environments** section lists each environment the current revision
+declares or a target you can see reports, alphabetically. It never shows a
+promotion order: the Delivery section does. Each fact says whether it is
+declared, observed or inferred.
+
+![The Environments section of storefront-web's service page](assets/screenshots/dashboard-service-environments-light.png#only-light)
+![The Environments section of storefront-web's service page](assets/screenshots/dashboard-service-environments-dark.png#only-dark)
+
+| Cell | Shows |
+|---|---|
+| Declared | Whether the environment's values pass, its lifetime (**Lifetime not declared** when absent, never persistent), its expiry, or **Expired (inferred, as of ...)** once `expires` has passed, and its owner: declared, **service owner, inferred** or **Owner unknown**. An environment only targets report reads **Not declared by** the current revision |
+| Observed | The targets you can see labelled with the environment, linked to that target list, with **(incomplete)** and the reason when you may not see every target, and the revisions they run |
+| Provisioning | The phases of the resources the service's offering uses there, **Unknown until a provider reports**, or why provisioning is not tracked there |
+| Stage | On a dashboard that serves delivery, the Stages whose `spec.environment` equals the name exactly, with their state. **Stages unknown: partial listing** when Pacto could not list every Stage. A Stage environment that matches no row is listed as **Stage only** |
+
+Below the rows:
+
+- Targets with no environment label, or whose sources disagree, form one
+  **Unknown** row.
+- **Differences between environments** lists each value the declared
+  environments disagree on, one row per environment, with **not set** for a
+  value an environment leaves out.
+- **Changes between versions (version order)** compares consecutive revisions:
+  each environment added, removed or changed and the fields that changed. The
+  oldest revision Pacto holds reads **declared since at least** that revision.
+  No change carries a time, and a revision Pacto could not read is counted.
+- An expired environment is never deleted; see
+  [temporary environments](contract-reference/environments.md#temporary-environments).
 
 ## Delivery links
 

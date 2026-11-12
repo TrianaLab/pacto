@@ -222,12 +222,22 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 
 | `placement` | Detail |
 |---|---|
-| Read from | A service's detail: `pacto fleet entity service <key>`, `pacto_fleet_entity` and the dashboard's service page. Observed from targets, so it covers services delivered without Pacto delivery too |
-| Groups | One per `delivery.pacto.trianalab.io/environment` label the targets report; no label or conflicting labels form one unlabelled group |
+| Read from | A service's detail: `pacto fleet entity service <key>`, `pacto_fleet_entity` and the dashboard's service page. Targets cover services delivered without Pacto delivery too |
+| Groups | The union of the environments the current revision (`currentRevision`) declares and the `delivery.pacto.trianalab.io/environment` labels the targets report; no label or conflicting labels form one unlabelled group |
 | Order | Alphabetical (natural order), unlabelled last; never a promotion order, which [delivery status](integrations/kubernetes/delivery-status.md) gives |
-| Counts | `targets`, then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment |
+| Declaration | `declaration`: the current revision's entry with its values check, `lifetime` (`not-declared` when absent), `expires`, `owner` and `expired`, inferred against `asOf`. Absent for an environment only targets report |
+| Owner | `owner` with `provenance`: `declared` on the environment, `inferred` from the service owner, or `unknown` with a `reason` |
+| Counts | `targets` (observed), then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment. `targetsComplete` is false, with `targetsReason`, when you may not see every target |
+| Provisioning | `provisioning`, a tally by phase of the statuses of the service's offering uses there; `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero |
 | Revisions | The newest 8 distinct revisions, with `revisionsTotal` and `revisionsTruncated` |
-| Restricted | Only targets your view may see count; on a partial answer the CLI heading reads "Runs in (observed, targets Pacto can see)" |
+| Differences | `differences`: each value the declared environments disagree on, by configuration and path, with `differencesTotal`, or `differencesError` saying why they are unknown. `pacto explain --environments` computes the same list |
+| Restricted | Only targets, revisions and provisioning your view may see count; on a partial answer the CLI heading reads "Environments (targets Pacto can see)" |
+
+| `environmentHistory` | Detail |
+|---|---|
+| Items | Consecutive revisions compared in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision the answer holds. Not a timeline: no item carries a time |
+| Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
+| Completeness | `partial` when your view or a source holds only some of the service's revisions |
 
 ### Configuration-reference consumers
 

@@ -38,6 +38,12 @@ environments:
 |-------|------|----------|-------------|
 | `name` | string | Yes | Lowercase alphanumeric and hyphens, at most 63 characters. Unique in the contract (`DUPLICATE_ENVIRONMENT_NAME` otherwise) |
 | `file` | string | Yes | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
+| `lifetime` | string | No | `temporary` or `persistent`. Needs `pactoVersion: "2.4"`. Absent reads "not declared", never persistent |
+| `expires` | string | No | An RFC 3339 time, such as `2026-11-20T00:00:00Z`, and only with `lifetime: temporary` (`INVALID_ENVIRONMENT_EXPIRES`, `ENVIRONMENT_EXPIRES_NOT_TEMPORARY` otherwise). Needs `pactoVersion: "2.4"` |
+| `owner` | object | No | Who owns this environment when it is not the service owner, in the shape of [`service.owner`](sections.md#service) (`team`, `dri`, `contacts`). Needs `pactoVersion: "2.4"` |
+
+A contract older than 2.4 that sets `lifetime`, `expires` or `owner` fails
+with `NEEDS_PACTO_2_4` at that field.
 
 The file maps each configuration name to the values that environment uses for
 it:
@@ -58,6 +64,65 @@ environment's values live in its file.
 The file is part of the bundle, so `pacto pack` and `pacto push` ship it with
 the contract. A [`.pactoignore`](../pactoignore.md) entry that hides it makes
 validation report `FILE_NOT_FOUND`.
+
+### Temporary environments
+
+A preview or pull-request environment lives hours or days. Declare it
+`temporary`, give it an `expires` time and, when another team runs it, an
+`owner`:
+
+```yaml
+pactoVersion: "2.4"
+environments:
+  - name: production
+    file: environments/production.yaml
+    lifetime: persistent
+  - name: pr-482
+    file: environments/pr-482.yaml
+    lifetime: temporary
+    expires: "2026-11-20T00:00:00Z"
+    owner: {team: storefront-qa}
+```
+
+Once `expires` is at or before the clock of the run, `pacto validate` and
+`pacto_check` add an `ENVIRONMENT_EXPIRED` warning to the `environments` stage:
+
+```console
+WARN  [ENVIRONMENT_EXPIRED] environments[1].expires: environment pr-482 expired at 2026-11-20T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires
+```
+
+The verdict stays the same. Pacto deletes nothing for an expired environment:
+no contract entry, file, Stage or resource. The fleet and the dashboard's
+service page show it as expired (inferred), as of the time of their answer. An
+environment with no `owner` shows the service owner, labelled inferred.
+
+### Create, list, compare and retire
+
+| Task | Command |
+|---|---|
+| Create a service with environments | `pacto init --delivery --env test,pr-482` declares each environment with an empty values file and writes a Stage for each |
+| Add environments to a contract | `pacto_edit` with `add_environments`, such as `[{"name":"pr-482","lifetime":"temporary","expires":"2026-11-20T00:00:00Z"}]` |
+| Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Nothing in a cluster changes |
+| List a service's environments | `pacto fleet entity service <name>`, `pacto_fleet_entity` or the [service page](../dashboard-service-page.md#environments) |
+| Compare two environments | `pacto explain <bundle> --environments production,pr-482` or `pacto_check` with `environments` |
+| See the Stages that deliver it | `pacto delivery status --service <name>` |
+
+`pacto explain --environments` lists only the values the environments disagree
+on:
+
+```console
+Differences between production, pr-482 (1):
+  chart.replicaCount
+    production  6
+    pr-482  1
+```
+
+When a Stage is created or deleted, the delivery promoter emits a Kubernetes
+Event (`EnvironmentCreated`, `EnvironmentDeleted`) and the recorder posts a
+CDEvent (`environment.created`, `environment.deleted`); see
+[delivery setup](../integrations/kubernetes/delivery-setup.md) and
+[delivery records](../integrations/kubernetes/delivery-records.md). Each names
+one Stage; other Stages for the same environment are unaffected.
 
 ### How values are checked
 
@@ -198,6 +263,7 @@ breaking changes detected
 |---|---|
 | An environment added | Non-breaking: it only adds values to check |
 | An environment removed | Potentially breaking: the environment may still run the service |
+| An environment's `file`, `lifetime`, `expires` or `owner` added, removed or changed, at `environments[<name>].<field>` | Non-breaking: they describe this service's own environment, and no consumer reads them |
 | A value in an environment's file added, removed or changed, at `environments[<name>].<configuration>.<path>` | Non-breaking: the values are this service's own inputs, and only the service reads them |
 
 ### Environments and Stages
@@ -216,4 +282,7 @@ version's contract declares. The `pacto.environment` check runs the same
 | Declares that environment, and its values pass | Goes on |
 
 Name each environment after the `spec.environment` of the Stages that deliver
-the service there, such as `staging` and `production`.
+the service there, such as `staging` and `production`. `pacto init --delivery --env` and
+`pacto_create` with `delivery` declare each environment in the contract, with
+an empty values file, beside the Stage they write for it, so the names match
+from the start.

@@ -42,7 +42,10 @@ The `consumes` filter keeps the
 services with a resolved dependency or configuration reference on a provider
 of an offering; the dashboard's View all consumers link,
 `pacto fleet entities --consumes` and the `consumes` argument of
-`pacto_fleet_entities` use it.
+`pacto_fleet_entities` use it. With `--phase`, it keeps the consumers with a
+provisioning status of that offering in that phase, and `--environment` narrows
+those statuses to one environment, such as
+`pacto fleet entities --kind service --consumes postgresql --phase failed --environment production`.
 
 A service's detail lists the offerings it consumes (`consumedOfferings`) and,
 separately, inferred suggestions (`inferredOfferings`). A suggestion is an
