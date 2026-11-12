@@ -293,8 +293,8 @@ func TestDemoEnvironmentHistory(t *testing.T) {
 	if find("pr-482", "added", "1.1.0") == nil || find("pr-482", "removed", "1.2.0") == nil {
 		t.Errorf("history %+v, want pr-482 added in 1.1.0 and removed in 1.2.0", h.Items)
 	}
-	if e := find("staging", "changed", "1.2.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
-		t.Errorf("staging change in 1.2.0 = %+v, want lifetime and owner", e)
+	if len(h.Items) != 5 {
+		t.Errorf("history %+v, want the four added in 1.1.0 and pr-482 retired in 1.2.0, nothing else changed", h.Items)
 	}
 }
 

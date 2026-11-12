@@ -14,6 +14,7 @@ PASS policy
 PASS configuration-refs
 FAIL environments
   examples/demo/bundles/storefront-web/v1.2.1/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID] environments[1].file: environment production: configuration chart at /chart/ingress: missing property 'host'
+  WARN  [ENVIRONMENT_EXPIRED] environments[2].expires: environment preview expired at 2026-09-30T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires
 SKIP guarantees         no dependency declares requires
 SKIP readiness          not requested (--readiness)
 SKIP closure            not requested (--closure)

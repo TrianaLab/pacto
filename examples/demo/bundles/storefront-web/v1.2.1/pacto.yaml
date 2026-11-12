@@ -51,10 +51,16 @@ dependencies:
 environments:
 - name: staging
   file: environments/staging.yaml
+  lifetime: persistent
+  owner:
+    team: storefront-qa
 - name: production
   file: environments/production.yaml
+  lifetime: persistent
 - name: preview
   file: environments/preview.yaml
+  lifetime: temporary
+  expires: '2026-09-30T00:00:00Z'
 workload: service
 state:
   type: stateless

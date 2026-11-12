@@ -31,7 +31,9 @@ test('a service page shows each environment with what is declared, observed and 
   const history = section.getByTestId('environment-history');
   // 1.0.0 declares no environments, so 1.1.0 adds them; nothing reads declared since at least here.
   await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 added in' }).getByRole('link', { name: '1.1.0' })).toBeVisible();
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'staging lifetime and owner changed in' })).toHaveCount(1);
+  // 1.2.0 retires pr-482 and keeps the other declarations as they were.
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 removed in' }).getByRole('link', { name: '1.2.0' })).toBeVisible();
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'changed in' })).toHaveCount(0);
   await expect(history.getByTestId('environment-event').first()).toContainText('time not recorded');
   await audit(page, 'service environments');
 });

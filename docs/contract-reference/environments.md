@@ -114,7 +114,7 @@ on:
 Differences between production, pr-482 (1):
   chart.replicaCount
     production  6
-    pr-482  1
+    pr-482      1
 ```
 
 When a Stage is created or deleted, the delivery promoter emits a Kubernetes
