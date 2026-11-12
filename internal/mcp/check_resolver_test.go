@@ -271,20 +271,26 @@ func writeDifferencesBundle(t *testing.T) string {
 	return dir
 }
 
+// TestCheckNamedEnvironments: environments that agree say they were compared,
+// and a name list that compares nothing or something undeclared is an error.
+func TestCheckNamedEnvironments(t *testing.T) {
+	dir := writeDifferencesBundle(t)
+	if res, err := Check(context.Background(), nil, dir, []string{"staging", "test"}); err != nil || res.EnvironmentDifferences != nil || strings.Join(res.ComparedEnvironments, ",") != "staging,test" {
+		t.Fatalf("equal environments say they were compared: %+v, %v", res, err)
+	}
+	if _, err := Check(context.Background(), nil, dir, []string{"staging"}); err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("one name compares nothing, so it is an error: %v", err)
+	}
+	if _, err := Check(context.Background(), nil, dir, []string{"staging", "nope"}); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
+		t.Fatalf("undeclared: %v", err)
+	}
+}
+
 func TestCheckEnvironmentDifferences(t *testing.T) {
 	dir := writeDifferencesBundle(t)
 	res, err := Check(context.Background(), nil, dir, nil)
 	if err != nil || len(res.EnvironmentDifferences) != 1 || res.EnvironmentDifferences[0].Path != "LOG_LEVEL" || len(res.EnvironmentDifferences[0].Values) != 3 {
 		t.Fatalf("all environments: %+v, %v", res, err)
-	}
-	if res, err = Check(context.Background(), nil, dir, []string{"staging", "test"}); err != nil || res.EnvironmentDifferences != nil || strings.Join(res.ComparedEnvironments, ",") != "staging,test" {
-		t.Fatalf("equal environments say they were compared: %+v, %v", res, err)
-	}
-	if _, err = Check(context.Background(), nil, dir, []string{"staging"}); err == nil || !strings.Contains(err.Error(), "at least two") {
-		t.Fatalf("one name compares nothing, so it is an error: %v", err)
-	}
-	if _, err = Check(context.Background(), nil, dir, []string{"staging", "nope"}); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
-		t.Fatalf("undeclared: %v", err)
 	}
 	if err := os.Remove(filepath.Join(dir, "p.yaml")); err != nil {
 		t.Fatal(err)
