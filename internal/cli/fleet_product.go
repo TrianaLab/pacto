@@ -316,6 +316,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
 			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
+			printEnvironmentHistory(w, res.Service.EnvironmentHistory)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -594,6 +595,18 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 		_, _ = fmt.Fprintln(w, l)
 	}
 	_, _ = fmt.Fprintf(w, "Stages: pacto delivery status --service %s\n", service)
+}
+
+// printEnvironmentHistory prints how a service's declared environments
+// changed across its revisions, or nothing when there is nothing to say.
+func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
+	if h.Total == 0 && h.Gaps == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, h.Heading()+":")
+	for _, l := range h.Lines() {
+		_, _ = fmt.Fprintln(w, l)
+	}
 }
 
 // provisioningText renders one provisioning status: its phase, (unsigned) for

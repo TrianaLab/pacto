@@ -311,8 +311,12 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 				Owner: fleet.EnvironmentOwner{Owner: "team-a", Ref: &fleet.EntityRef{Kind: fleet.KindOwner, Key: "team:team-a"}, Provenance: "declared"}},
 			{Environment: "preview", Owner: fleet.EnvironmentOwner{Provenance: "unknown", Reason: "r"}},
 		}},
+		EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Items: []fleet.EnvironmentEvent{
+			{Environment: "prod", Change: "added", Revision: rev, Previous: &rev}, {Environment: "dev", Change: "present", Revision: rev},
+		}},
 	})
 	checkProductPlacement(t, d.Placement)
+	checkProductEnvironmentHistory(t, d.EnvironmentHistory)
 	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
 		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
 	}
@@ -326,6 +330,15 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 	}
 	if u := d.UnresolvedDependencies.Items; len(u) != 1 || u[0].From.Href == "" || !u[0].External {
 		t.Errorf("unresolvedDependencies = %+v", u)
+	}
+}
+
+// checkProductEnvironmentHistory asserts the hrefs of the environment history
+// built in TestProductServiceDetail_NewRefsHref.
+func checkProductEnvironmentHistory(t *testing.T, h ProductEnvironmentHistoryPreview) {
+	t.Helper()
+	if h.Total != 2 || len(h.Items) != 2 || h.Items[0].Revision.Href == "" || h.Items[0].Previous == nil || h.Items[0].Previous.Href == "" || h.Items[1].Previous != nil {
+		t.Errorf("environment history = %+v", h)
 	}
 }
 

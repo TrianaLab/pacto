@@ -40,3 +40,28 @@ func TestPrintFleetEntityEnvironments(t *testing.T) {
 		t.Errorf("no environments prints nothing, got:\n%s", b.String())
 	}
 }
+
+func TestPrintEnvironmentHistory(t *testing.T) {
+	rev := fleet.EntityRef{Label: "web 1.0.0"}
+	var b strings.Builder
+	printEnvironmentHistory(&b, fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Completeness: "partial", CompletenessReason: "r", Items: []fleet.EnvironmentEvent{
+		{Environment: "prod", Change: "added", Revision: fleet.EntityRef{Label: "web 1.1.0"}, Previous: &rev},
+		{Environment: "dev", Change: "present", Revision: rev},
+	}})
+	want := "Environment history, version order (2 of 2, partial: r):\n" +
+		"  web 1.1.0  added prod  time not recorded\n" +
+		"  web 1.0.0  dev declared since at least web 1.0.0  time not recorded\n"
+	if b.String() != want {
+		t.Errorf("history:\n%s\nwant:\n%s", b.String(), want)
+	}
+	b.Reset()
+	printEnvironmentHistory(&b, fleet.EnvironmentHistoryPreview{Gaps: 1})
+	if b.String() != "Environment history, version order (0 of 0, 1 revision(s) unread):\n" {
+		t.Errorf("gaps only:\n%s", b.String())
+	}
+	b.Reset()
+	printEnvironmentHistory(&b, fleet.EnvironmentHistoryPreview{})
+	if b.Len() != 0 {
+		t.Errorf("nothing to say prints nothing, got:\n%s", b.String())
+	}
+}

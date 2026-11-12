@@ -361,6 +361,29 @@ func productPlacement(p fleet.PlacementPreview) ProductPlacementPreview {
 	return ProductPlacementPreview{PlacementPreview: p, Items: items, CurrentRevision: RefPtr(p.CurrentRevision)}
 }
 
+// ProductEnvironmentEvent is one environment history event whose revisions
+// are navigable.
+type ProductEnvironmentEvent struct {
+	fleet.EnvironmentEvent
+	Revision ProductRef  `json:"revision" doc:"The revision that made the change"`
+	Previous *ProductRef `json:"previous,omitempty" doc:"The revision it was compared with"`
+}
+
+// ProductEnvironmentHistoryPreview is a service's environment history with
+// navigable revisions.
+type ProductEnvironmentHistoryPreview struct {
+	fleet.EnvironmentHistoryPreview
+	Items []ProductEnvironmentEvent `json:"items" doc:"Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's"`
+}
+
+func productEnvironmentHistory(h fleet.EnvironmentHistoryPreview) ProductEnvironmentHistoryPreview {
+	items := make([]ProductEnvironmentEvent, len(h.Items))
+	for i, e := range h.Items {
+		items[i] = ProductEnvironmentEvent{EnvironmentEvent: e, Revision: Ref(e.Revision), Previous: RefPtr(e.Previous)}
+	}
+	return ProductEnvironmentHistoryPreview{EnvironmentHistoryPreview: h, Items: items}
+}
+
 // ProductServiceDetail is the navigable service-kind detail payload.
 type ProductServiceDetail struct {
 	fleet.ServiceDetailData
@@ -378,6 +401,7 @@ type ProductServiceDetail struct {
 	Signatures             ProductRevisionSignaturesPreview     `json:"signatures"`
 	Deployments            ProductRefPreview                    `json:"deployments"`
 	Placement              ProductPlacementPreview              `json:"placement"`
+	EnvironmentHistory     ProductEnvironmentHistoryPreview     `json:"environmentHistory" doc:"How the service's declared environments changed across its revisions (declared)"`
 	Dependencies           ProductRefPreview                    `json:"dependencies"`
 	Dependents             ProductRefPreview                    `json:"dependents"`
 	ReferencedBy           ProductRefPreview                    `json:"referencedBy"`
@@ -442,6 +466,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		Signatures:             productRevisionSignatures(d.Signatures),
 		Deployments:            RefPreview(d.Deployments),
 		Placement:              productPlacement(d.Placement),
+		EnvironmentHistory:     productEnvironmentHistory(d.EnvironmentHistory),
 		Dependencies:           RefPreview(d.Dependencies),
 		Dependents:             RefPreview(d.Dependents),
 		ReferencedBy:           RefPreview(d.ReferencedBy),

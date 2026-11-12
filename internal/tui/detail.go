@@ -172,6 +172,12 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData, c fleet
 			b.WriteString(safeText(l) + "\n")
 		}
 	}
+	if h := s.EnvironmentHistory; h.Total > 0 || h.Gaps > 0 {
+		section(b, h.Heading())
+		for _, l := range h.Lines() {
+			b.WriteString(safeText(l) + "\n")
+		}
+	}
 	renderTemplateDetail(b, s.Template)
 	renderOriginDetail(b, s.Origin, s.Creation)
 	if s.Findings.Total > 0 {
