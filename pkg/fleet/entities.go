@@ -62,6 +62,8 @@ type EntityFilter struct {
 	// Consumes.
 	Phase string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
+	// With Consumes and Phase it also narrows the consumers to the provisioning
+	// statuses in this environment; on services alone it is an invalid query.
 	Environment string
 	// Capability keeps the SERVICES any of whose read revisions declares a
 	// capability of this type (see [Query.serviceCapabilities]).
@@ -194,8 +196,13 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	want := kindSet(f.Kinds)
 	refs := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
+	var derived []Limitation
 	if f.Phase != "" {
-		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase)
+		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
+	}
+	if f.Phase != "" && f.Environment != "" {
+		derived = []Limitation{{Code: LimitationProvisioningEnvironmentScoped, Message: fmt.Sprintf(
+			"consumers whose current revision does not declare %s have no provisioning status there", f.Environment)}}
 	}
 
 	x := q.crossKindSets(f)
@@ -210,7 +217,7 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 
 	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
 	return &EntityList{
-		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
+		Meta: q.productMetaWith(derived), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered),
 	}, nil
@@ -389,6 +396,9 @@ func validateEntityFilter(f EntityFilter) error {
 	if f.Phase != "" && f.Consumes == "" {
 		return &InvalidQueryError{Field: "phase", Value: f.Phase, Reason: "needs consumes: a phase narrows the consumers of one offering"}
 	}
+	if want := kindSet(f.Kinds); f.Environment != "" && f.Phase == "" && want[KindService] && !want[KindTarget] {
+		return &InvalidQueryError{Field: "environment", Value: f.Environment, Reason: "narrows services only with consumes and phase; alone it filters targets"}
+	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
 			return &InvalidQueryError{Field: "kind", Value: string(k), Reason: "not a known entity kind"}
@@ -448,7 +458,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
-		{"environment", f.Environment, []EntityKind{KindTarget}},
+		{"environment", f.Environment, []EntityKind{KindTarget, KindService}},
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
@@ -707,16 +717,42 @@ func (q *Query) offeringConsumers(offering string) map[ServiceKey]bool {
 
 // offeringConsumersInPhase is the consumers of offering with at least one
 // provisioning status in phase, by the same bucketing [PhaseTally] counts, so
-// the list a phase count links to names exactly the consumers behind it.
+// the list a phase count links to names exactly the consumers behind it. A
+// non-empty env keeps only the statuses in that environment; under the unknown
+// phase it also keeps a consumer with no status there in any of its uses that
+// a visible target labelled env runs, since nothing tracks it there.
 // ponytail: recomputes every use per call; index by offering if it shows in profiles.
-func (q *Query) offeringConsumersInPhase(offering, phase string) map[ServiceKey]bool {
+func (q *Query) offeringConsumersInPhase(offering, phase, env string) map[ServiceKey]bool {
 	uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == offering }, "")
-	out := map[ServiceKey]bool{}
+	out, tracked := map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	for _, u := range uses {
+		key := ServiceKey(u.Consumer.Key)
 		for _, st := range u.Provisioning {
-			if phaseBucket(st.Phase) == phase {
-				out[ServiceKey(u.Consumer.Key)] = true
+			if env != "" && st.Environment != env {
+				continue
 			}
+			tracked[key] = true
+			if phaseBucket(st.Phase) == phase {
+				out[key] = true
+			}
+		}
+	}
+	if phase == PhaseBucketUnknown && env != "" {
+		for key := range q.servicesRunningIn(env) {
+			if !tracked[key] && slices.ContainsFunc(uses, func(u OfferingUse) bool { return ServiceKey(u.Consumer.Key) == key }) {
+				out[key] = true
+			}
+		}
+	}
+	return out
+}
+
+// servicesRunningIn is the services a visible target labelled env runs.
+func (q *Query) servicesRunningIn(env string) map[ServiceKey]bool {
+	out := map[ServiceKey]bool{}
+	for _, t := range q.snap.Targets {
+		if t.Environment == env {
+			out[t.ServiceKey] = true
 		}
 	}
 	return out
@@ -792,7 +828,7 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	if f.Scope != "" && r.Scope != f.Scope {
 		return false
 	}
-	if f.Environment != "" && (r.Kind != KindTarget || r.Environment != f.Environment) {
+	if environmentDrops(r, f) {
 		return false
 	}
 	if f.Status != "" && r.Status != f.Status {
@@ -805,6 +841,19 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 		return false
 	}
 	return true
+}
+
+// environmentDrops reports whether the environment filter drops r: a target in
+// another environment, and every other kind except a service when Consumes and
+// Phase are set (the phase list then narrows to the environment instead).
+func environmentDrops(r EntityRef, f EntityFilter) bool {
+	if f.Environment == "" {
+		return false
+	}
+	if r.Kind == KindTarget {
+		return r.Environment != f.Environment
+	}
+	return r.Kind != KindService || f.Consumes == "" || f.Phase == ""
 }
 
 // matchSourceFields checks the source-only filters: health and kind. Any other

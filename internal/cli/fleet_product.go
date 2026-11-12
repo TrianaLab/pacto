@@ -47,6 +47,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
+	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
@@ -121,7 +122,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	}
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
 	}

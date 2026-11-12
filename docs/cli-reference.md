@@ -895,6 +895,7 @@ pacto fleet entities [text] [flags]
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
+      --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, owner, domain, offering; empty lists all four)

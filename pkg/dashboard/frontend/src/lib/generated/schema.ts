@@ -6856,7 +6856,7 @@ export interface operations {
                 domain?: string;
                 /** @description Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
                 businessDomain?: string;
-                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
+                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;

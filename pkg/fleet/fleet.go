@@ -343,6 +343,10 @@ const (
 	// LimitationProvisioningUnmatched: provisioning reports name no contract
 	// revision in the snapshot, or a use that revision does not resolve.
 	LimitationProvisioningUnmatched = "PROVISIONING_UNMATCHED"
+	// LimitationProvisioningEnvironmentScoped: a phase list narrowed to one
+	// environment leaves out the consumers that have no provisioning status
+	// there, because their current revision does not declare it.
+	LimitationProvisioningEnvironmentScoped = "PROVISIONING_ENVIRONMENT_SCOPED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.

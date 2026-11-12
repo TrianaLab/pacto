@@ -92,7 +92,7 @@ type fleetEntitiesInput struct {
 	OwnerKey        string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain          string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
 	BusinessDomain  string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
-	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
+	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment"`
 	Capability      string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
 	Offering        string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
 	Consumes        string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`

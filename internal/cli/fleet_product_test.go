@@ -301,3 +301,18 @@ func TestFleetEntitiesConsumesFlag(t *testing.T) {
 		t.Error("a bad --consumes slug is an error")
 	}
 }
+
+func TestFleetEntitiesEnvironmentFlag(t *testing.T) {
+	const help = "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment"
+	if out, _, err := execFleet(t, "fleet", "entities", "--help"); err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), help) {
+		t.Fatalf("help = %v:\n%s", err, out)
+	}
+	root, _ := writeOfferingFixture(t)
+	if _, _, err := execFleet(t, "fleet", "entities", "--local", root, "--environment", "production"); err == nil || !strings.Contains(err.Error(), "consumes and phase") {
+		t.Errorf("--environment alone on services = %v, want the consumes and phase error", err)
+	}
+	out, _, err := execFleet(t, "fleet", "entities", "--local", root, "--consumes", "postgresql", "--phase", "failed", "--environment", "production")
+	if err != nil || !strings.Contains(out, "0 of 0 entit(ies)") {
+		t.Errorf("failed in production = %v:\n%s", err, out)
+	}
+}

@@ -432,6 +432,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"offering":          {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
+			"environment":       {Type: "string", Description: "With consumes and phase: only the consumers whose status in that phase is in this environment."},
 			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
@@ -454,6 +455,7 @@ type fleetEntitiesArgs struct {
 	Offering        string `json:"offering"`
 	Consumes        string `json:"consumes"`
 	Phase           string `json:"phase"`
+	Environment     string `json:"environment"`
 	Ownership       string `json:"ownership"`
 	Status          string `json:"status"`
 	Template        string `json:"template"`
@@ -479,7 +481,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind,
 		}))
