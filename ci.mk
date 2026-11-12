@@ -7,7 +7,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 # Pinned Repowise CLI version for the advisory ci-arch architecture-health leg.
 REPOWISE_VERSION ?= 0.36.0
 
-.PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
+.PHONY: ci aval-gen-check ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
@@ -30,8 +30,16 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # holds the one-publisher, demo-ref and release-plan gates. Both live under
 # /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
 # here and an ALWAYS-run CI job — a gate that never runs is not a gate.
-ci-gates:
+# AVAL_VERSION is the aval release behind `aval gen go --check`; keep it at
+# the version the workflow's Aval actions pin.
+AVAL_VERSION = v0.10.0
+ci-gates: aval-gen-check
 	go test ./tests/architecture/... ./tests/release/...
+
+# aval.go.yaml holds one Aval test per Go package; fail when it no longer
+# matches the import graph (regenerate with the same command without --check).
+aval-gen-check:
+	GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION) gen go --go-cover -f aval.go.yaml --check
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine

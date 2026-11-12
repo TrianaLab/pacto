@@ -110,6 +110,10 @@ func TestServiceSummarySignatures(t *testing.T) {
 	if odd.Unknown != 1 {
 		t.Errorf("unrecognised status = %+v, want unknown", odd)
 	}
+	odd.add(&BundleProvenance{Signature: BundleSignature{Status: SignatureUnverified}})
+	if odd.Unverified != 1 {
+		t.Errorf("unverified status = %+v, want unverified", odd)
+	}
 }
 
 func TestServiceDetailSignatures(t *testing.T) {

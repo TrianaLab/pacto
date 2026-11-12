@@ -1849,3 +1849,17 @@ func TestDiffOpenAPI_PositionalSchemaChanges(t *testing.T) {
 		})
 	}
 }
+
+// valueEqual compares JSON encodings and falls back to yamlEqual for what
+// encoding/json cannot marshal.
+func TestValueEqual(t *testing.T) {
+	if !valueEqual(map[string]any{"a": 1}, map[string]any{"a": 1}) || valueEqual("a", "b") {
+		t.Error("JSON comparison is wrong")
+	}
+	if !valueEqual(map[any]any{true: "ok"}, map[any]any{true: "ok"}) {
+		t.Error("equal non-string-key maps compared unequal")
+	}
+	if valueEqual(map[any]any{true: "ok"}, map[any]any{true: "no"}) {
+		t.Error("different non-string-key maps compared equal")
+	}
+}

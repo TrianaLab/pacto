@@ -108,6 +108,9 @@ func TestDependencyBehaviorGuaranteesUnseen(t *testing.T) {
 	if r := behaviorOf(t, NewQuery(snap), "late"); r.GuaranteeStatus != GuaranteeUnknown || r.GuaranteeReason != "an older operator wrote it" || len(r.Unmet) != 0 {
 		t.Errorf("unseen guarantees: %+v", r)
 	}
+	if got := (&ContractRevision{guaranteesUnseen: "why"}).GuaranteesUnseen(); got != "why" {
+		t.Errorf("GuaranteesUnseen() = %q", got)
+	}
 }
 
 func TestProviderDeprecations(t *testing.T) {

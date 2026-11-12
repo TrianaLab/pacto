@@ -1,4 +1,5 @@
-# Every test CI runs through Aval, and the files each one reads.
+# Every hand-written test CI runs through Aval, and the files each one reads.
+# The Go packages' unit tests are generated into aval.go.yaml.
 # Left out, and run as plain make jobs: suites that build an image from an
 # unpinned base (Dockerfile, integrations/kubernetes/Dockerfile: every kind,
 # Compose and runtime suite), pull tags (registry:2, alpine:3, agnhost),
@@ -85,56 +86,21 @@ fragments:
       allowMutable:
         - {file: examples/demo/Makefile, ref: vite, reason: "npx after npm ci runs the lockfile's vite"}
 tests:
-  # make ci-test: race + 100% coverage over cmd/pacto, internal and pkg, the
-  # examples' Go tests and the offline demo validation.
-  - metadata: {name: unit}
+  # The examples' Go tests and the offline demo validation, the part of make
+  # ci-test outside the 100% gate. The gated packages run one test each from
+  # aval.go.yaml.
+  - metadata: {name: examples}
     use: [go, engine, story, demo, make]
-    runner: {command: [make, ci-test]}
-    outputs: [coverage.out]
+    runner: {command: [sh, -c, "go test -race ./examples/... && make -C examples/demo validate"]}
     scope:
-      source:
-        - "examples/demo/pacto-dashboard/**"
-        - "examples/demo/generated/**"
-        - "examples/demo/publishbundles/**"
-        - "examples/demo/validatebundles/**"
-        - "docs/contract-reference/**"
-        - "integrations/kubernetes/config/crd/bases/**"
-        # pkg/contract walks the repository for every pacto.yaml and every
-        # .yaml whose path contains testdata (optionalSource: a file name).
-        - "**/pacto.yaml"
-        - "**/*testdata*/**/*.yaml"
-        # Files pkg/validation/schema/field-coverage.yaml names. A new .sh
-        # reference there must be added here too.
-        - "integrations/kubernetes/**/*_test.go"
-        - "tests/integration/*_test.go"
-        - "tests/acceptance/kind/runtime-conformance.sh"
-        - "tests/acceptance/local/runtime-docker.sh"
-        - "tests/acceptance/local/runtime-run.sh"
-      optionalSource: ["**/*testdata*.yaml"]
+      source: ["examples/demo/pacto-dashboard/**", "examples/demo/generated/**", "examples/demo/publishbundles/**", "examples/demo/validatebundles/**"]
       dependencies: [pkg/dashboard/frontend/package.json, pkg/dashboard/frontend/package-lock.json]
       exclude: ["pkg/dashboard/frontend/**", "examples/demo/demo"]
       allowMutable:
-        - file: internal/pactify/testdata/fraud/Dockerfile
-          ref: python:3.13-alpine
-          reason: fixture text; nothing builds it
-        - file: internal/pactify/testdata/fraud/k8s/deployment.yaml
-          ref: registry.example/story/images/fraud:1.0.0
-          reason: fixture text; nothing pulls it
-        - file: internal/pactify/testdata/invoices/Dockerfile
-          ref: node:22-alpine
-          reason: fixture text; nothing builds it
-        - file: internal/pactify/testdata/invoices/k8s/deployment.yaml
-          ref: ghcr.io/acme/invoices:1.3.0
-          reason: fixture text; nothing pulls it
-        - file: tests/acceptance/kind/runtime-conformance.sh
-          ref: "$"
-          reason: read as text by a field-coverage test; not run here
-        - file: tests/acceptance/local/runtime-docker.sh
-          ref: "${args[@]+${args[@]}}"
-          reason: read as text by a field-coverage test; not run here
-        - file: tests/acceptance/local/runtime-run.sh
-          ref: "${mode[@]}"
-          reason: read as text by a field-coverage test; not run here
+        - {file: internal/pactify/testdata/fraud/Dockerfile, ref: python:3.13-alpine, reason: fixture text; nothing builds it}
+        - {file: internal/pactify/testdata/fraud/k8s/deployment.yaml, ref: registry.example/story/images/fraud:1.0.0, reason: fixture text; nothing pulls it}
+        - {file: internal/pactify/testdata/invoices/Dockerfile, ref: node:22-alpine, reason: fixture text; nothing builds it}
+        - {file: internal/pactify/testdata/invoices/k8s/deployment.yaml, ref: ghcr.io/acme/invoices:1.3.0, reason: fixture text; nothing pulls it}
 
   # make test-integration: the CLI in process against an in-process registry
   # and a real plugin binary, then the acceptance layer's own Go code.

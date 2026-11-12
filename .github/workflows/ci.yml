@@ -250,28 +250,71 @@ jobs:
       packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # ci-engine is ci-test + test-integration + test-acceptance-local; the
-      # last one stays a plain make run (aval.yaml says why).
+      # ci-engine is ci-test + test-integration + test-acceptance-local: the
+      # gated packages run in go-packages, the examples here, and the local
+      # acceptance stays a plain make run (aval.yaml says why).
       - uses: ./.github/actions/ci
         with:
           target: test-acceptance-local
-      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
+      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
         with:
-          test: unit
+          test: examples
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
-      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
+      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
         with:
           test: integration
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
-      - name: Upload results to Codecov
-        if: github.event_name == 'push'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+
+  # One job per Go package behind the 100% gate, each its own Aval test from
+  # aval.go.yaml: the package's tests with -race and its 100% coverage, reused
+  # while neither the package nor what it imports changed. The list skips the
+  # packages ci-test leaves out of the gate (COVER_PKGS in ci.mk).
+  go-packages-list:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tests: ${{ steps.list.outputs.tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.out
-          fail_ci_if_error: true
+          persist-credentials: false
+      - id: list
+        run: |
+          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.go.yaml | sed 's/.*name: //' \
+            | grep -vE '^go\.(tests|examples)\.|\.testutil$|^go\.cmd\.gen(docs|bundle)$|^go\.internal\.runtimewatch\.ebpf$' \
+            | jq -R . | jq -sc .)
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+
+  go-packages:
+    needs: go-packages-list
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read # aval run reads the private attestations
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ${{ fromJSON(needs.go-packages-list.outputs.tests) }}
+    env:
+      GOFLAGS: -race
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+        with:
+          file: aval.go.yaml
+          test: ${{ matrix.test }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
 
   ci-dashboard:
     needs: changes
@@ -288,7 +331,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
+      - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
         with:
           test: ui
           registry-username: ${{ github.actor }}
@@ -329,7 +372,7 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 25
-        uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
+        uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
         with:
           test: browser-${{ matrix.shard }}
           registry-username: ${{ github.actor }}
@@ -781,7 +824,7 @@ jobs:
   # Signs and pushes the results the aval run steps above uploaded, with this
   # workflow's identity on main. Pull requests only read them.
   aval-publish:
-    needs: [ci-engine, ci-dashboard, dashboard-e2e]
+    needs: [ci-engine, go-packages, ci-dashboard, dashboard-e2e]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -793,7 +836,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: TrianaLab/aval/integrations/github/publish@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
+      - uses: TrianaLab/aval/integrations/github/publish@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
+        with:
+          # Hits and misses go to the shared Aval statistics.
+          stats: true
+          stats-registry: ghcr.io/trianalab/aval-stats
 
   # Single required status for branch protection: green only when every leg that
   # ran succeeded. Skipped (path-filtered) legs do not count as failures.
@@ -805,6 +852,8 @@ jobs:
       - ci-static
       - ci-gates
       - ci-engine
+      - go-packages-list
+      - go-packages
       - ci-dashboard
       - ci-integration-kubernetes
       - ci-e2e-envtest
