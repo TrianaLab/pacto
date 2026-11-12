@@ -199,6 +199,13 @@
     hash: "#/fleet/changes/payments-service?event=regressed&rev=2.0.1",
     target: "#sec-delivery-evidence"
   }, {
+    // Only something to read. The story's payments 2.4.2 named by its artifact digest:
+    // test listed it as failed and rolled it back, and the section cites both.
+    title: "What did delivery record against it?",
+    text: "Named by its artifact digest, the payments 2.4.2 the story shipped to test has Delivery evidence: test lists it as failed and rolled it back after its check found a call its contract never declares.",
+    hash: "#/fleet/changes/registry.example%252Fstory%2Fpayments?event=regressed&rev=sha256:8a546c97f01eaf63f347bc82363161ac374198d6fc023845b98278b64027676c",
+    target: "#sec-delivery-evidence"
+  }, {
     title: "Who does a change reach?",
     text: "The operational graph shows who calls whom, from what contracts declare and from what Pacto observed, so start by typing orders in the search box.",
     hash: "#/fleet/graph",
