@@ -268,7 +268,7 @@ jobs:
           registry-password: ${{ github.token }}
 
   # One job per Go package behind the 100% gate, each its own Aval test from
-  # aval.go.yaml: the package's tests with -race and its 100% coverage, reused
+  # aval.yaml (go.*): the package's tests with -race and its 100% coverage, reused
   # while neither the package nor what it imports changed. The list skips the
   # packages ci-test leaves out of the gate (COVER_PKGS in ci.mk).
   go-packages-list:
@@ -284,7 +284,7 @@ jobs:
           persist-credentials: false
       - id: list
         run: |
-          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.go.yaml | sed 's/.*name: //' \
+          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.yaml | sed 's/.*name: //' \
             | grep -vE '^go\.(tests|examples)\.|\.testutil$|^go\.cmd\.gen(docs|bundle)$|^go\.internal\.runtimewatch\.ebpf$' \
             | jq -R . | jq -sc .)
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
@@ -311,7 +311,6 @@ jobs:
           go-version-file: go.mod
       - uses: TrianaLab/aval/integrations/github/run@42b38c00caf8018db116a1056d765db2570594a9 # v0.10.0
         with:
-          file: aval.go.yaml
           test: ${{ matrix.test }}
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
@@ -326,6 +325,10 @@ jobs:
       packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Go toolchain probe in aval.yaml's defaults runs for every test.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'

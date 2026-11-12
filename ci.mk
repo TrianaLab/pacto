@@ -36,10 +36,10 @@ AVAL_VERSION = v0.10.0
 ci-gates: aval-gen-check
 	go test ./tests/architecture/... ./tests/release/...
 
-# aval.go.yaml holds one Aval test per Go package; fail when it no longer
+# aval.yaml holds one Aval test per Go package (the go.* entries); fail when it no longer
 # matches the import graph (regenerate with the same command without --check).
 aval-gen-check:
-	GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION) gen go --go-cover -f aval.go.yaml --check
+	GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION) gen go --go-cover --check
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine
