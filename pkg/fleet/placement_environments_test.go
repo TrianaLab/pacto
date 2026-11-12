@@ -97,6 +97,7 @@ func TestPlacementOwnerFallback(t *testing.T) {
 		{"declared", declared, &OwnershipInfo{Owner: "platform", Declared: true}, "previews", "declared", true},
 		{"declared contacts only", contactsOnly, nil, "a@b.c", "declared", false},
 		{"inferred", bare, &OwnershipInfo{Owner: "platform", Ref: &svcRef, Declared: true}, "platform", "inferred", true},
+		{"inferred contacts only", bare, &OwnershipInfo{Declared: true}, "", "inferred", false},
 		{"service owner unknown", bare, &OwnershipInfo{Unknown: true}, "", "unknown", false},
 		{"nobody declares one", bare, &OwnershipInfo{}, "", "unknown", false},
 		{"observed only", nil, &OwnershipInfo{Owner: "platform", Declared: true}, "", "unknown", false},
@@ -107,7 +108,11 @@ func TestPlacementOwnerFallback(t *testing.T) {
 			t.Errorf("%s: %+v", c.name, got)
 		}
 	}
-	if got := environmentOwner(bare, &OwnershipInfo{Ref: &svcRef, Declared: true}); got.Ref == &svcRef {
+	contacts := EnvironmentPlacement{Owner: environmentOwner(bare, &OwnershipInfo{Declared: true})}
+	if got := contacts.ownerText(); got != "owner declared by contacts only (service owner, inferred)" {
+		t.Errorf("a contacts-only service owner reads %q", got)
+	}
+	if got := environmentOwner(bare, &OwnershipInfo{Owner: "platform", Ref: &svcRef, Declared: true}); got.Ref == &svcRef {
 		t.Error("the inferred owner ref aliases the service's")
 	}
 }

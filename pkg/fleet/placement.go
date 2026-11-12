@@ -201,6 +201,10 @@ func environmentOwner(d *EnvironmentResult, svc *OwnershipInfo) EnvironmentOwner
 			o.Ref = &ref
 		}
 		return o
+	case svc != nil && svc.Declared && svc.Owner == "":
+		// The service carries no contacts of its own (see OwnershipInfo.Contacts),
+		// so the owner is described rather than named.
+		return EnvironmentOwner{Provenance: "inferred", Reason: "the environment declares no owner; the service owner is declared by contacts only, shown on the revision page"}
 	case svc != nil && svc.Declared:
 		return EnvironmentOwner{Owner: svc.Owner, Ref: clonePtr(svc.Ref), Provenance: "inferred", Reason: "the environment declares no owner; the service owner is shown"}
 	case svc != nil && svc.Unknown:
@@ -309,8 +313,11 @@ func (e EnvironmentPlacement) declarationText() string {
 }
 
 func (e EnvironmentPlacement) ownerText() string {
-	if e.Owner.Owner == "" {
+	switch {
+	case e.Owner.Provenance == "unknown":
 		return "owner unknown: " + e.Owner.Reason
+	case e.Owner.Owner == "":
+		return "owner declared by contacts only (service owner, " + e.Owner.Provenance + ")"
 	}
 	return "owner " + e.Owner.Owner + " (" + e.Owner.Provenance + ")"
 }

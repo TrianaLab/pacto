@@ -112,6 +112,7 @@ describe('environment declarations', () => {
     expect(ownerLabel({ owner: 'web-team', provenance: 'inferred', reason: 'r' })).toBe('Owner web-team (service owner, inferred)');
     expect(ownerLabel({ provenance: 'unknown', reason: 'not declared by the current revision' })).toBe('Owner unknown: not declared by the current revision');
     expect(ownerLabel({ provenance: 'unknown' })).toBe('Owner unknown');
+    expect(ownerLabel({ provenance: 'inferred', reason: 'r' })).toBe('Owner declared by contacts only (service owner, inferred)');
     expect(ownerLabel({ team: 'qa' })).toBe('Owner qa (declared)');
     expect(ownerLabel({ dri: 'ana' })).toBe('Owner ana (declared)');
     expect(ownerLabel({ contacts: [{ type: 'email', value: 'a@b' }] })).toBe('Owner declared by contacts only');

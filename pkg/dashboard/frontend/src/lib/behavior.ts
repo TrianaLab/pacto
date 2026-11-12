@@ -121,7 +121,9 @@ export function ownerLabel(owner: Partial<EnvironmentOwner> | ContractOwner | nu
   if (!owner) return 'No owner declared';
   if ('provenance' in owner) {
     if (owner.provenance === 'declared') return `Owner ${owner.owner} (declared)`;
-    if (owner.provenance === 'inferred') return `Owner ${owner.owner} (service owner, inferred)`;
+    if (owner.provenance === 'inferred') {
+      return owner.owner ? `Owner ${owner.owner} (service owner, inferred)` : 'Owner declared by contacts only (service owner, inferred)';
+    }
     return owner.reason ? `Owner unknown: ${owner.reason}` : 'Owner unknown';
   }
   const name = ownerDisplay(owner);
