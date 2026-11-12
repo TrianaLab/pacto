@@ -5062,6 +5062,7 @@ export interface components {
             docs?: components["schemas"]["DocInfo"][] | null;
             domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            environmentsAsOf?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;

@@ -98,6 +98,10 @@ describe('EnvironmentsSection', () => {
     expect(target.textContent).toContain('Expired (inferred)');
     expect(target.textContent).toContain('Temporary');
   });
+  it('dates an expired environment with the time it was inferred against', () => {
+    comp = mount(EnvironmentsSection, { target, props: { open: true, asOf: '2026-10-01T00:00:00Z', environments: [env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true })] } });
+    expect(target.textContent).toContain('Expired (inferred, as of');
+  });
   it('says None declared when there are none', () => {
     comp = mount(EnvironmentsSection, { target, props: { open: true, environments: [] } });
     expect(target.textContent).toContain('None declared');

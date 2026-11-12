@@ -107,6 +107,9 @@ func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source strin
 	} else {
 		svc.Environments = fleet.MarkExpired(fleet.EnvironmentResults(c.Environments, nil), now)
 	}
+	if len(svc.Environments) > 0 {
+		svc.EnvironmentsAsOf = now.UTC().Format(time.RFC3339)
+	}
 
 	svc.Compliance = ComputeCompliance(svc.ContractStatus)
 

@@ -288,7 +288,7 @@ test.describe('document structure on the retained non-Fleet compatibility surfac
         lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true,
       };
       for (const r of data.routes) {
-        if (/^\/api\/services\/[^/]+(\/versions\/[^/]+)?$/.test(r.path)) r.response.environments = [env];
+        if (/^\/api\/services\/[^/]+(\/versions\/[^/]+)?$/.test(r.path)) Object.assign(r.response, { environments: [env], environmentsAsOf: '2026-10-01T00:00:00Z' });
       }
       const json = JSON.stringify(data).replace(/</g, '\\u003c');
       await route.fulfill({ response: res, body: html.replace(m![1], () => json) });
@@ -297,6 +297,6 @@ test.describe('document structure on the retained non-Fleet compatibility surfac
     // The section's own toggle, not the "On this page" rail entry of the same name.
     const section = page.locator('button.section-toggle', { hasText: 'Environments' });
     if ((await section.getAttribute('aria-expanded')) === 'false') await section.click();
-    await expect(page.locator('main')).toContainText('Expired (inferred)');
+    await expect(page.locator('main')).toContainText('Expired (inferred, as of');
   });
 });
