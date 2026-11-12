@@ -410,3 +410,17 @@ func TestEnvironmentDifferencesPaths(t *testing.T) {
 		t.Errorf("nested log.level is test's only: %v", v)
 	}
 }
+
+func TestComparedEnvironments(t *testing.T) {
+	c := diffContract()
+	if got := ComparedEnvironments(c, nil); strings.Join(got, ",") != "dev,test,prod" {
+		t.Errorf("every declared one: %v", got)
+	}
+	if got := ComparedEnvironments(c, []string{"prod", "dev"}); strings.Join(got, ",") != "prod,dev" {
+		t.Errorf("the names given: %v", got)
+	}
+	c.Environments = c.Environments[:1]
+	if got := ComparedEnvironments(c, nil); got != nil {
+		t.Errorf("one declared environment compares nothing: %v", got)
+	}
+}
