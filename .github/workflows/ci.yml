@@ -255,12 +255,12 @@ jobs:
       - uses: ./.github/actions/ci
         with:
           target: test-acceptance-local
-      - uses: TrianaLab/aval/integrations/github/run@8379628d4c6e2602fa492f55a669b4a22f8a9744 # v0.9.0
+      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
         with:
           test: unit
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
-      - uses: TrianaLab/aval/integrations/github/run@8379628d4c6e2602fa492f55a669b4a22f8a9744 # v0.9.0
+      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
         with:
           test: integration
           registry-username: ${{ github.actor }}
@@ -288,7 +288,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - uses: TrianaLab/aval/integrations/github/run@8379628d4c6e2602fa492f55a669b4a22f8a9744 # v0.9.0
+      - uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
         with:
           test: ui
           registry-username: ${{ github.actor }}
@@ -329,7 +329,7 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 25
-        uses: TrianaLab/aval/integrations/github/run@8379628d4c6e2602fa492f55a669b4a22f8a9744 # v0.9.0
+        uses: TrianaLab/aval/integrations/github/run@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
         with:
           test: browser-${{ matrix.shard }}
           registry-username: ${{ github.actor }}
@@ -793,7 +793,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: TrianaLab/aval/integrations/github/publish@8379628d4c6e2602fa492f55a669b4a22f8a9744 # v0.9.0
+      - uses: TrianaLab/aval/integrations/github/publish@c352441f0c0c06f2b7497b235e4b9c27599100ee # v0.9.1
 
   # Single required status for branch protection: green only when every leg that
   # ran succeeded. Skipped (path-filtered) legs do not count as failures.
