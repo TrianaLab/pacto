@@ -270,4 +270,33 @@ test.describe('document structure on the retained non-Fleet compatibility surfac
       await assertStructure(page, 'Legacy owner detail');
     }
   });
+
+  // The export's service (payments-service 2.0.1) declares no environments, so give
+  // its detail answer the environment `pacto doc` writes for an expired one (the
+  // shape storefront-web 1.1.0's export carries for preview). The export has no
+  // snapshot time, so the expiry reads inferred without a date, never blank.
+  test('an expired environment reads as inferred', async ({ page }) => {
+    await page.route(`${DOC_ORIGIN}/index.html*`, async (route) => {
+      const res = await route.fetch();
+      const html = await res.text();
+      const m = html.match(/window\.__PACTO_STATIC__ = (\{.*?\});?\s*<\/script>/s);
+      expect(m, 'the offline export carries no inline answers').not.toBeNull();
+      const data = JSON.parse(m![1]) as { routes: Array<{ path: string; response: Record<string, unknown> }> };
+      const env = {
+        name: 'preview', file: 'environments/preview.yaml', status: 'pass',
+        findings: { total: 0, count: 0, truncated: false, items: [] },
+        lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true,
+      };
+      for (const r of data.routes) {
+        if (/^\/api\/services\/[^/]+(\/versions\/[^/]+)?$/.test(r.path)) r.response.environments = [env];
+      }
+      const json = JSON.stringify(data).replace(/</g, '\\u003c');
+      await route.fulfill({ response: res, body: html.replace(m![1], () => json) });
+    });
+    await boot(page, '', DOC_ORIGIN);
+    // The section's own toggle, not the "On this page" rail entry of the same name.
+    const section = page.locator('button.section-toggle', { hasText: 'Environments' });
+    if ((await section.getAttribute('aria-expanded')) === 'false') await section.click();
+    await expect(page.locator('main')).toContainText('Expired (inferred)');
+  });
 });
