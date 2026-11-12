@@ -140,12 +140,12 @@ func TestPlacementLine(t *testing.T) {
 		e    EnvironmentPlacement
 		want string
 	}{
-		{EnvironmentPlacement{Environment: "prod", Targets: 2, RevisionsTotal: 3, RevisionsTruncated: true, TargetsComplete: true,
+		{EnvironmentPlacement{Environment: "prod", Targets: 2, Declared: 1, NotDeclared: 1, RevisionsTotal: 3, RevisionsTruncated: true, TargetsComplete: true,
 			Revisions: []EntityRef{{Version: "1.2.0"}, {Label: "svc"}}, Declaration: declared,
 			Owner:        EnvironmentOwner{Owner: "team-a", Provenance: "declared"},
 			Provisioning: PhaseTally{Ready: 2, Failed: 1}, ProvisioningTracked: true},
 			"prod: declared: values pass, temporary, expires 2026-01-01T00:00:00Z, expired (inferred); owner team-a (declared); " +
-				"targets you can see: 2, 1.2.0, svc and 1 more; provisioning 2 ready, 1 failed of 3"},
+				"targets you can see: 2 (1 declared, 1 not declared), 1.2.0, svc and 1 more; provisioning 2 ready, 1 failed of 3"},
 		{EnvironmentPlacement{Environment: "staging", Declaration: &EnvironmentResult{Status: EnvironmentFail, Lifetime: LifetimeNotDeclared},
 			Owner: EnvironmentOwner{Owner: "team-b", Provenance: "inferred"}, TargetsReason: targetsIncompleteReason,
 			Provisioning: PhaseTally{Requested: 1, Provisioning: 1, Deleting: 1, Unknown: 1}, ProvisioningTracked: true},
@@ -154,7 +154,7 @@ func TestPlacementLine(t *testing.T) {
 		{EnvironmentPlacement{Targets: 1, Unknown: 1, TargetsComplete: true, Owner: EnvironmentOwner{Provenance: "unknown", Reason: "not declared by the current revision"},
 			ProvisioningReason: unlabelledProvisioning},
 			"(no environment label, unknown): not declared; owner unknown: not declared by the current revision; " +
-				"targets you can see: 1, no known revision; provisioning not tracked: " + unlabelledProvisioning},
+				"targets you can see: 1 (1 unknown), no known revision; provisioning not tracked: " + unlabelledProvisioning},
 	}
 	for _, c := range cases {
 		if got := c.e.Line(); got != c.want {
@@ -186,8 +186,8 @@ func TestPlacementLines(t *testing.T) {
 	want := strings.Join([]string{
 		"  " + p.Items[0].Line(), "  " + p.Items[1].Line(), "  1 more environments",
 		"Differences (2 of 2):",
-		"  app.replicas:", "    env-2  2", "    env-10  3",
-		"  flags:", "    env-2  not set", "    env-10  [\"a\"]", "    observed  true",
+		"  app.replicas:", "    env-2   2", "    env-10  3",
+		"  flags:", "    env-2     not set", "    env-10    [\"a\"]", "    observed  true",
 	}, "\n")
 	if got != want {
 		t.Errorf("lines:\n%s\nwant:\n%s", got, want)

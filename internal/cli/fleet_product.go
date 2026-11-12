@@ -596,7 +596,7 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 	for _, l := range p.Lines() {
 		_, _ = fmt.Fprintln(w, l)
 	}
-	_, _ = fmt.Fprintf(w, "Stages: pacto delivery status --service %s\n", service)
+	_, _ = fmt.Fprintln(w, fleet.StagesHint(service))
 }
 
 // printEnvironmentHistory prints how a service's declared environments

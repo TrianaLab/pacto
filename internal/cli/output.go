@@ -381,13 +381,17 @@ func printEnvironmentDifferences(w io.Writer, result *app.ExplainResult) {
 			at += "." + d.Path
 		}
 		_, _ = fmt.Fprintf(w, "  %s\n", at)
+		width := 0
+		for _, env := range result.ComparedEnvironments {
+			width = max(width, len(env))
+		}
 		for _, env := range result.ComparedEnvironments {
 			value := "not set"
 			if v, ok := d.Values[env]; ok {
 				b, _ := json.Marshal(v) // values decoded from YAML always marshal
 				value = string(b)
 			}
-			_, _ = fmt.Fprintf(w, "    %s  %s\n", env, value)
+			_, _ = fmt.Fprintf(w, "    %-*s  %s\n", width, env, value)
 		}
 	}
 }

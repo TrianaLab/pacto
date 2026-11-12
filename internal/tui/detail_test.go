@@ -243,7 +243,7 @@ func TestRenderServiceDetailWithAllFields(t *testing.T) {
 			},
 		},
 	}
-	renderServiceDetail(&b, s, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", s, fleet.CompletenessComplete)
 	out := b.String()
 	if !strings.Contains(out, "example.com") || !strings.Contains(out, "team-a") {
 		t.Fatalf("missing expected content:\n%s", out)
@@ -599,7 +599,7 @@ func TestRenderDetailForAnOffering(t *testing.T) {
 
 func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 	var b strings.Builder
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{
 		Plugins:               []contract.TemplatePlugin{{Name: "dockerfile", Description: "A Dockerfile"}},
 		Requirements:          fleet.OfferingUsesPreview{Total: 2},
 		CreatedServices:       fleet.RefPreview{Total: 1},
@@ -615,7 +615,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}}, fleet.CompletenessComplete)
 	if !strings.Contains(b.String(), "no digest-pinned reference") || !strings.Contains(b.String(), "not-checked") {
 		t.Errorf("a golden path with no pinned reference gives the reason:\n%s", b.String())
 	}
@@ -623,7 +623,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 
 func TestRenderServiceDetail_Origin(t *testing.T) {
 	var b strings.Builder
-	renderServiceDetail(&b, &fleet.ServiceDetailData{
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{
 		Origin: &fleet.OriginDetail{Ref: "oci://r/http-service:1.0.0", Digest: "sha256:abc", GoldenPath: &fleet.EntityRef{Label: "http-service"}},
 		Creation: []fleet.CreationStep{
 			{Step: fleet.StepContract, Status: fleet.StepStatusDone, Detail: "read"},
@@ -637,7 +637,7 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 		}
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}}, fleet.CompletenessComplete)
 	if !strings.Contains(b.String(), "not in this view") {
 		t.Errorf("an unresolved origin gives the reason:\n%s", b.String())
 	}
@@ -645,15 +645,15 @@ func TestRenderServiceDetail_Origin(t *testing.T) {
 
 func TestRenderServiceEnvironments(t *testing.T) {
 	var b strings.Builder
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.EnvironmentPlacement{
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.EnvironmentPlacement{
 		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}},
 			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
 			Owner:       fleet.EnvironmentOwner{Owner: "team-a", Provenance: "declared"}, TargetsComplete: true,
 			ProvisioningReason: "no offering use of the current revision provisions a resource"},
 	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete)
 	out := b.String()
-	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1, 1.0.0",
-		"provisioning not tracked", "1 more environments", "Differences unknown: environment b: cannot read b.yaml"} {
+	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1 (1 declared), 1.0.0",
+		"provisioning not tracked", "1 more environments", "Differences unknown: environment b: cannot read b.yaml", "Stages: pacto delivery status --service web"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("environments lack %q:\n%s", want, out)
 		}
@@ -662,12 +662,12 @@ func TestRenderServiceEnvironments(t *testing.T) {
 		t.Errorf("environment names go through safeText:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Placement: fleet.PlacementPreview{Total: 1, Count: 1, Items: []fleet.EnvironmentPlacement{{Targets: 1}}}}, fleet.CompletenessPartial)
 	if !strings.Contains(b.String(), "Environments (targets Pacto can see)") || !strings.Contains(b.String(), "targets you can see: 1 (incomplete)") {
 		t.Errorf("a partial answer says the targets are those Pacto can see:\n%s", b.String())
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
 	if strings.Contains(b.String(), "Environments") {
 		t.Errorf("no environments, no section:\n%s", b.String())
 	}
@@ -676,7 +676,7 @@ func TestRenderServiceEnvironments(t *testing.T) {
 func TestRenderServiceEnvironmentHistory(t *testing.T) {
 	rev := fleet.EntityRef{Kind: fleet.KindRevision, Label: "svc 1.1.0\x1b[31m"}
 	var b strings.Builder
-	renderServiceDetail(&b, &fleet.ServiceDetailData{EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.EnvironmentEvent{
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.EnvironmentEvent{
 		{Environment: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
 		{Environment: "dev", Change: "present", Revision: rev},
 	}}}, fleet.CompletenessComplete)
@@ -690,7 +690,7 @@ func TestRenderServiceEnvironmentHistory(t *testing.T) {
 		t.Errorf("history lines:\n%q", out)
 	}
 	b.Reset()
-	renderServiceDetail(&b, &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
 	if strings.Contains(b.String(), "Environment history") {
 		t.Errorf("no history, no section:\n%s", b.String())
 	}

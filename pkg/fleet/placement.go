@@ -219,6 +219,12 @@ func PlacementHeading(c Completeness) string {
 	return "Environments"
 }
 
+// StagesHint is the line the CLI and TUI print after the environment lines:
+// the fleet holds no Stages, so it names the command that lists them.
+func StagesHint(service string) string {
+	return "Stages: pacto delivery status --service " + service
+}
+
 // Lines is the text the CLI and TUI print under [PlacementHeading]: one line
 // per environment, the environments left out and the differences between the
 // declared environments.
@@ -258,13 +264,17 @@ func (p PlacementPreview) differenceLines() []string {
 			}
 		}
 		slices.SortFunc(names, NaturalCompare)
+		width := 0
+		for _, env := range names {
+			width = max(width, len(env))
+		}
 		for _, env := range names {
 			v := "not set"
 			if val, ok := d.Values[env]; ok {
 				b, _ := json.Marshal(val) // decoded from YAML or JSON, so it encodes
 				v = string(b)
 			}
-			out = append(out, "    "+env+"  "+v)
+			out = append(out, fmt.Sprintf("    %-*s  %s", width, env, v))
 		}
 	}
 	return out
@@ -312,6 +322,18 @@ func (e EnvironmentPlacement) targetsText() string {
 	}
 	if e.Targets == 0 {
 		return s
+	}
+	var checks []string
+	for _, c := range []struct {
+		n    int
+		name string
+	}{{e.Declared, "declared"}, {e.NotDeclared, "not declared"}, {e.Unknown, "unknown"}} {
+		if c.n > 0 {
+			checks = append(checks, fmt.Sprintf("%d %s", c.n, c.name))
+		}
+	}
+	if checks != nil {
+		s += " (" + strings.Join(checks, ", ") + ")"
 	}
 	versions := make([]string, len(e.Revisions))
 	for i, r := range e.Revisions {

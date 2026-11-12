@@ -1128,8 +1128,8 @@ func TestExplainEnvironmentsFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\nDifferences between staging, production (2):\n" +
-		"  database.backups.enabled\n    staging  true\n    production  not set\n" +
-		"  database.size\n    staging  \"medium\"\n    production  \"large\"\n"
+		"  database.backups.enabled\n    staging     true\n    production  not set\n" +
+		"  database.size\n    staging     \"medium\"\n    production  \"large\"\n"
 	if !strings.Contains(out, want) {
 		t.Fatalf("got %q, want it to contain %q", out, want)
 	}

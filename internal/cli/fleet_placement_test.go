@@ -20,7 +20,7 @@ func TestPrintFleetEntityEnvironments(t *testing.T) {
 	var b strings.Builder
 	printPlacement(&b, "web", p, fleet.CompletenessComplete)
 	want := "Environments:\n" +
-		"  prod: declared: values pass, persistent; owner payments (inferred); targets you can see: 2, 1.2.0; provisioning 2 ready, 1 failed of 3\n" +
+		"  prod: declared: values pass, persistent; owner payments (inferred); targets you can see: 2 (2 declared), 1.2.0; provisioning 2 ready, 1 failed of 3\n" +
 		"  staging: not declared; owner unknown: not declared by the current revision; targets you can see: 0 (incomplete); " +
 		"provisioning not tracked: the current revision does not declare staging, so no provider is asked about it there\n" +
 		"  1 more environments\n" +
