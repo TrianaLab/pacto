@@ -421,17 +421,20 @@ type OverviewSummary struct {
 	// visual from a lossy copy has to render the shortfall as an unnamed remainder —
 	// which is how a Warning or Reference target, correctly named on the targets list,
 	// became a grey "Unclassified" slice on the landing page.
-	CompliantTargets          int `json:"compliantTargets"`
-	NonCompliantTargets       int `json:"nonCompliantTargets"`
-	UnknownTargets            int `json:"unknownTargets"`
-	WarningTargets            int `json:"warningTargets"`
-	InvalidTargets            int `json:"invalidTargets"`
-	ReferenceTargets          int `json:"referenceTargets"`
-	NotEvaluatedTargets       int `json:"notEvaluatedTargets"`
-	OtherComplianceTargets    int `json:"otherComplianceTargets"`
-	StaleTargets              int `json:"staleTargets"`
-	UnresolvedRelationships   int `json:"unresolvedRelationships"`
-	UnsatisfiedRanges         int `json:"unsatisfiedRanges"`
+	CompliantTargets        int `json:"compliantTargets"`
+	NonCompliantTargets     int `json:"nonCompliantTargets"`
+	UnknownTargets          int `json:"unknownTargets"`
+	WarningTargets          int `json:"warningTargets"`
+	InvalidTargets          int `json:"invalidTargets"`
+	ReferenceTargets        int `json:"referenceTargets"`
+	NotEvaluatedTargets     int `json:"notEvaluatedTargets"`
+	OtherComplianceTargets  int `json:"otherComplianceTargets"`
+	StaleTargets            int `json:"staleTargets"`
+	UnresolvedRelationships int `json:"unresolvedRelationships"`
+	UnsatisfiedRanges       int `json:"unsatisfiedRanges"`
+	// LifecycleConsumers counts distinct services that use a deprecated or
+	// past-sunset provider (the lifecycle attention items).
+	LifecycleConsumers        int `json:"lifecycleConsumers"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
 	UncontractedCallers       int `json:"uncontractedCallers"`
 	DegradedSources           int `json:"degradedSources"`
@@ -467,6 +470,8 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit. Domains counts the named domains only.
 	ByDomain []DomainTally `json:"byDomain"`
 	Domains  int           `json:"domains"`
+	// lifecycleSeverity grades the lifecycle tile like its worst item.
+	lifecycleSeverity string
 }
 
 // DomainTally counts the services of one business domain, the targets they run
@@ -693,6 +698,7 @@ func (q *Query) Overview() *Overview {
 	q.tallyScopes(sum)
 	q.tallyDomains(sum)
 
+	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
 	// A constant, valid filter never errors; ignore it deliberately. The attention
 	// preview carries the TRUE matched total (al.Total), not the 10-item page size.
@@ -777,7 +783,8 @@ func (q *Query) recentEvidence(t *TargetRecord) (EvidenceItem, bool) {
 
 // servicesNeedingAttention counts distinct real services that have any attention
 // signal: a target that is non-compliant, unknown or stale; an invalid revision;
-// or an unresolved declared dependency. A golden path is no service.
+// an unresolved declared dependency; or a deprecated or past-sunset provider.
+// A golden path is no service.
 func (q *Query) servicesNeedingAttention() int {
 	need := map[ServiceKey]bool{}
 	for _, t := range q.snap.Targets {
@@ -790,13 +797,7 @@ func (q *Query) servicesNeedingAttention() int {
 			need[r.ServiceKey] = true
 		}
 	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		// Dependencies only: unresolved and out-of-range attention judges dependencies.
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
-			need[rel.FromService] = true
-		}
-	}
+	q.markDependencyAttention(need)
 	n := 0
 	for k := range need {
 		if q.populationService(k) {
@@ -804,6 +805,21 @@ func (q *Query) servicesNeedingAttention() int {
 		}
 	}
 	return n
+}
+
+// markDependencyAttention marks the consumers of an unresolved or out-of-range
+// declared dependency and of a deprecated or past-sunset provider.
+func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
+	for i := range q.snap.Relationships {
+		rel := q.snap.Relationships[i]
+		// Dependencies only: unresolved and out-of-range attention judges dependencies.
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
+			need[rel.FromService] = true
+		}
+	}
+	for _, it := range q.lifecycleAttention() {
+		need[ServiceKey(it.Service)] = true
+	}
 }
 
 // entryPoints builds the suggested navigational entry points, one per non-zero
@@ -823,6 +839,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
 		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
+		{Label: "Services using a deprecated provider", Count: sum.LifecycleConsumers, View: EntryPointAttention, Category: categoryLifecycle, Severity: sum.lifecycleSeverity},
 		// One tile for both kinds of undeclared item, so it opens a list of exactly
 		// Count rows; graded like its most severe item.
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
@@ -858,7 +875,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,undeclared,golden-path,unowned"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,lifecycle,undeclared,golden-path,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -874,6 +891,7 @@ const (
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
+	categoryLifecycle    = "lifecycle"
 	categoryUndeclared   = "undeclared"
 	categoryUnowned      = "unowned"
 	categoryGoldenPath   = "golden-path"
@@ -1010,7 +1028,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "undeclared", "golden-path", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1048,6 +1066,7 @@ func (q *Query) collectAttention() []AttentionItem {
 		items = append(items, q.revisionAttention(r)...)
 	}
 	items = append(items, q.unresolvedAttention()...)
+	items = append(items, q.lifecycleAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)

@@ -28,7 +28,7 @@
 <style>
   .filter-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
   .chip {
-    display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; min-width: 0;
+    display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-width: 0;
     font-size: var(--text-xs); padding: 2px 4px 2px 8px; border-radius: var(--radius-sm);
     background: var(--c-accent-bg); border: 1px solid var(--c-accent-border); color: var(--c-text);
   }

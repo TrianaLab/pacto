@@ -147,7 +147,7 @@
   // the neutral hatch, never warn: an open question is not a warning (SPEC 2.2).
   const CATEGORY_TONE = {
     'non-compliant': 'err', invalid: 'err', unknown: 'neutral', stale: 'warn',
-    unresolved: 'warn', 'out-of-range': 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', unowned: 'info',
+    unresolved: 'warn', 'out-of-range': 'warn', lifecycle: 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
     label: attentionCategoryLabel(b.category),
@@ -405,10 +405,11 @@
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */
-  .attn-next { display: flex; align-items: baseline; gap: var(--sp-2); color: var(--c-text-3); font-size: var(--text-xs); text-align: right; }
+  /* A successor is a URL with no break point: anywhere lets it wrap in its column. */
+  .attn-next { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; color: var(--c-text-3); font-size: var(--text-xs); text-align: right; }
   /* No opacity: every other uppercase micro-label in the product (.attn-cat, .te-k,
      .src-k) is plain --c-text-3, and dimming this one further put it at 3.58:1 -- below
      WCAG AA -- while also making it the only micro-label with its own shade. */
-  .attn-next-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .attn-next-k { flex-shrink: 0; overflow-wrap: normal; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   /* The list and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

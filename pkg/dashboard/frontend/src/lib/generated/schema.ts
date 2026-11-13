@@ -2674,6 +2674,8 @@ export interface components {
             /** Format: int64 */
             invalidTargets: number;
             /** Format: int64 */
+            lifecycleConsumers: number;
+            /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
             notEvaluatedTargets: number;
@@ -3903,7 +3905,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;

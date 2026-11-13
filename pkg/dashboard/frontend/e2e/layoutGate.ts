@@ -945,6 +945,7 @@ export const ROUTES: Route[] = [
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
   { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },

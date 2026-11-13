@@ -42,6 +42,7 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('non-compliant')).toBe('Not compliant');
     expect(attentionCategoryLabel('readiness')).toBe('Readiness gate');
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
+    expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
     expect(ATTENTION_CATEGORIES).toContain('undeclared');
   });
 
