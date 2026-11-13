@@ -1461,6 +1461,8 @@ With --fleet, the server exposes the read-only operational-graph query tools ove
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
+Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) and every request must carry it, so other local processes cannot call the server.
+
 Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools. With --fleet the server exchanges each caller's token the same way, asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.
 
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
@@ -1512,7 +1514,7 @@ pacto mcp [bundle-ref] [flags]
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (0 disables)
   -h, --help[=true|false]             help for mcp
-      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)

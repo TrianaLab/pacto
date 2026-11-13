@@ -102,3 +102,24 @@ func TestMCPExchangeFailures(t *testing.T) {
 }
 
 func keyOf(s string) [32]byte { return sha256.Sum256([]byte(s)) }
+
+func TestLaunchTokenVerifies(t *testing.T) {
+	tok, verify := NewLaunchToken()
+	if !strings.HasPrefix(tok, "pmcp_") || len(tok) != len("pmcp_")+64 {
+		t.Fatalf("token %q", tok)
+	}
+	info, err := verify(context.Background(), tok, nil)
+	if err != nil || info.UserID != "" || !info.Expiration.After(time.Now().Add(24*time.Hour)) {
+		t.Fatalf("info %+v err %v", info, err)
+	}
+}
+
+func TestLaunchTokenRejectsOther(t *testing.T) {
+	tok, verify := NewLaunchToken()
+	other, _ := NewLaunchToken()
+	for _, bad := range []string{"", other, tok + "x"} {
+		if _, err := verify(context.Background(), bad, nil); !errors.Is(err, auth.ErrInvalidToken) {
+			t.Errorf("token %q: %v", bad, err)
+		}
+	}
+}

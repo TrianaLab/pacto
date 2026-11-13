@@ -51,6 +51,10 @@ type mcpServe struct {
 	// remoteAuthoring: the server answers over HTTP and offers only
 	// pacto_schema from the contract tools (pactomcp.Authoring.Remote).
 	remoteAuthoring bool
+	// launch is the per-launch bearer of a loopback server without an issuer,
+	// checked by launchVerify.
+	launch       string
+	launchVerify auth.TokenVerifier
 }
 
 // errServiceCredsBeyondLoopback refuses to lend this process's service
@@ -96,6 +100,9 @@ func mcpHandler(s mcpServe) http.Handler {
 			AuthorizationServers: []string{s.issuer}, BearerMethodsSupported: []string{"header"}})
 		mux.Handle("/.well-known/oauth-protected-resource", prm)
 		mux.Handle(meta.Path, prm)
+	}
+	if s.launchVerify != nil {
+		h = auth.RequireBearerToken(s.launchVerify, nil)(h)
 	}
 	mux.Handle("/mcp", h)
 	return mux
@@ -213,6 +220,9 @@ func mcpRemote(cmd *cobra.Command, d deps, s *mcpServe) error {
 		if !isLoopback(s.host) {
 			return errAuthBeyondLoopback
 		}
+		// Loopback is reachable by every local process: only the one that
+		// saw this launch's bearer may call.
+		s.launch, s.launchVerify = authn.NewLaunchToken()
 		return nil
 	}
 	if u, err := url.Parse(s.resource); s.resource == "" || err != nil || u.Host == "" {

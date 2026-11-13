@@ -151,3 +151,18 @@ func (m *MCP) Exchange(ctx context.Context, info *auth.TokenInfo) (string, error
 	m.mu.Unlock()
 	return out.AccessToken, nil
 }
+
+// NewLaunchToken is the bearer of one loopback HTTP MCP server without an
+// issuer: only the process that saw it printed at launch can call the server.
+// The verifier names nobody, so the caller is logged as the local user.
+func NewLaunchToken() (string, auth.TokenVerifier) {
+	token := "pmcp_" + random(32)
+	// The token lives as long as the process; RequireBearerToken needs an expiry.
+	until := time.Now().AddDate(100, 0, 0)
+	return token, func(_ context.Context, got string, _ *http.Request) (*auth.TokenInfo, error) {
+		if !equal(got, token) {
+			return nil, fmt.Errorf("%w: pass the bearer this server printed at launch", auth.ErrInvalidToken)
+		}
+		return &auth.TokenInfo{Expiration: until}, nil
+	}
+}

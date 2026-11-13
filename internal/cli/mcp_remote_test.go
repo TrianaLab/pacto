@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
@@ -420,4 +422,52 @@ func TestRemoteDeliveryPassesAssertedOnBehalfOf(t *testing.T) {
 	body = propose(`"namespace":"prod","stage":"payments-prod","to":"` + cliB + `"`)
 	expect(t, strings.Contains(body, `\"actor\"`) && !strings.Contains(body, "onBehalfOf") && !strings.Contains(body, "agent@example.com"),
 		"no derived on_behalf_of: %s", body)
+}
+
+// loopbackServe is a loopback HTTP server without an issuer, as mcpRemote
+// reads it.
+func loopbackServe(t *testing.T, args ...string) mcpServe {
+	t.Helper()
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", deps{})
+	_ = cmd.Flags().Set("transport", "http")
+	for i := 0; i < len(args); i += 2 {
+		_ = cmd.Flags().Set(args[i], args[i+1])
+	}
+	s := mcpServe{transport: "http", server: pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "v")}
+	expect(t, mcpRemote(cmd, deps{newMCPAuth: func(authn.MCPConfig) (mcpAuth, error) { return &fakeMCPAuth{}, nil }}, &s) == nil, "mcpRemote")
+	return s
+}
+
+func TestLoopbackHTTPNeedsLaunchBearer(t *testing.T) {
+	s := loopbackServe(t)
+	expect(t, strings.HasPrefix(s.launch, "pmcp_"), "launch token %q", s.launch)
+	h := mcpHandler(s)
+	for _, tok := range []string{"", "pmcp_wrong"} {
+		rec := post(t, h, tok, listTools)
+		expect(t, rec.Code == http.StatusUnauthorized, "token %q: %d", tok, rec.Code)
+	}
+	// The bearer passes; the server then answers (a stateful session wants
+	// initialize first, which is the server's own reply).
+	rec := post(t, h, s.launch, listTools)
+	expect(t, rec.Code == http.StatusOK, "launch token: %d %s", rec.Code, rec.Body)
+}
+
+func TestLoopbackHTTPPrintsBearer(t *testing.T) {
+	s := loopbackServe(t)
+	s.port = 0
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runMCPServer(ctx, s, &stderr)
+	expect(t, strings.Contains(stderr.String(), "/mcp   bearer: "+s.launch+" (this launch only)"), "startup line: %s", stderr.String())
+}
+
+func TestIssuerServerHasNoLaunchToken(t *testing.T) {
+	s := loopbackServe(t, "auth-issuer", "https://idp", "resource", "https://mcp.example/mcp")
+	expect(t, s.launch == "" && s.launchVerify == nil && s.auth != nil, "an issuer server verifies issuer tokens only")
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runMCPServer(ctx, s, &stderr)
+	expect(t, !strings.Contains(stderr.String(), "bearer:"), "no bearer printed: %s", stderr.String())
 }

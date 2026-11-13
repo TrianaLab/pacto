@@ -55,6 +55,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
 			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has " +
 			"no approve tool.\n\n" +
+			"Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) " +
+			"and every request must carry it, so other local processes cannot call the server.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
 			"needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
@@ -127,7 +129,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
 	_ = cmd.RegisterFlagCompletionFunc("transport", staticCompletions(mcpTransports...))
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
-	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer")
+	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch")
 	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
 	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
 	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
@@ -526,7 +528,11 @@ func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
+		if s.launch != "" {
+			_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp   bearer: %s (this launch only)\n", addr, s.launch)
+		} else {
+			_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
+		}
 		if s.remoteAuthoring {
 			_, _ = fmt.Fprintln(stderr, "contract tools: pacto_schema only over HTTP; pacto_create, pacto_edit and pacto_check run beside the agent with pacto mcp over stdio")
 		}
