@@ -12,7 +12,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return {
     ...actual,
     api: {
-      ...sessionApi(() => fns.session(), actual.ApiError), deliveryAutonomy: () => fns.autonomy(), deliveryEnvironments: () => fns.environments(),
+      ...sessionApi(() => fns.session(), actual.ApiError), deliveryAutonomy: (...a: unknown[]) => fns.autonomy(...a), deliveryEnvironments: () => fns.environments(),
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a),
     },
@@ -21,6 +21,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 import { ApiError } from '../lib/api.ts';
 import { session as auth, loadSession } from '../lib/session.svelte.ts';
+import { deliveryAutonomyUrl } from '../lib/router.ts';
 import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, blockerService, changeSummary, typeLabel } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryAutonomyView from './DeliveryAutonomyView.svelte';
@@ -113,6 +114,20 @@ describe('path to autonomy', () => {
     destroy();
   });
 
+  it('narrows to one service, keeps the level on its links and clears with the chip', async () => {
+    fns.autonomy.mockResolvedValue({ ...page, page: { total: 60, offset: 0, limit: 25 } });
+    const { target, destroy } = render(DeliveryAutonomyView, { service: 'payments', domain: 'ghcr.io/a', level: 'advise' });
+    await settle();
+    expect(fns.autonomy).toHaveBeenCalledWith(expect.objectContaining({ service: 'payments', domain: 'ghcr.io/a', level: 'advise' }));
+    const chip = target.querySelector('[data-testid="delivery-service-filter"]') as HTMLElement;
+    expect(text(chip)).toContain('payments in ghcr.io/a');
+    expect(chip.querySelector('a')?.getAttribute('href')).toBe(deliveryAutonomyUrl({ level: 'advise' }));
+    // Every level again, the service kept.
+    expect(target.querySelector('[data-testid="autonomy-level"] a')?.getAttribute('href')).toBe(deliveryAutonomyUrl({ service: 'payments', domain: 'ghcr.io/a' }));
+    expect(target.querySelector('[data-testid="autonomy-pager-next"]')?.getAttribute('href'))
+      .toBe(deliveryAutonomyUrl({ offset: 25, level: 'advise', service: 'payments', domain: 'ghcr.io/a' }));
+    destroy();
+  });
   it('proposes the next level through a plan, as a delivery.pacto.trianalab.io/autonomy operation', async () => {
     fns.autonomy.mockResolvedValue(page);
     fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/autonomy', predicted: 'Held', question: 'raise the level?', floor: { owners: ['team-payments'] }, verdicts: [] });

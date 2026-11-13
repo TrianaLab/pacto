@@ -16,7 +16,7 @@ type planInput struct {
 }
 
 type planOutput struct {
-	Body delivery.Plan
+	Body delivery.PlanAnswer
 }
 
 func (s *Server) deliveryPlan(ctx context.Context, in *planInput) (*planOutput, error) {
@@ -37,7 +37,7 @@ func (s *Server) deliveryPlan(ctx context.Context, in *planInput) (*planOutput, 
 type proposeOutput struct {
 	Body struct {
 		Operation *delivery.OperationObject `json:"operation"`
-		Plan      delivery.Plan             `json:"plan"`
+		Plan      delivery.PlanAnswer       `json:"plan"`
 	}
 }
 

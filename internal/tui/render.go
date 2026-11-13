@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -189,8 +190,13 @@ func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
 	}
 	if len(r.Environments) > 0 {
 		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
+		asOf, _ := time.Parse(time.RFC3339, r.AsOf) // zero when absent: nothing reads expired
 		for _, env := range r.Environments {
-			fmt.Fprintf(b, "  %s: %s\n", safeText(env.Name), safeText(env.File))
+			expired := ""
+			if env.ExpiredAt(asOf) {
+				expired = ", expired"
+			}
+			fmt.Fprintf(b, "  %s%s\n", safeText(env.Summary()), expired)
 		}
 	}
 }
@@ -299,9 +305,12 @@ func renderImpact(r *impact.Result) string {
 	}
 	var b strings.Builder
 	b.WriteString(renderGate(r))
-	if r.Classification == "BREAKING" {
+	switch {
+	case r.Event != nil:
+		b.WriteString(safeText(r.Service) + " " + safeText(eventWords(r.Event)) + "  " + dimStyle.Render("as of "+r.AsOf.Format(time.RFC3339)+", "+string(r.Completeness)) + "\n")
+	case r.Classification == "BREAKING":
 		b.WriteString(errorStyle.Render("BREAKING") + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
-	} else {
+	default:
 		b.WriteString(safeText(r.Classification) + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
 	}
 	if len(r.BreakingChanges) > 0 {
@@ -326,14 +335,45 @@ func renderImpact(r *impact.Result) string {
 			renderConsumer(&b, cons)
 		}
 	}
+	renderUnlisted(&b, r)
 	renderOwnerRanking(&b, r.ConsumerTallies)
 	if len(r.Owners) > 0 {
 		section(&b, fmt.Sprintf("Owners to review (%d)", len(r.Owners)))
 		for _, owner := range r.Owners {
-			fmt.Fprintf(&b, "  %s\n", safeText(owner))
+			// Owners are canonical keys; the label tells a team from a DRI.
+			label := owner
+			if k, err := contract.ParseOwnerKey(owner); err == nil {
+				label = k.Label()
+			}
+			fmt.Fprintf(&b, "  %s\n", safeText(label))
 		}
 	}
 	return b.String()
+}
+
+// renderUnlisted writes what the answer holds outside its consumers: how many
+// the viewer may not see and the golden paths to review.
+func renderUnlisted(b *strings.Builder, r *impact.Result) {
+	if r.Hidden > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  %d more you may not see\n", r.Hidden)))
+	}
+	if len(r.Templates) > 0 {
+		section(b, fmt.Sprintf("Golden paths to review (%d): they run nowhere, so they never hold the gate", len(r.Templates)))
+		for _, t := range r.Templates {
+			fmt.Fprintf(b, "  %s\n", safeText(t))
+		}
+	}
+}
+
+// eventWords says what happens to an event's service.
+func eventWords(e *impact.Event) string {
+	switch e.Kind {
+	case impact.EventUnavailable:
+		return "becomes unavailable"
+	case impact.EventRemoved:
+		return "is removed"
+	}
+	return strings.TrimSpace("regressed " + e.Revision)
 }
 
 // renderOutcomes writes the consumers' disjoint outcome tally on one line.
@@ -363,7 +403,12 @@ func renderConsumer(b *strings.Builder, cons impact.AffectedConsumer) {
 		depth = fmt.Sprintf(" [depth %d]", cons.Depth)
 	}
 	compat := safeText(cons.CompatibilityVerdict)
-	if compat == impact.CompatibilityIncompatible {
+	switch {
+	case cons.Effect == impact.EffectBreaks:
+		compat = errorStyle.Render(cons.Effect)
+	case cons.Effect != "":
+		compat = safeText(cons.Effect)
+	case compat == impact.CompatibilityIncompatible:
 		compat = errorStyle.Render(compat)
 	}
 	targets := fmt.Sprintf("%d targets", len(cons.Targets))

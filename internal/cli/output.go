@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -342,14 +343,56 @@ func printExplainConfigurations(w io.Writer, configs []app.ExplainConfiguration)
 	}
 }
 
-// printEnvironments lists each environment and its file, when there are any.
-func printEnvironments(w io.Writer, envs []contract.Environment) {
+// printEnvironments lists each environment with its file and declared
+// fields, when there are any, marking one expired at or before asOf (a zero
+// asOf marks none). The text names no time, so it stays deterministic.
+func printEnvironments(w io.Writer, envs []contract.Environment, asOf time.Time) {
 	if len(envs) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "\nEnvironments (%d):\n", len(envs))
 	for _, env := range envs {
-		_, _ = fmt.Fprintf(w, "  - %s: %s\n", env.Name, env.File)
+		expired := ""
+		if env.ExpiredAt(asOf) {
+			expired = ", expired"
+		}
+		_, _ = fmt.Fprintf(w, "  - %s%s\n", env.Summary(), expired)
+	}
+}
+
+// printEnvironmentDifferences lists each configuration value the compared
+// environments disagree on, one environment per line so many environments
+// never make one long line, or why they could not be compared.
+func printEnvironmentDifferences(w io.Writer, result *app.ExplainResult) {
+	if result.EnvironmentDifferencesError != "" {
+		_, _ = fmt.Fprintf(w, "\nDifferences between environments: %s\n", result.EnvironmentDifferencesError)
+		return
+	}
+	if len(result.ComparedEnvironments) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nDifferences between %s (%d):\n", strings.Join(result.ComparedEnvironments, ", "), len(result.EnvironmentDifferences))
+	if len(result.EnvironmentDifferences) == 0 {
+		_, _ = fmt.Fprintln(w, "  no differences")
+	}
+	for _, d := range result.EnvironmentDifferences {
+		at := d.Configuration
+		if d.Path != "" {
+			at += "." + d.Path
+		}
+		_, _ = fmt.Fprintf(w, "  %s\n", at)
+		width := 0
+		for _, env := range result.ComparedEnvironments {
+			width = max(width, len(env))
+		}
+		for _, env := range result.ComparedEnvironments {
+			value := "not set"
+			if v, ok := d.Values[env]; ok {
+				b, _ := json.Marshal(v) // values decoded from YAML always marshal
+				value = string(b)
+			}
+			_, _ = fmt.Fprintf(w, "    %-*s  %s\n", width, env, value)
+		}
 	}
 }
 
@@ -401,7 +444,9 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		printExplainDependencies(w, result.Dependencies)
 		printExplainConfigurations(w, result.Configurations)
 
-		printEnvironments(w, result.Environments)
+		asOf, _ := time.Parse(time.RFC3339, result.AsOf) // zero when absent: nothing reads expired
+		printEnvironments(w, result.Environments, asOf)
+		printEnvironmentDifferences(w, result)
 
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)

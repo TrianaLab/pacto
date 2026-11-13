@@ -17,14 +17,13 @@
   import SummaryBar from '../components/SummaryBar.svelte';
   import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import PriorityQuadrant from '../components/PriorityQuadrant.svelte';
   import ReadinessHeatmap from '../components/ReadinessHeatmap.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import ReadinessScore from '../components/ReadinessScore.svelte';
   import CategoryIcon from '../components/CategoryIcon.svelte';
   import SortControls from '../components/SortControls.svelte';
-  import { quadrantData, heatmapData } from '../lib/chartData.ts';
+  import { heatmapData } from '../lib/chartData.ts';
   import Pager from '../components/Pager.svelte';
   import { clientPage } from '../lib/paging.ts';
   import { listState, setHashParams } from '../lib/hashQuery.svelte.ts';
@@ -163,7 +162,7 @@
     <p class="empty-hint">No <code>readiness</code> block declared yet.</p>
   {:else}
     <div class="charts-container fade-in-up">
-      <!-- Focal pair: Where we stand + What to fix first -->
+      <!-- Focal panel: Where we stand -->
       <div class="focal-pair">
         <div class="chart-panel">
           <DistributionBar
@@ -172,10 +171,6 @@
             segments={readinessBuckets}
             total={filtered.length}
           />
-        </div>
-        <div class="chart-panel">
-          <div class="chart-title">What to fix first</div>
-          <PriorityQuadrant data={quadrantData(filtered)} onSelect={(name) => location.hash = serviceUrl(name)} />
         </div>
       </div>
 
@@ -369,9 +364,6 @@
   }
 
 
-  .chart-title { color: var(--c-text-3); margin-bottom: var(--sp-2);
-    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
-  }
 
   .breakdown-controls {
     display: flex;

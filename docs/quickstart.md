@@ -152,7 +152,9 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=orders
+    path: checkout > my-service  provenance: declared  via: dependency
   reporting                    direct     confidence=contractual  compat=compatible   owner=orders
+    path: reporting > my-service  provenance: declared  via: dependency
     note: the range >=1.0.0 has no upper bound, so compatible only means the range >=1.0.0 accepts 2.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
 By outcome: 1 incompatible, 0 unknown, 1 compatible
 Most affected owners: my-team 2 (1 incompatible)

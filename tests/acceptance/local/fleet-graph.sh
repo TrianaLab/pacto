@@ -78,7 +78,8 @@ pactoVersion: "2.0"
 service: {name: payments, version: "2.0.0"}
 EOF
 # web is deployed (an active target), so a breaking change to payments blocks.
-cat > "$WORK/targets.yaml" <<'EOF'
+# Its evidence is fresh: impact reads target evidence older than 24h as unknown.
+cat > "$WORK/targets.yaml" <<EOF
 schemaVersion: pacto.dev/fleet-targets/v1
 targets:
   - scope: prod
@@ -86,7 +87,11 @@ targets:
     name: web
     service: web
     compliance: Compliant
+    evidenceAt: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
+# The same target, last reported two days ago.
+STALE_AT="$(date -u -v-2d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+sed "s/evidenceAt: .*/evidenceAt: $STALE_AT/" "$WORK/targets.yaml" > "$WORK/targets-stale.yaml"
 
 echo "== 1. assemble the graph from local contracts =="
 OUT="$("$BIN" fleet search --local "$WORK/ws")"
@@ -214,5 +219,9 @@ fi
 assert_contains "$IOUT" "Classification: BREAKING" "change classified BREAKING"
 assert_contains "$IOUT" "confidence=corroborated" "consumer corroborated by declared + observed evidence"
 assert_contains "$IOUT" "compat=incompatible" "consumer is incompatible with the new version"
+
+echo "== 5b. target evidence older than 24h makes the consumer's confidence unknown =="
+SOUT="$("$BIN" impact "$WORK/pay-old" "$WORK/pay-new" --local "$WORK/ws" --target-state "$WORK/targets-stale.yaml" --traces "$WORK/traces.json" || true)"
+assert_contains "$SOUT" "confidence=unknown" "stale target evidence lowers confidence to unknown"
 
 echo "== operational-graph acceptance PASSED =="

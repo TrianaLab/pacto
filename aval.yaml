@@ -227,221 +227,226 @@ fragments:
         - examples/demo/pacto-dashboard/interfaces/openapi.json
         - pkg/dashboard/**
         - pkg/dashboard/*.go
+        - pkg/dashboard/frontend/src/lib/delivery.ts
+        - pkg/dashboard/ui/assets/AnswerCard-DAfcTLZi.js
+        - pkg/dashboard/ui/assets/AnswerCard-FhC5i8DL.css
         - pkg/dashboard/ui/assets/BehaviorBadges-C5sl0xyH.css
-        - pkg/dashboard/ui/assets/BehaviorBadges-ClI5phly.js
-        - pkg/dashboard/ui/assets/ChangeAnalysisView-CV86zj5S.js
-        - pkg/dashboard/ui/assets/ChangeAnalysisView-Ct5JJivS.css
-        - pkg/dashboard/ui/assets/CollapsibleSection-B75mEErV.css
-        - pkg/dashboard/ui/assets/CollapsibleSection-_zMid1k9.js
-        - pkg/dashboard/ui/assets/ComplianceScore-BbE5kGjw.js
+        - pkg/dashboard/ui/assets/BehaviorBadges-hk8XtlW7.js
+        - pkg/dashboard/ui/assets/ChangeAnalysisView-20MFr_06.css
+        - pkg/dashboard/ui/assets/ChangeAnalysisView-B9ri_XK1.js
+        - pkg/dashboard/ui/assets/ComplianceScore-B9fsCoTx.js
         - pkg/dashboard/ui/assets/ComplianceScore-CS5wWjeN.css
-        - pkg/dashboard/ui/assets/CreationExplainer-B5cT4M48.js
+        - pkg/dashboard/ui/assets/CreationExplainer-CJbgUetm.js
         - pkg/dashboard/ui/assets/DeliveryAutonomyView-CNCPiLZg.css
-        - pkg/dashboard/ui/assets/DeliveryAutonomyView-DqPQ8Doa.js
-        - pkg/dashboard/ui/assets/DeliveryChangeView-93WDJ5ym.js
+        - pkg/dashboard/ui/assets/DeliveryAutonomyView-HyGXy4TO.js
         - pkg/dashboard/ui/assets/DeliveryChangeView-hi1XbOKg.css
-        - pkg/dashboard/ui/assets/DeliveryEnvironmentsView-CF1oCuOH.css
-        - pkg/dashboard/ui/assets/DeliveryEnvironmentsView-CIkYFasZ.js
-        - pkg/dashboard/ui/assets/DeliveryHistoryView-DWnav-cS.js
-        - pkg/dashboard/ui/assets/DeliveryHistoryView-xxlyhob5.css
-        - pkg/dashboard/ui/assets/DeliveryInboxView-BvpBebSR.js
-        - pkg/dashboard/ui/assets/DeliveryInboxView-Dqf0KZGQ.css
-        - pkg/dashboard/ui/assets/DeliveryLead-BRVbHbxR.js
+        - pkg/dashboard/ui/assets/DeliveryChangeView-p75uXbA0.js
+        - pkg/dashboard/ui/assets/DeliveryEnvironmentsView-BN0WFqU8.js
+        - pkg/dashboard/ui/assets/DeliveryEnvironmentsView-Dug4ryEP.css
+        - pkg/dashboard/ui/assets/DeliveryHistoryView-BXgXyB4U.js
+        - pkg/dashboard/ui/assets/DeliveryHistoryView-bO8-x-Gr.css
+        - pkg/dashboard/ui/assets/DeliveryInboxView-BQzplx4J.css
+        - pkg/dashboard/ui/assets/DeliveryInboxView-CulaI6bs.js
+        - pkg/dashboard/ui/assets/DeliveryLead-BpnLsCoD.js
         - pkg/dashboard/ui/assets/DeliveryLead-Csn7kxhl.css
-        - pkg/dashboard/ui/assets/DeliveryProblem-CS7ifW_q.js
-        - pkg/dashboard/ui/assets/DeliveryPublishView-BGv8ddJS.css
-        - pkg/dashboard/ui/assets/DeliveryPublishView-DJfuwgWS.js
-        - pkg/dashboard/ui/assets/DeliveryServiceFilter-DCqLKS0K.js
+        - pkg/dashboard/ui/assets/DeliveryLifecycle-BPsDe6rj.css
+        - pkg/dashboard/ui/assets/DeliveryLifecycle-CF0AVbPR.js
+        - pkg/dashboard/ui/assets/DeliveryPublishView-0loTiok2.js
+        - pkg/dashboard/ui/assets/DeliveryPublishView-8ooLCatr.css
+        - pkg/dashboard/ui/assets/DeliveryServiceFilter-BmATcSDV.js
+        - pkg/dashboard/ui/assets/DeliveryServiceFilter-DwIqgNjm.css
         - pkg/dashboard/ui/assets/DiffChangesTable-B1XsJStO.css
-        - pkg/dashboard/ui/assets/DiffChangesTable-CxgPwRMN.js
-        - pkg/dashboard/ui/assets/DiffView-BMW1ZhJN.js
+        - pkg/dashboard/ui/assets/DiffChangesTable-CoRRH6Yi.js
+        - pkg/dashboard/ui/assets/DiffView-C3GFebNn.js
         - pkg/dashboard/ui/assets/DiffView-DEBOsS4-.css
-        - pkg/dashboard/ui/assets/EnvironmentList-BbeNZ1Px.js
-        - pkg/dashboard/ui/assets/EnvironmentList-BsDJ10V3.css
-        - pkg/dashboard/ui/assets/Figure-C5yM1XfN.js
+        - pkg/dashboard/ui/assets/EnvironmentList-Bqwkpq_O.css
+        - pkg/dashboard/ui/assets/EnvironmentList-hBXlsE4B.js
+        - pkg/dashboard/ui/assets/Figure-rlir1DSx.js
         - pkg/dashboard/ui/assets/FilterBar-7P-qnoMq.css
-        - pkg/dashboard/ui/assets/FilterBar-DjiuuDFR.js
-        - pkg/dashboard/ui/assets/FleetDomainsView-BCnGwEoM.js
+        - pkg/dashboard/ui/assets/FilterBar-CMC7SfpL.js
+        - pkg/dashboard/ui/assets/FleetDomainsView-BPBArgsM.js
         - pkg/dashboard/ui/assets/FleetDomainsView-BeZJypE2.css
-        - pkg/dashboard/ui/assets/FleetEntityView-CDcexXFe.js
-        - pkg/dashboard/ui/assets/FleetEntityView-DBIHMLzP.css
-        - pkg/dashboard/ui/assets/FleetGoldenPathsView-BPTMEDCk.js
+        - pkg/dashboard/ui/assets/FleetEntityView-CQBaDtPe.css
+        - pkg/dashboard/ui/assets/FleetEntityView-Di-RMqWr.js
+        - pkg/dashboard/ui/assets/FleetGoldenPathsView-Dfg2YlrC.js
         - pkg/dashboard/ui/assets/FleetGoldenPathsView-DnLlZlQ4.css
+        - pkg/dashboard/ui/assets/FleetOwnersView-DDw0h38s.js
         - pkg/dashboard/ui/assets/FleetOwnersView-D__9Qj83.css
-        - pkg/dashboard/ui/assets/FleetOwnersView-DuEbeSwq.js
+        - pkg/dashboard/ui/assets/FleetSourcesView-CXsD8B8J.js
         - pkg/dashboard/ui/assets/FleetSourcesView-D8mEiUs0.css
-        - pkg/dashboard/ui/assets/FleetSourcesView-y2y9GQ_r.js
-        - pkg/dashboard/ui/assets/GraphPageView-DGLFxsOw.js
-        - pkg/dashboard/ui/assets/GraphPageView-_JpI6zND.css
-        - pkg/dashboard/ui/assets/GraphPanel-Ri6H5Ro-.js
+        - pkg/dashboard/ui/assets/GraphPageView-C56cBQmC.css
+        - pkg/dashboard/ui/assets/GraphPageView-ClAcrDE-.js
+        - pkg/dashboard/ui/assets/GraphPanel-BL8m9C7g.js
         - pkg/dashboard/ui/assets/GraphPanel-v5foxa41.css
         - pkg/dashboard/ui/assets/GraphView-BYqB7VO_.css
-        - pkg/dashboard/ui/assets/GraphView-BdEFA8yD.js
+        - pkg/dashboard/ui/assets/GraphView-DMWz4p-l.js
         - pkg/dashboard/ui/assets/GroupTable-CIa0Z9aj.css
-        - pkg/dashboard/ui/assets/GroupTable-DhI4wovj.js
-        - pkg/dashboard/ui/assets/HubNode-DK4LYk5L.js
-        - pkg/dashboard/ui/assets/IdentityBadge-CcYixTbb.js
-        - pkg/dashboard/ui/assets/IdentityBadge-CwyNxyW_.css
-        - pkg/dashboard/ui/assets/KnowsExplainer-CNGj5_j8.js
-        - pkg/dashboard/ui/assets/Lane--VV9uSWY.js
-        - pkg/dashboard/ui/assets/LimitationsList-B7XHWJCu.js
+        - pkg/dashboard/ui/assets/GroupTable-Dq1BD00G.js
+        - pkg/dashboard/ui/assets/HubNode-pMfodSLE.js
+        - pkg/dashboard/ui/assets/IdentityBadge-B0p3gLEk.js
+        - pkg/dashboard/ui/assets/IdentityBadge-CdlPQqyi.css
+        - pkg/dashboard/ui/assets/KnowsExplainer-DJmAU5JT.js
+        - pkg/dashboard/ui/assets/Lane-Dj2c4g-N.js
+        - pkg/dashboard/ui/assets/LimitationsList-DkcMl_A2.js
         - pkg/dashboard/ui/assets/LimitationsList-GlBsURFQ.css
         - pkg/dashboard/ui/assets/ListFilter-BCFTlLHe.css
-        - pkg/dashboard/ui/assets/ListFilter-Cwuy6NIY.js
-        - pkg/dashboard/ui/assets/ListingNote-D_Zym6Ng.js
-        - pkg/dashboard/ui/assets/ListingNote-DwIqgNjm.css
-        - pkg/dashboard/ui/assets/Node-C9WOM918.js
-        - pkg/dashboard/ui/assets/OriginFigure-C3YYwG1Q.js
+        - pkg/dashboard/ui/assets/ListFilter-DdmBwx3l.js
+        - pkg/dashboard/ui/assets/Node-E37-5SGr.js
+        - pkg/dashboard/ui/assets/OriginFigure-CQgJHsz0.js
+        - pkg/dashboard/ui/assets/OwnerDetailView-BDjtOx43.js
         - pkg/dashboard/ui/assets/OwnerDetailView-C7q5kExl.css
-        - pkg/dashboard/ui/assets/OwnerDetailView-jIMObkzb.js
+        - pkg/dashboard/ui/assets/OwnerLink-CXlY6KRc.js
         - pkg/dashboard/ui/assets/OwnerLink-CjZH-9Br.css
-        - pkg/dashboard/ui/assets/OwnerLink-Dl2SX7tR.js
-        - pkg/dashboard/ui/assets/OwnersView-A9y2azpC.js
-        - pkg/dashboard/ui/assets/OwnersView-DoN8fwl6.css
-        - pkg/dashboard/ui/assets/PostureFigure-CF1ETK-w.js
-        - pkg/dashboard/ui/assets/PromotionFigure-DU0_RFa8.js
-        - pkg/dashboard/ui/assets/PromotionFigure-zenyvccf.css
-        - pkg/dashboard/ui/assets/ProposePanel-7YvFsFQH.css
-        - pkg/dashboard/ui/assets/ProposePanel-D0IXMRdo.js
+        - pkg/dashboard/ui/assets/OwnersView-CtVswqwG.css
+        - pkg/dashboard/ui/assets/OwnersView-DyJz0yUQ.js
+        - pkg/dashboard/ui/assets/PostureFigure-B1j0APtK.js
+        - pkg/dashboard/ui/assets/PromotionFigure-Bka8kziX.js
+        - pkg/dashboard/ui/assets/PromotionFigure-DiuZeobe.css
+        - pkg/dashboard/ui/assets/ProposePanel-BQsS3O3H.js
+        - pkg/dashboard/ui/assets/ProposePanel-BonNBj8h.css
         - pkg/dashboard/ui/assets/ProvenanceStrip-D_kdORVp.css
-        - pkg/dashboard/ui/assets/ProvenanceStrip-Z3Zvssys.js
-        - pkg/dashboard/ui/assets/Rail-CZ1xaui5.js
-        - pkg/dashboard/ui/assets/RankFigure-DRrwdCzU.js
+        - pkg/dashboard/ui/assets/ProvenanceStrip-Dsqyw6Fb.js
+        - pkg/dashboard/ui/assets/Rail-BE_Jd4Xv.js
+        - pkg/dashboard/ui/assets/RankFigure-DBm774nI.js
         - pkg/dashboard/ui/assets/ReadinessScore-CgEQe83P.css
-        - pkg/dashboard/ui/assets/ReadinessScore-DHzPfPn_.js
-        - pkg/dashboard/ui/assets/ReadinessView-BWR6b3Yt.js
-        - pkg/dashboard/ui/assets/ReadinessView-C07LK_iD.css
-        - pkg/dashboard/ui/assets/RequirementList-D9bCNaF9.js
+        - pkg/dashboard/ui/assets/ReadinessScore-soUtcS86.js
+        - pkg/dashboard/ui/assets/ReadinessView-CIff9UMQ.js
+        - pkg/dashboard/ui/assets/ReadinessView-DXteyEXr.css
+        - pkg/dashboard/ui/assets/RecordPanel-CGBoLS5K.js
+        - pkg/dashboard/ui/assets/RecordPanel-CSzXU3Lb.css
+        - pkg/dashboard/ui/assets/RefusalNotice-DCol0eOL.js
+        - pkg/dashboard/ui/assets/RefusalNotice-DWYwfzpM.css
         - pkg/dashboard/ui/assets/RequirementList-EvYcw3mb.css
-        - pkg/dashboard/ui/assets/SearchPick-DinuxQf0.js
+        - pkg/dashboard/ui/assets/RequirementList-lCuYsUMD.js
+        - pkg/dashboard/ui/assets/SearchPick-BIaoaKQR.js
         - pkg/dashboard/ui/assets/SearchPick-V9s9ugxw.css
         - pkg/dashboard/ui/assets/Select-CYJibfhi.css
-        - pkg/dashboard/ui/assets/Select-DCtJAqn9.js
-        - pkg/dashboard/ui/assets/ServiceDetailView-CWLkWREb.js
-        - pkg/dashboard/ui/assets/ServiceDetailView-gj7LqbI1.css
-        - pkg/dashboard/ui/assets/ServiceListView-CY7Evvc_.js
-        - pkg/dashboard/ui/assets/ServiceListView-DVhnSUTX.css
-        - pkg/dashboard/ui/assets/ServicesTable-BCYhDumJ.css
-        - pkg/dashboard/ui/assets/ServicesTable-Cc-bggkH.js
-        - pkg/dashboard/ui/assets/SortControls-Dd3mJpjn.js
+        - pkg/dashboard/ui/assets/Select-oL2XDY02.js
+        - pkg/dashboard/ui/assets/ServiceDetailView-DPfkNNRz.css
+        - pkg/dashboard/ui/assets/ServiceDetailView-DmNMovET.js
+        - pkg/dashboard/ui/assets/ServiceListView-Be_ZkhqA.js
+        - pkg/dashboard/ui/assets/ServiceListView-DxzfMa_5.css
+        - pkg/dashboard/ui/assets/ServicesTable-BH5UqW84.css
+        - pkg/dashboard/ui/assets/ServicesTable-H2V6xr1u.js
+        - pkg/dashboard/ui/assets/SortControls-C6ydlwNX.js
         - pkg/dashboard/ui/assets/SortControls-Dj8-gYNG.css
         - pkg/dashboard/ui/assets/SourceSerif4Variable-Italic.otf--mDmSuxs.woff2
         - pkg/dashboard/ui/assets/SourceSerif4Variable-Roman.otf-CYlkDfJE.woff2
-        - pkg/dashboard/ui/assets/Stack-BZmXHaCm.js
-        - pkg/dashboard/ui/assets/Stack-FhC5i8DL.css
-        - pkg/dashboard/ui/assets/Station-C0WTvIIx.js
-        - pkg/dashboard/ui/assets/SummaryBar-B89A9Hy0.js
-        - pkg/dashboard/ui/assets/SummaryBar-YgoIVFOE.css
-        - pkg/dashboard/ui/assets/TrustFigure-DWPCu74R.js
-        - pkg/dashboard/ui/assets/abnfDiagram-S7VZAUFO-CTak6OD8.js
-        - pkg/dashboard/ui/assets/api-CMY57ht1.js
-        - pkg/dashboard/ui/assets/architecture-WOLXFQ4H-gSqqnIcK.js
-        - pkg/dashboard/ui/assets/architectureDiagram-YGSQEFNW-Bym8z7of.js
-        - pkg/dashboard/ui/assets/blockDiagram-APKKGZFW-D3Cy9SrG.js
+        - pkg/dashboard/ui/assets/Station-pY9WyeWI.js
+        - pkg/dashboard/ui/assets/SummaryBar-93xdWRqu.js
+        - pkg/dashboard/ui/assets/SummaryBar-Cgun4Bea.css
+        - pkg/dashboard/ui/assets/TrustFigure-CRRn9xCt.js
+        - pkg/dashboard/ui/assets/UndoPanel-DxaH6f0Y.css
+        - pkg/dashboard/ui/assets/UndoPanel-wh5NzFXk.js
+        - pkg/dashboard/ui/assets/abnfDiagram-S7VZAUFO-QfXj9Ez3.js
+        - pkg/dashboard/ui/assets/api-Bq0PWH_F.js
+        - pkg/dashboard/ui/assets/architecture-WOLXFQ4H-C70-4MI1.js
+        - pkg/dashboard/ui/assets/architectureDiagram-YGSQEFNW-C9P47KpD.js
+        - pkg/dashboard/ui/assets/blockDiagram-APKKGZFW-D-mjbI_u.js
         - pkg/dashboard/ui/assets/bpmnIcons-APHXDYXF-C0jbCElo.js
-        - pkg/dashboard/ui/assets/breadcrumbs-CcKxDpOR.js
-        - pkg/dashboard/ui/assets/c4Diagram-KJ2TOQU5-sgRoE-Gw.js
+        - pkg/dashboard/ui/assets/breadcrumbs-D8hCBiM7.js
+        - pkg/dashboard/ui/assets/c4Diagram-KJ2TOQU5--3eJXOyJ.js
         - pkg/dashboard/ui/assets/cap-CdJjeUn1.css
-        - pkg/dashboard/ui/assets/cap.svelte-DD4k8zbO.js
-        - pkg/dashboard/ui/assets/chartData-DyWISxgt.js
+        - pkg/dashboard/ui/assets/cap.svelte-DDoegbsB.js
+        - pkg/dashboard/ui/assets/chartData-B9BoqkVP.js
         - pkg/dashboard/ui/assets/chunk-2Q5K7J3B-C1jixKkw.js
         - pkg/dashboard/ui/assets/chunk-5VM5RSS4-ZNzvKenW.js
-        - pkg/dashboard/ui/assets/chunk-6MUBBAK2-2ViE1reA.js
-        - pkg/dashboard/ui/assets/chunk-AXFCVDMN-2Eorb-6f.js
-        - pkg/dashboard/ui/assets/chunk-BG4553SI-BApk7tsu.js
-        - pkg/dashboard/ui/assets/chunk-DQASFODM-IfEYSLU4.js
+        - pkg/dashboard/ui/assets/chunk-6MUBBAK2-Br-CiMTY.js
+        - pkg/dashboard/ui/assets/chunk-AXFCVDMN-DswcyDc6.js
+        - pkg/dashboard/ui/assets/chunk-BG4553SI-D1uVCHRm.js
+        - pkg/dashboard/ui/assets/chunk-DQASFODM-BDXt8iEU.js
         - pkg/dashboard/ui/assets/chunk-DUW6YSOI-Dgx8z5s3.js
-        - pkg/dashboard/ui/assets/chunk-HFQBQIA3-wntJiVP8.js
+        - pkg/dashboard/ui/assets/chunk-HFQBQIA3-CLVUZAdO.js
         - pkg/dashboard/ui/assets/chunk-J5ZVWO5B-oDCd-gWO.js
         - pkg/dashboard/ui/assets/chunk-JWPE2WC7-DVXcaiue.js
-        - pkg/dashboard/ui/assets/chunk-KQLB2F66-3wR2yW6Y.js
-        - pkg/dashboard/ui/assets/chunk-KS47KZWR-CzwjUouX.js
-        - pkg/dashboard/ui/assets/chunk-LEVMRMFU-BfTquV9c.js
-        - pkg/dashboard/ui/assets/chunk-M57EVK23-CGYaLlvH.js
+        - pkg/dashboard/ui/assets/chunk-KQLB2F66-BwmpQXlf.js
+        - pkg/dashboard/ui/assets/chunk-KS47KZWR-BF_CS1MD.js
+        - pkg/dashboard/ui/assets/chunk-LEVMRMFU-By_LY8SZ.js
+        - pkg/dashboard/ui/assets/chunk-M57EVK23-Cke05FVg.js
         - pkg/dashboard/ui/assets/chunk-NGNAAXSQ-DI_UYJZ4.js
-        - pkg/dashboard/ui/assets/chunk-OY52VR5R-D0JmXi6Z.js
-        - pkg/dashboard/ui/assets/chunk-QB3YPZ4I-CSfS2Zy6.js
-        - pkg/dashboard/ui/assets/chunk-R3KSYZAL-CNJI3F7_.js
-        - pkg/dashboard/ui/assets/chunk-STOXU5M4-CXe0Jg0Z.js
-        - pkg/dashboard/ui/assets/chunk-TU62E6Q5-PI6ctvmC.js
+        - pkg/dashboard/ui/assets/chunk-OY52VR5R-Bn_jKOrX.js
+        - pkg/dashboard/ui/assets/chunk-QB3YPZ4I-Bw3-15Ol.js
+        - pkg/dashboard/ui/assets/chunk-R3KSYZAL-zbfFlGaU.js
+        - pkg/dashboard/ui/assets/chunk-STOXU5M4-NVK4jiav.js
+        - pkg/dashboard/ui/assets/chunk-TU62E6Q5-CMKePCw5.js
         - pkg/dashboard/ui/assets/chunk-X3CZISLH-BW6uUDd5.js
-        - pkg/dashboard/ui/assets/chunk-X4PVCEUW-DEwXHDTz.js
+        - pkg/dashboard/ui/assets/chunk-X4PVCEUW-BljQoaLP.js
         - pkg/dashboard/ui/assets/chunk-XXDRQBXY-CQ8v1CRP.js
         - pkg/dashboard/ui/assets/chunk-Y2CYZVJY-DsF7k-Jl.js
-        - pkg/dashboard/ui/assets/classDiagram-v2-L25IHNXF-DKNf-Fa1.js
+        - pkg/dashboard/ui/assets/classDiagram-v2-L25IHNXF-BJO4p_rm.js
         - pkg/dashboard/ui/assets/cose-bilkent-JH36ORCC-TvRlb-3d.js
-        - pkg/dashboard/ui/assets/cynefin-EF2NZ3EQ-DzvYqA31.js
-        - pkg/dashboard/ui/assets/cynefinDiagram-L36ESFBY-BRtNh3nA.js
+        - pkg/dashboard/ui/assets/cynefin-EF2NZ3EQ-CkxApJD_.js
+        - pkg/dashboard/ui/assets/cynefinDiagram-L36ESFBY-ChLjHG3M.js
         - pkg/dashboard/ui/assets/cytoscape-fcose-CiCTciSr.js
         - pkg/dashboard/ui/assets/cytoscape.esm-CVyW_ZDf.js
         - pkg/dashboard/ui/assets/d3-axis-ChvWZg1j.js
-        - pkg/dashboard/ui/assets/d3-scale-B_eSWRfQ.js
+        - pkg/dashboard/ui/assets/d3-scale-Qm4uaAOh.js
         - pkg/dashboard/ui/assets/d3-shape-Rhg63m2J.js
-        - pkg/dashboard/ui/assets/dagre-SPEB5RXH-CGRsmC_b.js
-        - pkg/dashboard/ui/assets/deliveryLinks.svelte-DlPvH7lJ.js
-        - pkg/dashboard/ui/assets/diagram-3B7GL73J-DgY8Q0qR.js
-        - pkg/dashboard/ui/assets/diagram-DNEMPZML-CcLvPXfB.js
-        - pkg/dashboard/ui/assets/diagram-L3MUGCDN-DbUqibe6.js
-        - pkg/dashboard/ui/assets/diagram-LA4NIPWU-B5IwIW7v.js
-        - pkg/dashboard/ui/assets/diagram-MHCOC4E2-DXvGidSB.js
-        - pkg/dashboard/ui/assets/diagram-XPFHEONP-EeKQGPi1.js
+        - pkg/dashboard/ui/assets/dagre-SPEB5RXH-IIyQujgl.js
+        - pkg/dashboard/ui/assets/deliveryLinks.svelte-CyKzmEJc.js
+        - pkg/dashboard/ui/assets/diagram-3B7GL73J-BC1qX1BI.js
+        - pkg/dashboard/ui/assets/diagram-DNEMPZML-Bz_flriM.js
+        - pkg/dashboard/ui/assets/diagram-L3MUGCDN-CZHCvBcm.js
+        - pkg/dashboard/ui/assets/diagram-LA4NIPWU-MLCIb2gy.js
+        - pkg/dashboard/ui/assets/diagram-MHCOC4E2-BNkmG5Zc.js
+        - pkg/dashboard/ui/assets/diagram-XPFHEONP-BFhlkdXH.js
         - pkg/dashboard/ui/assets/dist-CN30VTUJ.js
-        - pkg/dashboard/ui/assets/ebnfDiagram-UZSYDL2S-cebn5Yfr.js
-        - pkg/dashboard/ui/assets/elk-XV6XMXQE-Dh85z1YC.js
-        - pkg/dashboard/ui/assets/erDiagram-EYBAPDEH-DuJDVOIw.js
-        - pkg/dashboard/ui/assets/eventmodeling-K75KTNOO-BTa5aq9h.js
-        - pkg/dashboard/ui/assets/explainers-B5_GbWAQ.js
+        - pkg/dashboard/ui/assets/ebnfDiagram-UZSYDL2S-BfWHZF3s.js
+        - pkg/dashboard/ui/assets/elk-XV6XMXQE-afeMlyJ1.js
+        - pkg/dashboard/ui/assets/erDiagram-EYBAPDEH-y_M52sRc.js
+        - pkg/dashboard/ui/assets/eventmodeling-K75KTNOO-IpZ5stGn.js
+        - pkg/dashboard/ui/assets/explainers-CLRc4pkS.js
         - pkg/dashboard/ui/assets/figure-oh-6dlPd.js
-        - pkg/dashboard/ui/assets/fleetFigures-B8NJL-cO.js
-        - pkg/dashboard/ui/assets/flowDiagram-MALGAFMO-BMAfZwWH.js
-        - pkg/dashboard/ui/assets/format-DwYldY_c.js
-        - pkg/dashboard/ui/assets/ganttDiagram-23REXITY-BxQfO5aT.js
-        - pkg/dashboard/ui/assets/gitGraph-VSP46ZUC-DHXa8-UP.js
-        - pkg/dashboard/ui/assets/gitGraphDiagram-STJD7YCW-DO1JXjIT.js
-        - pkg/dashboard/ui/assets/goldenFigures-e6UuiWXD.js
-        - pkg/dashboard/ui/assets/graph-BsTCf5vp.js
-        - pkg/dashboard/ui/assets/graph-aggregate-CmSUsUXO.js
+        - pkg/dashboard/ui/assets/fleetFigures-BWwkAxKl.js
+        - pkg/dashboard/ui/assets/flowDiagram-MALGAFMO-BtI_YNS_.js
+        - pkg/dashboard/ui/assets/format-OkRWYI-M.js
+        - pkg/dashboard/ui/assets/ganttDiagram-23REXITY-CTP8VewY.js
+        - pkg/dashboard/ui/assets/gitGraph-VSP46ZUC-CG_VHOjI.js
+        - pkg/dashboard/ui/assets/gitGraphDiagram-STJD7YCW-D0CJwlKv.js
+        - pkg/dashboard/ui/assets/goldenFigures-CKSgqqVy.js
+        - pkg/dashboard/ui/assets/graph-DhatQpbH.js
+        - pkg/dashboard/ui/assets/graph-aggregate-BGSqsifc.js
         - pkg/dashboard/ui/assets/graphlib-DS17s2tU.js
-        - pkg/dashboard/ui/assets/hashQuery.svelte-lVMbUu93.js
-        - pkg/dashboard/ui/assets/index-BAFaORl6.css
-        - pkg/dashboard/ui/assets/index-C5tMwxye.js
-        - pkg/dashboard/ui/assets/info-OHQRW6UA-gw5rpFg6.js
-        - pkg/dashboard/ui/assets/infoDiagram-KBXO4MBG-Dun6pwbl.js
-        - pkg/dashboard/ui/assets/ishikawaDiagram-M35NCXHK-DN2SKNHp.js
-        - pkg/dashboard/ui/assets/journeyDiagram-OPLOXDXO-DQatFJ-l.js
-        - pkg/dashboard/ui/assets/kanban-definition-BZKZHSQY-BWxFdx7T.js
+        - pkg/dashboard/ui/assets/hashQuery.svelte-IYJ1wqw6.js
+        - pkg/dashboard/ui/assets/index-CiLJcMzh.js
+        - pkg/dashboard/ui/assets/index-DwXYY0Lh.css
+        - pkg/dashboard/ui/assets/info-OHQRW6UA-7sDqNwWN.js
+        - pkg/dashboard/ui/assets/infoDiagram-KBXO4MBG-C3lgPtXW.js
+        - pkg/dashboard/ui/assets/ishikawaDiagram-M35NCXHK-uVXtBRFQ.js
+        - pkg/dashboard/ui/assets/journeyDiagram-OPLOXDXO-ChzQH9_4.js
+        - pkg/dashboard/ui/assets/kanban-definition-BZKZHSQY-BRBmAkFm.js
         - pkg/dashboard/ui/assets/katex-MEuSR36T.js
-        - pkg/dashboard/ui/assets/mermaid-parser.core-KNoeulao.js
-        - pkg/dashboard/ui/assets/mermaid.core-dUEQF9gP.js
-        - pkg/dashboard/ui/assets/mindmap-definition-I2QAS2VK-BVFzwEkJ.js
-        - pkg/dashboard/ui/assets/packet-JDAUHWVQ-CVT2weXd.js
-        - pkg/dashboard/ui/assets/pegDiagram-FD4XPPHP-CP86CbB-.js
-        - pkg/dashboard/ui/assets/pie-XZMESJXO-BD5UlCpJ.js
-        - pkg/dashboard/ui/assets/pieDiagram-J4AKIIQI-PP1R2jug.js
-        - pkg/dashboard/ui/assets/quadrantDiagram-XTYBLID2-xZpuUS9B.js
-        - pkg/dashboard/ui/assets/radar-ABXABTNO-Cx4W_72x.js
-        - pkg/dashboard/ui/assets/railroad-I3PHUGI6-BDRrZntk.js
-        - pkg/dashboard/ui/assets/railroad-abnf-LNEFI6M7-CrrGd503.js
-        - pkg/dashboard/ui/assets/railroad-ebnf-DWYD2UWJ-BN_itBq2.js
-        - pkg/dashboard/ui/assets/railroad-peg-JR7BVNR7-BvtVe410.js
-        - pkg/dashboard/ui/assets/railroadDiagram-MRQ6NCDL-B9eW2vYI.js
-        - pkg/dashboard/ui/assets/requirementDiagram-Y7LWUY3S-32z_Bw0H.js
+        - pkg/dashboard/ui/assets/mermaid-parser.core-DJoE0YgQ.js
+        - pkg/dashboard/ui/assets/mermaid.core-BiSZuwAQ.js
+        - pkg/dashboard/ui/assets/mindmap-definition-I2QAS2VK-Bf6YOJ9E.js
+        - pkg/dashboard/ui/assets/packet-JDAUHWVQ-D2Rui6X-.js
+        - pkg/dashboard/ui/assets/pegDiagram-FD4XPPHP-DAUHw7ff.js
+        - pkg/dashboard/ui/assets/pie-XZMESJXO-Da2_ykAc.js
+        - pkg/dashboard/ui/assets/pieDiagram-J4AKIIQI-Ce0Au__u.js
+        - pkg/dashboard/ui/assets/quadrantDiagram-XTYBLID2-DjNAb89c.js
+        - pkg/dashboard/ui/assets/radar-ABXABTNO-C8ZOVGTl.js
+        - pkg/dashboard/ui/assets/railroad-I3PHUGI6-WCe-jWEL.js
+        - pkg/dashboard/ui/assets/railroad-abnf-LNEFI6M7-DVYii87e.js
+        - pkg/dashboard/ui/assets/railroad-ebnf-DWYD2UWJ-827nSIc-.js
+        - pkg/dashboard/ui/assets/railroad-peg-JR7BVNR7-DiaggP72.js
+        - pkg/dashboard/ui/assets/railroadDiagram-MRQ6NCDL-LoQRpy7J.js
+        - pkg/dashboard/ui/assets/requirementDiagram-Y7LWUY3S-DqH0ua59.js
         - pkg/dashboard/ui/assets/rolldown-runtime-COiEfhsA.js
         - pkg/dashboard/ui/assets/rough.esm-Dy-Kn_BL.js
-        - pkg/dashboard/ui/assets/sankeyDiagram-WGJFYUXA-CNn4Ak-x.js
-        - pkg/dashboard/ui/assets/sequenceDiagram-5NDRBG5M-DFjVWclH.js
+        - pkg/dashboard/ui/assets/sankeyDiagram-WGJFYUXA-DjewAGV4.js
+        - pkg/dashboard/ui/assets/sequenceDiagram-5NDRBG5M-CU9J9xnW.js
         - pkg/dashboard/ui/assets/sizeCapture-INFHLROL-3uHXrFqA.js
-        - pkg/dashboard/ui/assets/stateDiagram-v2-FJ4FJNEA-BjpYoFlb.js
-        - pkg/dashboard/ui/assets/swimlanes-UMQ2AFYF-C9b39Luk.js
-        - pkg/dashboard/ui/assets/swimlanesDiagram-OMPLPG4O-DCsroUzM.js
-        - pkg/dashboard/ui/assets/timeline-definition-SEUHKTQE-BWJmetQv.js
-        - pkg/dashboard/ui/assets/treeView-D4JQ5SDB-C_oFjZvp.js
-        - pkg/dashboard/ui/assets/treemap-SAJKECNS-C1FwbJlR.js
-        - pkg/dashboard/ui/assets/usecaseDiagram-AFA6YXN4-DUGmXu-g.js
-        - pkg/dashboard/ui/assets/vennDiagram-NNMJR3RB-BQynQ1sr.js
-        - pkg/dashboard/ui/assets/wardley-7MLQ67FV-By4cPiK-.js
-        - pkg/dashboard/ui/assets/wardleyDiagram-S7YFUSEH-CRD22bLc.js
-        - pkg/dashboard/ui/assets/xychartDiagram-GGNKY7IX-BR7J3uaM.js
+        - pkg/dashboard/ui/assets/stateDiagram-v2-FJ4FJNEA-BM9yYDXH.js
+        - pkg/dashboard/ui/assets/swimlanes-UMQ2AFYF-BG1dpY8p.js
+        - pkg/dashboard/ui/assets/swimlanesDiagram-OMPLPG4O-DG7idQTt.js
+        - pkg/dashboard/ui/assets/timeline-definition-SEUHKTQE-BAUyzoxP.js
+        - pkg/dashboard/ui/assets/treeView-D4JQ5SDB-DDkq8Jwi.js
+        - pkg/dashboard/ui/assets/treemap-SAJKECNS-H0O940eD.js
+        - pkg/dashboard/ui/assets/usecaseDiagram-AFA6YXN4-DqXBaQ3w.js
+        - pkg/dashboard/ui/assets/vennDiagram-NNMJR3RB-Bs_uqxTK.js
+        - pkg/dashboard/ui/assets/wardley-7MLQ67FV-BilNTtnw.js
+        - pkg/dashboard/ui/assets/wardleyDiagram-S7YFUSEH-DShhkmOi.js
+        - pkg/dashboard/ui/assets/xychartDiagram-GGNKY7IX-BJHNND0d.js
         - pkg/dashboard/ui/index.html
         - pkg/dashboard/ui/licenses/source-serif-4-OFL.md
         - pkg/dashboard/ui/theme.js
@@ -680,7 +685,7 @@ tests:
   - metadata: {name: "browser-{shard}"}
     use: [go.module, engine, story, demo, node, make]
     runner: {command: [make, test-browser, "PW_SHARD={shard}/{shard_count}"]}
-    matrix: {shard: {count: 3}}
+    matrix: {shard: {count: 4}}
     scope:
       exclude:
         - "**/*_test.go"

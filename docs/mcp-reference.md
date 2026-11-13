@@ -9,7 +9,7 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers). | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
 
 Outside these families: `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools are listed [below](#publish-and-delivery-servers).
 
@@ -35,7 +35,7 @@ invocation registers.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on).
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on). An HTTP server, whether its callers sign in or not, reads no `traces` path, accepts only `oci://` refs and reads no delivery evidence: a `regressed` event over HTTP carries `DELIVERY_EVIDENCE_UNAVAILABLE`. Run `pacto mcp --fleet` over stdio to read them with your own credentials.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
@@ -81,13 +81,20 @@ Every mode except `--root` carries these four.
 
 **`pacto_check` is `pacto validate`.** It runs the same validation, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it accepts passes CI. Its result carries the same `stages` and `next` as `pacto validate --output-format json`, and each error carries `line` and `column` when Pacto can locate it.
 
+**`pacto_check` compares environments:**
+
+- `environments` takes two or more distinct comma-separated names, such as `production,pr-482`, and the result also lists the configuration values those environments disagree on, as `pacto explain --environments` does.
+- Left empty, it compares every declared environment when the contract declares two or more.
+- `comparedEnvironments` names the environments compared. When it is present and `environmentDifferences` is absent, the environments agree.
+
 **`add_config_properties` writes the schema.** `pacto_edit` merges the properties into the first configuration's local schema file (`configuration/schema.json` when it has to declare one). A property already in the schema is replaced and `required` names are unioned.
 
 **`pacto_edit` edits configuration references, environments and the lifecycle:**
 
 - `add_configuration_refs` adds references to published contracts whose configuration the service takes. Each entry's `configuration` picks one of the referenced contract's configurations and `values` holds the service's values for it. Either field raises `pactoVersion` to 2.4.
 - `remove_configuration_refs` removes references by name or ref, and removes their values from every environment file.
-- `add_environments` declares environments and creates each missing file holding `{}`. It raises `pactoVersion` to 2.3.
+- `add_environments` declares environments and creates each missing file holding `{}`. Each entry may set `lifetime` (`temporary` or `persistent`), `expires` (an RFC 3339 time, only with `temporary`) and `owner` (`{team, dri?, contacts?}`). It raises `pactoVersion` to 2.3, or to 2.4 when an entry sets `lifetime`, `expires` or `owner`; see [temporary environments](contract-reference/environments.md#temporary-environments).
+- `remove_environments` removes environments by name, such as `["pr-482"]`, and deletes each file no remaining environment names. Nothing in a cluster changes.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
 - `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
@@ -198,24 +205,26 @@ always to a new tag) beside the authoring tools. It runs over stdio
 only.
 
 `--delivery` serves the delivery tools over the cluster your kubeconfig
-points at: `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
+points at: `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
 `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
-`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan` and
-`pacto_delivery_record_verify` for everyone, plus
+`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`,
+`pacto_delivery_record_get`, `pacto_delivery_record_verify` and
+`pacto_delivery_lifecycle` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
 cluster says the caller is an agent. Delivery mode has no approve tool.
 
 `pacto_delivery_candidates` lists the versions a Stage may take, with their
 digests. The `to` input of plan and propose takes a version (`3.0.0`), a tag or
 a digest; a version or a tag must name exactly one of those candidates, or the
-tool refuses it and says why. A plan's `next` says what proposing it leads to:
-which teams must sign, that an agent cannot answer and the operation is then
-Held, and what happens at the approval deadline. `pacto_delivery_get` adds
-`next` with the deadline while an operation is held. Propose with the plan's
-intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
+tool refuses it and says why. A plan's `next` says what proposing it leads
+to, as [plan, propose and approve](integrations/kubernetes/delivery-operations.md)
+describes, and `pacto_delivery_get` repeats it while an operation is held.
+Propose with the plan's intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell. Over HTTP it
-needs token exchange; see
-[agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+needs [token exchange](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
 
-`pacto_delivery_history` takes a window (`since`, `until`) and, without a
-`stage`, a `service` and `domain` filter.
+`pacto_delivery_history` takes `since` and `until` (an RFC 3339 time or a
+duration such as `2h`), `cause`, `correlation_id` and, without a `stage`,
+`service` and `domain`.
+[Status, progress and lifecycle](integrations/kubernetes/delivery-status.md)
+covers the status, lifecycle and record tools.

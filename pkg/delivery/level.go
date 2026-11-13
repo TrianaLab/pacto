@@ -171,7 +171,7 @@ func raiseRefusal(in PlanInput, from, to Level) string {
 		return "only a person can raise a level; the promoter proposes raises"
 	case to.rank() > from.rank()+1:
 		return "one level at a time: propose " + string(levelOrder[from.rank()+1]) + " first"
-	case from == LevelObserve && !conditionIs(in.Status, "Ready", ReasonObservingGuarded):
+	case from == LevelObserve && !conditionIs(in.Status, ConditionReady, ReasonObservingGuarded):
 		return "unlabelled-apply-ref: label the applyRef " + ApplyRefLabel + " and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it"
 	case from == LevelObserve && (in.Status.ObservedRevision == nil || !isDigest(in.Status.ObservedRevision.Digest)):
 		return "no-observed-digest: GitOps' source reports no digest yet, so Pacto does not know what runs"
@@ -272,7 +272,7 @@ func ProposeLevel(spec StageSpec, st StageStatus, latest *Plan) *Proposal {
 	var evidence []string
 	if cur == LevelObserve {
 		evidence = shadowEvidence(st, n, block)
-		if !conditionIs(st, "Ready", ReasonObservingGuarded) {
+		if !conditionIs(st, ConditionReady, ReasonObservingGuarded) {
 			block(BlockerUnlabelledApplyRef, spec.ApplyRef.Name, "label the applyRef "+ApplyRefLabel+" and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it")
 		}
 		if st.ObservedRevision == nil {

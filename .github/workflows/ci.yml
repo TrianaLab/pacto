@@ -341,7 +341,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read # aval run reads the private attestations
@@ -349,7 +349,7 @@ jobs:
       fail-fast: false
       matrix:
         # Must match browser-{shard}'s count in aval.yaml.
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -363,7 +363,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
-        timeout-minutes: 25
+        timeout-minutes: 35
         uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
           test: browser-${{ matrix.shard }}

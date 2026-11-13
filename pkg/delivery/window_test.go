@@ -184,3 +184,91 @@ func TestRecordPredicateUnchanged(t *testing.T) {
 }
 
 const recordPredicateGolden = `{"kind":"operation","type":{"id":"delivery.pacto.trianalab.io/promote","version":"","digest":""},"intent":{"uid":"u-1","name":"op-1","stage":{"cluster":"","namespace":"","name":""},"params":{"to":"A"},"correlationID":"incident-7","cause":{"operation":"u0"}},"actor":{"class":"agent","user":"bot"},"verdicts":[{"gate":"g","phase":"verify","result":"Pass","citation":{"input":"{}"}}],"outcome":{"result":"Succeeded","verification":"Verified","pointer":{"after":"A"}},"chain":{"stream":"c/ns/s","seq":1},"time":{"finished":"2026-10-21T10:00:01Z"}}`
+
+func TestEntryFilterKeeps(t *testing.T) {
+	e := HistoryEntry{CorrelationID: "INC-7", Cause: &Cause{Reason: "Latency SLO", Operation: "uid-1",
+		Verdict: &Verdict{Gate: "pacto.metrics", Message: "p99 Breached"}}}
+	for _, c := range []struct {
+		f    EntryFilter
+		e    HistoryEntry
+		want bool
+	}{
+		{EntryFilter{}, HistoryEntry{}, true},
+		{EntryFilter{Cause: "slo"}, e, true},
+		{EntryFilter{Cause: "UID-1"}, e, true},
+		{EntryFilter{Cause: "metrics"}, e, true},
+		{EntryFilter{Cause: "breached"}, e, true},
+		{EntryFilter{Cause: "nope"}, e, false},
+		{EntryFilter{Cause: "slo"}, HistoryEntry{}, false},
+		{EntryFilter{Cause: "slo"}, HistoryEntry{Cause: &Cause{Reason: "slo"}}, true},
+		{EntryFilter{CorrelationID: "INC-7"}, e, true},
+		{EntryFilter{CorrelationID: "inc-7"}, e, false},
+		{EntryFilter{CorrelationID: "INC"}, e, false},
+		{EntryFilter{Cause: "slo", CorrelationID: "INC-8"}, e, false},
+	} {
+		if got := c.f.Keeps(c.e); got != c.want {
+			t.Errorf("%+v keeps %+v = %v", c.f, c.e, got)
+		}
+	}
+}
+
+func filterEntriesHistory() History {
+	return History{Completeness: "partial", Note: "n", Problems: []string{"p"}, Unreadable: []string{"u"}, Entries: []HistoryEntry{
+		{Operation: "a", CorrelationID: "INC-1", Cause: &Cause{Reason: "rollback after alert"}},
+		{Operation: "b", Cause: &Cause{Verdict: &Verdict{Gate: "pacto.metrics"}}},
+		{Operation: "c"},
+	}}
+}
+
+func TestFilterEntriesEmpty(t *testing.T) {
+	if got := FilterEntries(filterEntriesHistory(), EntryFilter{}); len(got.Entries) != 3 || got.Note != "n" {
+		t.Fatalf("no filter changed the history: %+v", got)
+	}
+	if got := FilterEntries(History{}, EntryFilter{CorrelationID: "INC-1"}); got.Entries == nil {
+		t.Fatal("a filtered history with no entries must say [], not null")
+	}
+}
+
+func TestFilterEntries(t *testing.T) {
+	h := filterEntriesHistory()
+	got := FilterEntries(h, EntryFilter{Cause: "ALERT"})
+	if len(got.Entries) != 1 || got.Entries[0].Operation != "a" || got.Note != "n; only changes whose cause names ALERT" {
+		t.Fatalf("cause filter = %+v", got)
+	}
+	got = FilterEntries(h, EntryFilter{Cause: "metrics", CorrelationID: "INC-1"})
+	if got.Entries == nil || len(got.Entries) != 0 || got.Note != "n; only changes whose cause names metrics; only changes with correlation id INC-1" {
+		t.Fatalf("both filters = %+v", got)
+	}
+	if b, _ := json.Marshal(got.Entries); string(b) != "[]" {
+		t.Fatalf("no kept change must say [], got %s", b)
+	}
+	if got.Completeness != "partial" || got.Problems[0] != "p" || got.Unreadable[0] != "u" {
+		t.Fatalf("filter changed the rest of the history: %+v", got)
+	}
+	if len(h.Entries) != 3 || h.Note != "n" {
+		t.Fatalf("the input history was mutated: %+v", h)
+	}
+}
+
+func TestParseWhen(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		in   string
+		want time.Time
+	}{
+		{"", time.Time{}},
+		{"2026-11-05T08:00:00Z", time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)},
+		{"2h", now.Add(-2 * time.Hour)},
+	} {
+		got, err := ParseWhen(c.in, now)
+		if err != nil || !got.Equal(c.want) {
+			t.Errorf("ParseWhen(%q) = %v, %v", c.in, got, err)
+		}
+	}
+	if _, err := ParseWhen("-2h", now); err == nil || err.Error() != `takes a positive duration before now, such as 2h: "-2h"` {
+		t.Fatalf("a negative duration would be a future bound: %v", err)
+	}
+	if _, err := ParseWhen("yesterday", now); err == nil || err.Error() != `takes an RFC 3339 time or a duration before now, such as 2h: "yesterday"` {
+		t.Fatalf("err = %v", err)
+	}
+}

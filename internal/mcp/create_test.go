@@ -611,7 +611,7 @@ func TestEdit_ChangeWorkload(t *testing.T) {
 
 func TestCheck_ValidBundle(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestCheck_ValidBundle(t *testing.T) {
 }
 
 func TestCheck_InvalidPath(t *testing.T) {
-	_, err := Check(context.Background(), nil, "/nonexistent-path")
+	_, err := Check(context.Background(), nil, "/nonexistent-path", nil)
 	if err == nil {
 		t.Error("expected error for invalid path")
 	}
@@ -633,7 +633,7 @@ func TestCheck_InvalidPath(t *testing.T) {
 func TestCheck_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("not: valid: yaml: {{"), 0644)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestCheck_InvalidYAML(t *testing.T) {
 
 func TestCheck_DefaultPath(t *testing.T) {
 	// Empty path defaults to "."
-	_, err := Check(context.Background(), nil, "")
+	_, err := Check(context.Background(), nil, "", nil)
 	// This will likely fail because . doesn't have pacto.yaml, which is expected
 	if err == nil {
 		// It's OK if CWD happens to have pacto.yaml
@@ -677,7 +677,7 @@ state:
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1745,7 +1745,7 @@ runtime:
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1773,7 +1773,7 @@ state:
   dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1807,7 +1807,7 @@ interfaces:
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2105,7 +2105,7 @@ dependencies:
 	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), testutil.TestOpenAPI(), 0644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2424,7 +2424,7 @@ interfaces:
     ref: interfaces/api2.yaml
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2446,7 +2446,7 @@ dependencies:
     compatibility: ^1.0.0
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2572,7 +2572,7 @@ func TestSummaryShapeAgreesAcrossTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit: %v", err)
 	}
-	checked, err := Check(context.Background(), nil, out)
+	checked, err := Check(context.Background(), nil, out, nil)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -2608,7 +2608,7 @@ func TestCreateTool_AsyncAPIRoundTrips(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "interfaces", "events.yaml")); err != nil {
 		t.Fatalf("expected the asyncapi spec to be written: %v", err)
 	}
-	check, err := Check(context.Background(), nil, out)
+	check, err := Check(context.Background(), nil, out, nil)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -2646,7 +2646,7 @@ func TestEdit_AddConfigProperties_WritesAndMergesSchema(t *testing.T) {
 	if len(schema.Required) != 1 || schema.Required[0] != "PORT" {
 		t.Errorf("required = %v, want [PORT] once", schema.Required)
 	}
-	res, err := Check(context.Background(), nil, dir)
+	res, err := Check(context.Background(), nil, dir, nil)
 	if err != nil || !res.Valid {
 		t.Fatalf("edited bundle must stay valid: %+v %v", res, err)
 	}
@@ -2827,7 +2827,7 @@ func TestExternalDependencies(t *testing.T) {
 	if _, err := Create(CreateInput{Name: "agent", Path: dir, Dependencies: external}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Check(context.Background(), nil, dir)
+	res, err := Check(context.Background(), nil, dir, nil)
 	if err != nil || !res.Valid || !containsStr(res.Summary.Dependencies, "model (external claude-sonnet-4-5)") {
 		t.Fatalf("created: %v %+v", err, res)
 	}
@@ -2837,7 +2837,7 @@ func TestExternalDependencies(t *testing.T) {
 	if err != nil || !containsStr(ed.Changes, `set pactoVersion "2.1" for the external dependency`) || !containsStr(ed.Changes, `added dependency "model"`) {
 		t.Fatalf("edit: %v %+v", err, ed)
 	}
-	if res, err := Check(context.Background(), nil, dir); err != nil || !res.Valid {
+	if res, err := Check(context.Background(), nil, dir, nil); err != nil || !res.Valid {
 		t.Fatalf("edited: %v %+v", err, res)
 	}
 	ed, err = Edit(context.Background(), nil, EditInput{Path: dir, AddDependencies: []DependencyInput{{Name: "cache", External: true, Version: "7"}}, RemoveDeps: []string{"model"}})
@@ -2963,12 +2963,12 @@ func TestCheck_DomainSuggestion(t *testing.T) {
 		}
 		return false
 	}
-	result, err := Check(context.Background(), nil, dir)
+	result, err := Check(context.Background(), nil, dir, nil)
 	if err != nil || !result.Valid || !has(result) {
 		t.Fatalf("no domain: %+v %v", result, err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  domain: payments\n"), 0o644)
-	result, err = Check(context.Background(), nil, dir)
+	result, err = Check(context.Background(), nil, dir, nil)
 	if err != nil || !result.Valid || has(result) || result.Summary.Domain != "payments" {
 		t.Fatalf("with domain: %+v %v", result, err)
 	}
@@ -3029,7 +3029,7 @@ func TestEdit_AddConfigurationAndPolicyRefs(t *testing.T) {
 		t.Errorf("policies %+v", c.Policies)
 	}
 	// Policy refs resolve only against a registry, so check the stages before it.
-	check, err := Check(context.Background(), nil, dir)
+	check, err := Check(context.Background(), nil, dir, nil)
 	if err != nil || len(check.Stages) < 2 || check.Stages[0].Status != "pass" || check.Stages[1].Status != "pass" {
 		t.Fatalf("written contract does not validate: %+v %v", check, err)
 	}
@@ -3048,7 +3048,7 @@ func TestCheck_OfferingSuggestion(t *testing.T) {
 	check := func(yaml string) *CheckResult {
 		dir := t.TempDir()
 		_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644)
-		result, err := Check(context.Background(), nil, dir)
+		result, err := Check(context.Background(), nil, dir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

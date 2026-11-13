@@ -386,7 +386,15 @@ func Revision(service, version string) (delivery.Revision, error) {
 		return delivery.Revision{}, err
 	}
 	return delivery.Revision{Digest: ArtifactDigest(service, version),
-		ContractRef: "oci://" + Domain + "/" + service + "@" + sha(string(b.RawYAML)), Bundle: b, ConfigRefs: configRefs(b)}, nil
+		ContractRef: "oci://" + Domain + "/" + service + "@" + sha(string(b.RawYAML)), Bundle: b, ConfigRefs: configRefs(b),
+		SourceRevision: SourceRevision(service, version)}, nil
+}
+
+// SourceRevision is the git commit pacto publish stamped on service at
+// version (org.opencontainers.image.revision): a 40-character SHA, as a
+// pipeline passes it.
+func SourceRevision(service, version string) string {
+	return sha("source " + service + "@" + version)[len("sha256:"):][:40]
 }
 
 // configRefs resolves b's configuration refs to story contracts, as

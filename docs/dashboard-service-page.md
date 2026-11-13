@@ -13,7 +13,7 @@ its capabilities and the sources that saw it. The operational summary shows
 compliance, how certainly each target is matched to a revision, how recently it
 was observed and how the declared dependencies compare with observed traffic.
 The sections below list findings, observed traffic, operational targets,
-delivery, revisions, expected dependencies, dependents, signatures, policies,
+environments, delivery, revisions, expected dependencies, dependents, signatures, policies,
 configuration, recent evidence and the limitations that make any of it
 uncertain.
 
@@ -57,7 +57,60 @@ page of every service with that name. When the service has a domain, such a row
 reads **Stage names no domain**: the match is by service name only. When
 no Stage matches, the section says so: delivery is opt-in per service. When the
 dashboard does not serve delivery, the section says why, and when Pacto cannot
-reach the cluster it shows the error with a retry.
+reach the cluster it shows the error with a retry. When Pacto could not list
+every namespace, the section reads **No Stages of this service that you can
+see** and names what it could not list.
+
+## Stages, actions and why
+
+Each Stage row shows its state, the version it runs linked to its revision, the
+contract behind it and the source revision `pacto publish` stamped (an
+annotation, not signed). A Stage that cannot promote says why and how to fix
+it. The row shows the newest re-check, marked stale when it is about an
+earlier version, and the newest change. A change read from an Operation's
+status is marked **from status, not signed**.
+
+The buttons under a row are the actions you may take: promote, unfreeze,
+freeze and undo. An action you may not take stays disabled, with the reason
+beside it. Every action proposes with your identity.
+**Why** asks the cluster, as you, what holds the Stage back, with each fix as
+a command when you may run it.
+
+## Environments
+
+The **Environments** section lists each environment the current revision
+declares or a target you can see reports, alphabetically. It never shows a
+promotion order: the Delivery section does. Each fact says whether it is
+declared, observed or inferred.
+
+![The Environments section of storefront-web's service page](assets/screenshots/dashboard-service-environments-light.png#only-light)
+![The Environments section of storefront-web's service page](assets/screenshots/dashboard-service-environments-dark.png#only-dark)
+
+| Cell | Shows |
+|---|---|
+| Declared | Whether the environment's values pass, its lifetime (**Lifetime not declared** when absent, never persistent), its expiry, or **Expired (inferred, as of ...)** once `expires` has passed, and its owner: declared, **service owner, inferred** or **Owner unknown**. An environment only targets report reads **Not declared by** the current revision |
+| Observed | The targets you can see labelled with the environment, linked to that target list, with **(incomplete)** and the reason when you may not see every target, and the revisions they run |
+| Provisioning | The phases of the resources the service's offering uses there, **Unknown until a provider reports**, or why provisioning is not tracked there |
+| Stage | On a dashboard that serves delivery, the Stages whose `spec.environment` equals the name exactly, with their state. **Stages unknown: partial listing** when Pacto could not list every Stage. A Stage environment that matches no row is listed as **Stage only** |
+
+Below the rows:
+
+- Targets with no environment label, or whose sources disagree, form one
+  **Unknown** row.
+- **Differences between environments** lists each value the declared
+  environments disagree on, one row per environment, with **not set** for a
+  value an environment leaves out.
+- **Changes between versions (version order)** compares each revision Pacto
+  holds with the previous one it holds: each environment added, removed or
+  changed, the fields that changed and the revision it was compared with. The
+  oldest revision Pacto holds reads **declared since at least** that revision.
+  No source lists every version, so the list is partial: a change happened
+  between the two versions named. No change carries a time, and a revision
+  Pacto could not read is counted.
+- An expired environment is never deleted; see
+  [temporary environments](contract-reference/environments.md#temporary-environments).
+
+## Delivery links
 
 The **Delivery history** and **Open in Delivery** links open the delivery
 history and the environments board narrowed to the same Stages. Both pages name

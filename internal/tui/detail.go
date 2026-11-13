@@ -101,7 +101,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
 		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
-		renderServiceDetail(&b, d.Service)
+		renderServiceDetail(&b, d.Entity.Label, d.Service, d.Meta.Completeness)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
 	case d.Target != nil:
@@ -147,7 +147,9 @@ func section(b *strings.Builder, title string) {
 	b.WriteString("\n" + headerStyle.Render(title) + "\n")
 }
 
-func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
+// renderServiceDetail renders a service's page; service is its label, named
+// in the Stages hint under its environments.
+func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDetailData, c fleet.Completeness) {
 	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
 		field(b, "owner", s.Ownership.Owner)
@@ -164,6 +166,19 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 		}
 		if s.ActiveRevisions.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.ActiveRevisions.Total-len(s.ActiveRevisions.Items))) + "\n")
+		}
+	}
+	if s.Placement.Total > 0 {
+		section(b, fleet.PlacementHeading(c))
+		for _, l := range s.Placement.Lines() {
+			b.WriteString(safeText(l) + "\n")
+		}
+		b.WriteString(safeText(fleet.StagesHint(service)) + "\n")
+	}
+	if h := s.EnvironmentHistory; h.Total > 0 || h.Gaps > 0 {
+		section(b, h.Heading())
+		for _, l := range h.Lines() {
+			b.WriteString(safeText(l) + "\n")
 		}
 	}
 	renderTemplateDetail(b, s.Template)

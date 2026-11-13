@@ -429,7 +429,7 @@
     },
     "environments": {
       "type": "array",
-      "description": "The environments this service runs in, each with the configuration values it uses there. Pacto checks every environment's values against the schema of each configuration they name. It applies nothing.",
+      "description": "The environments this service runs in, each with the configuration values it uses there and optionally its lifetime, expiry and owner. Pacto checks every environment's values against the schema of each configuration they name. It applies nothing.",
       "items": {
         "type": "object",
         "required": [
@@ -448,6 +448,82 @@
             "type": "string",
             "minLength": 1,
             "description": "Path to a YAML or JSON file within the bundle that maps each configuration name to the values this environment uses for it. Values hold references to secrets, such as a Secret name. Keep secret material out of the file."
+          },
+          "lifetime": {
+            "type": "string",
+            "enum": [
+              "temporary",
+              "persistent"
+            ],
+            "description": "How long the environment is meant to live: temporary (with expires, such as a preview) or persistent. Absent means not declared."
+          },
+          "expires": {
+            "type": "string",
+            "format": "date-time",
+            "description": "With lifetime temporary: the RFC 3339 time the environment is meant to end. Pacto warns once it passes and deletes nothing."
+          },
+          "owner": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "description": "The team that owns this environment when it is not the service owner.",
+            "properties": {
+              "team": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9._/-]+$",
+                "description": "The team that owns the environment, as its bare name such as perf. A slash is allowed for a name your identity provider qualifies, such as acme/perf."
+              },
+              "dri": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9._@/-]+$",
+                "description": "The directly responsible individual for this environment."
+              },
+              "contacts": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Provider-neutral ownership and escalation contact points. The list is a set: order carries no meaning, and an identical contact point repeated in the list counts once.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "url",
+                        "group",
+                        "oncall",
+                        "chat",
+                        "other"
+                      ],
+                      "description": "The kind of contact point."
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The contact value, such as an email address, URL or group identifier."
+                    },
+                    "purpose": {
+                      "type": "string",
+                      "enum": [
+                        "ownership",
+                        "support",
+                        "escalation",
+                        "oncall",
+                        "notifications"
+                      ],
+                      "description": "The intended operational purpose of this contact point."
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

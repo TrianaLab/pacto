@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -18,11 +19,13 @@ type stubDelivery struct {
 	err     error
 	cancels []string
 	of      delivery.ServiceRef
+	status  delivery.StatusQuery
 }
 
 // stubEntries are a change that finished at ten and one with no time.
 func stubEntries() []delivery.HistoryEntry {
-	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z"}, {Operation: "timeless"}}
+	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z",
+		CorrelationID: "INC-1", Cause: &delivery.Cause{Reason: "Latency alert"}}, {Operation: "timeless"}}
 }
 
 func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
@@ -107,6 +110,28 @@ func (s *stubDelivery) VerifyRecords(_ context.Context, ns, stage string) (*deli
 	return &delivery.StreamVerification{Stage: ns + "/" + stage, OK: true}, nil
 }
 
+func (s *stubDelivery) Record(_ context.Context, ns, stage, id string) (*delivery.RecordView, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.RecordView{Namespace: ns, Stage: stage, Record: id, Verified: true}, nil
+}
+
+func (s *stubDelivery) Lifecycle(_ context.Context, q delivery.LifecycleQuery) (*delivery.Lifecycle, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Lifecycle{Service: q.Service, Digest: q.Digest + q.Version + q.Contract, Note: q.Namespace + "|" + q.Domain}, nil
+}
+
+func (s *stubDelivery) Status(_ context.Context, q delivery.StatusQuery) (*delivery.ServiceStatus, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	s.status = q
+	return &delivery.ServiceStatus{Service: q.Service, Note: "in promotion order"}, nil
+}
+
 func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -150,7 +175,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify"} {
+	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify", "pacto_delivery_record_get", "pacto_delivery_lifecycle", "pacto_delivery_status"} {
 		if !strings.Contains(read, tool) {
 			t.Fatalf("%s is a read tool: %s", tool, read)
 		}
@@ -161,8 +186,8 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 			t.Fatalf("%s must not be registered: %s", gone, write)
 		}
 	}
-	if n := len(strings.Split(write, ",")); n != 11 {
-		t.Fatalf("want 9 read and 2 write delivery tools, got %d: %s", n, write)
+	if n := len(strings.Split(write, ",")); n != 14 {
+		t.Fatalf("want 12 read and 2 write delivery tools, got %d: %s", n, write)
 	}
 }
 
@@ -364,14 +389,65 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	}
 	for args, want := range map[string]map[string]any{
 		"service filters the walk; leave stage empty": {"namespace": "prod", "stage": "s", "service": "payments"},
-		"since is not an RFC 3339 time":               {"namespace": "prod", "stage": "s", "since": "yesterday"},
-		"until is not an RFC 3339 time":               {"until": "2h"},
+		"since takes an RFC 3339 time or a duration":  {"namespace": "prod", "stage": "s", "since": "yesterday"},
+		"until takes an RFC 3339 time or a duration":  {"until": "soon"},
 		"domain needs service":                        {"domain": "d"},
 		"since is after until":                        {"since": "2026-11-05T11:00:00Z", "until": "2026-11-05T09:00:00Z"},
 	} {
 		if res := callToolOn(t, server, "pacto_delivery_history", want); !res.IsError || !strings.Contains(resultText(t, res), args) {
 			t.Fatalf("%v: %s", want, resultText(t, res))
 		}
+	}
+}
+
+// TestHistoryToolDurations: since and until take a duration before now, as
+// the CLI flags do, and the schema says so.
+func TestHistoryToolDurations(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s", "since": "2h"}), &h)
+	if len(h.Entries) != 1 || h.Entries[0].Operation != "timeless" || !strings.Contains(h.Note, "at or after") {
+		t.Fatalf("history of the last two hours: %+v", h)
+	}
+	props := historySchema()["properties"].(map[string]any)
+	for _, k := range []string{"since", "until"} {
+		if d := props[k].(map[string]any)["description"].(string); !strings.Contains(d, "duration before now") {
+			t.Fatalf("%s schema: %q", k, d)
+		}
+	}
+}
+
+// TestHistoryToolCorrelation: cause and correlation_id keep only the changes
+// tied to an incident, in both modes, and the timeline counts only those.
+func TestHistoryToolCorrelation(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	window := map[string]any{"since": "2026-11-05T09:00:00Z", "until": "2026-11-05T11:00:00Z"}
+	args := func(extra map[string]any) map[string]any {
+		out := map[string]any{"namespace": "prod", "stage": "s"}
+		maps.Copy(out, window)
+		maps.Copy(out, extra)
+		return out
+	}
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(nil)), &h)
+	if len(h.Entries) != 2 || h.Timeline.Untimed != 1 {
+		t.Fatalf("unfiltered: %+v", h)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(map[string]any{"correlation_id": "INC-1"})), &h)
+	if len(h.Entries) != 1 || h.Entries[0].Operation != "at-ten" || h.Timeline.Untimed != 0 || h.Timeline.Totals == (delivery.TimelineCounts{}) ||
+		!strings.Contains(h.Note, "only changes with correlation id INC-1") {
+		t.Fatalf("correlation INC-1: %+v", h)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", args(map[string]any{"cause": "nothing like it"})), &h)
+	if len(h.Entries) != 0 || h.Timeline.Untimed != 0 || h.Timeline.Totals != (delivery.TimelineCounts{}) {
+		t.Fatalf("no cause matches: %+v", h)
+	}
+	var hs delivery.Histories
+	walk := map[string]any{"cause": "LATENCY"}
+	maps.Copy(walk, window)
+	decode(t, callToolOn(t, server, "pacto_delivery_history", walk), &hs)
+	if len(hs.Histories[0].Entries) != 1 || hs.Timeline.Untimed != 0 || hs.Timeline.Totals == (delivery.TimelineCounts{}) {
+		t.Fatalf("walk by cause: %+v", hs)
 	}
 }
 
@@ -385,5 +461,103 @@ func TestRecordVerifySchemaHasNoWindow(t *testing.T) {
 		if _, ok := historySchema()["properties"].(map[string]any)[k]; !ok {
 			t.Fatalf("the history schema lacks %s", k)
 		}
+	}
+}
+
+// TestDeliveryDescriptionsExplainCheckedPass: an agent reading a plan, an
+// operation or an explanation learns that an evidence gate's Pass only says
+// the gate ran, as the CLI and the dashboard label it Checked.
+func TestDeliveryDescriptionsExplainCheckedPass(t *testing.T) {
+	const checked = "A pacto.diff, pacto.impact or pacto.environment verdict passes once it ran"
+	if !strings.Contains(deliveryInstructions, checked) || !strings.Contains(deliveryInstructions, "show it as Checked") {
+		t.Fatal("the delivery instructions must explain a checked Pass")
+	}
+	ctx := context.Background()
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
+	t1, t2 := mcpsdk.NewInMemoryTransports()
+	if _, err := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{}).Connect(ctx, t1, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	res, err := s.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"pacto_delivery_operation_plan": true, "pacto_delivery_get": true, "pacto_delivery_explain": true}
+	for _, tool := range res.Tools {
+		if want[tool.Name] {
+			delete(want, tool.Name)
+			if !strings.Contains(tool.Description, checked) {
+				t.Errorf("%s does not explain a checked Pass", tool.Name)
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("tools not found: %v", want)
+	}
+}
+
+// TestDeliveryStatusTool: the arguments reach Status; a missing service is
+// an error; a person's server, which registers no propose tool, says so in
+// the note and an agent's does not.
+func TestDeliveryStatusTool(t *testing.T) {
+	api := &stubDelivery{}
+	var got delivery.ServiceStatus
+	decode(t, callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status",
+		map[string]any{"service": "payments", "domain": "d", "namespace": "prod", "why": true}), &got)
+	if api.status != (delivery.StatusQuery{Namespace: "prod", Service: "payments", Domain: "d", Why: true}) ||
+		got.Note != "in promotion order"+noProposeNote {
+		t.Fatalf("status %+v from %+v", got, api.status)
+	}
+	decode(t, callToolOn(t, NewDeliveryServer("v", api, true, Authoring{}), "pacto_delivery_status", map[string]any{"service": "payments"}), &got)
+	if got.Note != "in promotion order" {
+		t.Fatalf("an agent's server has propose: %q", got.Note)
+	}
+	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{}); !res.IsError {
+		t.Fatal("a missing service must be an error")
+	}
+	api.err = errors.New("boom")
+	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{"service": "p"}); !res.IsError {
+		t.Fatal("an error must be an error result")
+	}
+}
+
+func TestRecordGetTool(t *testing.T) {
+	api := &stubDelivery{}
+	server := NewDeliveryServer("v", api, false, Authoring{})
+	var r delivery.RecordView
+	decode(t, callToolOn(t, server, "pacto_delivery_record_get", map[string]any{"namespace": "prod", "stage": "s", "record": "sha256:r"}), &r)
+	if r.Namespace != "prod" || r.Stage != "s" || r.Record != "sha256:r" || !r.Verified {
+		t.Fatalf("record: %+v", r)
+	}
+	if res := callToolOn(t, server, "pacto_delivery_record_get", map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
+		t.Fatal("record get needs a record id")
+	}
+	api.err = errors.New("record sha256:x is not in the stream")
+	if res := callToolOn(t, server, "pacto_delivery_record_get", map[string]any{"namespace": "prod", "stage": "s", "record": "sha256:x"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "not in the stream") {
+		t.Fatal("record get must surface the error")
+	}
+}
+
+func TestLifecycleTool(t *testing.T) {
+	api := &stubDelivery{}
+	server := NewDeliveryServer("v", api, false, Authoring{})
+	var l delivery.Lifecycle
+	decode(t, callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments", "version": "3.7.4", "namespace": "prod", "domain": "r"}), &l)
+	if l.Service != "payments" || l.Digest != "3.7.4" || l.Note != "prod|r" {
+		t.Fatalf("lifecycle: %+v", l)
+	}
+	if res := callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"version": "3.7.4"}); !res.IsError {
+		t.Fatal("lifecycle needs a service")
+	}
+	api.err = errors.New("pass exactly one of digest, version or contract")
+	if res := callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "pass exactly one") {
+		t.Fatal("lifecycle must surface the error")
 	}
 }

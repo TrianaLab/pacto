@@ -58,6 +58,9 @@ type Revision struct {
 	// NoContract is true when the artifact was read and names no
 	// digest-pinned contract: it was not published by pacto publish.
 	NoContract bool
+	// SourceRevision is the source revision pacto publish stamped on the
+	// artifact (SourceRevisionAnnotation). An annotation, not signed.
+	SourceRevision string
 }
 
 // PlanInput is everything plan() reads. Gathering it is the caller's job, so the
@@ -309,12 +312,16 @@ func predict(in PlanInput, p *Plan) Prediction {
 			return PredictRejected
 		}
 	}
-	if p.Floor.Human {
-		return PredictHeld
-	}
-	exempt := in.Spec.Type != TypePromote
-	if in.Status.Frozen && !exempt {
+	// The freeze is recorded even when a person must decide first: once
+	// approved, a frozen Stage still waits until a person unfreezes it.
+	frozen := in.Status.Frozen && in.Spec.Type == TypePromote
+	if frozen {
 		p.Conflicts = append(p.Conflicts, "StageFrozen: "+in.Status.FrozenReason)
+	}
+	switch {
+	case p.Floor.Human:
+		return PredictHeld
+	case frozen:
 		return PredictWaits
 	}
 	return PredictProceeds
@@ -886,10 +893,23 @@ func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) 
 	return names, owners
 }
 
+// describeRanges names each consumer with the range it accepts and, for one
+// that references the service's policy, that the policy also speaks: a
+// policy referrer with no range fails the new policy.
 func describeRanges(cs []impact.AffectedConsumer) string {
 	parts := make([]string, 0, len(cs))
 	for _, c := range cs {
-		parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
+		policy := slices.Contains(c.Via, fleet.RelationshipPolicyRef)
+		switch {
+		case c.Compatibility != "" && policy:
+			parts = append(parts, fmt.Sprintf("%s (accepts %s and references its policy)", c.Service, c.Compatibility))
+		case c.Compatibility != "":
+			parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
+		case policy:
+			parts = append(parts, c.Service+" (fails its new policy)")
+		default:
+			parts = append(parts, c.Service)
+		}
 	}
 	return strings.Join(parts, ", ")
 }

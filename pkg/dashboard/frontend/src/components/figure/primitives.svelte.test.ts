@@ -12,6 +12,9 @@ import AnswerCard from './AnswerCard.svelte';
 import CountTile from './CountTile.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import Glyph from './Glyph.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import EnvMark from './EnvMark.svelte';
+import { ENV_STATES } from '../../lib/envFigure.ts';
 import { KIND_GLYPH } from '../../lib/figure.ts';
 
 // The SPEC 3 primitives on their own: what each draws, and which words it never carries.
@@ -110,5 +113,41 @@ describe('CountTile and Glyph', () => {
     const sm = render(Glyph, { kind: 'service' });
     expect(sm.host.querySelector('svg')?.getAttribute('class')).toBe('kind-glyph kind-glyph--sm');
     unmount(sm.c);
+  });
+});
+
+describe('EnvMark', () => {
+  it('draws the board mark for every state and names it in words', () => {
+    for (const st of [...ENV_STATES.map((x) => x.key), 'unknown']) {
+      const { host, c } = render(EnvMark, { state: st });
+      const m = host.querySelector('[data-testid="env-state-mark"]')!;
+      expect(m.getAttribute('data-state')).toBe(st);
+      expect(m.querySelector('.ev-dot')?.classList.contains(`s-${st}`)).toBe(true);
+      expect(m.getAttribute('aria-label')).toBe(st === 'unknown' ? 'not known: its operations could not be read' : ENV_STATES.find((x) => x.key === st)!.word);
+      expect(m.tagName).toBe('SPAN');
+      unmount(c);
+    }
+  });
+  it('links when given an href, and shows the word instead of an aria-label when asked', () => {
+    const linked = render(EnvMark, { state: 'failed', href: '#/x' });
+    const a = linked.host.querySelector('a[data-testid="env-state-mark"]')!;
+    expect(a.getAttribute('href')).toBe('#/x');
+    expect(a.getAttribute('aria-label')).toBe('failed');
+    unmount(linked.c);
+    const worded = render(EnvMark, { state: 'empty', word: true });
+    const w = worded.host.querySelector('[data-testid="env-state-mark"]')!;
+    expect(w.textContent).toBe('running nothing yet');
+    expect(w.hasAttribute('aria-label')).toBe(false);
+    unmount(worded.c);
+  });
+  it('stays out of the accessibility tree when decorative, for a control that names the state itself', () => {
+    const { host, c } = render(EnvMark, { state: 'frozen', decorative: true });
+    const m = host.querySelector('[data-testid="env-state-mark"]')!;
+    expect(m.getAttribute('aria-hidden')).toBe('true');
+    expect(m.hasAttribute('aria-label')).toBe(false);
+    expect(m.hasAttribute('title')).toBe(false);
+    expect(m.hasAttribute('role')).toBe(false);
+    expect(m.querySelector('.ev-dot')?.classList.contains('s-frozen')).toBe(true);
+    unmount(c);
   });
 });

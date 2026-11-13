@@ -911,3 +911,54 @@ func TestNeeds24Template(t *testing.T) {
 		}
 	}
 }
+
+// TestNeeds24EnvironmentFields: lifetime, expires and owner on an environment
+// are pactoVersion 2.4; an older contract gets one NEEDS_PACTO_2_4 per key at
+// its own index, with or without configurations, and no generic schema error.
+func TestNeeds24EnvironmentFields(t *testing.T) {
+	envs := func() []any {
+		return []any{
+			map[string]any{"name": "staging", "file": "environments/staging.yaml"},
+			map[string]any{"name": "pr-1", "file": "environments/pr-1.yaml", "lifetime": "temporary",
+				"expires": "2026-11-20T00:00:00Z", "owner": map[string]any{"team": "perf"}},
+		}
+	}
+	for _, withConfigs := range []bool{true, false} {
+		data := map[string]any{"pactoVersion": "2.3", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": envs()}
+		if withConfigs {
+			data["configurations"] = []any{map[string]any{"name": "app", "schema": "s.json", "required": true}}
+		}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		slices.Sort(got)
+		want := []string{"NEEDS_PACTO_2_4 environments.1.expires", "NEEDS_PACTO_2_4 environments.1.lifetime", "NEEDS_PACTO_2_4 environments.1.owner"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("configurations %v: got %v, want %v", withConfigs, got, want)
+		}
+		if e := data["environments"].([]any)[1].(map[string]any); e["lifetime"] != "temporary" {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	old := map[string]any{"pactoVersion": "2.2", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": envs()}
+	var codes []string
+	for _, e := range ValidateStructural(old).Errors {
+		codes = append(codes, e.Code)
+	}
+	if !slices.Contains(codes, "NEEDS_PACTO_2_3") || !slices.Contains(codes, "NEEDS_PACTO_2_4") || slices.Contains(codes, "SCHEMA_VIOLATION") {
+		t.Fatalf("2.2: %v", codes)
+	}
+	ok := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": envs()}
+	if r := ValidateStructural(ok); !r.IsValid() {
+		t.Fatalf("2.4: %v", r.Errors)
+	}
+	for _, bad := range []map[string]any{{"lifetime": "forever"}, {"owner": map[string]any{}}, {"owner": map[string]any{"group": "x"}}} {
+		e := map[string]any{"name": "a", "file": "a.yaml"}
+		maps.Copy(e, bad)
+		data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": []any{e}}
+		if r := ValidateStructural(data); r.IsValid() {
+			t.Errorf("%v: accepted", bad)
+		}
+	}
+}

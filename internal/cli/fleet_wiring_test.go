@@ -20,6 +20,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -63,12 +64,12 @@ func TestMCPImpactProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
-	provide := mcpImpactProvider(cmd, svc, true)
-	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
+	provide := mcpImpactProvider(cmd, svc, defaultDeps(), true, true)
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, pactomcp.ImpactRequest{OldRef: "/nonexistent/old", NewRef: "/nonexistent/new", IncludeObserved: true}); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 	// A nonexistent traces path is a read error before any resolution.
-	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, pactomcp.ImpactRequest{OldRef: "/old", NewRef: "/new", TracesPath: "/nonexistent/traces.json"}); err == nil {
 		t.Fatal("expected a traces read error")
 	}
 	// A readable traces file is consumed (implying include-observed), then the
@@ -77,7 +78,7 @@ func TestMCPImpactProvider(t *testing.T) {
 	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, pactomcp.ImpactRequest{OldRef: "/nonexistent/old", NewRef: "/nonexistent/new", TracesPath: tf}); err == nil {
 		t.Fatal("expected a resolution error after reading traces")
 	}
 }

@@ -81,7 +81,7 @@ func TestFleetOptionsCarriesTheCatalogRoots(t *testing.T) {
 // surprises), but every one of them is a source.
 func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
-		newImpactCommand(newTestService(t), viper.New()),
+		newImpactCommand(newTestService(t), viper.New(), defaultDeps()),
 		newMCPCommand(newTestService(t), "test", defaultDeps()),
 		newTUICommand(newTestService(t), viper.New(), defaultDeps()),
 	} {

@@ -16,6 +16,7 @@ package impact
 import (
 	"context"
 	"io/fs"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // SchemaVersion identifies the impact wire model.
@@ -58,6 +60,11 @@ const (
 type ObservedEdge struct {
 	Consumer string
 	Provider string
+	// LastSeen is the latest time the call was seen; nil when the source has
+	// no observation window.
+	LastSeen *time.Time
+	// Count is how many calls were seen; 0 when the source does not count.
+	Count int
 }
 
 // Options configures the analysis.
@@ -72,7 +79,16 @@ type Options struct {
 	// ObservedEdges are observed caller→provider dependencies. Callers of the
 	// changed service corroborate a declared consumer (raising confidence to
 	// corroborated) or, when only observed, appear as observed-only consumers.
+	// A traces file that was read but saw no call is an empty, non-nil slice,
+	// so an event answer still names it among the sources it consulted.
 	ObservedEdges []ObservedEdge
+	// Event switches the analysis to a non-contract what-if about one fleet
+	// service. Analyze then ignores its contract and FS arguments, which may
+	// be nil.
+	Event *Event
+	// Regression is the delivery evidence the caller read for a regressed
+	// event, with its own identity; nil when none was read.
+	Regression *Regression
 }
 
 // AffectedConsumer is one service affected by the change.
@@ -83,6 +99,7 @@ type AffectedConsumer struct {
 	Direct               bool       `json:"direct"` // depth == 1
 	Path                 []string   `json:"path"`
 	Owner                string     `json:"owner,omitempty"`
+	OwnerKey             string     `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
 	Required             bool       `json:"required"`
 	Compatibility        string     `json:"compatibility,omitempty"`
 	CompatibilityVerdict string     `json:"compatibilityVerdict"`
@@ -93,6 +110,8 @@ type AffectedConsumer struct {
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
+	// Via lists the edge types that make this service a consumer.
+	Via []string `json:"via,omitempty" doc:"The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed"`
 	// Unmet lists the guarantees this consumer declares it requires from the
 	// changed service that the new revision does not meet, over every revision
 	// of the consumer the snapshot holds. A consumer with an unmet guarantee
@@ -102,17 +121,37 @@ type AffectedConsumer struct {
 	// compatible verdict only means the consumer's range accepts the new version,
 	// not that the consumer avoids what the change removes.
 	Note string `json:"note,omitempty"`
+	// Evidence lists the facts behind this consumer and their age, newest
+	// first, bounded to MaxConsumerEvidence.
+	Evidence []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first"`
+	// Effect is what an event does to this consumer; empty on a contract change.
+	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown"`
+	// Resources are the provisioning statuses of what this consumer asked a
+	// removed service for, bounded to MaxConsumerResources.
+	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
+	ResourcesTotal int                        `json:"resourcesTotal,omitempty" doc:"How many provisioning statuses there are, including those beyond the bound"`
+	// policyVerdict is the verdict of checking this consumer's contract
+	// against the changed service's new policy, empty when it references no
+	// policy of it. A failed check holds the change whatever its classification.
+	policyVerdict string
+	// rangeVerdict is the verdict of the consumer's range or configuration
+	// reference before a policy verdict was folded in; empty on a row that
+	// only references the policy.
+	rangeVerdict string
 }
 
 // Release gate values (see [Result.Gate]).
 const (
-	// GateBlocked: the change is BREAKING and reaches a consumer that does not
-	// accept the new version, or requires a guarantee it does not meet, and
-	// runs on a target the snapshot knows.
+	// GateBlocked: a consumer that runs on a target the snapshot knows is shown
+	// to break: the change is BREAKING and it does not accept the new version
+	// or requires a guarantee it does not meet, or its contract fails the
+	// changed service's new policy, whatever the classification.
 	GateBlocked = "blocked"
-	// GateUnverified: the change is BREAKING and nothing is shown to block it,
-	// but the answer cannot clear it either: the answer is partial, or consumers
-	// depend on the service whose safety the evidence cannot show.
+	// GateUnverified: nothing is shown to block the change, but the answer
+	// cannot clear it either: a BREAKING change whose answer is partial or whose
+	// consumers' safety the evidence cannot show, a service that references the
+	// changed policy and fails it, could not be checked or could not be
+	// resolved, or an event that reaches any consumer.
 	GateUnverified = "unverified"
 	// GateClear: nothing in the answer stands in the way of the change.
 	GateClear = "clear"
@@ -136,7 +175,8 @@ type Result struct {
 	NonBreakingChanges []diff.Change      `json:"nonBreakingChanges,omitempty"`
 	Consumers          []AffectedConsumer `json:"consumers"`
 	ActiveTargets      []string           `json:"activeTargets,omitempty"`
-	Owners             []string           `json:"owners,omitempty"`
+	Owners             []string           `json:"owners,omitempty" doc:"The canonical owner keys of the affected consumers"`
+	ChangedOwnerKey    string             `json:"changedOwnerKey,omitempty" doc:"The canonical owner key of the changed service"`
 	Completeness       fleet.Completeness `json:"completeness"`
 	Limitations        []fleet.Limitation `json:"limitations,omitempty"`
 	// LimitationsTruncated reports that the snapshot and analysis produced more
@@ -158,6 +198,21 @@ type Result struct {
 	// ConsumerTallies partition Consumers by outcome and rank their owners, so a
 	// reader states the blast radius from counts rather than by counting the list.
 	ConsumerTallies ConsumerTallies `json:"consumerTallies"`
+	// Event is the what-if this answer is about; nil for a contract change.
+	Event *Event `json:"event,omitempty"`
+	// Regression is the delivery evidence about a regressed revision,
+	// bounded to MaxRegressionEvidence.
+	Regression []RegressionEvidence `json:"regression,omitempty"`
+	// Hidden counts the consumers this viewer may not see. They are never named.
+	Hidden int `json:"hidden,omitempty" doc:"How many consumers this viewer may not see; they are never named"`
+	// Templates are the golden paths that reference the changed service's
+	// policy. A golden path runs nowhere, so it never holds the gate.
+	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
+	// observationSources are the observation sources an event answer read.
+	observationSources []string
+	// hiddenReferrers counts the services this viewer may not see that may
+	// reference the changed service's policy: none of them was checked.
+	hiddenReferrers int
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -178,20 +233,20 @@ func (r *Result) boundEnvelope() {
 }
 
 // ReleaseBlocking reports whether this change is the kind `pacto impact` fails
-// on: a breaking change that reaches a consumer which is both broken
-// (incompatible, or with an unmet guarantee) and actually deployed. A consumer
-// that is broken on paper but running nowhere the snapshot can see is not a
-// release blocker.
+// on: it reaches a consumer that is actually deployed and either broken by a
+// breaking change (incompatible, or with an unmet guarantee) or failing the
+// new policy (see [Result.blocks]). A consumer that is broken on paper but
+// running nowhere the snapshot can see is not a release blocker.
 func (r *Result) ReleaseBlocking() bool {
-	active, _ := r.blockingConsumers()
-	return len(active) > 0
+	return slices.ContainsFunc(r.Consumers, r.blocks)
 }
 
-// blockingConsumers names the consumers that make the change release
-// blocking, and whether any of them is blocked by an unmet guarantee.
+// blockingConsumers names the consumers that make a BREAKING change release
+// blocking through a range or a guarantee, and whether any of them is blocked
+// by an unmet guarantee. Policy referrers are named by policyFailures.
 func (r *Result) blockingConsumers() (active []string, unmet bool) {
 	for _, c := range r.Consumers {
-		if r.blocks(c) {
+		if r.breaks(c) {
 			active = append(active, c.Service)
 			unmet = unmet || len(c.Unmet) > 0
 		}
@@ -199,13 +254,39 @@ func (r *Result) blockingConsumers() (active []string, unmet bool) {
 	return active, unmet
 }
 
-// blocks reports whether one consumer makes the change release blocking: the
-// change is BREAKING, the consumer is broken (incompatible, or with an unmet
-// guarantee) and it runs on a known target. The gate and the product answer's
-// per-consumer Blocking flag both read it, so they never disagree.
+// policyFailures names the consumers whose contract fails the changed
+// service's new policy, and those of them that run on a known target.
+func (r *Result) policyFailures() (failing, running []string) {
+	for _, c := range r.Consumers {
+		if c.policyVerdict == CompatibilityIncompatible {
+			failing = append(failing, c.Service)
+			if len(c.Targets) > 0 {
+				running = append(running, c.Service)
+			}
+		}
+	}
+	return failing, running
+}
+
+// blocks reports whether one consumer makes the change release blocking: it
+// runs on a known target and either the change is BREAKING and the consumer
+// is broken (incompatible, or with an unmet guarantee), or its contract fails
+// the new policy, whatever the classification. The gate and the product
+// answer's per-consumer Blocking flag both read it, so they never disagree.
 func (r *Result) blocks(c AffectedConsumer) bool {
+	return r.breaks(c) || c.policyVerdict == CompatibilityIncompatible && len(c.Targets) > 0
+}
+
+// breaks reports whether a BREAKING change breaks a consumer that runs on a
+// known target through its range or a guarantee it requires.
+func (r *Result) breaks(c AffectedConsumer) bool {
+	verdict := c.CompatibilityVerdict
+	if c.policyVerdict != "" {
+		// A policy verdict is named by policyFailures: a referrer has no range.
+		verdict = c.rangeVerdict
+	}
 	return r.Classification == "BREAKING" &&
-		(c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
+		(verdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0
 }
 
 // gate derives the release gate from the finished answer. Only a BREAKING change
@@ -214,21 +295,26 @@ func (r *Result) blocks(c AffectedConsumer) bool {
 // changed one: a partial answer may be missing consumers, and a consumer that
 // is incompatible on paper, has no usable range or only matches by range is a
 // consumer nobody has shown to be safe.
+//
+// A consumer whose contract fails the new policy holds any change, whatever
+// its classification: the diff cannot see a policy the provider tightened by
+// adding one of its own, but the check against the referrer's document can.
 func (r *Result) gate() (string, string) {
+	if r.Event != nil {
+		return r.eventGate()
+	}
+	if gate, why := r.blockingGate(); gate != "" {
+		return gate, why
+	}
+	if why := r.policyUnchecked(); why != "" && r.Classification != "BREAKING" {
+		return GateUnverified, why
+	}
 	switch r.Classification {
 	case "BREAKING":
 	case "POTENTIAL_BREAKING":
 		return GateClear, "the change is POTENTIAL_BREAKING: the gate holds only BREAKING changes, so review the potentially breaking changes by hand"
 	default:
 		return GateClear, "the change is " + r.Classification
-	}
-	if r.ReleaseBlocking() {
-		active, unmet := r.blockingConsumers()
-		why := "do not accept " + r.Service + " " + r.NewVersion
-		if unmet {
-			why += " or require a guarantee it does not meet"
-		}
-		return GateBlocked, "breaking changes affect active consumers, which run on known targets and " + why + ": " + strings.Join(active, ", ")
 	}
 	if hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET") {
 		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
@@ -248,6 +334,158 @@ func (r *Result) gate() (string, string) {
 			"(for example --target-state) to tell deployed impact apart"
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// blockingGate is the gate when a consumer is shown to break: blocked when one
+// runs on a known target, unverified when only policy referrers that run
+// nowhere known fail the new policy, and "" otherwise.
+func (r *Result) blockingGate() (string, string) {
+	active, unmet := r.blockingConsumers()
+	failing, running := r.policyFailures()
+	var why []string
+	if len(active) > 0 {
+		accept := "do not accept " + r.Service + " " + r.NewVersion
+		if unmet {
+			accept += " or require a guarantee it does not meet"
+		}
+		if r.anyStale(active) {
+			why = append(why, "breaking changes affect consumers that "+accept+": "+r.whereRun(active))
+		} else {
+			why = append(why, "breaking changes affect active consumers, which run on known targets and "+accept+": "+strings.Join(active, ", "))
+		}
+	}
+	if len(running) > 0 {
+		if r.anyStale(running) {
+			why = append(why, r.referrersFail(running)+": "+r.whereRun(running))
+		} else {
+			why = append(why, r.referrersFail(running)+" and "+plural(len(running), "runs", "run")+" on known targets: "+strings.Join(running, ", "))
+		}
+	}
+	switch {
+	case r.ReleaseBlocking():
+		return GateBlocked, strings.Join(why, "; ")
+	case len(failing) > 0:
+		return GateUnverified, r.referrersFail(failing) + ": " + strings.Join(failing, ", ") + ". Review each"
+	}
+	return "", ""
+}
+
+// policyUnchecked says why a change the diff does not call BREAKING still
+// cannot clear: services reference the changed one's policy and Pacto could
+// not check them, or cannot tell which revision they check against. The diff
+// can miss a policy the provider tightened, so an unchecked referrer is never
+// taken as safe. It is "" when every referrer was checked.
+func (r *Result) policyUnchecked() string {
+	var why []string
+	n := 0
+	for _, c := range r.Consumers {
+		if c.policyVerdict == CompatibilityUnknown {
+			n++
+		}
+	}
+	if n > 0 {
+		why = append(why, strconv.Itoa(n)+" "+plural(n, "service that references", "services that reference")+" "+r.Service+
+			" could not be checked against its new policy")
+	}
+	if h := r.hiddenReferrers; h > 0 {
+		why = append(why, strconv.Itoa(h)+" "+plural(h, "service you may not see", "services you may not see")+" may reference "+r.Service+
+			", so "+plural(h, "it", "they")+" could not be checked against its new policy")
+	}
+	if hasCode(r.Limitations, "POLICY_REF_CONSUMERS_UNRESOLVED") {
+		why = append(why, "policy references that name "+r.Service+" are not digest-pinned or locked, so Pacto cannot tell which revision they check against")
+	}
+	if len(why) == 0 {
+		return ""
+	}
+	return "the change is " + r.Classification + ", but " + strings.Join(why, " and ") +
+		". The diff can miss a policy the provider tightened, so review each service that references it"
+}
+
+// anyStale reports whether any named consumer has target evidence older than
+// the recent window (Decision 4).
+func (r *Result) anyStale(names []string) bool {
+	fresh, _ := r.splitStale(names)
+	return len(fresh) < len(names)
+}
+
+// splitStale splits named consumers into those whose every target is fresh and
+// those with a stale target.
+func (r *Result) splitStale(names []string) (fresh, stale []string) {
+	staleSet := map[string]bool{}
+	for _, c := range r.Consumers {
+		if slices.ContainsFunc(c.Evidence, func(e Evidence) bool { return e.Kind == EvidenceTarget && e.Stale }) {
+			staleSet[c.Service] = true
+		}
+	}
+	for _, n := range names {
+		if staleSet[n] {
+			stale = append(stale, n)
+		} else {
+			fresh = append(fresh, n)
+		}
+	}
+	return fresh, stale
+}
+
+// whereRun says where named consumers run, saying only of fresh ones that they
+// run there: "a runs on a known target; b was last seen on a target more than
+// 24h before asOf", and of one with no such time that it has no current
+// target evidence.
+func (r *Result) whereRun(names []string) string {
+	fresh, stale := r.splitStale(names)
+	var parts []string
+	if len(fresh) > 0 {
+		parts = append(parts, strings.Join(fresh, ", ")+" "+plural(len(fresh), "runs on a known target", "run on known targets"))
+	}
+	old, untimed := r.splitStaleCause(stale)
+	if len(old) > 0 {
+		parts = append(parts, strings.Join(old, ", ")+" "+plural(len(old), "was", "were")+" last seen on a target more than 24h before asOf")
+	}
+	if len(untimed) > 0 {
+		parts = append(parts, strings.Join(untimed, ", ")+" "+plural(len(untimed), "has", "have")+" "+noCurrentTarget)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// noCurrentTarget says why a consumer's target evidence is stale when no
+// time older than the window shows it.
+const noCurrentTarget = "no current target evidence: a target with no evidence time, missing from the snapshot or marked stale by its source"
+
+// splitStaleCause splits named consumers with stale target evidence into
+// those whose every stale target carries a time older than the window, which
+// may be said to be last seen then, and the rest, of which no time is known.
+func (r *Result) splitStaleCause(names []string) (old, untimed []string) {
+	cutoff := r.AsOf.Add(-fleet.RecentEvidenceWindow)
+	byName := map[string]bool{}
+	for _, c := range r.Consumers {
+		byName[c.Service] = !slices.ContainsFunc(c.Evidence, func(e Evidence) bool {
+			return e.Kind == EvidenceTarget && e.Stale && (e.At == nil || !e.At.Before(cutoff))
+		})
+	}
+	for _, n := range names {
+		if byName[n] {
+			old = append(old, n)
+		} else {
+			untimed = append(untimed, n)
+		}
+	}
+	return old, untimed
+}
+
+// referrersFail says that n services that reference the changed one fail its
+// new policy.
+func (r *Result) referrersFail(names []string) string {
+	n := len(names)
+	return strconv.Itoa(n) + " " + plural(n, "service that references", "services that reference") + " " + r.Service + " " +
+		plural(n, "fails", "fail") + " its new policy"
+}
+
+// plural picks one or many by n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // unmetNote names the consumers the new revision refuses a guarantee they
@@ -308,9 +546,14 @@ func (r *Result) noteRangeOnlyMatches() {
 // Analyze compares old→new and projects the change onto the operational graph.
 // The answer always carries its release gate (see [Result.Gate]).
 func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
-	res := analyze(ctx, old, new, oldFS, newFS, snap, opts)
+	var res *Result
+	if opts.Event != nil {
+		res = analyzeEvent(snap, opts)
+	} else {
+		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
+		res.noteRangeOnlyMatches()
+	}
 	res.boundEnvelope()
-	res.noteRangeOnlyMatches()
 	res.Gate, res.GateReason = res.gate()
 	res.tally()
 	return res
@@ -350,85 +593,214 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 
-	svcKey := fleet.NewServiceKeyDomain(opts.Domain, svc)
-	graph, err := q.Graph(fleet.GraphQuery{Service: string(svcKey), Direction: fleet.DirectionDependents, Transitive: true})
-	if err != nil {
-		// The changed service is not in the graph, so NO consumer can be ruled in
-		// or out. Reporting "complete" here would let an empty consumer list read
-		// as "nothing breaks" when it means "I could not tell" — and warnPartial
-		// early-returns on complete, so the limitation below would never reach a
-		// human at all.
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
-			Message: "the changed service is not present in the operational graph; consumers cannot be determined",
-		})
+	graph := res.dependents(snap, q, fleet.NewServiceKeyDomain(opts.Domain, svc), true)
+	if graph == nil {
 		return res
 	}
-	if graph.Truncated {
-		// The traversal stopped at the node cap, so the consumer list below is a
-		// deterministic PREFIX of the reachable dependents. Leaving completeness
-		// alone would let ReleaseBlocking() clear a breaking change on the strength
-		// of whichever consumers happened to sort first, and warnPartial
-		// early-returns on complete, so the cap would never reach a human.
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "GRAPH_TRUNCATED", Source: limitationSource,
-			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
-				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
-		})
-	}
-
 	changed := graph.Root
 	// Resolve observed (OTel) endpoints to unique domain-qualified keys ONCE;
 	// unresolved/ambiguous ones become explicit limitations and never corroborate.
 	resolvedObserved, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, opts.IncludeObserved)
 	res.Limitations = append(res.Limitations, obsLims...)
+	if len(obsLims) > 0 {
+		// An observed caller Pacto could not name may be a consumer it cannot list.
+		res.Completeness = fleet.CompletenessPartial
+	}
 	// The snapshot may already carry observed relationships folded in by Build (the
 	// real observation pipeline). They are pre-resolved to domain-qualified keys, so
 	// they join the ad-hoc --traces edges directly when observed evidence is opted in.
 	if opts.IncludeObserved {
 		resolvedObserved = append(resolvedObserved, snapshotObservedEdges(snap)...)
-	}
-	owners := map[string]bool{}
-	targets := map[string]bool{}
-	for _, tk := range serviceTargets(snap, changed) {
-		targets[tk] = true
-	}
-	if n := unresolvedConfigRefConsumers(snap, changed); n > 0 {
-		res.Completeness = fleet.CompletenessPartial
-		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "CONFIG_REF_CONSUMERS_UNRESOLVED", Source: limitationSource,
-			Message: strconv.Itoa(n) + " configuration references name " + string(changed) +
-				" but are not digest-pinned or locked, so Pacto cannot tell which revision they consume",
-		})
+		// Only when no edge was supplied at all: unresolved trace edges already
+		// carry their own limitation, and traces did see calls.
+		if len(opts.ObservedEdges) == 0 && len(resolvedObserved) == 0 {
+			res.Limitations = append(res.Limitations, fleet.Limitation{Code: "OBSERVED_EVIDENCE_ABSENT", Source: limitationSource,
+				Message: "observed evidence was asked for, but no observation source and no traces file saw any call, so consumers that call " +
+					string(changed) + " without declaring it cannot be found"})
+		}
 	}
 	newBundle := &contract.Bundle{Contract: new, FS: newFS}
 	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
 		c := consumerImpact(snap, changed, cn, newBundle, resolvedObserved)
 		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
-		if c.Owner != "" {
-			owners[c.Owner] = true
+	}
+	res.addPolicyReferrers(snap, changed, newBundle, resolvedObserved)
+	if opts.IncludeObserved {
+		res.Consumers = append(res.Consumers, uncontractedCallers(snap, changed)...)
+	}
+	res.collectOwnersAndTargets(snap, changed)
+	res.noteUnlisted(snap, q, changed)
+	res.hiddenReferrers = hiddenReferrers(snap.Services[changed], newBundle)
+	res.noteStaleConsumers()
+	return res
+}
+
+// hiddenReferrers counts the hidden services that may reference s's policy:
+// its hidden policy referrers and, when the new revision publishes a policy,
+// its hidden dependents too, since one of them may also reference it (the
+// restricted snapshot counts such a service once, as a dependent).
+func hiddenReferrers(s *fleet.ServiceRecord, provider *contract.Bundle) int {
+	if s == nil {
+		return 0
+	}
+	n := s.HiddenPolicyReferrers
+	if publishesPolicy(provider) {
+		n += s.HiddenDependents
+	}
+	return n
+}
+
+// publishesPolicy reports whether the bundle declares a policy with its own
+// schema (a ref only references another's) or ships the policy schema file.
+func publishesPolicy(b *contract.Bundle) bool {
+	if b.Contract != nil && slices.ContainsFunc(b.Contract.Policies, func(p contract.Policy) bool { return p.Schema != "" }) {
+		return true
+	}
+	if b.FS == nil {
+		return false
+	}
+	_, err := fs.Stat(b.FS, validation.PolicySchemaPath)
+	return err == nil
+}
+
+// uncontractedCallers are the runtime callers of changed no contract
+// describes, each citing the sources that saw it call.
+func uncontractedCallers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) []AffectedConsumer {
+	var out []AffectedConsumer
+	for _, u := range snap.UncontractedCallers {
+		if u.ToService != changed {
+			continue
+		}
+		c := AffectedConsumer{
+			Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
+			CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
+			Confidence: ConfidenceObserved, Uncontracted: true, Via: []string{fleet.ProvenanceObserved},
+		}
+		if u.Ambiguous {
+			c.Note = "its name matches several services in different domains, so Pacto cannot tell which one calls " + string(changed)
+		}
+		for _, src := range u.Sources {
+			c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceObservedCall, Source: src, Provenance: fleet.ProvenanceObserved,
+				Message: "calls seen, no observation window"})
+		}
+		c.Evidence = boundEvidence(c.Evidence)
+		out = append(out, c)
+	}
+	return out
+}
+
+// noteUnlisted sets what the answer counts or lists outside Consumers: the
+// consumers this viewer may not see and, where policy referrers count (a
+// contract change or a removal), the golden paths that reference changed.
+func (r *Result) noteUnlisted(snap *fleet.FleetSnapshot, q *fleet.Query, changed fleet.ServiceKey) {
+	policy := r.Event == nil || r.Event.Kind == EventRemoved
+	if s := snap.Services[changed]; s != nil {
+		r.Hidden = s.HiddenDependents
+		if policy {
+			r.Hidden += s.HiddenPolicyReferrers
+		}
+	}
+	if policy {
+		for _, k := range q.TemplatesReferencing(changed) {
+			r.Templates = append(r.Templates, string(k))
+		}
+	}
+}
+
+// dependents walks every service that depends on key, transitively, and
+// notes the unresolved references that may name it (policy ones withPolicy).
+// It is nil, with the answer partial, when key is not in the fleet. Contract
+// and event answers both walk through it, so they list the same consumers.
+func (r *Result) dependents(snap *fleet.FleetSnapshot, q *fleet.Query, key fleet.ServiceKey, withPolicy bool) *fleet.GraphResult {
+	graph, err := q.Graph(fleet.GraphQuery{Service: string(key), Direction: fleet.DirectionDependents, Transitive: true})
+	if err != nil {
+		// The service is not in the graph, so NO consumer can be ruled in or
+		// out. Reporting "complete" here would let an empty consumer list read
+		// as "nothing breaks" when it means "I could not tell".
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
+			Message: "the service is not present in the operational graph; consumers cannot be determined",
+		})
+		return nil
+	}
+	if graph.Truncated {
+		// The traversal stopped at the node cap, so the consumer list is a
+		// deterministic PREFIX of the reachable dependents. Leaving
+		// completeness alone would let the gate clear on the strength of
+		// whichever consumers happened to sort first.
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{
+			Code: "GRAPH_TRUNCATED", Source: limitationSource,
+			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
+				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
+		})
+	}
+	r.noteUnresolvedRefs(snap, graph.Root, withPolicy)
+	return graph
+}
+
+// noteStaleConsumers raises one counted limitation when the evidence of any
+// consumer is older than the recent window. Completeness is unchanged: the
+// consumer set is complete, where those consumers run is what is uncertain.
+func (r *Result) noteStaleConsumers() {
+	n := 0
+	for _, c := range r.Consumers {
+		if slices.ContainsFunc(c.Evidence, func(e Evidence) bool { return e.Stale }) {
+			n++
+		}
+	}
+	if n == 0 {
+		return
+	}
+	r.Limitations = append(r.Limitations, fleet.Limitation{Code: "CONSUMER_EVIDENCE_STALE", Source: limitationSource,
+		Message: strconv.Itoa(n) + " " + plural(n, "consumer has", "consumers have") +
+			" target or traffic evidence older than 24h before asOf, so " + plural(n, "its", "their") + " confidence is unknown"})
+}
+
+// collectOwnersAndTargets sets Owners to the consumers' owners and
+// ActiveTargets to the targets of the changed service and of its consumers.
+// Owners are canonical keys: display labels merge distinct owners.
+func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) {
+	owners := map[string]bool{}
+	targets := map[string]bool{}
+	for _, tk := range serviceTargets(snap, changed) {
+		targets[tk] = true
+	}
+	if s := snap.Services[changed]; s != nil {
+		r.ChangedOwnerKey = s.Owner.KeyString()
+	}
+	for _, c := range r.Consumers {
+		if c.OwnerKey != "" {
+			owners[c.OwnerKey] = true
 		}
 		for _, tk := range c.Targets {
 			targets[tk] = true
 		}
 	}
-	if opts.IncludeObserved {
-		for _, u := range snap.UncontractedCallers {
-			if u.ToService == changed {
-				res.Consumers = append(res.Consumers, AffectedConsumer{
-					Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
-					CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
-					Confidence: ConfidenceObserved, Uncontracted: true,
-				})
-			}
+	r.Owners = sortedKeys(owners)
+	r.ActiveTargets = sortedKeys(targets)
+}
+
+// noteUnresolvedRefs makes the answer partial when configuration references,
+// and with withPolicy policy references, may name changed but did not resolve:
+// they may consume or check against it, at a revision Pacto cannot tell.
+func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, withPolicy bool) {
+	note := func(code, relType, what, verb string) {
+		n := unresolvedRefConsumers(snap, changed, relType)
+		if n == 0 {
+			return
 		}
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{Code: code, Source: limitationSource,
+			Message: strconv.Itoa(n) + " " + what + " name " + string(changed) +
+				" but are not digest-pinned or locked, so Pacto cannot tell which revision they " + verb})
 	}
-	res.Owners = sortedKeys(owners)
-	res.ActiveTargets = sortedKeys(targets)
-	return res
+	note("CONFIG_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipConfigRef, "configuration references", "consume")
+	if withPolicy {
+		note("POLICY_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipPolicyRef, "policy references", "check against")
+	}
 }
 
 // consumerNode identifies one affected consumer and its position in the graph.
@@ -440,8 +812,16 @@ type consumerNode struct {
 }
 
 // resolvedObservedEdge is an observed caller→provider edge whose endpoints have
-// been resolved to UNIQUE domain-qualified fleet ServiceKeys.
-type resolvedObservedEdge struct{ consumer, provider fleet.ServiceKey }
+// been resolved to UNIQUE domain-qualified fleet ServiceKeys. A stale edge was
+// last seen more than the recent window before the snapshot's time: it still
+// names its caller as a consumer, but it no longer corroborates.
+type resolvedObservedEdge struct {
+	consumer, provider fleet.ServiceKey
+	source             string
+	count              int
+	lastSeen           *time.Time
+	stale              bool
+}
 
 // ObservedIdentityUnresolved is the limitation code for an observed endpoint whose
 // OTel service name could not be mapped to exactly one fleet service. It aliases
@@ -485,7 +865,8 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 		cOK := addLim(e.Consumer, cRes)
 		pOK := addLim(e.Provider, pRes)
 		if cOK && pOK {
-			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk})
+			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk, source: tracesFileSource, count: e.Count,
+				lastSeen: copyTime(e.LastSeen), stale: e.LastSeen != nil && staleAt(snap, e.LastSeen)})
 		}
 	}
 	sort.Slice(lims, func(i, j int) bool { return lims[i].Message < lims[j].Message })
@@ -500,10 +881,24 @@ func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 	for _, r := range snap.Relationships {
 		// Observed runtime calls are dependency edges; a reference never makes one.
 		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved {
-			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService})
+			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService, source: observedSource(r),
+				count: r.ObservedCount, lastSeen: copyTime(r.LastSeen), stale: r.LastSeen != nil && staleAt(snap, r.LastSeen)})
 		}
 	}
 	return out
+}
+
+// observedSource names the sources that saw an observed relationship: its
+// sole source, else every source of its per-source breakdown.
+func observedSource(r fleet.Relationship) string {
+	if r.Source != "" {
+		return r.Source
+	}
+	ids := make([]string, 0, len(r.ObservedSources))
+	for _, s := range r.ObservedSources {
+		ids = append(ids, s.Source)
+	}
+	return strings.Join(ids, ", ")
 }
 
 // unionConsumers merges the declared dependents (from the graph) with observed
@@ -536,31 +931,23 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 // changed service's new revision.
 func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newBundle *contract.Bundle, observedEdges []resolvedObservedEdge) AffectedConsumer {
 	newVersion := newBundle.Contract.Service.Version
-	domain, _ := fleet.ParseServiceKey(node.key)
-	c := AffectedConsumer{
-		Service: node.name,
-		Domain:  domain,
-		Depth:   node.depth,
-		Direct:  node.depth == 1,
-		Path:    pathConsumerFirst(node.path),
-	}
-	if s := snap.Services[node.key]; s != nil {
-		c.Owner = s.Owner.DisplayString()
-		c.Status = s.Status
-		for _, tk := range s.Targets {
-			c.Targets = append(c.Targets, string(tk))
-		}
-		sort.Strings(c.Targets)
-	}
+	c, stale := consumerBase(snap, node.key, changed, observedEdges)
+	c.Service, c.Depth, c.Direct, c.Path = node.name, node.depth, node.depth == 1, pathConsumerFirst(node.path)
 
-	rel, hasDeclared, observed, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
+	rel, hasDeclared, observed, seen, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
 	// The observedEdges slice is empty unless the caller opted in and the endpoints
 	// resolved to unique domain-qualified keys, so `observed` is already gated.
+	// Only a fresh observed call corroborates; a stale one still makes the
+	// caller a consumer (seen) and lowers its confidence below.
 	observedCounted := observed
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
+	if hasDeclared {
+		c.Via = append(c.Via, fleet.RelationshipDependency)
+	}
 	if len(refs) > 0 {
+		c.Via = append(c.Via, fleet.RelationshipConfigRef)
 		// Pacto judges the consumer's configuration-reference values against
 		// the new revision's schema itself; with a dependency too, the check
 		// that accepts the change least speaks, so a range match never masks
@@ -571,9 +958,38 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		}
 		c.Note, hasDeclared = note, true
 	}
-	c.Provenance = provenance(hasDeclared, observedCounted)
+	if seen {
+		c.Via = append(c.Via, fleet.ProvenanceObserved)
+	}
+	c.Provenance = provenance(hasDeclared, seen)
 	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
+	if stale {
+		c.Confidence = ConfidenceUnknown
+	}
 	return c
+}
+
+// consumerBase is what every kind of consumer of changed says about the
+// service key: its name, domain, owner, status, targets and the evidence
+// behind it. Each consumer builder starts from it, so they never disagree
+// about who a consumer is or where it runs. stale reports evidence older than
+// the recent window: the builder sets the confidence to unknown after its own
+// grading, never the reverse.
+func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey, observed []resolvedObservedEdge) (AffectedConsumer, bool) {
+	domain, name := fleet.ParseServiceKey(key)
+	c := AffectedConsumer{Service: name, Domain: domain, Path: []string{string(key), string(changed)}}
+	var stale bool
+	c.Evidence, stale = consumerEvidence(snap, key, changed, observed)
+	if s := snap.Services[key]; s != nil {
+		c.Owner = s.Owner.DisplayString()
+		c.OwnerKey = s.Owner.KeyString()
+		c.Status = s.Status
+		for _, tk := range s.Targets {
+			c.Targets = append(c.Targets, string(tk))
+		}
+		sort.Strings(c.Targets)
+	}
+	return c, stale
 }
 
 // edgeEvidence finds the declared dependency edge from consumer→changed and
@@ -595,7 +1011,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // unconditionally, so reading corroboration out of them here would bypass the
 // opt-in; when the caller DOES opt in, snapshotObservedEdges supplies the same
 // edges through observedEdges.
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool, refs []fleet.Relationship) {
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed, seen bool, refs []fleet.Relationship) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if !fleet.ConsumesEdge(r) || r.FromService != consumer || r.ToService != changed {
@@ -612,10 +1028,11 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 	}
 	for _, e := range observedEdges {
 		if e.consumer == consumer && e.provider == changed {
-			observed = true
+			seen = true
+			observed = observed || !e.stale
 		}
 	}
-	return rel, declared, observed, refs
+	return rel, declared, observed, seen, refs
 }
 
 // unmetGuarantees lists what the consumer's declared dependencies on the

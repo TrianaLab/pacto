@@ -8,6 +8,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // ContractAnnotation is the artifact annotation naming the digest-pinned
@@ -78,7 +80,35 @@ type ContractCheck struct {
 func ContractVerdict(in ContractCheck) Verdict {
 	return eachPacto(in, GateContract, func(p PactoView) (Result, string) {
 		return MapContractStatus(p.Status.ContractStatus), p.Status.ContractStatus
-	}, nil)
+	}, citeContract)
+}
+
+// citeContract cites what a Pacto that judged this version found: its fleet
+// target, its contract status, when it evaluated and the codes of its error
+// and warning findings (at most 10), so the verdict links to the compliance
+// findings behind it.
+func citeContract(p PactoView, c map[string]string) {
+	n := p.Metadata.Name
+	c[n+".target"] = string(fleet.NewTargetKey(p.Metadata.Namespace, fleet.SourceKindKubernetes, n))
+	c[n+".contractStatus"] = p.Status.ContractStatus
+	c[n+".evaluatedAt"] = p.Status.LastReconciledAt
+	var codes []string
+	for _, f := range p.Status.Findings {
+		if f.Severity == string(finding.SeverityError) || f.Severity == string(finding.SeverityWarning) {
+			codes = append(codes, f.Code)
+		}
+	}
+	slices.Sort(codes)
+	codes = slices.Compact(codes)
+	if len(codes) == 0 {
+		return
+	}
+	const most = 10
+	s := strings.Join(codes[:min(len(codes), most)], ", ")
+	if len(codes) > most {
+		s += fmt.Sprintf(" and %d more", len(codes)-most)
+	}
+	c[n+".findings"] = s
 }
 
 // eachPacto runs judge on every Pacto that provably evaluated the applied

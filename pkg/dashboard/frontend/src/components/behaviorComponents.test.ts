@@ -133,6 +133,25 @@ describe('EnvironmentList', () => {
     expect(target.textContent).toContain('ENVIRONMENT_VALUES_INVALID');
     expect(target.textContent).toContain('Not checked: policy failed.');
   });
+  it('shows the declared lifetime, expiry and owner, and never reads an absent lifetime as persistent', () => {
+    comp = mount(EnvironmentList, { target, props: { asOf: '2026-11-12T10:00:00Z', items: [
+      env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true }),
+      env('staging', 'pass', { lifetime: 'persistent', owner: { team: 'storefront-qa' } }),
+      env('production', 'pass', { lifetime: 'not-declared' }),
+    ] } });
+    const cards = [...target.querySelectorAll('[data-testid="environment"]')].map((c) => c.querySelector('[data-testid="environment-declared"]')?.textContent?.replace(/\s+/g, ' ') ?? '');
+    expect(cards[0]).toContain('Temporary');
+    expect(cards[0]).toContain('Expired (inferred, as of 2026-11-12 10:00 UTC)');
+    expect(cards[0]).toContain('No owner declared');
+    expect(cards[1]).toContain('Persistent');
+    expect(cards[1]).toContain('Owner storefront-qa (declared)');
+    expect(cards[2]).toContain('Lifetime not declared');
+    expect(cards[2]).not.toContain('Persistent');
+  });
+  it('reads an expiry as inferred without a date when it has no answer time', () => {
+    comp = mount(EnvironmentList, { target, props: { items: [env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true })] } });
+    expect(target.querySelector('[data-testid="environment-declared"]')?.textContent).toContain('Expired (inferred)');
+  });
   it('stays bounded with long names, long paths and hundreds of findings', () => {
     const items = Array.from({ length: 200 }, (_, i) => env(`env-${i}-${long}`, 'fail', {
       file: `envs/${long}/${i}.yaml`,

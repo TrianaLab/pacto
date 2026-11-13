@@ -304,3 +304,48 @@ func TestFieldCoverage_ReferencedTestsExist(t *testing.T) {
 		}
 	}
 }
+
+// TestEnvironmentOwnerSchemaMatchesServiceOwner: an environment's owner is
+// the shape of service.owner, so the two subtrees, descriptions removed, are
+// equal and cannot drift.
+func TestEnvironmentOwnerSchemaMatchesServiceOwner(t *testing.T) {
+	data, err := os.ReadFile("schema/pacto-v2.4.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	props := func(m any) map[string]any { return m.(map[string]any)["properties"].(map[string]any) }
+	svc := props(props(root)["service"])["owner"]
+	env := props(props(root)["environments"].(map[string]any)["items"])["owner"]
+	if env == nil {
+		t.Fatal("environments[].owner is missing")
+	}
+	var strip func(v any) any
+	strip = func(v any) any {
+		switch v := v.(type) {
+		case map[string]any:
+			out := map[string]any{}
+			for k, x := range v {
+				if k != "description" {
+					out[k] = strip(x)
+				}
+			}
+			return out
+		case []any:
+			out := make([]any, len(v))
+			for i, x := range v {
+				out[i] = strip(x)
+			}
+			return out
+		}
+		return v
+	}
+	a, _ := json.Marshal(strip(svc))
+	b, _ := json.Marshal(strip(env))
+	if !bytes.Equal(a, b) {
+		t.Fatalf("environments[].owner differs from service.owner:\n%s\n%s", b, a)
+	}
+}

@@ -133,7 +133,6 @@
   let openSections = $state(defaultOpenSections());
 
   // Derived view model
-  let blastRadius = $derived(services.find(s => s.name === name)?.blastRadius || 0);
   // When viewing a specific version, "current" comes from the versions list
   // (isCurrent) or the fleet services prop; otherwise it is just what we show.
   let currentVersion = $derived(
@@ -358,12 +357,6 @@
           <span class="badge-dot"></span>Definition only
         </span>
       {/if}
-      {#if blastRadius > 0}
-        <a href="#/graph" class="blast-indicator" class:blast-warn={blastRadius >= 3 && blastRadius < 5} class:blast-high={blastRadius >= 5} data-tip="If this service fails, {blastRadius} other service{blastRadius !== 1 ? 's are' : ' is'} transitively impacted">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
-          blast radius: {blastRadius}
-        </a>
-      {/if}
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
@@ -460,7 +453,7 @@
 
   <ConfigSection id="section-config" configs={detail.configurations || []} bind:open={openSections.config} />
 
-  <EnvironmentsSection id="section-environments" environments={detail.environments || []} bind:open={openSections.environments} />
+  <EnvironmentsSection id="section-environments" environments={detail.environments || []} asOf={detail.environmentsAsOf || ''} bind:open={openSections.environments} />
 
   <PolicySection id="section-policy" policies={detail.policies || []} bind:open={openSections.policy} />
 
@@ -758,18 +751,6 @@
     word-break: break-all;
     font-size: var(--text-xs);
   }
-
-  .blast-indicator {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: var(--radius-xs);
-    font-size: var(--text-xs); font-weight: 600;
-    text-decoration: none;
-    background: var(--c-warn-bg); color: var(--c-warn);
-    transition: opacity var(--transition);
-  }
-  .blast-indicator:hover { opacity: 0.8; text-decoration: none; }
-  .blast-warn { background: var(--c-warn-bg); color: var(--c-warn); }
-  .blast-high { background: var(--c-err-bg); color: var(--c-err); }
 
   /* ─── Mobile ─── */
   @media (max-width: 768px) {

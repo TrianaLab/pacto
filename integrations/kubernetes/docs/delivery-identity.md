@@ -83,8 +83,17 @@ in the ConfigMap `pacto-delivery-identities` in `delivery.namespace`, which
 every signed-in user may read. The promoter runs with that ConfigMap and restarts when it
 changes. `pacto delivery`, `pacto mcp --delivery` and the dashboard read it
 too, from `--delivery-namespace` (default `pacto-delivery`; the chart points
-its own dashboard at `delivery.namespace`), so what they offer matches what admission and the promoter decide. A client that cannot read
-it falls back to the defaults above; admission and the promoter still decide.
+its own dashboard at `delivery.namespace`), so what they offer matches what admission and the promoter decide.
+
+### When a client cannot read the policy
+
+The client still classifies you with the defaults above for display, but its
+status, offers, undo offers and "why not yet" fixes then offer nothing and
+name the error. When the ConfigMap is not found, the error suggests passing
+`--delivery-namespace` with the namespace the chart's `delivery.namespace`
+names. Admission and the promoter still decide.
+
+### Owner teams and agent groups
 
 A held question goes to the teams that own the affected services. When neither
 the service nor its consumers declare an owner, nobody may answer it with

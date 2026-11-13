@@ -3,13 +3,13 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryPublishUrl } from '../lib/router.ts';
+  import { deliveryPublishUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
-  import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
+  import { shortDigest, sentence, timeLabel, lifecycleWords } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -19,22 +19,27 @@
   import CappedList from '../components/CappedList.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import PublishFigure from '../components/figure/PublishFigure.svelte';
+  import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
+  import DeliveryLifecycle from '../components/DeliveryLifecycle.svelte';
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
   // signed narrows the list to the services whose every version is signed (yes),
   // that have an unsigned version (no) or a signature not known here (unknown):
-  // the figure's three lanes.
-  let { offset = '', limit = '', q = '', signed = '', refreshTick = 0 } = $props();
+  // the figure's three lanes. `service` and `domain` narrow it to one exact service,
+  // from a service page's link; every link the page builds keeps them.
+  let { offset = '', limit = '', q = '', signed = '', service = '', domain = '', refreshTick = 0 } = $props();
+  const keep = $derived({ service: service || undefined, domain: (service && domain) || undefined });
 
   const loader = createProductLoader(() => api.deliveryPublished({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     // The router passes any string; the server refuses one it does not know.
     signed: /** @type {any} */ (signed || undefined),
+    service: service || undefined, domain: keep.domain,
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${signed}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${signed}@@${keep.domain}/${service}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${signed}`);
+  const listQuestion = $derived(`${q}@@${signed}@@${keep.domain}/${service}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -42,7 +47,11 @@
   const data = $derived(answer.data);
   const services = $derived(data?.services ?? []);
   const serviceTotal = $derived(data?.page?.total ?? services.length);
-  const href = (off, lim) => deliveryPublishUrl({ q, signed, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryPublishUrl({ q, signed, ...keep, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  // A version's lifecycle opens under its row (its version links its fleet revision
+  // when one is known): the panel asks /api/delivery/lifecycle by artifact digest, in the domain the service's
+  // Stages name (the server lists a service once per domain).
+  let lifecycle = $state({});
 
   // Publishes Pacto refused, for whoever supervises: the check that refused
   // each and, for the version rule, the bump the change needs. Its own read,
@@ -72,9 +81,9 @@
   // unsigned ones marked). Unknown is its own state,
   // never drawn as unsigned.
   const SIG = {
-    signed: { tone: 'badge-ok', mark: 'Signature checked', line: 'Signature checked on every version shown' },
-    unknown: { tone: 'badge-neutral', mark: 'Signature not known here', line: 'Signature not known here for the versions shown' },
-    unsigned: { tone: 'badge-warn', mark: 'Not signed', line: 'No signature verified on the versions shown' },
+    signed: { tone: 'badge-ok', mark: lifecycleWords.signature.signed, line: 'Signature checked on every version shown' },
+    unknown: { tone: 'badge-neutral', mark: lifecycleWords.signature.unknown, line: 'Signature not known here for the versions shown' },
+    unsigned: { tone: 'badge-warn', mark: lifecycleWords.signature.unsigned, line: 'No signature verified on the versions shown' },
   };
   const shown = $derived(services.flatMap((svc) => svc.versions ?? []));
   const sigOf = (v) => (SIG[v.signature] ? v.signature : 'unknown');
@@ -96,7 +105,8 @@
       tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-publish" />
-  {#if data?.counts?.services}<PublishFigure counts={data.counts} href={(s) => deliveryPublishUrl({ q, signed: s })} serviceHref={deliveryServiceUrl} />{/if}
+  <DeliveryServiceFilter {service} {domain} clear={deliveryPublishUrl({ q, signed })} />
+  {#if data?.counts?.services}<PublishFigure counts={data.counts} href={(s) => deliveryPublishUrl({ q, signed: s, ...keep })} serviceHref={deliveryServiceUrl} />{/if}
 
   <!-- The refused publishes are a count that opens: the versions are what the page lists. -->
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
@@ -147,8 +157,8 @@
   </section>
 
   <h2 class="t-section-title" data-view-total={data ? serviceTotal : undefined}>Versions by service</h2>
-  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : signed === 'unknown' ? 'Services with a version whose signature is not known here, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q })}>Show every service</a></p>{/if}
-  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v, signed })} label="Filter services by name" placeholder="Service" testid="published-filter" />
+  {#if signed}<p class="t-meta">{signed === 'no' ? 'Services with a version that is not signed, and only those versions.' : signed === 'unknown' ? 'Services with a version whose signature is not known here, and only those versions.' : 'Services whose every version is signed.'} <a href={deliveryPublishUrl({ q, ...keep })}>Show every service</a></p>{/if}
+  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v, signed, ...keep })} label="Filter services by name" placeholder="Service" testid="published-filter" />
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
   {:else if !data && loader.error}
@@ -161,27 +171,33 @@
     {:else if services.length === 0}
       <div class="state-box"><h2>Nothing published yet</h2><p>No environment you can see knows a version. Publish one with <code>pacto publish</code>.</p></div>
     {:else}
-      {#each services as svc (svc.service)}
-        <section class="pv-svc" aria-labelledby={`pv-${svc.service}`}>
-          <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a></h2>
+      {#each services as svc (svc.service + '@' + (svc.domain ?? ''))}
+        {@const id = svc.domain ? `${svc.service}@${svc.domain}` : svc.service}
+        <section class="pv-svc" aria-labelledby={`pv-${id}`}>
+          <h2 id={`pv-${id}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a>{#if svc.domain}{' '}<span class="t-meta"><bdi>{svc.domain}</bdi></span>{/if}</h2>
           <ul class="pl-list">
-            {#each open[svc.service] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
-              {@const sk = `${svc.service}@${v.digest}`}
+            {#each open[id] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
+              {@const sk = `${id}@${v.digest}`}
               {@const stages = stagesFirst(v.stages)}
               <li class="pl-row pl-row--stack pv-row">
                 <!-- One line per version: digests short with a copy button, and where it runs as a
                      count that opens the per-environment list. -->
                 <div class="pv-head" class:pv-sigcol={sigMixed}>
-                  <strong class="pv-ver" title={v.version || undefined}>{v.version ?? ''}</strong>
+                  <strong class="pv-ver" title={v.version || undefined}>{#if v.revision && v.version}<a href={fleetEntityUrl('revision', v.revision)}>{v.version}</a>{:else}{v.version ?? ''}{/if}</strong>
                   {#if sigMixed}<span class="pv-sig">{#if sigOf(v) !== sigCommon}<span class="badge {SIG[sigOf(v)].tone}">{SIG[sigOf(v)].mark}</span>{/if}</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
                   {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{:else}<span></span>{/if}
-                  {#if stages.length}
-                    {@const running = stages.filter((on) => on.running).length}
-                    {@const failed = stages.filter((on) => on.failed).length}
-                    <button type="button" class="btn btn-sm pv-envs" aria-expanded={!!open[sk]} data-testid="published-envs" onclick={() => { open[sk] = !open[sk]; }}>{formatCount(stages.length)} environment{stages.length === 1 ? '' : 's'}{#if running}, {formatCount(running)} running{/if}{#if failed}, {formatCount(failed)} failed{/if}</button>
-                  {/if}
+                  <span class="pv-acts">
+                    {#if stages.length}
+                      {@const running = stages.filter((on) => on.running).length}
+                      {@const failed = stages.filter((on) => on.failed).length}
+                      <button type="button" class="btn btn-sm pv-envs" aria-expanded={!!open[sk]} data-testid="published-envs" onclick={() => { open[sk] = !open[sk]; }}>{formatCount(stages.length)} environment{stages.length === 1 ? '' : 's'}{#if running}, {formatCount(running)} running{/if}{#if failed}, {formatCount(failed)} failed{/if}</button>
+                    {/if}
+                    <button type="button" class="btn btn-sm pv-envs" aria-expanded={!!lifecycle[sk]} aria-label={`Lifecycle of ${svc.service} ${v.version || shortDigest(v.digest)}`}
+                      onclick={() => { lifecycle[sk] = !lifecycle[sk]; }}>Lifecycle</button>
+                  </span>
                 </div>
+                {#if v.sourceRevision}<p class="t-meta pv-source" title={v.sourceRevision}>Source revision <bdi class="pv-mono">{v.sourceRevision}</bdi>, an annotation, not signed</p>{/if}
                 {#if open[sk]}
                   <p class="t-body-2 pv-stages" data-testid="published-stages">
                     {#each stages as on (on.namespace + '/' + on.stage)}
@@ -189,10 +205,11 @@
                     {/each}
                   </p>
                 {/if}
+                {#if lifecycle[sk]}<DeliveryLifecycle query={{ service: svc.service, domain: svc.domain ?? '', digest: v.digest }} />{/if}
               </li>
             {/each}
           </ul>
-          {#if (svc.versions?.length ?? 0) > VERSIONS}<button type="button" class="btn btn-sm pv-more" aria-expanded={!!open[svc.service]} onclick={() => { open[svc.service] = !open[svc.service]; }}>{open[svc.service] ? 'Show fewer' : `Show all ${formatCount(svc.versions.length)} versions`}</button>{/if}
+          {#if (svc.versions?.length ?? 0) > VERSIONS}<button type="button" class="btn btn-sm pv-more" aria-expanded={!!open[id]} onclick={() => { open[id] = !open[id]; }}>{open[id] ? 'Show fewer' : `Show all ${formatCount(svc.versions.length)} versions`}</button>{/if}
         </section>
       {/each}
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="published-pager" />
@@ -221,6 +238,10 @@
   .pv-contract, .pv-stages, .pv-row p, .pv-refused > p { margin: 0; }
   .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
   .pv-envs { margin-left: auto; }
+  .pv-acts { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1); justify-self: end; margin-left: auto; }
+  .pv-acts .pv-envs { margin-left: 0; }
+  .pv-source { overflow-wrap: anywhere; }
+  .pv-mono { font-family: var(--font-mono); }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-fold > summary h2 { margin: 0; }
   .pv-fold-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }

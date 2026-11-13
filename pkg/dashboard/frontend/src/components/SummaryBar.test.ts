@@ -173,27 +173,6 @@ describe('SummaryBar — metrics and click-to-filter', () => {
     unmount(someFail);
   });
 
-  it('renders high-impact card', () => {
-    const component = mount(SummaryBar, {
-      target,
-      props: {
-        services: [
-          { name: 'a', blastRadius: 5 },
-          { name: 'b', blastRadius: 3 },
-          { name: 'c', blastRadius: 1 },
-        ],
-      },
-    });
-
-    const highImpactTile = Array.from(target.querySelectorAll('.metric-tile')).find((t) =>
-      t.textContent?.includes('High impact'),
-    );
-    expect(highImpactTile).toBeTruthy();
-    expect(highImpactTile?.textContent).toContain('2'); // blast >= 3
-
-    unmount(component);
-  });
-
   it('readiness card is clickable', () => {
     const component = mount(SummaryBar, {
       target,

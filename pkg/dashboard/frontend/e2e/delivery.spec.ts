@@ -88,8 +88,8 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
-        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
+        ready: 'True', actions: ['promote'], offers: [{ action: 'promote', available: true, to: D2, reason: 'promotes the candidate' }], level: 'advise', upstream: { kind: 'stage', namespace: 'test', stage: 'payments-test', environment: 'test' } }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], offers: [{ action: 'promote', available: false, to: D2, reason: 'the Stage observes: GitOps owns the applyRef; propose an autonomy change to advise first' }], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
         // The server lists the environments the way changes travel, as environmentsListed does.
@@ -128,7 +128,7 @@ function installDelivery(persona: Persona): void {
             { seq: 3, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
               outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c'), pointer: { before: D1, after: D2 } },
             { operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
-          ] },
+          ], undoOffers: { op1: { action: 'undo', available: true, reason: 'you may ask for it', operation: 'op1', to: D1 } } },
         { namespace: 'test', stage: { name: 'payments-test', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'status',
           note: 'read from the Operation objects that still exist; an operation deleted from the cluster is missing',
           entries: [{ seq: 4, operation: 'op5', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',

@@ -1,8 +1,10 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -58,13 +60,48 @@ type LocatedFindingsPreview struct {
 // file it names and what checking those values found. Status is pass when
 // every value set was checked and none failed, fail on any error, unverified
 // when a value set could not be checked (a missing observation, never a pass)
-// and skip when the check did not run, with Reason saying why.
+// and skip when the check did not run, with Reason saying why. Lifetime,
+// Expires and Owner are declared (pactoVersion 2.4); Expired is inferred
+// against an answer's asOf by [MarkExpired].
 type EnvironmentResult struct {
 	Name     string                 `json:"name"`
 	File     string                 `json:"file"`
 	Status   string                 `json:"status" enum:"pass,fail,unverified,skip"`
 	Reason   string                 `json:"reason,omitempty"`
 	Findings LocatedFindingsPreview `json:"findings"`
+	Lifetime string                 `json:"lifetime" enum:"temporary,persistent,not-declared" doc:"Declared lifetime; not-declared when the environment declares none, never read as persistent"`
+	Expires  string                 `json:"expires,omitempty" doc:"Declared RFC 3339 time a temporary environment is meant to end"`
+	Owner    *contract.Owner        `json:"owner,omitempty" doc:"Declared owner of this environment"`
+	Expired  bool                   `json:"expired,omitempty" doc:"Inferred: expires is at or before this answer's asOf. Nothing is deleted"`
+}
+
+// LifetimeNotDeclared is [EnvironmentResult.Lifetime] for an environment that
+// declares none.
+const LifetimeNotDeclared = "not-declared"
+
+// MarkExpired is a copy of rs with Expired set on each result whose expires is
+// at or before asOf. A malformed or absent expires is never expired. Each
+// owner is copied too, so the result never reaches the snapshot.
+func MarkExpired(rs []EnvironmentResult, asOf time.Time) []EnvironmentResult {
+	if rs == nil {
+		return nil
+	}
+	out := make([]EnvironmentResult, len(rs))
+	for i, r := range rs {
+		r.Expired = contract.Environment{Expires: r.Expires}.ExpiredAt(asOf)
+		r.Owner = cloneOwnerPtr(r.Owner)
+		out[i] = r
+	}
+	return out
+}
+
+// cloneOwnerPtr deep-copies an optional owner.
+func cloneOwnerPtr(o *contract.Owner) *contract.Owner {
+	if o == nil {
+		return nil
+	}
+	c := cloneOwner(*o)
+	return &c
 }
 
 // EnvironmentsPreview is a bounded preview of a revision's environments.
@@ -128,7 +165,8 @@ func EnvironmentResults(envs []contract.Environment, stages []validation.Stage) 
 				}
 			}
 		}
-		r := EnvironmentResult{Name: env.Name, File: env.File, Status: EnvironmentPass}
+		r := EnvironmentResult{Name: env.Name, File: env.File, Status: EnvironmentPass,
+			Lifetime: cmp.Or(env.Lifetime, LifetimeNotDeclared), Expires: env.Expires, Owner: cloneOwnerPtr(env.Owner)}
 		switch {
 		case failed:
 			r.Status = EnvironmentFail
@@ -156,6 +194,7 @@ func environmentsPreview(rs []EnvironmentResult) EnvironmentsPreview {
 	items, total, trunc := boundSlice(rs, MaxDetailPreview)
 	for i := range items {
 		items[i].Findings.Items = append([]LocatedFinding{}, items[i].Findings.Items...)
+		items[i].Owner = cloneOwnerPtr(items[i].Owner)
 	}
 	p := EnvironmentsPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 	for _, r := range rs {

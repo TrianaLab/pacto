@@ -1067,3 +1067,19 @@ configurations:
 		}
 	}
 }
+
+// TestServiceDetailsEnvironmentsAsOf: the expired flag of each environment
+// comes with the time it was inferred against; no environments, no time.
+func TestServiceDetailsEnvironmentsAsOf(t *testing.T) {
+	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+	c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "web", Version: "1.0.0"},
+		Environments: []contract.Environment{{Name: "pr-1", File: "e/pr-1.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z"}}}
+	d := serviceDetailsAt(context.Background(), &contract.Bundle{Contract: c}, "local", now, nil)
+	if len(d.Environments) != 1 || !d.Environments[0].Expired || d.EnvironmentsAsOf != "2026-11-21T00:00:00Z" {
+		t.Fatalf("environments %+v as of %q", d.Environments, d.EnvironmentsAsOf)
+	}
+	c.Environments = nil
+	if d := serviceDetailsAt(context.Background(), &contract.Bundle{Contract: c}, "local", now, nil); d.EnvironmentsAsOf != "" {
+		t.Fatalf("no environments, as of %q", d.EnvironmentsAsOf)
+	}
+}

@@ -218,13 +218,34 @@ missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
 `search` before you treat a subject miss as an absence.
 
+### Where a service runs
+
+| `placement` | Detail |
+|---|---|
+| Read from | A service's detail: `pacto fleet entity service <key>`, `pacto_fleet_entity` and the dashboard's service page. Targets cover services delivered without Pacto delivery too |
+| Groups | The union of the environments the current revision (`currentRevision`) declares and the `delivery.pacto.trianalab.io/environment` labels the targets report; no label or conflicting labels form one unlabelled group |
+| Order | Alphabetical (natural order), unlabelled last; never a promotion order, which [delivery status](integrations/kubernetes/delivery-status.md) gives |
+| Declaration | `declaration`: the current revision's entry with its values check, `lifetime` (`not-declared` when absent), `expires`, `owner` and `expired`, inferred against `asOf`. Absent for an environment only targets report |
+| Owner | `owner` with `provenance`: `declared` on the environment, `inferred` from the service owner, or `unknown` with a `reason` |
+| Counts | `targets` (observed), then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment. `targetsComplete` is false, with `targetsReason`, when you may not see every target |
+| Provisioning | `provisioning`, a tally by phase of the statuses of the service's offering uses there; `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero |
+| Revisions | The newest 8 distinct revisions, with `revisionsTotal` and `revisionsTruncated` |
+| Differences | `differences`: each value the declared environments disagree on, by configuration and path, with `differencesTotal`, or `differencesError` saying why they are unknown. `pacto explain --environments` computes the same list |
+| Restricted | Only targets, revisions and provisioning your view may see count; on a partial answer the CLI heading reads "Environments (targets Pacto can see)" |
+
+| `environmentHistory` | Detail |
+|---|---|
+| Items | The revisions the answer holds, each compared with the previous one held in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision held. `revision` is the first held revision that shows the change and `previous` the one it was compared with. Not a timeline: no item carries a time |
+| Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
+| Completeness | `partial` when your view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held |
+
 ### Configuration-reference consumers
 
 A service that takes a configuration schema from another contract by `ref`
 consumes that contract. Once the reference resolves to a revision in the
 snapshot, by digest or through the consumer's `pacto.lock`, the edge counts
 like a declared dependency: graph traversal, `dependents`, the neighborhood
-and hidden counts include it, and [impact](impact.md#configuration-reference-consumers)
+and hidden counts include it, and [impact](impact-consumers.md#configuration-reference-consumers)
 judges the consumer. A neighborhood edge carries the relation
 `configuration_reference` and no declared-against-observed comparison, because
 a reference never produces runtime calls. Policy references stay out: a policy

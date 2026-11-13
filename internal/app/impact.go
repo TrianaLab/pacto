@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 
@@ -135,6 +137,77 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		}), nil
 }
 
+// ImpactEventOptions configures a what-if about one fleet service: it
+// becomes unavailable, is removed or a revision of it regressed.
+type ImpactEventOptions struct {
+	Event impact.Event
+	Fleet FleetOptions
+	// Traces is optional OTLP/JSON trace data whose callers join the answer.
+	// An event answer always reads observed callers, so there is no opt-in.
+	Traces []byte
+	// ReadRegression reads the delivery evidence for a regressed event with
+	// the caller's own identity. It is called with the event whose service is
+	// already resolved to its fleet key, so a bare name reads the Stages of
+	// its domain; nil reads none.
+	ReadRegression func(ctx context.Context, ev impact.Event) *impact.Regression
+}
+
+// ImpactEvent builds a fleet snapshot from the configured sources and
+// answers the event over it (see [Service.ImpactEventOnSnapshot]).
+func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*impact.Result, error) {
+	snap, err := s.Fleet(ctx, opts.Fleet)
+	if err != nil {
+		return nil, fmt.Errorf("build fleet snapshot: %w", err)
+	}
+	return s.ImpactEventOnSnapshot(ctx, opts, snap)
+}
+
+// ImpactEventOnSnapshot answers the event over snap, an already-built
+// snapshot (the one on screen, or the caller's view). opts.Fleet is ignored.
+// A bare service name resolves to the one service of that name; a name
+// several domains share is refused with their keys, and a name the snapshot
+// does not hold answers SERVICE_NOT_IN_FLEET.
+func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	observed, err := observedEdgesFromTraces(opts.Traces)
+	if err != nil {
+		return nil, fmt.Errorf("parse traces: %w", err)
+	}
+	ev := opts.Event
+	if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
+		ev.Service = string(view.Service.Key)
+	} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
+		return nil, err
+	}
+	var reg *impact.Regression
+	if ev.Kind == impact.EventRegressed && opts.ReadRegression != nil {
+		reg = opts.ReadRegression(ctx, ev)
+	}
+	return impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{
+		Event: &ev, ObservedEdges: observed, Regression: reg,
+	}), nil
+}
+
+// ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
+// service key, and for regressed the revision after the last "@".
+func ParseEventFlag(kind, value string) (impact.Event, error) {
+	ev := impact.Event{Kind: kind, Service: value}
+	switch kind {
+	case impact.EventRegressed:
+		i := strings.LastIndex(value, "@")
+		if i <= 0 || i == len(value)-1 {
+			return impact.Event{}, fmt.Errorf("--regressed takes <service>@<revision>, got %q", value)
+		}
+		ev.Service, ev.Revision = value[:i], value[i+1:]
+	case impact.EventUnavailable, impact.EventRemoved:
+		if value == "" || strings.Contains(value, "@") {
+			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
+		}
+	default:
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed or regressed", kind)
+	}
+	return ev, nil
+}
+
 // refuseHidden keeps a raw-ref impact request from reading a service the
 // caller's permissions hide. The refs resolve with this process's registry
 // credentials, so on a snapshot narrowed to the caller (it carries
@@ -172,7 +245,11 @@ func observedEdgesFromTraces(data []byte) ([]impact.ObservedEdge, error) {
 	edges := otelobserver.DependencyEdges(td)
 	out := make([]impact.ObservedEdge, 0, len(edges))
 	for _, e := range edges {
-		out = append(out, impact.ObservedEdge{Consumer: e.From, Provider: e.To})
+		edge := impact.ObservedEdge{Consumer: e.From, Provider: e.To, Count: e.Count}
+		if !e.LastSeen.IsZero() {
+			edge.LastSeen = &e.LastSeen
+		}
+		out = append(out, edge)
 	}
 	return out, nil
 }

@@ -60,7 +60,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 
 	t.Run("a ref the resolver cannot fetch is invalid", func(t *testing.T) {
 		r := &pullCounter{err: errors.New("not found")}
-		res, err := Check(context.Background(), r.validator(), dir)
+		res, err := Check(context.Background(), r.validator(), dir, nil)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -74,7 +74,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 	})
 
 	t.Run("no resolver fails closed", func(t *testing.T) {
-		res, err := Check(context.Background(), nil, dir)
+		res, err := Check(context.Background(), nil, dir, nil)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 		r := &pullCounter{bundle: &contract.Bundle{FS: fstest.MapFS{
 			"policy/schema.json": {Data: []byte(`{"required":["metadata"]}`)},
 		}}}
-		res, err := Check(context.Background(), r.validator(), dir)
+		res, err := Check(context.Background(), r.validator(), dir, nil)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -134,7 +134,7 @@ func assertCode(t *testing.T, res *CheckResult, want string) {
 // a contract with no ref-based policy validates the same with or without one.
 func TestCheck_ResolverIsNotNeededWithoutARefPolicy(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	res, err := Check(context.Background(), nil, dir)
+	res, err := Check(context.Background(), nil, dir, nil)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestCheck_VerifiesTheLockfile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.lock"), []byte("not a lockfile"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir)
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir, nil)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestCheck_LocatesErrors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\nworkload: servce\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir)
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestCheck_ValidatorErrorIsReturned(t *testing.T) {
 	failing := func(context.Context, string) (validation.Report, error) {
 		return validation.Report{}, errors.New("boom")
 	}
-	if _, err := Check(context.Background(), failing, dir); err == nil {
+	if _, err := Check(context.Background(), failing, dir, nil); err == nil {
 		t.Fatal("expected the validator error")
 	}
 }
@@ -214,7 +214,7 @@ func TestCheck_EnvironmentErrorCarriesItsFile(t *testing.T) {
 		}
 	}
 	for name, validate := range map[string]Validator{"wired": app.NewService(nil, nil).ValidationReport, "fallback": nil} {
-		res, err := Check(context.Background(), validate, dir)
+		res, err := Check(context.Background(), validate, dir, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,5 +224,106 @@ func TestCheck_EnvironmentErrorCarriesItsFile(t *testing.T) {
 		if !slices.Equal(res.Summary.Environments, []string{"production (production.yaml)"}) {
 			t.Errorf("%s: summary environments = %v", name, res.Summary.Environments)
 		}
+	}
+}
+
+// TestCheckReportsExpiredEnvironment: pacto_check goes through the wired
+// validator, so it warns about an expired temporary environment and stays
+// valid.
+func TestCheckReportsExpiredEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	for name, data := range map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n" +
+			"environments:\n  - name: pr-482\n    file: pr-482.yaml\n    lifetime: temporary\n    expires: 2000-01-01T00:00:00Z\n",
+		"pr-482.yaml": "{}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != "ENVIRONMENT_EXPIRED" {
+		t.Fatalf("got valid=%v errors=%+v warnings=%+v", res.Valid, res.Errors, res.Warnings)
+	}
+}
+
+// writeDifferencesBundle is a valid bundle whose three environments differ in
+// one configuration value.
+func writeDifferencesBundle(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.3\"\nservice:\n  name: orders\n  version: 1.0.0\n  owner:\n    team: orders\nconfigurations:\n" +
+			"  - name: app\n    schema: app.json\n    values:\n      LOG_LEVEL: info\n" +
+			"environments:\n  - name: production\n    file: p.yaml\n  - name: staging\n    file: s.yaml\n  - name: test\n    file: s.yaml\n",
+		"app.json": `{"type":"object","properties":{"LOG_LEVEL":{"type":"string"}}}`,
+		"p.yaml":   "app:\n  LOG_LEVEL: warn\n",
+		"s.yaml":   "{}\n",
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// TestCheckNamedEnvironments: environments that agree say they were compared,
+// and a name list that compares nothing or something undeclared is an error.
+func TestCheckNamedEnvironments(t *testing.T) {
+	dir := writeDifferencesBundle(t)
+	if res, err := Check(context.Background(), nil, dir, []string{"staging", "test"}); err != nil || res.EnvironmentDifferences != nil || strings.Join(res.ComparedEnvironments, ",") != "staging,test" {
+		t.Fatalf("equal environments say they were compared: %+v, %v", res, err)
+	}
+	if _, err := Check(context.Background(), nil, dir, []string{"staging"}); err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("one name compares nothing, so it is an error: %v", err)
+	}
+	if _, err := Check(context.Background(), nil, dir, []string{"staging", "nope"}); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
+		t.Fatalf("undeclared: %v", err)
+	}
+}
+
+func TestCheckEnvironmentDifferences(t *testing.T) {
+	dir := writeDifferencesBundle(t)
+	res, err := Check(context.Background(), nil, dir, nil)
+	if err != nil || len(res.EnvironmentDifferences) != 1 || res.EnvironmentDifferences[0].Path != "LOG_LEVEL" || len(res.EnvironmentDifferences[0].Values) != 3 {
+		t.Fatalf("all environments: %+v, %v", res, err)
+	}
+	if err := os.Remove(filepath.Join(dir, "p.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if res, err = Check(context.Background(), nil, dir, nil); err != nil || !strings.Contains(res.EnvironmentDifferencesError, "environment production: cannot read p.yaml") {
+		t.Fatalf("unreadable without names is reported: %+v, %v", res, err)
+	}
+
+	result := callTool(t, "pacto_check", map[string]any{"path": writeDifferencesBundle(t), "environments": " staging , production"})
+	var parsed CheckResult
+	if err := json.Unmarshal([]byte(resultText(t, result)), &parsed); err != nil || len(parsed.EnvironmentDifferences) != 1 {
+		t.Fatalf("tool: %+v, %v", parsed, err)
+	}
+	if result := callTool(t, "pacto_check", map[string]any{"path": dir, "environments": "staging,,production"}); !result.IsError {
+		t.Fatal("an empty name is a tool error")
+	}
+}
+
+// TestDifferencesParity: pacto explain and pacto_check compute the same rows
+// from the same bundle.
+func TestDifferencesParity(t *testing.T) {
+	dir := writeDifferencesBundle(t)
+	explained, err := app.NewService(nil, nil).Explain(context.Background(), app.ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, err := Check(context.Background(), nil, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := json.Marshal([]any{explained.ComparedEnvironments, explained.EnvironmentDifferences})
+	b, _ := json.Marshal([]any{checked.ComparedEnvironments, checked.EnvironmentDifferences})
+	if string(a) != string(b) || len(explained.EnvironmentDifferences) == 0 || len(checked.ComparedEnvironments) != 3 {
+		t.Fatalf("explain %s, pacto_check %s", a, b)
 	}
 }

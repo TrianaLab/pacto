@@ -223,6 +223,8 @@ nav:
       - Operational graph: operational-graph.md
       - Fleet views: fleet-tools.md
       - Impact analysis: impact.md
+      - Impact consumers and evidence: impact-consumers.md
+      - Ask what happens if: impact-what-if.md
       - What runtime conformance checks: runtime-conformance.md
       - Run a command under Pacto: runtime-run.md
       - Watch a host with pacto agent: runtime-agent.md
@@ -244,6 +246,7 @@ nav:
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
           - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
+          - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
           - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md

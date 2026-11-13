@@ -69,18 +69,6 @@
     {/if}
   </button>
 
-  <!-- High impact -->
-  <button
-    type="button"
-    class="metric-tile"
-    class:tile-warn={metrics.highImpact > 0}
-    data-tip="Services whose failure impacts 3 or more others"
-  >
-    <span class="metric-head">High impact</span>
-    <span class="metric-value">{formatCount(metrics.highImpact)}</span>
-    <span class="metric-sub">blast radius ≥ 3</span>
-  </button>
-
   <!-- Check status totals -->
   <div class="metric-tile" data-tip="Total validation checks across all services">
     <span class="metric-head">Checks</span>
@@ -202,9 +190,5 @@
 
   .tile-alert .metric-value {
     color: var(--c-err);
-  }
-
-  .tile-warn .metric-value {
-    color: var(--c-warn);
   }
 </style>

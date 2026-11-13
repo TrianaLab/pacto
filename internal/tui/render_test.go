@@ -284,6 +284,10 @@ func TestRenderImpactWithNoConsumers(t *testing.T) {
 	if !strings.Contains(got, "none identified") {
 		t.Fatal("render should say no consumers identified")
 	}
+	r.Hidden, r.Templates = 2, []string{"http-path"}
+	if got := renderImpact(r); !strings.Contains(got, "2 more you may not see") || !strings.Contains(got, "Golden paths to review (1)") || !strings.Contains(got, "  http-path\n") {
+		t.Fatalf("render should count hidden consumers and list golden paths, got:\n%s", got)
+	}
 }
 
 func TestRenderImpactWithOwners(t *testing.T) {
@@ -292,11 +296,11 @@ func TestRenderImpactWithOwners(t *testing.T) {
 		OldVersion:     "1.0.0",
 		NewVersion:     "2.0.0",
 		Classification: "BREAKING",
-		Owners:         []string{"team-a", "team-b"},
+		Owners:         []string{"team:shop", "dri:shop", "legacy"},
 	}
 	got := renderImpact(r)
-	if !strings.Contains(got, "team-a") || !strings.Contains(got, "team-b") {
-		t.Fatal("render should include owners")
+	if !strings.Contains(got, "shop (Team)") || !strings.Contains(got, "shop (DRI)") || !strings.Contains(got, "  legacy\n") {
+		t.Fatalf("render should label owner keys, got:\n%s", got)
 	}
 }
 
@@ -336,16 +340,23 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 		},
 	}
 	r.Interfaces[0].Visibility = "internal"
-	r.Environments = []contract.Environment{{Name: "staging", File: "envs/staging.yaml"}, {Name: "prod", File: "envs/prod.yaml"}}
+	r.Environments = []contract.Environment{{Name: "staging", File: "envs/staging.yaml"}, {Name: "prod", File: "envs/prod.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: &contract.Owner{Team: "perf"}}}
 	got := renderExplain(r)
 	for _, want := range []string{"api (grpc, internal)", "auth-svc: oci://example.com/auth:1.0 (^1.0) [required]",
-		"model: external, version v1 (cannot be checked)", "Environments (2)", "staging: envs/staging.yaml", "prod: envs/prod.yaml"} {
+		"model: external, version v1 (cannot be checked)", "Environments (2)", "staging: envs/staging.yaml, lifetime not declared", "prod: envs/prod.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, owner perf"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("render should include %q: %s", want, got)
 		}
 	}
 	if !strings.Contains(got, "model: external, version v1") {
 		t.Fatal("render should show an external dependency's version")
+	}
+	if strings.Contains(got, ", expired") {
+		t.Fatal("with no asOf nothing reads expired")
+	}
+	r.AsOf = "2026-11-21T00:00:00Z"
+	if got := renderExplain(r); !strings.Contains(got, "owner perf, expired") || strings.Contains(got, "not declared, expired") {
+		t.Fatalf("an environment past its expiry reads expired, as in pacto explain: %s", got)
 	}
 	if !strings.Contains(got, "database") {
 		t.Fatal("render should include capabilities")
@@ -622,6 +633,25 @@ func TestRenderImpactTallies(t *testing.T) {
 	for _, want := range []string{"2 unclassified", "1 more of other owners", "2 with no identified owner"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderImpactEvent: an event answer says what happens to its service
+// and grades each consumer by its effect.
+func TestRenderImpactEvent(t *testing.T) {
+	for kind, want := range map[string]string{
+		impact.EventUnavailable: "redis becomes unavailable", impact.EventRemoved: "redis is removed", impact.EventRegressed: "redis regressed sha256:a",
+	} {
+		r := &impact.Result{Service: "redis", Completeness: "complete", Gate: impact.GateUnverified,
+			Event: &impact.Event{Kind: kind, Service: "redis", Revision: "sha256:a"},
+			Consumers: []impact.AffectedConsumer{
+				{Service: "web", Direct: true, Effect: impact.EffectBreaks, CompatibilityVerdict: impact.CompatibilityUnknown},
+				{Service: "price", Direct: true, Effect: impact.EffectMayDegrade, CompatibilityVerdict: impact.CompatibilityUnknown},
+			}}
+		got := renderImpact(r)
+		if !strings.Contains(got, want) || !strings.Contains(got, "breaks") || !strings.Contains(got, "price [direct]: may-degrade") {
+			t.Errorf("%s:\n%s", kind, got)
 		}
 	}
 }

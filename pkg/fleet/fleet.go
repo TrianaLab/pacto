@@ -343,6 +343,10 @@ const (
 	// LimitationProvisioningUnmatched: provisioning reports name no contract
 	// revision in the snapshot, or a use that revision does not resolve.
 	LimitationProvisioningUnmatched = "PROVISIONING_UNMATCHED"
+	// LimitationProvisioningEnvironmentScoped: a phase list narrowed to one
+	// environment leaves out the consumers that have no provisioning status
+	// there, because their current revision does not declare it.
+	LimitationProvisioningEnvironmentScoped = "PROVISIONING_ENVIRONMENT_SCOPED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -448,6 +452,10 @@ type ServiceRecord struct {
 	// named. Zero outside a restricted answer.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
+	// HiddenPolicyReferrers counts the hidden services that reference this
+	// one through a policy reference and are not already counted in
+	// HiddenDependents. They are never named. Zero outside a restricted answer.
+	HiddenPolicyReferrers int `json:"hiddenPolicyReferrers,omitempty"`
 	// Template marks a golden path: its newest readable revision declares
 	// service.template and the fleet knows it runs nowhere (see deriveTemplate).
 	// A golden path consumes nothing, provides no offering and stays out of the
@@ -557,6 +565,14 @@ type ContractRevision struct {
 	// kept when revalidateConfigRefs replaces it so a restricted view can
 	// derive the verdict again without a provider it hides.
 	localStages []validation.Stage
+	// differences are the declared configuration values the revision's
+	// environments disagree on (see [validation.EnvironmentDifferences]), at
+	// most MaxDetailPreview, with differencesTotal counting them all; or
+	// differencesErr, why they could not be read. Computed at Build because a
+	// query's revision clone carries no bundle files.
+	differences      []validation.EnvironmentDifference
+	differencesTotal int
+	differencesErr   string
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
@@ -849,6 +865,9 @@ type FleetSnapshot struct {
 	// platform offering (see [Query.Restrict]) and those with a target in a
 	// hidden namespace. What their targets run is not fully known.
 	targetsHidden map[ServiceKey]bool
+	// revisionsHidden holds, in a restricted snapshot, the visible services
+	// that lost a revision to the view (a golden path visible only as one).
+	revisionsHidden map[ServiceKey]bool
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool

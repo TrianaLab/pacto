@@ -68,7 +68,9 @@ Breaking changes: 1
 Potentially breaking changes: 0
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
+    path: checkout > auth  provenance: declared  via: dependency
   reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
+    path: reporting > auth  provenance: declared  via: dependency
     note: compatible only means the range >=2.0.0 <4.0.0 accepts 3.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
 By outcome: 1 incompatible, 0 unknown, 1 compatible
 Most affected owners: commerce 1 (1 incompatible), analytics 1

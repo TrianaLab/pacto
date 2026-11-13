@@ -110,6 +110,7 @@ Breaking changes: 1
 Potentially breaking changes: 1
 Affected consumers (1):
   billing                      direct     confidence=contractual  compat=compatible   owner=finance
+    path: billing > orders  provenance: declared  via: dependency
     note: compatible only means the range ^2.0.0 accepts 2.4.0; this change is BREAKING, so check that billing does not use what it removes or changes
 By outcome: 0 incompatible, 0 unknown, 1 compatible
 Most affected owners: finance 1

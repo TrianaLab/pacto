@@ -123,8 +123,10 @@ names who accepted it.
   tab once it knows who you are (you sign in, or run it on your own machine):
   the changes waiting for your team, what each environment runs, past changes
   with who asked and who approved, and the publishes Pacto refused.
-- **The command line**: `pacto delivery plan` shows what would happen before
-  you ask, and `pacto delivery history` what already did.
+- **The command line**: `pacto delivery status` shows where each Stage of a
+  service stands and what you may ask for, `pacto delivery plan` what would
+  happen before you ask, `pacto delivery history` what already did and
+  `pacto delivery lifecycle` where one version went.
   `kubectl get pacto-delivery -A` lists every Stage, Operation and Approval;
   name a kind in full, such as `stages.delivery.pacto.trianalab.io`, where
   another tool also defines a Stage.
@@ -138,6 +140,8 @@ None of these is required reading:
 - [Setup and gates](delivery-setup.md): install and Stages by hand
 - [Plan, propose and approve](delivery-operations.md): what moves first and
   who may do what
+- [Status, progress and lifecycle](delivery-status.md): where each Stage
+  stands and why a version cannot move yet
 - [Health checks](delivery-health.md): monitoring, the suites a version ships and the
   calls a service makes
 - [Eval providers](delivery-evals.md): suite runners and their signed answers

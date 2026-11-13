@@ -45,11 +45,12 @@ AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendoc
 	--no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
 # pkg/validation: reads the files field-coverage.yaml names, under the "../.."
 # it joins them to, which aval gen adds as the whole tree.
-# pkg/oci, internal/app, internal/mcp: temporary directories only.
+# pkg/oci, internal/app, internal/mcp, internal/pactify: temporary directories only.
 # internal/runtimewatch: a smoke test of the host's /proc and cgroupfs that
 # asserts only that a snapshot is produced.
 AVAL_ALLOW_DYNAMIC = --go-allow-dynamic pkg/validation --go-allow-dynamic pkg/oci \
-	--go-allow-dynamic internal/app --go-allow-dynamic internal/mcp --go-allow-dynamic internal/runtimewatch
+	--go-allow-dynamic internal/app --go-allow-dynamic internal/mcp --go-allow-dynamic internal/pactify \
+	--go-allow-dynamic internal/runtimewatch
 AVAL_GEN_GO = gen go $(AVAL_NO_TEST) $(AVAL_ALLOW_DYNAMIC)
 
 ci-gates: aval-gen-check

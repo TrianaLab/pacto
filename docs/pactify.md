@@ -218,7 +218,13 @@ apply it.
 Each Stage starts at `observe`: it plans every new version and moves nothing,
 and the OCIRepository stays pinned to the tag you deploy (`spec.ref.tag`), so
 Flux applies what it did. With no version tag on the image, `init` writes no
-environment file.
+`delivery/<env>.yaml`.
+
+- `--delivery` also declares each `--env` under [`environments`](contract-reference/environments.md)
+  in `pacto.yaml`, with an empty values file `environments/<env>.yaml`, so
+  `pacto validate` checks each environment's values.
+- It never rewrites an existing `pacto.yaml`: it names the environments it does
+  not declare and the `pacto_edit add_environments` call that adds them.
 
 ```bash
 kubectl get stages.delivery.pacto.trianalab.io -A    # POINTER: the digest of the version each one runs

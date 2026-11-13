@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,8 +34,12 @@ type fakeDelivery struct {
 	// policy is the published policy; nil is the acme one most tests use.
 	policy *delivery.ClassPolicy
 	caller delivery.Caller
-	// owner is the team the contract of dRun declares.
-	owner     string
+	// owner is the team the contract of dRun declares; contract replaces
+	// the contract reference its artifact names.
+	owner    string
+	contract string
+	// source is the source revision dRun's artifact carries.
+	source    string
 	callerErr error
 	stages    []delivery.StageObject
 	ops       []delivery.OperationObject
@@ -50,6 +55,7 @@ type fakeDelivery struct {
 	approved   []string
 	cancelled  []string
 	proposed   []delivery.Request
+	planned    []delivery.Request
 	// history replaces the default answer; known adds digest versions.
 	history     *delivery.History
 	known       map[string]string
@@ -58,6 +64,8 @@ type fakeDelivery struct {
 	blameErr    error
 	undo        *delivery.Undo
 	undoErr     error
+	record      *delivery.RecordView
+	recordErr   error
 	refusals    *PublishRefusals
 	refusalsErr error
 	// deny refuses the caller's access reviews "verb resource namespace"
@@ -85,6 +93,10 @@ func (f *fakeDelivery) Blame(context.Context, string, string, string) (*delivery
 
 func (f *fakeDelivery) Undo(context.Context, string, string, string) (*delivery.Undo, error) {
 	return f.undo, f.undoErr
+}
+
+func (f *fakeDelivery) Record(context.Context, string, string, string) (*delivery.RecordView, error) {
+	return f.record, f.recordErr
 }
 
 func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusals, error) {
@@ -160,17 +172,28 @@ func (f *fakeDelivery) History(_ context.Context, ns, stage string, _ *delivery.
 	return &delivery.History{Stage: delivery.StageNow{Name: ns + "/" + stage}, Completeness: "partial"}, f.historyErr
 }
 
-func (f *fakeDelivery) Plan(_ context.Context, req delivery.Request) (delivery.Plan, error) {
-	return delivery.Plan{IntentDigest: "sha256:i", To: req.To, Predicted: delivery.PredictProceeds}, f.actErr
+// fullPlan sets every delivery.Plan field, so a test can tell one the
+// answer drops.
+func fullPlan(to string) delivery.Plan {
+	return delivery.Plan{IntentDigest: "sha256:i", Type: delivery.TypePromote, From: dRun, To: to, ToVersion: "2.0.0",
+		Verdicts: []delivery.Verdict{{Gate: delivery.GateDiff, Result: delivery.Pass}}, Floor: delivery.Floor{Human: true},
+		Question: "Approve?", Conflicts: []string{"StageFrozen: hold"}, Predicted: delivery.PredictHeld, ImpactDigest: "sha256:m",
+		Order: &delivery.Order{}, Precedent: &delivery.Precedent{}}
 }
 
-func (f *fakeDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
+func (f *fakeDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	f.planned = append(f.planned, req)
+	return delivery.PlanAnswer{Plan: fullPlan(req.To), Next: []string{"a person approves it"}}, f.actErr
+}
+
+func (f *fakeDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
 	if req.IntentDigest == "stale" {
-		p := delivery.Plan{IntentDigest: "sha256:fresh"}
+		p := delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:fresh"}, Next: []string{"fresh next"}}
 		return nil, p, &DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: "moved", Plan: &p}
 	}
 	f.proposed = append(f.proposed, req)
-	return &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "op-1"}}, delivery.Plan{IntentDigest: "sha256:i"}, f.actErr
+	return &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "op-1"}},
+		delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i"}, Next: []string{"proposed next"}}, f.actErr
 }
 
 func (f *fakeDelivery) Approve(_ context.Context, ns, name string, d delivery.Decision, _ string) (string, error) {
@@ -193,7 +216,7 @@ func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 
 func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, digest string) delivery.Revision {
 	if digest == dRun {
-		return delivery.Revision{Digest: digest, ContractRef: "oci://r/payments@sha256:c",
+		return delivery.Revision{Digest: digest, ContractRef: cmp.Or(f.contract, "oci://r/payments@sha256:c"), SourceRevision: f.source,
 			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0", Owner: contract.Owner{Team: f.owner}}}}}
 	}
 	if v, ok := f.known[digest]; ok {
@@ -216,7 +239,8 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 	// "autonomous" is an autonomy change's level name: not a digest, so it is
 	// never described even though this fake would answer for it.
 	f := &fakeDelivery{stages: []delivery.StageObject{st}, known: map[string]string{"autonomous": "9.9.9"}}
-	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext, "autonomous"); len(v) != 1 || v[dRun] != "1.0.0" {
+	srv := NewServer(Options{})
+	if v := srv.stageLabels(ctx, f, "prod", "payments", dRun, "sha256:unreadable", dNext, "autonomous").Versions; len(v) != 1 || v[dRun] != "1.0.0" {
 		t.Fatalf("versions = %v", v)
 	}
 	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `error="registry down"`) ||
@@ -224,12 +248,13 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 		t.Fatalf("log = %q", got)
 	}
 	buf.Reset()
-	if v := stageVersions(ctx, f, "prod", "payments", dRun); v[dRun] != "1.0.0" || buf.Len() != 0 {
+	if v := srv.stageLabels(ctx, f, "prod", "payments", dRun).Versions; v[dRun] != "1.0.0" || buf.Len() != 0 {
 		t.Fatalf("versions = %v, log = %q", v, buf.String())
 	}
 	f.stageErr = errors.New("forbidden")
-	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments error=forbidden") {
-		t.Fatalf("versions = %v, log = %q", v, buf.String())
+	if l := srv.stageLabels(ctx, f, "prod", "payments", dRun); l.Versions != nil || l.Revisions != nil ||
+		!strings.Contains(buf.String(), "stage=payments error=forbidden") {
+		t.Fatalf("labels = %v, log = %q", l, buf.String())
 	}
 }
 
@@ -281,14 +306,21 @@ func (a *authed) auth(local, login bool) *Auth {
 
 func startDelivery(t *testing.T, f *fakeDelivery, auth *Auth, installed bool, factoryErr error) string {
 	t.Helper()
-	return startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: auth, MiraURL: "http://mira",
-		DeliveryInstalled: func(context.Context) (bool, error) { return installed, nil },
-		Delivery: func(r *http.Request) (DeliveryAPI, error) {
-			if r == nil {
-				return nil, errors.New("no request on the context")
-			}
-			return f, factoryErr
-		}}))
+	return startDeliveryWith(t, f, Options{Fleet: ownedFleet(t), Auth: auth}, installed, factoryErr)
+}
+
+// startDeliveryWith serves f with o's fleet, view and auth.
+func startDeliveryWith(t *testing.T, f *fakeDelivery, o Options, installed bool, factoryErr error) string {
+	t.Helper()
+	o.UI, o.MiraURL = testUI(), "http://mira"
+	o.DeliveryInstalled = func(context.Context) (bool, error) { return installed, nil }
+	o.Delivery = func(r *http.Request) (DeliveryAPI, error) {
+		if r == nil {
+			return nil, errors.New("no request on the context")
+		}
+		return f, factoryErr
+	}
+	return startServer(t, NewServer(o))
 }
 
 func call(t *testing.T, method, url string, body any) (int, map[string]any) {
@@ -369,7 +401,7 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 func sampleCluster(groups ...string) *fakeDelivery {
 	return &fakeDelivery{caller: person(groups...),
 		stages: []delivery.StageObject{
-			stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
+			stage("prod", "payments", "payments", delivery.StageStatus{Level: delivery.LevelAdvise, Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
 				Candidate: dNext, Frozen: true, FrozenReason: "Errored", Conditions: []delivery.Condition{{Type: "Ready", Status: "True"}}}),
 			stage("books", "ledger", "ledger", delivery.StageStatus{Frozen: true, FailedDigests: []string{dNext}}),
 			stage("other", "orphan", "orphan", delivery.StageStatus{AutoHold: true, Frozen: true}),
@@ -386,6 +418,17 @@ func sampleCluster(groups ...string) *fakeDelivery {
 			operation("other", "broke-before", "unpaused", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 			operation("other", "no-stage", "gone", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 		}}
+}
+
+// TestEnvironmentsHeldOperation: with exactly one held change the row names
+// it, so the waiting badge opens that change.
+func TestEnvironmentsHeldOperation(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.ops = f.ops[1:2]
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	pay := rowOf(t, envs, "payments")
+	expect(t, pay["held"] == float64(1) && pay["heldOperation"] == "for-ledger", "row %v", pay)
 }
 
 func names(items any) string {
@@ -451,6 +494,7 @@ func TestEnvironments(t *testing.T) {
 	pay := rows[2].(map[string]any)
 	expect(t, len(rows) == 3 && pay["service"] == "payments" && pay["version"] == "1.0.0", "environments %v", rows)
 	expect(t, pay["verified"] == true && pay["held"] == float64(3) && pay["ready"] == "True", "environments %v", rows)
+	expect(t, pay["heldOperation"] == nil, "three held changes name none: %v", pay)
 	expect(t, strings.Join(toStrings(pay["actions"]), ",") == "promote,unfreeze", "actions %v", pay["actions"])
 	led := rows[0].(map[string]any)
 	expect(t, led["service"] == "ledger" && led["failed"] == false, "ledger row %v", led)
@@ -502,6 +546,47 @@ func TestPublished(t *testing.T) {
 	expect(t, payments["service"] == "payments" && len(versions) == 2, "published %v", payments)
 	expect(t, first["version"] == "1.0.0" && first["signature"] == "signed" && first["contract"] == "oci://r/payments@sha256:c", "published %v", first)
 	expect(t, first["stages"].([]any)[0].(map[string]any)["running"] == true, "published %v", first)
+}
+
+// The published version carries the source revision its artifact names.
+func TestPublishedSourceRevision(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.source = "abc1234"
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	versions := page(pub["services"].([]any)[0])["versions"].([]any)
+	expect(t, page(versions[0])["sourceRevision"] == "abc1234" && page(versions[1])["sourceRevision"] == nil, "only dRun's artifact names one: %v", versions)
+}
+
+// service and domain narrow the Publish counts; signed still does not.
+func TestPublishedServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "map[firstUnsigned:[] services:1 signed:2 unknown:0 unknownServices:0 unsigned:0 unsignedServices:0 versions:2]"
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want && len(pub["services"].([]any)) == 1, "only payments: %v", pub)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments&signed=no", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want && len(pub["services"].([]any)) == 0, "the counts stay before signed: %v", pub)
+	// A Stage that names no domain matches any.
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments&domain=acme.io", nil)
+	expect(t, fmt.Sprint(pub["counts"]) == want, "no domain matches any: %v", pub["counts"])
+}
+
+// service and domain narrow the Inbox tallies; environment and except still do not.
+func TestInboxServiceFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", held()))
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	want := "[map[environment:other errored:1 frozen:1 held:0 upstream:[]]]"
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox?service=orphan", nil)
+	expect(t, fmt.Sprint(inbox["byEnvironment"]) == want, "only orphan, the unreadable left out: %v", inbox["byEnvironment"])
+	expect(t, len(inbox["held"].([]any)) == 0 && len(inbox["frozen"].([]any)) == 1 && len(inbox["errored"].([]any)) == 1, "orphan's lists: %v", inbox)
+	for _, q := range []string{"&environment=prod", "&except=other"} {
+		_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?service=orphan"+q, nil)
+		expect(t, fmt.Sprint(inbox["byEnvironment"]) == want && len(inbox["frozen"].([]any)) == 0, "%s narrows the lists only: %v", q, inbox)
+	}
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?service=payments", nil)
+	expect(t, page(inbox["heldPage"])["total"] == float64(2), "payments' held changes: %v", inbox["heldPage"])
 }
 
 func toStrings(v any) []string {
@@ -769,6 +854,38 @@ func TestPlanProposeCancel(t *testing.T) {
 	}
 }
 
+// TestPlanAnswerKeepsPlanFields: /plan answers every delivery.Plan key the
+// promoter fills, plus next.
+func TestPlanAnswerKeepsPlanFields(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, p := call(t, http.MethodPost, base+"/api/delivery/plan", delivery.Request{Namespace: "prod", Stage: "payments", To: dNext})
+	expect(t, code == http.StatusOK, "plan %d %v", code, p)
+	var want map[string]any
+	b, _ := json.Marshal(fullPlan(dNext))
+	_ = json.Unmarshal(b, &want)
+	for k := range want {
+		expect(t, p[k] != nil, "plan dropped %q: %v", k, p)
+	}
+	expect(t, len(p) == len(want)+1 && p["next"].([]any)[0] == "a person approves it", "plan adds only next: %v", p)
+}
+
+func TestProposeAnswersNext(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", delivery.Request{Namespace: "prod", Stage: "payments", To: dNext, IntentDigest: "sha256:i"})
+	expect(t, code == http.StatusCreated && out["plan"].(map[string]any)["next"].([]any)[0] == "proposed next", "propose %d %v", code, out)
+}
+
+func TestPlanStaleCarriesNext(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	base := startDelivery(t, &fakeDelivery{caller: person()}, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", delivery.Request{IntentDigest: "stale"})
+	p, _ := out["plan"].(map[string]any)
+	expect(t, code == http.StatusConflict && p["intentDigest"] == "sha256:fresh" && p["next"].([]any)[0] == "fresh next",
+		"the fresh plan of a PlanStale refusal says what proposing it leads to: %d %v", code, out)
+}
+
 // checkDecideFollowsThePromoter: a decision the promoter would not count is
 // refused with its reason, a Stage the caller cannot read refuses it, and the
 // sign-in margin follows the login freshness the Stage publishes.
@@ -944,6 +1061,7 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 		{http.MethodGet, "/api/delivery/history?namespace=books&stage=ledger", nil},
 		{http.MethodGet, "/api/delivery/blame?namespace=books&stage=ledger", nil},
 		{http.MethodGet, "/api/delivery/undo?namespace=books&name=broke", nil},
+		{http.MethodGet, "/api/delivery/progress?namespace=books&stage=ledger", nil},
 		{http.MethodPost, "/api/delivery/operations/books/broke/decision", map[string]string{"decision": "approve"}},
 		{http.MethodDelete, "/api/delivery/operations/books/broke", nil},
 		{http.MethodPost, "/api/delivery/plan", delivery.Request{Namespace: "books", Stage: "ledger"}},
@@ -1053,11 +1171,49 @@ func TestBlame(t *testing.T) {
 	expect(t, code == http.StatusUnprocessableEntity, "blame needs a Stage: %d", code)
 }
 
+func TestDeliveryRecord(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
+	f := sampleCluster("acme:team-checkout")
+	f.known = map[string]string{dNext: "2.0.0"}
+	f.record = &delivery.RecordView{Namespace: "prod", Stage: "payments", Record: "sha256:r", Verified: true, Trust: "sha256:t",
+		Entry: delivery.HistoryEntry{Operation: "done", From: dRun, To: dNext, Actor: person().User,
+			Approvals: []delivery.RecordApproval{{By: person().User, Decision: delivery.Approve}}},
+		Verdicts: []delivery.ExplainedVerdict{{Verdict: delivery.Verdict{Gate: delivery.GateDiff, Result: delivery.Pass}, Rerun: "pacto delivery plan"}}}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	call(t, http.MethodGet, base+"/api/session", nil) // carol signs in
+	code, b := call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:r", nil)
+	expect(t, code == http.StatusOK && b["record"] == "sha256:r" && b["verified"] == true && b["entry"].(map[string]any)["operation"] == "done" &&
+		len(b["verdicts"].([]any)) == 1, "record %d %v", code, b)
+	vs := b["versions"].(map[string]any)
+	expect(t, vs[dRun] == "1.0.0" && vs[dNext] == "2.0.0", "record versions: %v", vs)
+	expect(t, b["people"].(map[string]any)[person().User] == "Carol Diaz", "record people: %v", b["people"])
+	f.recordErr = Refuse(http.StatusUnprocessableEntity, "Refused", "record sha256:x is not in the stream")
+	code, b = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:x", nil)
+	expect(t, code == http.StatusUnprocessableEntity && b["detail"] == "record sha256:x is not in the stream", "record refused: %d %v", code, b)
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "record needs an id: %d", code)
+	// The dashboard cannot reach delivery at all.
+	base = startDelivery(t, f, a.auth(false, true), false, nil)
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/record?namespace=prod&stage=payments&id=sha256:r", nil)
+	expect(t, code == http.StatusNotFound, "not installed: %d", code)
+}
+
+// TestDeliveryRecordOutOfScope: a dashboard scoped to one namespace answers
+// a record of another as if it were not there, and never reads it.
+func TestDeliveryRecordOutOfScope(t *testing.T) {
+	f := sampleCluster()
+	f.record = &delivery.RecordView{Record: "sha256:r"}
+	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true),
+		DeliveryNamespace: "prod", Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
+	code, b := call(t, http.MethodGet, base+"/api/delivery/record?namespace=books&stage=ledger&id=sha256:r", nil)
+	expect(t, code == http.StatusNotFound && b["code"] == "OutOfScope", "out of scope: %d %v", code, b)
+}
+
 func TestUndo(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	f := sampleCluster("acme:team-checkout")
 	f.undo = &delivery.Undo{Operation: "prod/done", Kind: "promote", Note: "the Stage changed since",
-		Plan: &delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}, Command: "pacto delivery propose"}
+		Plan: &delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}}, Command: "pacto delivery propose"}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	code, u := call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done&stage=payments", nil)
 	expect(t, code == http.StatusOK && u["kind"] == "promote" && u["plan"].(map[string]any)["to"] == dRun &&
@@ -1108,4 +1264,384 @@ func TestRefusals(t *testing.T) {
 	f.refusalsErr = Refuse(http.StatusForbidden, "Forbidden", "no")
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
 	expect(t, code == http.StatusForbidden, "refused: %d", code)
+}
+
+// TestEnvironmentRowJSONKeepsFields: the shared row keeps every key the
+// board's row had before it moved to pkg/delivery, upstream included.
+func TestEnvironmentRowJSONKeepsFields(t *testing.T) {
+	row := EnvironmentRow{StageRow: delivery.StageRow{Namespace: "n", Stage: "s", Service: "svc", Domain: "d", Environment: "e", Pointer: dRun,
+		Version: "1", Verified: true, Failed: true, Frozen: true, FrozenReason: "r", AutoHold: true, Held: 1, Candidate: dNext,
+		CandidateVersion: "2", Ready: "False: x", ReadyMessage: "m", Actions: []string{}, Level: "advise", State: "failed",
+		ContractRef: "oci://r/c@sha256:c", ReadyFix: "f", Watched: &delivery.Watch{Status: "True"}, LastCheck: &delivery.CheckSummary{},
+		HeldUnknown: true, Offers: []delivery.Offer{}, Upstream: &delivery.Upstream{}},
+		Shadow: []ShadowDecision{{}}, Revision: "svc@1"}
+	b, _ := json.Marshal(row)
+	var got map[string]any
+	_ = json.Unmarshal(b, &got)
+	for _, k := range []string{"namespace", "stage", "service", "domain", "environment", "pointer", "version", "verified", "failed", "frozen",
+		"frozenReason", "autoHold", "held", "candidate", "candidateVersion", "ready", "readyMessage", "actions", "level", "upstream", "shadow",
+		"state", "contractRef", "readyFix", "watched", "lastCheck", "heldUnknown", "offers", "revision"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("%s missing from %s", k, b)
+		}
+	}
+}
+
+// TestListingJSONUnchanged: the dashboard's Listing marshals to the shared
+// fields only, and still answers read from its unexported scope.
+func TestListingJSONUnchanged(t *testing.T) {
+	l := Listing{Listing: delivery.Listing{AsOf: "t", Completeness: "partial", Unreadable: []string{"books"}}, listed: []string{"prod"}, scope: "prod"}
+	b, _ := json.Marshal(l)
+	if string(b) != `{"asOf":"t","completeness":"partial","unreadable":["books"]}` {
+		t.Fatalf("listing %s", b)
+	}
+	if !l.read("prod") || l.read("books") || !(Listing{everywhere: true}).read("x") {
+		t.Fatal("read answers from the scope")
+	}
+}
+
+// TestDescribedKeepsContractWithoutVersion: an artifact that names a
+// contract whose bundle could not be read keeps its entry, with why.
+func TestDescribedKeepsContractWithoutVersion(t *testing.T) {
+	st := stage("prod", "payments", "payments", delivery.StageStatus{})
+	f := &fakeDelivery{owner: "team-payments"}
+	got := describedAll(context.Background(), f, nil, digestsOn{&st, []string{dRun, "sha256:unreadable", "advise"}})
+	if got[dRun] != (delivery.Described{Version: "1.0.0", Team: "team-payments", Contract: "oci://r/payments@sha256:c"}) {
+		t.Errorf("dRun %+v", got[dRun])
+	}
+	if r, ok := got["sha256:unreadable"]; !ok || r.Version != "" || r.Err != "registry down" {
+		t.Errorf("unreadable %+v %v", r, ok)
+	}
+	if _, ok := got["advise"]; ok {
+		t.Error("a level name is never described")
+	}
+	if v := versionsIn(nil, got); len(v) != 1 || v[dRun] != "1.0.0" {
+		t.Errorf("versions %v", v)
+	}
+}
+
+// TestDeliveryRoutesAreReadsExceptExisting: every delivery route that is not
+// a GET is one of the four writes that existed before offers: offers only
+// describe, and nothing new can change what runs.
+func TestDeliveryRoutesAreReadsExceptExisting(t *testing.T) {
+	base := startDelivery(t, sampleCluster(), (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, doc := call(t, http.MethodGet, base+"/openapi.json", nil)
+	var writes []string
+	for path, ops := range doc["paths"].(map[string]any) {
+		if !strings.HasPrefix(path, "/api/delivery") {
+			continue
+		}
+		for method, op := range ops.(map[string]any) {
+			if method != "get" {
+				writes = append(writes, op.(map[string]any)["operationId"].(string))
+			}
+		}
+	}
+	slices.Sort(writes)
+	if strings.Join(writes, ",") != "delivery-cancel,delivery-decide,delivery-plan,delivery-propose" {
+		t.Fatalf("delivery writes: %v", writes)
+	}
+}
+
+const (
+	dOld      = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	dContract = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+)
+
+// offerIn is the offer of action on the row of service, nil when none.
+func offerIn(t *testing.T, body map[string]any, service, action string) map[string]any {
+	t.Helper()
+	for _, r := range body["environments"].([]any) {
+		row := r.(map[string]any)
+		if row["service"] != service {
+			continue
+		}
+		for _, o := range row["offers"].([]any) {
+			if o.(map[string]any)["action"] == action {
+				return o.(map[string]any)
+			}
+		}
+	}
+	return nil
+}
+
+// TestEnvironmentsUndoOnlyWithService: undo and freeze read history and ask
+// RBAC, so only a request that names a service is offered them.
+func TestEnvironmentsUndoOnlyWithService(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.owner = "team-payments"
+	f.blame = &delivery.Blame{Change: &delivery.HistoryEntry{Operation: "ship", Type: delivery.TypePromote,
+		Pointer: &delivery.PointerChange{Before: dOld, After: dRun}}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, board := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	expect(t, offerIn(t, board, "payments", "undo") == nil && offerIn(t, board, "ledger", "freeze") == nil, "board offers %v", board["environments"])
+	_, one := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	undo := offerIn(t, one, "payments", "undo")
+	expect(t, undo != nil && undo["available"] == true && undo["to"] == dOld && undo["operation"] == "ship", "undo %v", undo)
+	f.blameErr = errors.New("history down")
+	_, one = call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	undo = offerIn(t, one, "payments", "undo")
+	expect(t, undo != nil && undo["available"] == false && undo["reason"] == "could not read its history: history down", "undo %v", undo)
+	f.blameErr = nil
+	f.deny = map[string]bool{"create operations prod": true}
+	_, one = call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	undo = offerIn(t, one, "payments", "undo")
+	expect(t, undo["available"] == false && undo["reason"] == "your Kubernetes RBAC does not let you create Operations in prod", "undo %v", undo)
+}
+
+// revisionFleet is a snapshot holding revs, each with a target in its
+// service's namespace (prod for payments).
+func revisionFleet(t *testing.T, revs ...fleet.RawRevision) func(context.Context) (*fleet.Query, error) {
+	t.Helper()
+	var targets []fleet.RawTarget
+	for _, r := range revs {
+		name := r.Bundle.Contract.Service.Name
+		targets = append(targets, fleet.RawTarget{Scope: cmp.Or(map[string]string{"payments": "prod"}[name], name), Kind: fleet.SourceKindKubernetes, Name: name, Service: name})
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: revs, Targets: targets}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	return func(context.Context) (*fleet.Query, error) { return q, nil }
+}
+
+func contractRev(service, digest string) fleet.RawRevision {
+	return fleet.RawRevision{Digest: digest, Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
+		Service: contract.Service{Name: service, Version: "1.0.0", Owner: contract.Owner{Team: "team-" + service}}}}}
+}
+
+// revisionKeyOf is the key of service's one revision in the fleet.
+func revisionKeyOf(t *testing.T, fl func(context.Context) (*fleet.Query, error), service string) string {
+	t.Helper()
+	q, _ := fl(context.Background())
+	for k, r := range q.SnapshotForSerialization().Revisions {
+		if r.Service == service {
+			return string(k)
+		}
+	}
+	t.Fatalf("no revision of %s", service)
+	return ""
+}
+
+func rowOf(t *testing.T, body map[string]any, service string) map[string]any {
+	t.Helper()
+	for _, r := range body["environments"].([]any) {
+		if r.(map[string]any)["service"] == service {
+			return r.(map[string]any)
+		}
+	}
+	t.Fatalf("no row of %s in %v", service, body)
+	return nil
+}
+
+// TestEnvironmentsRevisionJoin: a row links the fleet revision whose
+// contract digest its running artifact names, of its own service only.
+func TestEnvironmentsRevisionJoin(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.contract = "oci://r/payments@" + dContract
+	auth := (&authed{state: AuthState{SignedIn: true}}).auth(false, true)
+	fl := revisionFleet(t, contractRev("payments", dContract))
+	base := startDeliveryWith(t, f, Options{Fleet: fl, Auth: auth}, true, nil)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	row := rowOf(t, envs, "payments")
+	expect(t, row["revision"] == revisionKeyOf(t, fl, "payments") && row["contractRef"] == f.contract, "row %v", row)
+	// Publish links each version to the same revision by the same rule.
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	pv := pub["services"].([]any)[0].(map[string]any)["versions"].([]any)[0].(map[string]any)
+	expect(t, pv["revision"] == revisionKeyOf(t, fl, "payments"), "published %v", pv)
+	base = startDeliveryWith(t, f, Options{Fleet: revisionFleet(t, contractRev("ledger", dContract)), Auth: auth}, true, nil)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?service=payments", nil)
+	pv = pub["services"].([]any)[0].(map[string]any)["versions"].([]any)[0].(map[string]any)
+	expect(t, pv["revision"] == nil, "another service's revision is never linked on Publish: %v", pv)
+	expect(t, rowOf(t, envs, "payments")["revision"] == nil, "another service's revision is never linked: %v", rowOf(t, envs, "payments"))
+	// The same contract in two domains, and a Stage that names none: either
+	// could be meant, so neither is linked.
+	east, west := contractRev("payments", dContract), contractRev("payments", dContract)
+	east.Domain, west.Domain = "east.io", "west.io"
+	base = startDeliveryWith(t, f, Options{Fleet: revisionFleet(t, east, west), Auth: auth}, true, nil)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	expect(t, rowOf(t, envs, "payments")["revision"] == nil, "an ambiguous revision is never linked: %v", rowOf(t, envs, "payments"))
+}
+
+// TestLabelsRevisions: every answer that names versions also names the fleet
+// revision of each digest it can.
+func TestLabelsRevisions(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.contract = "oci://r/payments@" + dContract
+	fl := revisionFleet(t, contractRev("payments", dContract))
+	key := revisionKeyOf(t, fl, "payments")
+	base := startDeliveryWith(t, f, Options{Fleet: fl, Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true)}, true, nil)
+	f.history = &delivery.History{Stage: delivery.StageNow{Pointer: dRun}, Entries: []delivery.HistoryEntry{{Operation: "ship", From: dOld, To: dRun}}}
+	f.blame = &delivery.Blame{Digest: dRun, Stage: delivery.StageNow{Pointer: dRun}}
+	f.undo = &delivery.Undo{Plan: &delivery.PlanAnswer{Plan: delivery.Plan{From: dRun, To: dOld}}}
+	for _, path := range []string{"history?namespace=prod&stage=payments", "history", "blame?namespace=prod&stage=payments",
+		"undo?namespace=prod&name=ship&stage=payments", "operations/prod/for-checkout"} {
+		_, out := call(t, http.MethodGet, base+"/api/delivery/"+path, nil)
+		revs, _ := out["revisions"].(map[string]any)
+		expect(t, revs[dRun] == key && len(revs) == 1, "%s revisions %v", path, out["revisions"])
+	}
+}
+
+// TestLabelsRevisionsRestricted: a revision hidden from the viewer is never
+// linked, and with no fleet nothing is.
+func TestLabelsRevisionsRestricted(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.contract = "oci://r/payments@" + dContract
+	f.history = &delivery.History{Stage: delivery.StageNow{Pointer: dRun}}
+	auth := (&authed{state: AuthState{SignedIn: true}}).auth(false, true)
+	hide := func(hidden ...string) func(context.Context, *fleet.Query) (*fleet.Query, error) {
+		return func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+			return q.Restrict(func(ns string) bool { return !slices.Contains(hidden, ns) }), nil
+		}
+	}
+	for name, o := range map[string]Options{
+		"namespace hidden": {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod"), Auth: auth},
+		"cluster hidden":   {Fleet: revisionFleet(t, contractRev("payments", dContract)), View: hide("prod", ""), Auth: auth},
+		"no fleet":         {Auth: auth},
+	} {
+		base := startDeliveryWith(t, f, o, true, nil)
+		_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+		expect(t, rowOf(t, envs, "payments")["revision"] == nil, "%s: row %v", name, rowOf(t, envs, "payments"))
+		_, h := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
+		expect(t, h["revisions"] == nil, "%s: labels %v", name, h["revisions"])
+	}
+}
+
+// historyFake is payments in prod running dRun, which the change ship put
+// there, and two older lines: one tied to INC-1 by a latency alert, one with
+// no cause.
+func historyFake(caller delivery.Caller) *fakeDelivery {
+	at := func(h int) string { return time.Date(2026, 11, 5, h, 0, 0, 0, time.UTC).Format(time.RFC3339) }
+	return &fakeDelivery{caller: caller,
+		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun})},
+		history: &delivery.History{Stage: delivery.StageNow{Name: "payments", Pointer: dRun}, Completeness: "complete", Note: "n",
+			Entries: []delivery.HistoryEntry{
+				{Seq: 1, Operation: "old", Type: delivery.TypePromote, Finished: at(8), Pointer: &delivery.PointerChange{Before: "", After: dOld}},
+				{Seq: 2, Operation: "tied", Type: delivery.TypePromote, Finished: at(9), CorrelationID: "INC-1",
+					Cause: &delivery.Cause{Reason: "Latency alert"}, Pointer: &delivery.PointerChange{Before: dOld, After: dNext}},
+				{Seq: 3, Operation: "ship", Type: delivery.TypePromote, Finished: at(10), Pointer: &delivery.PointerChange{Before: dNext, After: dRun}},
+			}}}
+}
+
+// entryOps is the operation of each entry of the first history of body.
+func entryOps(body map[string]any) []string {
+	var out []string
+	for _, e := range body["histories"].([]any)[0].(map[string]any)["entries"].([]any) {
+		out = append(out, e.(map[string]any)["operation"].(string))
+	}
+	return out
+}
+
+// TestHistoryCauseAndCorrelation: cause and correlationID keep only the
+// changes they name, in both modes, and the note says so.
+func TestHistoryCauseAndCorrelation(t *testing.T) {
+	f := historyFake(person())
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	for _, q := range []string{"namespace=prod&stage=payments&correlationID=INC-1", "cause=LATENCY"} {
+		_, body := call(t, http.MethodGet, base+"/api/delivery/history?"+q, nil)
+		h := body["histories"].([]any)[0].(map[string]any)
+		expect(t, slices.Equal(entryOps(body), []string{"tied"}) && strings.Contains(h["note"].(string), "; only changes "), "%s: %v", q, h)
+	}
+	_, body := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=INC-1", nil)
+	expect(t, slices.Equal(entryOps(body), []string{"tied"}), "q matches the correlation id: %v", entryOps(body))
+	_, body = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&q=latency", nil)
+	expect(t, slices.Equal(entryOps(body), []string{"tied"}), "q matches the cause: %v", entryOps(body))
+	_, body = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&cause=nothing", nil)
+	expect(t, len(entryOps(body)) == 0, "nothing kept: %v", body)
+}
+
+// historyUndo is the undo offer of op on the first history of body, nil
+// when none.
+func historyUndo(body map[string]any, op string) map[string]any {
+	offers, _ := body["histories"].([]any)[0].(map[string]any)["undoOffers"].(map[string]any)
+	o, _ := offers[op].(map[string]any)
+	return o
+}
+
+// TestHistoryUndoOffers: each change on the page that moved the Stage says
+// whether the caller may undo it, gated like the service page's offer.
+func TestHistoryUndoOffers(t *testing.T) {
+	f := historyFake(person())
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	one := base + "/api/delivery/history?namespace=prod&stage=payments"
+	_, body := call(t, http.MethodGet, one, nil)
+	ship := historyUndo(body, "ship")
+	expect(t, ship["available"] == true && ship["to"] == dNext && ship["action"] == "undo", "ship %v", ship)
+	old := historyUndo(body, "old")
+	expect(t, old["available"] == false && old["reason"] != "", "old %v", old)
+	// An agent never undoes a rollback the Stage runs.
+	f.history.Entries[2].Type = delivery.TypeRollback
+	f.caller = delivery.Caller{Identity: delivery.Identity{User: "system:serviceaccount:a:bot"}, Class: delivery.ClassAgent}
+	_, body = call(t, http.MethodGet, one, nil)
+	ship = historyUndo(body, "ship")
+	expect(t, ship["available"] == false && strings.Contains(ship["reason"].(string), "only a person or break-glass"), "agent %v", ship)
+	f.history.Entries[2].Type, f.caller = delivery.TypePromote, person()
+	f.deny = map[string]bool{"create operations prod": true}
+	_, body = call(t, http.MethodGet, one, nil)
+	for _, op := range []string{"ship", "tied", "old"} {
+		o := historyUndo(body, op)
+		expect(t, o["available"] == false && o["reason"] != "", "denied %s: %v", op, o)
+	}
+	expect(t, historyUndo(body, "ship")["reason"] == "your Kubernetes RBAC does not let you create Operations in prod", "denied %v", historyUndo(body, "ship"))
+	f.deny, f.stageErr = nil, nil
+	f.stages = nil
+	_, body = call(t, http.MethodGet, one, nil)
+	h := body["histories"].([]any)[0].(map[string]any)
+	expect(t, h["undoOffers"] == nil && strings.Contains(h["note"].(string), "undo offers need the Stage, which could not be read"), "unread Stage %v", h)
+	f.stages, f.callerErr = historyFake(person()).stages, errors.New("whoami down")
+	_, body = call(t, http.MethodGet, one, nil)
+	h = body["histories"].([]any)[0].(map[string]any)
+	expect(t, h["undoOffers"] == nil && strings.Contains(h["note"].(string), "whoami down"), "unread caller %v", h)
+}
+
+// TestHistoryUndoOffersEveryStage: without a stage each paged Stage's newest
+// change carries its offer, with one review per namespace.
+func TestHistoryUndoOffersEveryStage(t *testing.T) {
+	f := historyFake(person())
+	f.stages = append(f.stages, stage("prod", "payments-eu", "payments", delivery.StageStatus{Pointer: dRun}))
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	before := f.cans.Load()
+	_, body := call(t, http.MethodGet, base+"/api/delivery/history?service=payments", nil)
+	hs := body["histories"].([]any)
+	expect(t, len(hs) == 2, "two Stages: %v", hs)
+	for _, h := range hs {
+		o := h.(map[string]any)["undoOffers"].(map[string]any)["ship"].(map[string]any)
+		expect(t, o["available"] == true, "every-Stage offer %v", o)
+	}
+	expect(t, f.cans.Load()-before == 1, "one review for prod, got %d", f.cans.Load()-before)
+}
+
+// TestHistoryTimelineFiltered: the timeline counts only the changes the
+// filter keeps, in both modes.
+func TestHistoryTimelineFiltered(t *testing.T) {
+	f := historyFake(person())
+	f.ops = []delivery.OperationObject{
+		{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "tied"}, Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "payments",
+			CorrelationID: "INC-1"}, Status: delivery.OperationStatus{Phase: delivery.PhaseConcluded, Times: delivery.Times{Finished: "2026-11-05T09:00:00Z"}}},
+		{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "ship"}, Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "payments"},
+			Status: delivery.OperationStatus{Phase: delivery.PhaseConcluded, Times: delivery.Times{Finished: "2026-11-05T10:00:00Z"}}},
+	}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	total := func(tl map[string]any) float64 {
+		var n float64
+		for _, v := range tl["totals"].(map[string]any) {
+			n += v.(float64)
+		}
+		u, _ := tl["untimed"].(float64)
+		return n + u
+	}
+	window := "&since=2026-11-05T07:00:00Z&until=2026-11-05T11:00:00Z"
+	for _, timed := range []string{"", "&timed=true"} {
+		_, all := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments"+window+timed, nil)
+		_, kept := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&correlationID=INC-1"+window+timed, nil)
+		a := total(all["histories"].([]any)[0].(map[string]any)["timeline"].(map[string]any))
+		k := total(kept["histories"].([]any)[0].(map[string]any)["timeline"].(map[string]any))
+		expect(t, a == 3 && k == 1, "one Stage%s: %v unfiltered, %v kept", timed, a, k)
+	}
+	_, all := call(t, http.MethodGet, base+"/api/delivery/history?"+window[1:], nil)
+	_, kept := call(t, http.MethodGet, base+"/api/delivery/history?correlationID=INC-1"+window, nil)
+	a, k := total(all["timeline"].(map[string]any)), total(kept["timeline"].(map[string]any))
+	expect(t, a == 2 && k == 1, "every Stage: %v unfiltered, %v kept", a, k)
 }

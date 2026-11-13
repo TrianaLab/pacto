@@ -13,7 +13,6 @@ export interface DrawerData {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   owner: any;
   sources: string[];
-  blastRadius: number;
   dependencies: DrawerDep[];
   dependents: string[];
   external: boolean;
@@ -47,7 +46,6 @@ export function nodeDrawerData(name: string, services: any[], graphData: any): D
     version: node.version || svc?.version || '',
     owner: svc?.owner,
     sources: svc?.sources || (svc?.source ? [svc.source] : []),
-    blastRadius: svc?.blastRadius || 0,
     dependencies,
     dependents,
     external: node.status === 'external',

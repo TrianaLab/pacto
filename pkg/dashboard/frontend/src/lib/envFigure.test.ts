@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fleetEnvModel, promotionModel, rowState, servicePath, ENV_STATES, MAX_ENV_STATIONS } from './envFigure.ts';
+import { fleetEnvModel, promotionModel, rowState, servicePath, ENV_STATES, MAX_ENV_STATIONS, envStateWord, upstreamText, sourceProblem } from './envFigure.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -64,6 +64,22 @@ describe('rowState', () => {
     expect(rowState(row('x', { pointer: '' })).key).toBe('empty');
     expect(rowState(row('x', { verified: false })).key).toBe('unverified');
     expect(rowState(row('x')).key).toBe('verified');
+  });
+});
+
+describe('envStateWord and upstreamText', () => {
+  it('names every state, unknown included', () => {
+    expect(envStateWord('empty')).toBe('running nothing yet');
+    expect(envStateWord('verified')).toBe('verified');
+    expect(envStateWord('unknown')).toBe('not known: its operations could not be read');
+  });
+  it('says a sound source, and leaves a broken one to sourceProblem', () => {
+    expect(upstreamText(row('prod', { upstream: { kind: 'stage', namespace: 'staging', stage: 'svc', environment: 'staging' } }))).toBe('Source: staging, the Stage staging/svc');
+    expect(upstreamText(row('prod', { upstream: { kind: 'artifact', repository: 'repo' } }))).toBe('Source: New artifacts, from repo');
+    const broken = row('prod', { upstream: { kind: 'artifact', problem: 'missing', repository: 'gone' } });
+    expect(upstreamText(broken)).toBe('');
+    expect(sourceProblem(broken)).toContain('Missing artifacts');
+    expect(upstreamText(row('prod'))).toBe('');
   });
 });
 

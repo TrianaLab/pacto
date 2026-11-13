@@ -6,6 +6,9 @@
  */
 import type { components } from './generated/schema.ts';
 import { formatDate, todayUTC } from './dateFormat.ts';
+import { timeLabel } from './delivery.ts';
+import { ownerDisplay } from './owners.ts';
+import type { EnvironmentOwner } from './api.ts';
 
 type Guarantees = components['schemas']['Contract.Guarantees'];
 type Lifecycle = components['schemas']['Contract.InterfaceLifecycle'];
@@ -89,6 +92,42 @@ const ENVIRONMENT: Record<string, { label: string; tone: Tone }> = {
 /** environmentBadge names an environment's check result. */
 export function environmentBadge(status: string | null | undefined): { label: string; tone: Tone } {
   return ENVIRONMENT[status ?? ''] ?? { label: 'Unknown', tone: 'neutral' };
+}
+
+const LIFETIME: Record<string, { label: string; tone: Tone; title: string }> = {
+  temporary: { label: 'Temporary', tone: 'info', title: 'Declared temporary: it is meant to end.' },
+  persistent: { label: 'Persistent', tone: 'neutral', title: 'Declared persistent.' },
+};
+const NO_LIFETIME = { label: 'Lifetime not declared', tone: 'neutral' as Tone, title: 'The environment declares no lifetime.' };
+
+/** lifetimeBadge names an environment's declared lifetime. An absent one reads not
+ *  declared, never persistent. */
+export function lifetimeBadge(lifetime: string | null | undefined): { label: string; tone: Tone; title: string } {
+  return LIFETIME[lifetime ?? ''] ?? NO_LIFETIME;
+}
+
+/** expiryText is when a temporary environment is meant to end, or that it has ended:
+ *  inferred from `expires` against the answer time (`asOf`), which it names when known. */
+export function expiryText(env: { expires?: string; expired?: boolean }, asOf = ''): string {
+  if (env.expired) return asOf ? `Expired (inferred, as of ${timeLabel(asOf)})` : 'Expired (inferred)';
+  return env.expires ? `Expires ${timeLabel(env.expires)}` : '';
+}
+
+type ContractOwner = components['schemas']['Contract.Owner'];
+
+/** ownerLabel names who owns an environment. The fleet's answer says whether the owner is
+ *  declared, inferred from the service owner or unknown; a contract owner is declared. */
+export function ownerLabel(owner: Partial<EnvironmentOwner> | ContractOwner | null | undefined): string {
+  if (!owner) return 'No owner declared';
+  if ('provenance' in owner) {
+    if (owner.provenance === 'declared') return `Owner ${owner.owner} (declared)`;
+    if (owner.provenance === 'inferred') {
+      return owner.owner ? `Owner ${owner.owner} (service owner, inferred)` : 'Owner declared by contacts only (service owner, inferred)';
+    }
+    return owner.reason ? `Owner unknown: ${owner.reason}` : 'Owner unknown';
+  }
+  const name = ownerDisplay(owner);
+  return name ? `Owner ${name} (declared)` : 'Owner declared by contacts only';
 }
 
 const STAGE: Record<string, { word: string; tone: Tone }> = {

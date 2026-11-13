@@ -80,7 +80,7 @@ describe('EnvironmentsSection', () => {
       env('dev', 'unverified'), env('qa', 'skip', { reason: 'structural failed' }), env('staging', 'pass'),
     ] } });
     expect(target.querySelector('[data-testid="environments-summary"]')?.textContent).toBe('1 failed, 1 not verified and 1 not checked');
-    expect(tags()).toEqual(['Failed', 'Error', 'Not verified', 'Not checked', 'Passed']);
+    expect(tags().filter((t) => t !== 'Lifetime not declared')).toEqual(['Failed', 'Error', 'Not verified', 'Not checked', 'Passed']);
     expect(target.textContent).toContain('prod.yaml:2:3');
     expect(target.textContent).toContain('Not checked: structural failed.');
   });
@@ -92,6 +92,15 @@ describe('EnvironmentsSection', () => {
     (target.querySelector('.show-all') as HTMLButtonElement).click();
     flushSync();
     expect(target.querySelectorAll('[data-testid="environment"]')).toHaveLength(3000);
+  });
+  it('reads an expired environment as inferred', () => {
+    comp = mount(EnvironmentsSection, { target, props: { open: true, environments: [env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true })] } });
+    expect(target.textContent).toContain('Expired (inferred)');
+    expect(target.textContent).toContain('Temporary');
+  });
+  it('dates an expired environment with the time it was inferred against', () => {
+    comp = mount(EnvironmentsSection, { target, props: { open: true, asOf: '2026-10-01T00:00:00Z', environments: [env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true })] } });
+    expect(target.textContent).toContain('Expired (inferred, as of');
   });
   it('says None declared when there are none', () => {
     comp = mount(EnvironmentsSection, { target, props: { open: true, environments: [] } });

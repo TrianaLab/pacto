@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
@@ -23,9 +24,7 @@ import (
 // Listing is how complete a list of delivery objects is: a namespace the
 // caller may not list is left out and named.
 type Listing struct {
-	AsOf         string   `json:"asOf"`
-	Completeness string   `json:"completeness" enum:"complete,partial"`
-	Unreadable   []string `json:"unreadable,omitempty" doc:"Namespaces the caller may not list, or * when the namespaces could not be known"`
+	delivery.Listing
 
 	// everywhere is set when every namespace was listed at once; else listed
 	// names the namespaces read in full. scope is the dashboard's namespace.
@@ -51,7 +50,7 @@ func forbidden(err error) bool {
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
-	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete", scope: s.opts.DeliveryNamespace}
+	l := Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}, scope: s.opts.DeliveryNamespace}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
 		// Both at once: for a new person each waits on a permission check.
@@ -96,13 +95,13 @@ func operations(ctx context.Context, api DeliveryAPI, ns string, want bool) ([]d
 	return api.Operations(ctx, ns)
 }
 
-// listEach lists each namespace, describeParallel at once (one after
+// listEach lists each namespace, delivery.DescribeParallel at once (one after
 // another, a person who reads forty namespaces waited on eighty round trips
 // in a row), dropping (and naming) one that refuses.
 func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	sts, oss, errs := make([][]delivery.StageObject, len(namespaces)), make([][]delivery.OperationObject, len(namespaces)), make([]error, len(namespaces))
 	var g errgroup.Group
-	g.SetLimit(describeParallel)
+	g.SetLimit(delivery.DescribeParallel)
 	for i, ns := range namespaces {
 		g.Go(func() error {
 			if sts[i], errs[i] = api.Stages(ctx, ns); errs[i] == nil {
@@ -220,6 +219,9 @@ type inboxInput struct {
 	// Except is the figure's folded station: every environment but the ones
 	// it draws, so its counts open a list of exactly what they count.
 	Except []string `query:"except,explode" doc:"Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment"`
+	// Service and Domain narrow everything, byEnvironment included.
+	Service string `query:"service" doc:"Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 }
 
 type inboxOutput struct {
@@ -234,7 +236,7 @@ type inboxOutput struct {
 		ErroredPage Page             `json:"erroredPage"`
 		// ByEnvironment is over every page and before environment, so paging
 		// or narrowing the lists never changes it.
-		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
+		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
 	}
 }
 
@@ -251,6 +253,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	if err != nil {
 		return nil, err
 	}
+	stages, ops = ofService(stages, ops, in.Service, in.Domain)
 	owners := s.serviceOwners(ctx)
 	// A service whose owner the snapshot does not know is shown: an inbox
 	// that hides what it cannot attribute hides work.
@@ -266,7 +269,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = l
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -296,20 +299,31 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for i := range page {
 		on = append(on, digestsOn{&page[i], []string{page[i].Status.Pointer, page[i].Status.Candidate}})
 	}
-	teams := map[string]string{}
-	vers := versionsAll(ctx, api, nil, teams, on...)
+	read := describedAll(ctx, api, nil, on...)
 	for i, it := range b.Held {
 		if byStage[it.Namespace+"/"+it.Stage] != nil {
-			b.Held[i].FromVersion, b.Held[i].ToVersion = vers[it.From], vers[it.To]
+			b.Held[i].FromVersion, b.Held[i].ToVersion = read[it.From].Version, read[it.To].Version
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
+		b.Frozen = append(b.Frozen, environmentRowOf(st, nil, caller, read, false))
 	}
-	mayRaise(ctx, api, b.Frozen)
+	narrowRows(ctx, api, b.Frozen)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
+}
+
+// ofService keeps the Stages of service and domain and the operations on
+// them; everything when service is empty. An operation on a Stage the caller
+// cannot read is left out: Pacto cannot tell whose it is.
+func ofService(stages []delivery.StageObject, ops []delivery.OperationObject, service, domain string) ([]delivery.StageObject, []delivery.OperationObject) {
+	if service == "" {
+		return stages, ops
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool { return delivery.OfService(st, service, domain) })
+	byStage := delivery.StagesByName(stages)
+	return stages, filter(ops, func(o delivery.OperationObject) bool { return byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil })
 }
 
 // frozenOf returns the caller's frozen Stages by namespace/name, and those
@@ -355,87 +369,30 @@ func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller)
 		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != op.Spec.Actor.User
 }
 
-// stagesByName indexes Stages by namespace/name.
-func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObject {
-	out := map[string]*delivery.StageObject{}
-	for i := range stages {
-		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
-	}
-	return out
-}
-
-// EnvironmentRow is one Stage: one service in one environment.
+// EnvironmentRow is one Stage: one service in one environment, as the
+// shared row (delivery.StageRow) plus what only the board shows.
 type EnvironmentRow struct {
-	Namespace        string    `json:"namespace"`
-	Stage            string    `json:"stage"`
-	Service          string    `json:"service"`
-	Domain           string    `json:"domain,omitempty" doc:"The registry domain the Stage names for its service; empty when it names none"`
-	Environment      string    `json:"environment"`
-	Pointer          string    `json:"pointer,omitempty" doc:"The digest the environment runs"`
-	Version          string    `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
-	Verified         bool      `json:"verified" doc:"The running digest passed its verify gates here"`
-	Failed           bool      `json:"failed" doc:"The running digest failed here"`
-	Frozen           bool      `json:"frozen"`
-	FrozenReason     string    `json:"frozenReason,omitempty"`
-	AutoHold         bool      `json:"autoHold"`
-	Held             int       `json:"held" doc:"Operations on this Stage waiting for a person"`
-	Candidate        string    `json:"candidate,omitempty" doc:"The newest eligible candidate"`
-	CandidateVersion string    `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
-	Ready            string    `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
-	ReadyMessage     string    `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
-	Actions          []string  `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
-	Level            string    `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
-	Upstream         *Upstream `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on the board's rows only"`
+	delivery.StageRow
 	// Shadow is set on an observe Stage only: newest first.
-	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
+	Shadow   []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
+	Revision string           `json:"revision,omitempty" doc:"The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it"`
+	// HeldOperation lets a waiting badge open the one held change.
+	HeldOperation string `json:"heldOperation,omitempty" doc:"The name of the Operation waiting for a person, when exactly one is"`
 }
 
-// environmentRow is one Stage as the board shows it; held counts the held
-// operations by namespace/Stage, vers names the versions of digests and teams
-// the owner their contracts declare.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
-	ss := st.Status
-	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Domain: st.Spec.Service.Domain, Environment: st.Spec.Environment,
-		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
-		Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold, Candidate: ss.Candidate, Actions: []string{}}
+// environmentRowOf is one Stage as the board shows it; held counts the held
+// operations by namespace/Stage and read says what each digest carries. The
+// level and shadow come from ladderOf, so tests can supply a ladder.
+func environmentRowOf(st delivery.StageObject, held map[string]int, caller delivery.Caller, read map[string]delivery.Described, withService bool) EnvironmentRow {
+	row := EnvironmentRow{StageRow: delivery.RowOf(st, delivery.RowInput{Held: held[st.Metadata.Namespace+"/"+st.Metadata.Name],
+		Caller: caller, Read: read, WithService: withService})}
 	if lad := ladderOf(st); lad.Level != "" {
 		row.Level = lad.Level
 		if lad.Level == "observe" {
 			row.Shadow = lad.Shadow
 		}
 	}
-	for _, c := range ss.Conditions {
-		if c.Type == "Ready" {
-			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")
-			if c.Status != "True" {
-				row.ReadyMessage = c.Message
-			}
-		}
-	}
-	row.Version, row.CandidateVersion = vers[ss.Pointer], vers[ss.Candidate]
-	row.Held = held[row.Namespace+"/"+row.Stage]
-	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
-		row.Actions = append(row.Actions, "promote")
-	}
-	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) && mayUnfreeze(caller, teams[ss.Pointer]) {
-		row.Actions = append(row.Actions, "unfreeze")
-	}
 	return row
-}
-
-// mayUnfreeze is the promoter's admission rule for an unfreeze, so the board
-// never offers one it would refuse: a person unfreezes only a Stage whose
-// running contract names their team (Policy.InTeams); with no team named or
-// readable, anyone, or nobody with RequireOwnerTeam. Break-glass may always.
-func mayUnfreeze(caller delivery.Caller, team string) bool {
-	if caller.Class != delivery.ClassHuman {
-		return true
-	}
-	var teams []string
-	if team != "" {
-		teams = []string{team}
-	}
-	return caller.Policy.InTeams(caller.Groups, teams)
 }
 
 // environmentsPage is how many services one page of the board holds.
@@ -446,7 +403,7 @@ type environmentsInput struct {
 	Environment string   `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
 	Tier        string   `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages"`
 	State       string   `query:"state" enum:"failed,frozen,autohold,waiting,unverified,empty,verified" doc:"Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages"`
-	Service     string   `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
+	Service     string   `query:"service" doc:"Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo"`
 	Domain      string   `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 	Except      []string `query:"except,explode" doc:"Leave out the Stages in these environments (repeat the parameter), and the services left with none: the figure's folded station lists every environment but the ones it draws"`
 }
@@ -521,13 +478,14 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if err != nil {
 		return nil, err
 	}
-	held := map[string]int{}
+	held, heldName := map[string]int{}, map[string]string{}
 	for _, o := range ops {
 		if o.Status.Phase == delivery.PhaseHeld {
 			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
+			heldName[o.Metadata.Namespace+"/"+o.Spec.Stage] = o.Metadata.Name
 		}
 	}
-	byStage := stagesByName(stages)
+	byStage := delivery.StagesByName(stages)
 	stages = filter(stages, func(st delivery.StageObject) bool {
 		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
 	})
@@ -555,14 +513,20 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	for i := range shown {
 		on = append(on, digestsOn{&shown[i], []string{shown[i].Status.Pointer, shown[i].Status.Candidate}})
 	}
-	teams := map[string]string{}
-	vers := versionsAll(ctx, api, nil, teams, on...)
+	read := describedAll(ctx, api, nil, on...)
 	for _, st := range shown {
-		row := environmentRow(st, held, caller, vers, teams)
-		row.Upstream = upstreamListed(&st, byStage, l)
+		row := environmentRowOf(st, held, caller, read, in.Service != "")
+		row.Upstream = delivery.UpstreamListed(&st, byStage, l.read, l.scope)
+		if row.Held == 1 {
+			row.HeldOperation = heldName[st.Metadata.Namespace+"/"+st.Metadata.Name]
+		}
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
-	mayRaise(ctx, api, out.Body.Environments)
+	if in.Service != "" {
+		undoOffers(ctx, api, shown, out.Body.Environments, caller)
+	}
+	narrowRows(ctx, api, out.Body.Environments)
+	s.revisionLinks(ctx, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
 	})
@@ -598,7 +562,7 @@ func environmentsListed(stages []delivery.StageObject) ([]string, map[string]str
 			tiers[st.Spec.Environment] = tier
 		}
 	}
-	envs, _, _, _ := promotionOrder(stages)
+	envs, _, _, _ := delivery.PromotionOrder(stages)
 	return envs, tiers
 }
 
@@ -607,14 +571,11 @@ type PublishedVersion struct {
 	Digest   string `json:"digest"`
 	Version  string `json:"version,omitempty"`
 	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract)"`
-	// Signature is signed when a Stage the caller lists names the digest in
-	// status.published (Flux verified its signature on the candidate
-	// OCIRepository) or status.offered (it passed pacto.published there).
-	// It is unsigned only when an entry Stage, fed by an OCIRepository and
-	// whose published list never reached its cap, holds the digest and no
-	// Stage names it signed. Otherwise Pacto cannot tell: a downstream Stage,
-	// one fed by another cluster's records or a published list that may have
-	// dropped it says nothing about the signature.
+	Revision string `json:"revision,omitempty" doc:"The fleet revision key of that contract, for this service and domain; empty when none or several match or the viewer cannot see it"`
+	// SourceRevision is read with the version, from the same artifact.
+	SourceRevision string `json:"sourceRevision,omitempty" doc:"The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed"`
+	// Signature follows delivery.SignatureEvidence, the rule the lifecycle
+	// answer uses too.
 	Signature string              `json:"signature" enum:"signed,unsigned,unknown"`
 	Stages    []PublishedOnStages `json:"stages"`
 }
@@ -632,7 +593,16 @@ type PublishedOnStages struct {
 // PublishedService is the versions of one service.
 type PublishedService struct {
 	Service  string             `json:"service"`
+	Domain   string             `json:"domain,omitempty" doc:"The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain"`
 	Versions []PublishedVersion `json:"versions"`
+}
+
+// publishedKey is one PublishedService: a service name and the domain its
+// Stages name.
+type publishedKey struct{ Service, Domain string }
+
+func comparePublished(a, b publishedKey) int {
+	return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Domain, b.Domain))
 }
 
 // publishedPage is how many services one page of published versions holds.
@@ -640,7 +610,9 @@ const publishedPage = 10
 
 type publishedInput struct {
 	PageQuery
-	Signed string `query:"signed" enum:"yes,no,unknown" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions"`
+	Service string `query:"service" doc:"Keep only the versions of the service with exactly this name; it narrows counts too"`
+	Domain  string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Signed  string `query:"signed" enum:"yes,no,unknown" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions"`
 }
 
 type publishedOutput struct {
@@ -648,7 +620,7 @@ type publishedOutput struct {
 		Listing
 		Services []PublishedService `json:"services"`
 		Page     Page               `json:"page" doc:"Which services this page holds; offset and limit count services"`
-		Counts   PublishedCounts    `json:"counts" doc:"Over every page after q, before signed"`
+		Counts   PublishedCounts    `json:"counts" doc:"Over every page after q, service and domain, before signed"`
 	}
 }
 
@@ -679,14 +651,14 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	}
 	// First where each digest stands, which costs nothing; then only the
 	// page's artifacts are read.
-	byService, readFrom := publishedDigests(stages, in.Q)
+	byService, readFrom := publishedDigests(stages, in.Q, in.Service, in.Domain)
 	out := &publishedOutput{}
 	out.Body.Counts = countPublished(byService)
 	for svc, vs := range byService {
 		if in.Signed != "" {
 			// The figure's three lanes: the service's lane, then only the
 			// versions that put it there.
-			lane, keep := signatureLane(vs), map[string]string{"yes": sigSigned, "no": sigUnsigned, "unknown": sigUnknown}[in.Signed]
+			lane, keep := signatureLane(vs), map[string]string{"yes": delivery.SignatureSigned, "no": delivery.SignatureUnsigned, "unknown": delivery.SignatureUnknown}[in.Signed]
 			if lane != keep {
 				clear(vs)
 			}
@@ -696,7 +668,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 			delete(byService, svc)
 		}
 	}
-	names := slices.Sorted(maps.Keys(byService))
+	names := slices.SortedFunc(maps.Keys(byService), comparePublished)
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
 	names, out.Body.Page = pageOf(names, in.Offset, in.Limit, publishedPage)
 	var page []*PublishedVersion
@@ -707,10 +679,16 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	}
 	revs := describeAll(ctx, api, len(page), func(i int) (*delivery.StageObject, string) { return readFrom[page[i]], page[i].Digest })
 	for i, v := range page {
-		v.Contract, v.Version = revs[i].ContractRef, version(ctx, revs[i])
+		v.Contract, v.Version, v.SourceRevision = revs[i].ContractRef, version(ctx, revs[i]), revs[i].SourceRevision
 	}
+	match := s.revisionMatcher(ctx)
 	for _, svc := range names {
-		ps := PublishedService{Service: svc, Versions: []PublishedVersion{}}
+		if match != nil {
+			for _, v := range byService[svc] {
+				v.Revision = match(svc.Service, svc.Domain, v.Contract)
+			}
+		}
+		ps := PublishedService{Service: svc.Service, Domain: svc.Domain, Versions: []PublishedVersion{}}
 		for _, v := range byService[svc] {
 			ps.Versions = append(ps.Versions, *v)
 		}
@@ -722,33 +700,26 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	return out, nil
 }
 
-// The three signature states of a published version.
-const (
-	sigSigned   = "signed"
-	sigUnsigned = "unsigned"
-	sigUnknown  = "unknown"
-)
-
 // signatureLane is the figure's lane of a service with versions vs: unsigned
 // when one version is, else unknown when one version's signature cannot be
 // told, else signed.
 func signatureLane(vs map[string]*PublishedVersion) string {
-	lane := sigSigned
+	lane := delivery.SignatureSigned
 	for _, v := range vs {
-		if v.Signature == sigUnsigned {
-			return sigUnsigned
+		if v.Signature == delivery.SignatureUnsigned {
+			return delivery.SignatureUnsigned
 		}
-		if v.Signature == sigUnknown {
-			lane = sigUnknown
+		if v.Signature == delivery.SignatureUnknown {
+			lane = delivery.SignatureUnknown
 		}
 	}
 	return lane
 }
 
 // countPublished counts the versions of byService by their signature.
-func countPublished(byService map[string]map[string]*PublishedVersion) PublishedCounts {
+func countPublished(byService map[publishedKey]map[string]*PublishedVersion) PublishedCounts {
 	c := PublishedCounts{FirstUnsigned: []string{}}
-	for _, svc := range slices.Sorted(maps.Keys(byService)) {
+	for _, svc := range slices.SortedFunc(maps.Keys(byService), comparePublished) {
 		vs := byService[svc]
 		if len(vs) == 0 {
 			continue
@@ -757,19 +728,19 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 		for _, v := range vs {
 			c.Versions++
 			switch v.Signature {
-			case sigUnsigned:
+			case delivery.SignatureUnsigned:
 				c.Unsigned++
-			case sigUnknown:
+			case delivery.SignatureUnknown:
 				c.Unknown++
 			}
 		}
 		switch signatureLane(vs) {
-		case sigUnsigned:
+		case delivery.SignatureUnsigned:
 			c.UnsignedServices++
 			if len(c.FirstUnsigned) < 4 {
-				c.FirstUnsigned = append(c.FirstUnsigned, svc)
+				c.FirstUnsigned = append(c.FirstUnsigned, svc.Service)
 			}
-		case sigUnknown:
+		case delivery.SignatureUnknown:
 			c.UnknownServices++
 		}
 	}
@@ -777,35 +748,30 @@ func countPublished(byService map[string]map[string]*PublishedVersion) Published
 	return c
 }
 
-// publishedDigests groups every digest the Stages of services matching q
-// remember by service, with the Stage to read each one's artifact from.
-func publishedDigests(stages []delivery.StageObject, q string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
-	byService = map[string]map[string]*PublishedVersion{}
+// publishedDigests groups every digest the Stages of services matching q,
+// service and domain remember by service and the domain its Stages name,
+// with the Stage to read each one's artifact from.
+func publishedDigests(stages []delivery.StageObject, q, service, domain string) (byService map[publishedKey]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
+	byService = map[publishedKey]map[string]*PublishedVersion{}
 	readFrom = map[*PublishedVersion]*delivery.StageObject{}
-	signed, unsigned := map[*PublishedVersion]bool{}, map[*PublishedVersion]bool{}
+	evidence := map[*PublishedVersion]*delivery.SignatureEvidence{}
 	for i := range stages {
 		st := &stages[i]
 		ss := st.Status
-		svc := st.Spec.Service.Name
-		if !matches(q, svc) {
+		svc := publishedKey{st.Spec.Service.Name, st.Spec.Service.Domain}
+		if !matches(q, svc.Service) || !delivery.OfService(*st, service, domain) {
 			continue
 		}
 		if byService[svc] == nil {
 			byService[svc] = map[string]*PublishedVersion{}
 		}
-		for _, d := range slices.Concat(ss.Published, ss.Offered, ss.Verified, ss.FailedDigests, []string{ss.Pointer}) {
-			if d == "" {
-				continue
-			}
+		for _, d := range delivery.KnownDigests(*st) {
 			v := byService[svc][d]
 			if v == nil {
 				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
-				byService[svc][d], readFrom[v] = v, st
+				byService[svc][d], readFrom[v], evidence[v] = v, st, &delivery.SignatureEvidence{}
 			}
-			signed[v] = signed[v] || slices.Contains(ss.Published, d) || slices.Contains(ss.Offered, d)
-			// Only an entry Stage whose published list never dropped a
-			// digest can say Flux never verified this one.
-			unsigned[v] = unsigned[v] || (st.Spec.Candidates.OCIRepositoryRef != nil && len(ss.Published) < delivery.MaxPublished)
+			evidence[v].Add(*st, d)
 			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
 				Running: ss.Pointer == d, Verified: slices.Contains(ss.Verified, d), Failed: slices.Contains(ss.FailedDigests, d)}
 			if !slices.Contains(v.Stages, on) {
@@ -813,25 +779,22 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 			}
 		}
 	}
-	for v := range readFrom {
-		v.Signature = sigUnknown
-		if signed[v] {
-			v.Signature = sigSigned
-		} else if unsigned[v] {
-			v.Signature = sigUnsigned
-		}
+	for v, e := range evidence {
+		v.Signature = e.Signature()
 	}
 	return byService, readFrom
 }
 
 type historyInput struct {
-	Namespace string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
-	Stage     string `query:"stage" doc:"One Stage's name"`
-	Service   string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
-	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
-	Since     string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
-	Until     string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
-	Timed     bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
+	Namespace     string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
+	Stage         string `query:"stage" doc:"One Stage's name"`
+	Service       string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
+	Domain        string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Since         string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
+	Until         string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
+	Timed         bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
+	Cause         string `query:"cause" doc:"Keep only changes whose cause (reason, operation or cited verdict) names this text, ignoring case. A line with no record carries an unsigned cause. It narrows the timeline too"`
+	CorrelationID string `query:"correlationID" doc:"Keep only changes with exactly this correlation id. It narrows the timeline too"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -857,6 +820,8 @@ type StageHistory struct {
 	// what they are: the lists stay on the Stage's own page.
 	ProblemCount    int `json:"problemCount,omitempty" doc:"How many problems the records show. Without a stage, problems and unreadable are left out and only these counts are sent"`
 	UnreadableCount int `json:"unreadableCount,omitempty" doc:"How many things could not be read or verified"`
+	// UndoOffers are keyed by the change's operation name.
+	UndoOffers map[string]delivery.Offer `json:"undoOffers,omitempty" doc:"For each change on this page that moved the Stage, by its operation name, whether the caller may undo it and why. Offers only describe: GET /api/delivery/undo decides between a rollback and a promote back"`
 }
 
 type historyOutput struct {
@@ -868,7 +833,7 @@ type historyOutput struct {
 		Counts *HistoryCounts `json:"counts,omitempty" doc:"Without a stage: Stages that wait for a person and frozen Stages, over every page"`
 		// Timeline is over every page; without a stage only (one Stage's is on
 		// its history).
-		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline"`
+		Timeline *delivery.HistoryTimeline `json:"timeline,omitempty" doc:"Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline. It counts the changes left after cause and correlationID"`
 		Labels
 	}
 }
@@ -883,7 +848,9 @@ type HistoryCounts struct {
 // Labels say in words what the identifiers in an answer stand for.
 type Labels struct {
 	Versions map[string]string `json:"versions,omitempty" doc:"The version each digest named here carries, when its artifact could be read"`
-	People   map[string]string `json:"people,omitempty" doc:"The names of the people named here who signed in to this dashboard, by username"`
+	// Revisions link a version to its revision page.
+	Revisions map[string]string `json:"revisions,omitempty" doc:"The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it"`
+	People    map[string]string `json:"people,omitempty" doc:"The names of the people named here who signed in to this dashboard, by username"`
 }
 
 func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*historyOutput, error) {
@@ -895,8 +862,9 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	if err != nil {
 		return nil, err
 	}
+	keep := delivery.EntryFilter{Cause: in.Cause, CorrelationID: in.CorrelationID}
 	out := &historyOutput{}
-	out.Body.Listing = Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
+	out.Body.Listing = Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}}
 	var targets []delivery.StageObject
 	// describe: the Stages were read, so their artifacts can be asked for
 	// versions. A Stage that cannot be read still has a history to ask for.
@@ -921,7 +889,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 				delivery.OfService(st, in.Service, in.Domain)
 		})
 		out.Body.Counts = historyCounts(stages, ops)
-		out.Body.Timeline = clusterTimeline(stages, ops, since, until)
+		out.Body.Timeline = clusterTimeline(stages, ops, since, until, keep)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
 			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
 		})
@@ -943,7 +911,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if in.Timed {
 			window = delivery.SliceEntries
 		}
-		h := new(window(*hs[i], since, until))
+		h := new(delivery.FilterEntries(window(*hs[i], since, until), keep))
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
@@ -951,7 +919,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			start, end := delivery.TimelineWindow(since, until, time.Now())
 			sh.Timeline = new(delivery.Timeline(entries, start, end))
 			entries = filter(entries, func(e delivery.HistoryEntry) bool {
-				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason)
+				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason,
+					e.CorrelationID, causeReason(e.Cause))
 			})
 			sh.Entries, sh.EntriesPage = pageOf(entries, in.Offset, in.Limit, historyEntriesPage)
 		} else {
@@ -967,9 +936,59 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		out.Body.Histories = append(out.Body.Histories, sh)
 	}
-	versionsAll(ctx, api, out.Body.Versions, nil, on...)
+	historyUndoOffers(ctx, api, targets, out.Body.Histories, describe)
+	read := describedAll(ctx, api, nil, on...)
+	versionsIn(out.Body.Versions, read)
+	out.Body.Revisions = s.revisionLabels(ctx, read, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// causeReason is the reason of c, empty when there is none.
+func causeReason(c *delivery.Cause) string {
+	if c == nil {
+		return ""
+	}
+	return c.Reason
+}
+
+// historyUndoOffers says, for each change on each history's page that moved
+// its Stage, whether the caller may undo it (UndoOffer), then narrows the
+// offers with one RBAC review per namespace that has one available. It reads
+// no history: hs[i] is the page of targets[i]. read false means the Stage
+// could not be read, so there is no status to judge an undo against.
+func historyUndoOffers(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, hs []StageHistory, read bool) {
+	if !read {
+		for i := range hs {
+			hs[i].Note += "; undo offers need the Stage, which could not be read"
+		}
+		return
+	}
+	caller, err := api.WhoAmI(ctx)
+	if err != nil {
+		for i := range hs {
+			hs[i].Note += "; undo offers need who you are, which could not be read: " + err.Error()
+		}
+		return
+	}
+	rows := make([]*delivery.StageRow, len(hs))
+	for i := range hs {
+		rows[i] = &delivery.StageRow{Namespace: hs[i].Namespace}
+		for _, e := range hs[i].Entries {
+			if e.Operation != "" && e.Pointer != nil && e.Pointer.After != "" {
+				rows[i].Offers = append(rows[i].Offers, delivery.UndoOffer(targets[i], e, caller))
+			}
+		}
+	}
+	delivery.NarrowOffers(ctx, rows, delivery.CreateOperations(api.Can))
+	for i, r := range rows {
+		for _, o := range r.Offers {
+			if hs[i].UndoOffers == nil {
+				hs[i].UndoOffers = map[string]delivery.Offer{}
+			}
+			hs[i].UndoOffers[o.Operation] = o
+		}
+	}
 }
 
 // queryWindow reads the since and until query parameters and refuses a window
@@ -1019,22 +1038,22 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 	return c
 }
 
-// clusterTimeline counts the Operations still in the cluster on stages by
-// time and kind (B7): reading every Stage's signed records for a fleet figure
-// would read every record stream on every poll.
-func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time) *delivery.HistoryTimeline {
-	byStage := stagesByName(stages)
+// clusterTimeline counts the Operations still in the cluster on stages that
+// keep keeps, by time and kind (B7): reading every Stage's signed records for
+// a fleet figure would read every record stream on every poll.
+func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObject, since, until time.Time, keep delivery.EntryFilter) *delivery.HistoryTimeline {
+	byStage := delivery.StagesByName(stages)
 	var entries []delivery.HistoryEntry
 	for _, o := range ops {
-		if byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil {
-			entries = append(entries, delivery.StatusEntry(o))
+		if e := delivery.StatusEntry(o); byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil && keep.Keeps(e) {
+			entries = append(entries, e)
 		}
 	}
 	start, end := delivery.TimelineWindow(since, until, time.Now())
 	return new(delivery.Timeline(entries, start, end))
 }
 
-// historiesOf reads the history of each target, describeParallel at once: on
+// historiesOf reads the history of each target, delivery.DescribeParallel at once: on
 // a cluster each one lists the Stage's changes and reads a record stream, so a
 // page of 25 read one after another was 50 round trips in a row. read says the
 // targets came from the apiserver, so the host is handed them instead of
@@ -1042,7 +1061,7 @@ func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObje
 func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, read bool) ([]*delivery.History, []error) {
 	hs, errs := make([]*delivery.History, len(targets)), make([]error, len(targets))
 	var g errgroup.Group
-	g.SetLimit(describeParallel)
+	g.SetLimit(delivery.DescribeParallel)
 	for i, t := range targets {
 		g.Go(func() error {
 			var listed *delivery.StageObject
@@ -1057,12 +1076,17 @@ func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageO
 	return hs, errs
 }
 
-// versions adds to into (a new map when nil) the version each digest's
-// contract declares, leaving out what cannot be read.
-// ponytail: a digest that cannot be read is asked again each time it is
-// named; the host caches only what it read.
-func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject, into map[string]string, digests ...string) map[string]string {
-	return versionsAll(ctx, api, into, nil, digestsOn{stage, digests})
+// versionsIn adds to into (a new map when nil) every version read names.
+func versionsIn(into map[string]string, read map[string]delivery.Described) map[string]string {
+	if into == nil {
+		into = map[string]string{}
+	}
+	for d, r := range read {
+		if r.Version != "" {
+			into[d] = r.Version
+		}
+	}
+	return into
 }
 
 // digestsOn are digests to read from one Stage's artifacts.
@@ -1071,12 +1095,13 @@ type digestsOn struct {
 	digests []string
 }
 
-// versionsAll is versions for the digests of many Stages, all read at once:
-// a page that asked Stage by Stage read two artifacts at a time. A non-nil
-// teams gets the owner each read contract declares (Owner.DisplayString).
-func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]string, on ...digestsOn) map[string]string {
+// describedAll adds to into (a new map when nil) what the digests of many
+// Stages carry, all read at once: a page that asked Stage by Stage read two
+// artifacts at a time. A digest keeps its entry when its version is empty,
+// so a contract named by an artifact whose bundle failed still counts.
+func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery.Described, on ...digestsOn) map[string]delivery.Described {
 	if into == nil {
-		into = map[string]string{}
+		into = map[string]delivery.Described{}
 	}
 	var ask []string
 	from := map[string]*delivery.StageObject{}
@@ -1091,36 +1116,20 @@ func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]st
 	}
 	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
-		if v := version(ctx, revs[i]); v != "" {
-			into[d] = v
-			if teams != nil {
-				teams[d] = revs[i].Bundle.Contract.Service.Owner.DisplayString()
-			}
+		r := revs[i]
+		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
+		if r.Bundle != nil {
+			desc.Team = r.Bundle.Contract.Service.Owner.DisplayString()
 		}
+		into[d] = desc
 	}
 	return into
 }
 
-// describeParallel is how many digests are described at once. A Describe
-// reads a registry, so a page of fifty read one after another took fifty
-// round trips; the host caches what it read, so a refresh is cheap either way.
-const describeParallel = 8
-
-// describeAll describes n digests, describeParallel at once; at(i) names the
-// Stage to read the i-th from and its digest. out[i] answers at(i).
+// describeAll describes n digests at once (delivery.DescribeAll); at(i)
+// names the Stage to read the i-th from and its digest. out[i] answers at(i).
 func describeAll(ctx context.Context, api DeliveryAPI, n int, at func(int) (*delivery.StageObject, string)) []delivery.Revision {
-	out := make([]delivery.Revision, n)
-	var g errgroup.Group
-	g.SetLimit(describeParallel)
-	for i := range n {
-		g.Go(func() error {
-			st, d := at(i)
-			out[i] = api.Describe(ctx, st, d)
-			return nil
-		})
-	}
-	_ = g.Wait()
-	return out
+	return delivery.DescribeAll(ctx, n, at, api.Describe)
 }
 
 // version is the version a revision's contract declares; "" when it has
@@ -1136,15 +1145,108 @@ func version(ctx context.Context, r delivery.Revision) string {
 	return r.Bundle.Contract.Service.Version
 }
 
-// stageVersions is versions for the digests of a change on a Stage read by
-// name; nil, with the reason logged, when the Stage cannot be read.
-func stageVersions(ctx context.Context, api DeliveryAPI, namespace, stage string, digests ...string) map[string]string {
+// stageLabels names the version and the fleet revision of the digests of a
+// change on a Stage read by name; nothing, with the reason logged, when the
+// Stage cannot be read.
+// ponytail: a digest that cannot be read is asked again each time it is
+// named; the host caches only what it read.
+func (s *Server) stageLabels(ctx context.Context, api DeliveryAPI, namespace, stage string, digests ...string) Labels {
 	st, err := api.Stage(ctx, namespace, stage)
 	if err != nil {
 		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "error", err)
+		return Labels{}
+	}
+	on := digestsOn{st, digests}
+	read := describedAll(ctx, api, nil, on)
+	return Labels{Versions: versionsIn(nil, read), Revisions: s.revisionLabels(ctx, read, on)}
+}
+
+// revisionMatcher finds the fleet revision whose contract digest is a
+// digest-pinned contract reference's, of the service named (and of the
+// domain, when one is named): "" when none or several match, never a guess.
+// It reads only the snapshot as the viewer sees it, so a hidden revision is
+// never named; nil when there is no snapshot.
+func (s *Server) revisionMatcher(ctx context.Context) func(service, domain, ref string) string {
+	q := s.publishedQuery(ctx)
+	if q == nil {
 		return nil
 	}
-	return versions(ctx, api, st, nil, digests...)
+	byDigest := map[string][]*fleet.ContractRevision{}
+	for _, r := range q.SnapshotForSerialization().Revisions {
+		if r.Digest != "" {
+			byDigest[r.Digest] = append(byDigest[r.Digest], r)
+		}
+	}
+	return func(service, domain, ref string) string {
+		var key fleet.RevisionKey
+		for _, r := range byDigest[delivery.ContractDigest(ref)] {
+			if r.Service == service && (domain == "" || r.Domain == domain) {
+				if key != "" {
+					return "" // several revisions: never a guess
+				}
+				key = r.Key
+			}
+		}
+		return string(key)
+	}
+}
+
+// revisionLinks sets each row's revision: the fleet revision its running
+// artifact's contract belongs to.
+func (s *Server) revisionLinks(ctx context.Context, rows []EnvironmentRow) {
+	if match := s.revisionMatcher(ctx); match != nil {
+		for i := range rows {
+			rows[i].Revision = match(rows[i].Service, rows[i].Domain, rows[i].ContractRef)
+		}
+	}
+}
+
+// revisionLabels maps each digest named on a Stage to the fleet revision its
+// contract belongs to, by the rule of revisionLinks.
+func (s *Server) revisionLabels(ctx context.Context, read map[string]delivery.Described, on ...digestsOn) map[string]string {
+	match := s.revisionMatcher(ctx)
+	if match == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, o := range on {
+		for _, d := range o.digests {
+			if k := match(o.stage.Spec.Service.Name, o.stage.Spec.Service.Domain, read[d].Contract); k != "" {
+				out[d] = k
+			}
+		}
+	}
+	return out
+}
+
+// undoOffers adds to each row the offer to undo the change its Stage runs,
+// one history read per row, delivery.DescribeParallel at once. rows[i] is shown[i].
+func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObject, rows []EnvironmentRow, caller delivery.Caller) {
+	offers := make([]*delivery.Offer, len(rows))
+	var g errgroup.Group
+	g.SetLimit(delivery.DescribeParallel)
+	for i := range rows {
+		g.Go(func() error {
+			b, err := api.Blame(ctx, rows[i].Namespace, rows[i].Stage, "")
+			offers[i] = delivery.UndoOfferFor(shown[i], b, err, caller)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	for i, o := range offers {
+		if o != nil {
+			rows[i].Offers = append(rows[i].Offers, *o)
+		}
+	}
+}
+
+// narrowRows makes unavailable what the caller's RBAC refuses (NarrowOffers).
+func narrowRows(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
+	ptrs := make([]*delivery.StageRow, len(rows))
+	for i := range rows {
+		ptrs[i] = &rows[i].StageRow
+	}
+	delivery.NarrowOffers(ctx, ptrs, delivery.CreateOperations(api.Can))
 }
 
 // maxPeople bounds the names a dashboard remembers.

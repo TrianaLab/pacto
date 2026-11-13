@@ -47,7 +47,7 @@ const (
 // Provenance annotations Pacto stamps on every manifest it pushes.
 const (
 	AnnotationVersion  = "org.opencontainers.image.version"
-	AnnotationRevision = "org.opencontainers.image.revision"
+	AnnotationRevision = delivery.SourceRevisionAnnotation
 )
 
 // BundleItem is the name the contract bundle has among the plan's items.

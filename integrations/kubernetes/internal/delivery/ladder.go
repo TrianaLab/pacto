@@ -169,7 +169,9 @@ func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec 
 	switch {
 	case p.Predicted == delivery.PredictRejected:
 		e.Question = planRefusal(p)
-	case len(p.Conflicts) > 0:
+	case p.Predicted == delivery.PredictWaits && len(p.Conflicts) > 0:
+		// A held plan keeps the person's question: a freeze is then only
+		// one of its conflicts.
 		e.Question = p.Conflicts[0]
 	}
 	return e, nil

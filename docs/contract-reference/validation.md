@@ -88,6 +88,8 @@ Validates semantic references and consistency:
 | `policies[].ref` is a valid OCI reference | `INVALID_POLICY_REF` |
 | Environment names are unique | `DUPLICATE_ENVIRONMENT_NAME` |
 | `environments[].file` is a path in the bundle and the file exists | `FILE_NOT_FOUND` |
+| `environments[].expires` appears only with `lifetime: temporary` | `ENVIRONMENT_EXPIRES_NOT_TEMPORARY` |
+| `environments[].expires` is an RFC 3339 time such as `2026-11-20T00:00:00Z` | `INVALID_ENVIRONMENT_EXPIRES` |
 | `readiness.claims[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
 | `readiness.claims[].evidence` has non-whitespace content | `EMPTY_READINESS_EVIDENCE` |
 | `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
@@ -219,5 +221,12 @@ its values unchecked, and so does a run with no bundle files to read, such as
 the operator loading an inline contract.
 A stage with no error and an unchecked value set reports
 `SKIP could not verify:` and names each environment and configuration.
+
+`pacto validate` and `pacto_check` also add an `ENVIRONMENT_EXPIRED` warning to
+this stage for each temporary environment whose `expires` is at or before the
+clock of the run. The stage keeps its status, and the verdict does not change
+with the date. Pacto deletes nothing for an expired environment: remove it
+with `pacto_edit remove_environments` or move `expires`. The fleet, the
+delivery gate and `pacto doc` never report this warning.
 
 ---
