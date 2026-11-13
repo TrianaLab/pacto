@@ -35,6 +35,10 @@ type DeliveryMode struct {
 	API    DeliveryAPI
 	Writes bool
 	Caller delivery.Caller
+	// Reads, when set, serves the delivery read tools (caller, inbox,
+	// environments, autonomy, published and refusals) to readers and agents
+	// alike.
+	Reads DeliveryReads
 }
 
 // BundleMode serves one bundle's generated operations and pacto_skill.
@@ -55,6 +59,9 @@ func New(version string, a Authoring, m Modes) (*mcpsdk.Server, error) {
 	}
 	if m.Delivery != nil {
 		registerDelivery(server, m.Delivery.API, m.Delivery.Writes)
+		if m.Delivery.Reads != nil {
+			registerDeliveryReads(server, m.Delivery.Reads)
+		}
 	}
 	if m.Bundle != nil {
 		if err := RegisterCapabilities(server, m.Bundle.Bundle, m.Bundle.Opts, m.Bundle.Stderr); err != nil {
@@ -74,6 +81,9 @@ func instructionsFor(a Authoring, m Modes) string {
 	}
 	if m.Delivery != nil {
 		parts = append(parts, deliveryInstructions)
+		if m.Delivery.Reads != nil {
+			parts = append(parts, deliveryReadsInstructions)
+		}
 	}
 	if m.Bundle != nil {
 		parts = append(parts, capabilityInstructions(m.Bundle.Bundle, m.Bundle.Opts))

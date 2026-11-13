@@ -199,6 +199,14 @@ func NewServer(opts Options) *Server {
 	return s
 }
 
+// APIHandler serves the API alone, without the UI, the auth routes or CORS:
+// an in-process caller (the MCP delivery read tools) runs a route through it.
+func (s *Server) APIHandler() http.Handler {
+	mux := http.NewServeMux()
+	s.registerAPI(mux)
+	return withRequest(mux)
+}
+
 // Serve listens on the configured host and port and blocks until ctx is cancelled.
 func (s *Server) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", net.JoinHostPort(s.opts.Host, strconv.Itoa(s.opts.Port)))

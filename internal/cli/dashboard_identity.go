@@ -55,10 +55,8 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	if err != nil {
 		return nil, err
 	}
-	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache(),
-		loginName: v.GetString("dashboard.oidc-display-name")}
+	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
+	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var review authn.TokenReview // nil: no cluster to ask who a token is
 	if cluster != nil {
@@ -96,6 +94,15 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		return nil, errOpenNeedsAllowAnonymous
 	}
 	return id, nil
+}
+
+// baseDashboardIdentity is an identity with everything delivery reads need
+// set; the dashboard adds its sign-in on top, the MCP delivery reads use it
+// as it is.
+func baseDashboardIdentity(cluster *rest.Config, d deps, trust *delivery.TrustConfig, policyNS string) *dashboardIdentity {
+	return &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
+		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: policyNS, reads: newReadCache()}
 }
 
 // options are the dashboard options this identity fills in.

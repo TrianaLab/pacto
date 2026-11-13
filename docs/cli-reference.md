@@ -303,6 +303,29 @@ pacto delivery approve <operation> [flags]
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
 ```
 
+### `pacto delivery autonomy`
+
+How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a level moves through a proposed and approved operation.
+
+It runs the dashboard's own autonomy view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery autonomy [flags]
+```
+
+**Flags:**
+
+```
+      --blockers int        Where the page of blockers starts; limit and q apply to it too
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for autonomy
+      --level string        Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers (observe, advise, auto-nonbreaking, autonomous, none)
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson
+```
+
 ### `pacto delivery blame`
 
 Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said
@@ -362,6 +385,31 @@ pacto delivery describe <type> [flags]
   -h, --help[=true|false]   help for describe
 ```
 
+### `pacto delivery environments`
+
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+
+It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery environments [flags]
+```
+
+**Flags:**
+
+```
+      --domain string        With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+      --environment string   Keep only the services with a Stage in this environment, and only those Stages
+      --except stringArray   Leave out the Stages in these environments (repeat the parameter), and the services left with none: the figure's folded station lists every environment but the ones it draws
+  -h, --help[=true|false]    help for environments
+      --limit int            How many per page; 0 means the list's default
+      --offset int           Where the page starts. Past the end answers the last page
+      --q string             Keep only what contains this text, ignoring case
+      --service string       Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo
+      --state string         Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages (failed, frozen, autohold, waiting, unverified, empty, verified)
+      --tier string          Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages (dev, test, prod)
+```
+
 ### `pacto delivery explain`
 
 Explain an operation: where it is, every verdict with its citation and how to run it again
@@ -410,6 +458,31 @@ pacto delivery history [flags]
       --since string            only changes at or after this RFC 3339 time, or this long before now (2h)
       --stage string            the Stage (this or --all)
       --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
+```
+
+### `pacto delivery inbox`
+
+Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+
+It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery inbox [flags]
+```
+
+**Flags:**
+
+```
+      --domain string        With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+      --environment string   Keep only what waits to enter this environment: items on Stages whose spec.environment is this
+      --errored int          Where the page of Errored changes starts
+      --except stringArray   Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment
+      --frozen int           Where the page of frozen Stages starts
+      --held int             Where the page of held changes starts
+  -h, --help[=true|false]    help for inbox
+      --limit int            How many of each section per page; 0 means 25
+      --q string             Keep only what names this text (namespace, Stage, service or change), ignoring case
+      --service string       Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out
 ```
 
 ### `pacto delivery lifecycle`
@@ -479,6 +552,28 @@ pacto delivery propose [flags]
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
+### `pacto delivery published`
+
+Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+
+It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery published [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for published
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the versions of the service with exactly this name; it narrows counts too
+      --signed string       yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions (yes, no, unknown)
+```
+
 ### `pacto delivery record`
 
 Work with the signed records of operations
@@ -522,6 +617,22 @@ pacto delivery record verify [flags]
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
       --stage string        the Stage (this or --all)
+```
+
+### `pacto delivery refusals`
+
+Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+
+It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery refusals [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for refusals
 ```
 
 ### `pacto delivery status`
@@ -1460,7 +1571,7 @@ With --root, the server exposes a read-only contract catalog: the given roots pl
 
 With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
-With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
+With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views (caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
 Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) and every request must carry it, so other local processes cannot call the server.
 

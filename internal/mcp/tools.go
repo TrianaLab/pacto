@@ -510,6 +510,7 @@ type property struct {
 	Type        string
 	Description string
 	Enum        []string // optional: closed set of allowed string values
+	Items       string   // with Type array: the type of each item
 }
 
 // inputSchema builds the tool's declared JSON Schema. It is the schema the SDK
@@ -535,6 +536,9 @@ func inputSchema(props map[string]property, required []string) map[string]any {
 		optional := !isRequired[name]
 		if optional {
 			entry["type"] = []string{p.Type, "null"}
+		}
+		if p.Items != "" {
+			entry["items"] = map[string]any{"type": p.Items}
 		}
 		if len(p.Enum) > 0 {
 			vals := make([]any, 0, len(p.Enum)+1)

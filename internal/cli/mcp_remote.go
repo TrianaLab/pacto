@@ -280,10 +280,16 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if _, err := pactomcp.New(version, a, m); err != nil {
 		return err
 	}
+	var reads func(*app.Delivery, string) pactomcp.DeliveryReads
+	if rc.delivery != nil {
+		policy := rc.delivery(nil) // only its trust and policy namespace are read
+		reads = mcpDeliveryReads(baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace), m.Fleet, fleetNamespace(cmd))
+	}
 	rc.build = func(ctx context.Context) *mcpsdk.Server {
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
-			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller}
+			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller,
+				Reads: reads(who.delivery, remoteCallerKey(who.person))}
 		}
 		srv, _ := pactomcp.New(version, a, mm) // registered once at startup above
 		return srv

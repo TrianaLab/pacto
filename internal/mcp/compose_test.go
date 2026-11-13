@@ -21,7 +21,7 @@ func composedModes(t *testing.T, writes bool) Modes {
 	t.Helper()
 	return Modes{
 		Fleet:    &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}},
-		Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: writes},
+		Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: writes, Reads: (&stubReads{}).reads},
 		Bundle:   &BundleMode{Bundle: shadowBundle(), Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard},
 	}
 }

@@ -34,6 +34,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"every provider of one. Offerings are read from contracts and are unrelated to a " +
 	"contract's capabilities, which are assertions a service makes about itself. " +
 	"pacto_fleet_versions lists an offering's provider versions and which satisfy a range. " +
+	"pacto_fleet_revision_document reads one document a revision lists in docs; its contract, configuration and " +
+	"policy content are on pacto_fleet_entity kind=revision. " +
 	"An offering use's provisioning status is observed evidence from a provider adapter; Unknown " +
 	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
@@ -142,6 +144,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetNeighborhoodHandler(q, link)
 	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
+	addFleetTool(server, fleetRevisionDocumentTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
+		return fleetRevisionDocumentHandler(q, link)
+	})
 	if opts.Impact != nil {
 		// Impact analyses over the snapshot the other tools answer from (the
 		// caller's view of it when there is one), so one session's answers agree.
@@ -520,6 +525,30 @@ type fleetEntityArgs struct {
 func fleetEntityHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
 		return productResult(link, productview.ToEntityDetail)(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
+	}
+}
+
+func fleetRevisionDocumentTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_revision_document",
+		Description: "Read one document a revision lists in its docs, exactly as published in that revision's bundle: its path, " +
+			"title, size and text. Only a path the revision's own docs list is served; a revision you cannot see is not found. " +
+			"A revision's contract, configuration and policy content are on pacto_fleet_entity kind=revision. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"key":  {Type: "string", Description: "Canonical revision key the document belongs to"},
+			"path": {Type: "string", Description: "In-bundle document path, exactly as published in the revision's docs list"},
+		}, []string{"key", "path"}),
+	}
+}
+
+type fleetRevisionDocumentArgs struct {
+	Key  string `json:"key"`
+	Path string `json:"path"`
+}
+
+func fleetRevisionDocumentHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetRevisionDocumentArgs) (*mcpsdk.CallToolResult, any, error) {
+		return productResult(link, productview.ToRevisionDocument)(q.RevisionDocument(a.Key, a.Path))
 	}
 }
 

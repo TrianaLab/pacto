@@ -52,7 +52,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"--evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
-			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
+			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views " +
+			"(caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the " +
 			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has " +
 			"no approve tool.\n\n" +
 			"Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) " +
@@ -178,7 +179,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 	}
 	m, err := mcpModes(cmd, svc, version, args, d)
 	if err == nil && deliveryMode {
-		m.Delivery, err = buildDeliveryMode(cmd, d)
+		m.Delivery, err = buildDeliveryMode(cmd, d, m.Fleet)
 	}
 	if err != nil {
 		return nil, err
@@ -291,8 +292,9 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool
 // buildDeliveryMode serves the delivery tools for the kubeconfig's caller.
 // Write tools register only when the apiserver says the caller is an agent:
 // an agent must run under its own identity, and a person's credentials get
-// the read-only surface.
-func buildDeliveryMode(cmd *cobra.Command, d deps) (*pactomcp.DeliveryMode, error) {
+// the read-only surface. The read tools run the dashboard's routes over fm,
+// the fleet mode when there is one.
+func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return nil, err
@@ -301,7 +303,18 @@ func buildDeliveryMode(cmd *cobra.Command, d deps) (*pactomcp.DeliveryMode, erro
 	if err != nil {
 		return nil, err
 	}
-	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller}, nil
+	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
+	reads := mcpDeliveryReads(baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace), fm, fleetNamespace(cmd))
+	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
+		Reads: reads(c, "")}, nil
+}
+
+// fleetNamespace is the fleet --namespace, the only namespace delivery reads
+// cover when set, as on the dashboard. --delivery-namespace names where the
+// identity policy is published and never narrows them.
+func fleetNamespace(cmd *cobra.Command) string {
+	ns, _ := cmd.Flags().GetString("namespace")
+	return ns
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
