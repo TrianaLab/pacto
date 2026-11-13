@@ -638,3 +638,17 @@ func TestBundleCannotShadowDeliveryTool(t *testing.T) {
 		t.Error("the ordinary operation was not registered")
 	}
 }
+
+func TestGeneratedCallCarriesPactoUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = r.Header.Get("User-Agent") }))
+	defer srv.Close()
+	bundle := capBundle(fstest.MapFS{"interfaces/openapi.json": {Data: []byte(capSpec)}}, httpIface("http", "interfaces/openapi.json"))
+	session := connectCaps(t, bundle, CapabilityOptions{BaseURL: srv.URL, HTTPClient: srv.Client(), Version: "test"}, io.Discard)
+	if _, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "ping"}); err != nil {
+		t.Fatalf("CallTool ping: %v", err)
+	}
+	if got != "pacto-mcp/test" {
+		t.Fatalf("User-Agent = %q", got)
+	}
+}

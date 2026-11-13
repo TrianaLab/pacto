@@ -21,6 +21,9 @@ type CapabilityOptions struct {
 	Creds       capability.Credentials
 	AllowWrites bool
 	HTTPClient  *http.Client
+	// Version is the pacto version every generated call names in its
+	// User-Agent (pacto-mcp/<version>).
+	Version string
 	// Authoring is passed through to the authoring tools this server also
 	// registers, so pacto_check here runs the same validation path `pacto
 	// validate` runs. See Authoring.
@@ -232,6 +235,7 @@ func toolDesc(tool capability.Tool) string {
 // a missing required parameter or a wrong-typed one never reaches the service.
 func capabilityHandler(op openapi.Operation, doc *openapi.Doc, baseURL string, opts CapabilityOptions) mcpsdk.ToolHandlerFor[map[string]any, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args map[string]any) (*mcpsdk.CallToolResult, any, error) {
+		ctx = capability.WithUserAgent(ctx, "pacto-mcp/"+opts.Version)
 		res, err := capability.Invoke(ctx, opts.HTTPClient, op, doc, baseURL, args, opts.Creds)
 		if err != nil {
 			return errorResult(err), nil, nil

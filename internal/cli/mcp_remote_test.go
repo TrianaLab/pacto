@@ -240,3 +240,20 @@ func TestRemoteDeliveryRefusesABadTrustConfig(t *testing.T) {
 		t.Fatalf("a missing trust config must fail: %v", err)
 	}
 }
+
+// TestAuditRemoteDeliveryCallerIsReviewedUser: the audit line names the user
+// the apiserver reviewed, never the token's opaque subject.
+func TestAuditRemoteDeliveryCallerIsReviewedUser(t *testing.T) {
+	w := newRemoteWorld(t)
+	w.user = "dave"
+	logs := &strings.Builder{}
+	rec := postLogged(t, w.h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pacto_delivery_status","arguments":{"service":"payments"}}}`, logs)
+	line := ""
+	for _, l := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(l, `msg="mcp tool call"`) {
+			line = l
+		}
+	}
+	expect(t, strings.Contains(line, "caller=dave") && strings.Contains(line, "callerSource=reviewed") &&
+		!strings.Contains(line, "idp#agent"), "audit line: %q\n%s\n%s", line, logs, rec.Body)
+}

@@ -406,6 +406,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		Creds:       creds,
 		AllowWrites: allowWrites,
 		Authoring:   mcpAuthoring(cmd, svc),
+		Version:     version,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }

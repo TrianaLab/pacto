@@ -109,6 +109,9 @@ func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mc
 				return errorResult(err), nil, nil
 			}
 		}
+		if n := noteFrom(ctx); n != nil {
+			n.snapshotID = q.SnapshotID()
+		}
 		return h(q)(ctx, req, a)
 	}
 }

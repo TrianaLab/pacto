@@ -144,7 +144,9 @@ func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", caller.User,
 			"class", caller.Class, "writeTools", writes)
 		srv := rd.build(mcpDelivery{c}, writes)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), mcpServerKey{}, srv)))
+		// The audit line names the reviewed user, the name admission records.
+		ctx := pactomcp.WithCaller(context.WithValue(r.Context(), mcpServerKey{}, srv), caller.User)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
