@@ -145,8 +145,10 @@ None of these is required reading:
 - [Health checks](delivery-health.md): monitoring, the suites a version ships and the
   calls a service makes
 - [Eval providers](delivery-evals.md): suite runners and their signed answers
-- [Approvals and agents](delivery-identity.md): who may approve, agents over the
-  network and the dashboard's delivery settings
+- [Approvals](delivery-identity.md): who may approve and the dashboard's
+  delivery settings
+- [Agents](delivery-agents.md): the person an agent acts for and agents over
+  the network
 - [Signed records and history](delivery-records.md): records, blame, undo and
   verification
 - [Record keys](delivery-record-keys.md): trust, key rotation and revocation

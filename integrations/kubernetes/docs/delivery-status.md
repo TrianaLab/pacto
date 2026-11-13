@@ -111,7 +111,7 @@ may create Operations; a denial, or a review that fails, makes every offer
 there unavailable and says why. When the delivery identity policy
 cannot be read, every offer is unavailable with the error, and a NotFound
 suggests `--delivery-namespace`; see
-[approvals and agents](delivery-identity.md). Offers only describe: proposing
+[approvals](delivery-identity.md). Offers only describe: proposing
 still goes through `pacto delivery propose`, the dashboard's propose action or
 an agent's propose tool with your own identity. Admission decides.
 
