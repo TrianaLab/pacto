@@ -42,8 +42,15 @@ Additions:
   with the caller's identity: `pacto_delivery_caller`, `pacto_delivery_inbox`,
   `pacto_delivery_environments`, `pacto_delivery_autonomy`,
   `pacto_delivery_published` and `pacto_delivery_refusals`. The CLI gains
-  `pacto delivery inbox`, `environments`, `autonomy`, `published` and
-  `refusals` over the same route code.
+  `pacto delivery caller`, `inbox`, `environments`, `autonomy`, `published`
+  and `refusals` over the same route code.
+- `pacto fleet entities` and `pacto_fleet_entities` list any entity kind and
+  take every filter the dashboard's entity list takes; a filter of one kind,
+  such as `--source-kind`, lists that kind. `pacto fleet attention` and
+  `pacto_fleet_attention` take `kind`, `key`, `source`, `status` and
+  `stale-only`, `pacto_fleet_neighborhood` takes `max_edges` and
+  `pacto_fleet_search` takes `label`. `pacto mcp --publish` serves
+  `pacto_capabilities` too.
 - `pacto_fleet_revision_document` reads one document of a revision's bundle,
   as the dashboard's revision page does.
 - With `--verbose`, every MCP tool call logs one `mcp tool call` line with the
