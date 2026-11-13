@@ -72,6 +72,61 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+## One question, three surfaces
+
+A person and an agent ask the same question in the same words. Each row names
+the command, the [MCP tool](mcp-reference.md) and the dashboard API route
+that answer it; a flag, a tool argument and a route parameter with one meaning
+carry one name. A dash marks a surface that does not answer the question, and
+the note says where that answer lives instead.
+
+| Question | CLI | MCP tool | Dashboard route | Note |
+|---|---|---|---|---|
+| Which owners, domains, offerings or services match? | `pacto fleet entities` | `pacto_fleet_entities` | `GET /api/fleet/entities` | |
+| What is this service, revision, owner, domain or offering? | `pacto fleet entity` | `pacto_fleet_entity` | `GET /api/fleet/entities/{kind}` | |
+| What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
+| Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
+| Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
+| How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
+| What does the overview show? | - | - | `GET /api/fleet/overview` | Dashboard only |
+| What is this service or target? | `pacto fleet get` | `pacto_fleet_get` | `GET /api/fleet/service`, `GET /api/fleet/target` | |
+| What is this service's dependency tree? | `pacto fleet graph` | `pacto_fleet_graph` | `GET /api/fleet/services/{name}/graph` | |
+| Why does Pacto say this? | `pacto fleet explain` | `pacto_fleet_explain` | - | The dashboard explains on its entity pages |
+| Which versions of this offering exist? | `pacto fleet versions` | `pacto_fleet_versions` | `GET /api/fleet/versions` | |
+| What does a document in this revision say? | `pacto doc` | `pacto_fleet_revision_document` | `GET /api/fleet/revisions/document` | The CLI reads the bundle itself |
+| What is the whole read model? | `pacto fleet snapshot` | - | `GET /api/fleet/snapshot` | MCP answers through the fleet tools |
+| Which consumers does this change affect? | `pacto impact` | `pacto_impact` | `GET /api/fleet/impact`, `POST /api/fleet/impact` | Over HTTP and on a shared dashboard, only revisions in your view |
+| What does this server serve? | - | `pacto_capabilities` | `GET /api/capabilities` | The CLI runs every command as the local user |
+| Who am I to delivery? | - | `pacto_delivery_caller` | `GET /api/delivery/caller` | Each delivery command runs as the kubeconfig user |
+| What waits on me? | `pacto delivery inbox` | `pacto_delivery_inbox` | `GET /api/delivery/inbox` | |
+| Which environments run which version? | `pacto delivery environments` | `pacto_delivery_environments` | `GET /api/delivery/environments` | |
+| How far is each Stage from autonomy? | `pacto delivery autonomy` | `pacto_delivery_autonomy` | `GET /api/delivery/autonomy` | |
+| Which versions do the Stages know, and are they signed? | `pacto delivery published` | `pacto_delivery_published` | `GET /api/delivery/published` | |
+| Which publishes did Pacto refuse? | `pacto delivery refusals` | `pacto_delivery_refusals` | `GET /api/delivery/refusals` | |
+| Where is this service in delivery? | `pacto delivery status` | `pacto_delivery_status` | `GET /api/delivery/progress` | Progress is status with `--why` (`why` in MCP) |
+| What happened on this Stage? | `pacto delivery history` | `pacto_delivery_history` | `GET /api/delivery/history` | |
+| Who put this digest there? | `pacto delivery blame` | `pacto_delivery_blame` | `GET /api/delivery/blame` | |
+| Which versions may this Stage take? | `pacto delivery candidates` | `pacto_delivery_candidates` | - | The dashboard lists them in its propose panel |
+| What does this delivery record say? | `pacto delivery record get` | `pacto_delivery_record_get` | `GET /api/delivery/record` | |
+| Does this delivery record verify? | `pacto delivery record verify` | `pacto_delivery_record_verify` | - | The dashboard verifies on its record page |
+| Where is this operation? | `pacto delivery get` | `pacto_delivery_get` | `GET /api/delivery/operations/{namespace}/{name}` | |
+| Why is this operation where it is? | `pacto delivery explain` | `pacto_delivery_explain` | - | The dashboard explains on its operation page |
+| How would I undo this operation? | `pacto delivery undo` | `pacto_delivery_undo_plan` | `GET /api/delivery/undo` | |
+| Where is this service in its lifecycle? | `pacto delivery lifecycle` | `pacto_delivery_lifecycle` | `GET /api/delivery/lifecycle` | |
+| Which operation types exist? | `pacto delivery describe` | `pacto_delivery_operation_types` | - | The dashboard's propose panel lists them |
+| What would this operation do? | `pacto delivery plan` | `pacto_delivery_operation_plan` | `POST /api/delivery/plan` | |
+| Propose this operation | `pacto delivery propose` | `pacto_delivery_operation_propose` | `POST /api/delivery/operations` | |
+| Cancel this operation | `pacto delivery cancel` | `pacto_delivery_cancel` | `DELETE /api/delivery/operations/{namespace}/{name}` | |
+| Answer this operation | `pacto delivery approve` | - | `POST /api/delivery/operations/{namespace}/{name}/decision` | People answer; MCP has no approve tool |
+| Create a contract | `pacto init` | `pacto_create` | - | The dashboard writes no contract files |
+| Edit a contract | - | `pacto_edit` | - | People edit `pacto.yaml` and run `pacto validate` |
+| Is this contract valid? | `pacto validate` | `pacto_check` | - | The dashboard validates nothing |
+| What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
+
+For one fleet, the three surfaces return the same `asOf`, `completeness`,
+`limitations` and unknown counts. The dashboard, and MCP with `--dashboard-url`,
+also add `href` links to dashboard pages.
+
 ## The terminal UI
 
 `pacto tui` is the dashboard's terminal equivalent, built over the snapshot

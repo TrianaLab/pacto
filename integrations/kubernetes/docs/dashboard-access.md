@@ -17,7 +17,9 @@ dashboard says so and names your groups.
 ## What stays hidden
 
 Change analysis on raw references answers only for services you can see: a
-hidden one, on either side of the change, reads as not found. A service known
+hidden one, on either side of the change, reads as not found. A dashboard
+that is not on loopback accepts only references to revisions in your view and
+reads each at its digest-pinned reference; it refuses a local path. A service known
 only from a registry, with no Pacto in any namespace, belongs to no namespace:
 only people who may list Pactos in every namespace see it, and for everyone
 else it is hidden like the rest. A provider of a platform offering is the
@@ -34,9 +36,14 @@ some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views
 show an error, not a smaller fleet.
 
+## Without sign-in
+
 Without sign-in nothing is filtered. On loopback the dashboard reads the fleet
 as your kubeconfig user and shows all of it. A shared dashboard without sign-in
-shows everything its ServiceAccount reads to anyone who reaches it.
+shows everything its ServiceAccount reads to anyone who reaches it, so it
+starts only when you allow that: `pacto dashboard --allow-anonymous`, or the
+chart value `dashboard.auth.allowAnonymous` (`true` by default, with a warning
+in the install notes).
 
 ## What the dashboard needs
 
@@ -48,7 +55,9 @@ grant only what it has. A dashboard you run yourself with
 `pacto dashboard --oidc-issuer-url` needs the same rights for the credentials
 it runs with; without the delivery reads, it reads delivery with each person's
 token. A remote `pacto mcp --fleet` with `--auth-issuer` needs create on
-`subjectaccessreviews`.
+`subjectaccessreviews` and token exchange: the exchanged token asks the API
+server who the caller is, and each tool call is logged with that name under
+`--verbose`.
 
 For delivery, the ServiceAccount also lists namespaces. A person who may not
 list Stages in every namespace sees the Stages of each namespace where their

@@ -18,16 +18,17 @@ signed keylessly; verify it with the command in
 ## Quick Start
 
 Every `docker run` here publishes to `127.0.0.1` on purpose: the image sets
-`--host 0.0.0.0` and the dashboard has [no authentication by default](#security).
+`--host 0.0.0.0`, and without [sign-in](#security) the dashboard refuses to
+serve beyond loopback unless `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true` allows it.
 
 ```bash
 # Run with OCI registry sources
-docker run -p 127.0.0.1:3000:3000 \
+docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
   ghcr.io/trianalab/pacto/dashboard:4.4.2
 
 # Run with registry authentication
-docker run -p 127.0.0.1:3000:3000 \
+docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
   ghcr.io/trianalab/pacto/dashboard:4.4.2
@@ -47,6 +48,7 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
 | `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`, `_DISPLAY_NAME` for the provider's name on the sign-in button and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |
+| `PACTO_DASHBOARD_ALLOW_ANONYMOUS` | `true` serves beyond loopback without sign-in, to everyone who reaches the address; without it such a dashboard refuses to start | `false` |
 | `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |
@@ -103,13 +105,13 @@ automatically, with no kubeconfig mount:
 
 ```bash
 # k8s: a kubeconfig, scoped to one namespace
-docker run -p 127.0.0.1:3000:3000 \
+docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
   ghcr.io/trianalab/pacto/dashboard:4.4.2
 
 # local: a contract directory
-docker run -p 127.0.0.1:3000:3000 \
+docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
   -v /path/to/contracts:/data:ro \
   ghcr.io/trianalab/pacto/dashboard:4.4.2 dashboard /data
 ```
@@ -136,9 +138,11 @@ example `query.kinds[1]`.
 
 !!! warning "Keep the dashboard private unless sign-in protects it"
 
-    By default the dashboard has no login, API key or authorization. Anyone who
-    can reach the port reads every contract, dependency and compliance result,
-    and can make the container pull from your registries. Publish it to
+    Without sign-in the dashboard refuses to serve beyond loopback unless
+    `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true` allows it. Then it has no login, API
+    key or authorization: anyone who can reach the port reads every contract,
+    dependency and compliance result, and can make the container pull from your
+    registries. Publish it to
     `127.0.0.1` (`-p 127.0.0.1:3000:3000`), put an authenticating proxy in front
     of it, or configure [sign-in](integrations/kubernetes/dashboard-authentication.md)
     with `PACTO_DASHBOARD_OIDC_ISSUER_URL`. The protections below defend against
@@ -178,6 +182,9 @@ spec:
           ports:
             - containerPort: 3000
           env:
+            # No sign-in here: put an authenticating proxy in front of it.
+            - name: PACTO_DASHBOARD_ALLOW_ANONYMOUS
+              value: "true"
             - name: PACTO_DASHBOARD_REPO
               value: "ghcr.io/org/svc-a,ghcr.io/org/svc-b"
             - name: PACTO_REGISTRY_TOKEN

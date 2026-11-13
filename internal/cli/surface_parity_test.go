@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -525,4 +527,25 @@ func TestSurfaceParameterMapping(t *testing.T) {
 	// The check itself: one row less is a named failure.
 	dropped := slices.DeleteFunc(slices.Clone(surfaceRows), func(r surfaceRow) bool { return r.MCP == "pacto_fleet_entities.owner_key" })
 	expect(t, slices.Contains(mappingProblems(s, dropped), "MCP: pacto_fleet_entities.owner_key is in no row"), "a dropped row goes unnoticed")
+}
+
+// TestFleetToolsDocListsSurfaceRows: the "One question, three surfaces" table
+// in docs/fleet-tools.md names every MCP tool and dashboard route a row of
+// surfaceRows names, so the hand-written table follows the harness.
+func TestFleetToolsDocListsSurfaceRows(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "fleet-tools.md"))
+	expect(t, err == nil, "read: %v", err)
+	_, table, ok := strings.Cut(string(raw), "## One question, three surfaces")
+	expect(t, ok, "docs/fleet-tools.md has no One question, three surfaces section")
+	table, _, _ = strings.Cut(table, "\n## ")
+	for _, r := range surfaceRows {
+		tool, _, _ := strings.Cut(r.MCP, ".")
+		route, _, _ := strings.Cut(r.HTTP, "?")
+		route, _, _ = strings.Cut(route, " body.")
+		for _, name := range []string{tool, route} {
+			if name != "" && !strings.Contains(table, "`"+name+"`") {
+				t.Errorf("the surfaces table in docs/fleet-tools.md does not name `%s`", name)
+			}
+		}
+	}
 }

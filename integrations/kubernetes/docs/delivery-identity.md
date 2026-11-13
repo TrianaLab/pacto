@@ -199,15 +199,21 @@ caller's token at the identity provider (RFC 8693) for one the apiserver
 accepts and asks the apiserver who the caller is on every request. Everyone
 gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
 your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
-HTTP. With `--fleet` and `--auth-issuer` the server needs token exchange too:
-it names each caller the same way and the fleet tools answer
-[as the dashboard does](dashboard-access.md).
+HTTP. With `--fleet` it needs token exchange too, names each caller the same
+way and answers [as the dashboard does](dashboard-access.md). One server
+serves both:
+
+```bash
+PACTO_MCP_EXCHANGE_CLIENT_SECRET=... pacto mcp --fleet --k8s --delivery -t http \
+  --host 0.0.0.0 --auth-issuer https://idp.example.com \
+  --resource https://pacto-mcp.example.com/mcp --exchange-client-id pacto-mcp
+```
 
 Both servers log every refused token, sign-in and signed-in request as a
 warning with the issuer, audience or client, the reason and where it came from
 (`X-Request-Id` too, when a proxy sets it), never the token. With `--verbose`
 the MCP server also logs each caller's class and whether it got the write
-tools.
+tools, and a [line per tool call](../../mcp-reference.md#tool-call-log).
 
 ## Limits
 

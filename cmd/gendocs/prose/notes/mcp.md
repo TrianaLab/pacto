@@ -1,4 +1,4 @@
-The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools. See [Server modes](#server-modes) after this table:
+The **default** server exposes the four authoring tools below and `pacto_capabilities`, which reports what the server serves. A bundle reference and four flags add tools or select a different server. See [Server modes](#server-modes) after this table:
 
 | Tool | Description |
 |------|-------------|
@@ -7,11 +7,11 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
-These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs.
+These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs. Over HTTP the server serves only `pacto_schema` of the four.
 
 ### Server modes
 
-The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server. Passing more than one is an error:
+The default server exposes the authoring tools above. A bundle reference, `--fleet` and `--delivery` add their tools and combine in one server. `--root` and `--publish` each select a server of their own, and passing either with another mode is an error:
 
 | Invocation | Server |
 |------------|--------|
@@ -19,7 +19,8 @@ The default server exposes the authoring tools above. A bundle reference, `--roo
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
 | `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
 | `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |
-| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |
+| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and the dashboard's delivery views and, for an agent, ask for or cancel a change. There is no approve tool. |
+| `pacto mcp --fleet --delivery [<bundle-ref>]` | Authoring tools plus the tools of every mode named, in one session. |
 | `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. Catalog mode registers only catalog tools, and none of them writes to disk. |
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so every answer reflects startup state even if a registry tag moves. A root that fails to resolve stays visible with a classified reason, and the catalog reports itself as partial. The catalog reads only the named roots and their closure, never refreshes and persists nothing.
@@ -40,7 +41,8 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
-| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
+| `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
+| `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 

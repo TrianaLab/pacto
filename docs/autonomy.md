@@ -87,7 +87,7 @@ all, and only a person may stop a service that way.
 An agent previews these changes with the MCP tool
 `pacto_delivery_operation_plan` and asks for them with
 `pacto_delivery_operation_propose` (see
-[Publish and delivery servers](mcp-reference.md#publish-and-delivery-servers)).
+[MCP publish and delivery tools](mcp-delivery-tools.md)).
 Its Operation goes through the same plan and
 [admission policies](integrations/kubernetes/delivery-security.md) as a
 person's, as [Agents take the same path](manifesto.md#agents-take-the-same-path)
