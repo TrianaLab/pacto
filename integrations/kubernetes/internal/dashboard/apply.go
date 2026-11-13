@@ -115,6 +115,11 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.TokenLogin {
 		add("PACTO_DASHBOARD_TOKEN_LOGIN", "true")
 	}
+	// The image binds beyond loopback, so without sign-in the dashboard starts
+	// only when the install chose anonymous access.
+	if a.AllowAnonymous && a.IssuerURL == "" && !a.TokenLogin {
+		add("PACTO_DASHBOARD_ALLOW_ANONYMOUS", "true")
+	}
 	if a.ClientSecretName != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
 			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).

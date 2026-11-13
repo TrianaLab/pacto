@@ -521,7 +521,8 @@
               "properties": {
                 "enabled": { "type": "boolean" }
               }
-            }
+            },
+            "allowAnonymous": { "type": "boolean" }
           }
         },
         "delivery": {

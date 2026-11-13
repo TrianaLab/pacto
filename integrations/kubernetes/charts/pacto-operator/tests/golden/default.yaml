@@ -2121,6 +2121,7 @@ spec:
             - --dashboard-cpu-request=50m
             - --dashboard-memory-request=128Mi
             - --dashboard-memory-limit=512Mi
+            - --dashboard-allow-anonymous
           ports:
             - name: metrics
               containerPort: 8443

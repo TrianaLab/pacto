@@ -409,3 +409,30 @@ func TestOCISecretAC_WithOwnerRef(t *testing.T) {
 		t.Errorf("expected owner name pacto-operator, got %q", *secret.OwnerReferences[0].Name)
 	}
 }
+
+// The anonymous choice reaches the dashboard only when nobody signs in: with
+// sign-in configured it would change nothing, so it is left out.
+func TestAllowAnonymousEnvOnlyWithoutSignIn(t *testing.T) {
+	anonymous := func(a AuthConfig) bool {
+		for _, e := range deploymentAC(Config{Image: "i", Namespace: "n", Auth: a}).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+			if *e.Name == "PACTO_DASHBOARD_ALLOW_ANONYMOUS" {
+				return *e.Value == "true"
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		name string
+		auth AuthConfig
+		want bool
+	}{
+		{"chosen without sign-in", AuthConfig{AllowAnonymous: true}, true},
+		{"not chosen", AuthConfig{}, false},
+		{"issuer", AuthConfig{AllowAnonymous: true, IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb"}, false},
+		{"token sign-in", AuthConfig{AllowAnonymous: true, TokenLogin: true}, false},
+	} {
+		if got := anonymous(c.auth); got != c.want {
+			t.Errorf("%s: PACTO_DASHBOARD_ALLOW_ANONYMOUS=%v, want %v", c.name, got, c.want)
+		}
+	}
+}

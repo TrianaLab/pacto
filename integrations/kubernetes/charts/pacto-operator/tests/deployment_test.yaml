@@ -454,6 +454,32 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oidc-username-prefix=https://idp.example#"
 
+  - it: should allow anonymous access by default, so existing installs keep starting
+    set:
+      dashboard.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: should allow anonymous access when an upgrade reuses values without the key
+    set:
+      dashboard.enabled: true
+      dashboard.auth.allowAnonymous: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
+  - it: should refuse anonymous access when it is turned off
+    set:
+      dashboard.enabled: true
+      dashboard.auth.allowAnonymous: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-allow-anonymous
+
   - it: should offer token sign-in without an issuer
     set:
       dashboard.enabled: true

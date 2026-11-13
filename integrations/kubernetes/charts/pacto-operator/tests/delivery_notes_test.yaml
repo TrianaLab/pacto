@@ -25,3 +25,26 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: Keep that namespace writable by cluster admins only
+
+  - it: warns that a dashboard without sign-in serves everyone
+    set:
+      dashboard.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: the dashboard serves without sign-in
+
+  - it: does not warn when the dashboard signs people in
+    set:
+      dashboard.enabled: true
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - notMatchRegexRaw:
+          pattern: the dashboard serves without sign-in
+
+  - it: does not warn when anonymous access is turned off
+    set:
+      dashboard.enabled: true
+      dashboard.auth.allowAnonymous: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: the dashboard serves without sign-in

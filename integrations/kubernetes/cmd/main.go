@@ -207,6 +207,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
 	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
 		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
+	fs.BoolVar(&o.dashboardAuth.AllowAnonymous, "dashboard-allow-anonymous", false,
+		"Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; "+
+			"everyone who reaches it reads what its ServiceAccount reads.")
 	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")

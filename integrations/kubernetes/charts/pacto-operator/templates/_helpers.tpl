@@ -256,6 +256,10 @@ Controller arguments derived from values
 - --dashboard-token-login
 {{- end }}
 {{- end }}
+{{- /* Unless explicitly false: an upgrade that reuses values without the key keeps an anonymous install starting. */}}
+{{- if ne (toString (.Values.dashboard.auth | default dict).allowAnonymous) "false" }}
+- --dashboard-allow-anonymous
+{{- end }}
 {{- with .Values.dashboard.repositories }}
 - --dashboard-repositories={{ join "," . }}
 {{- end }}
