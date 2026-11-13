@@ -597,6 +597,8 @@ pacto diff <old> <new> [flags]
       --new-values stringArray   values file to merge into the new contract (can be repeated)
       --old-set stringArray      set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray   values file to merge into the old contract (can be repeated)
+      --stats-file string        write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-registry string    publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
 ```
 
 **Exit code:** `1` when the overall classification is `BREAKING`, and also when the diff could not be produced. A non-zero exit alone is therefore no contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that stops on it must read the classification.
@@ -1682,6 +1684,8 @@ pacto publish [dir] [flags]
       --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
       --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
       --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
+      --stats-file string          write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --values stringArray         values file to merge into the contract (can be repeated; last wins)
 ```
 

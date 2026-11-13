@@ -7,9 +7,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
-func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newDiffCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff <old> <new>",
 		Short: "Compare two contracts and classify changes",
@@ -21,6 +22,9 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   pacto diff --output-format markdown oci://ghcr.io/acme/svc-pacto:1.0.0 my-service`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var out *runrecord.Record
+			defer rec.save(cmd, &out)
+			var revs revisions
 			oldOverrides, newOverrides := getDiffOverrides(cmd)
 			format := v.GetString(outputFormatKey)
 
@@ -31,12 +35,14 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				NewPath:      args[1],
 				OldOverrides: oldOverrides,
 				NewOverrides: newOverrides,
+				OnResolved:   rec.hook(cmd, &revs),
 			})
 			if err != nil {
 				sp.Stop()
 				return err
 			}
 			sp.StopOK("Diffed", start)
+			out = diffRecord(revs, result)
 
 			if err := printDiffResult(cmd, result, format); err != nil {
 				return err
@@ -51,6 +57,7 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 
 	addDiffOverrideFlags(cmd)
+	addStatsFlags(cmd)
 
 	return cmd
 }

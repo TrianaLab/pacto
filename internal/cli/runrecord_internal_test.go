@@ -1,13 +1,24 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
@@ -48,5 +59,351 @@ func TestDefaultPublishRunRecordTimeout(t *testing.T) {
 	_, err := defaultPublishRunRecord(t.Context(), host+"/acme/pacto-stats", validRecord())
 	if err == nil || !strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// recCase is one recording command run: the deps it runs over and its args.
+type recCase struct {
+	name string
+	d    func() deps
+	args []string
+	out  io.Writer // stdout; nil is a buffer
+	want runrecord.Record
+}
+
+// statsOff clears both stats env vars, so no shell setting leaks in.
+func statsOff(t *testing.T) {
+	t.Helper()
+	t.Setenv("PACTO_STATS_REGISTRY", "")
+	t.Setenv("PACTO_STATS_FILE", "")
+}
+
+// recDeps is d with a fake publishRunRecord that captures every record and answers err.
+func recDeps(d deps, calls *[]statsCall, err error) deps {
+	d.publishRunRecord = func(_ context.Context, repo string, r runrecord.Record) (string, error) {
+		*calls = append(*calls, statsCall{repo, r})
+		if err != nil {
+			return "", err
+		}
+		return repo + "@sha256:abc", nil
+	}
+	return d
+}
+
+// runRoot runs the whole command tree over d and returns stdout, stderr and the error.
+func runRoot(t *testing.T, d deps, out io.Writer, args ...string) (string, string, error) {
+	t.Helper()
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "dev"}, d)
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if out == nil {
+		out = stdout
+	}
+	root.SetOut(out)
+	root.SetErr(stderr)
+	root.SetArgs(args)
+	err := root.Execute()
+	return stdout.String(), stderr.String(), err
+}
+
+// diffDirs writes an old contract and a new one; rename makes the change BREAKING.
+func diffDirs(t *testing.T, rename bool) (string, string) {
+	t.Helper()
+	newYAML := string(testutil.ValidPactoYAML())
+	if rename {
+		newYAML = strings.Replace(newYAML, "name: test-svc", "name: renamed-svc", 1)
+	}
+	return writeContractDir(t, string(testutil.ValidPactoYAML())), writeContractDir(t, newYAML)
+}
+
+func writeContractDir(t *testing.T, yaml string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func pubDeps(res *publish.Result, err error) func() deps {
+	return func() deps { var got app.PublishOptions; return publishDeps(res, err, &got) }
+}
+
+func recordCases(t *testing.T) []recCase {
+	brOld, brNew := diffDirs(t, true)
+	okOld, okNew := diffDirs(t, false)
+	refused := fmt.Errorf("%w: version: needs a major bump", publish.ErrNotReady)
+	published := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed"},
+		Digests: map[string]string{publish.BundleItem: "sha256:b"}, Deploy: "reg/deploy@sha256:d"}
+	published.Plan.Baseline, published.Plan.Classification = "0.9.0", "NON_BREAKING"
+	unchanged := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}}
+	failed := &publish.Result{Plan: publishPlan(true), Deploy: "reg/deploy@sha256:d"}
+	return []recCase{
+		{name: "diff breaking", d: defaultDeps, args: []string{"diff", brOld, brNew},
+			want: runrecord.Record{Kind: runrecord.KindDiff, Service: "renamed-svc", Classification: "BREAKING", Outcome: runrecord.OutcomeFailed}},
+		{name: "diff non-breaking", d: defaultDeps, args: []string{"diff", okOld, okNew},
+			want: runrecord.Record{Kind: runrecord.KindDiff, Service: "test-svc", Classification: "NON_BREAKING", Outcome: runrecord.OutcomePassed}},
+		{name: "diff breaking, stdout fails", d: defaultDeps, out: errWriter{}, args: []string{"diff", "--output-format", "json", brOld, brNew},
+			want: runrecord.Record{Kind: runrecord.KindDiff, Service: "renamed-svc", Classification: "BREAKING", Outcome: runrecord.OutcomeFailed}},
+		{name: "publish refused", d: pubDeps(&publish.Result{Plan: publishPlan(false)}, refused), args: []string{"publish"},
+			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", NewRevision: "1.0.0", Outcome: runrecord.OutcomeRefused,
+				Gate: &runrecord.Gate{Verdict: runrecord.VerdictRefused, Reason: "version"}}},
+		{name: "publish published", d: pubDeps(published, nil), args: []string{"publish"},
+			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", OldRevision: "0.9.0", NewRevision: "1.0.0",
+				BundleDigest: "sha256:b", DeployDigest: "sha256:d", Classification: "NON_BREAKING", Outcome: runrecord.OutcomePublished}},
+		{name: "publish unchanged", d: pubDeps(unchanged, nil), args: []string{"publish"},
+			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", NewRevision: "1.0.0", Outcome: runrecord.OutcomeUnchanged}},
+		{name: "publish failed", d: pubDeps(failed, errors.New("push failed")), args: []string{"publish"},
+			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", NewRevision: "1.0.0", Outcome: runrecord.OutcomeFailed}},
+	}
+}
+
+// sameErr says whether two command errors are indistinguishable to a caller.
+func sameErr(a, b error) bool {
+	var ea, eb *ExitError
+	return fmt.Sprintf("%T %v", a, a) == fmt.Sprintf("%T %v", b, b) && errors.As(a, &ea) == errors.As(b, &eb) && (ea == nil || ea.Code == eb.Code)
+}
+
+func TestRunRecordExitCodesUnchanged(t *testing.T) {
+	statsOff(t)
+	for _, c := range recordCases(t) {
+		for _, fake := range []struct {
+			name string
+			err  error
+			line string
+		}{
+			{"ok", nil, "pacto: run record published to ghcr.io/acme/pacto-stats@sha256:abc (unsigned statistics)"},
+			{"denied", errors.New("ghcr.io/acme/pacto-stats: denied"), "pacto: warning: run record not published: ghcr.io/acme/pacto-stats: denied"},
+			{"deadline", context.DeadlineExceeded, "pacto: warning: run record not published: context deadline exceeded"},
+		} {
+			t.Run(c.name+"/"+fake.name, func(t *testing.T) {
+				var calls []statsCall
+				_, _, base := runRoot(t, recDeps(c.d(), &calls, nil), c.out, c.args...)
+				_, stderr, err := runRoot(t, recDeps(c.d(), &calls, fake.err), c.out, append(c.args, "--stats-registry", "ghcr.io/acme/pacto-stats")...)
+				if !sameErr(base, err) {
+					t.Fatalf("error changed: %v, want %v", err, base)
+				}
+				if !strings.Contains(stderr, fake.line) || len(calls) != 1 {
+					t.Fatalf("calls %d, stderr:\n%s", len(calls), stderr)
+				}
+				checkRecord(t, calls[0].rec, c.want)
+			})
+		}
+	}
+}
+
+// checkRecord compares the fields a row decides, and the id the recorder fills.
+func checkRecord(t *testing.T, got, want runrecord.Record) {
+	t.Helper()
+	if want.Kind == runrecord.KindDiff { // bundle digests: computed, so only their shape is pinned
+		if !strings.HasPrefix(got.OldRevision, "sha256:") || !strings.HasPrefix(got.NewRevision, "sha256:") {
+			t.Fatalf("revisions %q %q", got.OldRevision, got.NewRevision)
+		}
+		want.OldRevision, want.NewRevision = got.OldRevision, got.NewRevision
+	}
+	want.Version, want.PactoVersion, want.RecordedAt = runrecord.Version, "dev", got.RecordedAt
+	want.ID = runrecord.ID(want.Kind, want.Service, want.OldRevision, want.NewRevision)
+	g, _ := runrecord.Encode(got)
+	w, _ := runrecord.Encode(want)
+	if !bytes.Equal(g, w) || got.RecordedAt.IsZero() {
+		t.Fatalf("record\n%s\nwant\n%s", g, w)
+	}
+}
+
+func TestRunRecordStdoutUnchanged(t *testing.T) {
+	statsOff(t)
+	for _, c := range recordCases(t) {
+		if c.out != nil {
+			continue
+		}
+		var calls []statsCall
+		args := append(c.args, "--output-format", "json")
+		off, _, _ := runRoot(t, recDeps(c.d(), &calls, nil), nil, args...)
+		on, _, _ := runRoot(t, recDeps(c.d(), &calls, nil), nil, append(args, "--stats-registry", "ghcr.io/acme/pacto-stats")...)
+		if off != on || off == "" {
+			t.Fatalf("%s: stdout changed\n%s\n---\n%s", c.name, off, on)
+		}
+	}
+}
+
+func TestRunRecordOffIsInvisible(t *testing.T) {
+	statsOff(t)
+	for _, c := range recordCases(t) {
+		var calls []statsCall
+		stdout, stderr, err := runRoot(t, recDeps(c.d(), &calls, nil), c.out, c.args...)
+		// The same run through a recorder that would fail loudly on any call.
+		d := c.d()
+		d.publishRunRecord = func(context.Context, string, runrecord.Record) (string, error) { panic("recorded with recording off") }
+		stdout2, stderr2, err2 := runRoot(t, d, c.out, c.args...)
+		if len(calls) != 0 || stdout != stdout2 || stderr != stderr2 || !sameErr(err, err2) || strings.Contains(stderr, "run record") {
+			t.Fatalf("%s: calls %d, stderr %q", c.name, len(calls), stderr)
+		}
+	}
+	cmd := &cobra.Command{}
+	addStatsFlags(cmd)
+	if (&runRecorder{}).hook(cmd, &revisions{}) != nil {
+		t.Fatal("OnResolved is set with recording off")
+	}
+}
+
+func TestRunRecordNothingWithoutResult(t *testing.T) {
+	statsOff(t)
+	file := filepath.Join(t.TempDir(), "run.json")
+	old, _ := diffDirs(t, false)
+	var got app.PublishOptions
+	for name, run := range map[string]struct {
+		d    deps
+		args []string
+	}{
+		"usage error":       {defaultDeps(), []string{"diff", old}},
+		"missing contract":  {defaultDeps(), []string{"diff", old, "/nonexistent/dir"}},
+		"publish --plan":    {publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), []string{"publish", "--plan"}},
+		"publish no result": {publishDeps(nil, errors.New("no contract"), &got), []string{"publish"}},
+	} {
+		var calls []statsCall
+		_, _, _ = runRoot(t, recDeps(run.d, &calls, nil), nil, append(run.args, "--stats-registry", "reg/x", "--stats-file", file)...)
+		if _, err := os.Stat(file); len(calls) != 0 || err == nil {
+			t.Fatalf("%s: calls %d, file %v", name, len(calls), err)
+		}
+	}
+}
+
+func TestRunRecordEnvFallback(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "run.json")
+	t.Setenv("PACTO_STATS_REGISTRY", "reg/env")
+	t.Setenv("PACTO_STATS_FILE", file)
+	old, new := diffDirs(t, false)
+	var calls []statsCall
+	_, stderr, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "diff", old, new)
+	if _, ferr := os.Stat(file); err != nil || ferr != nil || len(calls) != 1 || calls[0].repo != "reg/env" {
+		t.Fatalf("err %v, file %v, calls %+v, stderr %s", err, ferr, calls, stderr)
+	}
+	if !strings.Contains(stderr, "pacto: run record written to "+file) {
+		t.Fatalf("stderr %s", stderr)
+	}
+}
+
+func TestRunRecordNoConfigKey(t *testing.T) {
+	statsOff(t)
+	old, new := diffDirs(t, false)
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "pacto.yaml"), []byte("stats-registry: x\nstats-file: y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(wd)
+	var calls []statsCall
+	_, stderr, _ := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "diff", old, new)
+	if _, err := os.Stat("y"); len(calls) != 0 || err == nil || strings.Contains(stderr, "run record") {
+		t.Fatalf("calls %d, file %v, stderr %s", len(calls), err, stderr)
+	}
+}
+
+func TestRunRecordFlagsOnlyOnRecordingCommands(t *testing.T) {
+	statsOff(t)
+	for _, c := range []string{"validate", "fleet", "graph"} {
+		if _, _, err := runRoot(t, defaultDeps(), nil, c, "--stats-registry", "x"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+			t.Fatalf("%s: %v", c, err)
+		}
+	}
+	for _, c := range []string{"diff", "publish"} {
+		help, _, err := runRoot(t, defaultDeps(), nil, c, "--help")
+		if err != nil || !strings.Contains(help, "--stats-file string") || !strings.Contains(help, "--stats-registry string") {
+			t.Fatalf("%s: %v\n%s", c, err, help)
+		}
+	}
+}
+
+func TestRunRecordStatsFileWrites(t *testing.T) {
+	statsOff(t)
+	file := filepath.Join(t.TempDir(), "run.json")
+	old, new := diffDirs(t, true)
+	for range 2 { // the second run replaces the first run's record
+		_, stderr, _ := runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, stderr)
+		}
+		parsed, err := runrecord.Parse(data)
+		enc, _ := runrecord.Encode(parsed)
+		if err != nil || !bytes.Equal(data, enc) {
+			t.Fatalf("%v: %s", err, data)
+		}
+	}
+}
+
+func TestRunRecordStatsFileNeverClobbers(t *testing.T) {
+	statsOff(t)
+	old, new := diffDirs(t, false)
+	file := filepath.Join(old, "pacto.yaml")
+	before, _ := os.ReadFile(file)
+	_, stderr, err := runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
+	after, _ := os.ReadFile(file)
+	if err != nil || !bytes.Equal(before, after) || !strings.Contains(stderr, "pacto: warning: run record not written: "+file+" holds something other than a run record") {
+		t.Fatalf("err %v, stderr %s", err, stderr)
+	}
+}
+
+func TestWriteRecordFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeRecordFile(dir, []byte("{}")); err == nil {
+		t.Fatal("wrote over a directory")
+	}
+	notDir := writeTemp(t, "f", []byte("x"))
+	if err := writeRecordFile(filepath.Join(notDir, "run.json"), []byte("{}")); err == nil {
+		t.Fatal("wrote below a file")
+	}
+}
+
+func TestRunRecordInvalidRecordWarns(t *testing.T) {
+	statsOff(t)
+	cmd := &cobra.Command{}
+	addStatsFlags(cmd)
+	file := filepath.Join(t.TempDir(), "run.json")
+	_ = cmd.Flags().Set("stats-file", file)
+	_ = cmd.Flags().Set("stats-registry", "reg/x")
+	stderr := &strings.Builder{}
+	cmd.SetErr(stderr)
+	var calls []statsCall
+	rec := newRunRecorder("dev", recDeps(deps{}, &calls, nil))
+	out := &runrecord.Record{Kind: runrecord.KindDiff, Outcome: runrecord.OutcomePassed} // no service
+	rec.save(cmd, &out)
+	if len(calls) != 0 || strings.Count(stderr.String(), "service is empty") != 2 {
+		t.Fatalf("calls %d, stderr %s", len(calls), stderr)
+	}
+}
+
+func TestRefusalReason(t *testing.T) {
+	for want, p := range map[string]publish.Plan{
+		"sign":                     {Checks: []publish.Check{{Name: "version", Passed: true}, {Name: "sign"}}},
+		string(publish.Conflict):   {Items: []publish.Item{{State: publish.Absent}, {State: publish.Conflict}}},
+		string(publish.Unreadable): {Items: []publish.Item{{State: publish.Unreadable}}},
+		"":                         {},
+	} {
+		if got := refusalReason(p); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+}
+
+func TestRunRecordNoPersonName(t *testing.T) {
+	statsOff(t)
+	t.Setenv("GITHUB_ACTOR", "alice")
+	t.Setenv("GITLAB_USER_EMAIL", "a@b")
+	t.Setenv("USER", "alice")
+	file := filepath.Join(t.TempDir(), "run.json")
+	old, new := diffDirs(t, false)
+	_, _, _ = runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
+	data, err := os.ReadFile(file)
+	if err != nil || bytes.Contains(data, []byte("alice")) || bytes.Contains(data, []byte("@b")) {
+		t.Fatalf("%v: %s", err, data)
+	}
+}
+
+func TestMCPNeverRecords(t *testing.T) {
+	t.Setenv("PACTO_STATS_REGISTRY", "reg/x")
+	var got app.PublishOptions
+	var calls []statsCall
+	d := recDeps(publishDeps(&publish.Result{Plan: publishPlan(true), Actions: []string{"pushed"}}, nil, &got), &calls, nil)
+	if _, err := mcpPublish(app.NewService(nil, nil), d)(t.Context(), "svc", "r", false); err != nil || len(calls) != 0 {
+		t.Fatalf("err %v, calls %d", err, len(calls))
 	}
 }

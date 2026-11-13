@@ -15,12 +15,13 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 // errPlanNotReady fails `pacto publish --plan` when publishing would be refused.
 var errPlanNotReady = errors.New("publishing this version would be refused")
 
-func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "publish [dir]",
 		Short: "Publish what the contract declares, as the version it states",
@@ -43,6 +44,8 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
   pacto publish --propose test/payments`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var out *runrecord.Record
+			defer rec.save(cmd, &out)
 			path, propose, ns, stage, err := publishArgs(cmd, args)
 			if err != nil {
 				return err
@@ -62,6 +65,9 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 				return err
 			}
 			failed := err != nil // refused or failed: say nothing about what is published
+			if !plan {
+				out = publishRecord(res, err)
+			}
 			if err == nil && plan && !res.Plan.Ready {
 				err = errPlanNotReady
 			}
@@ -81,6 +87,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
+	addStatsFlags(cmd)
 	return cmd
 }
 

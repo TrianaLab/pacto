@@ -240,12 +240,13 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	}
 
 	// Register subcommands
+	rec := newRunRecorder(info.Version, d)
 	root.AddCommand(newInitCommand(svc, v))
 	root.AddCommand(newValidateCommand(svc, v))
-	root.AddCommand(newDiffCommand(svc, v))
+	root.AddCommand(newDiffCommand(svc, v, rec))
 	root.AddCommand(newPackCommand(svc, v))
 	root.AddCommand(newPushCommand(svc, v))
-	root.AddCommand(newPublishCommand(svc, v, d))
+	root.AddCommand(newPublishCommand(svc, v, d, rec))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))

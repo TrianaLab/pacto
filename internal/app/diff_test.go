@@ -651,3 +651,23 @@ func TestDiff_RequiredBump(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffOnResolvedSeesBothBundles(t *testing.T) {
+	oldDir, newDir := writeTestBundle(t), writeTestBundle(t)
+	var calls int
+	var gotOld, gotNew *contract.Bundle
+	_, err := NewService(nil, nil).Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir,
+		OnResolved: func(o, n *contract.Bundle) { calls++; gotOld, gotNew = o, n }})
+	if err != nil || calls != 1 || gotOld == nil || gotNew == nil || gotOld == gotNew {
+		t.Fatalf("err %v, calls %d, old %v, new %v", err, calls, gotOld, gotNew)
+	}
+}
+
+func TestDiffOnResolvedNotCalledOnResolveError(t *testing.T) {
+	called := false
+	_, err := NewService(nil, nil).Diff(context.Background(), DiffOptions{OldPath: writeTestBundle(t), NewPath: "/nonexistent/dir",
+		OnResolved: func(_, _ *contract.Bundle) { called = true }})
+	if err == nil || called {
+		t.Fatalf("err %v, called %v", err, called)
+	}
+}

@@ -21,7 +21,7 @@ func runPublish(t *testing.T, d deps, format string, args ...string) (string, er
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, format)
-	cmd := newPublishCommand(app.NewService(nil, nil), v, d)
+	cmd := newPublishCommand(app.NewService(nil, nil), v, d, newRunRecorder("test", d))
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(&strings.Builder{})
@@ -161,7 +161,7 @@ func TestPublishCommandOutputFailure(t *testing.T) {
 	var got app.PublishOptions
 	v := viper.New()
 	v.Set(outputFormatKey, "json")
-	cmd := newPublishCommand(app.NewService(nil, nil), v, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got))
+	cmd := newPublishCommand(app.NewService(nil, nil), v, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), &runRecorder{})
 	cmd.SetOut(errWriter{})
 	cmd.SetErr(&strings.Builder{})
 	cmd.SetArgs([]string{"--plan"})
