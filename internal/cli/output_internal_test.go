@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -499,7 +500,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		"      values: {\"size\":\"medium\"}\n      production: {\"size\":\"large\"}\n") {
 		t.Errorf("expected configurations with effective values, got %q", out)
 	}
-	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
+	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml, lifetime not declared\n") {
 		t.Errorf("expected environments, got %q", out)
 	}
 	if !strings.Contains(out, "Service: svc@1.0.0") {
@@ -1533,5 +1534,52 @@ Dependencies (2):
 `
 	if out := buf.String(); !strings.Contains(out, want) {
 		t.Errorf("got %q\nwant it to contain %q", out, want)
+	}
+}
+
+func TestPrintEnvironmentsDeclaredFields(t *testing.T) {
+	var buf bytes.Buffer
+	printEnvironments(&buf, []contract.Environment{
+		{Name: "production", File: "environments/production.yaml"},
+		{Name: "pr-482", File: "environments/pr-482.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z", Owner: &contract.Owner{Team: "perf"}},
+	}, time.Time{})
+	want := "\nEnvironments (2):\n  - production: environments/production.yaml, lifetime not declared\n" +
+		"  - pr-482: environments/pr-482.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, owner perf\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestExplainMarksExpired(t *testing.T) {
+	envs := []contract.Environment{
+		{Name: "production", File: "p.yaml", Lifetime: contract.EnvironmentPersistent},
+		{Name: "pr-482", File: "e.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-20T00:00:00Z"},
+		{Name: "pr-483", File: "f.yaml", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-21T00:00:00Z"},
+	}
+	result := &app.ExplainResult{Name: "svc", Version: "1.0.0", PactoVersion: "2.4", Environments: envs, AsOf: "2026-11-20T00:00:00Z"}
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := "  - production: p.yaml, lifetime persistent\n" +
+		"  - pr-482: e.yaml, lifetime temporary, expires 2026-11-20T00:00:00Z, expired\n" +
+		"  - pr-483: f.yaml, lifetime temporary, expires 2026-11-21T00:00:00Z\n"
+	if got := buf.String(); !strings.Contains(got, want) || strings.Contains(got, "as of") {
+		t.Fatalf("got %q, want it to contain %q", got, want)
+	}
+}
+
+func TestPrintEnvironmentDifferences(t *testing.T) {
+	var buf bytes.Buffer
+	printEnvironmentDifferences(&buf, &app.ExplainResult{EnvironmentDifferencesError: "environment a: cannot read a.yaml"})
+	printEnvironmentDifferences(&buf, &app.ExplainResult{})
+	printEnvironmentDifferences(&buf, &app.ExplainResult{ComparedEnvironments: []string{"a", "b"},
+		EnvironmentDifferences: []validation.EnvironmentDifference{{Configuration: "x", Values: map[string]any{"a": 3}}}})
+	want := "\nDifferences between environments: environment a: cannot read a.yaml\n" +
+		"\nDifferences between a, b (1):\n  x\n    a  3\n    b  not set\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

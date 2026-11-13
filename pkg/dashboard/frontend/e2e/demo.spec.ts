@@ -148,7 +148,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('the embedded fleet loads (product service list)', async ({ page }) => {
     await page.goto('/#/fleet/services');
-    await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('analytics-pipeline').first()).toBeVisible({ timeout: 20_000 });
   });
 
   // Part 1 dual-UI elimination: on the Fleet-capable demo, every legacy route that has a
@@ -482,7 +482,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   // The walkthrough. Labelling the fixture tells a visitor what they are looking at and
-  // nothing about what it is FOR, so the strip offers a guided tour: ten steps, each one
+  // nothing about what it is FOR, so the strip offers a guided tour: fifteen steps, each one
   // making the reader drive the real app to the screen that answers one question.
   //
   // It is a HARD gate, so the thing worth asserting is not the copy and not even the
@@ -516,12 +516,12 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL((url) => url.hash === '#/fleet');
   });
 
-  test('demo tour: ten steps, one action each, each one detecting its own action', async ({ page }) => {
+  test('demo tour: fifteen steps, one action each, each one detecting its own action', async ({ page }) => {
     // The whole walkthrough. Every gated step detects the action itself -- nothing here is
     // ever pressed to confirm a thing was done. What differs is what happens next: a step
     // whose result is read on the following screen moves by itself after a deliberate
     // ~1.1s pause, and a step whose result IS the answer stays put and offers Continue.
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     await startTour(page);
     const next = page.getByTestId('demo-tour-next');
     const auto = page.getByTestId('demo-tour-auto');
@@ -529,7 +529,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
     // 1 — the disclosure, on the overview. There is nothing here the tour could watch for,
     // so it keeps a real button and waits to be pressed.
-    await expect(stepNo).toHaveText('1 / 10');
+    await expect(stepNo).toHaveText('1 / 16');
     await expect(page.getByTestId('demo-tour-text')).toContainText('things that look like bugs are deliberate');
     await expect(page.getByTestId('demo-tour-back')).toBeDisabled();
     await expect(next).toBeVisible();
@@ -544,7 +544,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // 2 — search. The gate is the reader's own committed search, not the presence of a
     // row: this fleet is small enough that payments-service is on the unfiltered page 1.
     // Nothing is pressed to leave this step; doing the step IS pressing Next.
-    await expect(stepNo).toHaveText('2 / 10');
+    await expect(stepNo).toHaveText('2 / 16');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services', { timeout: 20_000 });
     await expect(next).toBeHidden();
     await expect(auto).toBeVisible();
@@ -553,7 +553,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await search.press('Enter');
     const row = page.locator('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]');
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(stepNo).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 16', { timeout: 20_000 });
 
     // 3 — open it. The step stays on the list route, so the search the reader just
     // committed survives the step change rather than being navigated away. This is the
@@ -568,10 +568,10 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Held, not merely slow: the service page is still there well past the point an
     // auto-advancing step would have taken it away.
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('3 / 10');
+    await expect(stepNo).toHaveText('3 / 16');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services/payments-service');
     await next.click();
-    await expect(stepNo).toHaveText('4 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('4 / 16', { timeout: 20_000 });
 
     // 4 — one action: choose the oldest revision as the earlier one. The light is on that
     // picker, and choosing it moves the tour on by itself to the button on the same screen.
@@ -579,7 +579,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(next).toBeHidden();
     await expect.poll(() => spotlightEncloses(page, '#impact-old-rev'), { timeout: 20_000 }).toBe(true);
     await chooseRevision(page, '#impact-old-rev', '1.0.0');
-    await expect(stepNo).toHaveText('5 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('5 / 16', { timeout: 20_000 });
 
     // 5 — compare and get a real field-level diff back. The step the whole tour is for, so
     // it holds: the reader reads the Breaking verdict and leaves when they are done, rather
@@ -590,32 +590,102 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(diff).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('5 / 10');
+    await expect(stepNo).toHaveText('5 / 16');
     await expect(diff).toBeVisible();
     await next.click();
-    await expect(stepNo).toHaveText('6 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('6 / 16', { timeout: 20_000 });
 
-    // 6 — search the operational graph (the graph tab opens search-first, never a hairball).
+    // 6 — the same page asks what happens if redis becomes unavailable. The event form opens
+    // on "becomes unavailable", so pressing Ask is the one action, and the answer holds.
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/changes/redis?mode=event', { timeout: 20_000 });
+    await expect(next).toBeHidden();
+    await expect.poll(() => spotlightEncloses(page, '#sec-revisions button[type=submit]'), { timeout: 20_000 }).toBe(true);
+    await page.getByRole('button', { name: 'Ask' }).click();
+    const answer = page.getByTestId('changes-answer');
+    await expect(answer).toContainText('Unavailable', { timeout: 20_000 });
+    await expect(page.locator('[data-testid="impact-figure"] .lane-name')).toContainText(['Breaks', 'May degrade']);
+    await expect(next).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(2500);
+    await expect(stepNo).toHaveText('6 / 16');
+    await next.click();
+    await expect(stepNo).toHaveText('7 / 16', { timeout: 20_000 });
+
+    // 7 — postgresql removed: only something to read, the consumers that break with the
+    // resources each holds on it and their phase.
+    await expect(page).toHaveURL((url) => url.hash.startsWith('#/fleet/changes/postgresql?event=removed'), { timeout: 20_000 });
+    await expect(next).toHaveText('Continue');
+    await expect(auto).toBeHidden();
+    await expect(page.locator('#sec-affected-consumers .why-resources').first()).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '#sec-affected-consumers .why-resources'), { timeout: 20_000 }).toBe(true);
+    await next.click();
+    await expect(stepNo).toHaveText('8 / 16', { timeout: 20_000 });
+
+    // 8 — a policy change: the default pair is already 1.0.0 to 1.0.1, so pressing Compare
+    // revisions is the one action, and the answer holds.
+    await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/platform-http-policy', { timeout: 20_000 });
+    await expect(next).toBeHidden();
+    await expect.poll(() => spotlightEncloses(page, '#sec-revisions button[type=submit]'), { timeout: 20_000 }).toBe(true);
+    await page.getByRole('button', { name: /Compare revisions/ }).click();
+    await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: 20_000 });
+    await expect(next).toBeVisible({ timeout: 20_000 });
+    await expect(stepNo).toHaveText('8 / 16');
+    await next.click();
+    await expect(stepNo).toHaveText('9 / 16', { timeout: 20_000 });
+
+    // 9 — why it is partial: the light is on Incomplete evidence, which names the unpinned
+    // policy references. The answer stays (same route, no navigation).
+    await expect(next).toHaveText('Continue');
+    const lims = page.getByTestId('changes-limitations');
+    await expect(lims).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '[data-testid="changes-limitations"]'), { timeout: 20_000 }).toBe(true);
+    await lims.locator('> summary').click();
+    await expect(lims).toContainText('POLICY_REF_CONSUMERS_UNRESOLVED');
+    await next.click();
+    await expect(stepNo).toHaveText('10 / 16', { timeout: 20_000 });
+
+    // 10 — a regression named by version: the Delivery evidence section says which digest to
+    // name, and never that delivery recorded no failure.
+    await expect(page).toHaveURL((url) => url.hash.startsWith('#/fleet/changes/payments-service?event=regressed'), { timeout: 20_000 });
+    await expect(next).toHaveText('Continue');
+    const evidence = page.getByTestId('changes-delivery-evidence');
+    await expect(evidence).toContainText('DELIVERY_EVIDENCE_UNAVAILABLE', { timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '#sec-delivery-evidence'), { timeout: 20_000 }).toBe(true);
+    await next.click();
+    await expect(stepNo).toHaveText('11 / 16', { timeout: 20_000 });
+
+    // 11 — the same question about the story's payments 2.4.2 named by its digest: the
+    // section cites what delivery recorded, the failed list and the rollback off it.
+    await expect(page).toHaveURL((url) => url.hash.includes('event=regressed&rev=sha256:8a546c97'), { timeout: 20_000 });
+    await expect(next).toHaveText('Continue');
+    const cited = page.getByTestId('delivery-evidence-item');
+    await expect(cited.filter({ hasText: 'test/payments' }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(cited).toHaveCount(2);
+    await expect(evidence).not.toContainText('DELIVERY_EVIDENCE_UNAVAILABLE');
+    await expect.poll(() => spotlightEncloses(page, '#sec-delivery-evidence'), { timeout: 20_000 }).toBe(true);
+    await next.click();
+    await expect(stepNo).toHaveText('12 / 16', { timeout: 20_000 });
+
+    // 12 — search the operational graph (the graph tab opens search-first, never a hairball).
     // One action, so it moves on when the results come back.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await expect(next).toBeHidden();
     await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
     const focus = page.getByTestId('graph-focus-link').first();
     await expect(focus).toBeVisible({ timeout: 20_000 });
-    await expect(stepNo).toHaveText('7 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('13 / 16', { timeout: 20_000 });
 
-    // 7 — focus a result, which renders the neighborhood. Holds: the neighborhood IS the
+    // 13 — focus a result, which renders the neighborhood. Holds: the neighborhood IS the
     // blast radius the step promised.
     await expect.poll(() => spotlightEncloses(page, '[data-testid="graph-focus-link"]'), { timeout: 20_000 }).toBe(true);
     await focus.click();
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('7 / 10');
+    await expect(stepNo).toHaveText('13 / 16');
     await next.click();
-    await expect(stepNo).toHaveText('8 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('14 / 16', { timeout: 20_000 });
 
-    // 8 — what a provider promises. Only something to read, so like the disclosure it
+    // 14 — what a provider promises. Only something to read, so like the disclosure it
     // keeps a real button and waits for it. The light is on the rows that carry the
     // verdicts the bubble names: a refused guarantee and an interface past its sunset.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services/inventory-service', { timeout: 20_000 });
@@ -630,11 +700,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(promises).toContainText('stock-feed: past sunset');
     await expect.poll(() => spotlightEncloses(page, '#sec-observed-traffic-and-differences'), { timeout: 20_000 }).toBe(true);
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('8 / 10');
+    await expect(stepNo).toHaveText('14 / 16');
     await next.click();
-    await expect(stepNo).toHaveText('9 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('15 / 16', { timeout: 20_000 });
 
-    // 9 — where new services start. Only something to read too: the light is on the
+    // 15 — where new services start. Only something to read too: the light is on the
     // http-service golden path row, and the reader leaves when they are done.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/golden-paths', { timeout: 20_000 });
     await expect(page.getByTestId('demo-tour-title')).toHaveText('Where do new services start?');
@@ -643,11 +713,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('golden-path-list')).toContainText('http-service', { timeout: 20_000 });
     await expect.poll(() => spotlightEncloses(page, '[data-testid="golden-path-list"] tbody tr'), { timeout: 20_000 }).toBe(true);
     await next.click();
-    await expect(stepNo).toHaveText('10 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('16 / 16', { timeout: 20_000 });
 
-    // 10 — terminal. No screen of its own: it is the hand-off to the CLI tour, which
+    // 16 — terminal. No screen of its own: it is the hand-off to the CLI tour, which
     // answers the same questions from a terminal. Nothing left to observe, so it keeps a
-    // real button, and since there is no step eleven that button finishes the tour.
+    // real button, and since there is no step seventeen that button finishes the tour.
     await expect(next).toBeVisible();
     await expect(next).toHaveText('Done');
     await expect(auto).toBeHidden();
@@ -660,23 +730,23 @@ test.describe('WASM dashboard demo — workflows', () => {
     // change it watched happen, never on one it was dropped into. Three steps back, to the
     // last gated one.
     await page.getByTestId('demo-tour-back').click();
-    await expect(stepNo).toHaveText('9 / 10');
+    await expect(stepNo).toHaveText('15 / 16');
     await expect(page.getByTestId('demo-tour-more')).toBeHidden();
     await page.getByTestId('demo-tour-back').click();
-    await expect(stepNo).toHaveText('8 / 10');
+    await expect(stepNo).toHaveText('14 / 16');
     await page.getByTestId('demo-tour-back').click();
-    await expect(stepNo).toHaveText('7 / 10');
+    await expect(stepNo).toHaveText('13 / 16');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('7 / 10');
+    await expect(stepNo).toHaveText('13 / 16');
 
     // Done ends it, and leaves the reader where they got to.
     await leaveStep(page);
-    await expect(stepNo).toHaveText('8 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('14 / 16', { timeout: 20_000 });
     await next.click();
-    await expect(stepNo).toHaveText('9 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('15 / 16', { timeout: 20_000 });
     await next.click();
-    await expect(stepNo).toHaveText('10 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('16 / 16', { timeout: 20_000 });
     await next.click();
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
     await expect(page.getByTestId('demo-strip')).toBeVisible();
@@ -700,11 +770,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     // And it is genuinely waiting: an auto-advance that fires on the state the step opened
     // in is a slideshow with extra steps.
     await page.waitForTimeout(2500);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 16');
     const search = page.getByTestId('svc-search');
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 16', { timeout: 20_000 });
     // The two ways out are untouched by any of this: they are on every step, always.
     await expect(page.getByTestId('demo-tour-skip')).toBeVisible();
     await expect(page.getByTestId('demo-tour-exit')).toBeVisible();
@@ -714,13 +784,13 @@ test.describe('WASM dashboard demo — workflows', () => {
   // then navigated to the graph about a second later -- so the reader was shown the
   // breaking change and moved off it before they could read a line of it. Detection was
   // never the problem; treating detection as permission to take the screen away was.
-  test('demo tour: the breaking change and the blast radius stay until the reader leaves them', async ({ page }) => {
-    test.setTimeout(60_000);
+  test('demo tour: the breaking change and the neighborhood stay until the reader leaves them', async ({ page }) => {
+    test.setTimeout(120_000);
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     const next = page.getByTestId('demo-tour-next');
     await next.click();
-    for (const n of ['3 / 10', '4 / 10']) {
+    for (const n of ['3 / 16', '4 / 16']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
@@ -728,7 +798,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Steps 4 and 5. Do the comparison for real, and get a verdict that actually says
     // Breaking -- a hold over an empty result would prove nothing about the defect.
     await chooseRevision(page, '#impact-old-rev', '1.0.0');
-    await expect(stepNo).toHaveText('5 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('5 / 16', { timeout: 20_000 });
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     // The answer leads the page, and the tour lights it; the diff folds below it.
     const diff = page.getByTestId('changes-answer');
@@ -741,7 +811,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // step takes, and past the six-second skip deadline that used to move a held step on
     // behind the reader's back.
     await page.waitForTimeout(10_000);
-    await expect(stepNo).toHaveText('5 / 10');
+    await expect(stepNo).toHaveText('5 / 16');
     await expect(diff).toBeVisible();
     await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service');
     // A held step offers one forward control and no second way to do the same thing: Skip
@@ -751,24 +821,28 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-auto')).toBeHidden();
 
     await next.click();
-    await expect(stepNo).toHaveText('6 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('6 / 16', { timeout: 20_000 });
+    for (const n of ['7 / 16', '8 / 16', '9 / 16', '10 / 16', '11 / 16', '12 / 16']) {
+      await leaveStep(page);
+      await expect(stepNo).toHaveText(n, { timeout: 20_000 });
+    }
 
-    // Steps 6 and 7, the same contract over the blast radius.
+    // Steps 12 and 13, the same contract over the neighborhood a change reaches.
     await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
     const focus = page.getByTestId('graph-focus-link').first();
     await expect(focus).toBeVisible({ timeout: 20_000 });
-    await expect(stepNo).toHaveText('7 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('13 / 16', { timeout: 20_000 });
     await focus.click();
     const canvas = page.getByTestId('neighborhood-canvas');
     await expect(canvas).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(10_000);
-    await expect(stepNo).toHaveText('7 / 10');
+    await expect(stepNo).toHaveText('13 / 16');
     await expect(canvas).toBeVisible();
   });
 
   // The mirror image. A step with no action to observe would auto-advance on a gate that is
-  // trivially true and flash past before it was read, so those four keep a real button and
+  // trivially true and flash past before it was read, so those eight keep a real button and
   // must be proved to wait for it.
   test('demo tour: the steps with nothing to observe keep a real button and wait for it', async ({ page }) => {
     test.setTimeout(60_000);
@@ -779,15 +853,15 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-auto')).toBeHidden();
     await expect(page.getByTestId('demo-tour-skip')).toBeHidden(); // nothing to skip either
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('1 / 10'); // the disclosure does not read itself
+    await expect(stepNo).toHaveText('1 / 16'); // the disclosure does not read itself
     await next.click();
-    for (const n of ['3 / 10', '4 / 10', '5 / 10', '6 / 10', '7 / 10', '8 / 10', '9 / 10', '10 / 10']) {
+    for (const n of ['3 / 16', '4 / 16', '5 / 16', '6 / 16', '7 / 16', '8 / 16', '9 / 16', '10 / 16', '11 / 16', '12 / 16', '13 / 16', '14 / 16', '15 / 16', '16 / 16']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
     await expect(next).toHaveText('Done');
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('10 / 10'); // the hand-off does not dismiss itself either
+    await expect(stepNo).toHaveText('16 / 16'); // the hand-off does not dismiss itself either
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
   });
 
@@ -811,14 +885,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    for (const n of ['3 / 10', '4 / 10', '5 / 10', '6 / 10', '7 / 10', '8 / 10', '9 / 10', '10 / 10']) {
+    for (const n of ['3 / 16', '4 / 16', '5 / 16', '6 / 16', '7 / 16', '8 / 16', '9 / 16', '10 / 16', '11 / 16', '12 / 16', '13 / 16', '14 / 16', '15 / 16', '16 / 16']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
     // And nothing arrives late: no second advance from a gate that opened after the move.
     await page.waitForTimeout(2000);
     const log = await page.evaluate(() => (window as unknown as { __stepLog: string[] }).__stepLog);
-    expect(log.slice(log.indexOf('2 / 10'))).toEqual(['2 / 10', '3 / 10', '4 / 10', '5 / 10', '6 / 10', '7 / 10', '8 / 10', '9 / 10', '10 / 10']);
+    expect(log.slice(log.indexOf('2 / 16'))).toEqual(['2 / 16', '3 / 16', '4 / 16', '5 / 16', '6 / 16', '7 / 16', '8 / 16', '9 / 16', '10 / 16', '11 / 16', '12 / 16', '13 / 16', '14 / 16', '15 / 16', '16 / 16']);
   });
 
   // The report this feature came from: the tour fired the instant the hash carried a text
@@ -829,7 +903,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
     const stepNo = page.getByTestId('demo-tour-step');
-    await expect(stepNo).toHaveText('2 / 10');
+    await expect(stepNo).toHaveText('2 / 16');
     const search = page.getByTestId('svc-search');
     await search.click();
     // Commit a one-character search. From here the step-2 gate is SATISFIED and the reader
@@ -843,21 +917,21 @@ test.describe('WASM dashboard demo — workflows', () => {
     for (const ch of 'ayments') {
       await search.pressSequentially(ch);
       await page.waitForTimeout(180);
-      await expect(stepNo).toHaveText('2 / 10');
+      await expect(stepNo).toHaveText('2 / 16');
     }
     // Only once they stop does it move.
     await search.press('Enter');
-    await expect(stepNo).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 16', { timeout: 20_000 });
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services?text=payments', { timeout: 20_000 });
   });
 
   test('demo tour: Skip step performs the action and lands on the same screen', async ({ page }) => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 16');
     await expect(page.getByTestId('demo-tour-next')).toBeHidden(); // an action step has no forward button
     await page.getByTestId('demo-tour-skip').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 16', { timeout: 20_000 });
     // The search really was committed -- a bare `value =` assignment leaves Svelte's own
     // state on the old value and this URL would read `#/fleet/services` -- and the row
     // step 3 asks for is on screen.
@@ -897,14 +971,14 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('demo tour: Escape closing the mobile nav drawer leaves the tour standing', async ({ page }) => {
     await startTourAt(page, 390, 844); // the hamburger appears at <=768px
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 16');
     await page.getByRole('button', { name: 'Menu' }).click();
     await expect(page.locator('#mobile-drawer')).toBeVisible();
     // Focus is inside the drawer (it moves there on open), so this Escape belongs to it.
     await page.keyboard.press('Escape');
     await expect(page.locator('#mobile-drawer')).toHaveCount(0);
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 10'); // and no progress lost
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 16'); // and no progress lost
   });
 
   test('demo tour: Escape closing the command palette leaves the tour standing', async ({ page }) => {
@@ -915,13 +989,13 @@ test.describe('WASM dashboard demo — workflows', () => {
     await page.keyboard.press('Escape');
     await expect(palette).toHaveCount(0);
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 16');
   });
 
   test('demo tour: Escape in a search field leaves the tour standing, and the step still completes', async ({ page }) => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 16');
     // A type=search field clears itself on Escape and deliberately lets the key through
     // when it has no suggestion popup to dismiss — so this is the one that used to reach
     // the document handler unopposed, on the very step that asks the reader to type.
@@ -929,12 +1003,12 @@ test.describe('WASM dashboard demo — workflows', () => {
     await search.click();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 10');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 16');
     // Alive is not enough: the reader can still finish the step they were asked to do, and
     // the tour still carries them on when they have.
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 16', { timeout: 20_000 });
   });
 
   // Skip performs the action and then WAITS for that step's own gate. Step 4 is where it
@@ -958,27 +1032,27 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    await expect(stepNo).toHaveText('2 / 10');
+    await expect(stepNo).toHaveText('2 / 16');
     await leaveStep(page);
-    await expect(stepNo).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 16', { timeout: 20_000 });
     await leaveStep(page);
-    await expect(stepNo).toHaveText('4 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('4 / 16', { timeout: 20_000 });
     await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service', { timeout: 20_000 });
     await leaveStep(page);
-    await expect(stepNo).toHaveText('5 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('5 / 16', { timeout: 20_000 });
 
     await leaveStep(page);
-    await expect(stepNo).toHaveText('6 / 10', { timeout: 20_000 });
-    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
-    // The analysis has nothing left to rewrite: the URL stays on step 5's screen well past
+    await expect(stepNo).toHaveText('6 / 16', { timeout: 20_000 });
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/changes/redis?mode=event', { timeout: 20_000 });
+    // The analysis has nothing left to rewrite: the URL stays on step 6's screen well past
     // the point where the orphaned replaceState used to land on it.
     await page.waitForTimeout(2000);
-    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph');
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/changes/redis?mode=event');
     // And it did not merely finish in time — the comparison really ran while step 4 was
     // still on screen, which is the point of the feature: the reader gets a moment to see
     // what was done for them.
     const log = await page.evaluate(() => (window as unknown as { __tourLog: string[] }).__tourLog);
-    expect(log).toContain('5 / 10|true');
+    expect(log).toContain('5 / 16|true');
   });
 
   // Waiting must be bounded: a gate that never opens has to move the reader on rather than
@@ -997,10 +1071,10 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    await expect(stepNo).toHaveText('2 / 10');
+    await expect(stepNo).toHaveText('2 / 16');
     const t0 = Date.now();
     await page.getByTestId('demo-tour-skip').click();
-    await expect(stepNo).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 16', { timeout: 20_000 });
     // It waited for the gate it could never get, then went anyway.
     expect(Date.now() - t0).toBeGreaterThan(2000);
   });
@@ -1052,11 +1126,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     const search = page.getByTestId('svc-search');
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 16', { timeout: 20_000 });
     const log = await page.evaluate(() => (window as unknown as { __hintLog: string[] }).__hintLog);
     // Announced while step 2 was still up: the reader connects the search they ran to the
     // result it produced, and is told the tour is about to move rather than discovering it.
-    expect(log).toContain('2 / 10|Done. Moving on.');
+    expect(log).toContain('2 / 16|Done. Moving on.');
     // The step they land on says what IT is waiting for, so the region is never emptied.
     await expect(hint).toHaveText('Waiting for the payments-service page to open.');
   });
@@ -1067,7 +1141,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
     await page.getByTestId('demo-tour-skip').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 10', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 16', { timeout: 20_000 });
     const text = page.getByTestId('demo-tour-text');
     await expect(text).toContainText('every revision it has published and what was observed about the targets running it');
     await expect(text).not.toContainText('every revision of it, and');
@@ -1083,7 +1157,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     const stepNo = page.getByTestId('demo-tour-step');
     await expect(about).toBeVisible();
     await expect(about).toHaveAttribute('href', '../examples/dashboard-demo/');
-    for (const n of ['2 / 10', '3 / 10', '4 / 10', '5 / 10', '6 / 10', '7 / 10', '8 / 10', '9 / 10', '10 / 10']) {
+    for (const n of ['2 / 16', '3 / 16', '4 / 16', '5 / 16', '6 / 16', '7 / 16', '8 / 16', '9 / 16', '10 / 16', '11 / 16', '12 / 16', '13 / 16', '14 / 16', '15 / 16', '16 / 16']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
       await expect(about).toBeVisible();

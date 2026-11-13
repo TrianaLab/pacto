@@ -25,7 +25,7 @@ func TestAnalyze_UnmetGuaranteesBlock(t *testing.T) {
 			{Bundle: mkBundle(svcContract("checkout", "1.0.0", contract.Owner{Team: "web"}, dep, other))},
 			{Bundle: mkBundle(svcContract("checkout", "1.1.0", contract.Owner{Team: "web"}, dep))},
 		},
-		Targets: []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Compliance: fleet.StatusCompliant}},
+		Targets: []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()}},
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
 	if err != nil {

@@ -103,7 +103,7 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 // StatusEntry is an Operation's status as a history line.
 func StatusEntry(o OperationObject) HistoryEntry {
 	s := o.Status
-	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, Type: o.Spec.Type, From: o.Spec.Params.From,
+	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, OperationUID: o.Metadata.UID, Type: o.Spec.Type, From: o.Spec.Params.From,
 		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
 		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished, Applied: s.Times.Applied,
 		Cause: o.Spec.Cause, CorrelationID: o.Spec.CorrelationID}
@@ -263,7 +263,7 @@ func UndoOf(op *OperationObject, gone bool, st *StageObject) (*Undo, *Request) {
 
 // Planned completes u with the plan of its request and the command that
 // proposes it.
-func (u *Undo) Planned(req Request, plan Plan) {
+func (u *Undo) Planned(req Request, plan PlanAnswer) {
 	u.Plan = &plan
 	u.Command = fmt.Sprintf("pacto delivery propose -n %s --stage %s --type %s", req.Namespace, req.Stage, strings.TrimPrefix(req.Type, "delivery.pacto.trianalab.io/"))
 	if req.Undoes != "" {

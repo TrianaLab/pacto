@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -33,11 +34,13 @@ type fileOps struct {
 	marshal   func(any) ([]byte, error)
 	unmarshal func([]byte, any) error
 	mkdirTemp func(dir, pattern string) (string, error)
+	remove    func(string) error
 }
 
 // osFileOps is the production fileOps.
 func osFileOps() fileOps {
-	return fileOps{os.MkdirAll, os.WriteFile, os.Rename, os.DirFS, yaml.Marshal, yaml.Unmarshal, os.MkdirTemp}
+	return fileOps{mkdirAll: os.MkdirAll, writeFile: os.WriteFile, rename: os.Rename, dirFS: os.DirFS, marshal: yaml.Marshal,
+		unmarshal: yaml.Unmarshal, mkdirTemp: os.MkdirTemp, remove: os.Remove}
 }
 
 // --- Input/Output types ---
@@ -105,10 +108,14 @@ type ConfigurationRefInput struct {
 }
 
 // EnvironmentInput describes an environment to add. File defaults to
-// environments/<name>.yaml.
+// environments/<name>.yaml. Lifetime, Expires and Owner are the declared
+// fields of pactoVersion 2.4.
 type EnvironmentInput struct {
-	Name string `json:"name"`
-	File string `json:"file,omitempty"`
+	Name     string          `json:"name"`
+	File     string          `json:"file,omitempty"`
+	Lifetime string          `json:"lifetime,omitempty"`
+	Expires  string          `json:"expires,omitempty"`
+	Owner    *contract.Owner `json:"owner,omitempty"`
 }
 
 // EnvironmentValuesInput is values to merge into one environment's file for
@@ -185,7 +192,10 @@ type EditInput struct {
 	RemoveConfigurationRefs []string
 	AddPolicyRefs           []PolicyRefInput
 	AddEnvironments         []EnvironmentInput
-	SetEnvironmentValues    []EnvironmentValuesInput
+	// RemoveEnvironments removes each named environment, and its file when
+	// no remaining environment names it.
+	RemoveEnvironments   []string
+	SetEnvironmentValues []EnvironmentValuesInput
 	// Lifecycle sets or clears service.lifecycle and raises an older
 	// pactoVersion to 2.4.
 	Lifecycle *LifecycleInput
@@ -226,6 +236,17 @@ type CheckResult struct {
 	// and the one command to run now.
 	Stages []validation.Stage `json:"stages,omitempty"`
 	Next   string             `json:"next,omitempty"`
+	// ComparedEnvironments are the environments EnvironmentDifferences
+	// compares; absent when fewer than two were compared, so an absent
+	// environmentDifferences beside it means they agree.
+	ComparedEnvironments []string `json:"comparedEnvironments,omitempty"`
+	// EnvironmentDifferences are the configuration values the environments
+	// asked for, or every declared one, disagree on; the same rows as
+	// `pacto explain`.
+	EnvironmentDifferences []validation.EnvironmentDifference `json:"environmentDifferences,omitempty"`
+	// EnvironmentDifferencesError says why the environments could not be
+	// compared when none were named.
+	EnvironmentDifferencesError string `json:"environmentDifferencesError,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -712,6 +733,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 // environment file) with the changes made.
 func editFiles(dir string, m map[string]any, input EditInput) (map[string][]byte, []string, error) {
 	before := configNames(m)
+	envsBefore := declaredEnvironments(m)
 	changes, err := applyEdits(m, input)
 	if err != nil {
 		return nil, nil, err
@@ -729,7 +751,32 @@ func editFiles(dir string, m map[string]any, input EditInput) (map[string][]byte
 	if err != nil {
 		return nil, nil, err
 	}
-	return files, append(changes, envChanges...), nil
+	return files, append(append(changes, envChanges...), orphanEnvironmentFiles(envsBefore, declaredEnvironments(m), files)...), nil
+}
+
+// orphanEnvironmentFiles marks for removal (a nil entry in files) each file
+// an environment in before named that no environment in after names, and
+// says which files of removed environments stay because another names them.
+func orphanEnvironmentFiles(before, after []contract.Environment, files map[string][]byte) []string {
+	var changes []string
+	for _, env := range before {
+		if slices.ContainsFunc(after, func(e contract.Environment) bool { return e.Name == env.Name }) {
+			continue
+		}
+		// Only a clean path inside the bundle is deleted, keyed as the
+		// validation FS and the write both see it, and never pacto.yaml.
+		if !fs.ValidPath(env.File) || env.File == "pacto.yaml" {
+			changes = append(changes, fmt.Sprintf("kept %s: it is not a clean path to an environment file inside the bundle", env.File))
+			continue
+		}
+		if i := slices.IndexFunc(after, func(e contract.Environment) bool { return path.Clean(e.File) == env.File }); i >= 0 {
+			changes = append(changes, fmt.Sprintf("kept %s: environment %q still names it", env.File, after[i].Name))
+			continue
+		}
+		files[env.File] = nil
+		changes = append(changes, "removed "+env.File)
+	}
+	return changes
 }
 
 func applyEdits(m map[string]any, input EditInput) ([]string, error) {
@@ -790,8 +837,12 @@ func applyReferenceEdits(m map[string]any, input EditInput) ([]string, error) {
 	}
 	changes = append(changes, addConfigurationRefs(m, input.AddConfigurationRefs)...)
 	changes = append(changes, addPolicyRefs(m, input.AddPolicyRefs)...)
+	removed, err := removeEnvironments(m, input.RemoveEnvironments)
+	if err != nil {
+		return nil, err
+	}
 	envChanges, err := addEnvironments(m, input.AddEnvironments)
-	return append(changes, envChanges...), err
+	return append(append(changes, removed...), envChanges...), err
 }
 
 // applyServiceEdits applies the edits to the service block.
@@ -1050,21 +1101,64 @@ func declaredEnvironments(m map[string]any) []contract.Environment {
 }
 
 // addEnvironments declares each environment, its file defaulting to
-// environments/<name>.yaml, and raises an older pactoVersion to 2.3.
+// environments/<name>.yaml, and raises an older pactoVersion to 2.3, or to
+// 2.4 when one sets lifetime, expires or owner.
 func addEnvironments(m map[string]any, inputs []EnvironmentInput) ([]string, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
 	list, _ := m["environments"].([]any)
-	changes := raiseVersion(m, "2.3")
+	minVersion := "2.3"
+	if slices.ContainsFunc(inputs, func(in EnvironmentInput) bool { return in.Lifetime != "" || in.Expires != "" || in.Owner != nil }) {
+		minVersion = "2.4"
+	}
+	changes := raiseVersion(m, minVersion)
 	for _, in := range inputs {
 		if slices.ContainsFunc(declaredEnvironments(m), func(e contract.Environment) bool { return e.Name == in.Name }) {
 			return nil, fmt.Errorf("environment %q is already declared", in.Name)
 		}
 		file := cmp.Or(in.File, "environments/"+in.Name+".yaml")
-		list = append(list, map[string]any{"name": in.Name, "file": file})
+		entry := map[string]any{"name": in.Name, "file": file}
+		change := fmt.Sprintf("added environment %q (%s)", in.Name, file)
+		if in.Lifetime != "" {
+			entry["lifetime"] = in.Lifetime
+			change += ", " + in.Lifetime
+		}
+		if in.Expires != "" {
+			entry["expires"] = in.Expires
+			change += " until " + in.Expires
+		}
+		if in.Owner != nil {
+			entry["owner"] = in.Owner
+			change += ", owner " + in.Owner.DisplayString()
+		}
+		list = append(list, entry)
 		m["environments"] = list
-		changes = append(changes, fmt.Sprintf("added environment %q (%s)", in.Name, file))
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// removeEnvironments removes each named environment from m; every name must
+// be declared. The files they leave unnamed are removed by editFiles.
+func removeEnvironments(m map[string]any, names []string) ([]string, error) {
+	var changes []string
+	for _, name := range names {
+		list, _ := m["environments"].([]any)
+		i := slices.IndexFunc(list, func(e any) bool { em, _ := e.(map[string]any); return em["name"] == name })
+		if i < 0 {
+			declared := []string{}
+			for _, e := range declaredEnvironments(m) {
+				declared = append(declared, e.Name)
+			}
+			return nil, fmt.Errorf("environment %q is not declared; declared: %s", name, cmp.Or(strings.Join(declared, ", "), "none"))
+		}
+		if list = slices.Delete(list, i, i+1); len(list) == 0 {
+			delete(m, "environments")
+		} else {
+			m["environments"] = list
+		}
+		changes = append(changes, fmt.Sprintf("removed environment %q", name))
 	}
 	return changes, nil
 }
@@ -1338,11 +1432,15 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 // until Check says valid stops on a contract CI also accepts. A nil validate
 // falls back to local validation with no policy resolver, which fails a
 // ref-based policy closed rather than downgrading it to a warning.
-func Check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
-	return osFileOps().check(ctx, validate, path)
+//
+// envs names the environments whose differing configuration values the
+// result lists; empty compares every declared one. A comparison that cannot
+// run is an error only when envs names some.
+func Check(ctx context.Context, validate Validator, path string, envs []string) (*CheckResult, error) {
+	return osFileOps().check(ctx, validate, path, envs)
 }
 
-func (o fileOps) check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
+func (o fileOps) check(ctx context.Context, validate Validator, path string, envs []string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
@@ -1401,6 +1499,16 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 	}
 
 	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid())
+
+	rows, err := validation.EnvironmentDifferences(c, o.dirFS(dir), envs)
+	switch {
+	case err != nil && len(envs) > 0:
+		return nil, err
+	case err != nil:
+		cr.EnvironmentDifferencesError = err.Error()
+	default:
+		cr.ComparedEnvironments, cr.EnvironmentDifferences = validation.ComparedEnvironments(c, envs), rows
+	}
 
 	return cr, nil
 }
@@ -1549,6 +1657,10 @@ func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *con
 	})
 
 	for rel, data := range files {
+		if data == nil {
+			delete(m, rel) // the edit removes it
+			continue
+		}
 		m[rel] = &fstest.MapFile{Data: data, Mode: 0644}
 	}
 
@@ -1749,9 +1861,10 @@ func (o fileOps) stageFile(path string, data []byte, perm os.FileMode) (string, 
 
 // writeFiles writes every file under dir in one sequence: each goes to a temp
 // file beside its target first, and only once all are written does each
-// replace its target, pacto.yaml last, so a failed write changes nothing.
+// replace its target, pacto.yaml last, so a failed write changes nothing. A
+// nil entry is a file to remove, after every rename; one already gone is fine.
 func (o fileOps) writeFiles(dir string, files map[string][]byte) error {
-	names := slices.DeleteFunc(slices.Sorted(maps.Keys(files)), func(rel string) bool { return rel == "pacto.yaml" })
+	names := slices.DeleteFunc(slices.Sorted(maps.Keys(files)), func(rel string) bool { return rel == "pacto.yaml" || files[rel] == nil })
 	names = append(names, "pacto.yaml")
 	var temps []string
 	defer func() {
@@ -1773,6 +1886,14 @@ func (o fileOps) writeFiles(dir string, files map[string][]byte) error {
 	for i, rel := range names {
 		if err := o.rename(temps[i], filepath.Join(dir, rel)); err != nil {
 			return fmt.Errorf("failed to write %s: %w", filepath.Join(dir, rel), err)
+		}
+	}
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		if files[rel] != nil {
+			continue
+		}
+		if err := o.remove(filepath.Join(dir, rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("failed to remove %s: %w", filepath.Join(dir, rel), err)
 		}
 	}
 	return nil

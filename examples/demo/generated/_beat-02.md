@@ -8,7 +8,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
 38 of 38 service(s):
   analytics-pipeline           NotEvaluated owner=data-platform  domain=-            offering=-            revs=2 targets=0
   api-gateway                  NotEvaluated owner=platform-foundations domain=-            offering=-            revs=3 targets=0
-  audit-log                    NotEvaluated owner=platform-foundations-security domain=-            offering=-            revs=1 targets=0
+  audit-log                    Compliant    owner=platform-foundations-security domain=-            offering=-            revs=1 targets=1
   auth-service                 Unknown      owner=identity-team  domain=-            offering=-            revs=1 targets=1
   campaign-service             NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   carrier-gateway              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
@@ -24,7 +24,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   http-service                 NotEvaluated owner=platform       domain=-            offering=-            revs=1 targets=0 golden path
   inventory-service            NotEvaluated owner=catalog-team   domain=fulfillment  offering=-            revs=4 targets=0
   loyalty-service              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
-  notification-worker          NotEvaluated owner=commerce-team  domain=-            offering=-            revs=1 targets=0
+  notification-worker          Unknown      owner=commerce-team  domain=-            offering=-            revs=1 targets=1
   orders-service               NonCompliant owner=commerce-team  domain=commerce     offering=-            revs=4 targets=1
   pacto-demo                   NotEvaluated owner=platform-foundations domain=-            offering=-            revs=1 targets=0
   payments-service             Compliant    owner=payments-team  domain=payments     offering=-            revs=7 targets=1
@@ -39,7 +39,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   returns-service              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
   search-indexer               NotEvaluated owner=catalog-team   domain=-            offering=-            revs=1 targets=0
   shipping-rates               NotEvaluated owner=logistics-team domain=-            offering=-            revs=3 targets=0
-  storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=4 targets=0
+  storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=6 targets=2
   stripe-api                   NotEvaluated owner=external/stripe domain=-            offering=-            revs=1 targets=0
   support-assistant            NotEvaluated owner=support-team   domain=-            offering=-            revs=1 targets=0
   ticketing-service            NotEvaluated owner=support-team   domain=-            offering=-            revs=2 targets=0

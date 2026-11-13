@@ -1100,3 +1100,49 @@ func TestGenerateCommand_MalformedOption(t *testing.T) {
 		t.Errorf("expected key=value error, got: %v", err)
 	}
 }
+
+func TestExplainEnvironmentsFlag(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\nconfigurations:\n" +
+			"  - name: database\n    ref: oci://ghcr.io/acme/postgresql:16.1.0\n    values:\n      size: medium\n      backups: { enabled: true }\n" +
+			"environments:\n  - name: production\n    file: p.yaml\n  - name: staging\n    file: s.yaml\n  - name: test\n    file: s.yaml\n",
+		"p.yaml": "database:\n  size: large\n  backups: null\n",
+		"s.yaml": "{}\n",
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(args ...string) (string, error) {
+		root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+		root.SetArgs(append([]string{"explain", dir}, args...))
+		var out bytes.Buffer
+		root.SetOut(&out)
+		err := root.Execute()
+		return out.String(), err
+	}
+	out, err := run("--environments", "staging,production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\nDifferences between staging, production (2):\n" +
+		"  database.backups.enabled\n    staging     true\n    production  not set\n" +
+		"  database.size\n    staging     \"medium\"\n    production  \"large\"\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("got %q, want it to contain %q", out, want)
+	}
+	if out, _ = run("--environments", "staging,test"); !strings.Contains(out, "\nDifferences between staging, test (0):\n  no differences\n") {
+		t.Fatalf("equal environments: %q", out)
+	}
+	if out, _ = run(); !strings.Contains(out, "\nDifferences between production, staging, test (2):\n") {
+		t.Fatalf("without the flag every environment is compared: %q", out)
+	}
+	if _, err = run("--environments", "production,production"); err == nil || !strings.Contains(err.Error(), "named twice") {
+		t.Fatalf("a repeated name: %v", err)
+	}
+	if _, err = run("--environments", "staging,nope"); err == nil || !strings.Contains(err.Error(), "declared: production, staging, test") {
+		t.Fatalf("err = %v", err)
+	}
+}

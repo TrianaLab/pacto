@@ -97,6 +97,13 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 			"namespace", d.PolicyNamespace, "configMap", delivery.PolicyConfigMap, "error", pr.err)
 	}
 	c := Caller{Identity: delivery.Identity{User: who.User, Groups: who.Groups}, Policy: pr.p}
+	if pr.err != nil {
+		c.PolicyErr = pr.err.Error()
+		if apierrors.IsNotFound(pr.err) {
+			c.PolicyErr += "; the ConfigMap " + delivery.PolicyConfigMap + " is not in " + d.PolicyNamespace +
+				": pass --delivery-namespace with the namespace the chart's delivery.namespace names"
+		}
+	}
 	c.Class = c.Policy.Classify(c.Identity)
 	if v := extra[authn.AuthTimeExtra]; len(v) > 0 {
 		c.AuthTime = v[0]

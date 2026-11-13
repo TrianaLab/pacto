@@ -136,6 +136,7 @@ func (p *planner) overlay() (fstest.MapFS, error) {
 // the marker and sets what the caller fixed: name, owner, domain and origin.
 func (p *planner) applyValues(m map[string]any) (map[string]any, error) {
 	t := p.opts.Template
+	p.dropEnvironmentExpiryAndOwner(m)
 	data, _ := yaml.Marshal(m) // ponytail: a map DecodeYAML filled always encodes
 	data, err := override.Apply(data, t.Overrides)
 	if err != nil {
@@ -158,7 +159,48 @@ func (p *planner) applyValues(m map[string]any) (map[string]any, error) {
 	if sign, ok := pathOf(m, "publish.sign").(map[string]any); ok && p.opts.NoTransparencyLog {
 		sign["transparencyLog"] = false
 	}
+	p.addMissingEnvironments(m)
 	return m, nil
+}
+
+// dropEnvironmentExpiryAndOwner removes each environment's expires and owner,
+// the path author's date and team, keeping its lifetime.
+func (p *planner) dropEnvironmentExpiryAndOwner(m map[string]any) {
+	var names []string
+	envs, _ := m["environments"].([]any)
+	for _, e := range envs {
+		em, _ := e.(map[string]any)
+		_, expires := em["expires"]
+		_, owner := em["owner"]
+		if expires || owner {
+			delete(em, "expires")
+			delete(em, "owner")
+			names = append(names, fmt.Sprint(em["name"]))
+		}
+	}
+	if len(names) > 0 {
+		p.next("the golden path's environment expiry and owner were dropped (%s): set them for this service with pacto_edit", strings.Join(names, ", "))
+	}
+}
+
+// addMissingEnvironments declares, with --delivery, each --env the path does
+// not, with an empty values file.
+func (p *planner) addMissingEnvironments(m map[string]any) {
+	if !p.opts.Delivery {
+		return
+	}
+	envs, _ := m["environments"].([]any)
+	for _, env := range p.envs {
+		if slices.ContainsFunc(envs, func(e any) bool { em, _ := e.(map[string]any); return em["name"] == env }) {
+			continue
+		}
+		path, content := environmentFile(env)
+		envs = append(envs, map[string]any{"name": env, "file": path})
+		p.file(path, content)
+	}
+	if len(envs) > 0 {
+		m["environments"] = envs
+	}
 }
 
 // copyTemplate plans every path file a created service gets, add-only.

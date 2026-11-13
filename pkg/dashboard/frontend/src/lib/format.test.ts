@@ -18,7 +18,6 @@ import {
   isReasonActionable,
   aggregateByOwner,
   compareScoresUnassessedLast,
-  countHighImpact,
   summarize,
   shortDigest,
   abbreviateDigests,
@@ -352,12 +351,12 @@ describe('ownerIsStructured', () => {
 
 describe('aggregateByOwner', () => {
   const services = [
-    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 2, complianceScore: 100 },
-    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 1, complianceScore: 60 },
-    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20 },
-    { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
-    { name: 'e', owner: null, contractStatus: 'Reference', blastRadius: 0 },
-    { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
+    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', complianceScore: 100 },
+    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', complianceScore: 60 },
+    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', complianceScore: 20 },
+    { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', complianceScore: 100 },
+    { name: 'e', owner: null, contractStatus: 'Reference' },
+    { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', complianceScore: 100 },
   ];
 
   it('groups by canonical owner key', () => {
@@ -375,13 +374,6 @@ describe('aggregateByOwner', () => {
     expect(teamA.services).toBe(3); // 'a', 'b', and 'd' (structured with team: team-a)
     expect(teamA.compliant).toBe(2);
     expect(teamA.warning).toBe(1);
-  });
-
-  it('computes blast radius sum', () => {
-    const result = aggregateByOwner(services);
-    const teamA = result.find((r) => r.key === 'team:team-a')!;
-    expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
-    expect(teamA.maxBlast).toBe(2);
   });
 
   it('computes compliance as the share of assessed services that are compliant', () => {
@@ -426,10 +418,10 @@ describe('aggregateByOwner', () => {
 
   it('includes invalid and notEvaluated in the bucket sum invariant', () => {
     const svc = [
-      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'b', owner: { team: 't' }, contractStatus: 'Invalid', blastRadius: 0 },
-      { name: 'c', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
-      { name: 'd', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant' },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Invalid' },
+      { name: 'c', owner: { team: 't' }, contractStatus: 'Unknown' },
+      { name: 'd', owner: { team: 't' }, contractStatus: 'NotEvaluated' },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'team:t')!;
@@ -439,12 +431,12 @@ describe('aggregateByOwner', () => {
 
   it('computes runtimeEvaluated and conclusive per owner (Unknown counts toward evaluated, not conclusive)', () => {
     const svc = [
-      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'b', owner: { team: 't' }, contractStatus: 'Warning', blastRadius: 0 },
-      { name: 'c', owner: { team: 't' }, contractStatus: 'NonCompliant', blastRadius: 0 },
-      { name: 'd', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
-      { name: 'e', owner: { team: 't' }, contractStatus: 'Reference', blastRadius: 0 },
-      { name: 'f', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant' },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Warning' },
+      { name: 'c', owner: { team: 't' }, contractStatus: 'NonCompliant' },
+      { name: 'd', owner: { team: 't' }, contractStatus: 'Unknown' },
+      { name: 'e', owner: { team: 't' }, contractStatus: 'Reference' },
+      { name: 'f', owner: { team: 't' }, contractStatus: 'NotEvaluated' },
     ];
     const team = aggregateByOwner(svc).find((r) => r.key === 'team:t')!;
     // runtimeEvaluated = compliant + warning + nonCompliant + unknown (Reference/NotEvaluated excluded)
@@ -475,8 +467,8 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with only compliant services', () => {
     const svc = [
-      { name: 'x', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
-      { name: 'y', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+      { name: 'x', owner: { team: 'clean-team' }, contractStatus: 'Compliant', complianceScore: 100 },
+      { name: 'y', owner: { team: 'clean-team' }, contractStatus: 'Compliant', complianceScore: 100 },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'team:clean-team')!;
@@ -489,10 +481,10 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with mixed statuses', () => {
     const svc = [
-      { name: 'a', owner: { team: 'mixed' }, contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'b', owner: { team: 'mixed' }, contractStatus: 'Warning', blastRadius: 0 },
-      { name: 'c', owner: { team: 'mixed' }, contractStatus: 'NonCompliant', blastRadius: 0 },
-      { name: 'd', owner: { team: 'mixed' }, contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'a', owner: { team: 'mixed' }, contractStatus: 'Compliant' },
+      { name: 'b', owner: { team: 'mixed' }, contractStatus: 'Warning' },
+      { name: 'c', owner: { team: 'mixed' }, contractStatus: 'NonCompliant' },
+      { name: 'd', owner: { team: 'mixed' }, contractStatus: 'Reference' },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'team:mixed')!;
@@ -505,7 +497,7 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with only reference services', () => {
     const svc = [
-      { name: 'r1', owner: { team: 'ref-only' }, contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'r1', owner: { team: 'ref-only' }, contractStatus: 'Reference' },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'team:ref-only')!;
@@ -638,11 +630,11 @@ describe('extractOwnerDetail', () => {
 
 describe('aggregateByOwner — sorting/filtering support', () => {
   const services = [
-    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100 },
-    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 3, complianceScore: 50 },
-    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 10, complianceScore: 0 },
-    { name: 'd', owner: { team: 'team-c' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
-    { name: 'e', owner: { team: 'team-c' }, contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
+    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', complianceScore: 100 },
+    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', complianceScore: 50 },
+    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', complianceScore: 0 },
+    { name: 'd', owner: { team: 'team-c' }, contractStatus: 'Compliant', complianceScore: 100 },
+    { name: 'e', owner: { team: 'team-c' }, contractStatus: 'Compliant', complianceScore: 100 },
   ];
 
   it('supports sort by services (descending)', () => {
@@ -650,13 +642,6 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const sorted = [...result].sort((a, b) => b.services - a.services);
     expect(sorted[0].key).toBe('team:team-a');
     expect(sorted[0].services).toBe(2);
-  });
-
-  it('supports sort by blast radius (descending)', () => {
-    const result = aggregateByOwner(services);
-    const sorted = [...result].sort((a, b) => b.totalBlast - a.totalBlast);
-    expect(sorted[0].key).toBe('team:team-b');
-    expect(sorted[0].totalBlast).toBe(10);
   });
 
   it('supports sort by compliance % (ascending)', () => {
@@ -788,34 +773,6 @@ describe('compareScoresUnassessedLast', () => {
   });
 });
 
-describe('countHighImpact', () => {
-  it('counts services with blastRadius >= 3', () => {
-    const services = [
-      { blastRadius: 5 },
-      { blastRadius: 3 },
-      { blastRadius: 2 },
-      { blastRadius: 0 },
-    ];
-    expect(countHighImpact(services)).toBe(2);
-  });
-
-  it('returns 0 for empty list', () => {
-    expect(countHighImpact([])).toBe(0);
-  });
-
-  it('treats missing blastRadius as 0', () => {
-    expect(countHighImpact([{}, { blastRadius: undefined }])).toBe(0);
-  });
-
-  it('counts all when all are high impact', () => {
-    expect(countHighImpact([{ blastRadius: 3 }, { blastRadius: 10 }])).toBe(2);
-  });
-
-  it('returns 0 when none meet threshold', () => {
-    expect(countHighImpact([{ blastRadius: 1 }, { blastRadius: 2 }])).toBe(0);
-  });
-});
-
 // ── Readiness ──
 
 const rdy = (over: Record<string, unknown> = {}) => ({
@@ -930,7 +887,6 @@ describe('summarize', () => {
     expect(m.total).toBe(0);
     expect(m.assessed).toBe(0);
     expect(m.compliancePercent).toBe(-1);
-    expect(m.highImpact).toBe(0);
     expect(m.readiness.total).toBe(0);
     expect(m.byOwner).toEqual([]);
     expect(m.byCategory).toEqual([]);
@@ -938,10 +894,10 @@ describe('summarize', () => {
 
   it('computes all KPIs in a single pass', () => {
     const services = [
-      { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100, readiness: { ...rdy().readiness, passing: true, score: 100, doneCount: 2, partialCount: 0, notDoneCount: 0, deferredCount: 0, expired: false } },
-      { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 1, complianceScore: 60, readiness: { ...rdy().readiness, passing: false, score: 60, doneCount: 1, partialCount: 1, notDoneCount: 0, deferredCount: 0, expired: true } },
-      { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20, readiness: { ...rdy().readiness, passing: false, score: 20, doneCount: 0, partialCount: 0, notDoneCount: 2, deferredCount: 0, expired: false } },
-      { name: 'd', owner: null, contractStatus: 'Reference', blastRadius: 0 }, // no readiness
+      { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', complianceScore: 100, readiness: { ...rdy().readiness, passing: true, score: 100, doneCount: 2, partialCount: 0, notDoneCount: 0, deferredCount: 0, expired: false } },
+      { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', complianceScore: 60, readiness: { ...rdy().readiness, passing: false, score: 60, doneCount: 1, partialCount: 1, notDoneCount: 0, deferredCount: 0, expired: true } },
+      { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', complianceScore: 20, readiness: { ...rdy().readiness, passing: false, score: 20, doneCount: 0, partialCount: 0, notDoneCount: 2, deferredCount: 0, expired: false } },
+      { name: 'd', owner: null, contractStatus: 'Reference' }, // no readiness
     ];
     const m = summarize(services);
 
@@ -954,7 +910,6 @@ describe('summarize', () => {
     expect(m.assessed).toBe(3); // compliant + warning + nonCompliant (no unknown/invalid in this test)
     expect(m.needsAttention).toBe(2);
     expect(m.compliancePercent).toBe(33); // 1/3
-    expect(m.highImpact).toBe(2); // >= 3
 
     // Readiness
     expect(m.readiness.total).toBe(4);
@@ -976,7 +931,6 @@ describe('summarize', () => {
     expect(teamA.services).toBe(2);
     expect(teamA.compliant).toBe(1);
     expect(teamA.warning).toBe(1);
-    expect(teamA.totalBlast).toBe(6);
     expect(teamA.compliancePercent).toBe(50); // 1 compliant of 2 assessed
     // Readiness composition: a passes (ready), b score 60 not passing (partial).
     expect(teamA.ready).toBe(1);
@@ -1131,8 +1085,8 @@ describe('breakableIdentifierHtml', () => {
 describe('summarize B-2 ruling', () => {
   it('all-Unknown fleet reads 0%, NOT N/A', () => {
     const services = [
-      { contractStatus: 'Unknown', blastRadius: 0 },
-      { contractStatus: 'Unknown', blastRadius: 0 },
+      { contractStatus: 'Unknown' },
+      { contractStatus: 'Unknown' },
     ];
     const m = summarize(services);
     expect(m.unknown).toBe(2);
@@ -1142,8 +1096,8 @@ describe('summarize B-2 ruling', () => {
 
   it('1 Compliant + 99 Unknown reads 1%, NOT 100%', () => {
     const services = [
-      { contractStatus: 'Compliant', blastRadius: 0 },
-      ...Array.from({ length: 99 }, () => ({ contractStatus: 'Unknown', blastRadius: 0 })),
+      { contractStatus: 'Compliant' },
+      ...Array.from({ length: 99 }, () => ({ contractStatus: 'Unknown' })),
     ];
     const m = summarize(services);
     expect(m.compliant).toBe(1);
@@ -1154,10 +1108,10 @@ describe('summarize B-2 ruling', () => {
 
   it('Unknown NOT in needsAttention (surfaced separately)', () => {
     const services = [
-      { contractStatus: 'Unknown', blastRadius: 0 },
-      { contractStatus: 'Warning', blastRadius: 0 },
-      { contractStatus: 'NonCompliant', blastRadius: 0 },
-      { contractStatus: 'Invalid', blastRadius: 0 },
+      { contractStatus: 'Unknown' },
+      { contractStatus: 'Warning' },
+      { contractStatus: 'NonCompliant' },
+      { contractStatus: 'Invalid' },
     ];
     const m = summarize(services);
     expect(m.unknown).toBe(1);
@@ -1166,9 +1120,9 @@ describe('summarize B-2 ruling', () => {
 
   it('Reference and NotEvaluated excluded from denominator', () => {
     const services = [
-      { contractStatus: 'Compliant', blastRadius: 0 },
-      { contractStatus: 'Reference', blastRadius: 0 },
-      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+      { contractStatus: 'Compliant' },
+      { contractStatus: 'Reference' },
+      { contractStatus: 'NotEvaluated' },
     ];
     const m = summarize(services);
     expect(m.assessed).toBe(1); // only Compliant
@@ -1177,8 +1131,8 @@ describe('summarize B-2 ruling', () => {
 
   it('empty denominator (only Reference/NotEvaluated) -> -1 N/A sentinel', () => {
     const services = [
-      { contractStatus: 'Reference', blastRadius: 0 },
-      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+      { contractStatus: 'Reference' },
+      { contractStatus: 'NotEvaluated' },
     ];
     const m = summarize(services);
     expect(m.assessed).toBe(0);
@@ -1187,8 +1141,8 @@ describe('summarize B-2 ruling', () => {
 
   it('Invalid counts in the denominator (assessed-but-failed)', () => {
     const services = [
-      { contractStatus: 'Compliant', blastRadius: 0 },
-      { contractStatus: 'Invalid', blastRadius: 0 },
+      { contractStatus: 'Compliant' },
+      { contractStatus: 'Invalid' },
     ];
     const m = summarize(services);
     expect(m.assessed).toBe(2); // Compliant + Invalid
@@ -1214,12 +1168,12 @@ describe('summarize B-2 ruling', () => {
 
   it('secondary conclusive/runtimeEvaluated metrics (NEW)', () => {
     const services = [
-      { contractStatus: 'Compliant', blastRadius: 0 },
-      { contractStatus: 'Warning', blastRadius: 0 },
-      { contractStatus: 'NonCompliant', blastRadius: 0 },
-      { contractStatus: 'Unknown', blastRadius: 0 },
-      { contractStatus: 'Invalid', blastRadius: 0 },
-      { contractStatus: 'Reference', blastRadius: 0 },
+      { contractStatus: 'Compliant' },
+      { contractStatus: 'Warning' },
+      { contractStatus: 'NonCompliant' },
+      { contractStatus: 'Unknown' },
+      { contractStatus: 'Invalid' },
+      { contractStatus: 'Reference' },
     ];
     const m = summarize(services);
     expect(m.runtimeEvaluated).toBe(4); // Compliant + Warning + NonCompliant + Unknown
@@ -1228,13 +1182,13 @@ describe('summarize B-2 ruling', () => {
 
   it('bucket sum invariant includes invalid + unknown + notEvaluated', () => {
     const services = [
-      { contractStatus: 'Compliant', blastRadius: 0 },
-      { contractStatus: 'Warning', blastRadius: 0 },
-      { contractStatus: 'NonCompliant', blastRadius: 0 },
-      { contractStatus: 'Invalid', blastRadius: 0 },
-      { contractStatus: 'Unknown', blastRadius: 0 },
-      { contractStatus: 'Reference', blastRadius: 0 },
-      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+      { contractStatus: 'Compliant' },
+      { contractStatus: 'Warning' },
+      { contractStatus: 'NonCompliant' },
+      { contractStatus: 'Invalid' },
+      { contractStatus: 'Unknown' },
+      { contractStatus: 'Reference' },
+      { contractStatus: 'NotEvaluated' },
     ];
     const m = summarize(services);
     const bucketSum = m.compliant + m.warning + m.nonCompliant + m.invalid + m.unknown + m.reference + m.notEvaluated;
@@ -1243,8 +1197,8 @@ describe('summarize B-2 ruling', () => {
 
   it('owner compliancePercent uses the same B-2 denominator', () => {
     const services = [
-      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'b', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant' },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Unknown' },
     ];
     const m = summarize(services);
     const team = m.byOwner.find((o) => o.key === 'team:t')!;

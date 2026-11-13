@@ -14,11 +14,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // writeTree writes files (slash paths relative to dir) and returns dir.
@@ -154,16 +156,22 @@ func checkSecondRunAddsNothing(t *testing.T, opts Options) {
 
 // fraudContract is what init writes for fraud: the contract the story wrote
 // by hand (contracts/fraud/1.0.0), with the Pacto resource in the manifests
-// build because of --delivery.
+// build and the environments declared (so pactoVersion 2.3) because of
+// --delivery.
 const fraudContract = `# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then see what publishing would do: pacto publish --plan
-pactoVersion: "2.1"
+pactoVersion: "2.3"
 service:
   name: fraud
   version: 1.0.0
   owner:
     team: risk
 workload: service
+environments:
+  - name: test
+    file: environments/test.yaml
+  - name: prod
+    file: environments/prod.yaml
 publish:
   bundle: oci://registry.example/story/fraud
   deploy: manifests
@@ -485,7 +493,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
 	}
-	if strings.Contains(text, " file:") {
+	if strings.Count(text, " file:") != 1 { // the dev environment's
 		t.Errorf("a plain Dockerfile needs no file:\n%s", text)
 	}
 	if !hasLine(r.Unknown, "the Helm chart in chart is not read") || !hasLine(r.Next, "my k8s/kustomization.yaml decides what Flux applies") ||
@@ -1309,5 +1317,91 @@ func TestPactifiedWritesDomain(t *testing.T) {
 	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
 	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v", c, err)
+	}
+}
+
+const envFileContent = "# Values %s uses for each configuration, by configuration name.\n{}\n"
+
+// checkDeclaredEnvironments fails unless the plan declares each env in
+// pacto.yaml at version, plans its values file holding {}, and the contract
+// passes validation with the pacto.environment gate applicable.
+func checkDeclaredEnvironments(t *testing.T, r *Result, version string, envs ...string) {
+	t.Helper()
+	files := map[string]string{}
+	_ = filepath.WalkDir(r.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			data, _ := os.ReadFile(p)
+			rel, _ := filepath.Rel(r.Dir, p)
+			files[filepath.ToSlash(rel)] = string(data)
+		}
+		return nil
+	})
+	for _, f := range r.Files {
+		files[f.Path] = f.Content
+	}
+	c, err := contract.Parse(strings.NewReader(files["pacto.yaml"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range c.Environments {
+		names = append(names, e.Name)
+		if e.File != "environments/"+e.Name+".yaml" || files[e.File] != strings.Replace(envFileContent, "%s", e.Name, 1) {
+			t.Errorf("environment %+v, file %q", e, files[e.File])
+		}
+	}
+	if c.PactoVersion != version || !slices.Equal(names, envs) {
+		t.Fatalf("contract %s %v, want %s %v", c.PactoVersion, names, version, envs)
+	}
+	fsys := fstest.MapFS{}
+	for p, data := range files {
+		fsys[p] = &fstest.MapFile{Data: []byte(data)}
+	}
+	if err := validate(files["pacto.yaml"], files); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if st := validation.EnvironmentStageWith(c, fsys, nil); st.Status != validation.StagePass {
+		t.Fatalf("environment gate: %+v", st)
+	}
+}
+
+// TestDeliveryDeclaresEnvironments: --delivery declares each --env in the
+// contract init writes, blank or read from the folder, with an empty values
+// file, at 2.3 or 2.4 with a domain.
+func TestDeliveryDeclaresEnvironments(t *testing.T) {
+	r, _ := planBlank(t, Options{Delivery: true, Environments: []string{"test", "pr-1"}})
+	checkDeclaredEnvironments(t, r, "2.3", "test", "pr-1")
+	r, _ = planBlank(t, Options{Delivery: true, Domain: "payments"})
+	checkDeclaredEnvironments(t, r, "2.4", "test", "prod")
+
+	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkDeclaredEnvironments(t, r, "2.3", "test", "prod")
+	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Owner: "billing", Domain: "billing", Delivery: true, Environments: []string{"dev"}, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkDeclaredEnvironments(t, r, "2.4", "dev")
+}
+
+// TestDeliveryExistingContractSuggestsEnvironments: a contract already there
+// is never rewritten; init names the --env it does not declare.
+func TestDeliveryExistingContractSuggestsEnvironments(t *testing.T) {
+	text := "pactoVersion: \"2.3\"\nservice: {name: payments, version: 2.0.0}\nenvironments:\n  - {name: test, file: environments/test.yaml}\n"
+	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": text, "environments/test.yaml": "{}\n"})
+	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Environments: []string{"test", "pr-1", "prod"}, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file(t, r, "pacto.yaml").Action != Keep || !hasLine(r.Next, "pacto.yaml declares no environment pr-1, prod: add them with pacto_edit add_environments") {
+		t.Fatalf("plan: %+v", r)
+	}
+	if slices.ContainsFunc(r.Files, func(f File) bool { return strings.HasPrefix(f.Path, "environments/") }) {
+		t.Fatalf("environment files planned for a kept contract: %+v", r.Files)
+	}
+	if r, _ = Init(context.Background(), Options{Dir: dir, Delivery: true, Environments: []string{"test"}, Plan: true}, os.WriteFile); hasLine(r.Next, "declares no environment") {
+		t.Fatalf("every environment declared: %v", r.Next)
 	}
 }

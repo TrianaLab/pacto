@@ -20,8 +20,8 @@ import { boot } from './typographyChecks';
 
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
-/** The demo fleet: 4 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
-const DEMO_SOURCES = 6;
+/** The demo fleet: 5 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
+const DEMO_SOURCES = 7;
 
 async function overviewSources(page: Page) {
   const band = page.locator('#sec-sources');
@@ -59,13 +59,13 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "4 available" chip.
+    // healthy ones fold into one "5 available" chip.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
     await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES - 2));
 
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/4 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/5 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
@@ -129,7 +129,7 @@ test.describe('overview to inventory to source and back', () => {
     const tally = page.getByTestId('source-tally');
     const links = tally.locator('.dist-item a');
     const legend = () => links.evaluateAll((as) => as.map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`));
-    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', 'Current 4']);
+    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', 'Current 5']);
 
     // The bucket IS the filter. Following it must leave exactly that many rows.
     await links.first().click();
@@ -139,7 +139,7 @@ test.describe('overview to inventory to source and back', () => {
 
     // The summary is over the COMPLETE population, so a filter does not shrink it --
     // it only marks where you are.
-    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', 'Current 4']);
+    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', 'Current 5']);
     await expect(tally.locator('a[aria-current="true"] .dist-label')).toHaveText('Unavailable');
   });
 });

@@ -5,6 +5,7 @@
     targetEnvironmentLabel, targetEnvironmentTone,
   } from '../../lib/entityLabels.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
+  import { lifetimeBadge, expiryText, ownerLabel } from '../../lib/behavior.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
@@ -12,7 +13,8 @@
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsSection from '../../components/LimitationsSection.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
-  import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl, deliveryHistoryUrl } from '../../lib/router.ts';
+  import { api } from '../../lib/api.ts';
   import { inService } from '../../lib/identityContext.ts';
   import TargetFigure from '../../components/figure/TargetFigure.svelte';
 
@@ -24,7 +26,9 @@
   // An exact match to non-retrievable content is VALID and never rendered as
   // contradictory (they are separate badges with independent tones). An
   // ambiguous/unresolved match NEVER presents a specific revision as authoritative.
-  let { detail } = $props();
+  // `deliveryState` is whether this dashboard serves delivery: only 'enabled' asks
+  // which Stage delivers this target's environment.
+  let { detail, deliveryState = 'unknown' } = $props();
   const d = $derived(detail.target ?? {});
   const id = $derived(d.identity ?? {});
   // A specific revision is authoritative ONLY when the match is exact or inferred.
@@ -46,6 +50,22 @@
   const serviceGraphHref = $derived(d.service?.key ? fleetGraphFocusUrl('service', d.service.key) : '');
   // "Where else is this service running" is a question a single target page cannot
   // answer on its own -- the scoped target inventory can, from the same canonical key.
+  // The Stage that delivers this target's environment: the label must equal the Stage's
+  // spec.environment exactly (production never matches prod). Read once per target.
+  const envName = $derived(d.environment?.name ?? '');
+  const svcName = $derived(d.service?.label ?? '');
+  const svcDomain = $derived(d.service?.domain ?? '');
+  let delivery = $state(null);
+  $effect(() => {
+    delivery = null;
+    if (deliveryState !== 'enabled' || !envName || !svcName) return;
+    const ask = { service: svcName, domain: svcDomain, environment: envName };
+    api.deliveryEnvironments({ ...ask, limit: 1 }).then((r) => {
+      if (ask.service === svcName && ask.environment === envName) delivery = { data: r };
+    }, (err) => { delivery = err?.code === 'DeliveryNotInstalled' ? null : { error: err }; });
+  });
+  const deliveryRows = $derived((delivery?.data?.environments ?? [])
+    .filter((x) => x.service === svcName && x.environment === envName && (!x.domain || x.domain === svcDomain)));
   const siblingTargetsHref = $derived(d.service?.key ? fleetEntityListUrl('target', { service: d.service.key }) : '');
 </script>
 
@@ -94,8 +114,28 @@
       <span class="te-k">Environment</span>
       <IdentityBadge label={targetEnvironmentLabel(d.environment)} tone={targetEnvironmentTone(d.environment)} />
       {#if d.environment?.declared === 'declared' && d.environment?.check?.status}<span class="te-note">Values check: {d.environment.check.status}</span>{/if}
+      {#if d.environment?.declared === 'declared' && d.environment?.check}
+        {@const check = d.environment.check}
+        {@const life = lifetimeBadge(check.lifetime)}
+        <IdentityBadge label={life.label} tone={life.tone} title={life.title} />
+        {#if expiryText(check, detail.meta?.asOf ?? '')}<span class="te-note" class:te-expired={check.expired}>{expiryText(check, detail.meta?.asOf ?? '')}</span>{/if}
+        <span class="te-note">{ownerLabel(check.owner)}</span>
+      {/if}
       {#if d.environment?.reason}<span class="te-note te-env-reason">{d.environment.reason}</span>{/if}
     </div>
+    {#if delivery}
+      <div class="te-fact" data-testid="target-delivery">
+        <span class="te-k">Delivery</span>
+        {#if deliveryRows.length}
+          <!-- Several Stages deliver this environment: each link names its Stage, so no two read alike (WCAG 2.4.4). -->
+          {#each deliveryRows as row (row.namespace + '/' + row.stage)}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}{#if deliveryRows.length > 1}{' '}(<bdi>{row.namespace}/{row.stage}</bdi>){/if}</a>{/each}
+        {:else if delivery.error}
+          <span class="te-note">Pacto could not read the Stages of this service: {delivery.error.message || String(delivery.error)}</span>
+        {:else}
+          <span class="te-note">{delivery.data?.completeness === 'partial' ? 'Pacto could not list every Stage, so a Stage in this environment may be missing; ' : 'No Stage you can see delivers this service here; '}this environment is observed from the target.</span>
+        {/if}
+      </div>
+    {/if}
     {#if d.kind}<div class="te-fact"><span class="te-k">Kind</span><span>{d.kind}</span></div>{/if}
     <!-- No Compliance row: the page header already badges this exact state in the same
          words. Evaluation coverage below is the fact this section adds -- how much of the
@@ -195,5 +235,6 @@
   .te-rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .te-rr-head h2 { margin: 0; }
   .te-rr-line, .te-note { margin: 0; }
+  .te-expired { color: var(--c-warn); }
   .te-env-reason { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

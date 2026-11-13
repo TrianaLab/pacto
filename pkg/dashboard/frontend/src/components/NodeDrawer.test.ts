@@ -11,7 +11,6 @@ const sampleDrawerData = {
   name: 'payments',
   version: '1.0.0',
   status: 'Compliant',
-  blastRadius: 2,
   owner: { team: 'core', dri: 'ada' },
   sources: ['k8s', 'oci'],
   external: false,

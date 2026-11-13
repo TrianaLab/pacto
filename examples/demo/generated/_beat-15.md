@@ -11,14 +11,21 @@ Breaking changes: 1
 Potentially breaking changes: 0
 Affected consumers (7):
   fulfillment-service          direct     confidence=contractual  compat=incompatible owner=logistics-team
+    path: fulfillment-service > inventory-service  provenance: declared  via: dependency
     refused: fulfillment-service requires stock-events dedupeWindow >= 5m from inventory-service, which offers nothing
   pricing-service              direct     confidence=contractual  compat=incompatible owner=catalog-team
+    path: pricing-service > inventory-service  provenance: declared  via: dependency
     refused: pricing-service requires stock-v2 timeout <= 2s from inventory-service, which offers 5s
   search-indexer               direct     confidence=contractual  compat=incompatible owner=catalog-team
+    path: search-indexer > inventory-service  provenance: declared  via: dependency
   storefront-web               direct     confidence=contractual  compat=incompatible owner=frontend-team
+    path: storefront-web > inventory-service  provenance: declared  via: dependency
   support-assistant            transitive confidence=inferred     compat=unknown      owner=support-team
+    path: support-assistant > ticketing-service > fulfillment-service > inventory-service  provenance: inferred  via: -
   ticketing-service            transitive confidence=inferred     compat=unknown      owner=support-team
+    path: ticketing-service > fulfillment-service > inventory-service  provenance: inferred  via: -
   warehouse-scanner            direct     confidence=contractual  compat=incompatible owner=logistics-team
+    path: warehouse-scanner > inventory-service  provenance: declared  via: dependency
 By outcome: 5 incompatible, 2 unknown, 0 compatible
 Most affected owners: catalog-team 2 (2 incompatible), logistics-team 2 (2 incompatible), frontend-team 1 (1 incompatible), support-team 2
 Release gate: unverified

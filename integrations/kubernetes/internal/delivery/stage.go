@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,8 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cevent "sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
@@ -77,7 +80,7 @@ type StageReconciler struct {
 // ConditionWatched is True while the newest re-check of the running version
 // passed. False says nothing watches it for Pacto: the re-check failed, or it
 // came back Unknown (a health provider down, too many spans, no coverage).
-const ConditionWatched = "Watched"
+const ConditionWatched = delivery.ConditionWatched
 
 // watched is the Watched condition check sets.
 func watched(check *delivery.Recheck, gen int64) delivery.Condition {
@@ -166,9 +169,7 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		})
 	}
 	if stage.Status.Stream.ID == "" {
-		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
-			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
-		})
+		return reconcile.Result{RequeueAfter: immediately}, r.seedStream(ctx, stage)
 	}
 	if err := r.streamConflict(ctx, stage); err != nil {
 		return reconcile.Result{}, err
@@ -212,6 +213,39 @@ func (r *StageReconciler) resync(stage *dv1.Stage) time.Duration {
 		after = min(after, UpstreamPoll)
 	}
 	return after
+}
+
+// seedStream gives a Stage its stream id, the first time it reconciles or
+// after its status was lost, and says so in an EnvironmentCreated Event. The
+// message carries the creationTimestamp, so a reseed reads as the old Stage.
+// The Event fires only when the fresh object had no id: a cache that lags
+// the seed brings Reconcile back here with the id already set.
+func (r *StageReconciler) seedStream(ctx context.Context, stage *dv1.Stage) error {
+	seeded := false
+	if err := r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		seeded = s.Status.Stream.ID == ""
+		if seeded {
+			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
+		}
+	}); err != nil || !seeded {
+		return err
+	}
+	event(r.Events, stage, false, "EnvironmentCreated", fmt.Sprintf("Stage %s/%s for %s in %s was created at %s; other Stages for the same environment are unaffected",
+		stage.Namespace, stage.Name, stage.Spec.Service.Name, stage.Spec.Environment, stage.CreationTimestamp.UTC().Format(time.RFC3339)))
+	return nil
+}
+
+// stageDeleted says EnvironmentDeleted for a deleted Stage, a missed delete
+// (DeleteStateUnknown) too, and enqueues nothing. A Stage never seeded never
+// said EnvironmentCreated, so its delete says nothing either.
+// ponytail: in-process watch; a delete while the promoter is down emits no Event (the CDEvent from the recorder has the same gap)
+func (r *StageReconciler) stageDeleted(_ context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	stage := e.Object.(*dv1.Stage)
+	if stage.Status.Stream.ID == "" {
+		return
+	}
+	event(r.Events, stage, false, "EnvironmentDeleted", fmt.Sprintf("Stage %s/%s for %s in %s was deleted; other Stages for the same environment are unaffected",
+		stage.Namespace, stage.Name, stage.Spec.Service.Name, stage.Spec.Environment))
 }
 
 func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn func(*dv1.Stage)) error {
@@ -287,11 +321,11 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	return r.raise(ctx, stage, "witnessed", spec)
 }
 
-// autoPromote raises a promote of the newest eligible candidate on an
-// automatic level, unless the Stage is frozen, on auto-hold or already has an
-// operation in flight.
+// autoPromote raises a promote of the newest eligible candidate unless
+// delivery.AutoPromoteHold gives a reason (not automatic, frozen, on
+// auto-hold, no candidate) or the Stage already has an operation in flight.
 func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) error {
-	if !delivery.CurrentLevel(stage.Spec, stage.Status).Automatic() || stage.Status.Frozen || stage.Status.AutoHold {
+	if delivery.AutoPromoteHold(stage.Spec, stage.Status) != "" {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
@@ -303,13 +337,9 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 			return nil
 		}
 	}
-	cand := stage.Status.Candidate
-	if cand == "" {
-		return nil
-	}
 	spec := delivery.OperationSpec{
 		Type: delivery.TypePromote, Stage: stage.Name, Facet: delivery.FacetPointer,
-		Params: delivery.Params{From: stage.Status.Pointer, To: cand},
+		Params: delivery.Params{From: stage.Status.Pointer, To: stage.Status.Candidate},
 		Reason: "automatic promote of the newest eligible candidate",
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
 	}
@@ -406,28 +436,28 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
 		switch {
 		case apierrors.IsNotFound(err):
-			want = notReady("CandidateNotFound", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
+			want = notReady(delivery.ReadyReasonCandidateNotFound, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
 		case err != nil:
 			return nil, nil, want, err
 		case !pinsIdentity(a.obj.Object):
-			want = notReady("CandidateUnverified", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
+			want = notReady(delivery.ReadyReasonCandidateUnverified, "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
 				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
 		}
 		return a, nil, want, nil
 	case c.UpstreamRecords != nil && r.Cluster.Upstream == nil:
-		return nil, nil, notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes"), nil
+		return nil, nil, notReady(delivery.ReadyReasonUpstreamUntrusted, noUpstreamTrust+", so the Stage never promotes"), nil
 	case c.UpstreamRecords != nil:
 		up, why := r.remote(ctx, stage)
 		switch {
 		case up == nil:
-			want = notReady("UpstreamUnreadable", "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
+			want = notReady(delivery.ReadyReasonUpstreamUnreadable, "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
 				" cannot be read or verified ("+why+"), so the Stage promotes nothing until they can")
 		case why != "": // read, with referrers it could not verify
 			want.Message += "; " + why
 		}
 		return nil, up, want, nil
 	case c.UpstreamStage == nil:
-		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
+		want = notReady(delivery.ReadyReasonNoCandidateSource, "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
 	return nil, nil, want, nil
 }
@@ -469,10 +499,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	a, err := r.Cluster.applier(ctx, stage.Namespace, ref)
 	switch {
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
-		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: "+err.Error())
+		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: "+err.Error())
 		return &c, nil, nil
 	case meta.IsNoMatchError(err):
-		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
+		c := notReady(delivery.ReadyReasonApplierUnreadable, what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
 		return &c, nil, nil
 	case err != nil:
 		return nil, nil, err
@@ -491,11 +521,11 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	case !a.argo:
 		return nil, a, nil
 	case multi:
-		c = notReady("ApplierMultiSource", what+" sets spec.sources; the promoter writes only the one OCI spec.source")
+		c = notReady(delivery.ReadyReasonApplierMultiSource, what+" sets spec.sources; the promoter writes only the one OCI spec.source")
 	case !strings.HasPrefix(url, "oci://"):
-		c = notReady("ApplierNotOCI", what+" has no OCI spec.source.repoURL (oci://...), so it cannot fetch a version by digest")
+		c = notReady(delivery.ReadyReasonApplierNotOCI, what+" has no OCI spec.source.repoURL (oci://...), so it cannot fetch a version by digest")
 	case !automated:
-		c = notReady("ApplierNotAutomated", what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
+		c = notReady(delivery.ReadyReasonApplierNotAutomated, what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
 	default:
 		return nil, a, nil
 	}
@@ -504,7 +534,7 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 
 // reasonApplierUnlabelled is the Ready reason of an applyRef without
 // ApplyRefLabel, which is no fault while the Stage observes.
-const reasonApplierUnlabelled = "ApplierUnlabelled"
+const reasonApplierUnlabelled = delivery.ReadyReasonApplierUnlabelled
 
 func labelled(o *unstructured.Unstructured) bool {
 	_, ok := o.GetLabels()[ApplyRefLabel]

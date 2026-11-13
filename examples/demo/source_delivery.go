@@ -73,6 +73,11 @@ type demoDelivery struct {
 	key     ed25519.PrivateKey
 	keyHint string
 
+	// correlation is the correlation id the next operation spec takes, as a
+	// change-management pipeline that applies an Operation sets one; spec
+	// clears it. ponytail: one pending id, since replay raises one change at a time.
+	correlation string
+
 	// views are the copies the reads hand out, made once per change: a
 	// copy per Stage on every read was most of each answer's time on a
 	// large fleet. changed drops them.
@@ -221,26 +226,35 @@ func (d *demoDelivery) ownPaths() {
 	// checkout forks from test into two more regions beside prod; audit-log has
 	// one prod Stage fed straight by new artifacts; notification-worker's one
 	// prod Stage is fed from another cluster's signed records. None of them takes
-	// part in the story.
-	ready := []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready"}}
+	// part in the story. audit-log's candidate OCIRepository verifies no
+	// publisher, so the promoter reports it not ready, with the fix.
 	for _, region := range []string{"prod-eu", "prod-us"} {
 		s := newStage("checkout", region)
-		s.Status.Conditions = slices.Clone(ready)
+		s.Status.Conditions = []delivery.Condition{ready}
 		d.stages = append(d.stages, s)
 	}
 	audit := newStage("audit-log", story.Prod)
 	audit.Spec.Candidates = delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "audit-log-candidates"}}
+	audit.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "False", Reason: delivery.ReadyReasonCandidateUnverified,
+		Message: "the candidate OCIRepository audit-log-candidates sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes"}}
 	notify := newStage("notification-worker", story.Prod)
 	notify.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "registry.example/edge/records", Stream: "edge-cluster/staging/notification-worker"}}
-	for _, s := range []*delivery.StageObject{audit, notify} {
-		s.Status.Conditions = slices.Clone(ready)
-		d.stages = append(d.stages, s)
-	}
+	notify.Status.Conditions = []delivery.Condition{ready}
+	d.stages = append(d.stages, audit, notify)
 }
+
+// demoCorrelation is the change ticket B1's promote to prod carries, so the
+// history's correlation filter has a change to find.
+const demoCorrelation = "CHG-2041"
+
+// ready is the Ready condition the stage reconciler writes on a Stage that
+// can promote (candidateReady).
+var ready = delivery.Condition{Type: delivery.ConditionReady, Status: "True", Reason: delivery.ConditionReady, Message: "the Stage can promote published versions"}
 
 // replay builds the world the guided path starts from: every Stage, what
 // pacto publish published, and the story's beats up to B4 played through the
-// same plan and lifecycle as a live change, then the agent beat. fraud is new:
+// same plan and lifecycle as a live change, then the agent beat, the re-checks
+// after release and a held promote on a frozen Stage. fraud is new:
 // its Stages observe and its history is read from status only, as on a
 // cluster without the recorder. The payments test stream holds a deliberate
 // gap and a record signed by a key nobody trusts.
@@ -252,14 +266,14 @@ func (d *demoDelivery) replay(start time.Time) error {
 			s := newStage(svc, env)
 			if svc != "fraud" {
 				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env}
-				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}}
+				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}, ready}
 				d.streams[stageKey(env, svc)] = &stream{}
 			} else {
 				// pacto init starts a new Stage on observe. On test, fraud's
 				// team labelled the applyRef and asks for a proposal after one
 				// verified version (the default is 10), so the demo can show one.
 				s.Status.Level = delivery.LevelObserve
-				s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: delivery.ReasonObserving}}
+				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionReady, Status: "True", Reason: delivery.ReasonObserving}}
 				if env == story.Test {
 					s.Status.Conditions[0].Reason = delivery.ReasonObservingGuarded
 					s.Spec.Autonomy.ProposeAfter = 1
@@ -292,7 +306,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 	}
 	steps := []struct{ svc, env, to string }{
 		{"payments", story.Test, "2.4.0"}, // B1 in test
-		{"payments", story.Prod, "2.4.0"}, // B1, then the health check fails, B2 rolls it back and prod steps down
+		{"payments", story.Prod, "2.4.0"}, // B1 under change ticket demoCorrelation, then the health check fails, B2 rolls it back and prod steps down
 		{"payments", story.Test, "2.4.1"}, // the environment beat: 2.4.1 declares test values only
 		{"payments", story.Prod, "2.4.1"}, // so prod holds it for team payments, who reject it
 		{"payments", story.Test, "2.4.2"}, // B3: the claim check fails, and test steps down
@@ -304,6 +318,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		{"pay-agent", story.Test, "1.1.0"}, // and 1.1.0 passes 1 of 2, rolls back and steps test down
 	}
 	for _, s := range steps {
+		d.correlation = map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to]
 		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to)}
 		o, _, err := d.propose(req, story.PayAgent)
 		if err != nil {
@@ -314,10 +329,69 @@ func (d *demoDelivery) replay(start time.Time) error {
 			d.gapAndStranger(d.stage(s.env, s.svc))
 		}
 	}
+	d.recheck()
+	if err := d.frozenHeld(); err != nil {
+		return err
+	}
 	for _, s := range d.stages {
 		s.Status.Proposal = d.proposal(s)
 	}
 	return nil
+}
+
+// recheck is the promoter's re-check after release (the operator's
+// StageReconciler.recheck), once, a tick after the replay: on each Stage
+// whose running version an operation shipped that concluded Succeeded and
+// verified, with nothing in flight, the checks run again and the Stage
+// records them as lastCheck with the Watched condition. Every re-check in the
+// story passes; a failed one would roll back or freeze (recheckFailed).
+func (d *demoDelivery) recheck() {
+	for _, st := range d.stages {
+		s, ns, name := st.Status, st.Metadata.Namespace, st.Metadata.Name
+		i := slices.IndexFunc(d.ops, func(o *delivery.OperationObject) bool { return o.Metadata.UID == s.LastOp })
+		inFlight := slices.ContainsFunc(d.ops, func(o *delivery.OperationObject) bool {
+			return o.Metadata.Namespace == ns && o.Spec.Stage == name && o.Status.Phase != delivery.PhaseConcluded
+		})
+		if s.Frozen || i < 0 || inFlight {
+			continue
+		}
+		if o := d.ops[i]; o.Status.Outcome != delivery.Succeeded || o.Status.Verification != delivery.Verified || o.Spec.Params.To != s.Pointer {
+			continue
+		}
+		at := d.clock()
+		check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: stamp(at),
+			Verdicts: d.checks(ns, name, s.Pointer, delivery.GateInput{OperationUID: s.LastOp, Facet: delivery.FacetPointer}, at)}
+		st.Status.LastCheck = check
+		st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check), at)
+	}
+}
+
+// watched is the Watched condition a re-check sets, as the operator words it.
+func watched(check *delivery.Recheck) delivery.Condition {
+	c := delivery.Condition{Type: delivery.ConditionWatched, Status: "True", Reason: "Rechecked", Message: "the running version passed its re-check at " + check.At}
+	if delivery.Worst(check.Verdicts) != delivery.Pass {
+		var why []string
+		for _, v := range check.Verdicts {
+			if v.Result != delivery.Pass {
+				why = append(why, v.Gate+": "+v.Message)
+			}
+		}
+		c.Status, c.Reason, c.Message = "False", "RecheckUnknown", "nothing watches the running version: its re-check is Unknown: "+strings.Join(why, "; ")
+	}
+	return c
+}
+
+// frozenHeld freezes checkout in prod-us, a region that advises, and raises
+// the promote of the version test offers there: a person of team checkout
+// approves it, and once approved it still waits until a person unfreezes the
+// Stage.
+func (d *demoDelivery) frozenHeld() error {
+	st := d.stage("prod-us", "checkout")
+	st.Status.Level = delivery.LevelAdvise
+	st.Status.Frozen, st.Status.FrozenReason = true, "frozen by alice@example.com while the prod-us payment database fails over"
+	_, _, err := d.propose(delivery.Request{Namespace: "prod-us", Stage: "checkout", To: story.ArtifactDigest("checkout", "1.9.0"),
+		Reason: "checkout 1.9.0 passed test"}, story.PayAgent)
+	return err
 }
 
 // decideHeld is alice's answer to a replayed change the plan held.
@@ -538,7 +612,8 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 		return delivery.OperationSpec{}, dashboard.Refuse(http.StatusBadRequest, "UnknownType", "unknown operation type "+typ)
 	}
 	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, Cause: req.Cause,
-		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}}
+		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}, CorrelationID: d.correlation}
+	d.correlation = ""
 	switch {
 	case typ == delivery.TypeRollback:
 		cited := d.op(req.Namespace, req.Undoes)
@@ -631,7 +706,8 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	}
 	if req.IntentDigest != "" && req.IntentDigest != p.IntentDigest {
 		e := dashboard.Refuse(http.StatusConflict, "PlanStale", "the Stage moved since you planned; review the fresh plan and propose again")
-		e.Plan = &p
+		fresh := d.answer(p, req, actor)
+		e.Plan = &fresh
 		return nil, p, e
 	}
 	st := d.stage(req.Namespace, req.Stage)
@@ -982,7 +1058,7 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 	var r *delivery.RecordsRead
 	if s := d.streams[stageKey(ns, name)]; s != nil {
 		r = &delivery.RecordsRead{Fold: delivery.FoldStream(s.recs), Unreadable: slices.Clone(s.unreadable),
-			Trust: "the key this tab minted at load (" + d.keyHint + ")"}
+			Trust: d.trust()}
 	}
 	stc := clone(*st)
 	h, ops := delivery.AssembleHistory(&stc, ops, r, nil, stamp(d.now()))
@@ -990,6 +1066,24 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 		return h, nil, ops, nil
 	}
 	return h, r.Fold.Records, ops, nil
+}
+
+// trust names the key the tab verifies its records with.
+func (d *demoDelivery) trust() string { return "the key this tab minted at load (" + d.keyHint + ")" }
+
+// Record is one record of a Stage's stream, from the records the tab signed.
+func (d *demoDelivery) Record(_ context.Context, ns, name, id string) (*delivery.RecordView, error) {
+	_, recs, _, err := d.history(ns, name)
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		if rec.ID == id {
+			v := delivery.RecordViewOf(ns, name, rec, d.trust(), stamp(d.now()))
+			return &v, nil
+		}
+	}
+	return nil, notFound("record " + id + " of Stage " + stageKey(ns, name))
 }
 
 func (d *demoDelivery) History(_ context.Context, ns, name string, _ *delivery.StageObject) (*delivery.History, error) {
@@ -1023,23 +1117,35 @@ func (d *demoDelivery) Undo(ctx context.Context, ns, name, _ string) (*delivery.
 	return u, nil
 }
 
-func (d *demoDelivery) Plan(_ context.Context, req delivery.Request) (delivery.Plan, error) {
+func (d *demoDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	p, _, err := d.plan(req, personas[d.persona])
-	return p, err
+	actor := personas[d.persona]
+	p, _, err := d.plan(req, actor)
+	if err != nil {
+		return delivery.PlanAnswer{Plan: p}, err
+	}
+	return d.answer(p, req, actor), nil
 }
 
-func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
+func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	o, p, err := d.propose(req, personas[d.persona])
+	actor := personas[d.persona]
+	o, p, err := d.propose(req, actor)
 	d.changed()
 	if err != nil {
-		return nil, p, err
+		return nil, delivery.PlanAnswer{Plan: p}, err
 	}
 	c := clone(*o)
-	return &c, p, nil
+	return &c, d.answer(p, req, actor), nil
+}
+
+// answer is p with what proposing it leads to for actor, as the cluster
+// dashboard answers it. The caller holds the lock and planned req, so its
+// Stage is there.
+func (d *demoDelivery) answer(p delivery.Plan, req delivery.Request, actor story.Persona) delivery.PlanAnswer {
+	return delivery.AnswerPlan(p, actor.Class(), d.stage(req.Namespace, req.Stage).Spec)
 }
 
 // Approve is the promoter consuming a person's decision; the dashboard

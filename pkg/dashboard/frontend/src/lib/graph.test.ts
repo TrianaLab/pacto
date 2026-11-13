@@ -102,7 +102,7 @@ describe('nodeLabel', () => {
     expect(name.replace(/\n/g, '')).toBe(raw);
     expect(name.split('\n').every((l) => l.length <= 25)).toBe(true);
     const focus = buildElements({ nodes: [{ id: raw, serviceName: raw, status: 'Compliant' }] }, raw)[0].data;
-    expect(focus).toMatchObject({ w: 240, isFocus: 1 });
+    expect(focus).toMatchObject({ w: 266, isFocus: 1 });
     expect(focus.h).toBeGreaterThan(42);
   });
 });
@@ -370,6 +370,28 @@ describe('renderGraph (Cytoscape)', () => {
     }
   });
 
+  // A sparse graph framed edge to edge blew two boxes up to twice the page's type. A fit
+  // stops at 1:1 and centres; zooming in is still the reader's to do.
+  it('a fit never zooms in past 1:1, and +/- still zoom in past it', () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    // jsdom has no layout, so the canvas is given a size the graph fits in many times over.
+    const core = Object.getPrototypeOf(cytoscape({ headless: true }));
+    const w = vi.spyOn(core, 'width').mockReturnValue(2000);
+    const h = vi.spyOn(core, 'height').mockReturnValue(1200);
+    try {
+      const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
+      ctrl.fit();
+      expect(ctrl.spatialState().zoom).toBe(1);
+      ctrl.zoomIn();
+      expect(ctrl.spatialState().zoom).toBeGreaterThan(1);
+      ctrl.fit();
+      expect(ctrl.spatialState().zoom).toBe(1);
+      ctrl.destroy();
+    } finally {
+      mm.mockRestore(); w.mockRestore(); h.mockRestore();
+    }
+  });
+
   // A floored fit no longer means "the whole graph is on screen", and a cropped canvas
   // looks exactly like a complete one. So the clamp has to be reported, not just applied.
   it('reports a floored fit through the diagnostics, and only when it changes', () => {
@@ -566,6 +588,37 @@ describe('renderGraph in lanes (headless)', () => {
 });
 
 describe('cyStylesheet', () => {
+  // The canvas speaks the rest of the dashboard's visual language: hairline borders in
+  // the status tone, the body's type, the kind glyph, the page's focus ring and lane
+  // names set as section labels rather than headings.
+  it('draws nodes and lanes in the v2 tokens', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f', fontSans: 'Inter', fontDisplay: 'Serif', radius: 6 };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force', 'visible'),
+      elements: [
+        { data: { id: 'f', label: 'redis', isFocus: 1, status: 'Compliant', kind: 'service', group: 0, lane: 0 } },
+        { data: { id: 'w', label: 'api', status: 'Warning', kind: 'service', group: 0, lane: 0 } },
+        { data: { id: 'l', label: 'Used by (5)', status: 'lane', kind: 'service', group: 0, lane: 1 } },
+      ],
+    });
+    const f = cy.getElementById('f');
+    expect(f.style('border-width')).toBe('1px');
+    expect(f.style('border-color')).toBe('rgb(0,170,0)');
+    expect(f.style('outline-width')).toBe('2px');
+    expect(f.style('outline-color')).toBe('rgb(0,85,255)');
+    expect(f.style('font-size')).toBe('14px');
+    expect(f.style('font-family')).toBe('Inter');
+    expect(f.style('background-image')).toMatch(/^data:image\/svg\+xml/);
+    expect(cy.getElementById('w').style('border-width')).toBe('2px');
+    const l = cy.getElementById('l');
+    expect(l.style('text-transform')).toBe('uppercase');
+    expect(l.style('font-family')).toBe('Serif');
+    expect(l.style('font-size')).toBe('11px');
+    expect(l.style('label')).toBe('U\u200As\u200Ae\u200Ad\u200A \u200Ab\u200Ay\u200A \u200A(\u200A5\u200A)');
+    expect(l.style('background-image')).toBe('none');
+    cy.destroy();
+  });
+
   it('keeps the bar on a refused edge that also carries a label', () => {
     const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f' };
     const cy = cytoscape({

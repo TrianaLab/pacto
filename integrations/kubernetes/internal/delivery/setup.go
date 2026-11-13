@@ -58,7 +58,8 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
-		Watches(&dv1.Stage{}, handler.EnqueueRequestsFromMapFunc(r.stagesReading(stageKeys)))
+		Watches(&dv1.Stage{}, handler.EnqueueRequestsFromMapFunc(r.stagesReading(stageKeys))).
+		Watches(&dv1.Stage{}, handler.Funcs{DeleteFunc: r.stageDeleted})
 	watch := func(gvk schema.GroupVersionKind, keys func(client.Object) []string) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 			// ponytail: a Flux installed later is read on Resync until the promoter restarts.

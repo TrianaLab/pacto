@@ -512,6 +512,15 @@ describe('fleetChangesUrl', () => {
     expect(url).toBe('#/fleet/changes/payments?old=a&new=b&outcome=unknown');
     expect(parseHash(url).params).toEqual({ svc: 'payments', old: 'a', new: 'b', outcome: 'unknown' });
   });
+  // A what-if question is shareable: the event, its revision and the event form round-trip.
+  it('carries an event question and its revision, and parses them back', () => {
+    const url = fleetChangesUrl('redis', { event: 'regressed', rev: 'sha256:abc', outcome: 'breaks' });
+    expect(url).toBe('#/fleet/changes/redis?event=regressed&rev=sha256%3Aabc&outcome=breaks');
+    expect(parseHash(url).params).toEqual({ svc: 'redis', event: 'regressed', rev: 'sha256:abc', outcome: 'breaks' });
+    expect(fleetChangesUrl('redis', { event: 'unavailable' })).toBe('#/fleet/changes/redis?event=unavailable');
+    expect(fleetChangesUrl('redis', { mode: 'event' })).toBe('#/fleet/changes/redis?mode=event');
+    expect(parseHash('#/fleet/changes/redis?mode=event').params).toEqual({ svc: 'redis', mode: 'event' });
+  });
   // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
   // in the query -- never promoted into the path where it would look canonical.
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {

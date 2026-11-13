@@ -11,6 +11,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"gopkg.in/yaml.v3"
 )
@@ -364,9 +365,10 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 	}
 }
 
-// validateEnvironmentFiles checks that environment names are unique and that
-// each environment's file is a path in the bundle that exists. What the file holds is
-// the environments stage's to check.
+// validateEnvironmentFiles checks that environment names are unique, that
+// each environment's file is a path in the bundle that exists and that an
+// expiry is an RFC 3339 time on a temporary environment. What the file holds
+// is the environments stage's to check.
 func validateEnvironmentFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	seen := make(map[string]int)
 	for i, env := range c.Environments {
@@ -383,6 +385,23 @@ func validateEnvironmentFiles(c *contract.Contract, bundleFS fs.FS, result *Vali
 		case bundleFS != nil && missingFile(bundleFS, env.File):
 			result.AddError(path, "FILE_NOT_FOUND", fmt.Sprintf("environment file %q not found in bundle", env.File))
 		}
+		checkEnvironmentLifetime(i, env, result)
+	}
+}
+
+// checkEnvironmentLifetime checks that an environment's expires is an RFC
+// 3339 time and that only a temporary environment has one.
+func checkEnvironmentLifetime(i int, env contract.Environment, result *ValidationResult) {
+	if env.Expires == "" {
+		return
+	}
+	path := fmt.Sprintf("environments[%d].expires", i)
+	if env.Lifetime != contract.EnvironmentTemporary {
+		result.AddError(path, string(finding.CodeEnvironmentExpiresNotTemporary), "expires needs lifetime: temporary; a persistent or undeclared lifetime has no end")
+		return
+	}
+	if _, ok := env.ExpiresAt(); !ok {
+		result.AddError(path, string(finding.CodeInvalidEnvironmentExpires), fmt.Sprintf("expires %q must be an RFC 3339 time such as 2026-11-20T00:00:00Z", env.Expires))
 	}
 }
 

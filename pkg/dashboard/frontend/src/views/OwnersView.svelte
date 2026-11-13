@@ -63,7 +63,6 @@
       if (sortBy === 'key') return (a.label.localeCompare(b.label) || a.key.localeCompare(b.key)) * dir;
       if (sortBy === 'services') return (a.services - b.services) * dir;
       if (sortBy === 'compliance') return compareScoresUnassessedLast(a.compliancePercent, b.compliancePercent, dir);
-      if (sortBy === 'blast') return (a.maxBlast - b.maxBlast) * dir;
       if (sortBy === 'warning') return (a.warning - b.warning) * dir;
       if (sortBy === 'nonCompliant') return (a.nonCompliant - b.nonCompliant) * dir;
       return 0;
@@ -118,7 +117,6 @@
 
   const SORT_OPTIONS = [
     { value: 'services', label: '# Services' },
-    { value: 'blast', label: 'Largest blast radius' },
     { value: 'compliance', label: '% Compliant' },
     { value: 'warning', label: 'Warnings' },
     { value: 'nonCompliant', label: 'Non-Compliant' },
@@ -202,7 +200,6 @@
           <col class="ol-noncompliant" />
           <col class="ol-reference" />
           <col class="ol-percent" />
-          <col class="ol-blast" />
         </colgroup>
         <thead>
           <tr>
@@ -213,7 +210,6 @@
             <th data-tip="Non-compliant services"><button type="button" class="col-sort" onclick={() => setSort('nonCompliant')}>Non-Compliant{sortIcon('nonCompliant')}</button></th>
             <th data-tip="Reference-only contracts">Reference</th>
             <th><button type="button" class="col-sort" data-tip="% of assessed services that are compliant" onclick={() => setSort('compliance')}>% Compliant{sortIcon('compliance')}</button></th>
-            <th><button type="button" class="col-sort" data-tip="The widest blast radius among this owner's services. Blast radii overlap, so this shows the largest one" onclick={() => setSort('blast')}>Largest blast{sortIcon('blast')}</button></th>
           </tr>
         </thead>
         <tbody>
@@ -248,17 +244,10 @@
                   <span class="conclusive-sub" data-tip="Services that reached a conclusive verdict out of those evaluated at run time. For information only: the percentage ignores it.">{row.conclusive} of {row.runtimeEvaluated} conclusive</span>
                 {/if}
               </td>
-              <td>
-                {#if row.maxBlast > 0}
-                  <span class="blast-badge" class:blast-low={row.maxBlast < 3} class:blast-med={row.maxBlast >= 3 && row.maxBlast < 5} class:blast-high={row.maxBlast >= 5}>{row.maxBlast}</span>
-                {:else}
-                  <span class="blast-badge blast-zero">0</span>
-                {/if}
-              </td>
             </tr>
             {#if expandedOwner === row.key}
               <tr class="expand-row" id="owner-detail-{i}">
-                <td colspan="8">
+                <td colspan="7">
                   <div class="expand-panel">
                     <table class="expand-table">
                       <colgroup>
@@ -266,7 +255,6 @@
                         <col class="oe-version" />
                         <col class="oe-status" />
                         <col class="oe-compliance" />
-                        <col class="oe-blast" />
                         <col class="oe-source" />
                       </colgroup>
                       <thead>
@@ -275,7 +263,6 @@
                           <th>Version</th>
                           <th>Status</th>
                           <th data-tip="Compliance score">Compliance</th>
-                          <th data-tip="Blast radius">Blast</th>
                           <th data-tip="Data source">Source</th>
                         </tr>
                       </thead>
@@ -287,13 +274,6 @@
                             <td><StatusBadge status={svc.contractStatus} /></td>
                             <td>
                               <ComplianceScore score={svc.complianceScore} status={svc.complianceStatus} />
-                            </td>
-                            <td>
-                              {#if (svc.blastRadius || 0) > 0}
-                                <span class="blast-badge" class:blast-low={svc.blastRadius < 3} class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5} class:blast-high={svc.blastRadius >= 5}>{svc.blastRadius}</span>
-                              {:else}
-                                <span class="blast-badge blast-zero">0</span>
-                              {/if}
                             </td>
                             <td>
                               {#each (svc.sources || [svc.source]) as src}
@@ -361,7 +341,6 @@
   .ol-noncompliant { width: 14%; }
   .ol-reference { width: 11%; }
   .ol-percent { width: 13%; }
-  .ol-blast { width: 9%; }
 
   .owner-name {
     font-weight: 600;
@@ -393,17 +372,6 @@
   .text-ok { color: var(--c-ok); }
   .text-warn { color: var(--c-warn); }
   .text-err { color: var(--c-err); }
-
-  .blast-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 26px; height: 22px; padding: 0 7px;
-    border-radius: var(--radius-xs);
-    font-size: var(--text-xs); font-weight: 600;
-  }
-  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
-  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
-  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
-  .blast-zero { background: var(--c-neutral-bg); color: var(--c-text-3); }
 
   /* ── Expandable rows ── */
   .expand-icon {
@@ -440,7 +408,6 @@
   .oe-version { width: 16%; }
   .oe-status { width: 18%; }
   .oe-compliance { width: 16%; }
-  .oe-blast { width: 12%; }
   .oe-source { width: 12%; }
   .expand-table td { overflow: visible; }
   .expand-table th { color: var(--c-text-3);

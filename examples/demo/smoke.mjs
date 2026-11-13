@@ -121,6 +121,16 @@ check("include-observed surfaces the audit-log shadow consumer",
   (impObs.consumers || []).some((c) => c.service === "audit-log"),
   (impObs.consumers || []).map((c) => c.service).join(","));
 
+// What if redis becomes unavailable: the engine answers an event from the same POST the
+// Change analysis page sends. redis has required and optional dependents, so both the
+// breaks and the may-degrade effect must appear, and an event gate never blocks.
+const evRes = call("POST", "/api/fleet/impact", JSON.stringify({ serviceKey: "redis", event: "unavailable", limit: 50 }));
+check("event impact 200", evRes.status === 200, `status ${evRes.status}`);
+const ev = evRes.status === 200 ? json(evRes) : {};
+const effects = new Set(((ev.consumers || {}).items || []).map((c) => c.effect));
+check("redis unavailable has a breaks and a may-degrade consumer", effects.has("breaks") && effects.has("may-degrade"), [...effects].join(","));
+check("redis unavailable never gates blocked", ev.gate !== "blocked", ev.gate);
+
 // Readiness showcase, read off the newest revision in the fleet service detail --
 // the same revision the service page lands on. payments-service 2.1.1 declares a
 // readiness block that fails its gate (a stale ai-evals check drops the score to

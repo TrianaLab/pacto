@@ -56,6 +56,9 @@
     // Rendered in place of `empty` when there is nothing to list and the section
     // has more to say than one sentence.
     emptyBody = null,
+    // false when the caller caps its own rows and the section holds more than
+    // rows (subsections, a provenance line) that must never hide behind a fade.
+    clip = true,
     children,
   } = $props();
 
@@ -69,7 +72,7 @@
   // never tabs into rows they cannot see.
   const CLIP_ROWS = 8;
   let expanded = $state(false);
-  const clipped = $derived(count > CLIP_ROWS && !expanded);
+  const clipped = $derived(clip && count > CLIP_ROWS && !expanded);
 
   const totalKnown = $derived(typeof total === 'number' && Number.isFinite(total));
   const titleClass = $derived(role === 'subsection' ? 't-subsection-title' : 't-section-title');
@@ -100,7 +103,7 @@
     {#if emptyBody}{@render emptyBody()}{:else}<p class="ps-empty t-body-2">{empty}</p>{/if}
   {:else}
     <div class="ps-clip" class:ps-clipped={clipped} onfocusin={() => { expanded = true; }}>{@render children?.()}</div>
-    {#if count > CLIP_ROWS}
+    {#if clip && count > CLIP_ROWS}
       <button type="button" class="btn btn-sm ps-all" aria-expanded={expanded} onclick={() => { expanded = !expanded; }} data-testid="preview-show-all">
         {expanded ? 'Show fewer' : `Show all ${formatCount(count)}`}
       </button>

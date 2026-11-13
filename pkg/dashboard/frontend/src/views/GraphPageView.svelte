@@ -27,7 +27,6 @@
   const MAX_LAYOUT_NODES = 150;
 
   let { services = [], sourcesInfo = [] } = $props();
-  let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
 
   let graphData = $state(null);
   let loading = $state(true);
@@ -151,14 +150,14 @@
 
   // Focus picker options: teams when aggregated (from the stable aggregated graph,
   // NOT displayGraph — which becomes the drilled-in team's services once focused,
-  // dropping the selected team from the list), else services (most-impactful first).
+  // dropping the selected team from the list), else services by name.
   let focusOptions = $derived(
     groupByOwner
       ? (aggregatedGraph?.nodes || []).map((n) => n.serviceName).sort()
       : (graphData?.nodes || [])
           .filter((n) => n.status !== 'external')
           .map((n) => n.serviceName)
-          .sort((a, b) => (blastByName.get(b) || 0) - (blastByName.get(a) || 0)),
+          .sort((a, b) => a.localeCompare(b)),
   );
 
   // Switching grouping changes the node set, so a stale focus no longer applies.
@@ -253,12 +252,11 @@
       <div class="section-title">Service Connections <span class="tab-count">{formatCount(filteredNodes.length)}</span></div>
       <div class="data-scroll">
         <table class="data-table">
-          <colgroup><col style="width:30%" /><col style="width:16%" /><col style="width:9%" /><col /></colgroup>
-          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Number of services transitively impacted if this one fails">Blast</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
+          <colgroup><col style="width:30%" /><col style="width:16%" /><col /></colgroup>
+          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
           <tbody>
             {#each connPage.items as node (node.serviceName)}
               {@const edges = node.edges || []}
-              {@const blast = blastByName.get(node.serviceName) || 0}
               <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName); }}>
                 <td data-label="Service">
                   {#if node.status !== 'external'}
@@ -272,13 +270,6 @@
                     <StatusBadge status={node.status} />
                   {:else}
                     <span class="badge {reasonBadgeClass(node.reason)}">{reasonLabel(node.reason)}</span>
-                  {/if}
-                </td>
-                <td data-label="Blast">
-                  {#if blast > 0}
-                    <span class="blast-badge" class:blast-low={blast < 3} class:blast-med={blast >= 3 && blast < 5} class:blast-high={blast >= 5}>{blast}</span>
-                  {:else}
-                    <span class="blast-badge blast-zero">0</span>
                   {/if}
                 </td>
                 <td data-label="Dependencies">
@@ -324,17 +315,6 @@
   }
   .seg-toggle:hover { border-color: var(--c-text-3); color: var(--c-text); }
   .seg-toggle.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); }
-
-  .blast-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 26px; height: 22px; padding: 0 7px;
-    border-radius: var(--radius-xs);
-    font-size: var(--text-xs); font-weight: 600;
-  }
-  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
-  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
-  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
-  .blast-zero { background: var(--c-neutral-bg); color: var(--c-text-3); }
 
   .graph-too-big { padding: var(--sp-4); border: 1px dashed var(--c-border); border-radius: var(--radius-sm); color: var(--c-text-2); }
   .graph-too-big p { margin: 0 0 var(--sp-2); }

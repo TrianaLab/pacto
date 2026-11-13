@@ -377,9 +377,9 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 			{Bundle: mkBundle(svcContract("secret", "1.0.0", contract.Owner{Team: "vault-team"}, dep))},
 		},
 		Targets: []fleet.RawTarget{
-			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant},
-			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "seen", Service: "seen", Compliance: fleet.StatusCompliant},
-			{Scope: "vault", Kind: fleet.SourceKindKubernetes, Name: "secret", Service: "secret", Compliance: fleet.StatusCompliant},
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "seen", Service: "seen", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
+			{Scope: "vault", Kind: fleet.SourceKindKubernetes, Name: "secret", Service: "secret", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()},
 		},
 	}
 	full, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))

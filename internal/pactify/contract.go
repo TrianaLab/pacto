@@ -108,17 +108,20 @@ func (p *planner) contract(ctx context.Context) error {
 	if p.r.Mode == modeBlank {
 		openapi := fmt.Sprintf(blankOpenAPI, p.r.Service)
 		text := p.blank()
-		if err := validate(text, map[string]string{"interfaces/openapi.yaml": openapi, configSchema: blankSchema}); err != nil {
+		files := p.environmentFiles()
+		files["interfaces/openapi.yaml"], files[configSchema] = openapi, blankSchema
+		if err := validate(text, files); err != nil {
 			return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
 		}
 		p.file("pacto.yaml", text)
 		p.file("interfaces/openapi.yaml", openapi)
 		p.file(configSchema, blankSchema)
+		p.planEnvironmentFiles(files)
 		return nil
 	}
 	p.contractNew = true
 	text := p.pactified()
-	files := map[string]string{}
+	files := p.environmentFiles()
 	if p.sc.openapi != "" {
 		files[p.sc.openapi] = "{}"
 	}
@@ -132,7 +135,48 @@ func (p *planner) contract(ctx context.Context) error {
 	if p.schema != "" {
 		p.file(configSchema, p.schema)
 	}
+	p.planEnvironmentFiles(files)
 	return nil
+}
+
+// environmentFile is the values file init writes for env: no values yet.
+func environmentFile(env string) (path, content string) {
+	return "environments/" + env + ".yaml", "# Values " + env + " uses for each configuration, by configuration name.\n{}\n"
+}
+
+// environmentFiles is the values file of each environment, by path, when
+// --delivery declares them in the contract; empty otherwise.
+func (p *planner) environmentFiles() map[string]string {
+	files := map[string]string{}
+	if p.opts.Delivery {
+		for _, env := range p.envs {
+			path, content := environmentFile(env)
+			files[path] = content
+		}
+	}
+	return files
+}
+
+// planEnvironmentFiles plans the values file of each environment
+// environmentFiles gave, in promotion order.
+func (p *planner) planEnvironmentFiles(files map[string]string) {
+	for _, env := range p.envs {
+		if path, content := environmentFile(env); files[path] != "" {
+			p.file(path, content)
+		}
+	}
+}
+
+// environments declares each --env in the contract, with --delivery.
+func (p *planner) environments(b *strings.Builder) {
+	if !p.opts.Delivery {
+		return
+	}
+	b.WriteString("environments:\n")
+	for _, env := range p.envs {
+		path, _ := environmentFile(env)
+		fmt.Fprintf(b, "  - name: %s\n    file: %s\n", env, path)
+	}
 }
 
 // blank writes the contract of a folder with no service in it: the owner,
@@ -144,6 +188,10 @@ func (p *planner) blank() string {
 	p.owner(&b, p.opts.Owner, "no team was given")
 	p.domain(&b)
 	b.WriteString(blankBody)
+	if p.opts.Delivery {
+		b.WriteString("\n")
+		p.environments(&b)
+	}
 	if p.opts.DescribeOnly {
 		return b.String()
 	}
@@ -159,10 +207,14 @@ func (p *planner) blank() string {
 }
 
 // pactoVersion is the lowest version that holds what init writes: 2.4 for a
-// domain, else 2.1 for publish.
+// domain, else 2.3 for the environments --delivery declares, else 2.1 for
+// publish.
 func (p *planner) pactoVersion() string {
-	if p.opts.Domain != "" {
+	switch {
+	case p.opts.Domain != "":
 		return "2.4"
+	case p.opts.Delivery:
+		return "2.3"
 	}
 	return "2.1"
 }
@@ -214,6 +266,14 @@ func (p *planner) existing(data []byte) {
 		return
 	}
 	p.r.Service, p.pub = c.Service.Name, c.Publish
+	if p.opts.Delivery {
+		missing := slices.DeleteFunc(slices.Clone(p.envs), func(env string) bool {
+			return slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
+		})
+		if len(missing) > 0 {
+			p.next("pacto.yaml declares no environment %s: add them with pacto_edit add_environments so the pacto.environment gate checks their values", strings.Join(missing, ", "))
+		}
+	}
 	if c.Publish == nil && !p.opts.DescribeOnly {
 		p.next("pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: \"2.1\" and add publish " +
 			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written")
@@ -338,6 +398,7 @@ func (p *planner) pactified() string {
 	p.health(&b, sc.openapi != "")
 	p.dependencyEntries(&b, bundles)
 	p.configuration(&b)
+	p.environments(&b)
 	if p.opts.DescribeOnly {
 		return b.String()
 	}

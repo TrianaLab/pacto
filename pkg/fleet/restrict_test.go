@@ -737,3 +737,44 @@ func TestRestrictOfferingProviderPlacementUnknown(t *testing.T) {
 		})
 	}
 }
+
+// A hidden service that references a visible policy provider is counted on the
+// provider, never named, and a hidden referrer that also depends on it is
+// counted once, as a dependent.
+func TestRestrictCountsHiddenPolicyReferrers(t *testing.T) {
+	ref := "oci://x/policy"
+	mk := func(name string, depends bool) RawRevision {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"},
+			Policies: []contract.Policy{{Name: "http", Ref: ref}}}
+		if depends {
+			c.Dependencies = []contract.Dependency{{Name: "policy", Ref: ref + "@sha256:policy", Compatibility: "^1.0.0"}}
+		}
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:" + name,
+			Lock: &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{Kind: contract.ReferenceKindPolicy, Name: "http", Source: "oci", Ref: ref, Digest: "sha256:policy"}}}}
+	}
+	policy := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "policy", Version: "1.0.0"}}
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: policy, FS: fstest.MapFS{}}, Digest: "sha256:policy"},
+			mk("referrer", false), mk("both", true), mk("seen", false),
+		},
+		Targets: []RawTarget{
+			{Scope: "secret", Kind: k, Name: "r", Service: "referrer", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "b", Service: "both", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "s", Service: "seen", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "p", Service: "policy", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snap.Services[NewServiceKey("policy")].HiddenPolicyReferrers; got != 0 {
+		t.Errorf("unrestricted HiddenPolicyReferrers = %d", got)
+	}
+	s := NewQuery(snap).Restrict(shopOnly).SnapshotForSerialization()
+	p := s.Services[NewServiceKey("policy")]
+	if p.HiddenDependents != 1 || p.HiddenPolicyReferrers != 1 {
+		t.Errorf("policy hidden dependents/referrers = %d/%d, want 1/1", p.HiddenDependents, p.HiddenPolicyReferrers)
+	}
+}

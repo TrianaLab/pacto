@@ -5,8 +5,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -87,6 +90,44 @@ func TestDemoConfigRefEdgeResolves(t *testing.T) {
 	t.Error("impact does not list catalog-service")
 }
 
+// demoEvent answers an event about service over the fleet `pacto fleet --local
+// examples/demo/bundles` builds.
+func demoEvent(t *testing.T, kind, service string) *impact.Result {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: kind, Service: service}})
+}
+
+// TestDemoEventUnavailableRedis: redis has required dependents (auth-service
+// among them) and one optional one, pricing-service, so both lanes show.
+func TestDemoEventUnavailableRedis(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "redis")
+	effects := map[string]string{}
+	for _, c := range res.Consumers {
+		effects[c.Service] = c.Effect
+	}
+	if effects["auth-service"] != impact.EffectBreaks || effects["pricing-service"] != impact.EffectMayDegrade || res.Gate != impact.GateUnverified {
+		t.Errorf("effects %v, gate %s (%s)", effects, res.Gate, res.GateReason)
+	}
+}
+
+// TestDemoEventUnavailablePaymentsBreaksOnly: every path to payments-service
+// is a required dependency.
+func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
+	res := demoEvent(t, impact.EventUnavailable, "payments-service")
+	if len(res.Consumers) == 0 {
+		t.Fatal("payments-service has no consumers")
+	}
+	for _, c := range res.Consumers {
+		if c.Effect != impact.EffectBreaks {
+			t.Errorf("%s effect %s via %v", c.Service, c.Effect, c.Path)
+		}
+	}
+}
+
 // TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
 // reports to the revisions they name: each digest is the local content identity
 // of its consumer bundle, so an edit to a bundle (its pacto.lock included) that
@@ -105,6 +146,54 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 	}
 	if len(snap.Provisioning) != 2 {
 		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	}
+}
+
+// TestDemoPlacement: the CLI demo's targets say where three services run.
+// payments-service runs in production; audit-log's target names the
+// environment of its own Stage (an exact match, so the page links the two);
+// notification-worker runs in staging, which none of its Stages covers.
+func TestDemoPlacement(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	placed := func(svc string) []string {
+		d, err := q.EntityDetail(fleet.KindService, svc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envs []string
+		for _, p := range d.Service.Placement.Items {
+			envs = append(envs, p.Environment)
+		}
+		return envs
+	}
+	d, err := newDemoDelivery(time.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages, _ := d.Stages(t.Context(), "")
+	envsOf := func(svc string) []string {
+		var envs []string
+		for _, st := range stages {
+			if st.Spec.Service.Name == svc {
+				envs = append(envs, st.Spec.Environment)
+			}
+		}
+		return envs
+	}
+	if got := placed("payments-service"); !slices.Contains(got, "production") {
+		t.Errorf("payments-service placement %v, want production", got)
+	}
+	audit := envsOf("audit-log")
+	if got := placed("audit-log"); len(audit) != 1 || !slices.Contains(got, audit[0]) {
+		t.Errorf("audit-log placement %v, want its Stage's environment %v", got, audit)
+	}
+	if got, covered := placed("notification-worker"), envsOf("notification-worker"); !slices.Contains(got, "staging") || slices.Contains(covered, "staging") {
+		t.Errorf("notification-worker placement %v with Stages in %v, want staging beside them", got, covered)
 	}
 }
 
@@ -135,4 +224,104 @@ func readBundle(t *testing.T, dir string) (*contract.Contract, fs.FS) {
 		t.Fatal(err)
 	}
 	return c, os.DirFS(dir)
+}
+
+// cliStorefront is storefront-web's detail as the CLI demo builds it.
+func cliStorefront(t *testing.T) *fleet.ServiceDetailData {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "storefront-web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Service
+}
+
+// TestDemoStorefrontEnvironments: storefront-web shows every environment
+// state. preview is temporary and expired, staging declares its own owner,
+// production falls back to the service owner and canary runs without being
+// declared.
+func TestDemoStorefrontEnvironments(t *testing.T) {
+	p := cliStorefront(t).Placement
+	lifetime := func(g fleet.EnvironmentPlacement) string {
+		if g.Declaration == nil {
+			return "-"
+		}
+		return g.Declaration.Lifetime
+	}
+	want := map[string]func(g fleet.EnvironmentPlacement) bool{
+		"canary":  func(g fleet.EnvironmentPlacement) bool { return g.Declaration == nil && g.Targets == 1 },
+		"preview": func(g fleet.EnvironmentPlacement) bool { return lifetime(g) == "temporary" && g.Declaration.Expired },
+		"pr-482":  func(g fleet.EnvironmentPlacement) bool { return lifetime(g) == "temporary" && !g.Declaration.Expired },
+		"staging": func(g fleet.EnvironmentPlacement) bool {
+			return g.Owner.Provenance == "declared" && g.Owner.Owner == "storefront-qa"
+		},
+		"production": func(g fleet.EnvironmentPlacement) bool {
+			return lifetime(g) == "persistent" && g.Targets == 1 && g.Owner.Provenance == "inferred"
+		},
+	}
+	for _, g := range p.Items {
+		if ok, listed := want[g.Environment]; listed && !ok(g) {
+			t.Errorf("%s = %+v (declaration %+v)", g.Environment, g, g.Declaration)
+		}
+		delete(want, g.Environment)
+	}
+	for env := range want {
+		t.Errorf("%s is not listed", env)
+	}
+	if len(p.Differences) == 0 || p.DifferencesError != "" {
+		t.Errorf("differences = %v (%s), want some", p.Differences, p.DifferencesError)
+	}
+}
+
+// TestDemoEnvironmentHistory: 1.1.0 adds staging, production and preview,
+// 1.3.0 gives them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1
+// retires pr-482 again.
+func TestDemoEnvironmentHistory(t *testing.T) {
+	h := cliStorefront(t).EnvironmentHistory
+	find := func(env, change, version string) *fleet.EnvironmentEvent {
+		for i, e := range h.Items {
+			if e.Environment == env && e.Change == change && e.Revision.Version == version {
+				return &h.Items[i]
+			}
+		}
+		return nil
+	}
+	if find("staging", "added", "1.1.0") == nil || find("pr-482", "added", "1.3.0") == nil || find("pr-482", "removed", "1.3.1") == nil {
+		t.Errorf("history %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", h.Items)
+	}
+	if e := find("staging", "changed", "1.3.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
+		t.Errorf("staging change in 1.3.0 = %+v, want lifetime and owner", e)
+	}
+	if len(h.Items) != 8 {
+		t.Errorf("history %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", h.Items)
+	}
+}
+
+// TestDemoStorefrontCurrentRevisionMatches: the CLI demo (fleet-targets.yaml)
+// and the browser demo (source_fleet.go, built only for wasm, so read as
+// text) run storefront-web at the same revision, so both read the same
+// current environments.
+func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
+	raw, err := os.ReadFile("source_fleet.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := regexp.MustCompile(`"storefront-web:([0-9.]+)"`).FindAllStringSubmatch(string(raw), -1)
+	if len(refs) < 2 {
+		t.Fatalf("source_fleet.go storefront-web refs = %v, want the production and canary targets", refs)
+	}
+	cur := cliStorefront(t).Placement.CurrentRevision
+	if cur == nil {
+		t.Fatal("the CLI demo has no current storefront-web revision")
+	}
+	for _, r := range refs {
+		if r[1] != cur.Version {
+			t.Errorf("source_fleet.go runs storefront-web %s, the CLI demo %s", r[1], cur.Version)
+		}
+	}
 }

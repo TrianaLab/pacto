@@ -173,9 +173,6 @@ export interface OwnerAggregation {
   // Secondary conclusive/verification metrics (mirror the fleet tile).
   runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown
   conclusive: number; // compliant + warning + nonCompliant
-  totalBlast: number;
-  /** The widest blast radius among the owner's services. Blast radii overlap, so their sum counts no real set. */
-  maxBlast: number;
   compliancePercent: number;
   // Per-owner readiness composition (buckets sum to `services`).
   ready: number;

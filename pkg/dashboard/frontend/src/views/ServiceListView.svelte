@@ -2,14 +2,12 @@
   import { serviceUrl } from '../lib/router.ts';
   import { getFilters } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
-  import { statusClass, statusLabel, statusTone, formatCount } from '../lib/format.ts';
+  import { statusClass, statusLabel, formatCount } from '../lib/format.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import SourceDot from '../components/SourceDot.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
-  import CollapsibleSection from '../CollapsibleSection.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false, loadError = null, onRetry = null } = $props();
 
@@ -21,28 +19,15 @@
   const filters = $derived(getFilters());
   let filtered = $derived(applyFilters(services, filters));
 
-  // Needs attention: non-compliant/warning services, sorted by blast radius
-  // descending. Computed from the filtered set so it agrees with the visible
-  // table (and the summary) when a filter is active.
-  // The widest blast radii in the filtered set. A ranking, not a partition: blast
-  // radii overlap, so their sum is not a population and no share of one is offered.
-  const BLAST_ROWS = 10;
-  let blastRanked = $derived(
-    filtered.filter((s) => (s.blastRadius || 0) > 0).sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
-  );
-  let blastRows = $derived(
-    blastRanked.slice(0, BLAST_ROWS).map((s) => ({
-      label: s.name,
-      value: s.blastRadius || 0,
-      tone: statusTone(s.contractStatus),
-      href: serviceUrl(s.name),
-    }))
-  );
-
+  // Needs attention: non-compliant then warning services, by name. Computed from
+  // the filtered set so it agrees with the visible table (and the summary) when a
+  // filter is active.
   let needsAttention = $derived(
     filtered
       .filter((s) => s.contractStatus === 'NonCompliant' || s.contractStatus === 'Warning')
-      .sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
+      .sort((a, b) => (a.contractStatus === b.contractStatus
+        ? (a.name || '').localeCompare(b.name || '')
+        : a.contractStatus === 'NonCompliant' ? -1 : 1))
       .slice(0, 5)
   );
 </script>
@@ -63,7 +48,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
       <div class="graph-cta-text">
         <span class="graph-cta-title">Dependency Graph</span>
-        <span class="graph-cta-desc">Visualize service relationships and blast radius</span>
+        <span class="graph-cta-desc">Visualize service relationships and what depends on each one</span>
       </div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
     </a>
@@ -86,22 +71,6 @@
   </div>
 {/if}
 
-{#if blastRows.length > 0}
-  <CollapsibleSection title="Fleet risk" open={true}>
-    <HorizontalBars
-      title="Widest blast radius"
-      level={3}
-      description="How many other services each one would affect if it broke. Bar colour is the service's own compliance status."
-      scopeNote={blastRanked.length > BLAST_ROWS
-        ? `Top ${BLAST_ROWS} of ${formatCount(blastRanked.length)} services that anything depends on.`
-        : ''}
-      items={blastRows}
-      unit="services"
-      unitOne="service"
-    />
-  </CollapsibleSection>
-{/if}
-
 <!-- Needs attention -->
 {#if needsAttention.length > 0}
   <div class="alerts">
@@ -112,11 +81,6 @@
         <span class="alert-name">{svc.name}</span>
         <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size: var(--text-xs)">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
-        {#if (svc.blastRadius || 0) > 0}
-          <span class="blast-pill" class:blast-pill-high={svc.blastRadius >= 5} class:blast-pill-med={svc.blastRadius >= 3 && svc.blastRadius < 5}>
-            impacts {svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''}
-          </span>
-        {/if}
       </a>
     {/each}
   </div>
@@ -215,15 +179,6 @@
   .alert-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .alert-name { font-weight: 600; }
   .alert-reason { color: var(--c-text-2); }
-
-  .blast-pill {
-    font-size: var(--text-xs); font-weight: 500;
-    padding: 2px 8px; border-radius: var(--radius-xs);
-    background: var(--c-warn-bg); color: var(--c-warn);
-  }
-  .blast-pill-med { background: var(--c-warn-bg); color: var(--c-warn); }
-  .blast-pill-high { background: var(--c-err-bg); color: var(--c-err); }
-
 
   .source-hints {
     list-style: none; text-align: left; margin-top: var(--sp-2);

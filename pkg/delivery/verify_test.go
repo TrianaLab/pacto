@@ -2,9 +2,13 @@ package delivery
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func pactoAt(name, contractDigest, status string, gen int64) PactoView {
@@ -310,5 +314,37 @@ func TestContractVerdictJudgesOnlyTheStageWorkload(t *testing.T) {
 	if (StageSpec{Service: ServiceRef{Name: "payments"}}).WorkloadOf() != runs ||
 		(StageSpec{Workload: &WorkloadRef{Kind: "StatefulSet", Name: "db"}}).WorkloadOf() != (WorkloadRef{Kind: "StatefulSet", Name: "db"}) {
 		t.Error("WorkloadOf")
+	}
+}
+
+func TestContractVerdictCitesPactos(t *testing.T) {
+	ref := "oci://r/pactos/payments@" + c2
+	judged := pactoAt("p", c2, "NonCompliant", 2)
+	judged.Status.LastReconciledAt = "2026-11-10T10:00:00Z"
+	for i := range 12 {
+		sev := "error"
+		if i%2 == 1 {
+			sev = "warning"
+		}
+		judged.Status.Findings = append(judged.Status.Findings, FindingView{Code: fmt.Sprintf("CODE_%02d", 11-i), Severity: sev})
+	}
+	judged.Status.Findings = append(judged.Status.Findings, FindingView{Code: "CODE_00", Severity: "error"},
+		FindingView{Code: "AN_INFO", Severity: "info"})
+	stale := pactoAt("old", c1, "Compliant", 2)
+	v := ContractVerdict(ContractCheck{ContractRef: ref, Applied: true, Pactos: []PactoView{judged, stale}, Workload: live("w1", 2, 2)})
+	want := map[string]string{
+		"contract":         ref,
+		"p.target":         string(fleet.NewTargetKey("test", fleet.SourceKindKubernetes, "p")),
+		"p.contractStatus": "NonCompliant",
+		"p.evaluatedAt":    "2026-11-10T10:00:00Z",
+		"p.findings":       "CODE_00, CODE_01, CODE_02, CODE_03, CODE_04, CODE_05, CODE_06, CODE_07, CODE_08, CODE_09 and 2 more",
+	}
+	if !maps.Equal(v.Citation, want) {
+		t.Fatalf("citation: got %v, want %v", v.Citation, want)
+	}
+	clean := pactoAt("p", c2, "Compliant", 2)
+	v = ContractVerdict(ContractCheck{ContractRef: ref, Applied: true, Pactos: []PactoView{clean}, Workload: live("w1", 2, 2)})
+	if _, ok := v.Citation["p.findings"]; ok || v.Citation["p.contractStatus"] != "Compliant" {
+		t.Fatalf("no findings, no findings key: %v", v.Citation)
 	}
 }

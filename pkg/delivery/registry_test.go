@@ -45,3 +45,25 @@ func TestResolveRevisionConfigRefs(t *testing.T) {
 		t.Errorf("local ref = %+v", l)
 	}
 }
+
+// annRegistry answers fixed annotations and serves one bundle for any ref.
+type annRegistry map[string]string
+
+func (a annRegistry) Annotations(context.Context, string) (map[string]string, error) { return a, nil }
+
+func (annRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
+	return bundle("consumer", "1.0.0"), nil
+}
+
+// The source revision pacto publish stamped is read whether or not the
+// artifact names a contract.
+func TestResolveRevisionSourceRevision(t *testing.T) {
+	with := ResolveRevision(t.Context(), annRegistry{ContractAnnotation: "oci://r/consumer@" + c1, SourceRevisionAnnotation: "abc1234"}, "r/a", dA)
+	if with.SourceRevision != "abc1234" || with.Bundle == nil {
+		t.Errorf("with a contract: %+v", with)
+	}
+	without := ResolveRevision(t.Context(), annRegistry{SourceRevisionAnnotation: "def5678"}, "r/a", dA)
+	if without.SourceRevision != "def5678" || !without.NoContract {
+		t.Errorf("without a contract: %+v", without)
+	}
+}

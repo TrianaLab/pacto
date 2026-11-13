@@ -38,7 +38,9 @@
   <span class="lane-list">
     <span class="lane-chips">
       {#each chips as c (c.key)}
-        <a class="badge chip t-{tone}" class:unk={hatch} href={hashForHref(c.href)} title={c.label} data-ring={c.ring || undefined}><bdi class:fit={elidable(c.label)}>{c.label}</bdi></a>
+        <!-- A chip with no page (an uncontracted caller) is a name, never a link. -->
+        {#if c.href}<a class="badge chip t-{tone}" class:unk={hatch} href={hashForHref(c.href)} title={c.label} data-ring={c.ring || undefined}><bdi class:fit={elidable(c.label)}>{c.label}</bdi></a>
+        {:else}<span class="badge chip t-{tone}" class:unk={hatch} title={c.label}><bdi class:fit={elidable(c.label)}>{c.label}</bdi></span>{/if}
       {/each}
     </span>
     {#if n && href}<a class="lane-more" {href} data-n={n} onclick={pick}>{chips.length ? (n > chips.length ? `${formatCount(n - chips.length)} more` : '') : `List all ${formatCount(n)}`}</a>{/if}

@@ -83,7 +83,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks five questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks ten questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -146,6 +146,66 @@
       if (f) { f.requestSubmit(); }
     }
   }, {
+    // The same page asks a second question: not "does this revision break anyone" but
+    // "what if this service went away". redis is the demo service with both required
+    // and optional dependents, so the answer fills the Breaks and May degrade lanes.
+    // The event form opens on "becomes unavailable", so pressing Ask is the one action.
+    title: "What if redis went down?",
+    text: "Change analysis also asks what happens if a service becomes unavailable, so press Ask and read who breaks in the Breaks lane and who may degrade in the May degrade lane.",
+    hash: "#/fleet/changes/redis?mode=event",
+    target: ['#sec-revisions button[type=submit]', '[data-testid="changes-answer"]'],
+    wait: "Waiting for the question about redis to be answered.",
+    hold: true,
+    // An event answer has no field-level diff, which keeps the comparison the previous
+    // step left on screen from passing for this one.
+    gate: function () { return hashPath() === "#/fleet/changes/redis" && !!q('[data-testid="changes-answer"]') && !q('[data-testid="changes-what-changed"]'); },
+    skip: function () {
+      var f = q("#sec-revisions");
+      if (f) { f.requestSubmit(); }
+    }
+  }, {
+    // Only something to read: the link answers on load and opens the consumers that
+    // break, each with the resources it holds on the offering and their phase.
+    title: "What if postgresql were removed?",
+    text: "A removal also names what each consumer holds on the service, so each service that breaks without postgresql lists its resources there with the phase each one is in.",
+    hash: "#/fleet/changes/postgresql?event=removed&outcome=breaks",
+    target: ["#sec-affected-consumers", "#sec-affected-consumers .why-resources"]
+  }, {
+    // platform-http-policy has two revisions, so the default pair is already 1.0.0 to
+    // 1.0.1 and pressing Compare revisions is the one action.
+    title: "Does a policy change reach anyone?",
+    text: "A policy is a contract too, so press Compare revisions to ask who the change from platform-http-policy 1.0.0 to 1.0.1 reaches.",
+    hash: "#/fleet/changes/platform-http-policy",
+    target: ['#sec-revisions button[type=submit]', '[data-testid="changes-answer"]'],
+    wait: "Waiting for the comparison to run.",
+    hold: true,
+    gate: function () { return hashPath() === "#/fleet/changes/platform-http-policy" && !!q('[data-testid="changes-what-changed"]'); },
+    skip: function () {
+      var f = q("#sec-revisions");
+      if (f) { f.requestSubmit(); }
+    }
+  }, {
+    // Every policy reference in the demo is unpinned, so the honest answer is partial
+    // and names no referrer: a reader should see why rather than an empty "nobody".
+    title: "Why is the policy answer partial?",
+    text: "The services that reference the policy do not pin a revision of it, so Pacto cannot tell which one they check against: Incomplete evidence lists this as POLICY_REF_CONSUMERS_UNRESOLVED and the gate asks a person to review them.",
+    hash: "#/fleet/changes/platform-http-policy",
+    target: '[data-testid="changes-limitations"]'
+  }, {
+    // Only something to read. A version names no single artifact, so the answer says
+    // which digest to name instead of reading delivery evidence it cannot identify.
+    title: "Did this deployment regress?",
+    text: "A regression is your hypothesis about a revision, and because 2.0.1 is a version rather than an artifact digest, the Delivery evidence section says which digest to name before Pacto reads what delivery recorded.",
+    hash: "#/fleet/changes/payments-service?event=regressed&rev=2.0.1",
+    target: "#sec-delivery-evidence"
+  }, {
+    // Only something to read. The story's payments 2.4.2 named by its artifact digest:
+    // test listed it as failed and rolled it back, and the section cites both.
+    title: "What did delivery record against it?",
+    text: "Named by its artifact digest, the payments 2.4.2 the story shipped to test has Delivery evidence: test lists it as failed and rolled it back after its check found a call its contract never declares.",
+    hash: "#/fleet/changes/registry.example%252Fstory%2Fpayments?event=regressed&rev=sha256:8a546c97f01eaf63f347bc82363161ac374198d6fc023845b98278b64027676c",
+    target: "#sec-delivery-evidence"
+  }, {
     title: "Who does a change reach?",
     text: "The operational graph shows who calls whom, from what contracts declare and from what Pacto observed, so start by typing orders in the search box.",
     hash: "#/fleet/graph",
@@ -186,7 +246,7 @@
     target: '[data-testid="golden-path-list"] tbody tr'
   }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, who it reaches, what a provider promises and where new services start, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, what a provider promises and where new services start, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];

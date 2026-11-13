@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -246,5 +247,180 @@ func TestEnvironmentStage_SyntaxErrorLine(t *testing.T) {
 	st := EnvironmentStage(envContract("staging.yaml"), envFS(map[string]string{"staging.yaml": "chart:\n  - [\n"}))
 	if len(st.Errors) != 1 || st.Errors[0].Line != 2 {
 		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+func TestExpiredEnvironmentWarnings(t *testing.T) {
+	now := time.Date(2026, time.November, 20, 0, 0, 0, 0, time.UTC)
+	c := &contract.Contract{Environments: []contract.Environment{
+		{Name: "past", File: "p.yaml", Lifetime: "temporary", Expires: "2026-11-19T00:00:00Z"},
+		{Name: "now", File: "n.yaml", Lifetime: "temporary", Expires: "2026-11-20T00:00:00Z"},
+		{Name: "future", File: "f.yaml", Lifetime: "temporary", Expires: "2026-11-21T00:00:00Z"},
+		{Name: "none", File: "x.yaml"},
+		{Name: "bad", File: "b.yaml", Lifetime: "temporary", Expires: "next week"},
+	}}
+	got := ExpiredEnvironmentWarnings(c, now)
+	if len(got) != 2 || got[0].Path != "environments[0].expires" || got[1].Path != "environments[1].expires" {
+		t.Fatalf("got %+v", got)
+	}
+	w := got[0]
+	if w.Code != "ENVIRONMENT_EXPIRED" || w.Message != "environment past expired at 2026-11-19T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires" {
+		t.Fatalf("got %+v", w)
+	}
+}
+
+func TestEnvironmentStageHasNoExpiry(t *testing.T) {
+	c := envContract("staging.yaml")
+	c.Environments[0].Lifetime, c.Environments[0].Expires = "temporary", "2000-01-01T00:00:00Z"
+	st := EnvironmentStageWith(c, envFS(map[string]string{"staging.yaml": "chart: {ingress: {host: s}}\n"}), nil)
+	if strings.Contains(codes(st), "ENVIRONMENT_EXPIRED") {
+		t.Fatalf("got %+v", st)
+	}
+}
+
+func diffContract() *contract.Contract {
+	return &contract.Contract{
+		PactoVersion: "2.3",
+		Configurations: []contract.Configuration{
+			{Name: "app", Values: map[string]any{"LOG_LEVEL": "info", "db": map[string]any{"host": "db", "port": 5432}, "tags": []any{"a"}, "gone": 1}},
+			{Name: "chart"},
+		},
+		Environments: []contract.Environment{{Name: "dev", File: "dev.yaml"}, {Name: "test", File: "test.yaml"}, {Name: "prod", File: "prod.yaml"}},
+	}
+}
+
+var diffFiles = fstest.MapFS{
+	"dev.yaml":  {Data: []byte("app:\n  LOG_LEVEL: debug\n  tags: [a, b]\n  gone: null\nchart:\n  only: dev\n")},
+	"test.yaml": {Data: []byte("app:\n  db: {port: 6543}\n  tags: [a, b]\n")},
+	"prod.yaml": {Data: []byte("{}\n")},
+}
+
+// diffRows is each difference as configuration.path.
+func diffRows(ds []EnvironmentDifference) string {
+	var out []string
+	for _, d := range ds {
+		out = append(out, d.Configuration+"."+d.Path)
+	}
+	return strings.Join(out, ",")
+}
+
+func TestEnvironmentDifferences(t *testing.T) {
+	got, err := EnvironmentDifferences(diffContract(), diffFiles, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := diffRows(got); rows != "app.LOG_LEVEL,app.db.port,app.gone,app.tags,chart.only" {
+		t.Fatalf("rows = %s", rows)
+	}
+	if v := got[0].Values; v["dev"] != "debug" || v["test"] != "info" || v["prod"] != "info" {
+		t.Errorf("scalar values = %v", v)
+	}
+	if _, set := got[2].Values["dev"]; set || got[2].Values["prod"] != float64(1) {
+		t.Errorf("null deletes a default key, so dev does not set it: %v", got[2].Values)
+	}
+	if _, set := got[4].Values["prod"]; set || got[4].Values["dev"] != "dev" {
+		t.Errorf("a key set in one environment only: %v", got[4].Values)
+	}
+}
+
+func TestEnvironmentDifferencesNamedSubset(t *testing.T) {
+	got, err := EnvironmentDifferences(diffContract(), diffFiles, []string{"test", "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := diffRows(got); rows != "app.LOG_LEVEL,app.db.port,app.gone,chart.only" {
+		t.Fatalf("rows = %s (arrays compare whole and equal ones give no row)", rows)
+	}
+	if _, ok := got[0].Values["prod"]; ok {
+		t.Errorf("an environment that was not chosen is listed: %v", got[0].Values)
+	}
+}
+
+func TestEnvironmentDifferencesNone(t *testing.T) {
+	if got, err := EnvironmentDifferences(diffContract(), fstest.MapFS{"dev.yaml": {}, "test.yaml": {}, "prod.yaml": {}}, nil); err != nil || len(got) != 0 {
+		t.Fatalf("defaults equal everywhere: %v, %v", got, err)
+	}
+	c := diffContract()
+	c.Environments = c.Environments[:1]
+	if got, err := EnvironmentDifferences(c, diffFiles, nil); err != nil || got != nil {
+		t.Fatalf("one declared environment: %v, %v", got, err)
+	}
+}
+
+func TestEnvironmentDifferencesErrors(t *testing.T) {
+	_, err := EnvironmentDifferences(diffContract(), diffFiles, []string{"dev", "nope"})
+	if err == nil || !strings.Contains(err.Error(), `"nope"`) || !strings.Contains(err.Error(), "declared: dev, test, prod") {
+		t.Errorf("undeclared name: %v", err)
+	}
+	_, err = EnvironmentDifferences(diffContract(), fstest.MapFS{"dev.yaml": {}, "test.yaml": {Data: []byte("[1]")}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "environment test: cannot read test.yaml") {
+		t.Errorf("unreadable file: %v", err)
+	}
+	if _, err := EnvironmentDifferences(diffContract(), nil, nil); err == nil {
+		t.Error("no bundle files: want an error")
+	}
+}
+
+func TestEnvironmentDifferencesLeaves(t *testing.T) {
+	c := diffContract()
+	c.Configurations = []contract.Configuration{{Name: "x"}}
+	got, err := EnvironmentDifferences(c, fstest.MapFS{"dev.yaml": {Data: []byte("x: 3\n")}, "test.yaml": {Data: []byte("x: {a: {}}\n")}, "prod.yaml": {Data: []byte("x: {}\n")}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diffRows(got) != "x." || got[0].Values["dev"] != float64(3) || got[0].Values["test"] == nil {
+		t.Fatalf("an object and a value that is not one compare whole: %+v", got)
+	}
+}
+
+// A named comparison needs two distinct environments: one name or a repeated
+// one would compare nothing or an environment with itself.
+func TestEnvironmentDifferencesNamesTwoDistinct(t *testing.T) {
+	for names, want := range map[string]string{
+		"dev":          "name at least two environments",
+		"test,test":    `environment "test" is named twice`,
+		"dev,test,dev": `environment "dev" is named twice`,
+	} {
+		if _, err := EnvironmentDifferences(diffContract(), diffFiles, strings.Split(names, ",")); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", names, err, want)
+		}
+	}
+}
+
+// A dot inside a key never collides with a nested path, and an empty object
+// against a non-empty one compares whole instead of reading "not set".
+func TestEnvironmentDifferencesPaths(t *testing.T) {
+	c := diffContract()
+	c.Environments = c.Environments[:2]
+	c.Configurations = []contract.Configuration{{Name: "app"}}
+	got, err := EnvironmentDifferences(c, fstest.MapFS{
+		"dev.yaml":  {Data: []byte("app:\n  log.level: debug\n  annotations: {}\n")},
+		"test.yaml": {Data: []byte("app:\n  log: {level: debug}\n  annotations: {team: qa}\n")},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := diffRows(got); rows != `app.annotations,app.log.level,app.log\.level` {
+		t.Fatalf("rows = %s", rows)
+	}
+	if v := got[0].Values; len(v) != 2 || v["test"] == nil {
+		t.Errorf("annotations is set in both environments: %v", v)
+	}
+	if v := got[1].Values; len(v) != 1 || v["test"] != "debug" {
+		t.Errorf("nested log.level is test's only: %v", v)
+	}
+}
+
+func TestComparedEnvironments(t *testing.T) {
+	c := diffContract()
+	if got := ComparedEnvironments(c, nil); strings.Join(got, ",") != "dev,test,prod" {
+		t.Errorf("every declared one: %v", got)
+	}
+	if got := ComparedEnvironments(c, []string{"prod", "dev"}); strings.Join(got, ",") != "prod,dev" {
+		t.Errorf("the names given: %v", got)
+	}
+	c.Environments = c.Environments[:1]
+	if got := ComparedEnvironments(c, nil); got != nil {
+		t.Errorf("one declared environment compares nothing: %v", got)
 	}
 }

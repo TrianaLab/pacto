@@ -5,9 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -348,5 +352,143 @@ func TestService_ImpactOnSnapshot(t *testing.T) {
 	}
 	if !missing {
 		t.Errorf("limitations %+v lack SERVICE_NOT_IN_FLEET", bound.Limitations)
+	}
+}
+
+// A trace edge keeps the end time of its latest span, so impact can tell a
+// call seen today from one seen last week; a span with no time gives none.
+func TestObservedEdgesFromTracesKeepLastSeen(t *testing.T) {
+	span := func(callee, end string) string {
+		return `{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,` +
+			`"startTimeUnixNano":"` + end + `","endTimeUnixNano":"` + end + `","attributes":[{"key":"peer.service","value":{"stringValue":"` + callee + `"}}]}]}]}`
+	}
+	edges, err := observedEdgesFromTraces([]byte(`{"resourceSpans":[` + span("orders", "5000") + `,` + span("stock", "") + `]}`))
+	if err != nil || len(edges) != 2 {
+		t.Fatalf("edges = %+v, err %v", edges, err)
+	}
+	for _, e := range edges {
+		switch e.Provider {
+		case "orders":
+			if e.LastSeen == nil || !e.LastSeen.Equal(time.Unix(0, 5000)) {
+				t.Errorf("orders lastSeen = %v", e.LastSeen)
+			}
+		default:
+			if e.LastSeen != nil {
+				t.Errorf("%s lastSeen = %v, want none", e.Provider, e.LastSeen)
+			}
+		}
+	}
+}
+
+// eventFleet is a fleet root with orders and webapp, which requires it.
+func eventFleet(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeImpactService(t, filepath.Join(root, "orders"), "orders", "1.0.0")
+	dir := filepath.Join(root, "webapp")
+	writeImpactService(t, dir, "webapp", "1.0.0")
+	body := "pactoVersion: \"2.0\"\nservice:\n  name: webapp\n  version: \"1.0.0\"\ndependencies:\n  - name: orders\n    ref: oci://x/orders\n    required: true\n    compatibility: \"^1.0.0\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestImpactEventOnSnapshot(t *testing.T) {
+	svc := NewService(nil, nil)
+	ctx := context.Background()
+	opts := ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Service: "orders"}, Fleet: FleetOptions{LocalRoots: []string{eventFleet(t)}}}
+	res, err := svc.ImpactEvent(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Event == nil || res.Event.Kind != impact.EventUnavailable || len(res.Consumers) != 1 ||
+		res.Consumers[0].Service != "webapp" || res.Consumers[0].Effect != impact.EffectBreaks || res.Gate != impact.GateUnverified {
+		t.Fatalf("unavailable orders = %+v", res)
+	}
+	snap, _ := svc.Fleet(ctx, opts.Fleet)
+	opts.Event = impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"}
+	opts.ReadRegression = func(context.Context, impact.Event) *impact.Regression {
+		return &impact.Regression{Unavailable: "no cluster"}
+	}
+	res, err = svc.ImpactEventOnSnapshot(ctx, opts, snap)
+	if err != nil || res.SnapshotID != snap.SnapshotID || !strings.Contains(res.GateReason, "not read in full") {
+		t.Fatalf("regressed on the snapshot = %+v %v", res, err)
+	}
+	opts.Traces = []byte("{not json")
+	if _, err := svc.ImpactEventOnSnapshot(ctx, opts, snap); err == nil || !strings.Contains(err.Error(), "parse traces") {
+		t.Fatalf("bad traces: %v", err)
+	}
+	opts.Fleet = FleetOptions{LocalRoots: []string{"/nonexistent/root"}}
+	if _, err := svc.ImpactEvent(ctx, opts); err == nil {
+		t.Fatal("a fleet that cannot build is an error")
+	}
+}
+
+func TestParseEventFlag(t *testing.T) {
+	for _, tc := range []struct {
+		kind, value string
+		want        impact.Event
+		err         string
+	}{
+		{impact.EventUnavailable, "redis", impact.Event{Kind: "unavailable", Service: "redis"}, ""},
+		{impact.EventRemoved, "shop/postgres", impact.Event{Kind: "removed", Service: "shop/postgres"}, ""},
+		{impact.EventRegressed, "payments@sha256:ab", impact.Event{Kind: "regressed", Service: "payments", Revision: "sha256:ab"}, ""},
+		{impact.EventRegressed, "a@b@1.0.0", impact.Event{Kind: "regressed", Service: "a@b", Revision: "1.0.0"}, ""},
+		{impact.EventRegressed, "payments", impact.Event{}, "<service>@<revision>"},
+		{impact.EventRegressed, "@1.0.0", impact.Event{}, "<service>@<revision>"},
+		{impact.EventRegressed, "payments@", impact.Event{}, "<service>@<revision>"},
+		{impact.EventUnavailable, "redis@1.0.0", impact.Event{}, "takes a service key"},
+		{impact.EventRemoved, "", impact.Event{}, "takes a service key"},
+		{"exploded", "redis", impact.Event{}, "unknown event"},
+	} {
+		got, err := ParseEventFlag(tc.kind, tc.value)
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s %q: err %v, want %q", tc.kind, tc.value, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s %q = %+v %v, want %+v", tc.kind, tc.value, got, err, tc.want)
+		}
+	}
+}
+
+// A bare name resolves to the one service of that name in any domain; a name
+// two domains share is refused with their keys.
+func TestImpactEventResolvesABareName(t *testing.T) {
+	raw := func(domain, name string) fleet.RawRevision {
+		return fleet.RawRevision{Domain: domain, Bundle: &contract.Bundle{FS: fstest.MapFS{},
+			Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}}}
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("m", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{raw("ghcr.io/shop", "orders"), raw("ghcr.io/shop", "cart"), raw("ghcr.io/pay", "cart")}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(nil, nil)
+	res, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "orders"},
+		ReadRegression: func(context.Context, impact.Event) *impact.Regression {
+			t.Fatal("only a regressed event reads delivery")
+			return nil
+		}}, snap)
+	if err != nil || res.Event.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) || slices.ContainsFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == "SERVICE_NOT_IN_FLEET" }) {
+		t.Fatalf("bare name = %+v %v", res, err)
+	}
+	if _, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventRemoved, Service: "cart"}}, snap); err == nil ||
+		!strings.Contains(err.Error(), "is ambiguous") {
+		t.Fatalf("ambiguous name: %v", err)
+	}
+	// Delivery is read with the resolved key: a bare name read as domain ""
+	// matches no Stage of a domain and would report "no failure recorded".
+	var read impact.Event
+	if _, err := svc.ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{
+		Event: impact.Event{Kind: impact.EventRegressed, Service: "orders", Revision: "sha256:a"},
+		ReadRegression: func(_ context.Context, ev impact.Event) *impact.Regression {
+			read = ev
+			return &impact.Regression{}
+		}}, snap); err != nil || read.Service != string(fleet.NewServiceKeyDomain("ghcr.io/shop", "orders")) {
+		t.Fatalf("regression read with %+v %v", read, err)
 	}
 }

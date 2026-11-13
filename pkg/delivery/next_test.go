@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +94,18 @@ func TestIntentDiffers(t *testing.T) {
 	}
 	if got := IntentDiffers(withReason, stage, "sha256:other"); got != "" {
 		t.Fatalf("a difference it cannot name: %q", got)
+	}
+}
+
+func TestPlanNextHeldOnFrozenStage(t *testing.T) {
+	held := Plan{Type: TypePromote, Predicted: PredictHeld, Floor: Floor{Human: true, Decision: Approve}}
+	const frozen = "The Stage is frozen: even once approved, the promote waits until a person unfreezes it."
+	if got := strings.Join(PlanNext(held, ClassHuman, StageSpec{}), "\n"); strings.Contains(got, frozen) {
+		t.Fatalf("not frozen: %s", got)
+	}
+	held.Conflicts = []string{"StageFrozen: Errored"}
+	got := PlanNext(held, ClassHuman, StageSpec{})
+	if i := slices.Index(got, frozen); i < 0 || i != len(got)-2 || !strings.Contains(got[len(got)-1], "approval deadline") {
+		t.Fatalf("frozen: the freeze line comes before the deadline line: %v", got)
 	}
 }

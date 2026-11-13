@@ -19,7 +19,8 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import ImpactFigure from '../components/figure/ImpactFigure.svelte';
   import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
-  import { OUTCOMES } from '../lib/impactFigure.ts';
+  import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -36,6 +37,10 @@
   // and, when that preview truncates, from the bounded/pageable product entities API
   // scoped to the service -- so a truncated preview is never treated as the complete
   // revision universe.
+  // The same workspace asks a second question about one service (#471): what happens if
+  // it becomes unavailable, is removed or regressed. That event mode answers in the same
+  // ProductImpact shape from the same POST, with `event` and `serviceKey` instead of the
+  // revision pair; its state (mode=event, event, rev) lives in the URL like the pair does.
   let { params = {} } = $props();
   const serviceKey = $derived(params.svc || '');
   // A legacy compare bookmark carried only a display name. It is resolved to a canonical
@@ -70,6 +75,21 @@
   // bound (more revisions exist than are listed), so the UI can say so honestly.
   let revisionsComplete = $state(true);
 
+  // Which question: compare two revisions, or what if this service... (event mode).
+  const EVENT_KINDS = [
+    { value: 'unavailable', label: 'becomes unavailable' },
+    { value: 'removed', label: 'is removed' },
+    { value: 'regressed', label: 'regressed' },
+  ];
+  let mode = $state(untrack(() => (params.event || params.mode === 'event' ? 'event' : 'compare')));
+  // A link may name an event this build does not know (a typo, a newer build): it is
+  // never answered as another one, the form says so instead.
+  const unknownEvent = untrack(() => (params.event && !EVENT_KINDS.some((k) => k.value === params.event) ? params.event : ''));
+  let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
+  let eventRev = $state(untrack(() => params.rev || ''));
+  const isEvent = $derived(mode === 'event');
+  const outcomeKeys = $derived(isEvent ? EFFECTS : OUTCOMES);
+
   // Selection.
   let fromRevKey = $state('');
   let toRevKey = $state('');
@@ -93,7 +113,7 @@
   let limShown = $state(8);
   // The consumers table lists one outcome when a lane's link asked for it (T3): the
   // lane's count is that list's total. The figure always shows every outcome.
-  let outcome = $state(untrack(() => (OUTCOMES.includes(params.outcome) ? params.outcome : '')));
+  let outcome = $state(untrack(() => ((params.event ? EFFECTS : OUTCOMES).includes(params.outcome) ? params.outcome : '')));
   // A restored link to one outcome opens the table on it once the answer is in.
   let showTable = untrack(() => !!outcome);
 
@@ -180,7 +200,10 @@
       // sides and both still exist, run the comparison so the recipient sees what the
       // sender saw. A partial or stale link falls back to the selectors, which is why
       // this is gated on BOTH sides resolving.
-      if (restoredOld && restoredNew) analyze(0);
+      // An event link answers the same way: the event (and, for a regression, its
+      // revision) is the whole question. `mode=event` alone is the empty event form.
+      if (mode === 'event') { if (params.event && !unknownEvent && (eventKind !== 'regressed' || eventRev)) analyze(0); }
+      else if (restoredOld && restoredNew) analyze(0);
     } catch (e) {
       if (gen !== revGen) return;
       loadError = e;
@@ -258,7 +281,7 @@
   });
 
   async function analyze(offset = 0, paging = false, asked = false) {
-    if (!serviceKey || !fromRevKey || !toRevKey) return;
+    if (!serviceKey || (isEvent ? eventKind === 'regressed' && !eventRev.trim() : !fromRevKey || !toRevKey)) return;
     const gen = ++analyzeGen;
     if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
@@ -266,11 +289,13 @@
     analyzeError = null;
     staleSnapshot = false;
     try {
+      const question = isEvent
+        ? { event: eventKind, revision: eventKind === 'regressed' ? eventRev.trim() : undefined }
+        : { fromRevisionKey: fromRevKey, toRevisionKey: toRevKey };
       const res = await api.fleetImpactByIdentity({
         snapshotId: snapshotId || undefined,
         serviceKey,
-        fromRevisionKey: fromRevKey,
-        toRevisionKey: toRevKey,
+        ...question,
         includeObserved,
         limit: CONSUMER_PAGE,
         offset,
@@ -289,13 +314,23 @@
       // A snapshot-id mismatch is a 409: the published snapshot changed, so the honest
       // response is "refetch and retry", never a silently wrong answer.
       if (e instanceof ApiError && e.status === 409) staleSnapshot = true;
-      else analyzeError = e instanceof ApiError ? e.message : 'Couldn’t compare these revisions.';
+      else analyzeError = e instanceof ApiError ? e.message : isEvent ? 'Couldn’t answer this question.' : 'Couldn’t compare these revisions.';
     } finally {
       if (gen === analyzeGen) { analyzing = false; pagingConsumers = false; }
     }
   }
 
-  const changesUrl = (o = '') => fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o });
+  const changesUrl = (o = '') => (isEvent
+    ? fleetChangesUrl(serviceKey, { event: eventKind, rev: eventKind === 'regressed' ? eventRev.trim() : '', outcome: o })
+    : fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o }));
+
+  // Switching the question drops the other question's answer, and the URL says which
+  // form is open (a replace: a mode is not a screen to go Back to).
+  function setMode(/** @type {string} */ m) {
+    if (m === mode) return;
+    mode = m; result = null; outcome = ''; analyzeError = null; analyzeGen++;
+    history.replaceState(null, '', fleetChangesUrl(serviceKey, m === 'event' ? { mode: 'event' } : {}));
+  }
 
   // A lane's count or "N more" lists that outcome. A plain click keeps the answer on
   // screen: it pushes the link's URL (so Back returns to the whole table), pages the
@@ -316,7 +351,7 @@
   // same view, so the URL's outcome is read here.
   function onHash() {
     const o = parseHash(location.hash).params?.outcome ?? '';
-    if (parseHash(location.hash).view === 'changes' && o !== outcome && result) setOutcome(OUTCOMES.includes(o) ? o : '');
+    if (parseHash(location.hash).view === 'changes' && o !== outcome && result) setOutcome(outcomeKeys.includes(o) ? o : '');
   }
   onMount(() => { window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); });
 
@@ -372,20 +407,33 @@
   const verdictCount = (k) => (consumers.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
   // The figure's chips name these; the table marks them so every name is readable in full.
   const highlighted = $derived(new Set((consumers.highlights ?? []).map((c) => c.service?.key)));
+  const outcomeCount = (k) => (consumers.byOutcome ?? []).find((b) => b.key === k)?.count ?? 0;
   const consumerMeta = $derived(
-    consumers.total
-      ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`
-      : 'None',
+    !consumers.total ? 'None'
+      : isEvent ? `${formatCount(consumers.total)}${outcomeCount('breaks') ? ` · ${formatCount(outcomeCount('breaks'))} break` : ''}`
+        : `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`,
   );
   // What the table pages over: every consumer, or those of the outcome a lane asked for.
   const cMatching = $derived(consumers.matching ?? consumers.total ?? 0);
-  const outcomeLabel = (/** @type {string} */ o) => outcomeSegments([{ key: o, count: 0 }])[0]?.label ?? o;
-  const outcomeOptions = $derived([{ value: '', label: 'Every outcome' }, ...OUTCOMES.map((o) => ({ value: o, label: outcomeLabel(o) }))]);
+  const outcomeLabel = (/** @type {string} */ o) => EFFECT_META[o]?.label ?? outcomeSegments([{ key: o, count: 0 }])[0]?.label ?? o;
+  const outcomeOptions = $derived([{ value: '', label: isEvent ? 'Every effect' : 'Every outcome' }, ...outcomeKeys.map((o) => ({ value: o, label: outcomeLabel(o) }))]);
   const cShownFrom = $derived(cMatching === 0 ? 0 : (consumers.offset ?? 0) + 1);
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
-  const canAnalyze = $derived(!!serviceKey && !!fromRevKey && !!toRevKey && !analyzing);
+  const canAnalyze = $derived(!!serviceKey && !analyzing && (isEvent ? eventKind !== 'regressed' || !!eventRev.trim() : !!fromRevKey && !!toRevKey));
+  // A regression names a version or an artifact digest: the service's revisions are
+  // offered, and any digest may be typed.
+  const revisionChoices = $derived(revisions.flatMap((r) => [
+    ...(r.secondary ? [{ value: r.secondary, label: `${r.version || r.label} artifact` }] : []),
+    ...(r.version ? [{ value: r.version, label: 'version' }] : []),
+  ]));
+  // Delivery evidence about a regressed revision, and why it could not be read.
+  const regression = $derived(result?.regression ?? []);
+  const deliveryUnread = $derived(limitations.items.filter((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE'));
+  const REGRESSION_KIND = { failed: 'Failed', check: 'Check failed', rollback: 'Rolled back' };
+  const EFFECT_BADGE = { breaks: 'badge-err', 'may-degrade': 'badge-warn', unknown: 'badge-neutral' };
+  const MAX_EVIDENCE_LINES = 3;
   // A revision reads as its version and a short digest: the service is already named
   // above the pickers, and two revisions of one version differ only by content.
   const revisionOptions = $derived(revisions.map((r) => ({
@@ -399,7 +447,7 @@
 
 <PageHeader
   title="Change analysis"
-  subtitle="What changed between two revisions and who it reaches."
+  subtitle={isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
 />
 
 {#if !serviceKey}
@@ -451,12 +499,38 @@
   <!-- No page navigator: the answer sits under the pickers and every part behind it is a
        fold, so the page is one screen and going back to change a revision is no scroll. -->
   <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0, false, true); }}>
+    <fieldset class="ca-mode" data-testid="changes-mode">
+      <legend class="visually-hidden">Question</legend>
+      <label class="ca-mode-opt"><input type="radio" name="ca-mode" value="compare" checked={!isEvent} onchange={() => setMode('compare')} /> Compare two revisions</label>
+      <label class="ca-mode-opt"><input type="radio" name="ca-mode" value="event" checked={isEvent} onchange={() => setMode('event')} /> What if this service…</label>
+    </fieldset>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
            a screen starts reading like a form instead of a sentence. -->
       {#if serviceDetail?.entity}<EntityLink ref={serviceDetail.entity} showStatus={false} />{:else}<code>{serviceKey}</code>{/if}
     </div>
+    {#if isEvent}
+    <div class="selectors">
+      <div class="field">
+        <label for="impact-event">What if this service</label>
+        <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; }}>
+          {#each EVENT_KINDS as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
+        </select>
+      </div>
+      {#if eventKind === 'regressed'}
+        <div class="field">
+          <label for="impact-event-rev">Revision or artifact digest</label>
+          <input id="impact-event-rev" type="text" inputmode="text" autocomplete="off" spellcheck="false" list="impact-event-revs"
+            placeholder="sha256:… or a version" value={eventRev} oninput={(e) => { eventRev = e.currentTarget.value; }} />
+          <datalist id="impact-event-revs">
+            {#each revisionChoices as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+          </datalist>
+          <span class="t-meta">An artifact digest lets the answer cite what delivery recorded about it.</span>
+        </div>
+      {/if}
+    </div>
+    {:else}
     <div class="selectors">
       <div class="field">
         <label for="impact-old-rev">Earlier revision</label>
@@ -472,10 +546,14 @@
     {#if revisions.length < 2}
       <p class="text-dim">Fewer than two revisions, so nothing to compare yet.</p>
     {/if}
-    {#if !revisionsComplete}
+    {/if}
+    {#if !revisionsComplete && !isEvent}
       <p class="text-dim" data-testid="impact-revisions-incomplete">Only the most recent revisions are listed. Open an older one from its revision page.</p>
     {/if}
     <div class="form-actions">
+      <!-- An event always reads the runtime callers (an availability question is a
+           runtime one), so the toggle belongs to a comparison only. -->
+      {#if !isEvent}
       <span class="check-row">
         <label class="check-field">
           <input type="checkbox" bind:checked={includeObserved} disabled={!observedAvailable} />
@@ -483,8 +561,9 @@
         </label>
         <HelpTip label="runtime callers" text="Also count callers seen at runtime that never declared this dependency." />
       </span>
+      {:else}<span class="t-meta">Callers seen at runtime are always counted.</span>{/if}
       <button type="submit" class="btn btn-primary" disabled={!canAnalyze}>
-        {analyzing ? 'Comparing…' : 'Compare revisions'}
+        {#if isEvent}{analyzing ? 'Asking…' : 'Ask'}{:else}{analyzing ? 'Comparing…' : 'Compare revisions'}{/if}
       </button>
     </div>
   </form>
@@ -498,9 +577,9 @@
   {/if}
 
   {#if analyzeError}
-    <EmptyState error title="Couldn’t compare these revisions" message={analyzeError} onRetry={() => analyze(consumerOffset)} />
+    <EmptyState error title={isEvent ? 'Couldn’t answer this question' : 'Couldn’t compare these revisions'} message={analyzeError} onRetry={() => analyze(consumerOffset)} />
   {:else if analyzing}
-    <EmptyState loading message="Comparing the two revisions…" />
+    <EmptyState loading message={isEvent ? 'Walking what depends on this service…' : 'Comparing the two revisions…'} />
   {:else if result}
     <!-- The answer, drawn and stated: the figure reads only the backend tallies and the
          ranked highlights, so paging the table below never changes it. Its card says what
@@ -508,6 +587,33 @@
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
 
     <div class="ca-stack">
+    {#if result.event?.kind === 'regressed'}
+      <!-- What delivery recorded about the regressed revision, each line with where it
+           comes from: a signed record, or an Operation's status (not signed). -->
+      <section class="ca-fold ca-evidence" id="sec-delivery-evidence" data-testid="changes-delivery-evidence" aria-labelledby="ca-evidence-h">
+        <h2 id="ca-evidence-h">Delivery evidence</h2>
+        {#if regression.length}
+          <ul class="ca-evidence-list">
+            {#each regression as r, ri (ri)}
+              <li data-testid="delivery-evidence-item">
+                <span class="badge {r.kind === 'rollback' ? 'badge-warn' : 'badge-err'}">{REGRESSION_KIND[r.kind] ?? r.kind}</span>
+                <bdi class="mono ca-ev-where" title="{r.namespace}/{r.stage}">{r.namespace}/{r.stage}</bdi>
+                {#if r.gate}<span class="t-meta">gate <bdi>{r.gate}</bdi></span>{/if}
+                {#if r.message}<span class="ca-ev-msg">{r.message}</span>{/if}
+                {#if r.at}<span class="t-meta">{formatRelative(r.at)}</span>{/if}
+                <span class="t-meta">{#if r.record}record <code>{r.record}</code>{:else}from status, not signed{/if}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if deliveryUnread.length}
+          <LimitationsList items={deliveryUnread} />
+        {:else if !regression.length}
+          <p class="text-dim">Delivery recorded no failure of this revision in the Stages you may read.</p>
+        {/if}
+      </section>
+    {/if}
+    {#if !result.event}
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
          statement about the contracts, not about what runs. -->
     <details class="ca-fold disclosure" id="sec-what-changed" data-testid="changes-what-changed">
@@ -534,6 +640,7 @@
       {/if}
       </div>
     </details>
+    {/if}
 
     <!-- WHAT IT AFFECTS: the same revision pair over the operational graph. Kept apart
          from the diff because "the contract changed" and "something running is affected"
@@ -545,11 +652,12 @@
         </summary>
         <div class="ca-fold-body">
         {#if !consumers.total}
-          <EmptyState title="No affected consumers" message="Nothing in the operational graph uses this change." level={3} />
+          <EmptyState title="No affected consumers" message={result.event ? 'Nothing in the operational graph depends on this service.' : 'Nothing in the operational graph uses this change.'} level={3} />
         {:else}
           <!-- Both rankings come from the backend tallies over EVERY consumer, so they do
                not change as the table pages. -->
           <div class="impact-viz" data-testid="impact-consumer-viz">
+            {#if !result.event}
             <DistributionBar
               title="By version range"
               level={3}
@@ -557,6 +665,7 @@
               segments={verdictSegments(consumers.byVerdict)}
               total={consumers.total}
             />
+            {/if}
             <DistributionBar
               title="By evidence"
               level={3}
@@ -566,41 +675,94 @@
             />
           </div>
           <div class="consumer-tools">
-            <Select label="Outcome" value={outcome} options={outcomeOptions} onchange={(e) => setOutcome(e.currentTarget.value)} />
-            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each outcome.</span>
+            <Select label={isEvent ? 'Effect' : 'Outcome'} value={outcome} options={outcomeOptions} onchange={(e) => setOutcome(e.currentTarget.value)} />
+            <span class="text-3">Highlighted consumers, ranked over all {formatCount(consumers.total)}, come first in each {isEvent ? 'effect' : 'outcome'}.</span>
           </div>
           {#if (consumers.items?.length ?? 0) === 0}
-            <p class="text-dim" data-testid="consumers-none-of-outcome">No consumer is {outcomeLabel(outcome).toLowerCase()}.</p>
+            <p class="text-dim" data-testid="consumers-none-of-outcome">No consumer {isEvent ? 'is in the' : 'is'} {outcomeLabel(outcome).toLowerCase()}{isEvent ? ' lane' : ''}.</p>
           {:else}
-          <div class="data-scroll" aria-busy={pagingConsumers}>
-            <table class="data-table">
-              <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
+          <div class="data-scroll ca-consumers" aria-busy={pagingConsumers}>
+            <!-- Grid tracks with a floor each (minmax in ch), never a percentage that can
+                 collapse; below the width they need, every row is a card of labelled
+                 values (data-label), chosen by the width the table gets. -->
+            <table class="data-table ca-table">
               <thead>
                 <tr>
                   <th>Consumer</th>
-                  <th>Reach <HelpTip label="Reach" text="Direct consumers depend on the changed service; transitive ones are reached through others." /></th>
                   <th>Path <HelpTip label="Path" text="The chain of dependencies from the consumer back to the changed service." /></th>
-                  <th>Verdict</th>
-                  <th>Confidence <HelpTip label="Confidence" text={CONFIDENCE_HELP} /></th>
+                  <th>{isEvent ? 'Effect' : 'Verdict'}</th>
+                  <th>Why <HelpTip label="Why" text="The edges that make it a consumer, where they are known from and the evidence with its age. {CONFIDENCE_HELP}" /></th>
+                  <th>Runs on</th>
                   <th>Owner</th>
                 </tr>
               </thead>
               <tbody>
                 {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
-                  <tr>
-                    <td data-label="Consumer" class="consumer-cell">{#if highlighted.has(c.service?.key)}<span class="badge badge-accent">Highlighted</span> {/if}<EntityLink ref={c.service} showStatus={false} /></td>
-                    <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
-                    <td data-label="Path" class="path-cell">
-                      {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
+                  {@const ev = c.evidence ?? []}
+                  {@const targets = c.targets ?? []}
+                  <tr data-testid="consumer-row">
+                    <td data-label="Consumer" class="consumer-cell">
+                      <div class="cell-stack">
+                        {#if highlighted.has(c.service?.key)}<span class="badge badge-accent">Highlighted</span>{/if}
+                        <!-- A caller no contract describes has no page: its name is text. -->
+                        {#if c.uncontracted}<bdi class="cell-clip" title={c.service?.label || c.service?.key}>{c.service?.label || c.service?.key}</bdi><span class="badge badge-neutral">uncontracted</span>
+                        {:else}<EntityLink ref={c.service} showStatus={false} />{/if}
+                        {#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}
+                      </div>
                     </td>
-                    <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
-                         range verdict is never shown as a plain pass next to the refusal. -->
-                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
-                      {#if c.unmet?.length}
-                        <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
-                      {/if}</td>
-                    <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
-                    <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
+                    <td data-label="Path" class="path-cell">
+                      {#if (c.path?.length ?? 0) > 0}<bdi>{c.path.map((p) => p.label).join(' → ')}</bdi>{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
+                    </td>
+                    {#if isEvent}
+                      <td data-label="Effect"><span class="badge {EFFECT_BADGE[effectOf(c)]}">{EFFECT_META[effectOf(c)].label}</span>{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}</td>
+                    {:else}
+                      <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
+                           range verdict is never shown as a plain pass next to the refusal. -->
+                      <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                        {#if c.unmet?.length}
+                          <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
+                        {/if}</td>
+                    {/if}
+                    <td data-label="Why" class="why-cell">
+                      <div class="cell-badges">
+                        {#each c.via ?? [] as v (v)}<span class="badge badge-neutral">{v.replace(/_/g, ' ')}</span>{/each}
+                        {#if c.provenance}<span class="badge badge-info">{c.provenance}</span>{/if}
+                        <!-- Only a declared dependency is required or optional: an observed, uncontracted,
+                             configuration or policy edge declares neither. -->
+                        {#if c.direct && isEvent && c.via?.includes('dependency')}<span class="badge {c.required ? 'badge-err' : 'badge-warn'}" data-testid="consumer-requirement">{c.required ? 'required' : 'optional'}</span>{/if}
+                        <span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span>
+                      </div>
+                      {#if ev.length}
+                        <ul class="why-evidence">
+                          {#each ev.slice(0, MAX_EVIDENCE_LINES) as e, ei (ei)}
+                            <li><span class="why-msg">{e.message}</span>{#if e.at} <span class="t-meta">{formatRelative(e.at)}</span>{/if}{#if e.stale} <span class="badge badge-warn badge-stale" title="Older than 24h before this answer's snapshot, or without a time, so it does not count as current">stale</span>{/if}</li>
+                          {/each}
+                          {#if ev.length > MAX_EVIDENCE_LINES}<li class="t-meta">{countOf(ev.length - MAX_EVIDENCE_LINES, 'more fact')}</li>{/if}
+                        </ul>
+                      {/if}
+                      {#if c.resources?.length}
+                        <ul class="why-resources">
+                          {#each c.resources as r, ri (ri)}
+                            <li><bdi class="cell-clip" title={[r.entry, r.environment].filter(Boolean).join(' · ')}>{[r.entry, r.environment].filter(Boolean).join(' · ') || 'resource'}</bdi> <span class="badge {r.phase === 'Ready' ? 'badge-ok' : r.phase === 'Failed' ? 'badge-err' : 'badge-neutral'}">{r.phase}</span></li>
+                          {/each}
+                          {#if (c.resourcesTotal ?? 0) > c.resources.length}<li class="t-meta">{countOf(c.resourcesTotal - c.resources.length, 'more resource')}</li>{/if}
+                        </ul>
+                      {/if}
+                    </td>
+                    <td data-label="Runs on" class="runs-cell">
+                      {#if targets.length}
+                        <ul class="runs-list">
+                          {#each targets.slice(0, 2) as t (t.key)}<li><EntityLink ref={t} showStatus={false} showKind={false} />{#if c.staleTargets?.includes(t.key)} <span class="badge badge-warn badge-stale" data-testid="consumer-target-stale" title="Its evidence is older than 24h before this answer's snapshot, has no time or is marked stale, so the consumer was last reported there">stale</span>{/if}</li>{/each}
+                        </ul>
+                        {@const more = Math.max(c.targetsTotal ?? targets.length, targets.length) - Math.min(2, targets.length)}
+                        {#if more > 0}<span class="t-meta" title={targets.slice(2).map((t) => t.label || t.key).join(', ')}>+{formatCount(more)}</span>{/if}
+                      {:else}<span class="text-dim">—</span>{/if}
+                    </td>
+                    <td data-label="Owner">
+                      <!-- The label wraps: an ellipsis cannot show inside the link's inline-flex box. -->
+                      {#if c.ownerRef}<EntityLink ref={c.ownerRef} showStatus={false} showKind={false} />
+                      {:else if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}
+                    </td>
                   </tr>
                 {/each}
               </tbody>
@@ -654,7 +816,15 @@
          earlier and a later revision" asked for something already done and left the
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
-    {#if fromRevKey && toRevKey}
+    {#if isEvent}
+      {#if unknownEvent}
+        <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the service and press Ask." />
+      {:else if eventKind === 'regressed' && !eventRev.trim()}
+        <EmptyState identity title="Name the revision" message="A version, or an artifact digest to read delivery evidence." />
+      {:else}
+        <EmptyState identity title="Ready to ask" message="Press Ask." />
+      {/if}
+    {:else if fromRevKey && toRevKey}
       <EmptyState identity title="Ready to compare" message="Press Compare revisions." />
     {:else}
       <EmptyState identity title="Pick two revisions" message="An earlier and a later one." />
@@ -700,6 +870,38 @@
 
   .partial-banner { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid var(--c-warn-border); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-text-2); font-size: var(--text-sm); }
   .partial-banner strong { color: var(--c-warn); }
+
+  /* The question switch: two radio choices that wrap, each a full touch target. */
+  .ca-mode { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); border: 0; margin: 0; padding: 0; min-width: 0; }
+  .ca-mode-opt { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min); font-size: var(--text-sm); color: var(--c-text-2); }
+  .field input[type=text] { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); max-width: 100%; min-width: 0; }
+
+  .ca-evidence { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ca-evidence h2 { margin: 0; }
+  .ca-evidence-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ca-evidence-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); min-width: 0; }
+  .ca-ev-where, .ca-ev-msg { overflow-wrap: anywhere; min-width: 0; }
+
+  /* The consumers table: a grid whose tracks each have a floor, wide enough for all six;
+     narrower than that, every row becomes a card of labelled values. */
+  .ca-consumers { container-name: dtable ca-consumers; }
+  @container ca-consumers (min-width: 66rem) {
+    .ca-table { display: grid; grid-template-columns: minmax(18ch, 1.3fr) minmax(14ch, 1fr) minmax(12ch, 0.8fr) minmax(26ch, 2fr) minmax(14ch, 1fr) minmax(12ch, 0.9fr); }
+    .ca-table thead, .ca-table tbody, .ca-table tr { display: contents; }
+  }
+  /* Exclusive of the grid's 66rem, so at exactly that width only one form applies. */
+  @container ca-consumers (width < 66rem) {
+    .ca-table, .ca-table tbody, .ca-table tr, .ca-table td { display: block; width: 100%; }
+    .ca-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .ca-table tr { padding: var(--sp-2) 0; }
+    .ca-table tr + tr { border-top: 1px solid var(--c-border); }
+    .ca-table td { border: none; padding: var(--sp-1) var(--sp-3); }
+    .ca-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  }
+  .why-evidence, .why-resources, .runs-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); min-width: 0; }
+  .why-msg { overflow-wrap: anywhere; }
+  .runs-list { margin: 0; }
+  .runs-list :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); margin: var(--sp-3) 0; }

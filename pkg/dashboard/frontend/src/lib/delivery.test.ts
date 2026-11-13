@@ -4,7 +4,8 @@ import {
   keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
-  exceptParam, exceptList,
+  exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
+  causeText, historyWindow, windowSince,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -317,5 +318,78 @@ describe('entityMiraURL', () => {
     expect(entityMiraURL({ miraURL: 'https://m', auth: { hidden: true } })).toBe('');
     expect(entityMiraURL(undefined)).toBe('');
     expect(entityMiraURL(null)).toBe('');
+  });
+});
+
+describe('what a Stage row says', () => {
+  it('names each offer', () => {
+    expect(offerLabel('promote')).toBe('Promote');
+    expect(offerLabel('unfreeze')).toBe('Unfreeze');
+    expect(offerLabel('freeze')).toBe('Freeze');
+    expect(offerLabel('undo')).toBe('Undo');
+    expect(offerLabel('other')).toBe('other');
+  });
+  it('turns an offer into the request it plans, naming the version only for the candidate', () => {
+    const r = { namespace: 'prod', stage: 'pay', pointer: 'sha256:a', candidate: 'sha256:b', candidateVersion: '2.0.0' };
+    expect(offerRequest(r, { action: 'promote', available: true, reason: '', to: 'sha256:b' })).toEqual({
+      request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: 'sha256:b', from: 'sha256:a' }, version: '2.0.0' });
+    expect(offerRequest({ ...r, pointer: '' }, { action: 'promote', available: true, reason: '', to: 'sha256:c' })).toEqual({
+      request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: 'sha256:c', from: undefined }, version: '' });
+    expect(offerRequest(r, { action: 'freeze', available: true, reason: '' })).toEqual({ request: { namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/freeze' }, version: '' });
+  });
+  it('words a lifecycle answer: unknown never reads as yes or no', () => {
+    expect(lifecycleWords.signature.signed).toBe('Signature checked');
+    expect(lifecycleWords.signature.unsigned).toBe('Not signed');
+    expect(lifecycleWords.signature.unknown).toBe('Signature not known here');
+    expect(lifecycleWords.verified.unknown).toBe('verified: not known');
+    expect(lifecycleWords.failed.unknown).toBe('failed: not known');
+    expect(lifecycleWords.role.left).toBe('moved off it');
+  });
+  it('says when the newest re-check ran and what it found, and when it is stale', () => {
+    expect(checkText({ at: '2026-11-04T09:58:00Z', result: 'Unknown', current: true })).toBe('Re-checked 2026-11-04 09:58 UTC, Unknown');
+    expect(checkText({ at: '2026-11-04T09:58:00Z', result: 'Pass', current: false })).toBe('Re-checked 2026-11-04 09:58 UTC, Pass, stale: about an earlier version');
+    expect(checkText(undefined)).toBe('');
+  });
+  it('never reads an old re-check as a pass about the running version', () => {
+    expect(watchText({ status: 'Unknown', reason: 'NotRechecked' })).toBe('Not re-checked since it shipped');
+    expect(watchText({ status: 'True', reason: 'Rechecked' })).toBe('Watched: the newest re-check passed');
+    expect(watchText({ status: 'False', reason: 'RecheckFailed' })).toBe('The newest re-check failed');
+    expect(watchText({ status: 'Unknown', reason: 'RecheckUnknown' })).toBe('The newest re-check could not decide');
+    expect(watchText(undefined)).toBe('');
+  });
+  it('stamps where a Stage stands against its candidate, unknown never positive', () => {
+    expect(progressStamp('up-to-date')).toEqual({ label: 'Up to date', tone: 'ok' });
+    expect(progressStamp('can-promote')).toEqual({ label: 'Can promote', tone: 'accent' });
+    expect(progressStamp('needs-person')).toEqual({ label: 'Needs a person', tone: 'warn' });
+    expect(progressStamp('blocked')).toEqual({ label: 'Blocked', tone: 'err' });
+    expect(progressStamp('unknown')).toEqual({ label: 'Not known', tone: 'neutral' });
+    expect(progressStamp('other')).toEqual({ label: 'Not known', tone: 'neutral' });
+  });
+  it('tells a command to copy from a fix in words', () => {
+    expect(isCommand('pacto delivery approve -n prod op-1')).toBe(true);
+    expect(isCommand('a person of team-a approves it themselves; you cannot answer it')).toBe(false);
+    expect(isCommand(undefined)).toBe(false);
+  });
+});
+
+describe('history filters (B3)', () => {
+  it('says why a change was raised: its reason, else the check, else the change that caused it', () => {
+    expect(causeText({ reason: 'incident 42', operation: 'u1' })).toBe('incident 42');
+    expect(causeText({ operation: 'u1', verdict: { gate: 'pacto.health', message: 'error rate 9%' } })).toBe('pacto.health: error rate 9%');
+    expect(causeText({ verdict: { gate: 'pacto.health' } })).toBe('pacto.health');
+    expect(causeText({ operation: 'u1' })).toBe('operation u1');
+    expect(causeText(undefined)).toBe('');
+  });
+  it('names the window a URL holds, and custom for a timeline slice', () => {
+    const now = Date.parse('2026-11-11T12:00:00Z');
+    expect(historyWindow('', '', '', now)).toBe('all');
+    expect(historyWindow('2026-11-04T12:00:00Z', '', '', now)).toBe('7d');
+    expect(historyWindow('2026-11-10T12:00:00Z', '', '', now)).toBe('24h');
+    expect(historyWindow('2026-10-12T12:00:00Z', '', '', now)).toBe('30d');
+    expect(historyWindow('2026-11-11T08:00:00Z', '', '', now)).toBe('custom');
+    expect(historyWindow('2026-11-10T12:00:00Z', '2026-11-11T00:00:00Z', '', now)).toBe('custom');
+    expect(historyWindow('2026-11-10T12:00:00Z', '', '1', now)).toBe('custom');
+    expect(windowSince('7d', now)).toBe('2026-11-04T12:00:00Z');
+    expect(windowSince('all', now)).toBeUndefined();
   });
 });

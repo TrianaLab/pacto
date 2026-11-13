@@ -152,6 +152,19 @@ var rules = map[classificationKey]Classification{
 	// are NonBreaking (diffEnvironments).
 	{"environments", Added}:   NonBreaking,
 	{"environments", Removed}: PotentialBreaking,
+	// An environment's declared fields (pactoVersion 2.4 lifetime, expires and
+	// owner, and the file its values live in) are this service's own metadata:
+	// no consumer reads them, so every change is NonBreaking.
+	{"environments.file", Modified}:     NonBreaking,
+	{"environments.lifetime", Added}:    NonBreaking,
+	{"environments.lifetime", Modified}: NonBreaking,
+	{"environments.lifetime", Removed}:  NonBreaking,
+	{"environments.expires", Added}:     NonBreaking,
+	{"environments.expires", Modified}:  NonBreaking,
+	{"environments.expires", Removed}:   NonBreaking,
+	{"environments.owner", Added}:       NonBreaking,
+	{"environments.owner", Modified}:    NonBreaking,
+	{"environments.owner", Removed}:     NonBreaking,
 
 	// Policies (name-indexed). policies.schema Added and Removed are absent for
 	// the reason above: both are the PotentialBreaking default.

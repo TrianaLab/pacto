@@ -93,7 +93,7 @@ export interface paths {
         };
         /**
          * Every Stage
-         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold.
+         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
          */
         get: operations["delivery-environments"];
         put?: never;
@@ -136,6 +136,26 @@ export interface paths {
          * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
          */
         get: operations["delivery-inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One version's way through delivery
+         * @description For one artifact of a service, by digest, version or contract: whether pacto publish published it, and on each of the service's Stages you can see when it arrived, was verified, re-checked, rolled back or left, with each change's record or status line. A version or contract no artifact names is 404 LifecycleNotFound only when the search read every artifact the Stages know on a complete listing; a search that left any unread is 400 LifecycleUnresolved and names what it did not read.
+         */
+        get: operations["delivery-lifecycle"];
         put?: never;
         post?: never;
         delete?: never;
@@ -219,9 +239,29 @@ export interface paths {
         put?: never;
         /**
          * Plan a change
-         * @description What the promoter would do: verdicts, whether a person must decide, who and the question.
+         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you.
          */
         post: operations["delivery-plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Why a Stage can or cannot move
+         * @description Whether the Stage can move to its newest candidate and, when not, every reason with what clears it: its Ready condition, the candidate, a freeze or auto-hold, changes waiting for a person, its level and the promote planned for you and not proposed. It never proposes anything.
+         */
+        get: operations["delivery-progress"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -240,6 +280,26 @@ export interface paths {
          * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
          */
         get: operations["delivery-published"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One signed record
+         * @description One record of a Stage's stream by id: the change it records, who asked and approved, every verdict with its citation and how to run it again, and whether its signature was checked.
+         */
+        get: operations["delivery-record"];
         put?: never;
         post?: never;
         delete?: never;
@@ -383,7 +443,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze impact by canonical identity
-         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents.
+         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
         delete?: never;
@@ -877,7 +937,7 @@ export interface components {
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
             /** @description Which blockers this page holds, grouped by kind */
             blockersPage: components["schemas"]["Page"];
-            /** @description Stages at each level, over every page after q: observe, advise, auto-nonbreaking, autonomous, then those that report none */
+            /** @description Stages at each level, over every page after q, service and domain: observe, advise, auto-nonbreaking, autonomous, then those that report none */
             byLevel: components["schemas"]["LevelCount"][] | null;
             /**
              * Format: int64
@@ -892,7 +952,7 @@ export interface components {
             /** @description Counted over every Stage, not only this page */
             promotionsWithoutPerson: components["schemas"]["PromotionCount"];
             stages: components["schemas"]["AutonomyStage"][] | null;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         AutonomyProposal: {
@@ -923,6 +983,10 @@ export interface components {
             onBehalfOf?: string;
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
+                [key: string]: string;
+            };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
                 [key: string]: string;
             };
             source: string;
@@ -1064,8 +1128,11 @@ export interface components {
             platforms?: string[] | null;
         };
         "Contract.Environment": {
+            expires?: string;
             file: string;
+            lifetime?: string;
             name: string;
+            owner?: components["schemas"]["Contract.Owner"];
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;
@@ -1278,6 +1345,19 @@ export interface components {
             reason?: string;
             verdict?: components["schemas"]["Delivery.Verdict"];
         };
+        "Delivery.CheckSummary": {
+            /** @description When the gates ran (RFC 3339) */
+            at: string;
+            /** @description The check is about the digest the Stage runs now and the operation that shipped it */
+            current: boolean;
+            digest: string;
+            /**
+             * @description The worst verdict
+             * @enum {string}
+             */
+            result: "Pass" | "Fail" | "Unknown";
+            verdicts: components["schemas"]["Delivery.Verdict"][] | null;
+        };
         "Delivery.Deadlines": {
             approval?: string;
             execution?: string;
@@ -1332,6 +1412,8 @@ export interface components {
             from?: string;
             kind?: string;
             operation: string;
+            /** @description The Operation's uid, when known */
+            operationUID?: string;
             outcome?: string;
             phase?: string;
             pointer?: components["schemas"]["Delivery.PointerChange"];
@@ -1363,6 +1445,64 @@ export interface components {
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
         };
+        "Delivery.LifecycleEvent": {
+            actor: string;
+            actorClass?: string;
+            applied?: string;
+            approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
+            cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
+            finished?: string;
+            from?: string;
+            kind?: string;
+            operation: string;
+            /** @description The Operation's uid, when known */
+            operationUID?: string;
+            outcome?: string;
+            phase?: string;
+            pointer?: components["schemas"]["Delivery.PointerChange"];
+            reason?: string;
+            record?: string;
+            /**
+             * @description arrived: it moved the Stage to this artifact; left: it moved the Stage off it; attempted: it targeted it and moved nothing
+             * @enum {string}
+             */
+            role: "arrived" | "left" | "attempted";
+            /** Format: int64 */
+            seq?: number;
+            since?: string;
+            to?: string;
+            type: string;
+            unverifiedRecord?: string;
+            verification?: string;
+        };
+        "Delivery.LifecycleStage": {
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            environment: string;
+            /** @description Oldest first, at most the newest 50 */
+            events: components["schemas"]["Delivery.LifecycleEvent"][] | null;
+            /**
+             * @description From the Stage's history first, else status.failedDigests; unknown on the same terms as verified
+             * @enum {string}
+             */
+            failed: "yes" | "no" | "unknown";
+            /** @description The newest re-check, when it judged this artifact */
+            lastCheck?: components["schemas"]["Delivery.Recheck"];
+            namespace: string;
+            /** @description Offered downstream after it verified here */
+            offered: boolean;
+            recordsVerified: boolean;
+            running: boolean;
+            /** @enum {string} */
+            source: "records" | "status";
+            stage: string;
+            /**
+             * @description From the Stage's history (the verification outcome of the arrival) first, else status.verified; unknown when the digest is absent from a list at its cap or the Stage's history is partial
+             * @enum {string}
+             */
+            verified: "yes" | "no" | "unknown";
+        };
         "Delivery.LocalRef": {
             name: string;
         };
@@ -1379,12 +1519,25 @@ export interface components {
         "Delivery.ObjectMeta": {
             creationTimestamp?: string;
             finalizers?: string[] | null;
+            /** Format: int64 */
+            generation?: number;
             labels?: {
                 [key: string]: string;
             };
             name: string;
             namespace?: string;
             uid?: string;
+        };
+        "Delivery.Offer": {
+            /** @enum {string} */
+            action: "promote" | "unfreeze" | "freeze" | "undo";
+            available: boolean;
+            /** @description undo: the operation it undoes; open GET /api/delivery/undo or pacto delivery undo for the plan, which says rollback, promote back or nothing */
+            operation?: string;
+            /** @description Why it is offered, or why not */
+            reason: string;
+            /** @description promote: the candidate digest; undo: the digest it goes back to */
+            to?: string;
         };
         "Delivery.OperationObject": {
             metadata: components["schemas"]["Delivery.ObjectMeta"];
@@ -1451,6 +1604,22 @@ export interface components {
             type: string;
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.PlanAnswer": {
+            conflicts?: string[] | null;
+            floor?: components["schemas"]["Delivery.Floor"];
+            from?: string;
+            impactDigest?: string;
+            intentDigest: string;
+            next?: string[] | null;
+            order?: components["schemas"]["Delivery.Order"];
+            precedent?: components["schemas"]["Delivery.Precedent"];
+            predicted: string;
+            question?: string;
+            to?: string;
+            toVersion?: string;
+            type: string;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+        };
         "Delivery.PointerChange": {
             after?: string;
             before?: string;
@@ -1473,6 +1642,33 @@ export interface components {
         };
         "Delivery.Principal": {
             user: string;
+        };
+        "Delivery.Progress": {
+            /** @description When the Stage and its operations were read (RFC 3339) */
+            asOf: string;
+            /** @description Why the promoter does not promote the candidate on its own; empty when it would */
+            autoPromote?: string;
+            candidate?: string;
+            /**
+             * @description partial when Pacto could not read something the answer depends on (the reasons ending in Unknown, or a status older than the Stage's spec), so a reason may be missing
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description The promote of the candidate, planned for the caller and not proposed */
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
+            /** @description Everything that holds the candidate back, in the order a person clears them */
+            reasons: components["schemas"]["Delivery.ProgressReason"][] | null;
+            /** @enum {string} */
+            state: "up-to-date" | "can-promote" | "needs-person" | "blocked" | "unknown";
+            /** @description One sentence: where the Stage stands against its newest candidate */
+            summary: string;
+        };
+        "Delivery.ProgressReason": {
+            /** @enum {string} */
+            code: "NotReady" | "ReadyUnknown" | "StatusStale" | "NoCandidate" | "Frozen" | "AutoHold" | "Held" | "InFlight" | "Level" | "OpsUnknown" | "PolicyUnknown" | "NotPermitted" | "RBACUnknown" | "PlanRejected" | "PlanHeld" | "PlanWaits" | "PlanUnknown";
+            /** @description What to do, often a command to copy */
+            fix?: string;
+            message: string;
         };
         "Delivery.Recheck": {
             at: string;
@@ -1637,6 +1833,33 @@ export interface components {
             started?: string;
             verifyDeadline?: string;
         };
+        "Delivery.Upstream": {
+            /** @description kind stage: the upstream Stage's environment, when it could be read */
+            environment?: string;
+            /**
+             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
+             * @enum {string}
+             */
+            kind: "stage" | "records" | "artifact" | "none";
+            /** @description kind stage: the upstream Stage's namespace */
+            namespace?: string;
+            /**
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows or the request names; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
+             * @enum {string}
+             */
+            problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
+            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
+            repository?: string;
+            /** @description kind stage: the upstream Stage's name */
+            stage?: string;
+            /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
+            stream?: string;
+            /**
+             * @description kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet
+             * @enum {string}
+             */
+            trust?: "trusted" | "untrusted" | "unreadable" | "unknown";
+        };
         "Delivery.Verdict": {
             citation?: {
                 [key: string]: string;
@@ -1650,6 +1873,15 @@ export interface components {
             checks?: components["schemas"]["Delivery.GateCheck"][] | null;
             recheck?: string;
             window?: string;
+        };
+        "Delivery.Watch": {
+            message?: string;
+            /** @description Rechecked, RecheckFailed or RecheckUnknown from the Watched condition, or NotRechecked when the running version has not been re-checked since it shipped */
+            reason?: string;
+            /** @description When the condition last changed (RFC 3339) */
+            since?: string;
+            /** @enum {string} */
+            status: "True" | "False" | "Unknown";
         };
         "Delivery.WorkloadRef": {
             kind: string;
@@ -1768,6 +2000,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The digest-pinned contract the running artifact names (delivery.pacto.trianalab.io/contract), when its artifact could be read */
+            contractRef?: string;
             /** @description The registry domain the Stage names for its service; empty when it names none */
             domain?: string;
             environment: string;
@@ -1780,25 +2014,48 @@ export interface components {
              * @description Operations on this Stage waiting for a person
              */
             held: number;
+            /** @description The name of the Operation waiting for a person, when exactly one is */
+            heldOperation?: string;
+            /** @description The Stage's operations could not be read, so held is not known */
+            heldUnknown?: boolean;
+            /** @description The newest re-check of the running version after it shipped (status.lastCheck) */
+            lastCheck?: components["schemas"]["Delivery.CheckSummary"];
             /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
             level?: string;
             namespace: string;
+            /** @description Each action with whether the caller may ask for it here and why. Freeze and undo are offered only when the request names a service. Offers only describe: proposing goes through this surface's propose path, when it has one, with the caller's own identity, and admission decides */
+            offers: components["schemas"]["Delivery.Offer"][] | null;
             /** @description The digest the environment runs */
             pointer?: string;
+            /** @description Why the Stage can or cannot move to its newest candidate; set by pacto delivery status --why and pacto_delivery_status why */
+            progress?: components["schemas"]["Delivery.Progress"];
             /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
             ready?: string;
+            /** @description What to change so the Stage can promote, when Ready is False with a known reason */
+            readyFix?: string;
             /** @description Why the Stage cannot promote, in words, when Ready is not True */
             readyMessage?: string;
+            /** @description The fleet revision whose contract the running artifact names, when this dashboard's fleet holds it */
+            revision?: string;
             service: string;
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
+            /** @description The source revision pacto publish stamped on the running artifact (org.opencontainers.image.revision). An annotation, not signed */
+            sourceRevision?: string;
             stage: string;
-            /** @description Where the Stage's candidates come from, as its spec declares; on the board's rows only */
-            upstream?: components["schemas"]["Upstream"];
+            /**
+             * @description The one state the Stage is counted in, as the board's state filter and counts.byEnvironment count it. unknown appears only on status rows whose operations could not be read; the board never emits it
+             * @enum {string}
+             */
+            state: "failed" | "frozen" | "autohold" | "waiting" | "empty" | "unverified" | "verified" | "unknown";
+            /** @description Where the Stage's candidates come from, as its spec declares; on board rows and status rows */
+            upstream?: components["schemas"]["Delivery.Upstream"];
             /** @description The running digest passed its verify gates here */
             verified: boolean;
             /** @description The version its contract declares, when the artifact could be read */
             version?: string;
+            /** @description Whether the newest re-check of the running version passed: the Watched condition when lastCheck is about the running digest and the operation that shipped it, else Unknown with reason NotRechecked */
+            watched?: components["schemas"]["Delivery.Watch"];
         };
         EnvironmentsOutputBody: {
             asOf: string;
@@ -1818,7 +2075,7 @@ export interface components {
             page: components["schemas"]["Page"];
             /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
             promotion?: components["schemas"]["PromotionGraph"];
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         EvaluationCoverage: {
@@ -2114,10 +2371,57 @@ export interface components {
             /** Format: int64 */
             unidentifiedOwnership?: number;
         };
+        "Fleet.EntityRef": {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            created?: number;
+            domain?: string;
+            environment?: string;
+            explanation?: string;
+            /** Format: date-time */
+            fetchedAt?: string;
+            key: string;
+            /** @enum {string} */
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
+            label: string;
+            /** Format: int64 */
+            nonCompliant?: number;
+            offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
+            /** Format: int64 */
+            owned?: number;
+            owner?: string;
+            parentService?: string;
+            scope?: string;
+            secondary?: string;
+            /** Format: int64 */
+            services?: number;
+            /** @enum {string} */
+            signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            status?: string;
+            summary?: string;
+            /** Format: int64 */
+            targets?: number;
+            template?: boolean;
+            version?: string;
+        };
         "Fleet.EnvironmentResult": {
+            /** @description Inferred: expires is at or before this answer's asOf. Nothing is deleted */
+            expired?: boolean;
+            /** @description Declared RFC 3339 time a temporary environment is meant to end */
+            expires?: string;
             file: string;
             findings: components["schemas"]["Fleet.LocatedFindingsPreview"];
+            /**
+             * @description Declared lifetime; not-declared when the environment declares none, never read as persistent
+             * @enum {string}
+             */
+            lifetime: "temporary" | "persistent" | "not-declared";
             name: string;
+            /** @description Declared owner of this environment */
+            owner?: components["schemas"]["Contract.Owner"];
             reason?: string;
             /** @enum {string} */
             status: "pass" | "fail" | "unverified" | "skip";
@@ -2546,6 +2850,28 @@ export interface components {
             sourceKind?: string;
             verified: boolean;
         };
+        "Fleet.ProvisioningStatus": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            phase: "Requested" | "Provisioning" | "Ready" | "Failed" | "Deleting" | "Unknown";
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reportedPhase?: string;
+            revision?: components["schemas"]["Fleet.EntityRef"];
+            source?: string;
+            sourceKind?: string;
+            stale?: boolean;
+            verified: boolean;
+        };
         "Fleet.RangeTally": {
             /** Format: int64 */
             none: number;
@@ -2740,6 +3066,8 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            /** Format: int64 */
+            hiddenPolicyReferrers?: number;
             key: string;
             labels?: {
                 [key: string]: string;
@@ -3039,9 +3367,13 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
-            /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline */
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            /** @description Without a stage: the changes still in the cluster on every Stage that matches, by time and kind, over since..until or the last day. Signed records are read per Stage, so a missing record shows only on one Stage's timeline. It counts the changes left after cause and correlationID */
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
@@ -3056,16 +3388,34 @@ export interface components {
             depth: number;
             direct: boolean;
             domain?: string;
+            /**
+             * @description What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown
+             * @enum {string}
+             */
+            effect?: "breaks" | "may-degrade" | "unknown";
+            /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
+            evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
             owner?: string;
+            /** @description The canonical owner key (for example team:shop). Group or link by it; owner is the display label */
+            ownerKey?: string;
             path: string[] | null;
             provenance: string;
             required: boolean;
+            /** @description What this consumer asked the removed service for, one provisioning status per environment, at most 20 */
+            resources?: components["schemas"]["Fleet.ProvisioningStatus"][] | null;
+            /**
+             * Format: int64
+             * @description How many provisioning statuses there are, including those beyond the bound
+             */
+            resourcesTotal?: number;
             service: string;
             status?: string;
             targets?: string[] | null;
             uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            via?: string[] | null;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
@@ -3091,12 +3441,48 @@ export interface components {
             /** Format: int64 */
             owners: number;
         };
+        "Impact.Event": {
+            /**
+             * @description What happens to the service
+             * @enum {string}
+             */
+            kind: "unavailable" | "removed" | "regressed";
+            /** @description The revision that regressed: a version or an artifact digest */
+            revision?: string;
+            /** @description The fleet service key of the service */
+            service: string;
+        };
+        "Impact.Evidence": {
+            /**
+             * Format: date-time
+             * @description When the fact was last seen. Empty when the source records no time
+             */
+            at?: string;
+            /**
+             * @description What the fact is: an observed call to the changed service, a target the consumer runs on, a finding that the consumer cannot reach the changed service or the provider's declared lifecycle. Provisioning reports are in resources
+             * @enum {string}
+             */
+            kind: "observed-call" | "target" | "unreachable" | "lifecycle";
+            /** @description The fact in plain words */
+            message: string;
+            /**
+             * @description Whether a contract declares the fact or a source observed it
+             * @enum {string}
+             */
+            provenance: "declared" | "observed";
+            /** @description Where the fact comes from: the observation source id, the traces file or the target key */
+            source?: string;
+            /** @description The fact is older than 24h before the snapshot's asOf, or has no time, so it does not count as current */
+            stale?: boolean;
+        };
         "Impact.OwnerTally": {
             /** Format: int64 */
             consumers: number;
             /** Format: int64 */
             incompatible: number;
             owner: string;
+            /** @description The owner's canonical key (for example team:shop): the ranking groups by it */
+            ownerKey?: string;
         };
         "Impact.ProductChange": {
             classification: string;
@@ -3108,31 +3494,60 @@ export interface components {
             reason?: string;
             type: string;
         };
+        "Impact.RegressionEvidence": {
+            at?: string;
+            digest?: string;
+            gate?: string;
+            /**
+             * @description failed: the Stage lists the digest as failed; check: a re-check gate failed it; rollback: a rollback moved the Stage off it
+             * @enum {string}
+             */
+            kind: "failed" | "check" | "rollback";
+            message?: string;
+            namespace?: string;
+            operation?: string;
+            /** @description The signed record a rollback line came from; empty when it was read from the Operation's status */
+            record?: string;
+            result?: string;
+            stage?: string;
+        };
         "Impact.Result": {
             activeTargets?: string[] | null;
             /** Format: date-time */
             asOf: string;
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description The canonical owner key of the changed service */
+            changedOwnerKey?: string;
             classification: string;
             completeness: string;
             consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
+            event?: components["schemas"]["Impact.Event"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
+            /**
+             * Format: int64
+             * @description How many consumers this viewer may not see; they are never named
+             */
+            hidden?: number;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
             newRevisionAdded?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             oldVersion?: string;
+            /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
             snapshotId: string;
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
+            /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
+            templates?: string[] | null;
         };
         "Impact.TallyBucket": {
             /** Format: int64 */
@@ -3140,8 +3555,13 @@ export interface components {
             key: string;
         };
         ImpactRequest: {
-            /** @description Canonical revision key of the old revision */
-            fromRevisionKey: string;
+            /**
+             * @description Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions
+             * @enum {string}
+             */
+            event?: "unavailable" | "removed" | "regressed";
+            /** @description Canonical revision key of the old revision. Required unless event is set */
+            fromRevisionKey?: string;
             includeObserved?: boolean;
             /**
              * Format: int64
@@ -3154,15 +3574,17 @@ export interface components {
              */
             offset?: number;
             /**
-             * @description List only the consumers of this outcome; the tallies still cover every consumer
+             * @description List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown
              * @enum {string}
              */
-            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified";
+            outcome?: "incompatible" | "unknown" | "compatible" | "unclassified" | "breaks" | "may-degrade";
+            /** @description With event regressed: the artifact digest (sha256:...) or version that regressed; a digest lets the answer cite delivery's recorded failures */
+            revision?: string;
             serviceKey?: string;
             /** @description The snapshot the client analyzed; a mismatch with the published snapshot is rejected */
             snapshotId?: string;
-            /** @description Canonical revision key of the new revision */
-            toRevisionKey: string;
+            /** @description Canonical revision key of the new revision. Required unless event is set */
+            toRevisionKey?: string;
         };
         InboxEnvironment: {
             /** @description A Stage here is on a cycle of candidates.upstreamStage links, so the Stages give the environment no place in the order: it is placed by name */
@@ -3213,7 +3635,7 @@ export interface components {
         };
         InboxOutputBody: {
             asOf: string;
-            /** @description What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
+            /** @description What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
             byEnvironment: components["schemas"]["InboxEnvironment"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
@@ -3231,7 +3653,7 @@ export interface components {
              * @description How many held changes, over every page, more than one team may answer
              */
             heldShared: number;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         Insight: {
@@ -3274,6 +3696,45 @@ export interface components {
             level: string;
             /** Format: int64 */
             stages: number;
+        };
+        LifecycleOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description The digest-pinned contract the artifact names */
+            contract?: string;
+            /** @description The artifact digest Stages point at */
+            digest: string;
+            domain?: string;
+            note: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            service: string;
+            /**
+             * @description The Publish page's rule: signed when a Stage you can see names it in status.published or status.offered; unsigned only when an entry Stage fed by an OCIRepository, whose published list never reached its cap, holds it and none names it signed; else unknown
+             * @enum {string}
+             */
+            signature: "signed" | "unsigned" | "unknown";
+            /** @description The Stages (namespace/name) whose status.published or status.offered names this artifact: the evidence for signed */
+            signedOn: string[] | null;
+            /** @description Stamped by pacto publish; an annotation, not signed */
+            sourceRevision?: string;
+            stages: components["schemas"]["Delivery.LifecycleStage"][] | null;
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+            /** @description The entry Stages whose published list never reached its cap and does not name it: the evidence for unsigned */
+            unsignedOn?: string[] | null;
+            version?: string;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
         };
         "Lock.Entry": {
             constraint?: string;
@@ -3380,10 +3841,14 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
             /** @description The rollback that undid this change, read from its Stage's history */
             undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
             /** @description Where the Stage's candidates come from, from its spec; absent when the Stage could not be read */
-            upstream?: components["schemas"]["Upstream"];
+            upstream?: components["schemas"]["Delivery.Upstream"];
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
@@ -3578,6 +4043,93 @@ export interface components {
             severity?: "error" | "warning" | "info";
             view: string;
         };
+        ProductEnvironmentEvent: {
+            /**
+             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
+             * @enum {string}
+             */
+            change: "present" | "added" | "removed" | "changed";
+            environment: string;
+            /** @description changed: which declared fields changed (file, lifetime, expires, owner) */
+            fields?: string[] | null;
+            /** @description The revision it was compared with */
+            previous?: components["schemas"]["ProductRef"];
+            /** @description The revision that made the change */
+            revision: components["schemas"]["ProductRef"];
+        };
+        ProductEnvironmentHistoryPreview: {
+            /**
+             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            completenessReason?: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Revisions whose contract could not be read; no change is reported across them
+             */
+            gaps: number;
+            /** @description Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's */
+            items: components["schemas"]["ProductEnvironmentEvent"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductEnvironmentOwner: {
+            owner?: string;
+            /** @enum {string} */
+            provenance: "declared" | "inferred" | "unknown";
+            reason?: string;
+            ref?: components["schemas"]["ProductRef"];
+        };
+        ProductEnvironmentPlacement: {
+            /** @description Declared: the current revision's entry for this environment with its values check, lifetime, expiry and owner. Absent when the current revision does not declare it */
+            declaration?: components["schemas"]["Fleet.EnvironmentResult"];
+            /**
+             * Format: int64
+             * @description Targets whose exactly linked revision declares this environment
+             */
+            declared: number;
+            /** @description The environment name; empty for targets that report no label or whose sources disagree */
+            environment?: string;
+            /**
+             * Format: int64
+             * @description Targets whose exactly linked revision does not declare it
+             */
+            notDeclared: number;
+            /** @description Who owns the environment: declared on it, inferred from the service owner, or unknown */
+            owner: components["schemas"]["ProductEnvironmentOwner"];
+            /** @description Observed provisioning statuses of the service's offering uses in this environment, by phase; Unknown until a provider reports */
+            provisioning: components["schemas"]["Fleet.PhaseTally"];
+            /** @description Why provisioning is not tracked here */
+            provisioningReason?: string;
+            /** @description False when no provider is asked about this environment for the current revision; the tally is then not a zero */
+            provisioningTracked: boolean;
+            revisions: components["schemas"]["ProductRef"][] | null;
+            /**
+             * Format: int64
+             * @description How many distinct revisions these targets run
+             */
+            revisionsTotal: number;
+            /** @description revisions holds only the newest 8 of revisionsTotal */
+            revisionsTruncated: boolean;
+            /**
+             * Format: int64
+             * @description Observed: the targets you can see that report this environment
+             */
+            targets: number;
+            /** @description False when the caller may not see every target of the service or a target source is unavailable; targets then counts only the visible ones */
+            targetsComplete: boolean;
+            /** @description Why the target count may be incomplete; never names a hidden environment */
+            targetsReason?: string;
+            /**
+             * Format: int64
+             * @description Targets Pacto cannot check: no label, conflicting labels, no linked revision or one linked only by a mutable tag or version (inferred, not proof)
+             */
+            unknown: number;
+        };
         ProductEvidenceItem: {
             /** Format: date-time */
             at?: string;
@@ -3593,9 +4145,12 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefPreview"];
+            changedOwner?: components["schemas"]["ProductRef"];
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
+            /** @description The what-if this answer is about; absent for a contract change */
+            event?: components["schemas"]["Impact.Event"];
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
             gateReason: string;
@@ -3604,9 +4159,13 @@ export interface components {
             newRevision?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description The delivery evidence about a regressed revision, at most 50 */
+            regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
             snapshotId: string;
             snapshotMatch: boolean;
+            /** @description The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each */
+            templates: components["schemas"]["ProductRefPreview"];
         };
         ProductImpactConsumer: {
             blocking?: boolean;
@@ -3616,14 +4175,47 @@ export interface components {
             /** Format: int64 */
             depth: number;
             direct: boolean;
+            /**
+             * @description What the event does to this consumer: breaks, may-degrade or unknown
+             * @enum {string}
+             */
+            effect?: "breaks" | "may-degrade" | "unknown";
+            /** @description The facts behind this consumer and their age, newest first */
+            evidence?: components["schemas"]["Impact.Evidence"][] | null;
             note?: string;
             owner?: string;
+            /** @description The canonical owner key (for example team:shop); owner is the display label */
+            ownerKey?: string;
+            ownerRef?: components["schemas"]["ProductRef"];
             path: components["schemas"]["ProductRef"][] | null;
             /** Format: int64 */
             pathTotal: number;
             pathTruncated: boolean;
+            /** @description Where the consumer is known from: declared, observed, declared+observed or inferred */
+            provenance: string;
+            /** @description The consumer declares its dependency on the changed service as required */
+            required?: boolean;
+            /** @description What this consumer asked the removed service for, one provisioning status per environment, at most 20 */
+            resources?: components["schemas"]["Fleet.ProvisioningStatus"][] | null;
+            /**
+             * Format: int64
+             * @description How many provisioning statuses there are, including those beyond the bound
+             */
+            resourcesTotal?: number;
             service: components["schemas"]["ProductRef"];
+            /** @description The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot */
+            staleTargets?: string[] | null;
+            targets?: components["schemas"]["ProductRef"][] | null;
+            /**
+             * Format: int64
+             * @description How many targets the consumer was reported on, including those beyond the bound
+             */
+            targetsTotal?: number;
+            /** @description A runtime caller no contract describes: its service reference names no page */
+            uncontracted?: boolean;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
+            /** @description The edge types that make this service a consumer: dependency, configuration_reference, policy_reference or observed */
+            via?: string[] | null;
         };
         ProductImpactConsumersPage: {
             /** Format: int64 */
@@ -3801,6 +4393,22 @@ export interface components {
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
             unknown?: boolean;
+        };
+        ProductPlacementPreview: {
+            /** Format: int64 */
+            count: number;
+            /** @description The revision whose declarations these are */
+            currentRevision?: components["schemas"]["ProductRef"];
+            /** @description Declared configuration values that differ between the current revision's environments */
+            differences: components["schemas"]["Validation.EnvironmentDifference"][] | null;
+            /** @description Why the differences are unknown */
+            differencesError?: string;
+            /** Format: int64 */
+            differencesTotal: number;
+            items: components["schemas"]["ProductEnvironmentPlacement"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         ProductPoliciesPreview: {
             /** Format: int64 */
@@ -3997,6 +4605,8 @@ export interface components {
             dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
+            /** @description How the service's declared environments changed across its revisions (declared) */
+            environmentHistory: components["schemas"]["ProductEnvironmentHistoryPreview"];
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
@@ -4009,6 +4619,7 @@ export interface components {
             origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
+            placement: components["schemas"]["ProductPlacementPreview"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
@@ -4097,6 +4708,40 @@ export interface components {
             sourceRevision?: string;
             version?: string;
         };
+        ProgressOutputBody: {
+            /** @description When the Stage and its operations were read (RFC 3339) */
+            asOf: string;
+            /** @description Why the promoter does not promote the candidate on its own; empty when it would */
+            autoPromote?: string;
+            candidate?: string;
+            /**
+             * @description partial when Pacto could not read something the answer depends on (the reasons ending in Unknown, or a status older than the Stage's spec), so a reason may be missing
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            namespace: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The promote of the candidate, planned for the caller and not proposed */
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
+            /** @description Everything that holds the candidate back, in the order a person clears them */
+            reasons: components["schemas"]["Delivery.ProgressReason"][] | null;
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            stage: string;
+            /** @enum {string} */
+            state: "up-to-date" | "can-promote" | "needs-person" | "blocked" | "unknown";
+            /** @description One sentence: where the Stage stands against its newest candidate */
+            summary: string;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         PromotionCount: {
             /** Format: int64 */
             count: number;
@@ -4137,11 +4782,11 @@ export interface components {
             namespace: string;
             stage: string;
             /** @description Where the Stage's candidates come from */
-            upstream: components["schemas"]["Upstream"];
+            upstream: components["schemas"]["Delivery.Upstream"];
         };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
-            plan: components["schemas"]["Delivery.Plan"];
+            plan: components["schemas"]["Delivery.PlanAnswer"];
         };
         PublishRefusal: {
             /** @description Who ran the publish, as the cluster or the record names them */
@@ -4213,15 +4858,17 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Over every page after q, before signed */
+            /** @description Over every page after q, service and domain, before signed */
             counts: components["schemas"]["PublishedCounts"];
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
-            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
         PublishedService: {
+            /** @description The registry domain its Stages name; empty when they name none. A service whose Stages name two domains is listed once per domain */
+            domain?: string;
             service: string;
             versions: components["schemas"]["PublishedVersion"][] | null;
         };
@@ -4229,8 +4876,12 @@ export interface components {
             /** @description The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract) */
             contract?: string;
             digest: string;
+            /** @description The fleet revision key of that contract, for this service and domain; empty when none or several match or the viewer cannot see it */
+            revision?: string;
             /** @enum {string} */
             signature: "signed" | "unsigned" | "unknown";
+            /** @description The source revision pacto publish stamped on the artifact (org.opencontainers.image.revision). An annotation, not signed */
+            sourceRevision?: string;
             stages: components["schemas"]["PublishedOnStages"][] | null;
             version?: string;
         };
@@ -4320,6 +4971,36 @@ export interface components {
             description: string;
             version: string;
         };
+        RecordOutputBody: {
+            /** @description When the stream was read (RFC 3339) */
+            asOf: string;
+            entry: components["schemas"]["Delivery.HistoryEntry"];
+            intentReason?: string;
+            namespace: string;
+            note: string;
+            /** @description Asserted by the actor, not verified */
+            onBehalfOf?: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            record: string;
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
+            stage: string;
+            /** @description The digest of the trust config it was verified with; a host with no trust config, such as the WASM demo, names the key instead */
+            trust?: string;
+            /** @description Every gate verdict the record keeps, with how to run its citation again */
+            verdicts: components["schemas"]["Delivery.ExplainedVerdict"][] | null;
+            /** @description Its signature was checked against a trust config */
+            verified: boolean;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         Ref: {
             name: string;
             source?: string;
@@ -4381,6 +5062,7 @@ export interface components {
             docs?: components["schemas"]["DocInfo"][] | null;
             domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            environmentsAsOf?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;
@@ -4416,8 +5098,6 @@ export interface components {
             workload?: string;
         };
         ServiceListEntry: {
-            /** Format: int64 */
-            blastRadius?: number;
             /** Format: int64 */
             checksFailed: number;
             /** Format: int64 */
@@ -4543,6 +5223,10 @@ export interface components {
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
             timeline?: components["schemas"]["Delivery.HistoryTimeline"];
+            /** @description For each change on this page that moved the Stage, by its operation name, whether the caller may undo it and why. Offers only describe: GET /api/delivery/undo decides between a rollback and a promote back */
+            undoOffers?: {
+                [key: string]: components["schemas"]["Delivery.Offer"];
+            };
             unreadable?: string[] | null;
             /**
              * Format: int64
@@ -4566,38 +5250,15 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
-            plan?: components["schemas"]["Delivery.Plan"];
+            plan?: components["schemas"]["Delivery.PlanAnswer"];
+            /** @description The fleet revision key each artifact digest named here belongs to, when this dashboard's fleet holds it */
+            revisions?: {
+                [key: string]: string;
+            };
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
             };
-        };
-        Upstream: {
-            /** @description kind stage: the upstream Stage's environment, when it could be read */
-            environment?: string;
-            /**
-             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
-             * @enum {string}
-             */
-            kind: "stage" | "records" | "artifact" | "none";
-            /** @description kind stage: the upstream Stage's namespace */
-            namespace?: string;
-            /**
-             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows; self when the Stage names itself, so it waits on itself and never promotes. kind artifact, from the Stage's Ready condition: missing when the OCIRepository does not exist, unverified when it verifies no publisher's signature; either way the Stage never promotes
-             * @enum {string}
-             */
-            problem?: "missing" | "unreadable" | "outOfScope" | "self" | "unverified";
-            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
-            repository?: string;
-            /** @description kind stage: the upstream Stage's name */
-            stage?: string;
-            /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
-            stream?: string;
-            /**
-             * @description kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet
-             * @enum {string}
-             */
-            trust?: "trusted" | "untrusted" | "unreadable" | "unknown";
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -4639,6 +5300,14 @@ export interface components {
              * @example https://example.com/errors/example
              */
             type: string;
+        };
+        "Validation.EnvironmentDifference": {
+            configuration: string;
+            path: string;
+            /** @description Each environment's effective value; an absent environment does not set it */
+            values: {
+                [key: string]: unknown;
+            };
         };
         ValidationInfo: {
             errors?: components["schemas"]["ValidationIssue"][] | null;
@@ -4711,6 +5380,10 @@ export interface operations {
                 blockers?: number;
                 /** @description Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers */
                 level?: "observe" | "advise" | "auto-nonbreaking" | "autonomous" | "none";
+                /** @description Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;
@@ -4944,7 +5617,7 @@ export interface operations {
                 tier?: "dev" | "test" | "prod";
                 /** @description Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages */
                 state?: "failed" | "frozen" | "autohold" | "waiting" | "unverified" | "empty" | "verified";
-                /** @description Keep only the Stages of the service with exactly this name */
+                /** @description Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo */
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
                 domain?: string;
@@ -5039,6 +5712,10 @@ export interface operations {
                 until?: string;
                 /** @description With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out */
                 timed?: boolean;
+                /** @description Keep only changes whose cause (reason, operation or cited verdict) names this text, ignoring case. A line with no record carries an unsigned cause. It narrows the timeline too */
+                cause?: string;
+                /** @description Keep only changes with exactly this correlation id. It narrows the timeline too */
+                correlationID?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */
@@ -5134,6 +5811,10 @@ export interface operations {
                 environment?: string;
                 /** @description Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment */
                 except?: string[] | null;
+                /** @description Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;
@@ -5148,6 +5829,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboxOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-lifecycle": {
+        parameters: {
+            query: {
+                /** @description The service, by exact name */
+                service: string;
+                /** @description The service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
+                /** @description The artifact digest Stages point at (one of digest, version or contract) */
+                digest?: string;
+                /** @description The version its contract declares (one of digest, version or contract) */
+                version?: string;
+                /** @description Its contract: a manifest digest or a digest-pinned reference (one of digest, version or contract) */
+                contract?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleOutputBody"];
                 };
             };
             /** @description Unauthorized */
@@ -5538,7 +6304,86 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Delivery.Plan"];
+                    "application/json": components["schemas"]["Delivery.PlanAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-progress": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage */
+                stage: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressOutputBody"];
                 };
             };
             /** @description Unauthorized */
@@ -5606,6 +6451,10 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
+                /** @description Keep only the versions of the service with exactly this name; it narrows counts too */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
                 /** @description yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions */
                 signed?: "yes" | "no" | "unknown";
             };
@@ -5622,6 +6471,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublishedOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-record": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage's name */
+                stage: string;
+                /** @description The record's id (sha256:...), as a history line names it */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordOutputBody"];
                 };
             };
             /** @description Unauthorized */
@@ -5927,7 +6857,7 @@ export interface operations {
                 domain?: string;
                 /** @description Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
                 businessDomain?: string;
-                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
+                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment */
                 environment?: string;
                 /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;

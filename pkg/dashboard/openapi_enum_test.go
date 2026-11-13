@@ -129,6 +129,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		{"link state", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
 		{"difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
 		{"direction", sortedSet("dependencies", "dependents", "both")},
+		{"impact outcome", sortedSet("incompatible", "unknown", "compatible", "unclassified", "breaks", "may-degrade")},
 	}
 	for _, c := range cases {
 		if !hasEnumEqual(enums, c.want) {

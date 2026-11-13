@@ -696,10 +696,10 @@ func TestFleetAuditWalkIsBounded(t *testing.T) {
 		t.Fatalf("a walk past its deadline = %+v %v", hs, err)
 	}
 	lists.Store(0)
-	stages, forbidden, err := e.d.auditStages(context.Background(), "", delivery.ServiceRef{})
-	if err != nil || lists.Load() > auditParallel+1 || len(stages) > auditParallel*auditLimit ||
-		len(forbidden) < 20-auditParallel || !strings.Contains(forbidden[len(forbidden)-1], "one walk reads at most 500 Stages") {
-		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(stages), forbidden, err)
+	w, err := e.d.auditStages(context.Background(), "", delivery.ServiceRef{})
+	if err != nil || lists.Load() > auditParallel+1 || len(w.Stages) > auditParallel*auditLimit ||
+		len(w.Forbidden) < 20-auditParallel || !strings.Contains(w.Forbidden[len(w.Forbidden)-1], "one walk reads at most 500 Stages") {
+		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(w.Stages), w.Forbidden, err)
 	}
 }
 
@@ -746,7 +746,7 @@ func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
 		return false, nil, nil
 	})
 	var read atomic.Int64
-	if got, err := e.d.namespaceStages(ctx, "a", payments, &read); err != nil || len(got) != 3 || read.Load() != 3 {
+	if got, err := e.d.namespaceStages(ctx, "a", payments, &read); err != nil || len(got) != 603 || read.Load() != 3 {
 		t.Fatalf("one namespace for payments = %d Stages, %d counted, %v", len(got), read.Load(), err)
 	}
 	hs, err := e.d.HistoryAll(ctx, "", payments)
@@ -769,7 +769,7 @@ func TestFleetAuditNoNamespaces(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(gvrNamespaces.GroupResource(), "", errors.New("no"))
 	})
 	_, err := e.d.HistoryAll(context.Background(), "", delivery.ServiceRef{})
-	wantErrContaining(t, err, "name one with -n")
+	wantErrContaining(t, err, "name one namespace")
 }
 
 func TestAuditIsBounded(t *testing.T) {
@@ -886,5 +886,83 @@ func TestVerifyRecordsNeedsTheRunner(t *testing.T) {
 		if err != nil || v.OK || len(v.Records[0].Runners) != 1 || v.Records[0].Runners[0].Problem != "the eval verdict keeps no answer signed by its runner" {
 			t.Errorf("%s: %+v %v", name, v, err)
 		}
+	}
+}
+
+func TestRecordFound(t *testing.T) {
+	e := newRecordEnv(t)
+	_, r2 := e.twoRecords()
+	v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2)
+	if err != nil || v.Record != r2 || v.Entry.Operation != "ship" || !v.Verified || v.Trust != e.d.Trust.Digest() ||
+		v.OnBehalfOf != "carol" || v.IntentReason != "ship ship" || len(v.Verdicts) != 1 || v.AsOf == "" {
+		t.Fatalf("record = %+v %v", v, err)
+	}
+	e.d.Trust = nil
+	if v, _ := e.d.Record(context.Background(), "prod", "payments-prod", r2); v.Verified || v.Trust != "" {
+		t.Fatalf("record read with no trust config = %+v", v)
+	}
+	if _, err := e.d.Record(context.Background(), "prod", "missing", r2); err == nil {
+		t.Fatal("record of a missing Stage")
+	}
+	e.srv.Close()
+	if _, err := e.d.Record(context.Background(), "prod", "payments-prod", r2); err == nil || !strings.Contains(err.Error(), "reading the records") {
+		t.Fatalf("record with the registry down: %v", err)
+	}
+}
+
+// TestRecordShortID: the short id a text history prints names the record.
+func TestRecordShortID(t *testing.T) {
+	e := newRecordEnv(t)
+	_, r2 := e.twoRecords()
+	if v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2[:19]); err != nil || v.Record != r2 {
+		t.Fatalf("the short id names the record: %+v %v", v, err)
+	}
+	if _, err := e.d.Record(context.Background(), "prod", "payments-prod", r2[:12]); err == nil || !strings.Contains(err.Error(), "no record with id or prefix") {
+		t.Fatalf("a prefix shorter than a history prints is no id: %v", err)
+	}
+}
+
+// TestRecordViewOnlyFromStream: a record the recorder wrote that does not
+// verify is never shown as a record; the error points at history.
+func TestRecordViewOnlyFromStream(t *testing.T) {
+	e := newRecordEnv(t, opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(3),
+		"record": map[string]any{"digest": "sha256:unverified", "seq": int64(3)}}))
+	_, r2 := e.twoRecords()
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation, Predicate: move(3, r2, "live", dlA, dlB)}
+	b, _, _ := delivery.SignRecord(context.Background(), edSigner(other), st)
+	art := ocireferrer.Build(delivery.BundleMediaType, delivery.BundleMediaType, b, &e.anchor,
+		map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation})
+	if err := ocireferrer.Push(context.Background(), e.repo("delivery/streams"), art); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.d.Record(context.Background(), "prod", "payments-prod", "sha256:unverified")
+	if err == nil || !strings.Contains(err.Error(), "no record with id or prefix sha256:unverified is in the stream of prod/payments-prod") ||
+		!strings.Contains(err.Error(), "listed as unverifiedRecord") || !strings.Contains(err.Error(), "records of the stream that could not be read or verified: 1") {
+		t.Fatalf("record only named by an Operation: %v", err)
+	}
+}
+
+func TestRecordAt(t *testing.T) {
+	rs := []delivery.StoredRecord{{ID: "sha256:abcdef0123456789"}, {ID: "sha256:abcdef012345aaaa"}, {ID: "sha256:ffff"}}
+	if i, err := recordAt(rs, "sha256:ffff", "prod/pay"); i != 2 || err != nil {
+		t.Fatalf("an exact id: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abcdef012345", "prod/pay"); i != -1 || err == nil || !strings.Contains(err.Error(), "is the start of 2 record ids in the stream of prod/pay") {
+		t.Fatalf("an ambiguous prefix: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abcdef0123456", "prod/pay"); i != 0 || err != nil {
+		t.Fatalf("a unique prefix: %d %v", i, err)
+	}
+	if i, err := recordAt(rs, "sha256:abc", "prod/pay"); i != -1 || err == nil || !strings.Contains(err.Error(), "no record with id or prefix sha256:abc") {
+		t.Fatalf("too short a prefix: %d %v", i, err)
+	}
+}
+
+func TestRecordNoAnchor(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", nil, nil)
+	_, err := d.Record(context.Background(), "prod", "payments-prod", "sha256:r")
+	if err == nil || err.Error() != "Stage prod/payments-prod has no records: the recorder has not written its stream anchor" {
+		t.Fatalf("record with no anchor: %v", err)
 	}
 }

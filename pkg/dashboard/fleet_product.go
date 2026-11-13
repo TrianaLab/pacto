@@ -70,7 +70,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 		huma.Register(api, huma.Operation{
 			OperationID: "fleet-impact-post", Method: http.MethodPost, Path: "/api/fleet/impact",
 			Summary: "Analyze impact by canonical identity", Tags: []string{"Fleet"},
-			Description: "Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents.",
+			Description: "Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.",
 		}, s.fleetImpactPost)
 	}
 }
@@ -92,7 +92,7 @@ type fleetEntitiesInput struct {
 	OwnerKey        string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain          string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
 	BusinessDomain  string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
-	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
+	Environment     string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label; with consumes and phase it also narrows the consumers to statuses in that environment"`
 	Capability      string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
 	Offering        string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
 	Consumes        string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
@@ -266,8 +266,10 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 // ProductImpactConsumer is a navigable affected consumer with a bounded path.
 type ProductImpactConsumer struct {
 	impact.ProductConsumer
-	Service ProductRef   `json:"service"`
-	Path    []ProductRef `json:"path"`
+	Service  ProductRef   `json:"service"`
+	Path     []ProductRef `json:"path"`
+	Targets  []ProductRef `json:"targets,omitempty"`
+	OwnerRef *ProductRef  `json:"ownerRef,omitempty"`
 }
 
 // ProductImpactConsumersPage is a stable, offset-paged consumer answer.
@@ -289,13 +291,23 @@ type ProductImpact struct {
 	Consumers     ProductImpactConsumersPage `json:"consumers"`
 	Owners        ProductRefPreview          `json:"owners"`
 	ActiveTargets ProductRefPreview          `json:"activeTargets"`
+	Templates     ProductRefPreview          `json:"templates" doc:"The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each"`
+	ChangedOwner  *ProductRef                `json:"changedOwner,omitempty"`
 }
 
 func toProductImpact(p *impact.Product) *ProductImpact {
 	consumers := func(cs []impact.ProductConsumer) []ProductImpactConsumer {
 		out := make([]ProductImpactConsumer, len(cs))
 		for i, c := range cs {
-			out[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
+			out[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path),
+				OwnerRef: productview.RefPtr(c.OwnerRef)}
+			if len(c.Targets) > 0 {
+				out[i].Targets = productview.Refs(c.Targets)
+			}
+			// A caller no contract describes has no page to link to.
+			if c.Uncontracted {
+				out[i].Service.Href = ""
+			}
 		}
 		return out
 	}
@@ -307,6 +319,8 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: consumers(p.Consumers.Items), Highlights: consumers(p.Consumers.Highlights)},
 		Owners:        productview.RefPreview(p.Owners),
 		ActiveTargets: productview.RefPreview(p.ActiveTargets),
+		Templates:     productview.RefPreview(p.Templates),
+		ChangedOwner:  productview.RefPtr(p.ChangedOwner),
 	}
 }
 
@@ -315,12 +329,14 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 type impactRequest struct {
 	SnapshotID      string `json:"snapshotId,omitempty" doc:"The snapshot the client analyzed; a mismatch with the published snapshot is rejected"`
 	ServiceKey      string `json:"serviceKey,omitempty"`
-	FromRevisionKey string `json:"fromRevisionKey" doc:"Canonical revision key of the old revision"`
-	ToRevisionKey   string `json:"toRevisionKey" doc:"Canonical revision key of the new revision"`
+	FromRevisionKey string `json:"fromRevisionKey,omitempty" doc:"Canonical revision key of the old revision. Required unless event is set"`
+	ToRevisionKey   string `json:"toRevisionKey,omitempty" doc:"Canonical revision key of the new revision. Required unless event is set"`
+	Event           string `json:"event,omitempty" enum:"unavailable,removed,regressed" doc:"Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions"`
+	Revision        string `json:"revision,omitempty" doc:"With event regressed: the artifact digest (sha256:...) or version that regressed; a digest lets the answer cite delivery's recorded failures"`
 	IncludeObserved bool   `json:"includeObserved,omitempty"`
 	Limit           int    `json:"limit,omitempty" doc:"Max consumers per page (negatives rejected; excessive values capped)"`
 	Offset          int    `json:"offset,omitempty" doc:"Consumer page offset (negatives rejected)"`
-	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified" doc:"List only the consumers of this outcome; the tallies still cover every consumer"`
+	Outcome         string `json:"outcome,omitempty" enum:"incompatible,unknown,compatible,unclassified,breaks,may-degrade" doc:"List only the consumers of this outcome; the tallies still cover every consumer. An event answer's outcomes are breaks, may-degrade and unknown"`
 }
 
 type fleetImpactPostInput struct {
@@ -341,6 +357,12 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	}
 	if b.SnapshotID != "" && b.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot mismatch: the published snapshot changed; refetch and retry")
+	}
+	if b.Event != "" {
+		return s.fleetImpactEvent(ctx, q, b)
+	}
+	if b.FromRevisionKey == "" || b.ToRevisionKey == "" {
+		return nil, huma.Error422UnprocessableEntity("revisionKey", errors.New("a contract change needs fromRevisionKey and toRevisionKey; an event needs event and serviceKey"))
 	}
 	// Both keys must exist, belong to the SAME logical service, and (if given) match
 	// the requested ServiceKey - before any content is fetched.

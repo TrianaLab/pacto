@@ -1,9 +1,12 @@
 package impact
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Consumer outcomes: a DISJOINT partition of the consumers by what the change does
@@ -18,17 +21,35 @@ const (
 	OutcomeUnknown      = "unknown"
 	OutcomeCompatible   = "compatible"
 	OutcomeUnclassified = "unclassified"
+	// OutcomeBreaks and OutcomeMayDegrade partition an event answer, with
+	// OutcomeUnknown, by effect.
+	OutcomeBreaks     = EffectBreaks
+	OutcomeMayDegrade = EffectMayDegrade
 )
 
 // outcomeOrder is the canonical display order: err, unknown, ok, then the shortfall.
 var outcomeOrder = []string{OutcomeIncompatible, OutcomeUnknown, OutcomeCompatible, OutcomeUnclassified}
+
+// eventOrder is the display order of an event answer's outcomes: its lanes.
+var eventOrder = []string{OutcomeBreaks, OutcomeMayDegrade, OutcomeUnknown}
+
+// orderFor is the outcome order of an answer, event or contract.
+func orderFor(event bool) []string {
+	if event {
+		return eventOrder
+	}
+	return outcomeOrder
+}
 
 // MaxOwnerRanking bounds [ConsumerTallies.ByOwner].
 const MaxOwnerRanking = 5
 
 // OwnerTally is one owner's share of the affected consumers.
 type OwnerTally struct {
+	// Owner is the owner's display label. OwnerKey is its canonical key, empty
+	// when the consumers name an owner with no canonical identity.
 	Owner     string `json:"owner"`
+	OwnerKey  string `json:"ownerKey,omitempty" doc:"The owner's canonical key (for example team:shop): the ranking groups by it"`
 	Consumers int    `json:"consumers"`
 	// Incompatible counts this owner's consumers whose outcome is incompatible.
 	Incompatible int `json:"incompatible"`
@@ -53,8 +74,12 @@ type ConsumerTallies struct {
 	Owners int `json:"owners"`
 }
 
-func outcomeOf(verdict string, refused bool) string {
+// outcomeOf is a consumer's outcome: its effect in an event answer, else
+// what its verdict and refused guarantees say.
+func outcomeOf(verdict string, refused bool, effect string) string {
 	switch {
+	case effect != "":
+		return effect
 	case refused || verdict == CompatibilityIncompatible:
 		return OutcomeIncompatible
 	case verdict == CompatibilityUnknown:
@@ -66,32 +91,38 @@ func outcomeOf(verdict string, refused bool) string {
 }
 
 type consumerFact struct {
-	verdict, owner string
-	refused        bool
+	verdict, owner, ownerKey, effect string
+	refused                          bool
 }
 
-func tallyFacts(facts []consumerFact) ConsumerTallies {
+func tallyFacts(facts []consumerFact, event bool) ConsumerTallies {
 	byOutcome := map[string]int{}
 	byOwner := map[string]*OwnerTally{}
 	var t ConsumerTallies
 	for _, f := range facts {
-		o := outcomeOf(f.verdict, f.refused)
+		o := outcomeOf(f.verdict, f.refused, f.effect)
 		byOutcome[o]++
 		if f.owner == "" {
 			t.NoOwner++
 			continue
 		}
-		ot := byOwner[f.owner]
+		// Group by canonical key when there is one: two owners can share a label.
+		group := "label:" + f.owner
+		if f.ownerKey != "" {
+			group = "key:" + f.ownerKey
+		}
+		ot := byOwner[group]
 		if ot == nil {
-			ot = &OwnerTally{Owner: f.owner}
-			byOwner[f.owner] = ot
+			ot = &OwnerTally{Owner: f.owner, OwnerKey: f.ownerKey}
+			byOwner[group] = ot
 		}
 		ot.Consumers++
-		if o == OutcomeIncompatible {
+		// In an event answer the consumers that break rank an owner.
+		if o == OutcomeIncompatible || o == OutcomeBreaks {
 			ot.Incompatible++
 		}
 	}
-	for _, k := range outcomeOrder {
+	for _, k := range orderFor(event) {
 		t.ByOutcome = append(t.ByOutcome, TallyBucket{Key: k, Count: byOutcome[k]})
 	}
 	ranked := make([]OwnerTally, 0, len(byOwner))
@@ -106,7 +137,10 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 		if a.Consumers != b.Consumers {
 			return a.Consumers > b.Consumers
 		}
-		return a.Owner < b.Owner
+		if a.Owner != b.Owner {
+			return a.Owner < b.Owner
+		}
+		return a.OwnerKey < b.OwnerKey
 	})
 	t.Owners = len(ranked)
 	for _, o := range ranked[min(len(ranked), MaxOwnerRanking):] {
@@ -120,17 +154,17 @@ func tallyFacts(facts []consumerFact) ConsumerTallies {
 func (r *Result) tally() {
 	facts := make([]consumerFact, 0, len(r.Consumers))
 	for _, c := range r.Consumers {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, effect: c.Effect, refused: len(c.Unmet) > 0})
 	}
-	r.ConsumerTallies = tallyFacts(facts)
+	r.ConsumerTallies = tallyFacts(facts, r.Event != nil)
 }
 
-func tallyProductConsumers(all []ProductConsumer) ConsumerTallies {
+func tallyProductConsumers(all []ProductConsumer, event bool) ConsumerTallies {
 	facts := make([]consumerFact, 0, len(all))
 	for _, c := range all {
-		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, refused: len(c.Unmet) > 0})
+		facts = append(facts, consumerFact{verdict: c.CompatibilityVerdict, owner: c.Owner, ownerKey: c.OwnerKey, effect: c.Effect, refused: len(c.Unmet) > 0})
 	}
-	return tallyFacts(facts)
+	return tallyFacts(facts, event)
 }
 
 // OutcomeSummary is the outcome tally in words: "2 incompatible, 1 unknown, 9
@@ -147,12 +181,26 @@ func (t ConsumerTallies) OutcomeSummary() string {
 
 // OwnerSummary is the owner ranking in words, with what it leaves out: "team-a 4 (4
 // incompatible), team-b 9; 2 more of other owners; 4 with no identified owner".
+// Rows that share a label name their namespace ("shop (Team)", "shop (DRI)").
 func (t ConsumerTallies) OwnerSummary() string {
+	seen := map[string]int{}
+	for _, o := range t.ByOwner {
+		seen[o.Owner]++
+	}
+	// In an event answer Incompatible counts the consumers that break.
+	word := " incompatible)"
+	if slices.ContainsFunc(t.ByOutcome, func(b TallyBucket) bool { return b.Key == OutcomeBreaks }) {
+		word = " break)"
+	}
 	parts := make([]string, 0, len(t.ByOwner))
 	for _, o := range t.ByOwner {
-		s := o.Owner + " " + strconv.Itoa(o.Consumers)
+		label := o.Owner
+		if k, err := contract.ParseOwnerKey(o.OwnerKey); err == nil && seen[o.Owner] > 1 {
+			label = k.Label()
+		}
+		s := label + " " + strconv.Itoa(o.Consumers)
 		if o.Incompatible > 0 {
-			s += " (" + strconv.Itoa(o.Incompatible) + " incompatible)"
+			s += " (" + strconv.Itoa(o.Incompatible) + word
 		}
 		parts = append(parts, s)
 	}

@@ -121,6 +121,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `EMPTY_COMPATIBILITY` | `InvalidDependency` |
 | `EMPTY_READINESS_DESCRIPTION` | `MissingEvidence` |
 | `EMPTY_READINESS_EVIDENCE` | `MissingEvidence` |
+| `ENVIRONMENT_EXPIRES_NOT_TEMPORARY` | `SchemaViolation` |
 | `ENVIRONMENT_UNKNOWN_CONFIGURATION` | `InvalidReference` |
 | `ENVIRONMENT_VALUES_INVALID` | `ConfigurationViolation` |
 | `ENVIRONMENT_VALUES_MISSING` | `MissingConfiguration` |
@@ -132,6 +133,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INVALID_CONFIG_JSON` | `InvalidFile` |
 | `INVALID_CONFIG_REF` | `InvalidReference` |
 | `INVALID_CONFIG_SCHEMA` | `SchemaViolation` |
+| `INVALID_ENVIRONMENT_EXPIRES` | `SchemaViolation` |
 | `INVALID_INTERFACE_SPEC` | `InvalidFile` |
 | `INVALID_OCI_REF` | `InvalidReference` |
 | `INVALID_ORIGIN_REF` | `InvalidReference` |

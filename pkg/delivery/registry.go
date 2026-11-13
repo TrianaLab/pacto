@@ -31,6 +31,10 @@ func WithRegistryTimeout(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(ctx, registryTimeout)
 }
 
+// SourceRevisionAnnotation is the source revision pacto publish stamps on
+// every manifest it pushes. An annotation, not signed.
+const SourceRevisionAnnotation = "org.opencontainers.image.revision"
+
 // ResolveRevision reads the contract the artifact repo@digest names. Failures
 // are carried in Revision.Err rather than returned: plan() turns an unreadable
 // contract into an Unknown verdict, which holds the change for a person.
@@ -55,6 +59,7 @@ func ResolveRevision(ctx context.Context, reg Registry, repo, digest string) Rev
 		r.Err = timedOut(err)
 		return r
 	}
+	r.SourceRevision = ann[SourceRevisionAnnotation]
 	ref := ann[ContractAnnotation]
 	if ContractDigest(ref) == "" {
 		r.Err = "the artifact has no digest-pinned " + ContractAnnotation + " annotation"

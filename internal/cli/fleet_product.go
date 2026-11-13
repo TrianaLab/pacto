@@ -47,6 +47,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
+	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
@@ -121,7 +122,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	}
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
 	}
@@ -247,6 +248,7 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		printNonCompliantRanking(w, &res.Aggregate)
 		printOriginRanking(w, &res.Aggregate.Origins)
 		warnProductPartial(cmd, res.Meta)
+		noteScopedPhase(cmd, res.Meta)
 		return nil
 	}, nil)
 }
@@ -315,6 +317,8 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
+			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
+			printEnvironmentHistory(w, res.Service.EnvironmentHistory)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -581,6 +585,32 @@ func printDependents(w io.Writer, d *fleet.ServiceDetailData) {
 	}
 }
 
+// printPlacement prints a service's environments, declared and observed, or
+// nothing when it has none, then where its Stages are listed: the fleet holds
+// no Stages. A partial answer says the targets are only those Pacto can see.
+func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fleet.Completeness) {
+	if p.Total == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, fleet.PlacementHeading(c)+":")
+	for _, l := range p.Lines() {
+		_, _ = fmt.Fprintln(w, l)
+	}
+	_, _ = fmt.Fprintln(w, fleet.StagesHint(service))
+}
+
+// printEnvironmentHistory prints how a service's declared environments
+// changed across its revisions, or nothing when there is nothing to say.
+func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
+	if h.Total == 0 && h.Gaps == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, h.Heading()+":")
+	for _, l := range h.Lines() {
+		_, _ = fmt.Fprintln(w, l)
+	}
+}
+
 // provisioningText renders one provisioning status: its phase, (unsigned) for
 // a report from an unsigned file and, for Unknown, why.
 func provisioningText(st fleet.ProvisioningStatus) string {
@@ -624,6 +654,20 @@ func printFleetNeighborhood(cmd *cobra.Command, nb *fleet.Neighborhood, format s
 		warnProductPartial(cmd, nb.Meta)
 		return nil
 	}, nil)
+}
+
+// noteScopedPhase prints, on a complete answer (a partial one already lists
+// every limitation), that a phase list scoped to one environment omits the
+// consumers whose current revision does not declare it.
+func noteScopedPhase(cmd *cobra.Command, m fleet.ProductMeta) {
+	if m.Completeness != fleet.CompletenessComplete {
+		return
+	}
+	for _, l := range m.Limitations {
+		if l.Code == fleet.LimitationProvisioningEnvironmentScoped {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+		}
+	}
 }
 
 // warnProductPartial is warnPartial for a product answer's meta.

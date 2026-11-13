@@ -160,19 +160,19 @@ func TestCDEventKinds(t *testing.T) {
 		"not applied":   {st(delivery.TypePromote, dA, dB), false, ""},
 		"moved nothing": {st(delivery.TypePromote, "", ""), true, ""},
 	} {
-		if got := kind(cdEvents("src", stage, c.st, "sha256:r", c.applied)); got != c.want {
+		if got := kind(cdEvents("src", stage, c.st, "sha256:r", c.applied, time.Now())); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
 	}
 	untyped := st(delivery.TypePromote, "", "")
 	untyped.Predicate.Type = nil
-	if evs := cdEvents("src", stage, untyped, "sha256:r", false); len(evs) != 1 {
+	if evs := cdEvents("src", stage, untyped, "sha256:r", false, time.Now()); len(evs) != 1 {
 		t.Fatalf("events = %v", evs)
 	}
 	// Only operation records emit, and a nil Events emits nothing.
 	var none *Events
-	none.emit(context.Background(), stage, st(delivery.TypePromote, "", dA), "x", true)
-	(&Events{}).emit(context.Background(), stage, delivery.Statement{Predicate: delivery.RecordPredicate{Kind: delivery.RecordGap}}, "x", true)
+	none.emit(context.Background(), stage, st(delivery.TypePromote, "", dA), "x", true, time.Now())
+	(&Events{}).emit(context.Background(), stage, delivery.Statement{Predicate: delivery.RecordPredicate{Kind: delivery.RecordGap}}, "x", true, time.Now())
 }
 
 func TestCDEventDeliveryFailuresAreLogged(t *testing.T) {
@@ -181,7 +181,7 @@ func TestCDEventDeliveryFailuresAreLogged(t *testing.T) {
 	ctx := ctrl.LoggerInto(context.Background(), funcr.New(func(_, args string) { logged <- args }, funcr.Options{}))
 	e := &Events{Sink: srv.URL, Source: "src"}
 	e.emit(ctx, stageObj(""), delivery.Statement{Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation,
-		Outcome: &delivery.RecordOutcome{}}}, "sha256:r", false)
+		Outcome: &delivery.RecordOutcome{}}}, "sha256:r", false, time.Now())
 	receive(t, got)
 	select {
 	case msg := <-logged:

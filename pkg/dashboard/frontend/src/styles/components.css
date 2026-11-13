@@ -819,6 +819,7 @@ button.detail-card-header {
 .data-scroll { container: dtable / inline-size; }
 .cq-cards { container: dtable-wide / inline-size; }
 .data-scroll.cq-cards { container-name: dtable dtable-wide; }
+.data-scroll.cq-cards.cq-cards-xl { container-name: dtable dtable-wide dtable-xl; }
 @container dtable (max-width: 48rem) {
   .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
   .data-table colgroup { display: none; }
@@ -830,6 +831,18 @@ button.detail-card-header {
   .data-table td:empty { display: none; }
 }
 @container dtable-wide (max-width: 56rem) {
+  .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
+  .data-table colgroup { display: none; }
+  .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .data-table tr { padding: var(--sp-2) 0; }
+  .data-table tr + tr { border-top: 1px solid var(--c-border); }
+  .data-table td, .data-table tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
+  .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  .data-table td:empty { display: none; }
+}
+/* Ten columns with a floor each (one Stage's history): cards below the floors' sum, in ch so a wider font
+   (Verdana, DejaVu) turns them into cards sooner. Keep in step with DeliveryHistoryView's colgroup. */
+@container dtable-xl (max-width: calc(80ch + 23rem)) {
   .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
   .data-table colgroup { display: none; }
   .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

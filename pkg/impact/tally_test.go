@@ -21,7 +21,7 @@ func TestOutcomeOf(t *testing.T) {
 		{"newer-engine-value", false, OutcomeUnclassified},
 		{"", false, OutcomeUnclassified},
 	} {
-		if got := outcomeOf(tc.verdict, tc.refused); got != tc.want {
+		if got := outcomeOf(tc.verdict, tc.refused, ""); got != tc.want {
 			t.Errorf("outcomeOf(%q, %v) = %q, want %q", tc.verdict, tc.refused, got, tc.want)
 		}
 	}
@@ -44,7 +44,7 @@ func TestTallyFactsPartitionsAndRanks(t *testing.T) {
 	add(1, CompatibilityCompatible, "team-g", false)
 	add(4, "mystery", "", false)
 
-	got := tallyFacts(facts)
+	got := tallyFacts(facts, false)
 	wantOutcome := []TallyBucket{
 		{Key: OutcomeIncompatible, Count: 5}, {Key: OutcomeUnknown, Count: 2},
 		{Key: OutcomeCompatible, Count: 12}, {Key: OutcomeUnclassified, Count: 4},
@@ -83,7 +83,7 @@ func TestTallyFactsPartitionsAndRanks(t *testing.T) {
 }
 
 func TestTallyFactsEmpty(t *testing.T) {
-	got := tallyFacts(nil)
+	got := tallyFacts(nil, false)
 	if len(got.ByOutcome) != len(outcomeOrder) || got.ByOwner == nil || len(got.ByOwner) != 0 {
 		t.Fatalf("empty tally = %+v; want every outcome bucket at 0 and an empty ranking", got)
 	}
@@ -100,7 +100,7 @@ func TestResultAndProductCarryTheSameTallies(t *testing.T) {
 	for _, c := range res.Consumers {
 		pc = append(pc, ProductConsumer{CompatibilityVerdict: c.CompatibilityVerdict, Owner: c.Owner, Unmet: c.Unmet})
 	}
-	page := pageConsumersOutcome(pc, 10, 0, 0, "")
+	page := pageConsumersOutcome(pc, 10, 0, 0, "", false)
 	if !reflect.DeepEqual(page.ConsumerTallies, res.ConsumerTallies) {
 		t.Fatalf("product %+v != result %+v", page.ConsumerTallies, res.ConsumerTallies)
 	}
@@ -130,5 +130,10 @@ func TestTallySummaries(t *testing.T) {
 	}
 	if got := (ConsumerTallies{NoOwner: 2}).OwnerSummary(); got != "2 with no identified owner" {
 		t.Errorf("OwnerSummary = %q", got)
+	}
+	// In an event answer the count is of consumers that break.
+	ev := ConsumerTallies{ByOutcome: []TallyBucket{{Key: OutcomeBreaks, Count: 2}}, ByOwner: []OwnerTally{{Owner: "team-a", Consumers: 2, Incompatible: 2}}}
+	if got := ev.OwnerSummary(); got != "team-a 2 (2 break)" {
+		t.Errorf("event OwnerSummary = %q", got)
 	}
 }
