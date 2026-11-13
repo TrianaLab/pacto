@@ -80,7 +80,18 @@ export function installScaleFixture(): void {
     doc.truncated = offset + count < total;
     if (doc.truncated) doc.nextOffset = offset + count;
   };
-  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50 };
+  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50, offering: 2400 };
+  // The Offerings figure at fleet scale (B3): requests in the thousands across 2,400
+  // offerings, the three with most failed consumers named (the backend's bound) and 37
+  // more, so the failed list holds 40 offerings.
+  const FAILED_OFFERINGS: [string, number][] = [[longName('load-offering-a'), 412], [longName('load-offering-b'), 97], [longName('load-offering-c'), 31]];
+  const FAILED_BEYOND = 37;
+  const offeringAgg = (ag: Record<string, unknown>, offerings: number) => Object.assign(ag, {
+    matched: offerings, offeringCount: offerings,
+    offeringPhases: { requested: 1840, provisioning: 2210, ready: 18400, failed: 1290, deleting: 120, unknown: 3300 },
+    offeringPhaseConsumers: { requested: 900, provisioning: 1100, ready: 7200, failed: 640, deleting: 60, unknown: 1500 },
+    failedByOffering: FAILED_OFFERINGS.map(([type, services]) => ({ type, services })), failedOfferingsBeyond: FAILED_BEYOND,
+  });
   const NC_OWNERS: [string, number, number][] = [['team:load-owner-a', 40, 297], ['team:load-owner-b', 31, 60], ['team:load-owner-c', 22, 30], ['team:load-owner-d', 12, 400]];
   const NC_DOMAINS: [string, number, number][] = [[longName('load-domain-a'), 45, 310], [longName('load-domain-b'), 30, 90], [longName('load-domain-c'), 25, 40], [longName('load-domain-d'), 15, 700]];
   const NC_LISTS = new Map<string, number>([...NC_OWNERS, ...NC_DOMAINS].map(([k, n]) => [k, n] as [string, number])
@@ -98,7 +109,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -113,6 +124,36 @@ export function installScaleFixture(): void {
         } else if (ag) {
           ag.matched = total;
         }
+      }
+    }
+    // Offering rows at their longest: long owners, every availability with how Pacto
+    // knows it, consumers you may not see and target counts that cannot be known.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering') {
+      const AV: [string, string][] = [['unavailable', 'inferred'], ['degraded', 'observed'], ['available', 'observed'], ['unknown', 'unknown']];
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => {
+        r.owner = i % 3 === 1 ? '2 owners claim it' : longName(String(r.owner || 'platform-owner'));
+        [r.availability, r.availabilityProvenance] = AV[i % AV.length];
+        r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
+        r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
+        if (i % 2) { r.hiddenConsumers = 1234; r.targetsUnknown = true; r.targets = 0; }
+      });
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
+      if (q.get('failed') && !q.get('lifecycle') && !q.get('text')) {
+        const n = FAILED_OFFERINGS.length + FAILED_BEYOND;
+        // The figure's failed offerings are made up, so the engine lists none of them:
+        // stand-ins fill the page and the total is what the Failed station lists.
+        const ents = doc.entities as Record<string, unknown>[];
+        if (!ents.length) {
+          const lim = Math.min(n, Number(q.get('limit') || 25));
+          doc.entities = Array.from({ length: lim }, (_, i) => ({ kind: 'offering', key: `load-failed-${i}`, label: longName(`load-failed-${i}`), offering: `load-failed-${i}`,
+            owner: longName(`owner-${i}`), services: 1, consumers: 900 + i, failedRequests: 20 + i, lifecycle: 'deprecated', availability: 'degraded', availabilityProvenance: 'inferred', href: `/fleet/offerings/load-failed-${i}` }));
+          doc.count = lim;
+        }
+        page(doc, n);
+        if (ag) offeringAgg(ag, n);
+      } else if (ag && !narrowed && Number(q.get('limit') || 25) > 1) {
+        offeringAgg(ag, LIST_TOTAL.offering);
       }
     }
     // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
@@ -943,6 +984,8 @@ export const ROUTES: Route[] = [
   { name: 'owners', list: true, hash: '#/fleet/owners' },
   { name: 'domains', list: true, hash: '#/fleet/domains' },
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
+  { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
+  { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
   { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },

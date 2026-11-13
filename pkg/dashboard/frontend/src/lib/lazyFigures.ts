@@ -15,3 +15,5 @@ export const loadKnowsExplainer = once(() => import('../components/figure/explai
 export const loadOriginFigure = once(() => import('../components/figure/OriginFigure.svelte'));
 // @ts-expect-error — Svelte component has no declaration file
 export const loadCreationExplainer = once(() => import('../components/figure/explain/CreationExplainer.svelte'));
+// @ts-expect-error — Svelte component has no declaration file
+export const loadOfferingsFigure = once(() => import('../components/figure/OfferingsFigure.svelte'));

@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -763,5 +763,22 @@ describe('golden paths routes', () => {
     const url = fleetServicesUrl({ createdFrom: 'ghcr.io/acme/http-service' });
     expect(url).toBe('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');
     expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { createdFrom: 'ghcr.io/acme/http-service' } });
+  });
+});
+
+describe('offerings list routes', () => {
+  it('parses and serialises the lifecycle, failed and sort filters of the Offerings list', () => {
+    const url = fleetOfferingsUrl({ text: 'sql', lifecycle: 'deprecated', failed: true, sort: 'consumers', offset: 25 });
+    expect(url).toBe('#/fleet/offerings?text=sql&lifecycle=deprecated&failed=1&offset=25&sort=consumers');
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-offerings', params: { text: 'sql', lifecycle: 'deprecated', failed: '1', offset: '25', sort: 'consumers' },
+    });
+    expect(fleetOfferingsUrl({ failed: false })).toBe('#/fleet/offerings');
+  });
+
+  it('keeps lifecycle and failed off the other group lists', () => {
+    for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
+      expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&text=a`).params).toEqual({ text: 'a' });
+    }
   });
 });

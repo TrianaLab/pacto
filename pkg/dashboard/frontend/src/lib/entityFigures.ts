@@ -188,7 +188,7 @@ export function evidenceModel(sources: { total?: number; items?: (Ref & { status
 
 export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; failed?: number; deleting?: number; unknown?: number }
 
-interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
+export interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
 
 const PHASES: [keyof PhaseTally, string, string, FigTone, GlyphName | '', boolean?][] = [
   ['requested', 'Requested', 'asked for, not started', 'info', 'progress'],
@@ -222,33 +222,49 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
   const cap = phases?.unknown ? 1 : MAX_PROVIDER_MARKS;
   const named = total > cap ? items.slice(0, cap - 1) : items.slice(0, cap);
   const more = total - named.length;
-  const requests = PHASES.reduce((n, [k]) => n + (phases?.[k] ?? 0), 0);
-  const stations: PhaseStation[] = PHASES.map(([key, label, sub, tone, glyph, hatch]) => {
-    const n = phases?.[key] ?? 0;
-    return { key, label, sub, n, share: sharePct(n, requests), consumers: phaseConsumers?.[key] ?? 0, tone: n ? tone : 'neutral', hatch: hatch && n > 0, glyph: n ? glyph : '' };
-  });
+  const track = phaseTrack(phases, phaseConsumers);
   const marks = [...named.map((_, k) => `p${k}`), ...(more ? ['pm'] : [])];
-  const notCol: WireDef['when'] = ['wide', 'mid', 'narrow'];
   const wires: WireDef[] = [
     // Providers fan into the offering from above; the vertical layout lists them instead.
-    ...marks.map((a): WireDef => ({ id: `w${a}`, from: a, fs: 'b', to: 'hub', ts: 't', style: 'obs', tone: 'neutral', when: notCol })),
-    // A request moves from the offering onto the track, so the wire carries an arrowhead (C13b).
+    ...marks.map((a): WireDef => ({ id: `w${a}`, from: a, fs: 'b', to: 'hub', ts: 't', style: 'obs', tone: 'neutral', when: NOT_COL })),
+    ...track.wires,
+  ];
+  const summary = track.requests
+    ? `Of ${countOf(track.requests, 'request')}, ${track.rest}`
+    : 'No consumer has asked a provider for a resource yet.';
+  return {
+    named, more, total, requests: track.requests, stations: track.stations, wires, summary,
+    alt: `${countOf(total, 'provider')}; ${summary}`,
+  };
+}
+
+const NOT_COL: WireDef['when'] = ['wide', 'mid', 'narrow'];
+
+/**
+ * phaseTrack is the phase track both offering figures draw: one station per phase
+ * with its request count, its share and the distinct consumers behind it, the wires
+ * from the hub along the track (red into Failed only when something failed) and the
+ * sentence that reads the tally after "Of N requests".
+ */
+export function phaseTrack(phases: PhaseTally | undefined, phaseConsumers?: PhaseTally) {
+  const n = (k: keyof PhaseTally) => phases?.[k] ?? 0;
+  const requests = PHASES.reduce((sum, [k]) => sum + n(k), 0);
+  const stations: PhaseStation[] = PHASES.map(([key, label, sub, tone, glyph, hatch]) => {
+    const c = n(key);
+    return { key, label, sub, n: c, share: sharePct(c, requests), consumers: phaseConsumers?.[key] ?? 0, tone: c ? tone : 'neutral', hatch: hatch && c > 0, glyph: c ? glyph : '' };
+  });
+  const wires: WireDef[] = [
+    // A request moves from the hub onto the track, so the wire carries an arrowhead (C13b).
     { id: 'whub', from: 'hub', fs: 'r', to: 'ph-requested', ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'accent', head: true },
     ...(['requested', 'provisioning', 'ready'] as const).map((k, i): WireDef => ({
       id: `wt${i}`, from: `ph-${k}`, fs: 'r', to: `ph-${PHASES[i + 1][0]}`, ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'neutral', head: true,
     })),
     // Red only when something failed: an empty branch is not an alarm.
-    { id: 'wfail', from: 'ph-provisioning-b', fs: 'c', to: 'ph-failed', ts: 't', style: 'obs', tone: phases?.failed ? 'err' : 'neutral', head: true, when: notCol },
+    { id: 'wfail', from: 'ph-provisioning-b', fs: 'c', to: 'ph-failed', ts: 't', style: 'obs', tone: n('failed') ? 'err' : 'neutral', head: true, when: NOT_COL },
   ];
-  const n = (k: keyof PhaseTally) => phases?.[k] ?? 0;
   const progress = n('requested') + n('provisioning');
-  const summary = requests
-    ? `Of ${countOf(requests, 'request')}, ${formatCount(n('ready'))} ${n('ready') === 1 ? 'is' : 'are'} ready, ${formatCount(progress)} in progress, ${formatCount(n('failed'))} failed and ${formatCount(n('deleting'))} being removed; ${formatCount(n('unknown'))} ${n('unknown') === 1 ? 'has' : 'have'} no reported phase, so their readiness is unknown.`
-    : 'No consumer has asked a provider for a resource yet.';
-  return {
-    named, more, total, requests, stations, wires, summary,
-    alt: `${countOf(total, 'provider')}; ${summary}`,
-  };
+  const rest = `${formatCount(n('ready'))} ${n('ready') === 1 ? 'is' : 'are'} ready, ${formatCount(progress)} in progress, ${formatCount(n('failed'))} failed and ${formatCount(n('deleting'))} being removed; ${formatCount(n('unknown'))} ${n('unknown') === 1 ? 'has' : 'have'} no reported phase, so their readiness is unknown.`;
+  return { requests, stations, wires, rest };
 }
 
 // ── Offering use: is this one request ready? ───────────────────────────────────────
