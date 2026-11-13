@@ -152,18 +152,24 @@ func (s *Server) namespaces(ctx context.Context) []string {
 	return out
 }
 
+// ownersUnread is the unreadable entry of an inbox read with no fleet
+// snapshot: no owner is known, so every Stage is shown as the caller's.
+const ownersUnread = "owners: no fleet snapshot, so every frozen Stage and Errored change is shown as yours"
+
 // serviceOwners maps a service name to its declared owner, from the fleet
-// snapshot.
-func (s *Server) serviceOwners(ctx context.Context) map[string]string {
+// snapshot; false when there is no snapshot to read owners from.
+func (s *Server) serviceOwners(ctx context.Context) (map[string]string, bool) {
 	out := map[string]string{}
-	if q := s.publishedQuery(ctx); q != nil {
-		for _, svc := range q.SnapshotForSerialization().Services {
-			if o := svc.Owner.DisplayString(); o != "" {
-				out[svc.Name] = o
-			}
+	q := s.publishedQuery(ctx)
+	if q == nil {
+		return out, false
+	}
+	for _, svc := range q.SnapshotForSerialization().Services {
+		if o := svc.Owner.DisplayString(); o != "" {
+			out[svc.Name] = o
 		}
 	}
-	return out
+	return out, true
 }
 
 // InboxItem is one operation waiting on someone.
@@ -254,7 +260,10 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 		return nil, err
 	}
 	stages, ops = ofService(stages, ops, in.Service, in.Domain)
-	owners := s.serviceOwners(ctx)
+	owners, ownersRead := s.serviceOwners(ctx)
+	if !ownersRead {
+		l.Completeness, l.Unreadable = "partial", append(l.Unreadable, ownersUnread)
+	}
 	// A service whose owner the snapshot does not know is shown: an inbox
 	// that hides what it cannot attribute hides work.
 	mine := func(service string) bool {
