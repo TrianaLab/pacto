@@ -222,7 +222,7 @@ type dashDelivery struct {
 func refusal(err error) error {
 	var stale *app.PlanStaleError
 	if errors.As(err, &stale) {
-		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan}
+		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan, Differs: stale.Differs}
 	}
 	var api apierrors.APIStatus
 	if errors.As(err, &api) {

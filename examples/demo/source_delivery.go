@@ -705,6 +705,9 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 		e := dashboard.Refuse(http.StatusConflict, "PlanStale", "the Stage moved since you planned; review the fresh plan and propose again")
 		fresh := d.answer(p, req, actor)
 		e.Plan = &fresh
+		if e.Differs = delivery.IntentDiffers(spec, d.stage(req.Namespace, req.Stage).Spec, req.IntentDigest); e.Differs != "" {
+			e.Detail = "you planned with no " + e.Differs + ", and this propose passes one; propose with the fresh plan's intent digest"
+		}
 		return nil, p, e
 	}
 	st := d.stage(req.Namespace, req.Stage)

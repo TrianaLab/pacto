@@ -695,3 +695,26 @@ func TestDemoBoundsCorrelationID(t *testing.T) {
 		t.Fatalf("a long correlation id: %d", code)
 	}
 }
+
+// TestDemoProposeStaleNamesReason: a propose that only adds a reason to the
+// plan it read is refused PlanStale naming the reason, as the cluster does; a
+// propose against a digest that matches nothing names nothing.
+func TestDemoProposeStaleNamesReason(t *testing.T) {
+	d, _ := demoServer(t)
+	req := delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0")}
+	p, err := d.Plan(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Reason, req.IntentDigest = "CHG-1 hotfix", p.IntentDigest
+	_, _, err = d.Propose(t.Context(), req)
+	var refused *dashboard.DeliveryError
+	if !errors.As(err, &refused) || refused.Code != "PlanStale" || refused.Differs != "reason" || !strings.Contains(refused.Detail, "reason") {
+		t.Fatalf("a typed reason is named: %v", err)
+	}
+	req.IntentDigest = "stale"
+	_, _, err = d.Propose(t.Context(), req)
+	if !errors.As(err, &refused) || refused.Differs != "" {
+		t.Fatalf("a real move names nothing: %v", err)
+	}
+}

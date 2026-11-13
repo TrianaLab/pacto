@@ -24,12 +24,16 @@ export class ApiError extends Error {
   code: string;
   /** The fresh plan a PlanStale refusal carries. */
   plan?: DeliveryPlan;
-  constructor(status: number, message: string, code = '', plan?: DeliveryPlan) {
+  /** On PlanStale, the bound field that alone explains the difference
+   *  (reason, on-behalf-of person, both, or cause); empty when something else moved. */
+  differs: string;
+  constructor(status: number, message: string, code = '', plan?: DeliveryPlan, differs = '') {
     super(message);
     this.status = status;
     this.name = 'ApiError';
     this.code = code;
     this.plan = plan;
+    this.differs = differs;
   }
 }
 
@@ -317,10 +321,10 @@ interface FetchResult<T> {
   response: Response;
 }
 
-function errorCode(error: unknown): { code: string; plan?: DeliveryPlan } {
+function errorCode(error: unknown): { code: string; plan?: DeliveryPlan; differs?: string } {
   if (error && typeof error === 'object') {
-    const e = error as { code?: string; plan?: DeliveryPlan };
-    return { code: e.code ?? '', plan: e.plan };
+    const e = error as { code?: string; plan?: DeliveryPlan; differs?: string };
+    return { code: e.code ?? '', plan: e.plan, differs: e.differs };
   }
   return { code: '' };
 }
@@ -339,8 +343,8 @@ function errorMessage(error: unknown, response: Response): string {
 async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
-    const { code, plan } = errorCode(error);
-    throw new ApiError(response.status, errorMessage(error, response), code, plan);
+    const { code, plan, differs } = errorCode(error);
+    throw new ApiError(response.status, errorMessage(error, response), code, plan, differs);
   }
   return (data ?? null) as T;
 }

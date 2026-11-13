@@ -303,3 +303,14 @@ func TestDashDeliveryStageNamespaces(t *testing.T) {
 	_, err = api.StageNamespaces(ctx)
 	expect(t, err != nil, "a client that cannot be built is an error")
 }
+
+// TestRefusalCarriesDiffers: a PlanStale refusal tells the dashboard which
+// bound field alone explains the difference, so the panel can re-propose.
+func TestRefusalCarriesDiffers(t *testing.T) {
+	err := refusal(&app.PlanStaleError{Plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:new"}}, Differs: "reason"})
+	var d *dashboard.DeliveryError
+	expect(t, errors.As(err, &d) && d.Code == "PlanStale" && d.Differs == "reason" && d.Plan.IntentDigest == "sha256:new",
+		"a stale refusal names what differs: %v", err)
+	err = refusal(&app.PlanStaleError{})
+	expect(t, errors.As(err, &d) && d.Differs == "", "a real move names nothing: %v", err)
+}
