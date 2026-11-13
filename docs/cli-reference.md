@@ -52,6 +52,8 @@ distinguish "the check failed" from "the command could not run"**. `2` means
 command exits `2` for its own result. `pacto run` exits with the exit code of
 the command it wraps, whatever it is, or `1` when that command exits `0` and
 the final verdict fails `--fail-on`.
+Recording a run record (`--stats-registry`, `--stats-file`) never changes an
+exit code. `pacto stats publish` exits `1` when a file could not be published.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
@@ -59,6 +61,7 @@ the final verdict fails `--fail-on`.
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
 | `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
+| `pacto stats publish` when a file could not be read, parsed or published | `pacto stats publish` that published every file |
 | **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
 
 | Exits `2` |

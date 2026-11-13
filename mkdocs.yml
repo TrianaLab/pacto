@@ -235,6 +235,7 @@ nav:
       - Golden paths reference: golden-paths-reference.md
       - MCP reference: mcp-reference.md
       - Publish reference: publishing.md
+      - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
