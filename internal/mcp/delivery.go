@@ -296,7 +296,7 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 		Description: "Propose an operation. Pass the intent_digest from your plan with the same to, reason and on_behalf_of: " +
 			"the digest binds them and the Stage's state, so if one differs or anything moved since, it fails with PlanStale, " +
 			"says which parameter differs when it can tell, and returns the fresh plan instead of proposing something you did " +
-			"not review." + noApprove,
+			"not review. Pass correlation_id to tie it to an incident; it does not change the intent digest." + noApprove,
 		InputSchema: requestSchema("intent_digest", "name"),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -337,23 +337,25 @@ func resultOrError(v any, err error) (*mcpsdk.CallToolResult, any, error) {
 }
 
 type requestArgs struct {
-	Namespace    string `json:"namespace"`
-	Stage        string `json:"stage"`
-	Type         string `json:"type"`
-	To           string `json:"to"`
-	From         string `json:"from"`
-	Undoes       string `json:"undoes"`
-	Reason       string `json:"reason"`
-	OnBehalfOf   string `json:"on_behalf_of"`
-	IntentDigest string `json:"intent_digest"`
-	Name         string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Stage      string `json:"stage"`
+	Type       string `json:"type"`
+	To         string `json:"to"`
+	From       string `json:"from"`
+	Undoes     string `json:"undoes"`
+	Reason     string `json:"reason"`
+	OnBehalfOf string `json:"on_behalf_of"`
+	// CorrelationID ties the change to an incident or another change.
+	CorrelationID string `json:"correlation_id"`
+	IntentDigest  string `json:"intent_digest"`
+	Name          string `json:"name"`
 	// CauseVerdict is a verdict the caller cites as its cause, as JSON.
 	CauseVerdict string `json:"cause_verdict"`
 }
 
 func (a requestArgs) request() (delivery.Request, error) {
 	req := delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
-		Reason: a.Reason, OnBehalfOf: a.OnBehalfOf, IntentDigest: a.IntentDigest, Name: a.Name}
+		Reason: a.Reason, CorrelationID: a.CorrelationID, OnBehalfOf: a.OnBehalfOf, IntentDigest: a.IntentDigest, Name: a.Name}
 	if a.CauseVerdict != "" {
 		var v delivery.Verdict
 		if err := json.Unmarshal([]byte(a.CauseVerdict), &v); err != nil {
@@ -377,6 +379,8 @@ func requestSchema(extra ...string) map[string]any {
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},
 		"on_behalf_of": {Type: "string", Description: "The person you act for (asserted, not verified)"},
+		"correlation_id": {Type: "string", Description: "An id that ties this change to an incident or another change, such as a ticket " +
+			"(at most 128 printable ASCII characters). Not part of the intent digest; pacto_delivery_history filters by it"},
 		"cause_verdict": {Type: "string", Description: "A verdict you cite as the cause, as JSON (a verdict from pacto_delivery_explain); " +
 			"the promoter runs it again and refuses a cause that does not hold"},
 	}

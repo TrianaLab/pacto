@@ -9,6 +9,7 @@ package admission
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -25,4 +26,20 @@ func TestOperationNamesThePromoterRaises(t *testing.T) {
 		allowed(t, as("alice").Create(ctx, operation(name, "alice", nil)))
 	}
 	allowed(t, as(controller).Create(ctx, operation("promote-t-rollback", controller, nil)))
+}
+
+// A correlation id is printed raw by other users' CLIs and signed into
+// records: admission refuses one the client would refuse.
+func TestOperationCorrelationIDBound(t *testing.T) {
+	ctx := context.Background()
+	const msg = "spec.correlationID is at most 128 printable ASCII characters"
+	withID := func(id string) error {
+		op := operation(uniq("corr"), "alice", nil)
+		op.Object["spec"].(map[string]any)["correlationID"] = id
+		return as("alice").Create(ctx, op)
+	}
+	denied(t, withID(strings.Repeat("x", 129)), msg)
+	denied(t, withID("CHG-\u202e2041"), msg)
+	allowed(t, withID("CHG-2041"))
+	allowed(t, withID(strings.Repeat("x", 128)))
 }

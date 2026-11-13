@@ -401,7 +401,10 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 	if !ok {
 		return delivery.OperationSpec{}, fmt.Errorf("unknown operation type %q; see `pacto delivery types`", typ)
 	}
-	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason,
+	if err := delivery.CheckCorrelationID(req.CorrelationID); err != nil {
+		return delivery.OperationSpec{}, err
+	}
+	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, CorrelationID: req.CorrelationID,
 		Actor: delivery.Actor{User: caller.User, Groups: caller.Groups}, Cause: req.Cause}
 	if req.OnBehalfOf != "" {
 		spec.OnBehalfOf = &delivery.Principal{User: req.OnBehalfOf}

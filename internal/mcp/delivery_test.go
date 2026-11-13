@@ -561,3 +561,19 @@ func TestLifecycleTool(t *testing.T) {
 		t.Fatal("lifecycle must surface the error")
 	}
 }
+
+func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i"}}}
+	server := NewDeliveryServer("v", api, true, Authoring{})
+	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
+	callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{
+		"namespace": "prod", "stage": "s", "to": "sha256:x", "correlation_id": "CHG-2041"})
+	if api.req.CorrelationID != "CHG-2041" {
+		t.Fatalf("propose request %+v", api.req)
+	}
+	for name, schema := range map[string]map[string]any{"plan": requestSchema(), "propose": requestSchema("intent_digest", "name")} {
+		if _, ok := schema["properties"].(map[string]any)["correlation_id"]; !ok {
+			t.Errorf("the %s schema lacks correlation_id", name)
+		}
+	}
+}

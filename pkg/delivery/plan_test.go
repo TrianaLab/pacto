@@ -1156,3 +1156,33 @@ func TestDescribeRangesNamesPolicyReferrers(t *testing.T) {
 		t.Fatalf("describeRanges = %q, want %q", got, want)
 	}
 }
+
+func TestIntentDigestIgnoresCorrelationID(t *testing.T) {
+	a := OperationSpec{Type: TypePromote, Stage: "prod", Params: Params{To: "sha256:1"}, Reason: "r"}
+	b := a
+	b.CorrelationID = "CHG-2041"
+	if IntentDigest(a, StageSpec{}) != IntentDigest(b, StageSpec{}) {
+		t.Fatal("the correlation id changed the intent digest")
+	}
+}
+
+func TestCheckCorrelationID(t *testing.T) {
+	for _, c := range []struct {
+		id string
+		ok bool
+	}{
+		{"", true},
+		{"CHG-2041", true},
+		{strings.Repeat("a", 128), true},
+		{strings.Repeat("a", 129), false},
+		{"a\nb", false},
+		{"a\u202eb", false},
+		{"a\x1b[31mb", false},
+		{"café", false},
+		{"a\x7fb", false},
+	} {
+		if err := CheckCorrelationID(c.id); (err == nil) != c.ok {
+			t.Errorf("CheckCorrelationID(%q) = %v, want ok=%v", c.id, err, c.ok)
+		}
+	}
+}

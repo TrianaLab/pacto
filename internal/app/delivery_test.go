@@ -757,3 +757,24 @@ func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
 		t.Fatalf("a client given its policy: %q %v", who.PolicyErr, err)
 	}
 }
+
+func TestSpecCopiesCorrelationID(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: "CHG-2041"}
+	_, spec, err := d.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.CorrelationID = ""
+	_, bare, _ := d.Plan(context.Background(), req)
+	if spec.CorrelationID != "CHG-2041" || spec.IntentDigest != bare.IntentDigest {
+		t.Fatalf("spec %+v, digest without the id %s", spec, bare.IntentDigest)
+	}
+}
+
+func TestSpecRefusesLongCorrelationID(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: strings.Repeat("x", 129)}
+	_, _, err := d.Plan(context.Background(), req)
+	wantErrContaining(t, err, "at most 128 printable ASCII")
+}

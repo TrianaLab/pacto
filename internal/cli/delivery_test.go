@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -610,5 +611,15 @@ func TestPrintPlanLabelsEvidenceGates(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Fatalf("want %q in\n%s", want, b.String())
 		}
+	}
+}
+
+func TestRequestFromCorrelationID(t *testing.T) {
+	cmd := &cobra.Command{}
+	addRequestFlags(cmd)
+	_ = cmd.Flags().Set("correlation-id", "CHG-2041")
+	req, err := requestFrom(cmd, "prod")
+	if err != nil || req.CorrelationID != "CHG-2041" {
+		t.Fatalf("request %+v, err %v", req, err)
 	}
 }

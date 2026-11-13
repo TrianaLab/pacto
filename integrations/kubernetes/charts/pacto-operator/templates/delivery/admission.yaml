@@ -71,6 +71,11 @@ spec:
       message: "spec.actor.groups must be the groups of the user creating the operation"
       reason: Forbidden
     - expression: >-
+        !has(object.spec.correlationID) ||
+        (size(object.spec.correlationID) <= 128 && object.spec.correlationID.matches('^[ -~]*$'))
+      message: "spec.correlationID is at most 128 printable ASCII characters"
+      reason: Invalid
+    - expression: >-
         has(object.metadata.finalizers) &&
         'delivery.pacto.trianalab.io/record' in object.metadata.finalizers
       message: "an operation must carry the delivery.pacto.trianalab.io/record finalizer"

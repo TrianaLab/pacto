@@ -36,6 +36,25 @@ func IntentDigest(spec OperationSpec, stage StageSpec) string {
 	return sha256Hex(b)
 }
 
+// MaxCorrelationID is the longest correlation id, in bytes.
+const MaxCorrelationID = 128
+
+// CheckCorrelationID refuses a correlation id longer than MaxCorrelationID or
+// holding anything other than printable ASCII. The id is printed raw by
+// explain and history and signed into records, so control characters,
+// bidirectional overrides and escape sequences are refused.
+func CheckCorrelationID(id string) error {
+	if len(id) > MaxCorrelationID {
+		return fmt.Errorf("the correlation id is %d bytes; at most %d printable ASCII characters are allowed", len(id), MaxCorrelationID)
+	}
+	for i := range len(id) {
+		if id[i] < 0x20 || id[i] > 0x7e {
+			return fmt.Errorf("the correlation id holds byte 0x%02x at %d; only printable ASCII characters (space to ~) are allowed", id[i], i)
+		}
+	}
+	return nil
+}
+
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
