@@ -343,3 +343,35 @@ func TestDemoOfferingRows(t *testing.T) {
 		t.Errorf("deprecated offerings = %+v", l.Entities)
 	}
 }
+
+// TestDemoOfferingPhaseTallyMatchesDetail: over the CLI demo fleet, the
+// fleet-wide phase tally of the Offerings list is the sum of the tallies each
+// offering page shows, so the figure and the pages never disagree.
+func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Limit: fleet.MaxEntityLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var phases, consumers fleet.PhaseTally
+	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
+		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown}
+	}
+	for _, r := range l.Entities {
+		d, err := q.EntityDetail(fleet.KindOffering, r.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(&phases, d.Offering.Consumers.Phases)
+		add(&consumers, d.Offering.Consumers.PhaseConsumers)
+	}
+	if l.Aggregate.OfferingPhases != phases || l.Aggregate.OfferingPhaseConsumers != consumers || phases == (fleet.PhaseTally{}) {
+		t.Errorf("aggregate %+v / %+v, pages %+v / %+v", l.Aggregate.OfferingPhases, l.Aggregate.OfferingPhaseConsumers, phases, consumers)
+	}
+}

@@ -207,7 +207,7 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		return nil, err
 	}
 	want := kindSet(f.Kinds)
-	refs := q.candidateRefs(want)
+	refs, offerings := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
 	var derived []Limitation
 	if f.Phase != "" {
@@ -235,7 +235,7 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	return &EntityList{
 		Meta: q.productMetaWith(derived), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
-		Aggregate: q.aggregate(filtered),
+		Aggregate: q.aggregate(filtered, offerings),
 	}, nil
 }
 
@@ -530,8 +530,9 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 }
 
 // candidateRefs collects one reference per entity of every requested kind.
-func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
+func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string]*offeringFacts) {
 	var refs []EntityRef
+	var offerings map[string]*offeringFacts
 	if want[KindService] {
 		created := q.createdCounts()
 		for _, s := range q.snap.Services {
@@ -560,9 +561,11 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 		refs = append(refs, q.domainListRefs()...)
 	}
 	if want[KindOffering] {
-		refs = append(refs, q.offeringListRefs()...)
+		var rows []EntityRef
+		rows, offerings = q.offeringListRefs()
+		refs = append(refs, rows...)
 	}
-	return refs
+	return refs, offerings
 }
 
 // domainListRefs is one row per declared business domain, with the number of
@@ -592,8 +595,8 @@ func (q *Query) domainListRefs() []EntityRef {
 
 // offeringListRefs is one row per platform offering, with the number of
 // services that provide it, the targets they run on and the facts
-// offeringFactsByName gathers.
-func (q *Query) offeringListRefs() []EntityRef {
+// offeringFactsByName gathers, which it returns too for the aggregate.
+func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 	by := map[string]*EntityRef{}
 	facts := q.offeringFactsByName()
 	for _, s := range q.snap.Services {
@@ -616,7 +619,7 @@ func (q *Query) offeringListRefs() []EntityRef {
 		q.applyOfferingFacts(ref, facts[name])
 		refs = append(refs, *ref)
 	}
-	return refs
+	return refs, facts
 }
 
 // serviceListRef is a service row with its target count and owner summary,

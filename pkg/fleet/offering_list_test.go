@@ -310,3 +310,114 @@ func TestOfferingListOneUsesPass(t *testing.T) {
 		t.Errorf("uses passes = %d, total %d", n, l.Total)
 	}
 }
+
+// offeringAggregate is the aggregate of an offering list over q.
+func offeringAggregate(t *testing.T, q *Query, f EntityFilter) EntityAggregate {
+	t.Helper()
+	f.Kinds = []EntityKind{KindOffering}
+	l, err := q.Entities(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l.Aggregate
+}
+
+// plusTally is a + b, field by field.
+func plusTally(a, b PhaseTally) PhaseTally {
+	return PhaseTally{a.Requested + b.Requested, a.Provisioning + b.Provisioning, a.Ready + b.Ready, a.Failed + b.Failed, a.Deleting + b.Deleting, a.Unknown + b.Unknown}
+}
+
+// assertOfferingTallyMatchesDetail pins B3: the fleet tally is the sum of the
+// per-offering detail tallies over the same snapshot.
+func assertOfferingTallyMatchesDetail(t *testing.T, q *Query) EntityAggregate {
+	t.Helper()
+	agg := offeringAggregate(t, q, EntityFilter{Limit: MaxEntityLimit})
+	var phases, consumers PhaseTally
+	failed := 0
+	for key := range offeringRows(t, q, EntityFilter{Limit: MaxEntityLimit}) {
+		d, err := q.EntityDetail(KindOffering, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		phases, consumers = plusTally(phases, d.Offering.Consumers.Phases), plusTally(consumers, d.Offering.Consumers.PhaseConsumers)
+		failed += d.Offering.Consumers.Failed.Total
+	}
+	named := agg.FailedOfferingsBeyond
+	for _, c := range agg.FailedByOffering {
+		named += c.Services
+	}
+	if agg.OfferingPhases != phases || agg.OfferingPhaseConsumers != consumers || (agg.FailedOfferingsBeyond == 0 && named != failed) {
+		t.Errorf("aggregate %+v / %+v / %+v, detail %+v / %+v / %d", agg.OfferingPhases, agg.OfferingPhaseConsumers, agg.FailedByOffering, phases, consumers, failed)
+	}
+	return agg
+}
+
+func TestAggregateOfferingPhases(t *testing.T) {
+	agg := assertOfferingTallyMatchesDetail(t, failedFleet(t))
+	if agg.OfferingPhases.Failed != 1 || agg.OfferingPhaseConsumers.Failed != 1 || len(agg.FailedByOffering) != 1 || agg.FailedByOffering[0] != (TypeCount{Type: "postgresql", Services: 1}) {
+		t.Errorf("aggregate = %+v", agg)
+	}
+	q := NewQuery(provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{report(), report(func(r *RawProvisioning) { r.Environment = "staging"; r.ExternalRef = "orders-db-staging" })}))
+	if agg := assertOfferingTallyMatchesDetail(t, q); agg.OfferingPhases.Ready == 0 || len(agg.FailedByOffering) != 0 {
+		t.Errorf("ready aggregate = %+v", agg)
+	}
+	// No provisioning at all: every tally is zero.
+	if agg := assertOfferingTallyMatchesDetail(t, rowFleet(t)); agg.OfferingPhases.Failed != 0 || len(agg.FailedByOffering) != 0 {
+		t.Errorf("row fleet aggregate = %+v", agg)
+	}
+}
+
+func TestAggregateOfferingPhasesFollowFilter(t *testing.T) {
+	q := failedFleet(t)
+	if agg := offeringAggregate(t, q, EntityFilter{Text: "postgres"}); agg.OfferingPhases.Failed != 1 {
+		t.Errorf("matched = %+v", agg.OfferingPhases)
+	}
+	if agg := offeringAggregate(t, q, EntityFilter{Text: "nothing-matches"}); agg.OfferingPhases != (PhaseTally{}) || len(agg.FailedByOffering) != 0 {
+		t.Errorf("narrowed = %+v", agg)
+	}
+	// A service list tallies no offering phases.
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}})
+	if err != nil || l.Aggregate.OfferingPhases != (PhaseTally{}) {
+		t.Errorf("service list = %+v, %v", l.Aggregate.OfferingPhases, err)
+	}
+}
+
+func TestAggregateFailedByOfferingTop3(t *testing.T) {
+	failedUse := func(consumer string) OfferingUse {
+		return OfferingUse{Consumer: EntityRef{Key: consumer}, Provisioning: []ProvisioningStatus{{Phase: "Failed"}}}
+	}
+	facts := map[string]*offeringFacts{}
+	for name, n := range map[string]int{"a": 1, "b": 3, "c": 1, "d": 2, "e": 1, "quiet": 0} {
+		f := &offeringFacts{}
+		for i := range n {
+			f.uses = append(f.uses, failedUse(fmt.Sprint(i)))
+		}
+		facts[name] = f
+	}
+	var agg EntityAggregate
+	tallyOfferingPhases(&agg, []string{"a", "b", "c", "d", "e", "quiet"}, facts)
+	if got := fmt.Sprint(agg.FailedByOffering); got != "[{b 3} {d 2} {a 1}]" || agg.FailedOfferingsBeyond != 2 || agg.OfferingPhases.Failed != 8 {
+		t.Errorf("ranking = %s, beyond %d, failed %d", got, agg.FailedOfferingsBeyond, agg.OfferingPhases.Failed)
+	}
+}
+
+func TestAggregateOfferingPhasesRestricted(t *testing.T) {
+	billing := func(r *RawProvisioning) {
+		r.Service, r.Digest, r.ExternalRef, r.Phase = "billing", testDigest(acme, "billing", "1.0.0"), "billing-db", "Failed"
+	}
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	base.Targets = []RawTarget{
+		{Scope: "open", Kind: SourceKindKubernetes, Name: "orders", Service: "orders", Domain: acme, Digest: testDigest(acme, "orders", "1.3.0")},
+		{Scope: "secret", Kind: SourceKindKubernetes, Name: "billing", Service: "billing", Domain: acme, Digest: testDigest(acme, "billing", "1.0.0")},
+	}
+	q := NewQuery(provisioningSnap(t, 0, base, []RawProvisioning{report(), report(billing)}))
+	if agg := assertOfferingTallyMatchesDetail(t, q); agg.OfferingPhases.Failed != 1 {
+		t.Fatalf("unrestricted = %+v", agg.OfferingPhases)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	agg := assertOfferingTallyMatchesDetail(t, r)
+	if agg.OfferingPhases.Failed != 0 || agg.OfferingPhases.Ready != 1 || len(agg.FailedByOffering) != 0 {
+		t.Errorf("restricted = %+v", agg)
+	}
+}

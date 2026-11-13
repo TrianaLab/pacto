@@ -1,8 +1,10 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +38,7 @@ type offeringFacts struct {
 	consumers, failed, hidden map[ServiceKey]bool
 	targetsUnknown            bool
 	providers                 []*ServiceRecord
+	uses                      []OfferingUse
 }
 
 // offeringFactsByName gathers the facts of every offering row in one pass over
@@ -62,6 +65,7 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 	uses, _ := q.offeringUses(func(*ServiceRecord) bool { return true }, "")
 	for _, u := range uses {
 		f := by[u.Offering]
+		f.uses = append(f.uses, u)
 		key := ServiceKey(u.Consumer.Key)
 		f.consumers[key] = true
 		for _, st := range u.Provisioning {
@@ -153,4 +157,37 @@ func (q *Query) serviceLifecycleState(s *ServiceRecord) string {
 		}
 	}
 	return revisionLifecycle(newestReadable(revs), q.snap.GeneratedAt)
+}
+
+// maxFailedOfferings bounds EntityAggregate.FailedByOffering.
+const maxFailedOfferings = 3
+
+// tallyOfferingPhases adds the provisioning phases of the uses of every
+// offering in names to agg, from the uses its rows read, so the fleet figure
+// and the rows agree.
+func tallyOfferingPhases(agg *EntityAggregate, names []string, facts map[string]*offeringFacts) {
+	var failed []TypeCount
+	for _, name := range names {
+		p := offeringUsesPreview(facts[name].uses)
+		agg.OfferingPhases.plus(p.Phases)
+		agg.OfferingPhaseConsumers.plus(p.PhaseConsumers)
+		if p.Failed.Total > 0 {
+			failed = append(failed, TypeCount{Type: name, Services: p.Failed.Total})
+		}
+	}
+	slices.SortFunc(failed, func(a, b TypeCount) int {
+		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Type, b.Type))
+	})
+	shown, total, _ := boundSlice(failed, maxFailedOfferings)
+	agg.FailedByOffering, agg.FailedOfferingsBeyond = shown, total-len(shown)
+}
+
+// plus adds o to t, field by field.
+func (t *PhaseTally) plus(o PhaseTally) {
+	t.Requested += o.Requested
+	t.Provisioning += o.Provisioning
+	t.Ready += o.Ready
+	t.Failed += o.Failed
+	t.Deleting += o.Deleting
+	t.Unknown += o.Unknown
 }

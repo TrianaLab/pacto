@@ -2328,6 +2328,9 @@ export interface components {
             distinctOwners?: number;
             /** Format: int64 */
             domains: number;
+            failedByOffering?: components["schemas"]["Fleet.TypeCount"][] | null;
+            /** Format: int64 */
+            failedOfferingsBeyond?: number;
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -2348,6 +2351,8 @@ export interface components {
             nonCompliantUnidentified?: number;
             /** Format: int64 */
             offeringCount: number;
+            offeringPhaseConsumers: components["schemas"]["Fleet.PhaseTally"];
+            offeringPhases: components["schemas"]["Fleet.PhaseTally"];
             /** Format: int64 */
             offeringTypes?: number;
             offerings?: components["schemas"]["Fleet.TypeCount"][] | null;
