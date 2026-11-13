@@ -104,6 +104,7 @@ func parityQueries(revision string) []parityQuery {
 		{"neighborhood app", []string{"fleet", "neighborhood", "app"}, "pacto_fleet_neighborhood", map[string]any{"service": "app"}, "/api/fleet/neighborhood?kind=service&key=app"},
 		{"sources unavailable", []string{"fleet", "entities", "--source-health", "unavailable"}, "pacto_fleet_entities", map[string]any{"source_health": "unavailable"}, "/api/fleet/entities?kinds=source&sourceHealth=unavailable"},
 		{"revisions of app", []string{"fleet", "entities", "--kind", "revision", "--service", "app"}, "pacto_fleet_entities", map[string]any{"kind": "revision", "service": "app"}, "/api/fleet/entities?kinds=revision&service=app"},
+		{"app with no kind", []string{"fleet", "entities", "--service", "app"}, "pacto_fleet_entities", map[string]any{"service": "app"}, "/api/fleet/entities?service=app"},
 		{"stale attention", []string{"fleet", "attention", "--stale-only"}, "pacto_fleet_attention", map[string]any{"stale_only": true}, "/api/fleet/attention?staleOnly=true"},
 		{"neighborhood bounded", []string{"fleet", "neighborhood", "app", "--max-edges", "1"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "max_edges": 1}, "/api/fleet/neighborhood?kind=service&key=app&maxEdges=1"},
 		{"versions postgresql", []string{"fleet", "versions", "postgresql"}, "pacto_fleet_versions", map[string]any{"offering": "postgresql"}, "/api/fleet/versions?offering=postgresql"},

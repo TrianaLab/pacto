@@ -467,6 +467,9 @@ func TestListKinds(t *testing.T) {
 		{"", EntityFilter{SourceKind: "oci"}, []EntityKind{KindSource}},
 		{"", EntityFilter{SourceHealth: "stale"}, []EntityKind{KindSource}},
 		{"", EntityFilter{Template: TemplateExclude}, []EntityKind{KindService, KindOwner, KindDomain, KindOffering}},
+		{"", EntityFilter{Service: "app"}, nil},
+		{"", EntityFilter{Domain: "shop"}, nil},
+		{"", EntityFilter{Source: "oci"}, nil},
 	}
 	for _, c := range cases {
 		if got := ListKinds(c.kind, c.f); !slices.Equal(got, c.want) {
