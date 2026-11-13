@@ -236,10 +236,6 @@ func TestFleetSearch(t *testing.T) {
 			t.Errorf("search %v: %v", f, err)
 		}
 	}
-	// A label the filter cannot read is refused, never dropped.
-	if _, _, err := execFleet(t, append(append([]string{}, base...), "--label", "bare")...); err == nil || !strings.Contains(err.Error(), "invalid label") {
-		t.Errorf("search --label bare: err = %v, want invalid label", err)
-	}
 
 	// The business domain reaches the query: no service declares this one.
 	nout, _, err := execFleet(t, append(append([]string{}, base...), "--business-domain", "nope", "--output-format", "json")...)
@@ -752,5 +748,15 @@ func TestFleetBuildError(t *testing.T) {
 		if err := root0.ExecuteContext(ctx); err == nil {
 			t.Errorf("expected error for %v when the build context is cancelled", sc)
 		}
+	}
+}
+
+// TestFleetSearchRefusesMalformedLabel: a label the filter cannot read is
+// refused, never dropped into an unfiltered answer.
+func TestFleetSearchRefusesMalformedLabel(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	_, _, err := execFleet(t, "fleet", "search", "--local", root, "--target-state", ev, "--label", "bare")
+	if err == nil || !strings.Contains(err.Error(), "invalid label") {
+		t.Errorf("search --label bare: err = %v, want invalid label", err)
 	}
 }
