@@ -43,6 +43,8 @@ defaults:
     # Symlinks are never inputs: npm ci's node_modules and two kind fixture links.
     exclude:
       - "**/node_modules/**"
+      # The go.* coverage profiles: outputs (--go-cover-profile), never inputs.
+      - "cover/**"
       - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml"
       - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json"
       # Files only go.pkg.contract and go.pkg.validation reach, through the
@@ -777,7 +779,8 @@ tests:
       env: [CI, PW_PORT, PW_DOC_PORT, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
     cacheability: controlled-environment
   - metadata: {name: go.cmd.pacto}
-    runner: {command: [go, test, ./cmd/pacto]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./cmd/pacto, cover/go.cmd.pacto.out]}
+    outputs: [cover/go.cmd.pacto.out]
     use:
       - go.cmd.pacto
       - go.internal.app
@@ -836,7 +839,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.app}
-    runner: {command: [go, test, ./internal/app]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/app, cover/go.internal.app.out]}
+    outputs: [cover/go.internal.app.out]
     use:
       - go.internal.app
       - go.internal.app.test
@@ -887,7 +891,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.authn}
-    runner: {command: [go, test, ./internal/authn]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/authn, cover/go.internal.authn.out]}
+    outputs: [cover/go.internal.authn.out]
     use:
       - go.internal.authn
       - go.module
@@ -908,7 +913,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.cli}
-    runner: {command: [go, test, ./internal/cli]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/cli, cover/go.internal.cli.out]}
+    outputs: [cover/go.internal.cli.out]
     use:
       - go.internal.app
       - go.internal.authn
@@ -967,7 +973,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.evidenceoci}
-    runner: {command: [go, test, ./internal/evidenceoci]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/evidenceoci, cover/go.internal.evidenceoci.out]}
+    outputs: [cover/go.internal.evidenceoci.out]
     use:
       - go.internal.evidenceoci
       - go.internal.testutil
@@ -994,7 +1001,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.fleetsrc}
-    runner: {command: [go, test, ./internal/fleetsrc]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/fleetsrc, cover/go.internal.fleetsrc.out]}
+    outputs: [cover/go.internal.fleetsrc.out]
     use:
       - go.internal.fleetsrc
       - go.internal.k8sclient
@@ -1025,12 +1033,14 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.k8sclient}
-    runner: {command: [go, test, ./internal/k8sclient]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/k8sclient, cover/go.internal.k8sclient.out]}
+    outputs: [cover/go.internal.k8sclient.out]
     use:
       - go.internal.k8sclient
       - go.module
   - metadata: {name: go.internal.mcp}
-    runner: {command: [go, test, ./internal/mcp]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/mcp, cover/go.internal.mcp.out]}
+    outputs: [cover/go.internal.mcp.out]
     use:
       - go.internal.app
       - go.internal.authn
@@ -1081,7 +1091,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.pactify}
-    runner: {command: [go, test, ./internal/pactify]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/pactify, cover/go.internal.pactify.out]}
+    outputs: [cover/go.internal.pactify.out]
     use:
       - go.internal.fleetsrc
       - go.internal.k8sclient
@@ -1118,7 +1129,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.runtimewatch}
-    runner: {command: [go, test, ./internal/runtimewatch]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/runtimewatch, cover/go.internal.runtimewatch.out]}
+    outputs: [cover/go.internal.runtimewatch.out]
     use:
       - go.internal.runtimewatch
       - go.internal.runtimewatch.test
@@ -1128,7 +1140,8 @@ tests:
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.internal.runtimewatch.evalsink}
-    runner: {command: [go, test, ./internal/runtimewatch/evalsink]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/runtimewatch/evalsink, cover/go.internal.runtimewatch.evalsink.out]}
+    outputs: [cover/go.internal.runtimewatch.evalsink.out]
     use:
       - go.internal.runtimewatch
       - go.internal.runtimewatch.evalsink
@@ -1143,7 +1156,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.runtimewatch.kubesink}
-    runner: {command: [go, test, ./internal/runtimewatch/kubesink]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/runtimewatch/kubesink, cover/go.internal.runtimewatch.kubesink.out]}
+    outputs: [cover/go.internal.runtimewatch.kubesink.out]
     use:
       - go.internal.runtimewatch.kubesink
       - go.module
@@ -1151,7 +1165,8 @@ tests:
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.internal.tui}
-    runner: {command: [go, test, ./internal/tui]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/tui, cover/go.internal.tui.out]}
+    outputs: [cover/go.internal.tui.out]
     use:
       - go.internal.app
       - go.internal.authn
@@ -1203,7 +1218,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.update}
-    runner: {command: [go, test, ./internal/update]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./internal/update, cover/go.internal.update.out]}
+    outputs: [cover/go.internal.update.out]
     use:
       - go.internal.update
       - go.module
@@ -1213,14 +1229,16 @@ tests:
       - go.pkg.plugin
       - go.pkg.semver
   - metadata: {name: go.pkg.capability}
-    runner: {command: [go, test, ./pkg/capability]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/capability, cover/go.pkg.capability.out]}
+    outputs: [cover/go.pkg.capability.out]
     use:
       - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.openapi
   - metadata: {name: go.pkg.catalog}
-    runner: {command: [go, test, ./pkg/catalog]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/catalog, cover/go.pkg.catalog.out]}
+    outputs: [cover/go.pkg.catalog.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1241,13 +1259,15 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.contract}
-    runner: {command: [go, test, ./pkg/contract]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/contract, cover/go.pkg.contract.out]}
+    outputs: [cover/go.pkg.contract.out]
     use:
       - go.module
       - go.pkg.contract
       - go.pkg.contract.test
   - metadata: {name: go.pkg.contractview}
-    runner: {command: [go, test, ./pkg/contractview]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/contractview, cover/go.pkg.contractview.out]}
+    outputs: [cover/go.pkg.contractview.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1268,7 +1288,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.dashboard}
-    runner: {command: [go, test, ./pkg/dashboard]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/dashboard, cover/go.pkg.dashboard.out]}
+    outputs: [cover/go.pkg.dashboard.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1297,7 +1318,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.dashboard.productview}
-    runner: {command: [go, test, ./pkg/dashboard/productview]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/dashboard/productview, cover/go.pkg.dashboard.productview.out]}
+    outputs: [cover/go.pkg.dashboard.productview.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1318,7 +1340,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.delivery}
-    runner: {command: [go, test, ./pkg/delivery]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/delivery, cover/go.pkg.delivery.out]}
+    outputs: [cover/go.pkg.delivery.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1342,7 +1365,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.deliveryrecord}
-    runner: {command: [go, test, ./pkg/deliveryrecord]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/deliveryrecord, cover/go.pkg.deliveryrecord.out]}
+    outputs: [cover/go.pkg.deliveryrecord.out]
     use:
       - go.internal.testutil
       - go.module
@@ -1372,7 +1396,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.diff}
-    runner: {command: [go, test, ./pkg/diff]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/diff, cover/go.pkg.diff.out]}
+    outputs: [cover/go.pkg.diff.out]
     use:
       - go.module
       - go.pkg.contract
@@ -1386,7 +1411,8 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.doc}
-    runner: {command: [go, test, ./pkg/doc]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/doc, cover/go.pkg.doc.out]}
+    outputs: [cover/go.pkg.doc.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1415,20 +1441,23 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.evidence}
-    runner: {command: [go, test, ./pkg/evidence]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/evidence, cover/go.pkg.evidence.out]}
+    outputs: [cover/go.pkg.evidence.out]
     use:
       - go.module
       - go.pkg.evidence
       - go.pkg.strictjson
   - metadata: {name: go.pkg.evidenceenvelope}
-    runner: {command: [go, test, ./pkg/evidenceenvelope]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/evidenceenvelope, cover/go.pkg.evidenceenvelope.out]}
+    outputs: [cover/go.pkg.evidenceenvelope.out]
     use:
       - go.module
       - go.pkg.evidence
       - go.pkg.evidenceenvelope
       - go.pkg.strictjson
   - metadata: {name: go.pkg.evidenceingest}
-    runner: {command: [go, test, ./pkg/evidenceingest]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/evidenceingest, cover/go.pkg.evidenceingest.out]}
+    outputs: [cover/go.pkg.evidenceingest.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1450,12 +1479,14 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.finding}
-    runner: {command: [go, test, ./pkg/finding]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/finding, cover/go.pkg.finding.out]}
+    outputs: [cover/go.pkg.finding.out]
     use:
       - go.module
       - go.pkg.finding
   - metadata: {name: go.pkg.fleet}
-    runner: {command: [go, test, ./pkg/fleet]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/fleet, cover/go.pkg.fleet.out]}
+    outputs: [cover/go.pkg.fleet.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1476,19 +1507,22 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.graph}
-    runner: {command: [go, test, ./pkg/graph]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/graph, cover/go.pkg.graph.out]}
+    outputs: [cover/go.pkg.graph.out]
     use:
       - go.module
       - go.pkg.contract
       - go.pkg.graph
       - go.pkg.logging
   - metadata: {name: go.pkg.ignore}
-    runner: {command: [go, test, ./pkg/ignore]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/ignore, cover/go.pkg.ignore.out]}
+    outputs: [cover/go.pkg.ignore.out]
     use:
       - go.module
       - go.pkg.ignore
   - metadata: {name: go.pkg.impact}
-    runner: {command: [go, test, ./pkg/impact]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/impact, cover/go.pkg.impact.out]}
+    outputs: [cover/go.pkg.impact.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1511,17 +1545,20 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.lock}
-    runner: {command: [go, test, ./pkg/lock]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/lock, cover/go.pkg.lock.out]}
+    outputs: [cover/go.pkg.lock.out]
     use:
       - go.module
       - go.pkg.lock
   - metadata: {name: go.pkg.logging}
-    runner: {command: [go, test, ./pkg/logging]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/logging, cover/go.pkg.logging.out]}
+    outputs: [cover/go.pkg.logging.out]
     use:
       - go.module
       - go.pkg.logging
   - metadata: {name: go.pkg.oci}
-    runner: {command: [go, test, ./pkg/oci]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/oci, cover/go.pkg.oci.out]}
+    outputs: [cover/go.pkg.oci.out]
     use:
       - go.module
       - go.pkg.contract
@@ -1530,7 +1567,8 @@ tests:
       - go.pkg.oci.test
       - go.pkg.semver
   - metadata: {name: go.pkg.ocireferrer}
-    runner: {command: [go, test, ./pkg/ocireferrer]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/ocireferrer, cover/go.pkg.ocireferrer.out]}
+    outputs: [cover/go.pkg.ocireferrer.out]
     use:
       - go.internal.testutil
       - go.module
@@ -1539,25 +1577,29 @@ tests:
       - go.pkg.ocireferrer
       - go.pkg.plugin
   - metadata: {name: go.pkg.openapi}
-    runner: {command: [go, test, ./pkg/openapi]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/openapi, cover/go.pkg.openapi.out]}
+    outputs: [cover/go.pkg.openapi.out]
     use:
       - go.module
       - go.pkg.openapi
   - metadata: {name: go.pkg.otelobserver}
-    runner: {command: [go, test, ./pkg/otelobserver]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/otelobserver, cover/go.pkg.otelobserver.out]}
+    outputs: [cover/go.pkg.otelobserver.out]
     use:
       - go.module
       - go.pkg.evidence
       - go.pkg.otelobserver
       - go.pkg.strictjson
   - metadata: {name: go.pkg.override}
-    runner: {command: [go, test, ./pkg/override]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/override, cover/go.pkg.override.out]}
+    outputs: [cover/go.pkg.override.out]
     use:
       - go.module
       - go.pkg.contract
       - go.pkg.override
   - metadata: {name: go.pkg.plugin}
-    runner: {command: [go, test, ./pkg/plugin]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/plugin, cover/go.pkg.plugin.out]}
+    outputs: [cover/go.pkg.plugin.out]
     use:
       - go.module
       - go.pkg.contract
@@ -1565,7 +1607,8 @@ tests:
       - go.pkg.plugin
       - go.pkg.plugin.test
   - metadata: {name: go.pkg.probe}
-    runner: {command: [go, test, ./pkg/probe]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/probe, cover/go.pkg.probe.out]}
+    outputs: [cover/go.pkg.probe.out]
     use:
       - go.module
       - go.pkg.contract
@@ -1573,7 +1616,8 @@ tests:
       - go.pkg.probe
       - go.pkg.strictjson
   - metadata: {name: go.pkg.publish}
-    runner: {command: [go, test, ./pkg/publish]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/publish, cover/go.pkg.publish.out]}
+    outputs: [cover/go.pkg.publish.out]
     use:
       - go.internal.testutil
       - go.module
@@ -1605,40 +1649,47 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.readiness}
-    runner: {command: [go, test, ./pkg/readiness]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/readiness, cover/go.pkg.readiness.out]}
+    outputs: [cover/go.pkg.readiness.out]
     use:
       - go.module
       - go.pkg.contract
       - go.pkg.readiness
   - metadata: {name: go.pkg.reconcile}
-    runner: {command: [go, test, ./pkg/reconcile]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/reconcile, cover/go.pkg.reconcile.out]}
+    outputs: [cover/go.pkg.reconcile.out]
     use:
       - go.module
       - go.pkg.reconcile
   - metadata: {name: go.pkg.runtimefacts}
-    runner: {command: [go, test, ./pkg/runtimefacts]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/runtimefacts, cover/go.pkg.runtimefacts.out]}
+    outputs: [cover/go.pkg.runtimefacts.out]
     use:
       - go.module
       - go.pkg.evidence
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.pkg.sbom}
-    runner: {command: [go, test, ./pkg/sbom]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/sbom, cover/go.pkg.sbom.out]}
+    outputs: [cover/go.pkg.sbom.out]
     use:
       - go.module
       - go.pkg.sbom
   - metadata: {name: go.pkg.schemax}
-    runner: {command: [go, test, ./pkg/schemax]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/schemax, cover/go.pkg.schemax.out]}
+    outputs: [cover/go.pkg.schemax.out]
     use:
       - go.module
       - go.pkg.schemax
   - metadata: {name: go.pkg.semver}
-    runner: {command: [go, test, ./pkg/semver]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/semver, cover/go.pkg.semver.out]}
+    outputs: [cover/go.pkg.semver.out]
     use:
       - go.module
       - go.pkg.semver
   - metadata: {name: go.pkg.signing}
-    runner: {command: [go, test, ./pkg/signing]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/signing, cover/go.pkg.signing.out]}
+    outputs: [cover/go.pkg.signing.out]
     use:
       - go.module
       - go.pkg.capability
@@ -1664,17 +1715,20 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.skills}
-    runner: {command: [go, test, ./pkg/skills]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/skills, cover/go.pkg.skills.out]}
+    outputs: [cover/go.pkg.skills.out]
     use:
       - go.module
       - go.pkg.skills
   - metadata: {name: go.pkg.strictjson}
-    runner: {command: [go, test, ./pkg/strictjson]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/strictjson, cover/go.pkg.strictjson.out]}
+    outputs: [cover/go.pkg.strictjson.out]
     use:
       - go.module
       - go.pkg.strictjson
   - metadata: {name: go.pkg.validation}
-    runner: {command: [go, test, ./pkg/validation]}
+    runner: {command: [sh, -c, 'mkdir -p "${1%/*}" && go test -coverprofile="$1" "$0"', ./pkg/validation, cover/go.pkg.validation.out]}
+    outputs: [cover/go.pkg.validation.out]
     use:
       - go.module
       - go.pkg.contract

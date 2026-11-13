@@ -64,3 +64,6 @@ release/proofs/
 
 # Aval run records (aval.yaml)
 .aval/
+
+# go.* coverage profiles (aval gen go --go-cover-profile)
+/cover/

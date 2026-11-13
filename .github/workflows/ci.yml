@@ -257,7 +257,7 @@ jobs:
       - uses: ./.github/actions/ci
         with:
           target: test-acceptance-local
-      - uses: TrianaLab/aval/integrations/github/run@b760f65748b1c7306d116dd9440e074c4193604e # v0.12.0
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
         with:
           test: examples integration
           registry-username: ${{ github.actor }}
@@ -288,7 +288,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: TrianaLab/aval/integrations/github/run@b760f65748b1c7306d116dd9440e074c4193604e # v0.12.0
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
         with:
           test: go.*
           registry-username: ${{ github.actor }}
@@ -317,7 +317,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - uses: TrianaLab/aval/integrations/github/run@b760f65748b1c7306d116dd9440e074c4193604e # v0.12.0
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
         with:
           test: ui
           registry-username: ${{ github.actor }}
@@ -358,7 +358,7 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 35
-        uses: TrianaLab/aval/integrations/github/run@b760f65748b1c7306d116dd9440e074c4193604e # v0.12.0
+        uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
         with:
           test: browser-${{ matrix.shard }}
           registry-username: ${{ github.actor }}
@@ -822,7 +822,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: TrianaLab/aval/integrations/github/publish@b760f65748b1c7306d116dd9440e074c4193604e # v0.12.0
+      - uses: TrianaLab/aval/integrations/github/publish@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
         with:
           # Hits and misses go to the shared Aval statistics.
           stats: true

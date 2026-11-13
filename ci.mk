@@ -39,7 +39,7 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # read. AVAL_VERSION must match the release the workflow's Aval actions pin.
 # Without aval installed, go run builds the pinned release (cached after the
 # first run); AVAL=aval uses an installed one.
-AVAL_VERSION = v0.12.0
+AVAL_VERSION = v0.12.1
 AVAL ?= GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
 AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendocs \
 	--no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
@@ -51,7 +51,7 @@ AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendoc
 AVAL_ALLOW_DYNAMIC = --go-allow-dynamic pkg/validation --go-allow-dynamic pkg/oci \
 	--go-allow-dynamic internal/app --go-allow-dynamic internal/mcp --go-allow-dynamic internal/pactify \
 	--go-allow-dynamic internal/runtimewatch
-AVAL_GEN_GO = gen go $(AVAL_NO_TEST) $(AVAL_ALLOW_DYNAMIC)
+AVAL_GEN_GO = gen go $(AVAL_NO_TEST) $(AVAL_ALLOW_DYNAMIC) --go-cover-profile cover
 
 ci-gates: aval-gen-check
 	go test ./tests/architecture/... ./tests/release/...
@@ -412,23 +412,18 @@ cover-gate:
 	@echo "    total coverage: 100.0%"
 
 # ci-cover-merge is the same gate in CI with no test re-run: it merges the
-# per-package profiles the go.* tests wrote or Aval restored on reuse
-# (aval gen go --go-cover-profile) into coverage.out. Without -coverpkg the
-# merge equals ci-test's single profile. A missing profile fails.
-# TODO(aval-cover-profile-star): AVAL_COVER_PROFILE is a placeholder (% is the
-# unit ID). aval v0.12.0's --go-cover-profile refuses every directory here:
-# go.pkg.contract.test and go.pkg.validation.test are '**', and aval gen ignores
-# defaults.scope.exclude. Once it honours it, AVAL_GEN_GO gets
-# --go-cover-profile cover, aval.yaml's defaults exclude cover/**.
-AVAL_COVER_PROFILE = .aval/cover/%.out
+# per-package profiles the go.* tests wrote, or Aval restored on reuse, to
+# cover/go.<id, / as .>.out (--go-cover-profile) into coverage.out, one per
+# --list-tests ID. Without -coverpkg the merge equals ci-test's single
+# profile. A missing profile fails.
 ci-cover-merge:
 	@ids=$$($(AVAL) $(AVAL_GEN_GO) --list-tests) && [ -n "$$ids" ] || exit 1; \
-	first=$$(echo "$$ids" | head -1); \
-	head -1 "$(subst %,$$first,$(AVAL_COVER_PROFILE))" > coverage.out || exit 1; \
-	for id in $$ids; do \
-		f="$(subst %,$$id,$(AVAL_COVER_PROFILE))"; \
-		tail -n +2 "$$f" >> coverage.out || { echo "FAIL: no coverage profile $$f"; exit 1; }; \
-	done
+	files=; for id in $$ids; do \
+		f="cover/go.$$(echo "$$id" | tr / .).out"; \
+		[ -f "$$f" ] || { echo "FAIL: no coverage profile $$f"; exit 1; }; \
+		files="$$files $$f"; \
+	done; \
+	awk 'NR == 1 || FNR > 1' $$files > coverage.out
 	@$(MAKE) --no-print-directory cover-gate
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
