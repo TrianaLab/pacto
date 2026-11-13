@@ -460,3 +460,21 @@ func TestToEntityDetail_GoldenPathHrefs(t *testing.T) {
 		t.Errorf("an ordinary service carries %+v, %+v", plain.Template, plain.Origin)
 	}
 }
+
+// TestOfferingAvailabilityHrefs: the consumer targets and providers an
+// availability names, on the offering and on each provider, carry an href.
+func TestOfferingAvailabilityHrefs(t *testing.T) {
+	svc := fleet.EntityRef{Kind: fleet.KindService, Key: "pay"}
+	tgt := fleet.EntityRef{Kind: fleet.KindTarget, Key: "prod/k8s/pay-0"}
+	avail := fleet.Availability{ByEnvironment: []fleet.EnvironmentAvailability{{Environment: "prod", Unreachable: []fleet.EntityRef{tgt}, Providers: []fleet.EntityRef{svc}}}}
+	od := ToEntityDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "postgres"}, Offering: &fleet.OfferingDetailData{
+		Providers:    fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{Service: svc, Availability: avail}}},
+		Availability: avail,
+	}})
+	assertNoEmptyHrefs(t, "offering availability", od)
+	for _, a := range []ProductAvailability{od.Offering.Availability, od.Offering.Providers.Items[0].Availability} {
+		if e := a.ByEnvironment[0]; e.Unreachable[0].Href != "/fleet/targets/prod%2Fk8s%2Fpay-0" || e.Providers[0].Href != "/fleet/services/pay" {
+			t.Errorf("availability refs = %+v", e)
+		}
+	}
+}

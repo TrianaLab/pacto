@@ -3946,6 +3946,24 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductAvailability: {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            byEnvironment: components["schemas"]["ProductEnvironmentAvailability"][] | null;
+            /**
+             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
+        };
         ProductConfigurationSummary: {
             configuration?: string;
             content?: components["schemas"]["Fleet.SchemaContent"];
@@ -4042,6 +4060,41 @@ export interface components {
             /** @enum {string} */
             severity?: "error" | "warning" | "info";
             view: string;
+        };
+        ProductEnvironmentAvailability: {
+            /** @description The environment label of the targets; empty for targets with no label */
+            environment: string;
+            /**
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @enum {string}
+             */
+            provenance: "observed" | "inferred" | "unknown";
+            providers?: components["schemas"]["ProductRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
+            /**
+             * Format: int64
+             * @description Provider targets with fresh evidence
+             */
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            unreachable?: components["schemas"]["ProductRef"][] | null;
         };
         ProductEnvironmentEvent: {
             /**
@@ -4300,12 +4353,16 @@ export interface components {
             status?: string;
         };
         ProductOfferingDetail: {
+            availability: components["schemas"]["ProductAvailability"];
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
             /** Format: int64 */
             hiddenConsumers: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {
+            availability: components["schemas"]["ProductAvailability"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];

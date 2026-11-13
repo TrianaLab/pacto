@@ -114,6 +114,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
+	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	// An allowlist: a report stays only when its consumer is visible, so an
 	// orphaned report or one about a hidden service never reaches the view.
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
@@ -324,9 +325,36 @@ func kubePlacementKnown(s *FleetSnapshot) bool {
 // runs nowhere: no source that reports operational targets (Kubernetes, the
 // Evidence Server or a target state file) is unavailable or partial.
 func targetPlacementKnown(s *FleetSnapshot) bool {
-	return !slices.ContainsFunc(s.Sources, func(src SourceState) bool {
-		return src.Status != SourceAvailable && slices.Contains([]string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}, src.Kind)
-	})
+	id, _ := firstIncompleteTargetSource(s)
+	return id == ""
+}
+
+// firstIncompleteTargetSource is the first source reporting operational
+// targets that is not available, and its status; "" when there is none.
+func firstIncompleteTargetSource(s *FleetSnapshot) (id, status string) {
+	for _, src := range s.Sources {
+		if src.Status != SourceAvailable && slices.Contains([]string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}, src.Kind) {
+			return src.ID, string(src.Status)
+		}
+	}
+	return "", ""
+}
+
+// hiddenProviders counts, per offering that keeps a visible provider in out,
+// its providers among hiddenSvc. An offering only hidden services provide is
+// never revealed.
+func hiddenProviders(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool) map[string]int {
+	visible := map[string]bool{}
+	for _, svc := range out.Services {
+		visible[svc.Offering] = true
+	}
+	counts := map[string]int{}
+	for k := range hiddenSvc {
+		if o := services[k].Offering; o != "" && visible[o] {
+			counts[o]++
+		}
+	}
+	return counts
 }
 
 // restrictRelationships sets out.Relationships to rels without the hidden

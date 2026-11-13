@@ -686,6 +686,29 @@ type ProductOfferingProvider struct {
 	Versions        ProductProviderVersions      `json:"versions"`
 	Policies        ProductPoliciesPreview       `json:"policies"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
+	Availability    ProductAvailability          `json:"availability"`
+}
+
+// ProductEnvironmentAvailability is a capability's navigable state in one
+// environment.
+type ProductEnvironmentAvailability struct {
+	fleet.EnvironmentAvailability
+	Unreachable []ProductRef `json:"unreachable,omitempty"`
+	Providers   []ProductRef `json:"providers,omitempty"`
+}
+
+// ProductAvailability is a capability's navigable availability.
+type ProductAvailability struct {
+	fleet.Availability
+	ByEnvironment []ProductEnvironmentAvailability `json:"byEnvironment"`
+}
+
+func productAvailability(a fleet.Availability) ProductAvailability {
+	envs := make([]ProductEnvironmentAvailability, len(a.ByEnvironment))
+	for i, e := range a.ByEnvironment {
+		envs[i] = ProductEnvironmentAvailability{EnvironmentAvailability: e, Unreachable: Refs(e.Unreachable), Providers: Refs(e.Providers)}
+	}
+	return ProductAvailability{Availability: a, ByEnvironment: envs}
 }
 
 // ProductProviderVersion is one navigable version of an offering provider.
@@ -744,8 +767,9 @@ type ProductOfferingProvidersPreview struct {
 // ProductOfferingDetail is the navigable offering-kind detail payload.
 type ProductOfferingDetail struct {
 	fleet.OfferingDetailData
-	Providers ProductOfferingProvidersPreview `json:"providers"`
-	Consumers ProductOfferingUsesPreview      `json:"consumers"`
+	Providers    ProductOfferingProvidersPreview `json:"providers"`
+	Consumers    ProductOfferingUsesPreview      `json:"consumers"`
+	Availability ProductAvailability             `json:"availability"`
 }
 
 func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail {
@@ -759,12 +783,14 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 			Versions:         productProviderVersions(p.Versions),
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
+			Availability:     productAvailability(p.Availability),
 		}
 	}
 	return &ProductOfferingDetail{
 		OfferingDetailData: *d,
 		Providers:          ProductOfferingProvidersPreview{OfferingProvidersPreview: d.Providers, Items: items},
 		Consumers:          productOfferingUses(d.Consumers),
+		Availability:       productAvailability(d.Availability),
 	}
 }
 

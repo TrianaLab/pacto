@@ -840,6 +840,9 @@ type OfferingProvider struct {
 	// OfferingProvenance says where this provider's membership in the offering
 	// comes from: declared by its contract or observed from its targets.
 	OfferingProvenance string `json:"offeringProvenance" enum:"declared,observed"`
+	// Availability is whether this provider answers, per environment, derived
+	// from its observed targets and its consumers' reports.
+	Availability Availability `json:"availability"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -863,6 +866,12 @@ type OfferingDetailData struct {
 	// that depend on or reference a provider of the offering. They are never
 	// named. Zero outside a restricted answer.
 	HiddenConsumers int `json:"hiddenConsumers"`
+	// Availability is the offering's availability: per environment, the best
+	// state of its providers, over every provider (not only those listed).
+	Availability Availability `json:"availability"`
+	// HiddenProviders counts the providers the caller's permissions hide. They
+	// are never named. Zero outside a restricted answer.
+	HiddenProviders int `json:"hiddenProviders,omitempty"`
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -1269,9 +1278,10 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 // services that consume any of them. No offering has no page.
 func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	var providers []EntityRef
+	var records []*ServiceRecord
 	for _, s := range q.snap.Services {
 		if key != "" && s.Offering == key {
-			providers = append(providers, serviceEntityRef(s))
+			providers, records = append(providers, serviceEntityRef(s)), append(records, s)
 		}
 	}
 	if len(providers) == 0 {
@@ -1293,6 +1303,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
+			Availability: q.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
 		},
 	}, nil
 }
@@ -1311,6 +1322,7 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
+		Availability: q.providerAvailability(s),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
