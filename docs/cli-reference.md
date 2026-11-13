@@ -906,7 +906,7 @@ pacto fleet entities [text] [flags]
       --owner-key string                 exact owner key, such as team:platform or dri:alice
       --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
-      --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)
+      --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out

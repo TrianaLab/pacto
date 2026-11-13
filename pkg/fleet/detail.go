@@ -1345,6 +1345,7 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 // it unknown. With provisioning it joins what providers report and returns the
 // provisioning conflicts the rows raise.
 func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *ServiceRecord) bool, from ServiceKey, provisioning bool) ([]OfferingUse, []Limitation) {
+	offeringUsesInCalls.Add(1)
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string

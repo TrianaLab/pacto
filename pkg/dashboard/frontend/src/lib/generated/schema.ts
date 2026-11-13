@@ -2372,19 +2372,31 @@ export interface components {
             unidentifiedOwnership?: number;
         };
         "Fleet.EntityRef": {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -2404,6 +2416,7 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
             version?: string;
         };
@@ -4528,20 +4541,32 @@ export interface components {
             verified: boolean;
         };
         ProductRef: {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
             href: string;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -4561,6 +4586,7 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
             version?: string;
         };
@@ -6944,8 +6970,8 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

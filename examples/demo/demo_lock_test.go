@@ -325,3 +325,21 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 		}
 	}
 }
+
+// TestDemoOfferingRows: on the demo fleet, the only deprecated offering is
+// postgresql, and its row counts the services that consume it. The clock is
+// pinned before postgresql 16.1.0's sunset, so the answer never ages.
+func TestDemoOfferingRows(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
+		t.Errorf("deprecated offerings = %+v", l.Entities)
+	}
+}

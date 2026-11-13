@@ -123,7 +123,8 @@ type EntityRef struct {
 	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 	// Owner is who a SERVICE reference's revisions name, set only on list answers:
 	// the owner's label when they agree on one, "N owners claim it" when they do
-	// not, and empty when none declares an owner.
+	// not, and empty when none declares an owner. On an OFFERING list row it is
+	// the same over every provider's revisions.
 	Owner string `json:"owner,omitempty"`
 	// Targets counts what a SERVICE reference runs on; Services counts the services
 	// an OWNER reference's revisions claim. Both are set only on list answers.
@@ -148,6 +149,29 @@ type EntityRef struct {
 	// that names an owner names this one alone. It is the denominator of the
 	// owner's non-compliant rate (see [EntityRef.RateBase]).
 	Owned int `json:"owned,omitempty"`
+	// Lifecycle, Availability, AvailabilityProvenance, Consumers,
+	// HiddenConsumers, FailedRequests and TargetsUnknown are set only on
+	// OFFERING list answers.
+	//
+	// Lifecycle is the worst lifecycle of the providers' newest readable
+	// revisions: unknown when a provider has none (observed only).
+	Lifecycle string `json:"lifecycle,omitempty" enum:"supported,deprecated,sunset,unknown"`
+	// Availability is the offering's availability roll-up (see [Availability]),
+	// and AvailabilityProvenance the provenance of the environment that sets
+	// its worst state: observed, inferred or unknown.
+	Availability           AvailabilityState `json:"availability,omitempty" enum:"available,degraded,unavailable,unknown"`
+	AvailabilityProvenance string            `json:"availabilityProvenance,omitempty" enum:"observed,inferred,unknown"`
+	// Consumers counts the distinct services with a declared use of any
+	// provider; HiddenConsumers the consumers the viewer may not see, which
+	// makes Consumers and FailedRequests lower bounds.
+	Consumers       int `json:"consumers,omitempty"`
+	HiddenConsumers int `json:"hiddenConsumers,omitempty"`
+	// FailedRequests counts the distinct consumers with a failed provisioning
+	// request of any provider.
+	FailedRequests int `json:"failedRequests,omitempty"`
+	// TargetsUnknown says the viewer cannot see every target of a provider, or
+	// a target source is incomplete: Targets is then 0 and means unknown.
+	TargetsUnknown bool `json:"targetsUnknown,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

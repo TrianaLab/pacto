@@ -85,6 +85,15 @@ func TestFleetEntitiesToolPagingAndErrors(t *testing.T) {
 	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
 	}
+	sort := fleetEntitiesTool().InputSchema.(map[string]any)["properties"].(map[string]any)["sort"].(map[string]any)
+	if got := enumStrings(t, sort); !slices.Contains(got, fleet.SortFailed) || !slices.Contains(got, fleet.SortConsumers) {
+		t.Errorf("sort enum = %v", got)
+	}
+	for _, order := range []string{fleet.SortFailed, fleet.SortConsumers} {
+		if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "offering", "sort": order}); res.IsError {
+			t.Errorf("sort=%s is refused", order)
+		}
+	}
 }
 
 func TestFleetEntityTool(t *testing.T) {
