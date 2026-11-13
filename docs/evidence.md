@@ -244,13 +244,13 @@ Beside `status`, the `health` block carries the counts that say which half of a 
 
 ## Trust store and trust config
 
-A trust store is a single `.pub` file or a directory of `.pub` files (base64 Ed25519 public keys). The filename binds the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer `producerId`, while a bare `<keyId>.pub` authorizes it for the producer whose id equals the key id.
+A trust store is a single `.pub` file or a directory of `.pub` files (base64 Ed25519 public keys). The filename binds the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer `producerId`, while a bare `<keyId>.pub` binds the producer whose id equals the key id.
 
-**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. After the signature checks out, the envelope's `producer.id` must match the key's bound producer, or it is rejected, so a trusted key cannot sign as another producer.
+**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. The envelope's `producer.id` must then match the key's bound producer, so a trusted key cannot sign as another producer.
 
 **Rotation.** Add a new `<producerId>__<newKeyId>.pub`, sign with the new `keyId` and remove the old entry. The producer identity survives the key change.
 
-**Structured trust configuration** for per-key subject and contract-repository allowlists:
+**Structured trust configuration** for per-key allowlists:
 
 ```yaml
 apiVersion: pacto.dev/evidence-trust/v1
@@ -269,18 +269,20 @@ team's runtime key cannot mark its own resources Ready. Give a provider adapter
 its own key that lists it. A key that lists only `ResourceProvisioned` cannot
 send an empty EvidenceSet.
 
-`allowedProviderRepos` scopes a provisioning key to the providers it serves:
-the Evidence Server accepts its report only when the consumer's declared
-configuration or dependency ref names a repository under one of the prefixes,
-and refuses any other with HTTP 403 and the code `provider_not_allowed`. A
-scope requires `ResourceProvisioned` in `allowedObservationKinds`. The server
-logs a warning at startup for every key that may report provisioning for every
-provider. The field needs Pacto core 4.5.0 or later. `pacto evidence verify`
-holds no consumer contract, so it checks the signature, producer, subject and
-kind only. The scope applies to reports accepted after the change: reports
-already accepted stay until a newer report replaces them or they pass the
-provisioning window, so after narrowing a key have the right adapter report
-again.
+`allowedProviderRepos` scopes a provisioning key to its providers (Pacto core
+4.5.0 or later):
+
+- The Evidence Server accepts a report only when the consumer's declared configuration or
+  dependency ref names a repository under one of the prefixes, and refuses any
+  other with HTTP 403 and the code `provider_not_allowed`.
+- A scope requires `ResourceProvisioned` in `allowedObservationKinds`.
+- The server logs a warning at startup for every provisioning key with no scope.
+- The scope applies to reports accepted after the change. Reports already
+  accepted stay until a newer report replaces them or they pass the
+  provisioning window, so after narrowing a key have the right adapter report
+  again.
+- `pacto evidence verify` holds no consumer contract, so it checks the
+  signature, producer, subject and kind only.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 
