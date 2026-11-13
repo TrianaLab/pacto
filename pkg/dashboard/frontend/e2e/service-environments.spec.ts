@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { settle } from './ready';
 
 // The Environments section of a service page (#467) over the browser demo:
-// storefront-web 1.1.0 declares production, staging, preview (temporary, expired
+// storefront-web 1.3.0 declares production, staging, preview (temporary, expired
 // against the demo clock) and pr-482, and a canary target runs it undeclared.
 // The test opens its own page, so the file passes alone in any shard.
 
@@ -30,17 +30,18 @@ test('a service page shows each environment with what is declared, observed and 
   await expect(section.getByTestId('environment-differences').getByTestId('difference-row').filter({ hasText: 'pr-482' }).first()).toBeVisible();
   const history = section.getByTestId('environment-history');
   // 1.0.0 declares no environments, so 1.1.0 adds them; nothing reads declared since at least here.
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 added in' }).getByRole('link', { name: '1.1.0' })).toBeVisible();
-  // 1.2.0 retires pr-482 and keeps the other declarations as they were.
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 removed in' }).getByRole('link', { name: '1.2.0' })).toBeVisible();
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'changed in' })).toHaveCount(0);
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'staging added in' }).getByRole('link', { name: '1.1.0' })).toBeVisible();
+  // 1.3.0 adds pr-482 and gives staging a lifetime and an owner; 1.3.1 retires pr-482.
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 added in' }).getByRole('link', { name: '1.3.0' })).toBeVisible();
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'staging lifetime and owner changed in' }).getByRole('link', { name: '1.3.0' })).toBeVisible();
+  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 removed in' }).getByRole('link', { name: '1.3.1' })).toBeVisible();
   await expect(history.getByTestId('environment-event').first()).toContainText('time not recorded');
   await audit(page, 'service environments');
 });
 
 test('a revision page reads an expired environment as inferred', async ({ page }) => {
   await page.goto('/#/fleet/revisions?service=storefront-web');
-  const a = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: /\b1\.1\.0\b/ }).first();
+  const a = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: /\b1\.3\.0\b/ }).first();
   await expect(a).toBeVisible({ timeout: T });
   await page.goto(`/${await a.getAttribute('href')}`);
   // The section starts closed when every value set passed: open it either way.

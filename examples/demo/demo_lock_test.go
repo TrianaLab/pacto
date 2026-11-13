@@ -278,8 +278,9 @@ func TestDemoStorefrontEnvironments(t *testing.T) {
 	}
 }
 
-// TestDemoEnvironmentHistory: 1.1.0 adds the pr-482 environment and 1.2.0,
-// which declares no lifetimes or environment owners, drops it again.
+// TestDemoEnvironmentHistory: 1.1.0 adds staging, production and preview,
+// 1.3.0 gives them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1
+// retires pr-482 again.
 func TestDemoEnvironmentHistory(t *testing.T) {
 	h := cliStorefront(t).EnvironmentHistory
 	find := func(env, change, version string) *fleet.EnvironmentEvent {
@@ -290,11 +291,14 @@ func TestDemoEnvironmentHistory(t *testing.T) {
 		}
 		return nil
 	}
-	if find("pr-482", "added", "1.1.0") == nil || find("pr-482", "removed", "1.2.0") == nil {
-		t.Errorf("history %+v, want pr-482 added in 1.1.0 and removed in 1.2.0", h.Items)
+	if find("staging", "added", "1.1.0") == nil || find("pr-482", "added", "1.3.0") == nil || find("pr-482", "removed", "1.3.1") == nil {
+		t.Errorf("history %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", h.Items)
 	}
-	if len(h.Items) != 5 {
-		t.Errorf("history %+v, want the four added in 1.1.0 and pr-482 retired in 1.2.0, nothing else changed", h.Items)
+	if e := find("staging", "changed", "1.3.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
+		t.Errorf("staging change in 1.3.0 = %+v, want lifetime and owner", e)
+	}
+	if len(h.Items) != 8 {
+		t.Errorf("history %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", h.Items)
 	}
 }
 

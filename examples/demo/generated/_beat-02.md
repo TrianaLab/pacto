@@ -39,7 +39,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   returns-service              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
   search-indexer               NotEvaluated owner=catalog-team   domain=-            offering=-            revs=1 targets=0
   shipping-rates               NotEvaluated owner=logistics-team domain=-            offering=-            revs=3 targets=0
-  storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=4 targets=2
+  storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=6 targets=2
   stripe-api                   NotEvaluated owner=external/stripe domain=-            offering=-            revs=1 targets=0
   support-assistant            NotEvaluated owner=support-team   domain=-            offering=-            revs=1 targets=0
   ticketing-service            NotEvaluated owner=support-team   domain=-            offering=-            revs=2 targets=0

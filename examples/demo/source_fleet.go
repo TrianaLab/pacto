@@ -296,13 +296,13 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 		// delivery Stage, matched by exact name) and notification-worker in staging
 		// carry it too; every other target reads Unknown.
 		{Scope: "prod", Kind: "Deployment", Name: "storefront-web", Service: "storefront-web", Compliance: fleet.StatusCompliant,
-			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			ResolvedRef: demoRegistry + "storefront-web:1.3.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "production"}),
 			ObservedRuntime: map[string]any{"replicas": 6, "ingress": "https://shop.example.com"}},
-		// The same revision in canary, an environment storefront-web 1.1.0 does not
+		// The same revision in canary, an environment storefront-web 1.3.0 does not
 		// declare: the service page lists it as observed, not declared.
 		{Scope: "prod", Kind: "Deployment", Name: "storefront-web-canary", Service: "storefront-web", Compliance: fleet.StatusCompliant,
-			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			ResolvedRef: demoRegistry + "storefront-web:1.3.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "canary"}),
 			ObservedRuntime: map[string]any{"replicas": 1, "ingress": "https://canary.shop.example.com"}},
 		{Scope: "prod", Kind: "Deployment", Name: "pricing-service", Service: "pricing-service", Compliance: fleet.StatusUnknown,

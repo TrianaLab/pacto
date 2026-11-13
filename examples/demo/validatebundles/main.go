@@ -46,11 +46,14 @@ const contractFile = "pacto.yaml"
 // expectInvalid lists the demo bundles that fail validation on purpose, each
 // with the only error code it may report. storefront-web 1.2.0 is the demo's
 // failing environment: its chart schema requires an ingress host that the
-// production values leave out. 1.2.1 only adds a domain, so it fails the same. A listed bundle that passes, or fails with any
-// other code, fails this run.
+// production values leave out. 1.2.1 only adds a domain, and 1.3.0 and 1.3.1
+// only change environment declarations, so they fail the same. A listed bundle
+// that passes, or fails with any other code, fails this run.
 var expectInvalid = map[string]string{
 	filepath.Join("bundles", "storefront-web", "v1.2.0"): "ENVIRONMENT_VALUES_INVALID",
 	filepath.Join("bundles", "storefront-web", "v1.2.1"): "ENVIRONMENT_VALUES_INVALID",
+	filepath.Join("bundles", "storefront-web", "v1.3.0"): "ENVIRONMENT_VALUES_INVALID",
+	filepath.Join("bundles", "storefront-web", "v1.3.1"): "ENVIRONMENT_VALUES_INVALID",
 }
 
 // svcVersion is one indexed bundle: its declaring contract, the raw contract

@@ -1,0 +1,12 @@
+# The pull request 482 preview: production's values on a single replica, with
+# the ingress host the chart requires.
+app:
+  LOG_LEVEL: warn
+chart:
+  replicaCount: 1
+  ingress:
+    className: nginx
+    host: pr-482.shop.example.com
+  resources:
+    cpu: 500m
+    memory: 512Mi

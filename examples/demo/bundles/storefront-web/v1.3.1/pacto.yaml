@@ -1,0 +1,80 @@
+pactoVersion: '2.4'
+service:
+  name: storefront-web
+  version: 1.3.1
+  domain: commerce
+  owner:
+    team: frontend-team
+    dri: noah.brown
+    contacts:
+    - type: email
+      value: frontend-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#frontend-team'
+      purpose: support
+    - type: oncall
+      value: frontend-oncall
+      purpose: oncall
+interfaces:
+- name: bff
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
+configurations:
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config:1.0.1
+  required: false
+- name: app
+  schema: configuration/schema.json
+  required: true
+  values:
+    LOG_LEVEL: info
+- name: chart
+  schema: chart/values.schema.json
+  required: true
+  values:
+    replicaCount: 2
+dependencies:
+- name: catalog-service
+  ref: oci://ghcr.io/trianalab/pacto/catalog-service
+  required: true
+  compatibility: ^1.0.0
+- name: inventory-service
+  ref: oci://ghcr.io/trianalab/pacto/inventory-service
+  required: true
+  compatibility: ^2.0.0
+- name: auth-service
+  ref: oci://ghcr.io/trianalab/pacto/auth-service
+  required: true
+  compatibility: ^1.0.0
+environments:
+- name: staging
+  file: environments/staging.yaml
+  lifetime: persistent
+  owner:
+    team: storefront-qa
+- name: production
+  file: environments/production.yaml
+  lifetime: persistent
+- name: preview
+  file: environments/preview.yaml
+  lifetime: temporary
+  expires: '2026-09-30T00:00:00Z'
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: frontend
+  criticality: medium
+  summary: The web shop, on a chart that needs an ingress host
+  repo: github.com/trianalab/pacto-demo/storefront-web
+  tags:
+  - web
+  - storefront
+  - helm

@@ -273,7 +273,7 @@ test.describe('document structure on the retained non-Fleet compatibility surfac
 
   // The export's service (payments-service 2.0.1) declares no environments, so give
   // its detail answer the environment `pacto doc` writes for an expired one (the
-  // shape storefront-web 1.1.0's export carries for preview). The export has no
+  // shape storefront-web 1.3.0's export carries for preview). The export has no
   // snapshot time, so the expiry reads inferred without a date, never blank.
   test('an expired environment reads as inferred', async ({ page }) => {
     await page.route(`${DOC_ORIGIN}/index.html*`, async (route) => {

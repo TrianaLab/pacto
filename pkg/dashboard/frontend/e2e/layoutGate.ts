@@ -1041,9 +1041,9 @@ export const ROUTES: Route[] = [
   {
     name: 'revision entity with environments',
     open: async (page) => {
-      // storefront-web 1.1.0 declares lifetimes, an expiry and an owner.
+      // storefront-web 1.3.0 declares lifetimes, an expiry and an owner.
       await page.goto('/#/fleet/revisions?service=storefront-web');
-      const a = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: /\b1\.1\.0\b/ }).first();
+      const a = page.locator('main a[href*="/fleet/revisions/"]').filter({ hasText: /\b1\.3\.0\b/ }).first();
       await expect(a).toBeVisible({ timeout: 20_000 });
       await page.goto(`/${await a.getAttribute('href')}`);
       // The section starts closed when every value set passed: open it either way.

@@ -107,7 +107,7 @@ test.describe('delivery lifecycle in the demo', () => {
     const row = section.locator('[data-testid="service-environment"][data-env="production"]');
     await expect(row).toBeVisible({ timeout: T });
     await expect(section.getByTestId('environments-footer')).toContainText(/^As of /);
-    // Its target is linked to 1.1.0 by a mutable tag only: inferred, so neither
+    // Its target is linked to 1.3.0 by a mutable tag only: inferred, so neither
     // declared nor a revision it is known to run.
     await expect(row.locator('[data-cell="observed"]')).toContainText('1 unknown');
     await expect(row.locator('[data-cell="observed"] a[href*="/fleet/revisions/"]')).toHaveCount(0);
