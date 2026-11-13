@@ -397,7 +397,7 @@ identity_mcp_composed() {
   kubectl -n rbac-open create rolebinding pacto-viewer-frank --role=pacto-viewer --user="$frank" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   frank_entities() { tool "$(kc_person_token frank)" pacto_fleet_entities '{"kind":"service","text":"rbac-"}'; }
-  frank_names() { frank_entities | jq -c '[.entities[].name] | sort' 2>/dev/null; }
+  frank_names() { frank_entities | jq -c '[.entities[] | select(.kind=="service") | .label] | sort' 2>/dev/null; }
   sees_open() { [ "$(frank_names)" = '["rbac-open-svc"]' ]; }
   # The server rebuilds its snapshot when a call arrives 30s after the last.
   eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_entities | head -c 600)"
