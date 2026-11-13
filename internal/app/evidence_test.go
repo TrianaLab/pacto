@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -14,12 +15,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // sampleEvidenceSet returns a minimal, structurally valid EvidenceSet.
@@ -286,6 +290,9 @@ keys:
       - ghcr.io/acme/contracts
     allowedObservationKinds:
       - ResourceProvisioned
+    allowedProviderRepos:
+      - ghcr.io/acme/platform/postgresql
+      - localhost:5001/acme/platform/postgresql
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -308,6 +315,10 @@ keys:
 	}
 	if !e.KindAllowed(evidence.ResourceProvisioned) || e.KindAllowed(evidence.WorkloadObserved) {
 		t.Errorf("allowedObservationKinds = %v, want only ResourceProvisioned granted", e.AllowedObservationKinds)
+	}
+	// A registry port before the first "/" is no tag.
+	if len(e.ProviderRepos) != 2 || e.ProviderRepos[1] != "localhost:5001/acme/platform/postgresql" {
+		t.Errorf("providerRepos = %v", e.ProviderRepos)
 	}
 }
 
@@ -352,6 +363,9 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n"
+	scoped := func(repo string) string {
+		return head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedObservationKinds: [ResourceProvisioned], allowedProviderRepos: [\"" + repo + "\"]}\n"
+	}
 	cases := map[string]string{
 		"unsupported apiVersion":   "apiVersion: pacto.dev/evidence-trust/v2\nkeys:\n  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n",
 		"no keys":                  "apiVersion: pacto.dev/evidence-trust/v1\nkeys: []\n",
@@ -368,6 +382,12 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 		"empty repo prefix":        head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"\"]}\n",
 		"whitespace repo prefix":   head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"a b\"]}\n",
 		"unknown observation kind": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedObservationKinds: [\"ResourceReady\"]}\n",
+		"provider repo scheme":     scoped("oci://ghcr.io/acme/platform/postgresql"),
+		"provider repo digest":     scoped("ghcr.io/acme/platform/postgresql@sha256:abc"),
+		"provider repo whitespace": scoped("ghcr.io/acme/platform postgresql"),
+		"empty provider repo":      scoped(""),
+		// A tagged prefix could never match: the declared ref's tag is dropped first.
+		"tagged provider repo": scoped("ghcr.io/acme/platform/postgresql:16"),
 	}
 	// A directly-unreadable config file surfaces the read error.
 	if _, err := loadStructuredTrustStore(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
@@ -825,22 +845,7 @@ func evidenceFixtureOn(t *testing.T, host string) evidenceFixture {
 // URL. The server is stopped when the test ends.
 func serveEvidence(t *testing.T, svc *Service, opts ServeOptions) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := "http://" + ln.Addr().String()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- svc.ServeEvidenceOnListener(ctx, ln, opts) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
-		}
-	})
-	waitForHTTP(t, base+"/api/evidence/v1/health")
-	return base
+	return serveEvidenceCtx(t, context.Background(), svc, opts)
 }
 
 func waitForHTTP(t *testing.T, url string) {
@@ -1146,7 +1151,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 	}
 	for name, opts := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := svc.buildEvidenceHost(opts); err == nil {
+			if _, _, err := svc.buildEvidenceHost(opts); err == nil {
 				t.Errorf("%s: buildEvidenceHost succeeded, want a configuration error", name)
 			}
 		})
@@ -1403,5 +1408,245 @@ func TestProvisionedEvidence_Rejects(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
+	}
+}
+
+// A scope narrows provisioning reports, so a key that cannot send them is a
+// contradiction: the load refuses it instead of granting nothing in silence.
+func TestTrustConfigProviderReposNeedKind(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
+		t.Fatal(err)
+	}
+	for name, kinds := range map[string]string{"no kinds": "", "runtime kind only": ", allowedObservationKinds: [WorkloadObserved]"} {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".yaml")
+			body := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub" +
+				kinds + ", allowedProviderRepos: [ghcr.io/acme/platform/postgresql]}\n"
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := loadTrustStore(p)
+			if err == nil || !strings.Contains(err.Error(), "must list ResourceProvisioned") {
+				t.Errorf("loadTrustStore = %v, want the missing-kind rejection", err)
+			}
+		})
+	}
+}
+
+func TestUnscopedProvisioningKeys(t *testing.T) {
+	grant := []string{string(evidence.ResourceProvisioned)}
+	ts := evidenceenvelope.MapTrustStore{
+		"bare":     {},
+		"runtime":  {AllowedObservationKinds: []string{string(evidence.WorkloadObserved)}},
+		"scoped":   {AllowedObservationKinds: grant, ProviderRepos: []string{"ghcr.io/acme/platform/postgresql"}},
+		"unscoped": {AllowedObservationKinds: grant},
+		"another":  {AllowedObservationKinds: grant},
+	}
+	if got := unscopedProvisioningKeys(ts); strings.Join(got, ",") != "another,unscoped" {
+		t.Errorf("unscopedProvisioningKeys = %v, want [another unscoped]", got)
+	}
+}
+
+// serveEvidenceCtx starts the ingestion host under ctx (which may carry a
+// logger) on a random port and returns its base URL. The server is stopped when
+// the test ends.
+func serveEvidenceCtx(t *testing.T, ctx context.Context, svc *Service, opts ServeOptions) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + ln.Addr().String()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- svc.ServeEvidenceOnListener(ctx, ln, opts) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
+		}
+	})
+	waitForHTTP(t, base+"/api/evidence/v1/health")
+	return base
+}
+
+// scopedConsumerBundle is a 2.4 consumer that takes a database configuration
+// from the postgresql provider and a cache configuration from the redis
+// provider on host, in the production environment.
+func scopedConsumerBundle(t *testing.T, host string) *contract.Bundle {
+	t.Helper()
+	y := []byte(`pactoVersion: '2.4'
+service:
+  name: orders
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: openapi
+    ref: openapi.yaml
+    visibility: public
+configurations:
+  - name: database
+    ref: oci://` + host + `/platform/postgresql:16.1.0
+  - name: cache
+    ref: oci://` + host + `/platform/redis:7.0.0
+environments:
+  - name: production
+    file: environments/production.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+`)
+	c, err := contract.Parse(bytes.NewReader(y))
+	if err != nil {
+		t.Fatalf("contract.Parse: %v", err)
+	}
+	return &contract.Bundle{
+		Contract: c,
+		RawYAML:  y,
+		FS: fstest.MapFS{
+			"pacto.yaml":                   &fstest.MapFile{Data: y},
+			"openapi.yaml":                 &fstest.MapFile{Data: []byte("openapi: '3.0.0'\ninfo:\n  title: T\n  version: '1.0.0'\npaths: {}\n")},
+			"environments/production.yaml": &fstest.MapFile{Data: []byte("database: {}\n")},
+		},
+	}
+}
+
+// scopedFixture is an Evidence Server setup with the scoped consumer pushed to
+// a registry and two provisioning keys: db-adapter and cache-adapter.
+type scopedFixture struct {
+	svc         *Service
+	dir         string
+	contractRef string
+	keys        map[string]KeyPair
+}
+
+func newScopedFixture(t *testing.T) scopedFixture {
+	t.Helper()
+	host, _ := referrersRegistry(t)
+	svc, client := mxService(mxHostKeychain{})
+	digest, err := client.Push(context.Background(), host+"/orders:1.0.0", scopedConsumerBundle(t, host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := scopedFixture{svc: svc, dir: t.TempDir(), contractRef: "oci://" + host + "/orders@" + digest, keys: map[string]KeyPair{}}
+	for _, p := range []string{"db-adapter", "cache-adapter"} {
+		kp, err := (&Service{}).GenerateKey(f.dir, p, p+"-key", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.keys[p] = kp
+	}
+	return f
+}
+
+// serve writes a trust config whose keys carry the given allowedProviderRepos
+// line fragments (empty means unscoped) and starts a host over it.
+func (f scopedFixture) serve(t *testing.T, ctx context.Context, scopes map[string]string) string {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n")
+	for _, p := range []string{"db-adapter", "cache-adapter"} {
+		fmt.Fprintf(&b, "  - keyId: %s-key\n    producerId: %s\n    publicKeyFile: %s__%s-key.pub\n    allowedObservationKinds: [ResourceProvisioned]\n", p, p, p, p)
+		if scopes[p] != "" {
+			fmt.Fprintf(&b, "    allowedProviderRepos: [%s]\n", scopes[p])
+		}
+	}
+	cfg := filepath.Join(f.dir, "trust.yaml")
+	if err := os.WriteFile(cfg, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return serveEvidenceCtx(t, ctx, f.svc, ServeOptions{TrustPath: cfg, Subjects: []string{f.contractRef}, Producers: []string{"db-adapter", "cache-adapter"}})
+}
+
+// report posts a Ready report about the named configuration, signed by the
+// producer's key with the given sequence.
+func (f scopedFixture) report(t *testing.T, base, producer, configuration string, seq uint64) SendResult {
+	t.Helper()
+	set, err := f.svc.ProvisionedEvidence(ProvisionedOptions{ContractRef: f.contractRef, Configuration: configuration, Environment: "production", Provider: "acme", Phase: "Ready"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp := f.keys[producer]
+	env, err := f.svc.SignEvidenceSet(set, SignOptions{KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: producer, Sequence: seq, TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.svc.PostEnvelope(context.Background(), base+"/api/evidence/v1/envelopes", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// provisioningKeys maps each provisioning report the host lists to the key that
+// signed it.
+func provisioningKeys(t *testing.T, base string) map[string]string {
+	t.Helper()
+	var targets evidenceingest.TargetsResponse
+	if err := json.Unmarshal([]byte(getBody(t, base+"/api/evidence/v1/targets")), &targets); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, p := range targets.Provisioning {
+		got[p.Name] = p.ProducerKeyID
+	}
+	return got
+}
+
+func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
+	f := newScopedFixture(t)
+	var buf bytes.Buffer
+	ctx := logging.WithLogger(context.Background(), logging.New(&buf, false))
+	f.serve(t, ctx, map[string]string{"db-adapter": "ghcr.io/acme/platform/postgresql"})
+	out := buf.String()
+	if strings.Count(out, "trust key grants ResourceProvisioned for every provider") != 1 || !strings.Contains(out, "keyId=cache-adapter-key") {
+		t.Errorf("log = %q, want one warning naming cache-adapter-key", out)
+	}
+	if strings.Contains(out, "db-adapter-key") {
+		t.Errorf("log = %q, the scoped key must not be warned about", out)
+	}
+}
+
+// The CI proof of the provider scope: a real Evidence Server over HTTP accepts
+// each adapter's reports about its own provider and refuses a foreign adapter
+// with a code that names no repository. Narrowing a key withdraws nothing
+// already accepted (the read path never re-verifies stored records against the
+// trust store); a change to that behavior changes this test and the docs
+// together.
+func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
+	f := newScopedFixture(t)
+	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
+	pg, redis := host+"/platform/postgresql", host+"/platform/redis"
+	base := f.serve(t, context.Background(), map[string]string{"db-adapter": pg, "cache-adapter": redis})
+
+	if res := f.report(t, base, "db-adapter", "database", 1); res.StatusCode != http.StatusAccepted {
+		t.Fatalf("db-adapter on database = %d %s, want 202", res.StatusCode, res.Body)
+	}
+	res := f.report(t, base, "cache-adapter", "database", 1)
+	if res.StatusCode != http.StatusForbidden || !strings.Contains(res.Body, `"code":"provider_not_allowed"`) {
+		t.Fatalf("cache-adapter on database = %d %s, want 403 provider_not_allowed", res.StatusCode, res.Body)
+	}
+	if strings.Contains(res.Body, "postgresql") || strings.Contains(res.Body, "redis") || strings.Contains(res.Body, host) {
+		t.Errorf("403 body %s names a repository", res.Body)
+	}
+	if res := f.report(t, base, "cache-adapter", "cache", 2); res.StatusCode != http.StatusAccepted {
+		t.Fatalf("cache-adapter on cache = %d %s, want 202", res.StatusCode, res.Body)
+	}
+	if got := provisioningKeys(t, base); len(got) != 2 || got["database"] != "db-adapter-key" || got["cache"] != "cache-adapter-key" {
+		t.Fatalf("provisioning = %v, want database by db-adapter-key and cache by cache-adapter-key only", got)
+	}
+
+	// Narrow cache-adapter to another provider over the same registry.
+	narrowed := f.serve(t, context.Background(), map[string]string{"db-adapter": pg, "cache-adapter": host + "/platform/memcached"})
+	if got := provisioningKeys(t, narrowed); got["cache"] != "cache-adapter-key" {
+		t.Errorf("provisioning after narrowing = %v, want the accepted cache report kept", got)
+	}
+	if res := f.report(t, narrowed, "cache-adapter", "cache", 3); res.StatusCode != http.StatusForbidden {
+		t.Errorf("cache-adapter on cache after narrowing = %d %s, want 403", res.StatusCode, res.Body)
 	}
 }

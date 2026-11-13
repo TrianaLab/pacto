@@ -19,6 +19,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
@@ -527,15 +529,17 @@ const defaultReadinessTimeout = 3 * time.Second
 // unreadable trust store, an empty or malformed subject list) surface here so
 // serve validates configuration before it listens; a registry that is merely
 // unreachable surfaces via /ready, not as a startup failure. It takes no context:
-// every registry call it wires up belongs to the request that triggers it.
-func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
+// every registry call it wires up belongs to the request that triggers it, so
+// it returns the ids of keys that may report provisioning for every provider
+// for the caller to warn about.
+func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string, error) {
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	subjects, err := evidenceoci.ParseSubjects(opts.Subjects)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The same keychain and plain-HTTP policy `pacto pull` uses: evidence is
 	// written to the contract registry, so it authenticates like a contract does.
@@ -544,7 +548,7 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
 		Insecure: oci.EnvInsecureRegistries(),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil)
 	timeout := s.env().readinessTimeout
@@ -559,17 +563,35 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
 	})
 	mux := http.NewServeMux()
 	handler.Routes(mux)
-	return mux, nil
+	return mux, unscopedProvisioningKeys(trust), nil
+}
+
+// unscopedProvisioningKeys returns, sorted, the ids of keys granted
+// ResourceProvisioned with no provider scope: each may report provisioning for
+// every provider.
+func unscopedProvisioningKeys(ts evidenceenvelope.MapTrustStore) []string {
+	var ids []string
+	for id, e := range ts {
+		if e.KindAllowed(evidence.ResourceProvisioned) && len(e.ProviderRepos) == 0 {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // ServeEvidenceOnListener serves the ingestion host on an existing listener until
 // ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
 // it if assembly fails. This is the seam tests drive on a random port.
 func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
-	mux, err := s.buildEvidenceHost(opts)
+	mux, unscoped, err := s.buildEvidenceHost(opts)
 	if err != nil {
 		_ = ln.Close()
 		return err
+	}
+	log := logging.LoggerFromContext(ctx)
+	for _, id := range unscoped {
+		log.Warn("trust key grants ResourceProvisioned for every provider", "keyId", id, "hint", "set allowedProviderRepos when more than one adapter reports")
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)

@@ -1049,3 +1049,14 @@ func TestRepoUnder(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderScopedKindsIsACopy(t *testing.T) {
+	got := ProviderScopedKinds()
+	if len(got) != 1 || got[0] != evidence.ResourceProvisioned {
+		t.Fatalf("ProviderScopedKinds = %v", got)
+	}
+	got[0] = evidence.WorkloadObserved
+	if ProviderScopedKinds()[0] != evidence.ResourceProvisioned {
+		t.Error("mutating the returned slice changed the scoped kinds")
+	}
+}

@@ -71,6 +71,11 @@ var ErrProviderNotAllowed = errors.New("evidence ingest: the key may not report 
 // entry if one is added.
 var providerScopedKinds = []evidence.ObservationKind{evidence.ResourceProvisioned}
 
+// ProviderScopedKinds returns a copy of the observation kinds a trust entry's
+// ProviderRepos scope applies to, so trust configuration can refuse a scope
+// that grants none of them.
+func ProviderScopedKinds() []evidence.ObservationKind { return slices.Clone(providerScopedKinds) }
+
 // Category sentinels wrap the raw, potentially-sensitive errors from decoding,
 // contract resolution and the durable store, so the HTTP layer can return a
 // STABLE code + a generic sanitized message while the detailed error is logged
