@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 const outputFormatKey = "output-format"
@@ -66,6 +67,8 @@ type deps struct {
 	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
 	// publish runs `pacto publish`: it builds, signs and writes to a registry.
 	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
+	// publishRunRecord writes one unsigned run record to a stats repository and returns "<repo>@<digest>".
+	publishRunRecord func(ctx context.Context, repo string, r runrecord.Record) (string, error)
 	// selfProc is this process's own /proc, read for its network namespace.
 	selfProc runtimewatch.ProcFS
 	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
@@ -102,6 +105,7 @@ func defaultDeps() deps {
 		notifySignals:       signal.Notify,
 		resolveBundle:       (*app.Service).ResolveBundle,
 		publish:             (*app.Service).Publish,
+		publishRunRecord:    defaultPublishRunRecord,
 		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
 		attachTimeout:       10 * time.Second,
 		pollInterval:        time.Second,
@@ -262,6 +266,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newDeliveryCommand(v, d))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version, d))
 	root.AddCommand(newTUICommand(svc, v, d))
+	root.AddCommand(newStatsCommand(d))
 
 	attachBanner(root)
 	return root

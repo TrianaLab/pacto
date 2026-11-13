@@ -1800,6 +1800,37 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ---
 
+## `pacto stats`
+
+Run records are unsigned statistics about Pacto runs. Nothing that decides ever reads them.
+
+```
+pacto stats [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for stats
+```
+
+### `pacto stats publish`
+
+Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
+
+```
+pacto stats publish <file...> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish
+      --registry string     stats repository to publish to (default $PACTO_STATS_REGISTRY)
+```
+
+---
+
 ## `pacto tui`
 
 Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against the selection, which becomes the command's argument.

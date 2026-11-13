@@ -50,6 +50,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/probe/...",
 	"github.com/trianalab/pacto/v4/pkg/readiness/...",
 	"github.com/trianalab/pacto/v4/pkg/reconcile/...",
+	"github.com/trianalab/pacto/v4/pkg/runrecord", // exact: its registry subpackage needs oras
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts/...",
 	"github.com/trianalab/pacto/v4/pkg/schemax/...",
 	"github.com/trianalab/pacto/v4/pkg/semver/...",
