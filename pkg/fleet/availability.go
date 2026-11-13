@@ -77,7 +77,7 @@ func (q *Query) providerAvailability(s *ServiceRecord) Availability {
 // providerEnvironments is s's state in every environment: what its own fresh
 // targets and the INTERFACE_ABSENT finding they carry say, then the
 // DEPENDENCY_UNREACHABLE reports of the consumers that declare it.
-// Compliance is never read.
+// The compliance verdict is never read.
 func (q *Query) providerEnvironments(s *ServiceRecord) []EnvironmentAvailability {
 	byEnv := map[string]*envEvidence{}
 	at := func(env string) *envEvidence {
