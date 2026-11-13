@@ -695,3 +695,37 @@ func TestRenderServiceEnvironmentHistory(t *testing.T) {
 		t.Errorf("no history, no section:\n%s", b.String())
 	}
 }
+
+// TestRenderDetailForAnOfferingAvailability: the offering page shows its
+// availability per environment, each provider's own, the successor and the
+// newest supported revision, each use's successor range and the callers seen
+// without a declaration, hidden ones only counted.
+func TestRenderDetailForAnOfferingAvailability(t *testing.T) {
+	prod := fleet.EnvironmentAvailability{Environment: "prod", State: fleet.AvailabilityDegraded, Provenance: fleet.ProvenanceInferred, Reason: "1 of 2 consumers cannot reach it", Partial: true}
+	avail := fleet.Availability{State: fleet.AvailabilityDegraded, ByEnvironment: []fleet.EnvironmentAvailability{prod}, Total: 1}
+	rev := fleet.EntityRef{Label: "pg 17.0.0"}
+	out := renderDetail(&fleet.EntityDetail{
+		Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "pg"},
+		Offering: &fleet.OfferingDetailData{
+			Availability: avail, HiddenProviders: 1,
+			Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{
+				Service: fleet.EntityRef{Label: "pg"}, Availability: avail,
+				Successor: &fleet.SuccessorInfo{Ref: "oci://x/pg:17.0.0", Revision: &rev}, LatestSupported: &fleet.EntityRef{Label: "pg 16.0.1"},
+			}}},
+			Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{
+				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg"}, SuccessorRange: fleet.RangeUnsatisfied,
+			}}},
+			ObservedConsumers:       fleet.ObservedConsumersPreview{Total: 1, Count: 1, Items: []fleet.ObservedConsumer{{Caller: "10.0.0.1", Uncontracted: true}}},
+			HiddenObservedConsumers: 2,
+		},
+	})
+	for _, want := range []string{
+		"Availability", "degraded", "  prod: degraded (inferred, 1 of 2 consumers cannot reach it) [partial]", "1 you may not see",
+		"    prod: degraded (inferred", "oci://x/pg:17.0.0 (pg 17.0.0)", "pg 16.0.1", "orders -> pg, successor range unsatisfied",
+		"Also calling a provider (observed, no declaration): 10.0.0.1 (no contract, last seen unknown)", "Observed callers you may not see: 2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
+	}
+}

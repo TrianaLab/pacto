@@ -2,7 +2,9 @@ package fleet
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -106,4 +108,32 @@ func (q *Query) hiddenObservedConsumers(providers []*ServiceRecord) int {
 		}
 	}
 	return n
+}
+
+// Line renders the preview as "Also calling a provider (observed, no
+// declaration): a (stale), b; N more", empty when there is none.
+func (p ObservedConsumersPreview) Line() string {
+	if p.Total == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(p.Items))
+	for _, c := range p.Items {
+		names = append(names, c.label())
+	}
+	s := "Also calling a provider (observed, no declaration): " + strings.Join(names, ", ")
+	if p.Truncated {
+		s += fmt.Sprintf("; %d more", p.Total-p.Count)
+	}
+	return s
+}
+
+// label names c and says what is known of its last sighting.
+func (c ObservedConsumer) label() string {
+	switch {
+	case c.Uncontracted:
+		return c.Caller + " (no contract, last seen unknown)"
+	case c.Stale:
+		return c.Consumer.Label + " (stale)"
+	}
+	return c.Consumer.Label
 }

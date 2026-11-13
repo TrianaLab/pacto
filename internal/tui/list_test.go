@@ -503,3 +503,20 @@ func TestListMarksGoldenPath(t *testing.T) {
 		t.Errorf("pane lacks the golden path kind:\n%s", pane)
 	}
 }
+
+// TestListOfferingRowLifecycleAvailability: an offering row's pane shows its
+// lifecycle and its availability with how Pacto knows it.
+func TestListOfferingRowLifecycleAvailability(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	l.entities = []fleet.EntityRef{{Kind: fleet.KindOffering, Key: "pg", Label: "pg", Offering: "pg", Lifecycle: "deprecated",
+		Availability: fleet.AvailabilityDegraded, AvailabilityProvenance: "inferred"}}
+	l.tbl.SetRows(l.rows(c))
+	l.tbl.SetCursor(0)
+	pane := l.paneBody(c, 60)
+	for _, want := range []string{"deprecated", "degraded (inferred)"} {
+		if !strings.Contains(pane, want) {
+			t.Errorf("pane lacks %q:\n%s", want, pane)
+		}
+	}
+}

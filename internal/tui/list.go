@@ -389,6 +389,8 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 		{"registry", ref.Domain},
 		{"domain", businessDomainText(ref)},
 		{"offering", ref.Offering},
+		{"lifecycle", ref.Lifecycle},
+		{"avail", availabilityText(ref)},
 		{"scope", ref.Scope},
 		{"service", ref.ParentService},
 		{"version", ref.Version},
@@ -410,6 +412,15 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 	}
 	lines = append(lines, "", hints("enter", "open", "g", "graph", "e", "explain"))
 	return strings.Join(lines, "\n")
+}
+
+// availabilityText is an offering row's availability and how Pacto knows it,
+// empty for every other row.
+func availabilityText(ref fleet.EntityRef) string {
+	if ref.Availability == "" {
+		return ""
+	}
+	return string(ref.Availability) + " (" + ref.AvailabilityProvenance + ")"
 }
 
 // empty explains an empty list instead of showing a blank grid.

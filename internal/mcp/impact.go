@@ -41,7 +41,8 @@ func impactTool() *mcpsdk.Tool {
 			"SERVICE_NOT_IN_FLEET with an unverified gate. Pass 'event' (unavailable, removed or regressed) with 'service' " +
 			"(and 'revision' for regressed: an artifact digest reads delivery's recorded failures) instead of old_ref and new_ref " +
 			"to ask what happens if that service becomes unavailable, is removed or regressed; consumers carry 'effect' " +
-			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. " +
+			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. Pass 'offering' instead of 'service' " +
+			"to ask it of every provider of a platform offering (unavailable or removed only); 'providers' lists them. " +
 			"Read-only: it lists review targets, never recommends or takes actions.",
 		InputSchema: inputSchema(map[string]property{
 			"old_ref":          {Type: "string", Description: "Old contract revision (local directory or oci:// ref)"},
@@ -50,6 +51,7 @@ func impactTool() *mcpsdk.Tool {
 			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
 			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change", Enum: []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}},
 			"service":          {Type: "string", Description: "The fleet service key the event is about"},
+			"offering":         {Type: "string", Description: "A platform offering instead of 'service': the event is about every provider of it; unavailable or removed only"},
 			"revision":         {Type: "string", Description: "For regressed: the revision that regressed, a version or an artifact digest (sha256:...)"},
 		}, nil),
 	}
@@ -62,17 +64,18 @@ type impactArgs struct {
 	Traces          string `json:"traces"`
 	Event           string `json:"event"`
 	Service         string `json:"service"`
+	Offering        string `json:"offering"`
 	Revision        string `json:"revision"`
 }
 
 // errImpactArgs is the answer to a call that names neither a change nor an event.
-var errImpactArgs = errors.New("pass either old_ref and new_ref, or event and service")
+var errImpactArgs = errors.New("pass either old_ref and new_ref, or event and service (or offering)")
 
 // request checks the arguments and turns them into an ImpactRequest.
 func (a impactArgs) request() (ImpactRequest, error) {
 	req := ImpactRequest{OldRef: a.OldRef, NewRef: a.NewRef, IncludeObserved: a.IncludeObserved, TracesPath: a.Traces}
 	pair := a.OldRef != "" || a.NewRef != ""
-	event := a.Event != "" || a.Service != "" || a.Revision != ""
+	event := a.Event != "" || a.Service != "" || a.Offering != "" || a.Revision != ""
 	switch {
 	case pair == event, pair && (a.OldRef == "" || a.NewRef == ""):
 		return ImpactRequest{}, errImpactArgs
@@ -80,7 +83,7 @@ func (a impactArgs) request() (ImpactRequest, error) {
 		if err := a.eventErr(); err != nil {
 			return ImpactRequest{}, err
 		}
-		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Revision: a.Revision}
+		req.Event = &impact.Event{Kind: a.Event, Service: a.Service, Offering: a.Offering, Revision: a.Revision}
 	}
 	return req, nil
 }
@@ -89,8 +92,12 @@ func (a impactArgs) request() (ImpactRequest, error) {
 // event flags.
 func (a impactArgs) eventErr() error {
 	switch {
-	case a.Event == "" || a.Service == "":
+	case a.Event == "":
 		return errImpactArgs
+	case (a.Service == "") == (a.Offering == ""):
+		return errors.New("an event names exactly one of 'service' and 'offering'")
+	case a.Offering != "" && a.Event == impact.EventRegressed:
+		return errors.New("a regressed event names one 'service': a regression belongs to one revision")
 	case !slices.Contains([]string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}, a.Event):
 		return errors.New("event is one of unavailable, removed or regressed")
 	case a.Event == impact.EventRegressed && a.Revision == "":

@@ -861,7 +861,7 @@ pacto fleet [flags]
 
 ### `pacto fleet attention`
 
-Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract.
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.
 
 ```
 pacto fleet attention [flags]
@@ -896,9 +896,11 @@ pacto fleet entities [text] [flags]
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
+      --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, owner, domain, offering; empty lists all four)
+      --lifecycle string                 offerings whose worst provider lifecycle, or services whose own lifecycle, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
@@ -1060,7 +1062,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -1072,6 +1074,7 @@ pacto fleet status [flags]
       --golden-path-deployed[=true|false]   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
   -h, --help[=true|false]                   help for status
       --invalid[=true|false]                report structurally invalid contracts
+      --lifecycle[=true|false]              report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)
       --limit int                           maximum results (0 = 200)
       --missing-readiness[=true|false]      report revisions without a readiness assessment
       --needs-attention[=true|false]        report every attention category
@@ -1170,7 +1173,7 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
-With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
+With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
@@ -1197,6 +1200,9 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
   pacto impact --unavailable redis --local .
   pacto impact --removed postgresql --local . --target-state targets.yaml
 
+  # What breaks if every provider of the postgresql offering becomes unavailable
+  pacto impact --unavailable offering:postgresql --local .
+
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
@@ -1219,11 +1225,11 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
-      --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
+      --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
-      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
 ```
 
 ---

@@ -123,3 +123,12 @@ func successorLimitations(providers []OfferingProvider) []Limitation {
 	}
 	return out
 }
+
+// Text renders s as "<ref> (<revision>)" when it resolves, else
+// "<ref> (unknown: <reason>)".
+func (s *SuccessorInfo) Text() string {
+	if s.Revision != nil {
+		return s.Ref + " (" + s.Revision.Label + ")"
+	}
+	return s.Ref + " (unknown: " + s.Reason + ")"
+}

@@ -319,3 +319,51 @@ func TestFleetEntitiesEnvironmentFlag(t *testing.T) {
 		t.Errorf("the text answer hides the scoped limitation:\n%s", stderr)
 	}
 }
+
+// writeDeprecatedOfferingFixture: postgresql 16.1.0 is deprecated and app
+// depends on it; redis is supported and nothing consumes it.
+func writeDeprecatedOfferingFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	state := "state:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"
+	mustWrite(t, filepath.Join(root, "pg", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: postgresql\n  version: \"16.1.0\"\n  offering: postgresql\n"+
+		"  lifecycle:\n    deprecated: \"2026-01-01\"\nworkload: service\n"+state)
+	mustWrite(t, filepath.Join(root, "redis", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: redis\n  version: \"7.0.0\"\n  offering: redis\nworkload: service\n"+state)
+	mustWrite(t, filepath.Join(root, "app", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: app\n  version: \"1.0.0\"\n"+
+		"dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/acme/postgresql\n    required: true\n    compatibility: ^16.0.0\nworkload: service\n"+state)
+	return root
+}
+
+func TestFleetEntitiesLifecycleFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "offering", "--lifecycle", "deprecated", "--local", root)
+	if err != nil || !strings.Contains(out, "1 of 1 entit(ies):") || !strings.Contains(out, " postgresql ") || strings.Contains(out, "redis") {
+		t.Errorf("--lifecycle deprecated = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--kind", "offering", "--lifecycle", "bogus", "--local", root); err == nil {
+		t.Error("a bad --lifecycle is an error")
+	}
+}
+
+func TestFleetEntitiesFailedFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "offering", "--failed", "--local", root)
+	if err != nil || !strings.HasPrefix(out, "0 of 0 entit(ies):") {
+		t.Errorf("--failed with no failed request = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--failed", "--local", root); err == nil {
+		t.Error("--failed on services is an error")
+	}
+}
+
+func TestFleetStatusLifecycleFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "status", "--lifecycle", "--local", root)
+	if err != nil || !strings.HasPrefix(out, "1 of 1 attention item(s):") || !strings.Contains(out, "DEPENDENCY_SERVICE_DEPRECATED") {
+		t.Errorf("status --lifecycle = %v:\n%s", err, out)
+	}
+	out, _, err = execFleet(t, "fleet", "attention", "--category", "lifecycle", "--local", root)
+	if err != nil || !strings.Contains(out, "lifecycle app") {
+		t.Errorf("attention --category lifecycle = %v:\n%s", err, out)
+	}
+}

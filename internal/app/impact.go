@@ -173,10 +173,12 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
 	ev := opts.Event
-	if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
-		ev.Service = string(view.Service.Key)
-	} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
-		return nil, err
+	if ev.Service != "" { // an offering event names none: impact resolves its providers
+		if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
+			ev.Service = string(view.Service.Key)
+		} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
+			return nil, err
+		}
 	}
 	var reg *impact.Regression
 	if ev.Kind == impact.EventRegressed && opts.ReadRegression != nil {
@@ -188,17 +190,28 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 }
 
 // ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
-// service key, and for regressed the revision after the last "@".
+// service key, and for regressed the revision after the last "@". For
+// unavailable and removed, offering:<name> names every provider of an offering.
 func ParseEventFlag(kind, value string) (impact.Event, error) {
 	ev := impact.Event{Kind: kind, Service: value}
+	name, offering := strings.CutPrefix(value, offeringPrefix)
 	switch kind {
 	case impact.EventRegressed:
+		if offering {
+			return impact.Event{}, errors.New("--regressed names one service: a regression belongs to one revision")
+		}
 		i := strings.LastIndex(value, "@")
 		if i <= 0 || i == len(value)-1 {
 			return impact.Event{}, fmt.Errorf("--regressed takes <service>@<revision>, got %q", value)
 		}
 		ev.Service, ev.Revision = value[:i], value[i+1:]
 	case impact.EventUnavailable, impact.EventRemoved:
+		if offering {
+			if name == "" || strings.Contains(name, "@") {
+				return impact.Event{}, fmt.Errorf("--%s offering: takes an offering name, got %q", kind, value)
+			}
+			return impact.Event{Kind: kind, Offering: name}, nil
+		}
 		if value == "" || strings.Contains(value, "@") {
 			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
 		}
@@ -207,6 +220,9 @@ func ParseEventFlag(kind, value string) (impact.Event, error) {
 	}
 	return ev, nil
 }
+
+// offeringPrefix marks an event flag value that names an offering.
+const offeringPrefix = "offering:"
 
 // refuseHidden keeps a raw-ref impact request from reading a service the
 // caller's permissions hide. The refs resolve with this process's registry

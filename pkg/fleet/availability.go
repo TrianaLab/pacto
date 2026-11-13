@@ -393,3 +393,26 @@ func floorHidden(e EnvironmentAvailability, hidden int) EnvironmentAvailability 
 	e.Reason += "; " + note
 	return e
 }
+
+// Lines renders a for text surfaces: one line per environment, then how many
+// the bound left out. The CLI and the TUI share the wording.
+func (a Availability) Lines() []string {
+	out := make([]string, 0, len(a.ByEnvironment)+1)
+	for _, e := range a.ByEnvironment {
+		out = append(out, e.Line())
+	}
+	if n := a.Total - len(a.ByEnvironment); n > 0 {
+		out = append(out, fmt.Sprintf("%d more environments", n))
+	}
+	return out
+}
+
+// Line renders e as "prod: available (observed, <reason>)", marked partial
+// when the viewer may not see every consumer or provider.
+func (e EnvironmentAvailability) Line() string {
+	s := fmt.Sprintf("%s: %s (%s, %s)", cmp.Or(e.Environment, "(no environment label)"), e.State, e.Provenance, e.Reason)
+	if e.Partial {
+		s += " [partial]"
+	}
+	return s
+}
