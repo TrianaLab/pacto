@@ -348,6 +348,22 @@ func (q *Query) UsesOf(provider ServiceKey) ([]OfferingUse, []Limitation) {
 	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Key == provider }, "", true)
 }
 
+// HiddenProviders counts, in a restricted snapshot, the providers of
+// offering the viewer may not see. They are never named.
+func (q *Query) HiddenProviders(offering string) int { return q.snap.hiddenProviders[offering] }
+
+// HiddenDependentsOf counts, in a restricted snapshot, the distinct hidden
+// services that depend on or call any of keys. They are never named.
+func (q *Query) HiddenDependentsOf(keys []ServiceKey) int {
+	seen := map[ServiceKey]bool{}
+	for _, k := range keys {
+		for d := range q.snap.hiddenDependents[k] {
+			seen[d] = true
+		}
+	}
+	return len(seen)
+}
+
 // TemplatesReferencing are the golden paths whose revisions reference
 // provider through a resolved policy reference, sorted. A golden path runs
 // nowhere, so impact lists them to review and never counts them as consumers.
@@ -372,6 +388,12 @@ func domainEntityRef(name string) EntityRef {
 // whose membership has the given provenance.
 func offeringEntityRef(name, provenance string) EntityRef {
 	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name, OfferingProvenance: provenance}
+}
+
+// OfferingRef is the route-neutral reference to the platform offering name
+// in snap, for callers outside the package.
+func OfferingRef(snap *FleetSnapshot, name string) EntityRef {
+	return offeringEntityRef(name, offeringProvenance(snap, name))
 }
 
 // offeringProvenance is ProvenanceDeclared when any provider of the offering

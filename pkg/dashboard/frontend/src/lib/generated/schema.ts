@@ -3467,9 +3467,11 @@ export interface components {
              * @enum {string}
              */
             kind: "unavailable" | "removed" | "regressed";
+            /** @description A platform offering: the event is about every service that provides it */
+            offering?: string;
             /** @description The revision that regressed: a version or an artifact digest */
             revision?: string;
-            /** @description The fleet service key of the service */
+            /** @description The fleet service key of the service; empty when the event is about an offering */
             service: string;
         };
         "Impact.Evidence": {
@@ -3560,6 +3562,8 @@ export interface components {
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description The service keys of the services that provide the offering of an offering event */
+            providers?: string[] | null;
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
@@ -4230,8 +4234,12 @@ export interface components {
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
+            /** @description The platform offering an offering event is about; service is then the same offering reference */
+            offering?: components["schemas"]["Fleet.EntityRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description The services that provide the offering of an offering event, each with its owner */
+            providers?: components["schemas"]["Fleet.EntityRef"][] | null;
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];

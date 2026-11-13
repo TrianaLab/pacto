@@ -205,6 +205,9 @@ type Result struct {
 	Regression []RegressionEvidence `json:"regression,omitempty"`
 	// Hidden counts the consumers this viewer may not see. They are never named.
 	Hidden int `json:"hidden,omitempty" doc:"How many consumers this viewer may not see; they are never named"`
+	// Providers are the service keys of the visible providers of an offering
+	// event's offering; empty on any other answer.
+	Providers []string `json:"providers,omitempty" doc:"The service keys of the services that provide the offering of an offering event"`
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
@@ -760,16 +763,18 @@ func (r *Result) noteStaleConsumers() {
 }
 
 // collectOwnersAndTargets sets Owners to the consumers' owners and
-// ActiveTargets to the targets of the changed service and of its consumers.
-// Owners are canonical keys: display labels merge distinct owners.
-func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed fleet.ServiceKey) {
+// ActiveTargets to the targets of the changed services and of their
+// consumers. Owners are canonical keys: display labels merge distinct owners.
+func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed ...fleet.ServiceKey) {
 	owners := map[string]bool{}
 	targets := map[string]bool{}
-	for _, tk := range serviceTargets(snap, changed) {
-		targets[tk] = true
-	}
-	if s := snap.Services[changed]; s != nil {
-		r.ChangedOwnerKey = s.Owner.KeyString()
+	for _, k := range changed {
+		for _, tk := range serviceTargets(snap, k) {
+			targets[tk] = true
+		}
+		if s := snap.Services[k]; s != nil {
+			r.ChangedOwnerKey = s.Owner.KeyString()
+		}
 	}
 	for _, c := range r.Consumers {
 		if c.OwnerKey != "" {

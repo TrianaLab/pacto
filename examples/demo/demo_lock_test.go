@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -124,6 +125,43 @@ func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
 	for _, c := range res.Consumers {
 		if c.Effect != impact.EffectBreaks {
 			t.Errorf("%s effect %s via %v", c.Service, c.Effect, c.Path)
+		}
+	}
+}
+
+// TestDemoOfferingUnavailablePostgres: the offering answer lists every
+// consumer each provider's own answer lists, and nothing else; a provider is
+// never its own consumer. shared-config has two providers (and, today, no
+// consumer an availability event reads), so the union runs over the demo too.
+func TestDemoOfferingUnavailablePostgres(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(res *impact.Result) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range res.Consumers {
+			out[c.Domain+"/"+c.Service] = true
+		}
+		return out
+	}
+	for offering, providers := range map[string]int{"postgresql": 1, "shared-config": 2} {
+		res := impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Offering: offering}})
+		if len(res.Providers) != providers {
+			t.Fatalf("%s providers %v", offering, res.Providers)
+		}
+		got, want := names(res), map[string]bool{}
+		for _, p := range res.Providers {
+			for n := range names(impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Service: p}})) {
+				want[n] = true
+			}
+		}
+		for _, p := range res.Providers {
+			d, n := fleet.ParseServiceKey(fleet.ServiceKey(p))
+			delete(want, d+"/"+n)
+		}
+		if (offering == "postgresql" && len(got) == 0) || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: offering consumers %v, provider consumers %v", offering, got, want)
 		}
 	}
 }

@@ -513,3 +513,18 @@ func TestOfferingDetailJSONKeepsFields(t *testing.T) {
 		t.Errorf("no fresh target: offering %s, provider %s", o.Availability.State, o.Providers.Items[0].Availability.State)
 	}
 }
+
+// Impact reads the restricted counts of an offering through these.
+func TestHiddenCountsForImpact(t *testing.T) {
+	if n := restrictedOffering().HiddenProviders("postgresql"); n != 1 {
+		t.Errorf("hidden providers %d", n)
+	}
+	q := NewQuery(&FleetSnapshot{hiddenDependents: map[ServiceKey]map[ServiceKey]bool{"a": {"x": true, "y": true}, "b": {"y": true, "z": true}}})
+	if n := q.HiddenDependentsOf([]ServiceKey{"a", "b", "c"}); n != 3 {
+		t.Errorf("hidden dependents %d", n)
+	}
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"pg": {Offering: "postgresql", OfferingProvenance: ProvenanceDeclared}}}
+	if ref := OfferingRef(snap, "postgresql"); ref.Kind != KindOffering || ref.Key != "postgresql" || ref.OfferingProvenance != ProvenanceDeclared {
+		t.Errorf("ref %+v", ref)
+	}
+}

@@ -1,0 +1,897 @@
+{
+  "chain-regressed": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "auth-service",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "api-gateway",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "api-gateway-team",
+        "ownerKey": "team:api-gateway-team",
+        "required": true,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "Compliant",
+        "targets": [
+          "prod/deployment/api-gateway"
+        ],
+        "via": [
+          "dependency"
+        ],
+        "note": "it declares the dependency as required",
+        "evidence": [
+          {
+            "kind": "target",
+            "source": "prod/deployment/api-gateway",
+            "at": "2026-11-10T11:00:00Z",
+            "provenance": "observed",
+            "message": "evidence 1h0m0s old, window 24h"
+          }
+        ],
+        "effect": "breaks"
+      },
+      {
+        "service": "frontend",
+        "depth": 2,
+        "direct": false,
+        "path": [
+          "frontend",
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "frontend-team",
+        "ownerKey": "team:frontend-team",
+        "required": false,
+        "compatibilityVerdict": "unknown",
+        "provenance": "inferred",
+        "confidence": "inferred",
+        "status": "NotEvaluated",
+        "note": "every path to it holds an optional dependency, so it may degrade",
+        "effect": "may-degrade"
+      }
+    ],
+    "activeTargets": [
+      "prod/deployment/api-gateway",
+      "prod/deployment/auth-service"
+    ],
+    "owners": [
+      "team:api-gateway-team",
+      "team:frontend-team"
+    ],
+    "changedOwnerKey": "team:auth-service-team",
+    "completeness": "complete",
+    "limitations": [
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision api-gateway has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision auth-service has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision frontend has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      }
+    ],
+    "sources": [
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 3,
+        "targetCount": 2
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if auth-service regressed at sha256:bad, 1 consumer breaks (1 runs on known targets: api-gateway) and 1 may degrade. Review each. Delivery recorded: n/s lists it as failed",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 1
+        },
+        {
+          "key": "unknown",
+          "count": 0
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "api-gateway-team",
+          "ownerKey": "team:api-gateway-team",
+          "consumers": 1,
+          "incompatible": 1
+        },
+        {
+          "owner": "frontend-team",
+          "ownerKey": "team:frontend-team",
+          "consumers": 1,
+          "incompatible": 0
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 0,
+      "owners": 2
+    },
+    "event": {
+      "kind": "regressed",
+      "service": "auth-service",
+      "revision": "sha256:bad"
+    },
+    "regression": [
+      {
+        "namespace": "n",
+        "stage": "s",
+        "kind": "failed"
+      }
+    ]
+  },
+  "chain-removed": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "auth-service",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "api-gateway",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "api-gateway-team",
+        "ownerKey": "team:api-gateway-team",
+        "required": true,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "Compliant",
+        "targets": [
+          "prod/deployment/api-gateway"
+        ],
+        "via": [
+          "dependency"
+        ],
+        "note": "it declares the dependency as required",
+        "evidence": [
+          {
+            "kind": "target",
+            "source": "prod/deployment/api-gateway",
+            "at": "2026-11-10T11:00:00Z",
+            "provenance": "observed",
+            "message": "evidence 1h0m0s old, window 24h"
+          }
+        ],
+        "effect": "breaks",
+        "resources": [
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 1
+      },
+      {
+        "service": "frontend",
+        "depth": 2,
+        "direct": false,
+        "path": [
+          "frontend",
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "frontend-team",
+        "ownerKey": "team:frontend-team",
+        "required": false,
+        "compatibilityVerdict": "unknown",
+        "provenance": "inferred",
+        "confidence": "inferred",
+        "status": "NotEvaluated",
+        "note": "every path to it holds an optional dependency, so it may degrade",
+        "effect": "may-degrade"
+      }
+    ],
+    "activeTargets": [
+      "prod/deployment/api-gateway",
+      "prod/deployment/auth-service"
+    ],
+    "owners": [
+      "team:api-gateway-team",
+      "team:frontend-team"
+    ],
+    "changedOwnerKey": "team:auth-service-team",
+    "completeness": "complete",
+    "limitations": [
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision api-gateway has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision auth-service has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision frontend has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      }
+    ],
+    "sources": [
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 3,
+        "targetCount": 2
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if auth-service is removed, 1 consumer breaks (1 runs on known targets: api-gateway) and 1 may degrade. Review each",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 1
+        },
+        {
+          "key": "unknown",
+          "count": 0
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "api-gateway-team",
+          "ownerKey": "team:api-gateway-team",
+          "consumers": 1,
+          "incompatible": 1
+        },
+        {
+          "owner": "frontend-team",
+          "ownerKey": "team:frontend-team",
+          "consumers": 1,
+          "incompatible": 0
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 0,
+      "owners": 2
+    },
+    "event": {
+      "kind": "removed",
+      "service": "auth-service"
+    }
+  },
+  "chain-unavailable": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:ae008c27bd8bc2d5a7741bb72a572c91b74e28f18ad2a1b3f48060d56f0f999b",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "auth-service",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "api-gateway",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "api-gateway-team",
+        "ownerKey": "team:api-gateway-team",
+        "required": true,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "Compliant",
+        "targets": [
+          "prod/deployment/api-gateway"
+        ],
+        "via": [
+          "dependency"
+        ],
+        "note": "it declares the dependency as required",
+        "evidence": [
+          {
+            "kind": "target",
+            "source": "prod/deployment/api-gateway",
+            "at": "2026-11-10T11:00:00Z",
+            "provenance": "observed",
+            "message": "evidence 1h0m0s old, window 24h"
+          }
+        ],
+        "effect": "breaks",
+        "resources": [
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 1
+      },
+      {
+        "service": "frontend",
+        "depth": 2,
+        "direct": false,
+        "path": [
+          "frontend",
+          "api-gateway",
+          "auth-service"
+        ],
+        "owner": "frontend-team",
+        "ownerKey": "team:frontend-team",
+        "required": false,
+        "compatibilityVerdict": "unknown",
+        "provenance": "inferred",
+        "confidence": "inferred",
+        "status": "NotEvaluated",
+        "note": "every path to it holds an optional dependency, so it may degrade",
+        "effect": "may-degrade"
+      }
+    ],
+    "activeTargets": [
+      "prod/deployment/api-gateway",
+      "prod/deployment/auth-service"
+    ],
+    "owners": [
+      "team:api-gateway-team",
+      "team:frontend-team"
+    ],
+    "changedOwnerKey": "team:auth-service-team",
+    "completeness": "complete",
+    "limitations": [
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision api-gateway has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision auth-service has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision frontend has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      }
+    ],
+    "sources": [
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 3,
+        "targetCount": 2
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if auth-service becomes unavailable, 1 consumer breaks (1 runs on known targets: api-gateway) and 1 may degrade. Review each",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 1
+        },
+        {
+          "key": "unknown",
+          "count": 0
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "api-gateway-team",
+          "ownerKey": "team:api-gateway-team",
+          "consumers": 1,
+          "incompatible": 1
+        },
+        {
+          "owner": "frontend-team",
+          "ownerKey": "team:frontend-team",
+          "consumers": 1,
+          "incompatible": 0
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 0,
+      "owners": 2
+    },
+    "event": {
+      "kind": "unavailable",
+      "service": "auth-service"
+    }
+  },
+  "observed-unavailable": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:7a7e9c06884aa3448224f9fe8279706dd0c376951d1aef5005b392321da83cff",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "auth-service",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "a",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "a",
+          "auth-service"
+        ],
+        "owner": "a-team",
+        "ownerKey": "team:a-team",
+        "required": false,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "NotEvaluated",
+        "via": [
+          "dependency"
+        ],
+        "note": "every path to it holds an optional dependency, so it may degrade",
+        "effect": "may-degrade",
+        "resources": [
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 1
+      },
+      {
+        "service": "b",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "b",
+          "auth-service"
+        ],
+        "owner": "b-team",
+        "ownerKey": "team:b-team",
+        "required": true,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "NotEvaluated",
+        "via": [
+          "dependency"
+        ],
+        "note": "it declares the dependency as required",
+        "effect": "breaks",
+        "resources": [
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 1
+      },
+      {
+        "service": "shadow",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "shadow",
+          "auth-service"
+        ],
+        "owner": "shadow-team",
+        "ownerKey": "team:shadow-team",
+        "required": false,
+        "compatibilityVerdict": "unknown",
+        "provenance": "observed",
+        "confidence": "observed",
+        "status": "NotEvaluated",
+        "via": [
+          "observed"
+        ],
+        "note": "it reaches it only through a configuration reference or an observed call, so the effect is unknown",
+        "evidence": [
+          {
+            "kind": "observed-call",
+            "source": "test",
+            "at": "2026-11-10T11:00:00Z",
+            "provenance": "observed",
+            "message": "2 calls seen"
+          }
+        ],
+        "effect": "unknown"
+      },
+      {
+        "service": "k8s:pay/Deployment/legacy",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "k8s:pay/Deployment/legacy",
+          "auth-service"
+        ],
+        "required": false,
+        "compatibilityVerdict": "unknown",
+        "provenance": "observed",
+        "confidence": "observed",
+        "uncontracted": true,
+        "via": [
+          "observed"
+        ],
+        "note": "a caller no contract describes; what it needs from auth-service is unknown",
+        "evidence": [
+          {
+            "kind": "observed-call",
+            "source": "test",
+            "provenance": "observed",
+            "message": "calls seen, no observation window"
+          }
+        ],
+        "effect": "unknown"
+      }
+    ],
+    "owners": [
+      "team:a-team",
+      "team:b-team",
+      "team:shadow-team"
+    ],
+    "changedOwnerKey": "team:auth-service-team",
+    "completeness": "complete",
+    "limitations": [
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision a has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision auth-service has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision b has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      },
+      {
+        "code": "REVISION_IDENTITY_UNRESOLVED",
+        "source": "test",
+        "message": "revision shadow has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+      }
+    ],
+    "sources": [
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 4,
+        "targetCount": 0
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if auth-service becomes unavailable, 1 consumer breaks, 1 may degrade and 2 are unknown. Review each",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 1
+        },
+        {
+          "key": "unknown",
+          "count": 2
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "b-team",
+          "ownerKey": "team:b-team",
+          "consumers": 1,
+          "incompatible": 1
+        },
+        {
+          "owner": "a-team",
+          "ownerKey": "team:a-team",
+          "consumers": 1,
+          "incompatible": 0
+        },
+        {
+          "owner": "shadow-team",
+          "ownerKey": "team:shadow-team",
+          "consumers": 1,
+          "incompatible": 0
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 1,
+      "owners": 3
+    },
+    "event": {
+      "kind": "unavailable",
+      "service": "auth-service"
+    }
+  },
+  "pg-removed": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:41b7edbbc49ac055f0d1f69aa6ece2109582b0b10125938e3631227c3eacdfbc",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "postgresql",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "orders",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "orders",
+          "postgresql"
+        ],
+        "owner": "orders-team",
+        "ownerKey": "team:orders-team",
+        "required": true,
+        "compatibility": "^16.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "NotEvaluated",
+        "via": [
+          "dependency",
+          "configuration_reference"
+        ],
+        "note": "it declares the dependency as required",
+        "evidence": [
+          {
+            "kind": "lifecycle",
+            "source": "postgresql",
+            "provenance": "declared",
+            "message": "postgresql declares its lifecycle: deprecated 2026-10-01, sunset 2027-01-01"
+          }
+        ],
+        "effect": "breaks",
+        "resources": [
+          {
+            "environment": "production",
+            "phase": "Ready",
+            "reportedPhase": "Ready",
+            "revision": {
+              "kind": "revision",
+              "key": "orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "label": "orders 1.0.0",
+              "secondary": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "parentService": "orders",
+              "version": "1.0.0"
+            },
+            "provider": "aws",
+            "externalRef": "orders-db",
+            "source": "evidence",
+            "sourceKind": "evidence-http (unsigned)",
+            "provenance": "observed",
+            "verified": false,
+            "asOf": "2026-11-10T11:00:00Z"
+          },
+          {
+            "environment": "staging",
+            "phase": "Unknown",
+            "reportedPhase": "Ready",
+            "revision": {
+              "kind": "revision",
+              "key": "orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "label": "orders 1.0.0",
+              "secondary": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "parentService": "orders",
+              "version": "1.0.0"
+            },
+            "provider": "aws",
+            "externalRef": "orders-db",
+            "source": "evidence",
+            "sourceKind": "evidence-http (unsigned)",
+            "provenance": "observed",
+            "verified": false,
+            "asOf": "2026-10-11T12:00:00Z",
+            "stale": true,
+            "reason": "the last report is older than the provisioning window"
+          },
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 3
+      }
+    ],
+    "owners": [
+      "team:orders-team"
+    ],
+    "changedOwnerKey": "team:platform",
+    "completeness": "complete",
+    "sources": [
+      {
+        "id": "evidence",
+        "kind": "evidence-http",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 0,
+        "targetCount": 0
+      },
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 2,
+        "targetCount": 0
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if postgresql is removed, 1 consumer breaks. Review each",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 0
+        },
+        {
+          "key": "unknown",
+          "count": 0
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "orders-team",
+          "ownerKey": "team:orders-team",
+          "consumers": 1,
+          "incompatible": 1
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 0,
+      "owners": 1
+    },
+    "event": {
+      "kind": "removed",
+      "service": "postgresql"
+    }
+  },
+  "policy-removed": {
+    "schemaVersion": "pacto.dev/impact/v1",
+    "snapshotId": "sha256:59ac8e681d0b28636d614bdb3eece07d5af60480aa7c20de5546ebd48dbf16df",
+    "asOf": "2026-11-10T12:00:00Z",
+    "service": "policy",
+    "classification": "",
+    "consumers": [
+      {
+        "service": "orders",
+        "depth": 1,
+        "direct": true,
+        "path": [
+          "orders",
+          "policy"
+        ],
+        "owner": "orders-team",
+        "ownerKey": "team:orders-team",
+        "required": true,
+        "compatibility": "^1.0.0",
+        "compatibilityVerdict": "unknown",
+        "provenance": "declared",
+        "confidence": "contractual",
+        "status": "NotEvaluated",
+        "via": [
+          "dependency",
+          "policy_reference"
+        ],
+        "note": "it declares the dependency as required; its policy reference will no longer resolve, so its next revision fails validation",
+        "effect": "breaks",
+        "resources": [
+          {
+            "phase": "Unknown",
+            "provenance": "observed",
+            "verified": false,
+            "reason": "no provider has reported provisioning for this use"
+          }
+        ],
+        "resourcesTotal": 1
+      }
+    ],
+    "owners": [
+      "team:orders-team"
+    ],
+    "changedOwnerKey": "team:platform",
+    "completeness": "complete",
+    "sources": [
+      {
+        "id": "test",
+        "kind": "memory",
+        "status": "available",
+        "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+        "observedAt": "2026-11-10T12:00:00Z",
+        "revisionCount": 2,
+        "targetCount": 0
+      }
+    ],
+    "gate": "unverified",
+    "gateReason": "if policy is removed, 1 consumer breaks. Review each",
+    "consumerTallies": {
+      "byOutcome": [
+        {
+          "key": "breaks",
+          "count": 1
+        },
+        {
+          "key": "may-degrade",
+          "count": 0
+        },
+        {
+          "key": "unknown",
+          "count": 0
+        }
+      ],
+      "byOwner": [
+        {
+          "owner": "orders-team",
+          "ownerKey": "team:orders-team",
+          "consumers": 1,
+          "incompatible": 1
+        }
+      ],
+      "beyondRanking": 0,
+      "noOwner": 0,
+      "owners": 1
+    },
+    "event": {
+      "kind": "removed",
+      "service": "policy"
+    }
+  }
+}

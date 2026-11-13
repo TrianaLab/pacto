@@ -40,10 +40,14 @@ const (
 const EvidenceLifecycle = "lifecycle"
 
 // Event is a non-contract what-if: Service (a fleet service key) becomes
-// unavailable, is removed, or Revision of it regressed.
+// unavailable, is removed, or Revision of it regressed; or every provider of
+// Offering becomes unavailable or is removed.
 type Event struct {
-	Kind     string `json:"kind" enum:"unavailable,removed,regressed" doc:"What happens to the service"`
-	Service  string `json:"service" doc:"The fleet service key of the service"`
+	Kind    string `json:"kind" enum:"unavailable,removed,regressed" doc:"What happens to the service"`
+	Service string `json:"service" doc:"The fleet service key of the service; empty when the event is about an offering"`
+	// Offering, set instead of Service, makes the event about every service
+	// that provides the platform offering; only with unavailable or removed.
+	Offering string `json:"offering,omitempty" doc:"A platform offering: the event is about every service that provides it"`
 	Revision string `json:"revision,omitempty" doc:"The revision that regressed: a version or an artifact digest"`
 }
 
@@ -210,18 +214,17 @@ func extendPaths(paths map[fleet.ServiceKey]map[string][]fleet.ServiceKey, n, to
 	return changed
 }
 
-// analyzeEvent answers what happens to the consumers of opts.Event.Service.
+// analyzeEvent answers what happens to the consumers of opts.Event.Service,
+// or of every provider of opts.Event.Offering.
 func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	ev := *opts.Event
+	q := fleet.NewQuery(snap)
+	if ev.Offering != "" {
+		return analyzeOfferingEvent(snap, q, opts)
+	}
 	subject := fleet.ServiceKey(ev.Service)
 	_, name := fleet.ParseServiceKey(subject)
-	q := fleet.NewQuery(snap)
-	meta := q.ProductMeta()
-	res := &Result{
-		SchemaVersion: SchemaVersion, SnapshotID: snap.SnapshotID, AsOf: snap.GeneratedAt, Service: name, Event: &ev,
-		Completeness: snap.Completeness, Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
-		Consumers: []AffectedConsumer{}, Sources: meta.Sources, SourcesTruncated: meta.SourcesTruncated,
-	}
+	res := newEventResult(snap, q, &ev, name)
 	if ev.Kind == EventRegressed {
 		res.noteRegression(opts.Regression)
 	}
@@ -229,39 +232,63 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	if graph == nil {
 		return res
 	}
-	// An availability event is a runtime question: observed callers count
-	// whether or not observed evidence was asked for.
-	observed, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, true)
-	res.Limitations = append(res.Limitations, obsLims...)
-	if len(obsLims) > 0 {
-		res.Completeness = fleet.CompletenessPartial
+	observed := res.eventObserved(snap, opts)
+	res.eventFor(snap, q, subject, graph, observed)
+	res.collectOwnersAndTargets(snap, subject)
+	res.noteUnlisted(snap, q, subject)
+	res.noteStaleConsumers()
+	return res
+}
+
+// newEventResult is the envelope of an event answer about name.
+func newEventResult(snap *fleet.FleetSnapshot, q *fleet.Query, ev *Event, name string) *Result {
+	meta := q.ProductMeta()
+	return &Result{
+		SchemaVersion: SchemaVersion, SnapshotID: snap.SnapshotID, AsOf: snap.GeneratedAt, Service: name, Event: ev,
+		Completeness: snap.Completeness, Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
+		Consumers: []AffectedConsumer{}, Sources: meta.Sources, SourcesTruncated: meta.SourcesTruncated,
 	}
-	observed = append(observed, snapshotObservedEdges(snap)...)
-	res.observationSources = observationSources(snap, opts.ObservedEdges != nil)
+}
+
+// eventObserved resolves the observed callers an event reads. An
+// availability event is a runtime question: observed callers count whether
+// or not observed evidence was asked for.
+func (r *Result) eventObserved(snap *fleet.FleetSnapshot, opts Options) []resolvedObservedEdge {
+	observed, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, true)
+	r.Limitations = append(r.Limitations, obsLims...)
+	if len(obsLims) > 0 {
+		r.Completeness = fleet.CompletenessPartial
+	}
+	r.observationSources = observationSources(snap, opts.ObservedEdges != nil)
+	return append(observed, snapshotObservedEdges(snap)...)
+}
+
+// eventFor adds the consumer rows of one subject of the event, walked in
+// graph: its declared and observed consumers, with the resources they asked
+// for and the subject's lifecycle; for a removal its policy referrers; and its
+// uncontracted callers.
+func (r *Result) eventFor(snap *fleet.FleetSnapshot, q *fleet.Query, subject fleet.ServiceKey, graph *fleet.GraphResult, observed []resolvedObservedEdge) {
+	_, name := fleet.ParseServiceKey(subject)
 	effects := eventEffects(graph, snap)
 	var uses []fleet.OfferingUse
-	if ev.Kind == EventRemoved {
+	if r.Event.Kind == EventRemoved || r.Event.Kind == EventUnavailable {
 		var lims []fleet.Limitation
 		uses, lims = q.UsesOf(subject)
-		res.Limitations = append(res.Limitations, lims...)
+		r.Limitations = append(r.Limitations, lims...)
 	}
 	for _, cn := range unionConsumers(graph, subject, observed) {
-		res.Consumers = append(res.Consumers, eventConsumer(snap, subject, cn, observed, effects, uses))
+		r.Consumers = append(r.Consumers, eventConsumer(snap, subject, cn, observed, effects, uses))
 	}
-	if ev.Kind == EventRemoved {
-		res.addEventReferrers(snap, subject, observed, uses)
+	if r.Event.Kind == EventRemoved {
+		r.addEventReferrers(snap, subject, observed, uses)
 	}
 	for _, c := range uncontractedCallers(snap, subject) {
 		c.Effect = EffectUnknown
 		if c.Note == "" {
 			c.Note = "a caller no contract describes; what it needs from " + name + " is unknown"
 		}
-		res.Consumers = append(res.Consumers, c)
+		r.Consumers = append(r.Consumers, c)
 	}
-	res.collectOwnersAndTargets(snap, subject)
-	res.noteUnlisted(snap, q, subject)
-	res.noteStaleConsumers()
-	return res
 }
 
 // noteRegression copies the delivery evidence the caller read, or says why
@@ -491,7 +518,7 @@ func (r *Result) eventGateCore() (string, string) {
 	if n := counts[EffectUnknown]; n > 0 {
 		parts = append(parts, strconv.Itoa(n)+" "+plural(n, "is", "are")+" unknown")
 	}
-	return GateUnverified, "if " + r.Service + " " + r.eventPhrase() + ", " + joinAnd(parts) + ". Review each"
+	return GateUnverified, "if " + r.Service + " " + r.eventPhrase() + r.providersNote() + ", " + joinAnd(parts) + ". Review each"
 }
 
 // joinAnd joins parts as "a, b and c".
