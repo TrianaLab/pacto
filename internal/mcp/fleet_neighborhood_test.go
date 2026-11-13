@@ -89,3 +89,14 @@ func TestFleetNeighborhoodTool(t *testing.T) {
 		}
 	}
 }
+
+// max_edges bounds the edges as the CLI's --max-edges and the dashboard's
+// maxEdges do, and says the answer is truncated.
+func TestFleetNeighborhoodMaxEdges(t *testing.T) {
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(neighborhoodFleet(t)), Opts: FleetOptions{}}})
+	var bounded fleet.Neighborhood
+	decode(t, callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "payments", "direction": "dependents", "max_edges": 1}), &bounded)
+	if len(bounded.Edges) != 1 || !bounded.Truncated {
+		t.Errorf("max_edges=1 = %d edges, truncated %v", len(bounded.Edges), bounded.Truncated)
+	}
+}

@@ -32,6 +32,10 @@ func TestFleetEntities(t *testing.T) {
 	for _, f := range [][]string{
 		{"ord"}, {"--owner", "commerce"}, {"--owner-key", "team:commerce"}, {"--business-domain", "(none)"},
 		{"--offering", "redis"}, {"--status", "NonCompliant"}, {"--sort", "health"}, {"--limit", "1", "--offset", "1"},
+		// Each kind the dashboard lists, and the filters of one kind with no --kind.
+		{"--kind", "revision", "--service", "orders"}, {"--kind", "target", "--environment", "prod"}, {"--source-kind", "local"},
+		{"--source-health", "available"}, {"--readiness", "not-declared"}, {"--scope", "prod"}, {"--capability", "health"},
+		{"--domain", "x"}, {"--source", "local"},
 	} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err != nil {
 			t.Errorf("entities %v: %v", f, err)
@@ -48,11 +52,10 @@ func TestFleetEntities(t *testing.T) {
 
 }
 
-// TestFleetEntitiesRejects: an invalid --sort is an error, and --kind takes
-// only the four kinds pacto_fleet_entities takes.
+// TestFleetEntitiesRejects: an invalid --sort or --kind is an error.
 func TestFleetEntitiesRejects(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	for _, f := range [][]string{{"--sort", "bogus"}, {"--kind", "revision"}} {
+	for _, f := range [][]string{{"--sort", "bogus"}, {"--kind", "bogus"}} {
 		if _, _, err := execFleet(t, append([]string{"fleet", "entities", "--local", root, "--target-state", ev}, f...)...); err == nil {
 			t.Errorf("entities %v is an error", f)
 		}
@@ -102,6 +105,7 @@ func TestFleetAttention(t *testing.T) {
 	for _, f := range [][]string{
 		{"--severity", "error"}, {"--owner", "commerce"}, {"--owner-key", "team:commerce"},
 		{"--business-domain", "(none)"}, {"--service", "orders"}, {"--limit", "1", "--offset", "1"},
+		{"--kind", "service"}, {"--key", "lonely"}, {"--source", "local"}, {"--status", "Unknown"}, {"--stale-only"},
 	} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err != nil {
 			t.Errorf("attention %v: %v", f, err)
@@ -112,7 +116,7 @@ func TestFleetAttention(t *testing.T) {
 	if err != nil || !strings.Contains(jout, `"nextOffset": 1`) || !strings.Contains(jout, `"categories"`) {
 		t.Errorf("attention json = %v:\n%s", err, jout)
 	}
-	for _, f := range [][]string{{"--offset", "-1"}, {"--category", "undeclard"}, {"--severity", "critical"}} {
+	for _, f := range [][]string{{"--offset", "-1"}, {"--category", "undeclard"}, {"--severity", "critical"}, {"--kind", "bogus"}, {"--status", "bogus"}} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err == nil {
 			t.Errorf("attention %v is an error", f)
 		}

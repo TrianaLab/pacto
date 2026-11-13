@@ -452,6 +452,29 @@ func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
 	}
 }
 
+// ListKinds picks the one kind a filter applies to, so a source, revision or
+// target filter is never refused for the default product kinds.
+func TestListKinds(t *testing.T) {
+	cases := []struct {
+		kind string
+		f    EntityFilter
+		want []EntityKind
+	}{
+		{"target", EntityFilter{Readiness: "passing"}, []EntityKind{KindTarget}},
+		{"", EntityFilter{Template: TemplateOnly}, []EntityKind{KindService}},
+		{"", EntityFilter{Readiness: "passing"}, []EntityKind{KindRevision}},
+		{"", EntityFilter{Scope: "prod"}, []EntityKind{KindTarget}},
+		{"", EntityFilter{SourceKind: "oci"}, []EntityKind{KindSource}},
+		{"", EntityFilter{SourceHealth: "stale"}, []EntityKind{KindSource}},
+		{"", EntityFilter{Template: TemplateExclude}, []EntityKind{KindService, KindOwner, KindDomain, KindOffering}},
+	}
+	for _, c := range cases {
+		if got := ListKinds(c.kind, c.f); !slices.Equal(got, c.want) {
+			t.Errorf("ListKinds(%q, %+v) = %v, want %v", c.kind, c.f, got, c.want)
+		}
+	}
+}
+
 // ServiceRef and OwnerRef are the exported forms of the package's own refs.
 func TestExportedRefs(t *testing.T) {
 	s := &ServiceRecord{Key: "shop/api", Name: "api", Domain: "shop", BusinessDomain: "payments"}
@@ -499,5 +522,15 @@ func TestTemplatesReferencing(t *testing.T) {
 	}}
 	if got := NewQuery(snap).TemplatesReferencing(p); !slices.Equal(got, []ServiceKey{"a-path", "b-path"}) {
 		t.Errorf("templates = %v", got)
+	}
+}
+
+func TestParseLabels(t *testing.T) {
+	if ParseLabels(nil) != nil {
+		t.Error("no pairs is no label filter")
+	}
+	got := ParseLabels([]string{"env=prod", "bare", "team=a=b"})
+	if len(got) != 2 || got["env"] != "prod" || got["team"] != "a=b" {
+		t.Errorf("ParseLabels = %v", got)
 	}
 }

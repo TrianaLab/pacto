@@ -181,6 +181,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
 			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"label":          {Type: "array", Items: "string", Description: "Target labels as key=value; every pair must match one target of the service"},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -192,22 +193,23 @@ func fleetSearchTool() *mcpsdk.Tool {
 // before it reaches the query instead of decoding to a zero that reads as
 // "filter not requested".
 type fleetSearchArgs struct {
-	Text           string `json:"text"`
-	Owner          string `json:"owner"`
-	BusinessDomain string `json:"business_domain"`
-	Offering       string `json:"offering"`
-	Status         string `json:"status"`
-	Compliance     string `json:"compliance"`
-	Source         string `json:"source"`
-	Scope          string `json:"scope"`
-	Workload       string `json:"workload"`
-	HasCapability  bool   `json:"has_capability"`
-	HasDependency  bool   `json:"has_dependency"`
-	Ready          bool   `json:"ready"`
-	NotReady       bool   `json:"not_ready"`
-	Template       string `json:"template"`
-	Limit          int    `json:"limit"`
-	Offset         int    `json:"offset"`
+	Text           string   `json:"text"`
+	Owner          string   `json:"owner"`
+	BusinessDomain string   `json:"business_domain"`
+	Offering       string   `json:"offering"`
+	Status         string   `json:"status"`
+	Compliance     string   `json:"compliance"`
+	Source         string   `json:"source"`
+	Scope          string   `json:"scope"`
+	Workload       string   `json:"workload"`
+	HasCapability  bool     `json:"has_capability"`
+	HasDependency  bool     `json:"has_dependency"`
+	Ready          bool     `json:"ready"`
+	NotReady       bool     `json:"not_ready"`
+	Template       string   `json:"template"`
+	Label          []string `json:"label"`
+	Limit          int      `json:"limit"`
+	Offset         int      `json:"offset"`
 }
 
 func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
@@ -217,6 +219,7 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
 			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
+			Labels: fleet.ParseLabels(a.Label),
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -408,7 +411,7 @@ func fleetExplainHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetExplainArgs,
 func fleetEntitiesTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_entities",
-		Description: "List services, owners, business domains or platform offerings, with paging ('total', " +
+		Description: "List services, owners, business domains or platform offerings, or the one kind named, with paging ('total', " +
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
 			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
@@ -419,17 +422,17 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Owner and domain rows carry nonCompliant " +
 			"(an owner's: the services it owns outright, 'owned'); has_non_compliant keeps the ones with at least one and " +
 			"sort=rate orders them by their share. source_kind keeps the sources of one kind; meta.sourceCounts.availableByKind " +
-			"counts the available ones per kind. Read-only.",
+			"counts the available ones per kind. A filter of one kind (readiness, scope, source_kind, source_health) lists that kind when kind is empty. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":              {Type: "string", Description: "Substring over name, key and owner"},
-			"kind":              {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
+			"kind":              {Type: "string", Description: "Entity kind (empty lists services, owners, domains and offerings)", Enum: fleet.EntityKinds()},
 			"owner":             {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
 			"owner_key":         {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain":   {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"offering":          {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
-			"environment":       {Type: "string", Description: "Needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
+			"environment":       {Type: "string", Description: "With kind=target, the targets in this environment; otherwise it needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
 			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
@@ -437,6 +440,13 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, or golden paths that created the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
 			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
+			"capability":        {Type: "string", Description: "Services whose revisions declare this capability key, such as health or acme.io/cost"},
+			"domain":            {Type: "string", Description: "Exact registry path, the domain part of a service key"},
+			"service":           {Type: "string", Description: "This service and its revisions and targets, by service key"},
+			"source":            {Type: "string", Description: "Entities read from this fleet source, by source key"},
+			"scope":             {Type: "string", Description: "Targets in this scope, such as a namespace"},
+			"readiness":         {Type: "string", Description: "Revisions by declared readiness", Enum: []string{"passing", "below-threshold", "expired", "not-declared"}},
+			"source_health":     {Type: "string", Description: "Sources by health", Enum: []string{"available", "partial", "stale", "unavailable"}},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -460,33 +470,34 @@ type fleetEntitiesArgs struct {
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
 	SourceKind      string `json:"source_kind"`
+	Capability      string `json:"capability"`
+	Domain          string `json:"domain"`
+	Service         string `json:"service"`
+	Source          string `json:"source"`
+	Scope           string `json:"scope"`
+	Readiness       string `json:"readiness"`
+	SourceHealth    string `json:"source_health"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
 
 func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntitiesArgs) (*mcpsdk.CallToolResult, any, error) {
-		if a.Environment != "" && a.Phase == "" {
-			// ponytail: this tool lists no targets, so the core's "alone it filters targets" hint never applies here.
+		if a.Environment != "" && a.Phase == "" && a.Kind != string(fleet.KindTarget) {
+			// ponytail: kind=target is the one listing where environment stands alone.
 			return errorResult(&fleet.InvalidQueryError{Field: "environment", Value: a.Environment,
 				Reason: "needs consumes and phase: it narrows the consumers of an offering in one phase to one environment"}), nil, nil
 		}
-		kinds := fleet.ProductKinds()
-		if a.Kind != "" {
-			kinds = []string{a.Kind}
-		} else if a.Template == fleet.TemplateOnly {
-			kinds = []string{string(fleet.KindService)}
-		}
-		var ks []fleet.EntityKind
-		for _, k := range kinds {
-			ks = append(ks, fleet.EntityKind(k))
-		}
-		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
-			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
+		f := fleet.EntityFilter{
+			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind,
-		}))
+			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
+			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth,
+		}
+		f.Kinds = fleet.ListKinds(a.Kind, f)
+		return productResult(link, productview.ToEntityList)(q.Entities(f))
 	}
 }
 
@@ -598,6 +609,11 @@ func fleetAttentionTool() *mcpsdk.Tool {
 			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"service":         {Type: "string", Description: "Items of this service: its key, or a name only one domain uses"},
+			"kind":            {Type: "string", Description: "Items about entities of this kind", Enum: fleet.EntityKinds()},
+			"key":             {Type: "string", Description: "Items about the entity with this exact key"},
+			"source":          {Type: "string", Description: "Items a fleet source reported, by source key"},
+			"status":          {Type: "string", Description: "Items about entities with this canonical compliance status", Enum: fleet.CanonicalStatuses()},
+			"stale_only":      {Type: "boolean", Description: "Only the items about stale evidence"},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -611,6 +627,11 @@ type fleetAttentionArgs struct {
 	OwnerKey       string `json:"owner_key"`
 	BusinessDomain string `json:"business_domain"`
 	Service        string `json:"service"`
+	Kind           string `json:"kind"`
+	Key            string `json:"key"`
+	Source         string `json:"source"`
+	Status         string `json:"status"`
+	StaleOnly      bool   `json:"stale_only"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
 }
@@ -620,6 +641,7 @@ func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[flee
 		return productResult(link, productview.ToAttentionList)(q.Attention(fleet.AttentionFilter{
 			Category: a.Category, Severity: a.Severity, Owner: a.Owner, OwnerKey: a.OwnerKey,
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
+			Kind: a.Kind, Key: a.Key, Source: a.Source, Status: a.Status, StaleOnly: a.StaleOnly,
 		}))
 	}
 }
@@ -639,6 +661,7 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 			"depth":     {Type: "integer", Description: fmt.Sprintf("How many hops to walk (0 = %d, at most %d)", fleet.DefaultNeighborhoodDepth, fleet.MaxNeighborhoodDepth)},
 			"views":     {Type: "string", Description: "Comma-separated knowledge views: expected, observed, differences (empty = expected,observed)"},
 			"max_nodes": {Type: "integer", Description: fmt.Sprintf("Maximum services (0 = %d, at most %d)", fleet.DefaultMaxNodes, fleet.MaxNeighborhoodNodes)},
+			"max_edges": {Type: "integer", Description: fmt.Sprintf("Maximum edges (0 = %d, at most %d)", fleet.DefaultMaxEdges, fleet.MaxNeighborhoodEdges)},
 		}, []string{"service"}),
 	}
 }
@@ -649,13 +672,14 @@ type fleetNeighborhoodArgs struct {
 	Depth     int    `json:"depth"`
 	Views     string `json:"views"`
 	MaxNodes  int    `json:"max_nodes"`
+	MaxEdges  int    `json:"max_edges"`
 }
 
 func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetNeighborhoodArgs) (*mcpsdk.CallToolResult, any, error) {
 		return productResult(link, productview.ToNeighborhood)(q.Neighborhood(fleet.NeighborhoodQuery{
 			Kind: fleet.KindService, Key: a.Service, Direction: fleet.Direction(a.Direction),
-			Depth: a.Depth, Views: fleet.ParseViews(a.Views), MaxNodes: a.MaxNodes,
+			Depth: a.Depth, Views: fleet.ParseViews(a.Views), MaxNodes: a.MaxNodes, MaxEdges: a.MaxEdges,
 		}))
 	}
 }

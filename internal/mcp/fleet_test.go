@@ -802,7 +802,7 @@ func TestFleetSearchTemplateArg(t *testing.T) {
 func TestFleetEntitiesEnvironmentArg(t *testing.T) {
 	props := fleetEntitiesTool().InputSchema.(map[string]any)["properties"].(map[string]any)
 	env, _ := props["environment"].(map[string]any)
-	if d, _ := env["description"].(string); !strings.HasPrefix(d, "Needs consumes and phase") || strings.Contains(d, "filters targets") {
+	if d, _ := env["description"].(string); !strings.HasPrefix(d, "With kind=target, the targets in this environment; otherwise it needs consumes and phase") || strings.Contains(d, "filters targets") {
 		t.Errorf("environment property = %v", env)
 	}
 	q := offeringFleet(t)
@@ -811,6 +811,9 @@ func TestFleetEntitiesEnvironmentArg(t *testing.T) {
 		if text := resultText(t, res); !res.IsError || !strings.Contains(text, "needs consumes and phase") || strings.Contains(text, "target") {
 			t.Errorf("%v = %s, want the consumes and phase error without a target hint this tool cannot follow", args, text)
 		}
+	}
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "target", "environment": "production"}); res.IsError {
+		t.Errorf("kind=target environment = %s, want the targets in that environment", resultText(t, res))
 	}
 	var out fleet.EntityList
 	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false),

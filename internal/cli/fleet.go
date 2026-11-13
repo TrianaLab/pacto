@@ -252,25 +252,11 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parseLabels(labels), Scope: scope, Status: status,
+		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: fleet.ParseLabels(labels), Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
 		Limit: limit, Offset: offset,
 	}
-}
-
-func parseLabels(pairs []string) map[string]string {
-	if len(pairs) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for _, p := range pairs {
-		k, val, ok := strings.Cut(p, "=")
-		if ok {
-			out[k] = val
-		}
-	}
-	return out
 }
 
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {

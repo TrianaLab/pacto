@@ -155,6 +155,21 @@ func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
 }
 
+// ParseLabels reads key=value pairs into SearchFilter.Labels; a pair with no
+// = is skipped.
+func ParseLabels(pairs []string) map[string]string {
+	if len(pairs) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, p := range pairs {
+		if k, val, ok := strings.Cut(p, "="); ok {
+			out[k] = val
+		}
+	}
+	return out
+}
+
 // SearchFilter constrains a service search. The zero value matches everything
 // (subject to the default result bound).
 //

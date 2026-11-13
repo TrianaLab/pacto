@@ -18,14 +18,15 @@ import (
 func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "entities [text]",
-		Short: "List services, owners, business domains or platform offerings",
-		Long: "Lists services, owners, business domains and platform offerings, paged. " +
+		Short: "List services, owners, business domains, platform offerings or any other entity kind",
+		Long: "Lists services, owners, business domains and platform offerings, paged, or the one --kind you name. " +
+			"A filter that applies to one kind only (--readiness, --scope, --source-kind, --source-health) lists that kind when --kind is empty. " +
 			"Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if k, _ := cmd.Flags().GetString("kind"); k != "" && !slices.Contains(fleet.ProductKinds(), k) {
-				return fmt.Errorf("--kind %q: want one of %s", k, strings.Join(fleet.ProductKinds(), ", "))
+			if k, _ := cmd.Flags().GetString("kind"); k != "" && !slices.Contains(fleet.EntityKinds(), k) {
+				return fmt.Errorf("--kind %q: want one of %s", k, strings.Join(fleet.EntityKinds(), ", "))
 			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -39,7 +40,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.String("kind", "", "entity kind (service, owner, domain, offering; empty lists all four)")
+	f.String("kind", "", "entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)")
 	f.String("owner", "", "free-text owner search over team, DRI and contacts")
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
@@ -54,9 +55,18 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
+	f.String("capability", "", "services whose revisions declare this capability key, such as health or acme.io/cost")
+	f.String("domain", "", "exact registry path, the domain part of a service key")
+	f.String("service", "", "this service and its revisions and targets, by service key")
+	f.String("source", "", "entities read from this fleet source, by source key")
+	f.String("scope", "", "targets in this scope, such as a namespace")
+	f.String("readiness", "", "revisions by declared readiness (passing, below-threshold, expired, not-declared)")
+	f.String("source-health", "", "sources by health (available, partial, stale, unavailable)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
-	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("readiness", staticCompletions("passing", "below-threshold", "expired", "not-declared"))
+	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable"))
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
@@ -109,22 +119,16 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 	nc, _ := cmd.Flags().GetBool("has-non-compliant")
-	kinds := fleet.ProductKinds()
-	if k := get("kind"); k != "" {
-		kinds = []string{k}
-	} else if get("template") == fleet.TemplateOnly {
-		kinds = []string{string(fleet.KindService)}
-	}
-	var ks []fleet.EntityKind
-	for _, k := range kinds {
-		ks = append(ks, fleet.EntityKind(k))
-	}
-	return fleet.EntityFilter{
-		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
+	f := fleet.EntityFilter{
+		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Limit: limit, Offset: offset,
+		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
+		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"),
 	}
+	f.Kinds = fleet.ListKinds(get("kind"), f)
+	return f
 }
 
 // addTemplateFlag adds --template: bare it keeps only golden paths, and
@@ -216,10 +220,17 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
 	f.String("service", "", "items of this service: its key, or a name only one domain uses")
+	f.String("kind", "", "items about entities of this kind ("+strings.Join(fleet.EntityKinds(), ", ")+")")
+	f.String("key", "", "items about the entity with this exact key")
+	f.String("source", "", "items a fleet source reported, by source key")
+	f.String("status", "", "items about entities with this canonical compliance status")
+	f.Bool("stale-only", false, "only the items about stale evidence")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultAttentionLimit, fleet.MaxAttentionLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("category", staticCompletions(fleet.AttentionCategoriesList()...))
 	_ = cmd.RegisterFlagCompletionFunc("severity", staticCompletions("error", "warning", "info"))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
+	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	return cmd
 }
 
@@ -227,9 +238,11 @@ func attentionFilterFromCmd(cmd *cobra.Command) fleet.AttentionFilter {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	stale, _ := cmd.Flags().GetBool("stale-only")
 	return fleet.AttentionFilter{
 		Category: get("category"), Severity: get("severity"), Owner: get("owner"), OwnerKey: get("owner-key"),
 		BusinessDomain: get("business-domain"), Service: get("service"), Limit: limit, Offset: offset,
+		Kind: get("kind"), Key: get("key"), Source: get("source"), Status: get("status"), StaleOnly: stale,
 	}
 }
 
