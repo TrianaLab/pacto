@@ -28,7 +28,8 @@ type impactProvider func(ctx context.Context, snap *fleet.FleetSnapshot, req Imp
 
 func impactTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_impact",
+		Name:        "pacto_impact",
+		Annotations: readOnly(true),
 		Description: "Analyze which consumers a change affects, from an old to a new contract revision, " +
 			"projected onto the operational graph. Reports the semantic classification, breaking " +
 			"changes, affected consumers (with confidence and compatibility verdict), active targets " +

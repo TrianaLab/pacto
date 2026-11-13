@@ -557,17 +557,7 @@ func shadowBundle() *contract.Bundle {
 // pacto_ tool is one the bare variant registers and every other tool is a
 // generated operation of the fixture.
 func TestPactoPrefixReservedOnEveryServer(t *testing.T) {
-	cat, _ := platformCatalog(t)
-	variants := map[string]func() *mcpsdk.Server{
-		"authoring": func() *mcpsdk.Server { return NewServer(Authoring{}, "test") },
-		"fleet": func() *mcpsdk.Server {
-			return NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
-		},
-		"catalog":         func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
-		"delivery-read":   func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, false, Authoring{}) },
-		"delivery-writes": func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, true, Authoring{}) },
-		"publish":         func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
-	}
+	variants := serverVariants(t)
 	generated := map[string]bool{"createRefund": true, "lookup": true}
 	opts := CapabilityOptions{BaseURL: "http://x", AllowWrites: true}
 	for name, build := range variants {
@@ -588,6 +578,22 @@ func TestPactoPrefixReservedOnEveryServer(t *testing.T) {
 		}
 		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
 	})
+}
+
+// serverVariants builds every server variant Pacto serves, bare.
+func serverVariants(t *testing.T) map[string]func() *mcpsdk.Server {
+	t.Helper()
+	cat, _ := platformCatalog(t)
+	return map[string]func() *mcpsdk.Server{
+		"authoring": func() *mcpsdk.Server { return NewServer(Authoring{}, "test") },
+		"fleet": func() *mcpsdk.Server {
+			return NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
+		},
+		"catalog":         func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
+		"delivery-read":   func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, false, Authoring{}) },
+		"delivery-writes": func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, true, Authoring{}) },
+		"publish":         func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
+	}
 }
 
 func assertOnlyPactoOrGenerated(t *testing.T, got, pacto, generated map[string]bool) {

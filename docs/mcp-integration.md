@@ -125,9 +125,9 @@ change.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.
-- **Tools carry no safety labels.** Pacto does not mark its tools as
-  read-only or destructive in MCP, so build allow-lists by name from the
-  table below.
+- **Tools carry safety hints.** Every tool says in MCP whether it is
+  read-only or destructive. Hints guide your client; `--allow-writes`
+  decides what runs.
 - **Partial answers say so.** Fleet answers carry `asOf`, the time
   they describe, and `completeness`, `complete` or `partial`. When a source was unreachable the answer says `partial`,
   and "not found" then means "not known".

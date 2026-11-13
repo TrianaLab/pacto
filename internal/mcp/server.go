@@ -91,17 +91,17 @@ func newServer(version, instructions string, a Authoring) *mcpsdk.Server {
 
 // registerTools adds all Pacto tools to the MCP server.
 //
-// Every tool goes through the generic mcpsdk.AddTool rather than the raw
-// Server.AddTool: the generic form validates the incoming arguments against the
+// Every tool goes through addTool, the generic mcpsdk.AddTool rather than the
+// raw Server.AddTool: the generic form validates the incoming arguments against the
 // tool's declared schema before the handler runs and unmarshals them into a
 // typed struct. The raw form does neither, so `{"max_depth":"3"}` used to decode
 // to nothing and be read as the 0 that means "unlimited" — the caller asked to
 // bound a traversal and got an unbounded one.
 func registerTools(server *mcpsdk.Server, a Authoring) {
-	mcpsdk.AddTool(server, createTool(), createHandler(a.Init))
-	mcpsdk.AddTool(server, editTool(), editHandler(a.Validate))
-	mcpsdk.AddTool(server, checkTool(), checkHandler(a.Validate))
-	mcpsdk.AddTool(server, schemaTool(), schemaHandler())
+	addTool(server, createTool(), createHandler(a.Init))
+	addTool(server, editTool(), editHandler(a.Validate))
+	addTool(server, checkTool(), checkHandler(a.Validate))
+	addTool(server, schemaTool(), schemaHandler())
 }
 
 // jsonResult marshals v to JSON and returns it as a CallToolResult with text content.

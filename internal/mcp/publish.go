@@ -29,8 +29,9 @@ func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Serv
 		Path     string `json:"path"`
 		Revision string `json:"revision"`
 	}
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_publish_plan",
+		Annotations: readOnly(true),
 		Description: "Plan publishing the contract's version: what is missing, what conflicts and which checks refuse it. Writes nothing.",
 		InputSchema: schema,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a args) (*mcpsdk.CallToolResult, any, error) {
@@ -40,8 +41,9 @@ func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Serv
 		}
 		return resultOrError(res.Plan, nil)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_publish",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_publish",
+		Annotations: writes(false, true, true),
 		Description: "Publish the contract's version: build, push by digest, sign, attach SBOMs and tag, the deploy " +
 			"artifact last. Never overwrites a tag; a second call publishes nothing new.",
 		InputSchema: schema,

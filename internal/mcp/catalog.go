@@ -111,7 +111,7 @@ func registerCatalogSurface(server *mcpsdk.Server, cat *catalog.Catalog) {
 			"reported as found. Read-only.",
 	}, catalogClosureHandler(cat))
 
-	mcpsdk.AddTool(server, catalogRevisionTool(), catalogRevisionHandler(cat))
+	addTool(server, catalogRevisionTool(), catalogRevisionHandler(cat))
 }
 
 // catalogOverview is the cheap half of the catalog: what it is and what was
@@ -171,7 +171,8 @@ func catalogClosureHandler(cat *catalog.Catalog) mcpsdk.ResourceHandler {
 
 func catalogRevisionTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_catalog_revision",
+		Name:        "pacto_catalog_revision",
+		Annotations: readOnly(false),
 		Description: "Look up one contract revision in the catalog by its full identity: the " +
 			"domain-qualified service it belongs to and its immutable content identity. Returns the " +
 			"revision with every requested and resolved reference, its rank and every retained path, " +

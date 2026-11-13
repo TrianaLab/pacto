@@ -73,7 +73,7 @@ func RegisterCapabilities(server *mcpsdk.Server, bundle *contract.Bundle, opts C
 			return err
 		}
 	}
-	mcpsdk.AddTool(server, skillTool(), skillHandler(bundle.FS))
+	addTool(server, skillTool(), skillHandler(bundle.FS))
 	return nil
 }
 
@@ -114,6 +114,7 @@ func registerInterface(server *mcpsdk.Server, it capability.InterfaceTools, opts
 			Name:        name,
 			Description: toolDesc(tool),
 			InputSchema: tool.InputSchema,
+			Annotations: generatedHints(tool),
 		}
 		if err := addCapabilityTool(server, decl, capabilityHandler(tool.Op, doc, base, opts)); err != nil {
 			_, _ = fmt.Fprintf(stderr, "pacto mcp: operation %q in interface %q is unavailable (%v)\n", name, iface.Name, err)
@@ -141,7 +142,7 @@ func addCapabilityTool(server *mcpsdk.Server, decl *mcpsdk.Tool, h mcpsdk.ToolHa
 		}
 	}()
 	normalizeDraft4Bounds(decl.InputSchema)
-	mcpsdk.AddTool(server, decl, h)
+	addTool(server, decl, h)
 	return nil
 }
 
@@ -195,8 +196,9 @@ func convertExclusiveBound(m map[string]any, key, sibling string) {
 // arguments and never touches the network: every call answers with the reason.
 func registerUnavailable(server *mcpsdk.Server, decl *mcpsdk.Tool, cause error) {
 	reason := fmt.Errorf("operation %q is declared by the contract but Pacto could not expose it: %w", decl.Name, cause)
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	addTool(server, &mcpsdk.Tool{
 		Name:        decl.Name,
+		Annotations: readOnly(false),
 		Description: "UNAVAILABLE (" + decl.Description + "): Pacto could not register this operation's schema. Calling it reports why; it does not reach the service.",
 		InputSchema: map[string]any{"type": "object"},
 	}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, any, error) {
@@ -241,7 +243,8 @@ func capabilityHandler(op openapi.Operation, doc *openapi.Doc, baseURL string, o
 
 func skillTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_skill",
+		Name:        "pacto_skill",
+		Annotations: readOnly(false),
 		Description: "Lists the bundle's domain skills (skills/*.md) when called with no arguments, " +
 			"or returns one skill's markdown content when given its name.",
 		InputSchema: inputSchema(map[string]property{

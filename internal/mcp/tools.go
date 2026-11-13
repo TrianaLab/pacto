@@ -19,7 +19,8 @@ import (
 
 func createTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_create",
+		Name:        "pacto_create",
+		Annotations: writes(false, false, true),
 		Description: "Creates a new Pacto service contract from structured inputs. " +
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
@@ -275,7 +276,8 @@ var newDynamic = k8sclient.NewDynamic
 
 func editTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_edit",
+		Name:        "pacto_edit",
+		Annotations: writes(true, false, true),
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces, " +
 			"dependencies and configuration references, environments and their values, the service lifecycle, " +
 			"the golden path template, workload and state semantics, metadata and more. " +
@@ -400,7 +402,8 @@ func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
 
 func checkTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_check",
+		Name:        "pacto_check",
+		Annotations: readOnly(true),
 		Description: "Validates a Pacto contract the way `pacto validate` and CI do, and returns structured results including " +
 			"each stage's status, located errors, warnings, next (the one command to run now), a contract summary and actionable suggestions for " +
 			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
@@ -451,7 +454,8 @@ func checkHandler(validate Validator) mcpsdk.ToolHandlerFor[checkArgs, any] {
 
 func schemaTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_schema",
+		Name:        "pacto_schema",
+		Annotations: readOnly(false),
 		Description: "Returns the Pacto contract JSON Schema, how to describe an AI agent as a service and the documentation link. " +
 			"Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 			"Call this FIRST before creating or editing contracts to understand the format.",

@@ -116,7 +116,8 @@ func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mc
 // addFleetTool registers one fleet tool: answered from the current (viewed)
 // query and, with a dashboard URL, linked to the dashboard.
 func addFleetTool[A any](server *mcpsdk.Server, tool *mcpsdk.Tool, src FleetQuerySource, opts FleetOptions, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) {
-	mcpsdk.AddTool(server, tool, linkHrefs(tool.Name, hrefPrefix(opts), viewed(src, opts.View, h)))
+	tool.Annotations = readOnly(true)
+	addTool(server, tool, linkHrefs(tool.Name, hrefPrefix(opts), viewed(src, opts.View, h)))
 }
 
 // hrefPrefix is the dashboard base every href is prefixed with, empty without
@@ -153,7 +154,7 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	if opts.Impact != nil {
 		// Impact analyses over the snapshot the other tools answer from (the
 		// caller's view of it when there is one), so one session's answers agree.
-		mcpsdk.AddTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
+		addTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
 			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
 		})))
 	}

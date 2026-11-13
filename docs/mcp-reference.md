@@ -21,17 +21,18 @@ and no tool deploys. In delivery mode an agent asks for a change; Pacto's
 checks and people decide. [Server modes](cli-reference.md#server-modes) lists which tools each
 invocation registers.
 
-!!! warning "Tools carry no safety annotations"
-    Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
-    [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
-    member (`readOnlyHint`, `destructiveHint` or `idempotentHint`) on any tool,
-    including `pacto_create`, `pacto_edit` and a generated
-    tool such as `createRefund`, which moves money. Build allow-lists by hand
-    from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
-    `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
-    `pacto_edit` write contract files. Under `--allow-writes`, treat every
-    generated tool (no `pacto_` prefix) as able to change the live service. A
-    bundle cannot claim a `pacto_` name.
+!!! warning "Annotations are hints"
+    Every tool carries MCP
+    [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations).
+    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`,
+    `pacto_catalog_revision`, `pacto_publish_plan` and the delivery reads set
+    `readOnlyHint`. `pacto_edit` sets `destructiveHint`: it removes entries in
+    place. A generated tool takes its hints from its
+    HTTP method: `GET` and `HEAD` are read-only, `PUT` is idempotent, `DELETE` is
+    destructive, and `POST`, `PATCH` and `PUT` leave `destructiveHint` unset, which
+    MCP clients read as destructive. Hints are advice to the client;
+    `--allow-writes` decides which write tools exist. A bundle cannot claim a
+    `pacto_` name.
 
 ### Fleet query safety
 
