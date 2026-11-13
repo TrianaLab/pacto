@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -221,7 +220,7 @@ func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInp
 	res, err := q.Neighborhood(fleet.NeighborhoodQuery{
 		Kind: fleet.EntityKind(in.Kind), Key: in.Key, Perspective: fleet.Perspective(in.Perspective),
 		Direction: fleet.Direction(in.Direction),
-		Depth:     in.Depth, Views: parseViews(in.Views), MaxNodes: in.MaxNodes, MaxEdges: in.MaxEdges,
+		Depth:     in.Depth, Views: fleet.ParseViews(in.Views), MaxNodes: in.MaxNodes, MaxEdges: in.MaxEdges,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
@@ -433,17 +432,4 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
-}
-
-func parseViews(s string) []fleet.KnowledgeView {
-	if s == "" {
-		return nil
-	}
-	var out []fleet.KnowledgeView
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, fleet.KnowledgeView(p))
-		}
-	}
-	return out
 }

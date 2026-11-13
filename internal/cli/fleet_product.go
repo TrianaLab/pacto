@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -87,7 +86,7 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 			maxEdges, _ := f.GetInt("max-edges")
 			nb, err := q.Neighborhood(fleet.NeighborhoodQuery{
 				Kind: fleet.KindService, Key: args[0], Direction: fleet.Direction(dir),
-				Depth: depth, Views: mcp.SplitViews(views), MaxNodes: maxNodes, MaxEdges: maxEdges,
+				Depth: depth, Views: fleet.ParseViews(views), MaxNodes: maxNodes, MaxEdges: maxEdges,
 			})
 			if err != nil {
 				return err

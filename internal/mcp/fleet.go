@@ -655,25 +655,9 @@ func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[f
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetNeighborhoodArgs) (*mcpsdk.CallToolResult, any, error) {
 		return productResult(link, productview.ToNeighborhood)(q.Neighborhood(fleet.NeighborhoodQuery{
 			Kind: fleet.KindService, Key: a.Service, Direction: fleet.Direction(a.Direction),
-			Depth: a.Depth, Views: SplitViews(a.Views), MaxNodes: a.MaxNodes,
+			Depth: a.Depth, Views: fleet.ParseViews(a.Views), MaxNodes: a.MaxNodes,
 		}))
 	}
-}
-
-// SplitViews reads a comma-separated list of knowledge views. Blank parts are
-// dropped, and an empty list means expected and observed, so a neighbourhood
-// shows the dependents only observation has seen.
-func SplitViews(s string) []fleet.KnowledgeView {
-	var out []fleet.KnowledgeView
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, fleet.KnowledgeView(p))
-		}
-	}
-	if len(out) == 0 {
-		return []fleet.KnowledgeView{fleet.ViewExpected, fleet.ViewObserved}
-	}
-	return out
 }
 
 // productResult answers a product query's result, or its error as the tool's

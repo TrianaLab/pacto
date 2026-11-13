@@ -89,16 +89,3 @@ func TestFleetNeighborhoodTool(t *testing.T) {
 		}
 	}
 }
-
-func TestSplitViews(t *testing.T) {
-	for in, want := range map[string][]fleet.KnowledgeView{
-		"":                       {fleet.ViewExpected, fleet.ViewObserved},
-		" , ":                    {fleet.ViewExpected, fleet.ViewObserved},
-		"differences":            {fleet.ViewDifferences},
-		" expected , observed ,": {fleet.ViewExpected, fleet.ViewObserved},
-	} {
-		if got := SplitViews(in); !slices.Equal(got, want) {
-			t.Errorf("SplitViews(%q) = %v, want %v", in, got, want)
-		}
-	}
-}
