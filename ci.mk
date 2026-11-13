@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test ci-cover ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
+       verify-k8s-standalone ci-test cover-gate ci-cover-merge ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -392,16 +392,17 @@ verify-k8s-standalone:
 # a go.* test (AVAL_NO_TEST above); `make coverage` reuses it. Pacto has no
 # root package, so every ID is a directory.
 COVER_PKGS = $$($(AVAL) $(AVAL_GEN_GO) --list-tests | sed 's|^|./|')
-ci-test: ci-cover
+ci-test:
+	@echo "==> Running unit tests with race detector and coverage..."
+	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
+	@$(MAKE) --no-print-directory cover-gate
 	@echo "==> Running example tests (no coverage gate)..."
 	@go test -race ./examples/...
 	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
 	@$(MAKE) -C examples/demo validate
 
-# ci-cover is the 100% gate alone; CI runs it in its own job.
-ci-cover:
-	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
+# cover-gate is the 100% rule over coverage.out, for ci-test and ci-cover-merge.
+cover-gate:
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -409,6 +410,24 @@ ci-cover:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
+
+# ci-cover-merge is the same gate in CI with no test re-run: it merges the
+# per-package profiles the go.* tests wrote or Aval restored on reuse
+# (aval gen go --go-cover-profile) into coverage.out. Without -coverpkg the
+# merge equals ci-test's single profile. A missing profile fails.
+# TODO(TrianaLab/aval#334): AVAL_COVER_PROFILE is a placeholder until
+# TrianaLab/aval#334 fixes where --go-cover-profile writes (% is the unit ID);
+# AVAL_GEN_GO gets --go-cover-profile then.
+AVAL_COVER_PROFILE = .aval/cover/%.out
+ci-cover-merge:
+	@ids=$$($(AVAL) $(AVAL_GEN_GO) --list-tests) && [ -n "$$ids" ] || exit 1; \
+	first=$$(echo "$$ids" | head -1); \
+	head -1 "$(subst %,$$first,$(AVAL_COVER_PROFILE))" > coverage.out || exit 1; \
+	for id in $$ids; do \
+		f="$(subst %,$$id,$(AVAL_COVER_PROFILE))"; \
+		tail -n +2 "$$f" >> coverage.out || { echo "FAIL: no coverage profile $$f"; exit 1; }; \
+	done
+	@$(MAKE) --no-print-directory cover-gate
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).
