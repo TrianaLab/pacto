@@ -1442,7 +1442,7 @@ OUT="$(KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - 2>&1 <<YAML || true
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
-spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
+spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, onBehalfOf: {user: dana@example.com}, reason: squat}
 YAML
 )"
 grep -q "the Pacto delivery promoter raises its own operations under" <<<"$OUT" || fail "an agent took the name of S's rollback: $OUT"
