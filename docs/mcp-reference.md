@@ -73,14 +73,11 @@ instructions describe only the modes the server serves.
 `pacto_capabilities` reports `modes`, the contract tools in `authoring`,
 `writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed` and
 `delivery` of the dashboard's `GET /api/capabilities`. `caller.callerSource`
-says how Pacto knows `caller.user`: `reviewed` by the API server, only a
-verified `token` (`user` is then `unknown`) or `local` (stdio or the loopback
-launch bearer). With delivery, `caller.class` is the actor class,
-`caller.policyError` says the class came from the policy's defaults and
-`caller.classAsOf` says when the class was read: at startup over stdio, where
-the write tools follow that class too, and per request over HTTP.
-`pacto_delivery_caller` reads the class live. `delivery` is `false` when the
-cluster does not serve the delivery API.
+says how Pacto knows `caller.user`: `reviewed` by the API server, a verified
+`token` (`user` is then `unknown`) or `local` (stdio or the loopback launch
+bearer). With delivery, `caller.class` is the actor class as read at
+`caller.classAsOf` (startup over stdio); `caller.policyError` marks policy
+defaults.
 
 ## Tool-call log
 
