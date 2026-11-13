@@ -24,7 +24,7 @@ beat_args() {
   case "$1" in
     1)  echo "fleet search --local examples/demo/bundles" ;;
     2)  echo "fleet search --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml" ;;
-    3)  echo "fleet explain identity/auth-service --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml --freshness 24h" ;;
+    3)  echo "fleet explain identity/auth-service --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml" ;;
     3-readiness)
         echo "explain examples/demo/bundles/api-gateway/v1.2.0" ;;
     4)  echo "fleet get --target commerce/orders-service --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml" ;;

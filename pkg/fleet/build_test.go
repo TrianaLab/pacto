@@ -2225,3 +2225,64 @@ func TestIngestProvisioning_Deterministic(t *testing.T) {
 		t.Errorf("order = %+v", one.Provisioning)
 	}
 }
+
+// freshnessSnap builds one target (with evidence) unless noTargets, under opts.
+func freshnessSnap(t *testing.T, opts BuildOptions, noTargets bool) *FleetSnapshot {
+	t.Helper()
+	col := &Collection{Revisions: []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}}}
+	if !noTargets {
+		at := fixedNow().Add(-48 * time.Hour)
+		col.Targets = []RawTarget{{Scope: "prod", Kind: "k8s", Name: "leaf", Service: "leaf", Digest: "sha256:leaf", EvidenceAt: &at}}
+	}
+	opts.Now = fixedNow
+	snap, err := Build(context.Background(), opts, NewMemorySource("src", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func countLimitation(lims []Limitation, code string) int {
+	n := 0
+	for _, l := range lims {
+		if l.Code == code {
+			n++
+		}
+	}
+	return n
+}
+
+func TestBuildDisclosesUncheckedFreshness(t *testing.T) {
+	plain := freshnessSnap(t, BuildOptions{}, false)
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true}, false)
+	if n := countLimitation(snap.Limitations, LimitationFreshnessNotEvaluated); n != 1 {
+		t.Fatalf("want one %s limitation, got %d: %+v", LimitationFreshnessNotEvaluated, n, snap.Limitations)
+	}
+	if snap.Completeness != plain.Completeness || snap.Completeness != CompletenessComplete {
+		t.Errorf("the disclosure must not move completeness: %q vs %q", snap.Completeness, plain.Completeness)
+	}
+	if snap.SnapshotID == plain.SnapshotID {
+		t.Error("the limitation is part of the hashed snapshot, so the id must change")
+	}
+}
+
+func TestBuildNoDisclosureWithoutTargets(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true}, true)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("a snapshot with no target has no evidence age to skip")
+	}
+}
+
+func TestBuildNoDisclosureWhenNotAsked(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{}, false)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("only the product build path asks for the disclosure")
+	}
+}
+
+func TestBuildNoDisclosureWithWindow(t *testing.T) {
+	snap := freshnessSnap(t, BuildOptions{DiscloseUncheckedFreshness: true, FreshnessWindow: RecentEvidenceWindow}, false)
+	if hasLimitation(snap.Limitations, LimitationFreshnessNotEvaluated) {
+		t.Error("a window was set, so freshness was checked")
+	}
+}

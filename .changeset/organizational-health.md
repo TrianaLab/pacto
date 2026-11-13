@@ -15,3 +15,10 @@ and reaches the same finding. The `CapabilityObserved` evidence payload gains
 the optional `healthy` key, which only a present capability may carry. Strict
 decoders reject unknown keys, so upgrade the Evidence Server with or before the
 operator.
+
+`pacto fleet`, `pacto mcp`, `pacto tui` and `pacto impact` now mark target
+evidence older than 24 hours as stale by default, the window the dashboard
+already uses. `--freshness 0` still skips the check, and every answer then
+carries the `FRESHNESS_NOT_EVALUATED` limitation, so a stale count of zero is
+never read as "nothing is stale"; the CLI also prints it as a note on stderr.
+The limitation does not change completeness.

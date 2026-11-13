@@ -347,6 +347,11 @@ const (
 	// environment leaves out the consumers that have no provisioning status
 	// there, because their current revision does not declare it.
 	LimitationProvisioningEnvironmentScoped = "PROVISIONING_ENVIRONMENT_SCOPED"
+	// LimitationFreshnessNotEvaluated: the snapshot was built with a zero
+	// freshness window (--freshness 0), so no target's evidence age was checked
+	// and no target is marked stale. Stale counts read zero because they were not
+	// computed. It does not change completeness, which states source health.
+	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.

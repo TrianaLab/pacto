@@ -847,7 +847,7 @@ pacto fleet [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
@@ -1206,7 +1206,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration              mark target evidence older than this as stale (0 disables)
+      --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1508,7 +1508,7 @@ pacto mcp [bundle-ref] [flags]
       --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
-      --freshness duration            mark target evidence older than this as stale (0 disables)
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1827,7 +1827,7 @@ pacto tui [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
