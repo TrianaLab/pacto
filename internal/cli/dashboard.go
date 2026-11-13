@@ -158,6 +158,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
+			if !identity.auth.Local() && !identity.auth.SignsIn() {
+				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
+			}
 			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
@@ -211,6 +214,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
+	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
@@ -226,7 +230,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.

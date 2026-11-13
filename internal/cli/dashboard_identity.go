@@ -41,9 +41,15 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// errOpenNeedsAllowAnonymous stops a dashboard that would show the whole fleet
+// to everyone who reaches it, unless someone chose that.
+var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sign-in exposes the whole fleet; " +
+	"configure --oidc-issuer-url or --token-login, or pass --allow-anonymous")
+
 // newDashboardIdentity picks the mode: shared when an issuer or token sign-in
 // is configured (people sign in before the dashboard shows anything), local on
-// a loopback bind without either, and open (no delivery) anywhere else.
+// a loopback bind without either, and open (no delivery) anywhere else, only
+// with --allow-anonymous.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
@@ -84,8 +90,10 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
-	default:
+	case v.GetBool("dashboard.allow-anonymous"):
 		id.auth = authn.NewOpen()
+	default:
+		return nil, errOpenNeedsAllowAnonymous
 	}
 	return id, nil
 }
