@@ -277,6 +277,10 @@ jobs:
       packages: read # aval run reads the private attestations
     env:
       GOFLAGS: -race
+      # Otherwise an internal/cli test writes ~/.config/pacto/update-check.json,
+      # a timestamp in every later go.* test's scope (aval.yaml defaults paths),
+      # so those would never be reused after internal/cli runs.
+      PACTO_NO_UPDATE_CHECK: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
