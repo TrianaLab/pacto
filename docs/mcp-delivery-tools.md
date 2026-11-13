@@ -36,8 +36,11 @@ route's own parameters and answer: `pacto_delivery_caller`,
 with the caller's identity, so the API server decides what each caller reads.
 With `--fleet` they also follow the caller's fleet view, and the fleet
 `--namespace` limits them to one namespace, as on the dashboard. A list answer
-carries `asOf` and `completeness`, and `unreadable` names the namespaces the
-caller could not list.
+carries `asOf` and `completeness`. It covers the namespaces the caller may list
+Stages in; namespaces outside the caller's permissions are left out without
+being named. `unreadable` names a namespace that refused the list, and without
+`--fleet` the inbox names `owners` there, since no owner is known and every
+Stage is shown as the caller's.
 
 ## Candidates, plans and history
 

@@ -307,7 +307,7 @@ pacto delivery approve <operation> [flags]
 
 How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a level moves through a proposed and approved operation.
 
-It runs the dashboard's own autonomy view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own autonomy view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery autonomy [flags]
@@ -346,7 +346,7 @@ pacto delivery blame [flags]
 
 The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
 
-It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery caller [flags]
@@ -405,7 +405,7 @@ pacto delivery describe <type> [flags]
 
 Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
 
-It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery environments [flags]
@@ -480,7 +480,7 @@ pacto delivery history [flags]
 
 Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
 
-It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery inbox [flags]
@@ -572,7 +572,7 @@ pacto delivery propose [flags]
 
 Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
 
-It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery published [flags]
@@ -639,7 +639,7 @@ pacto delivery record verify [flags]
 
 Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
 
-It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
 ```
 pacto delivery refusals [flags]

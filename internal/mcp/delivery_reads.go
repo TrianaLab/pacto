@@ -24,7 +24,8 @@ const deliveryReadsInstructions = "pacto_delivery_caller, pacto_delivery_inbox, 
 	"pacto_delivery_autonomy, pacto_delivery_published and pacto_delivery_refusals answer what the dashboard's " +
 	"delivery views show, with your own identity: who you are to delivery, what waits on you, every Stage, the path " +
 	"to autonomy, the versions the Stages know and the publishes Pacto refused. A list answer carries asOf and " +
-	"completeness, and unreadable names the namespaces you could not list."
+	"completeness. It covers the namespaces you may list Stages in and leaves out, without naming them, those outside your " +
+	"permissions; unreadable names a namespace that refused the list, and owners when no fleet tells whose Stages are yours."
 
 // deliveryRead is one read tool: the route it runs and the route's query
 // parameters, with the route's own names and descriptions.

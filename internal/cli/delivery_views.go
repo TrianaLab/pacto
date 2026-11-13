@@ -39,7 +39,8 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 		Use:   route,
 		Short: short,
 		Long: description + "\n\nIt runs the dashboard's own " + route + " view with your kubeconfig identity, so the apiserver decides what you see. " +
-			"Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. " +
+			"Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; " +
+			"a namespace that refuses the list makes the answer partial and is named in unreadable. " +
 			"The answer is the dashboard's JSON in every output format.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

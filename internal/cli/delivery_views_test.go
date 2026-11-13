@@ -50,3 +50,12 @@ func TestDeliveryViewCommandsFail(t *testing.T) {
 	_, err = runDelivery(t, d, "text", "published")
 	wantErr(t, err, "DeliveryNotInstalled")
 }
+
+// TestDeliveryViewHelpSaysWhatIsLeftOut: a namespace the caller's access
+// review filters out is left out without being named, so the help never
+// promises unreadable names every namespace the caller cannot read.
+func TestDeliveryViewHelpSaysWhatIsLeftOut(t *testing.T) {
+	long := newDeliveryViewCommand(readDeps(nil), "environments", "").Long
+	expect(t, strings.Contains(long, "leaves out, without naming them, those outside your permissions") &&
+		!strings.Contains(long, "every namespace you can list"), "help: %s", long)
+}
