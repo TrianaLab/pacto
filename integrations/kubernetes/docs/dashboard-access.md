@@ -9,10 +9,9 @@ analysis and the remote MCP fleet tools. A visitor who has not signed in gets
 the sign-in screen and no fleet data.
 
 Your username and groups are what the API server answers for your token
-([match the API server's claim mapping](dashboard-authentication.md#match-the-api-servers-claim-mapping)). A remote `pacto mcp --fleet` takes the same
-mapping as `--oidc-username-claim`, `--oidc-username-prefix`,
-`--oidc-groups-claim` and `--oidc-groups-prefix`, so a person is the same
-identity in both. When your RBAC lets you read no namespace, the
+([match the API server's claim mapping](dashboard-authentication.md#match-the-api-servers-claim-mapping)). A remote `pacto mcp --fleet` exchanges each
+caller's token (`--exchange-client-id`) and asks the API server who they are,
+so a person is the same identity in both. When your RBAC lets you read no namespace, the
 dashboard says so and names your groups.
 
 ## What stays hidden

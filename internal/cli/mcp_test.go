@@ -744,6 +744,8 @@ func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
 	// Remote delivery serves per request and offers only pacto_schema too.
 	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
-	expect(t, remoteDeliveryFor(newMCPCommand(app.NewService(nil, nil), "v", d), app.NewService(nil, nil), "v", d, &s) == nil && s.remoteAuthoring,
+	dcmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	_ = dcmd.Flags().Set("delivery", "true")
+	expect(t, remoteCallerFor(dcmd, app.NewService(nil, nil), "v", d, &s) == nil && s.remoteAuthoring,
 		"remote delivery must report schema-only authoring")
 }

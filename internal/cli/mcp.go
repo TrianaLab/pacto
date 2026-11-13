@@ -59,9 +59,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
 			"needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
 			"(RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent " +
-			"proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping " +
-			"(--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; " +
-			"the API server does not confirm it, so the mapping must match its claimMappings.\n\n" +
+			"proposes as itself and a person gets the read-only tools. With --fleet the server exchanges each caller's token the same way, " +
+			"asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
@@ -89,21 +88,28 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkMCPTransport(s.transport); err != nil {
 				return err
 			}
-			if fm, _ := cmd.Flags().GetBool("fleet"); !fm && cmd.Flags().Changed("dashboard-url") {
+			fleetMode, _ := cmd.Flags().GetBool("fleet")
+			deliveryMode, _ := cmd.Flags().GetBool("delivery")
+			publishMode, _ := cmd.Flags().GetBool("publish")
+			// The mode is selected by --root being present, not by the values surviving:
+			// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
+			// back as no roots at all. That has to fail, not turn into a different server.
+			if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, deliveryMode, publishMode); err != nil {
+				return err
+			}
+			if !fleetMode && cmd.Flags().Changed("dashboard-url") {
 				return errDashboardURLNeedsFleet
 			}
-			if pub, _ := cmd.Flags().GetBool("publish"); pub && s.transport != "stdio" {
+			if publishMode && s.transport != "stdio" {
 				return errPublishOverHTTP
 			}
 			if err := mcpRemote(cmd, d, &s); err != nil {
 				return err
 			}
-			if dm, _ := cmd.Flags().GetBool("delivery"); dm && s.transport != "stdio" {
-				fleetMode, _ := cmd.Flags().GetBool("fleet")
-				if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, true, false); err != nil {
-					return err
-				}
-				if err := remoteDeliveryFor(cmd, svc, version, d, &s); err != nil {
+			// Delivery over HTTP always names its callers (or refuses); fleet
+			// does once callers sign in.
+			if s.transport == "http" && (deliveryMode || fleetMode && s.issuer != "") {
+				if err := remoteCallerFor(cmd, svc, version, d, &s); err != nil {
 					return err
 				}
 				return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
@@ -125,9 +131,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
 	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
 	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
-	cmd.Flags().String("exchange-client-id", "", "with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster "+
+	cmd.Flags().String("exchange-client-id", "", "with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster "+
 		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
-	cmd.Flags().String("exchange-audience", "pacto-cli", "with --delivery over HTTP: the audience to exchange for, one the apiserver accepts")
+	cmd.Flags().String("exchange-audience", "pacto-cli", "with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts")
 	addClaimFlags(cmd)
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
@@ -150,20 +156,15 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 }
 
 // buildMCPServer constructs the MCP server for the one mode the invocation
-// selected: catalog discovery from explicit roots, fleet queries, a bundle's
-// capability tools, or the authoring tools when nothing else is asked for.
+// selected (RunE checked there is one): catalog discovery from explicit roots,
+// fleet queries, a bundle's capability tools, or the authoring tools when
+// nothing else is asked for.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (*mcpsdk.Server, error) {
 	roots, _ := cmd.Flags().GetStringArray("root")
 	fleetMode, _ := cmd.Flags().GetBool("fleet")
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	publishMode, _ := cmd.Flags().GetBool("publish")
-	// The mode is selected by --root being present, not by the values surviving:
-	// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
-	// back as no roots at all. That has to fail, not turn into a different server.
 	catalogMode := cmd.Flags().Changed("root")
-	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode, deliveryMode, publishMode); err != nil {
-		return nil, err
-	}
 
 	switch {
 	case publishMode:
@@ -477,11 +478,9 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials.
-// ponytail: the caller is named by the claim mapping, not confirmed by the
-// API server; exchange and authn.ReviewSelf per caller (as remote delivery
-// does) when a fleet server must name people exactly as the cluster does. Other servers answer from
-// the whole snapshot, as their single local user would read it.
+// read, asked with this process's own credentials about the person the
+// apiserver reviewed for the request (remoteCaller). Other servers answer
+// from the whole snapshot, as their single local user would read it.
 func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
@@ -490,9 +489,12 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	}
 	cluster, _ := d.clusterConfig()
 	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
-	claims := claimsFlags(flagString(cmd))
-	return func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		r, err := viewer.Query(ctx, claims.PersonFromTokenInfo(caller), q)
+	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		p, ok := personFrom(ctx)
+		if !ok {
+			return nil, errNobodyReviewed
+		}
+		r, err := viewer.Query(ctx, p, q)
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}

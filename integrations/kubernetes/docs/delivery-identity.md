@@ -199,7 +199,8 @@ caller's token at the identity provider (RFC 8693) for one the apiserver
 accepts and asks the apiserver who the caller is on every request. Everyone
 gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
 your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
-HTTP. With `--fleet` and `--auth-issuer`, the fleet tools answer
+HTTP. With `--fleet` and `--auth-issuer` the server needs token exchange too:
+it names each caller the same way and the fleet tools answer
 [as the dashboard does](dashboard-access.md).
 
 Both servers log every refused token, sign-in and signed-in request as a

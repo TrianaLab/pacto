@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -163,7 +165,8 @@ func newRemoteWorld(t *testing.T) *remoteWorld {
 	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = cmd.Flags().Set("oidc-username-claim", "email")
-	err := remoteDeliveryFor(cmd, app.NewService(nil, nil), "v", d, &s)
+	_ = cmd.Flags().Set("delivery", "true")
+	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s)
 	expect(t, err == nil, "remote delivery: %v", err)
 	w.h = mcpHandler(s)
 	return w
@@ -215,6 +218,11 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w.clientErr, w.whoAmIFails = nil, true
 	rec = postLogged(t, w.h, "good", listTools, logs)
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected"), "whoami refused: %d %s", rec.Code, rec.Body)
+	// A review that names nobody gets no tools either.
+	w.whoAmIFails, w.user = false, ""
+	rec = post(t, w.h, "good", listTools)
+	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), errNobodyReviewed.Error()), "nobody: %d %s", rec.Code, rec.Body)
+	w.whoAmIFails, w.user = true, "system:serviceaccount:agents:bot"
 	// Every refusal is logged with the caller and the reason, never the token.
 	for _, want := range []string{"could not exchange a caller's token", "could not build a caller's client", "did not say who a caller is",
 		"claimed=agent@example.com", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
@@ -225,7 +233,7 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w.whoAmIFails = false
 	logs.Reset()
 	postLogged(t, w.h, "good", listTools, logs)
-	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "user=system:serviceaccount:agents:bot") &&
+	expect(t, strings.Contains(logs.String(), "remote MCP request") && strings.Contains(logs.String(), "user=system:serviceaccount:agents:bot") &&
 		!strings.Contains(logs.String(), "agent@example.com") && strings.Contains(logs.String(), "class=agent") &&
 		strings.Contains(logs.String(), "writeTools=true"), "the grant is not logged:\n%s", logs)
 }
@@ -235,8 +243,9 @@ func TestRemoteDeliveryRefusesABadTrustConfig(t *testing.T) {
 	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = cmd.Flags().Set("delivery-trust", filepath.Join(t.TempDir(), "absent"))
+	_ = cmd.Flags().Set("delivery", "true")
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
-	if err := remoteDeliveryFor(cmd, app.NewService(nil, nil), "v", d, &s); err == nil || !strings.Contains(err.Error(), "trust config") {
+	if err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s); err == nil || !strings.Contains(err.Error(), "trust config") {
 		t.Fatalf("a missing trust config must fail: %v", err)
 	}
 }
@@ -256,4 +265,159 @@ func TestAuditRemoteDeliveryCallerIsReviewedUser(t *testing.T) {
 	}
 	expect(t, strings.Contains(line, "caller=dave") && strings.Contains(line, "callerSource=reviewed") &&
 		!strings.Contains(line, "idp#agent"), "audit line: %q\n%s\n%s", line, logs, rec.Body)
+}
+
+// remoteFleet is a remote fleet server over a fake cluster: the apiserver
+// reviews each exchanged token as reviewed (per request), and RBAC lets only
+// readers read the whole cluster. asked records whom RBAC was asked about.
+type remoteFleet struct {
+	fa         *fakeMCPAuth
+	reviewed   authn.Person
+	reviewErr  error
+	readers    map[string]bool
+	asked      []authn.Person
+	h          http.Handler
+	perRequest bool
+}
+
+func newRemoteFleet(t *testing.T) *remoteFleet {
+	t.Helper()
+	w := &remoteFleet{fa: &fakeMCPAuth{exchange: true}, reviewed: authn.Person{User: "alice", Groups: []string{"team-a"}}, readers: map[string]bool{"alice": true}}
+	d := defaultDeps()
+	d.clusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
+	}
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			if c.BearerToken != "for-the-cluster" {
+				return true, nil, errors.New("only the exchanged token is reviewed")
+			}
+			if w.reviewErr != nil {
+				return true, nil, w.reviewErr
+			}
+			groups := []any{}
+			for _, g := range w.reviewed.Groups {
+				groups = append(groups, g)
+			}
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
+				"username": w.reviewed.User, "groups": groups}}}}, nil
+		})
+		dyn.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+			user, _, _ := unstructured.NestedString(o.Object, "spec", "user")
+			groups, _, _ := unstructured.NestedStringSlice(o.Object, "spec", "groups")
+			w.asked = append(w.asked, authn.Person{User: user, Groups: groups})
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": w.readers[user]}}}, nil
+		})
+		return dyn, nil
+	}
+	root := t.TempDir()
+	writeCLIBundle(t, filepath.Join(root, "orders"), "orders", "1.0.0")
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	cmd.SetContext(context.Background())
+	for k, v := range map[string]string{"fleet": "true", "local": root, "transport": "http", "auth-issuer": "https://idp", "oidc-username-claim": "email"} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s) == nil, "remote fleet")
+	w.perRequest = s.perRequest != nil
+	w.h = mcpHandler(s)
+	return w
+}
+
+const listEntities = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pacto_fleet_entities","arguments":{}}}`
+
+func TestRemoteFleetNamesCallerByReview(t *testing.T) {
+	w := newRemoteFleet(t)
+	rec := post(t, w.h, "good", listEntities)
+	expect(t, rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), "orders"), "alice reads the fleet: %d %s", rec.Code, rec.Body)
+	expect(t, len(w.asked) > 0, "RBAC was asked")
+	for _, p := range w.asked {
+		// The token's claims say agent@example.com; only the review counts.
+		expect(t, p.User == "alice" && len(p.Groups) == 1 && p.Groups[0] == "team-a", "RBAC was asked about %+v, not the reviewed alice/team-a", p)
+	}
+	expect(t, len(w.fa.exchanged) > 0, "the token was exchanged")
+}
+
+func TestRemoteFleetNeedsExchange(t *testing.T) {
+	d := defaultDeps()
+	d.newMCPAuth = func(authn.MCPConfig) (mcpAuth, error) { return &fakeMCPAuth{}, nil }
+	err := remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp")
+	expect(t, errors.Is(err, errFleetNoExchange), "remote fleet without exchange: %v", err)
+	d.newMCPAuth = func(authn.MCPConfig) (mcpAuth, error) { return &fakeMCPAuth{exchange: true}, nil }
+	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no cluster") }
+	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"), "no cluster")
+	// The first snapshot still fails startup.
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
+	// (remoteCmd runs on a cancelled context, so the build fails).
+	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"),
+		"context canceled")
+}
+
+func TestRemoteFleetReviewFailureRefuses(t *testing.T) {
+	w := newRemoteFleet(t)
+	logs := &strings.Builder{}
+	w.reviewErr = errors.New("token rejected")
+	rec := postLogged(t, w.h, "good", listEntities, logs)
+	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected") && !strings.Contains(rec.Body.String(), "orders"),
+		"a failed review refuses: %d %s", rec.Code, rec.Body)
+	expect(t, strings.Contains(logs.String(), "did not say who a caller is") && strings.Contains(logs.String(), "claimed=agent@example.com"), "refusal log:\n%s", logs)
+	// A review that names nobody is no anonymous view either.
+	w.reviewErr, w.reviewed = nil, authn.Person{}
+	rec = post(t, w.h, "good", listEntities)
+	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), errNobodyReviewed.Error()), "nobody reviewed: %d %s", rec.Code, rec.Body)
+	expect(t, len(w.asked) == 0, "RBAC is never asked about an unreviewed caller: %+v", w.asked)
+}
+
+func TestRemoteFleetIsPerRequest(t *testing.T) {
+	w := newRemoteFleet(t)
+	expect(t, w.perRequest, "remote fleet serves per request")
+	alice := post(t, w.h, "good", listEntities).Body.String()
+	w.reviewed = authn.Person{User: "bob", Groups: []string{"team-b"}}
+	bob := post(t, w.h, "good", listEntities).Body.String()
+	expect(t, strings.Contains(alice, `orders`) && !strings.Contains(bob, `"orders"`), "each caller's own view:\nalice %s\nbob %s", alice, bob)
+}
+
+func TestMCPModeCheckedOnce(t *testing.T) {
+	err := remoteCmd(t, defaultDeps(), "--delivery", "--publish", "-t", "http")
+	wantErr(t, err, "cannot be combined")
+	src, rerr := os.ReadFile("mcp.go")
+	expect(t, rerr == nil && strings.Count(string(src), "checkMCPMode(") == 2, "checkMCPMode is defined once and called once")
+}
+
+func TestRemoteCallerLogsUser(t *testing.T) {
+	w := newRemoteFleet(t)
+	logs := &strings.Builder{}
+	postLogged(t, w.h, "good", listEntities, logs)
+	var line string
+	for _, l := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(l, `msg="remote MCP request"`) {
+			line = l
+		}
+	}
+	expect(t, strings.Contains(line, "user=alice") && strings.Contains(line, "writeTools=false") && !strings.Contains(line, "class=") &&
+		!strings.Contains(line, "agent@example.com"), "remote request line: %q", line)
+	var audit string
+	for _, l := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(l, `msg="mcp tool call"`) {
+			audit = l
+		}
+	}
+	expect(t, strings.Contains(audit, "caller=alice") && strings.Contains(audit, "callerSource=reviewed"), "audit line: %q", audit)
+}
+
+func TestRemoteDeliveryPassesAssertedOnBehalfOf(t *testing.T) {
+	w := newRemoteWorld(t)
+	propose := func(args string) string {
+		return post(t, w.h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pacto_delivery_operation_propose","arguments":{`+args+`}}}`).Body.String()
+	}
+	// The actor is the reviewed agent; on_behalf_of is the argument, as asserted.
+	body := propose(`"namespace":"prod","stage":"payments-prod","to":"` + cliB + `","on_behalf_of":"erin"`)
+	expect(t, strings.Contains(body, `\"onBehalfOf\": {\n        \"user\": \"erin\"`) &&
+		strings.Contains(body, `\"user\": \"system:serviceaccount:agents:bot\"`), "asserted on_behalf_of: %s", body)
+	// Without the argument nothing fills it in: not the token, not the review.
+	body = propose(`"namespace":"prod","stage":"payments-prod","to":"` + cliB + `"`)
+	expect(t, strings.Contains(body, `\"actor\"`) && !strings.Contains(body, "onBehalfOf") && !strings.Contains(body, "agent@example.com"),
+		"no derived on_behalf_of: %s", body)
 }
