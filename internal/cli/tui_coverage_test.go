@@ -59,6 +59,7 @@ var excludedFromTUI = map[string]string{
 	// Delivery changes what runs. The TUI is a read-only screen over the fleet, and a keystroke that
 	// proposes, cancels or approves would be the one place it acts; these stay explicit shell commands.
 	"delivery approve":       "a person's decision, made deliberately at a prompt",
+	"delivery caller":        "names the caller to delivery, which is not a fleet entity",
 	"delivery autonomy":      "reads the dashboard's autonomy view of Stages, which are not fleet entities",
 	"delivery environments":  "reads the dashboard's board of Stages, which are not fleet entities",
 	"delivery inbox":         "reads the dashboard's inbox of Operations, which are not fleet entities",

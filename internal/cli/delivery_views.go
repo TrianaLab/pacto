@@ -15,6 +15,7 @@ import (
 // route, the same parameters and the same answer as the dashboard and the
 // pacto_delivery_* read tools.
 var deliveryViews = []struct{ route, short string }{
+	{"caller", "Show who you are to delivery: the user the API server names and your actor class"},
 	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages and the Errored changes on them"},
 	{"environments", "Show every Stage by service and environment: what it runs and whether it is verified, failed, frozen or held"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},

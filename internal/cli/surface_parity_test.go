@@ -67,7 +67,6 @@ func camel(kebab string) string {
 
 const (
 	whyNamespace     = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
-	whyDashboardLink = "a filter the dashboard's own pages put in their links; the CLI and MCP do not take it"
 	whyDashboardPage = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
 	whyNoEdit        = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
 	whyNoCreateFlag  = "pacto init reads it from the service folder (Dockerfile, manifests, workload labels) instead of a flag"
@@ -88,25 +87,24 @@ var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), de
 func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
-			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template"),
+			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
+			"capability", "domain", "readiness", "scope", "service", "source", "source-health"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
 		},
-		alike("", "", "GET /api/fleet/entities", whyDashboardLink, "capability", "domain", "readiness", "scope", "service", "source", "source-health"),
-		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity"),
-		alike("", "", "GET /api/fleet/attention", whyDashboardLink, "key", "kind", "source", "stale-only", "status"),
+		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity",
+			"key", "kind", "source", "stale-only", "status"),
 		[]surfaceRow{
 			{"fleet neighborhood <service>", "pacto_fleet_neighborhood.service", "GET /api/fleet/neighborhood?key", ""},
 			{"", "", "GET /api/fleet/neighborhood?kind", "the CLI and MCP focus a service; the dashboard's graph also focuses a revision or an owner"},
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
-			{"fleet neighborhood --max-edges", "", "GET /api/fleet/neighborhood?maxEdges", "pacto_fleet_neighborhood keeps the default edge bound"},
 		},
-		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-nodes", "views"),
+		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
 		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text", ""}},
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),
-		[]surfaceRow{{"fleet search --label", "", "", "label filters read target labels, which only the CLI matches today"}},
+		[]surfaceRow{{"fleet search --label", "pacto_fleet_search.label", "", whySearchRoute}},
 		alike("fleet status", "pacto_fleet_status", "", whyStatusRoute, "golden-path-deployed", "invalid", "limit", "missing-readiness", "needs-attention",
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
 		[]surfaceRow{
@@ -238,7 +236,7 @@ func deliveryViewRows() []surfaceRow {
 		view("published", "domain", "limit", "offset", "q", "service", "signed"),
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
-			{"", "pacto_delivery_caller", "GET /api/delivery/caller", "each delivery command answers as the kubeconfig user; pacto_capabilities names the caller too"},
+			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
 		},
 	)
 }
@@ -258,13 +256,14 @@ func authoringRows() []surfaceRow {
 			{"init", "pacto_create.pactify", "", "pacto init always reads the service folder; pacto_create does so with pactify"},
 			{"", "pacto_create.paths", "", "the CLI takes several folders as arguments (init [dir...])"},
 			{"validate [dir | oci://ref]", "pacto_check.path", "", whyCreateOnly},
-			{"", "pacto_check.environments", "", "pacto validate compares every environment the contract declares"},
+			{"explain --environments", "pacto_check.environments", "", "pacto explain compares environments; pacto_check adds the comparison to its validation"},
 			{"", "pacto_schema", "", "the CLI has no schema command; the JSON Schema is published with the docs"},
 			{"", "pacto_capabilities", "GET /api/capabilities", "the CLI is the local user with every command; MCP and the dashboard report what they serve"},
 		},
 		alike("", "pacto_create", "", whyNoCreateFlag, "config-properties", "data-loss-impact", "data-shared-across-instances", "data-survives-restart",
 			"dependencies", "description", "interfaces", "metadata", "stores-data", "version", "workload"),
 		alike("validate", "", "", "checks of pacto validate that pacto_check runs through its suggestions; the dashboard validates nothing", "closure", "readiness", "set", "values"),
+		alike("explain", "", "", "overrides the CLI applies to a local contract before explaining it; pacto_check reads the contract as it is", "set", "values"),
 		alike("", "pacto_edit", "", whyNoEdit, "add-config-properties", "add-configuration-refs", "add-dependencies", "add-environments", "add-interfaces",
 			"add-policy-refs", "data-loss-impact", "data-shared-across-instances", "data-survives-restart", "domain", "dry-run", "lifecycle", "name",
 			"offering", "owner", "path", "remove-configuration-refs", "remove-dependencies", "remove-environments", "remove-interfaces", "remove-metadata",
@@ -279,8 +278,8 @@ var parityCommands = []string{
 	"delivery", "delivery status", "delivery history", "delivery blame", "delivery lifecycle", "delivery candidates",
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
-	"delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate",
+	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
+	"impact", "init", "validate", "explain",
 }
 
 // surfaces is what the three surfaces expose at HEAD.

@@ -30,6 +30,7 @@ func TestDeliveryViewCommandsMatchRoutes(t *testing.T) {
 		{[]string{"autonomy"}, "autonomy"},
 		{[]string{"published"}, "published"},
 		{[]string{"refusals"}, "refusals"},
+		{[]string{"caller"}, "caller"},
 	} {
 		out, err := runDelivery(t, d, "text", run.args...)
 		expect(t, err == nil, "%v: %v", run.args, err)
