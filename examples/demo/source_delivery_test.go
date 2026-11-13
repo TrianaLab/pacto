@@ -656,9 +656,10 @@ func TestDemoProgressStates(t *testing.T) {
 	}
 }
 
-// TestDemoHistoryFilters: B1's promote to prod carries a change ticket, so
-// the correlation filter finds it, and the cause filter finds the rollback
-// and step-down its failed health check raised.
+// TestDemoHistoryFilters: B1's promote to prod carries a change ticket, and
+// the rollback and step-down its failed health check raised inherit it, so
+// the correlation filter finds all three (newest first), and the cause filter
+// finds the rollback and the step-down.
 func TestDemoHistoryFilters(t *testing.T) {
 	_, h := demoServer(t)
 	ops := func(query string) []string {
@@ -676,10 +677,21 @@ func TestDemoHistoryFilters(t *testing.T) {
 		}
 		return names
 	}
-	if got := ops("correlationID=" + demoCorrelation); !slices.Equal(got, []string{"payments-promote-2"}) {
+	if got := ops("correlationID=" + demoCorrelation); !slices.Equal(got, []string{"payments-autonomy-4", "payments-rollback-3", "payments-promote-2"}) {
 		t.Errorf("correlation: %v", got)
 	}
 	if got := ops("cause=error+ratio"); !slices.Equal(got, []string{"payments-autonomy-4", "payments-rollback-3"}) {
 		t.Errorf("cause: %v", got)
+	}
+}
+
+// TestDemoBoundsCorrelationID: the demo refuses a correlation id the CLI
+// would print raw, as the cluster dashboard does.
+func TestDemoBoundsCorrelationID(t *testing.T) {
+	_, h := demoServer(t)
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `","correlationID":"` + strings.Repeat("x", delivery.MaxCorrelationID+1) + `"}`
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 422 {
+		t.Fatalf("a long correlation id: %d", code)
 	}
 }

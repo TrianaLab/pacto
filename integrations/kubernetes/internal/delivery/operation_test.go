@@ -1637,3 +1637,59 @@ func TestARefusalNeedsTheAPIServer(t *testing.T) {
 		t.Fatalf("a failed uncached read is retried, got %v", err)
 	}
 }
+
+// correlated is a failed promote tied to an incident.
+func correlated() *dv1.Operation {
+	o := opObj("p1", delivery.TypePromote, dA, dB, bot)
+	o.Spec.CorrelationID = "CHG-2041"
+	return o
+}
+
+// TestRaiseRollbackInheritsCorrelation: the automatic rollback keeps the
+// correlation id of the promote that failed, so one incident's changes stay
+// together.
+func TestRaiseRollbackInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	if _, err := raiseRollback(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "verify failed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-rollback").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("rollback correlation: %q", got)
+	}
+}
+
+// TestRaiseFreezeInheritsCorrelation: the freeze a failed re-check raises
+// keeps the correlation id of the operation that shipped the version.
+func TestRaiseFreezeInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	if _, err := raiseFreeze(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "health failed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-freeze").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("freeze correlation: %q", got)
+	}
+}
+
+// TestStepDownInheritsCorrelation: the automatic step-down keeps the
+// correlation id of the promote that failed.
+func TestStepDownInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	fail := &delivery.Verdict{Gate: "health", Result: delivery.Fail}
+	if _, err := raiseStepDown(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "health failed", fail); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-stepdown").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("step-down correlation: %q", got)
+	}
+}
+
+// TestAutoPromoteHasNoCorrelation: an automatic promote has no causing
+// operation, so it carries no correlation id.
+func TestAutoPromoteHasNoCorrelation(t *testing.T) {
+	s := stageObj(dA)
+	s.Status.Level, s.Status.Candidate = delivery.LevelAutoNonBreaking, dB
+	e := newEnv(t, s)
+	if err := e.st.autoPromote(context.Background(), s); err != nil || len(e.ops()) != 1 || e.ops()[0].Spec.CorrelationID != "" {
+		t.Fatalf("auto-promote: %v %+v", err, e.ops())
+	}
+}
