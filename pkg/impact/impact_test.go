@@ -717,32 +717,57 @@ func TestAnalyze_UncontractedCallers(t *testing.T) {
 	}
 }
 
+// gateCase is one release-gate row: the answer, the gate and reason gate()
+// returns for it and the code GateCode() returns.
+type gateCase struct {
+	name, gate, reason, code string
+	r                        Result
+}
+
+// gateCases are the release-gate rows TestGate and TestGateCodeAgreesWithGate share.
+func gateCases() []gateCase {
+	active := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/web"}}
+	paper := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible}
+	refused := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityCompatible, Unmet: []contract.Mismatch{{Consumer: "web"}}}
+	failingRunning := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/ref"}}
+	failingUnplaced := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityIncompatible, policyVerdict: CompatibilityIncompatible}
+	unchecked := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityUnknown, policyVerdict: CompatibilityUnknown}
+	return []gateCase{
+		{name: "non breaking", gate: GateClear, reason: "the change is NON_BREAKING", code: GateCodeNotBreaking, r: Result{Classification: "NON_BREAKING"}},
+		{name: "potential", gate: GateClear, reason: "review the potentially breaking changes by hand", code: GateCodePotentialBreaking, r: Result{Classification: "POTENTIAL_BREAKING"}},
+		{name: "blocked", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, paper}}},
+		{name: "not in fleet", gate: GateUnverified, reason: "api is not in the fleet snapshot", code: GateCodeServiceNotInFleet, r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial,
+			Limitations: []fleet.Limitation{{Code: "SOURCE_STALE"}, {Code: "SERVICE_NOT_IN_FLEET"}}}},
+		{name: "partial", gate: GateUnverified, reason: "the answer is partial", code: GateCodeAnswerPartial, r: Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
+		{name: "one consumer", gate: GateUnverified, reason: "1 consumer depends on api", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
+		{name: "two consumers", gate: GateUnverified, reason: "2 consumers depend on api", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper, paper}}},
+		{name: "refused guarantee", gate: GateUnverified, reason: "on api, but none is shown to be both incompatible and running. api 2.0.0 does not meet a guarantee required by web. Review each consumer",
+			code: GateCodeConsumersUnchecked, r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{refused}}},
+		{name: "refused guarantee, partial", gate: GateUnverified, reason: "may break. api 2.0.0 does not meet a guarantee required by web. Fix the sources",
+			code: GateCodeAnswerPartial, r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{refused}}},
+		{name: "nobody depends", gate: GateClear, reason: "no service in the complete fleet snapshot depends on api", code: GateCodeNoConsumers,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete}},
+		{name: "policy running", gate: GateBlocked, reason: "on known targets: ref", code: GateCodePolicyReferrersFailRunning,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{failingRunning}}},
+		{name: "policy unplaced", gate: GateUnverified, reason: "ref. Review each", code: GateCodePolicyReferrersFailUnplaced,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{failingUnplaced}}},
+		{name: "policy unknown", gate: GateUnverified, reason: "could not be checked against its new policy", code: GateCodePolicyUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Consumers: []AffectedConsumer{unchecked}}},
+		{name: "hidden referrers", gate: GateUnverified, reason: "2 services you may not see may reference api", code: GateCodePolicyUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", hiddenReferrers: 2}},
+		{name: "both", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, failingRunning}}},
+	}
+}
+
 // TestGate pins the release gate for every outcome: only a BREAKING change can
 // be held, and a BREAKING change is clear only on a complete answer that no
 // service depends on.
 func TestGate(t *testing.T) {
-	active := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/web"}}
-	paper := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible}
-	refused := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityCompatible, Unmet: []contract.Mismatch{{Consumer: "web"}}}
-	tests := []struct {
-		name, gate, reason string
-		r                  Result
-	}{
-		{"non breaking", GateClear, "the change is NON_BREAKING", Result{Classification: "NON_BREAKING"}},
-		{"potential", GateClear, "review the potentially breaking changes by hand", Result{Classification: "POTENTIAL_BREAKING"}},
-		{"blocked", GateBlocked, "do not accept api 2.0.0: web", Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, paper}}},
-		{"not in fleet", GateUnverified, "api is not in the fleet snapshot", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial,
-			Limitations: []fleet.Limitation{{Code: "SOURCE_STALE"}, {Code: "SERVICE_NOT_IN_FLEET"}}}},
-		{"partial", GateUnverified, "the answer is partial", Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
-		{"one consumer", GateUnverified, "1 consumer depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
-		{"two consumers", GateUnverified, "2 consumers depend on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper, paper}}},
-		{"refused guarantee", GateUnverified, "on api, but none is shown to be both incompatible and running. api 2.0.0 does not meet a guarantee required by web. Review each consumer",
-			Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{refused}}},
-		{"refused guarantee, partial", GateUnverified, "may break. api 2.0.0 does not meet a guarantee required by web. Fix the sources",
-			Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{refused}}},
-		{"nobody depends", GateClear, "no service in the complete fleet snapshot depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete}},
-	}
-	for _, tt := range tests {
+	for _, tt := range gateCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			gate, reason := tt.r.gate()
 			if gate != tt.gate || !strings.Contains(reason, tt.reason) {

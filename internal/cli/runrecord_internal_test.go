@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +19,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
@@ -137,7 +141,7 @@ func recordCases(t *testing.T) []recCase {
 	published.Plan.Baseline, published.Plan.Classification = "0.9.0", "NON_BREAKING"
 	unchanged := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}}
 	failed := &publish.Result{Plan: publishPlan(true), Deploy: "reg/deploy@sha256:d"}
-	return []recCase{
+	return append([]recCase{
 		{name: "diff breaking", d: defaultDeps, args: []string{"diff", brOld, brNew},
 			want: runrecord.Record{Kind: runrecord.KindDiff, Service: "renamed-svc", Classification: "BREAKING", Outcome: runrecord.OutcomeFailed}},
 		{name: "diff non-breaking", d: defaultDeps, args: []string{"diff", okOld, okNew},
@@ -154,6 +158,47 @@ func recordCases(t *testing.T) []recCase {
 			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", NewRevision: "1.0.0", Outcome: runrecord.OutcomeUnchanged}},
 		{name: "publish failed", d: pubDeps(failed, errors.New("push failed")), args: []string{"publish"},
 			want: runrecord.Record{Kind: runrecord.KindPublish, Service: "payments", NewRevision: "1.0.0", Outcome: runrecord.OutcomeFailed}},
+	}, impactCases(t)...)
+}
+
+// impactDirs writes orders 1.0.0 and a new revision: a workload change is BREAKING.
+func impactDirs(t *testing.T, breaking bool) (string, string) {
+	t.Helper()
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	if breaking {
+		testutil.WriteOrders(t, newDir, "2.0.0", "job")
+	} else {
+		testutil.WriteOrders(t, newDir, "1.0.0", "service")
+	}
+	return oldDir, newDir
+}
+
+// impactWant is the impact record a row expects; checkRecord fills the computed fields.
+func impactWant(class, verdict, reason, completeness, outcome string, c runrecord.Consumers) runrecord.Record {
+	return runrecord.Record{Kind: runrecord.KindImpact, Service: "orders", Classification: class,
+		Gate: &runrecord.Gate{Verdict: verdict, Reason: reason}, Consumers: &c, Completeness: completeness, Outcome: outcome}
+}
+
+func impactCases(t *testing.T) []recCase {
+	brOld, brNew := impactDirs(t, true)
+	okOld, okNew := impactDirs(t, false)
+	blockRoot, blockEv := testutil.ImpactFleet(t, "^1.0.0")
+	openRoot, openEv := testutil.ImpactFleet(t, ">=1.0.0")
+	soloRoot := t.TempDir()
+	testutil.WriteOrders(t, filepath.Join(soloRoot, "orders"), "1.0.0", "service")
+	missing := filepath.Join(t.TempDir(), "missing.yaml")
+	blocked := impactWant("BREAKING", runrecord.VerdictBlocked, impact.GateCodeConsumersIncompatible, "complete", runrecord.OutcomeFailed,
+		runrecord.Consumers{Incompatible: 1, Blocking: 1})
+	return []recCase{
+		{name: "impact blocked", d: defaultDeps, args: []string{"impact", brOld, brNew, "--local", blockRoot, "--target-state", blockEv}, want: blocked},
+		{name: "impact unverified", d: defaultDeps, args: []string{"impact", brOld, brNew, "--local", openRoot, "--target-state", openEv, "--include-observed"},
+			want: impactWant("BREAKING", runrecord.VerdictUnverified, impact.GateCodeConsumersUnchecked, "complete", runrecord.OutcomeUnverified,
+				runrecord.Consumers{Compatible: 1})},
+		{name: "impact clear", d: defaultDeps, args: []string{"impact", okOld, okNew, "--local", soloRoot, "--target-state", missing},
+			want: impactWant("NON_BREAKING", runrecord.VerdictClear, impact.GateCodeNotBreaking, "partial", runrecord.OutcomePassed, runrecord.Consumers{})},
+		{name: "impact blocked, stdout fails", d: defaultDeps, out: errWriter{},
+			args: []string{"impact", "--output-format", "json", brOld, brNew, "--local", blockRoot, "--target-state", blockEv}, want: blocked},
 	}
 }
 
@@ -194,7 +239,13 @@ func TestRunRecordExitCodesUnchanged(t *testing.T) {
 // checkRecord compares the fields a row decides, and the id the recorder fills.
 func checkRecord(t *testing.T, got, want runrecord.Record) {
 	t.Helper()
-	if want.Kind == runrecord.KindDiff { // bundle digests: computed, so only their shape is pinned
+	if want.Kind == runrecord.KindImpact { // the snapshot time: computed, so only its presence is pinned
+		if got.AsOf == nil || got.AsOf.IsZero() || got.AsOf.Location() != time.UTC {
+			t.Fatalf("asOf %v", got.AsOf)
+		}
+		want.AsOf = got.AsOf
+	}
+	if want.Kind == runrecord.KindDiff || want.Kind == runrecord.KindImpact { // bundle digests: computed, so only their shape is pinned
 		if !strings.HasPrefix(got.OldRevision, "sha256:") || !strings.HasPrefix(got.NewRevision, "sha256:") {
 			t.Fatalf("revisions %q %q", got.OldRevision, got.NewRevision)
 		}
@@ -209,6 +260,13 @@ func checkRecord(t *testing.T, got, want runrecord.Record) {
 	}
 }
 
+// timeVariant matches what two runs of one impact answer differ in: the
+// snapshot time and the snapshot id derived from it.
+var timeVariant = regexp.MustCompile(`\d{4}-\d\d-\d\dT[0-9:.]+(Z|[+-]\d\d:\d\d)|"snapshotId": "sha256:[0-9a-f]+"`)
+
+// stable is out with its time-variant parts masked.
+func stable(out string) string { return timeVariant.ReplaceAllString(out, "<t>") }
+
 func TestRunRecordStdoutUnchanged(t *testing.T) {
 	statsOff(t)
 	for _, c := range recordCases(t) {
@@ -219,7 +277,7 @@ func TestRunRecordStdoutUnchanged(t *testing.T) {
 		args := append(c.args, "--output-format", "json")
 		off, _, _ := runRoot(t, recDeps(c.d(), &calls, nil), nil, args...)
 		on, _, _ := runRoot(t, recDeps(c.d(), &calls, nil), nil, append(args, "--stats-registry", "ghcr.io/acme/pacto-stats")...)
-		if off != on || off == "" {
+		if stable(off) != stable(on) || off == "" {
 			t.Fatalf("%s: stdout changed\n%s\n---\n%s", c.name, off, on)
 		}
 	}
@@ -234,7 +292,7 @@ func TestRunRecordOffIsInvisible(t *testing.T) {
 		d := c.d()
 		d.publishRunRecord = func(context.Context, string, runrecord.Record) (string, error) { panic("recorded with recording off") }
 		stdout2, stderr2, err2 := runRoot(t, d, c.out, c.args...)
-		if len(calls) != 0 || stdout != stdout2 || stderr != stderr2 || !sameErr(err, err2) || strings.Contains(stderr, "run record") {
+		if len(calls) != 0 || stable(stdout) != stable(stdout2) || stable(stderr) != stable(stderr2) || !sameErr(err, err2) || strings.Contains(stderr, "run record") {
 			t.Fatalf("%s: calls %d, stderr %q", c.name, len(calls), stderr)
 		}
 	}
@@ -249,6 +307,7 @@ func TestRunRecordNothingWithoutResult(t *testing.T) {
 	statsOff(t)
 	file := filepath.Join(t.TempDir(), "run.json")
 	old, _ := diffDirs(t, false)
+	eventRoot, _ := testutil.ImpactFleet(t, "^1.0.0")
 	var got app.PublishOptions
 	for name, run := range map[string]struct {
 		d    deps
@@ -258,6 +317,8 @@ func TestRunRecordNothingWithoutResult(t *testing.T) {
 		"missing contract":  {defaultDeps(), []string{"diff", old, "/nonexistent/dir"}},
 		"publish --plan":    {publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), []string{"publish", "--plan"}},
 		"publish no result": {publishDeps(nil, errors.New("no contract"), &got), []string{"publish"}},
+		"impact traces":     {defaultDeps(), []string{"impact", old, old, "--traces", filepath.Join(t.TempDir(), "missing.json")}},
+		"impact event":      {defaultDeps(), []string{"impact", "--unavailable", "orders", "--local", eventRoot}},
 	} {
 		var calls []statsCall
 		_, _, _ = runRoot(t, recDeps(run.d, &calls, nil), nil, append(run.args, "--stats-registry", "reg/x", "--stats-file", file)...)
@@ -304,7 +365,7 @@ func TestRunRecordFlagsOnlyOnRecordingCommands(t *testing.T) {
 			t.Fatalf("%s: %v", c, err)
 		}
 	}
-	for _, c := range []string{"diff", "publish"} {
+	for _, c := range []string{"diff", "impact", "publish"} {
 		help, _, err := runRoot(t, defaultDeps(), nil, c, "--help")
 		if err != nil || !strings.Contains(help, "--stats-file string") || !strings.Contains(help, "--stats-registry string") {
 			t.Fatalf("%s: %v\n%s", c, err, help)
@@ -405,5 +466,64 @@ func TestMCPNeverRecords(t *testing.T) {
 	d := recDeps(publishDeps(&publish.Result{Plan: publishPlan(true), Actions: []string{"pushed"}}, nil, &got), &calls, nil)
 	if _, err := mcpPublish(app.NewService(nil, nil), d)(t.Context(), "svc", "r", false); err != nil || len(calls) != 0 {
 		t.Fatalf("err %v, calls %d", err, len(calls))
+	}
+	oldDir, newDir := impactDirs(t, true)
+	root, _ := testutil.ImpactFleet(t, "^1.0.0")
+	cmd := &cobra.Command{}
+	addFleetSourceFlags(cmd.Flags())
+	_ = cmd.Flags().Set("local", root)
+	snap, err := app.NewService(nil, nil).Fleet(t.Context(), fleetOptions(cmd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	impactFn := mcpImpactProvider(cmd, app.NewService(nil, nil), d, true, true)
+	if res, err := impactFn(t.Context(), snap, pactomcp.ImpactRequest{OldRef: oldDir, NewRef: newDir}); err != nil || res == nil || len(calls) != 0 {
+		t.Fatalf("err %v, calls %d", err, len(calls))
+	}
+}
+
+func TestImpactRecordPartition(t *testing.T) {
+	statsOff(t)
+	// A partial snapshot (a missing target-state) and a consumer that is
+	// incompatible on paper but runs on no known target.
+	oldDir, newDir := impactDirs(t, true)
+	root := t.TempDir()
+	testutil.WriteConsumer(t, filepath.Join(root, "webapp"), "^1.0.0")
+	file := filepath.Join(t.TempDir(), "run.json")
+	stdout, _, _ := runRoot(t, defaultDeps(), nil, "impact", oldDir, newDir, "--local", root,
+		"--target-state", filepath.Join(t.TempDir(), "missing.yaml"), "--output-format", "json", "--stats-file", file)
+	var res struct {
+		AsOf      time.Time
+		Consumers []json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(file)
+	rec, err := runrecord.Parse(data)
+	if err != nil {
+		t.Fatalf("%v: %s", err, data)
+	}
+	c := rec.Consumers
+	if rec.Completeness != "partial" || !rec.AsOf.Equal(res.AsOf) ||
+		c.Incompatible != 1 || c.Blocking != 0 || c.Incompatible+c.Unknown+c.Compatible+c.Unclassified != len(res.Consumers) {
+		t.Fatalf("record %s\nresult consumers %d asOf %v", data, len(res.Consumers), res.AsOf)
+	}
+	// A verdict this engine does not recognise is counted, never dropped.
+	got := impactRecord(revisions{service: "orders"}, &impact.Result{Gate: impact.GateUnverified,
+		Consumers:       []impact.AffectedConsumer{{Service: "a"}, {Service: "b", CompatibilityVerdict: impact.CompatibilityUnknown}},
+		ConsumerTallies: impact.ConsumerTallies{ByOutcome: []impact.TallyBucket{{Key: impact.OutcomeUnknown, Count: 1}, {Key: impact.OutcomeUnclassified, Count: 1}}}})
+	if *got.Consumers != (runrecord.Consumers{Unknown: 1, Unclassified: 1}) || got.Outcome != runrecord.OutcomeUnverified {
+		t.Fatalf("record %+v", got)
+	}
+}
+
+func TestRecordVerdictsMatchImpact(t *testing.T) {
+	for rec, imp := range map[string]string{
+		runrecord.VerdictBlocked: impact.GateBlocked, runrecord.VerdictUnverified: impact.GateUnverified, runrecord.VerdictClear: impact.GateClear,
+	} {
+		if rec != imp {
+			t.Fatalf("run record verdict %q, impact gate %q", rec, imp)
+		}
 	}
 }

@@ -492,3 +492,25 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 		t.Fatalf("regression read with %+v %v", read, err)
 	}
 }
+
+func TestImpactOnResolvedSeesBothBundles(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	var versions []string
+	opts := ImpactOptions{OldPath: oldDir, NewPath: newDir, Fleet: FleetOptions{LocalRoots: []string{t.TempDir()}},
+		OnResolved: func(o, n *contract.Bundle) {
+			versions = append(versions, o.Contract.Service.Version, n.Contract.Service.Version)
+		}}
+	if _, err := NewService(nil, nil).Impact(context.Background(), opts); err != nil || !slices.Equal(versions, []string{"1.0.0", "2.0.0"}) {
+		t.Fatalf("err %v, versions %v", err, versions)
+	}
+	// The snapshot paths never call it.
+	snap, err := NewService(nil, nil).Fleet(context.Background(), opts.Fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(nil, nil).ImpactWithSnapshot(context.Background(), opts, snap); err != nil || len(versions) != 2 {
+		t.Fatalf("err %v, versions %v", err, versions)
+	}
+}

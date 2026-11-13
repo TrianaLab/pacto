@@ -44,7 +44,7 @@ func runImpactInternal(t *testing.T, d deps, format string, args ...string) (str
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, format)
-	cmd := newImpactCommand(newTestService(t), v, d)
+	cmd := newImpactCommand(newTestService(t), v, d, newRunRecorder("dev", d))
 	var out, errb bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errb)

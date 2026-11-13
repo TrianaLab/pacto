@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 // impactEventFlags are the what-if flags of `pacto impact`, in the order
@@ -25,7 +26,7 @@ var impactEventFlags = []string{impact.EventUnavailable, impact.EventRemoved, im
 // contract diff with the operational graph to report a change's real blast
 // radius. With an event flag it answers a what-if about one fleet service
 // instead. Source flags mirror `pacto fleet`; override flags mirror `pacto diff`.
-func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "impact <old> <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision>",
 		Short: "Analyze which consumers a change affects across the fleet",
@@ -71,6 +72,9 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
   pacto impact --regressed payments-service@sha256:<digest> --local .`,
 		Args: impactArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var out *runrecord.Record
+			defer rec.save(cmd, &out)
+			var revs revisions
 			format := v.GetString(outputFormatKey)
 			includeObserved, _ := cmd.Flags().GetBool("include-observed")
 			var traces []byte
@@ -98,6 +102,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 					Fleet:           fleetOptions(cmd),
 					IncludeObserved: includeObserved,
 					Traces:          traces,
+					OnResolved:      rec.hook(cmd, &revs),
 				})
 			}
 			if err != nil {
@@ -105,6 +110,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 				return err
 			}
 			sp.StopOK("Analyzed", start)
+			out = impactRecord(revs, result)
 
 			if err := printImpactResult(cmd, result, format); err != nil {
 				return err
@@ -133,6 +139,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
 	// Every other fleet source flag, from the one declaration `pacto fleet` uses.
 	addFleetSourceFlags(cmd.Flags())
+	addStatsFlags(cmd)
 	addDiffOverrideFlags(cmd)
 
 	return cmd

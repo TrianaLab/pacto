@@ -1223,6 +1223,8 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --stats-file string               write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
       --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable

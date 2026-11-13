@@ -14,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
@@ -96,6 +97,32 @@ func diffRecord(revs revisions, res *app.DiffResult) *runrecord.Record {
 	}
 	return &runrecord.Record{Kind: runrecord.KindDiff, Service: revs.service, OldRevision: revs.old, NewRevision: revs.new,
 		Classification: res.Classification, Outcome: outcome}
+}
+
+// impactRecord is the record of a contract change answer, nil for an event,
+// which has no revisions and catches no change. The consumer counts are the
+// answer's own disjoint partition, with the completeness and asOf beside them.
+func impactRecord(revs revisions, res *impact.Result) *runrecord.Record {
+	if res.Event != nil {
+		return nil
+	}
+	by := map[string]int{}
+	for _, b := range res.ConsumerTallies.ByOutcome {
+		by[b.Key] = b.Count
+	}
+	asOf := res.AsOf.UTC()
+	return &runrecord.Record{Kind: runrecord.KindImpact, Service: revs.service, OldRevision: revs.old, NewRevision: revs.new,
+		Classification: res.Classification, Gate: &runrecord.Gate{Verdict: res.Gate, Reason: res.GateCode()},
+		Consumers: &runrecord.Consumers{Incompatible: by[impact.OutcomeIncompatible], Unknown: by[impact.OutcomeUnknown],
+			Compatible: by[impact.OutcomeCompatible], Unclassified: by[impact.OutcomeUnclassified], Blocking: res.Blocking()},
+		Completeness: string(res.Completeness), AsOf: &asOf, Outcome: impactOutcomes[res.Gate]}
+}
+
+// impactOutcomes is the outcome of each impact gate verdict.
+var impactOutcomes = map[string]string{
+	impact.GateClear:      runrecord.OutcomePassed,
+	impact.GateBlocked:    runrecord.OutcomeFailed,
+	impact.GateUnverified: runrecord.OutcomeUnverified,
 }
 
 // publishRecord is the record of a publish that ran (never --plan). The

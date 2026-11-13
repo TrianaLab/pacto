@@ -9,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/internal/testutil"
 )
 
 // impactErrWriter always fails writes, to drive the JSON encode error path.
@@ -16,76 +17,14 @@ type impactErrWriter struct{}
 
 func (impactErrWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write error") }
 
-// writeOrders writes the changed service `orders` at version/workload into dir.
-// A workload change between two revisions is BREAKING; a version change is not.
-func writeOrders(t *testing.T, dir, version, workload string) {
-	t.Helper()
-	mustWrite(t, filepath.Join(dir, "pacto.yaml"), `pactoVersion: "2.0"
-service:
-  name: orders
-  version: "`+version+`"
-workload: `+workload+`
-state:
-  type: stateless
-  persistence:
-    scope: local
-    durability: ephemeral
-  dataCriticality: low
-`)
-}
-
-// writeConsumer writes a webapp bundle declaring a dependency on orders with the
-// given compatibility range, so orders gains a dependent in the fleet.
-func writeConsumer(t *testing.T, dir, compat string) {
-	t.Helper()
-	mustWrite(t, filepath.Join(dir, "pacto.yaml"), `pactoVersion: "2.0"
-service:
-  name: webapp
-  version: "1.0.0"
-  owner:
-    team: frontend
-dependencies:
-  - name: orders
-    ref: oci://x/orders
-    required: true
-    compatibility: "`+compat+`"
-workload: service
-state:
-  type: stateless
-  persistence:
-    scope: local
-    durability: ephemeral
-  dataCriticality: low
-`)
-}
-
-// impactFleet builds a fleet root (orders + a webapp consumer with compat) plus a
-// target-state file that makes webapp an active target.
-func impactFleet(t *testing.T, compat string) (root, evidence string) {
-	t.Helper()
-	root = t.TempDir()
-	writeOrders(t, filepath.Join(root, "orders"), "2.0.0", "service")
-	writeConsumer(t, filepath.Join(root, "webapp"), compat)
-	evidence = filepath.Join(t.TempDir(), "targets.yaml")
-	mustWrite(t, evidence, `schemaVersion: pacto.dev/fleet-targets/v1
-targets:
-  - scope: prod
-    kind: k8s
-    name: webapp
-    service: webapp
-    compliance: Compliant
-`)
-	return root, evidence
-}
-
 // TestImpactCommand_Traces covers the --traces path: an observed edge surfaces a
 // shadow consumer.
 func TestImpactCommand_Traces(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "1.0.0", "service") // non-breaking
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.0.0", "service") // non-breaking
 	root := t.TempDir()
-	writeOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
+	testutil.WriteOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
 	// checkout must be a registered fleet service to be a domain-qualified shadow
 	// consumer; an unregistered caller would be preserved as an unresolved
 	// limitation, not a phantom default-domain consumer.
@@ -106,8 +45,8 @@ func TestImpactCommand_Traces(t *testing.T) {
 // TestImpactCommand_TracesReadError covers the --traces read-error path.
 func TestImpactCommand_TracesReadError(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "1.0.0", "service")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.0.0", "service")
 	if _, _, err := execFleet(t, "impact", oldDir, newDir, "--traces", filepath.Join(t.TempDir(), "missing.json")); err == nil {
 		t.Fatal("expected read error for a missing traces file")
 	}
@@ -118,9 +57,9 @@ func TestImpactCommand_TracesReadError(t *testing.T) {
 // The target has no evidence time, so the reason never says webapp runs there.
 func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "2.0.0", "job") // workload change → BREAKING; 2.0.0 fails ^1.0.0
-	root, ev := impactFleet(t, "^1.0.0")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "2.0.0", "job") // workload change → BREAKING; 2.0.0 fails ^1.0.0
+	root, ev := testutil.ImpactFleet(t, "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev)
 	if err == nil || !strings.Contains(err.Error(), "breaking changes affect consumers that do not accept orders 2.0.0: webapp has no current target evidence: a target with no evidence time") {
@@ -144,9 +83,9 @@ func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 // after printing.
 func TestImpactCommand_JSON(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "2.0.0", "job")
-	root, ev := impactFleet(t, "^1.0.0")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "2.0.0", "job")
+	root, ev := testutil.ImpactFleet(t, "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev, "--output-format", "json")
 	if err == nil {
@@ -165,9 +104,9 @@ func TestImpactCommand_JSON(t *testing.T) {
 // says so. Also exercises --include-observed.
 func TestImpactCommand_BreakingCompatibleConsumer(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "2.0.0", "job")
-	root, ev := impactFleet(t, ">=1.0.0") // 2.0.0 satisfies → compatible
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "2.0.0", "job")
+	root, ev := testutil.ImpactFleet(t, ">=1.0.0") // 2.0.0 satisfies → compatible
 
 	out, stderr, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev, "--include-observed")
 	var exit *cli.ExitError
@@ -191,10 +130,10 @@ func TestImpactCommand_BreakingCompatibleConsumer(t *testing.T) {
 // answer exits 2.
 func TestImpactCommand_AddsNewRevisionToTheSnapshot(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "2.0.0", "job")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "2.0.0", "job")
 	root := t.TempDir()
-	writeConsumer(t, filepath.Join(root, "webapp"), "^1.0.0")
+	testutil.WriteConsumer(t, filepath.Join(root, "webapp"), "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root)
 	var exit *cli.ExitError
@@ -215,11 +154,11 @@ func TestImpactCommand_AddsNewRevisionToTheSnapshot(t *testing.T) {
 // the no-consumers branch, the partial-completeness warning and --freshness.
 func TestImpactCommand_NonBreakingNoConsumersPartial(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "1.0.0", "service") // identical → NON_BREAKING
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.0.0", "service") // identical → NON_BREAKING
 
 	root := t.TempDir()
-	writeOrders(t, filepath.Join(root, "orders"), "1.0.0", "service") // no dependents
+	testutil.WriteOrders(t, filepath.Join(root, "orders"), "1.0.0", "service") // no dependents
 	missing := filepath.Join(t.TempDir(), "missing.yaml")
 
 	out, stderr, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", missing, "--freshness", "1h")
@@ -237,7 +176,7 @@ func TestImpactCommand_NonBreakingNoConsumersPartial(t *testing.T) {
 // TestImpactCommand_ResolveError covers the svc.Impact error path (bad old ref).
 func TestImpactCommand_ResolveError(t *testing.T) {
 	newDir := t.TempDir()
-	writeOrders(t, newDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.0.0", "service")
 	if _, _, err := execFleet(t, "impact", "/nonexistent/old", newDir); err == nil {
 		t.Error("expected error for a nonexistent old path")
 	}
@@ -246,10 +185,10 @@ func TestImpactCommand_ResolveError(t *testing.T) {
 // TestImpactCommand_WriteError covers the printImpactResult JSON encode error path.
 func TestImpactCommand_WriteError(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "1.0.0", "service")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.0.0", "service")
 	root := t.TempDir()
-	writeOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
+	testutil.WriteOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
 
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
 	svc := app.NewService(nil, nil)
@@ -286,7 +225,7 @@ func TestImpactArgsEventXorPair(t *testing.T) {
 // TestImpactUnavailableText: an event answer prints its lanes and why each
 // consumer is one, and exits 2 when anything depends on the service.
 func TestImpactUnavailableText(t *testing.T) {
-	root, _ := impactFleet(t, "^1.0.0")
+	root, _ := testutil.ImpactFleet(t, "^1.0.0")
 	out, _, err := execFleet(t, "impact", "--unavailable", "orders", "--local", root)
 	var exit *cli.ExitError
 	if !errors.As(err, &exit) || exit.Code != 2 {
@@ -307,9 +246,9 @@ func TestImpactUnavailableText(t *testing.T) {
 // same why line under each consumer.
 func TestImpactContractTextShowsPathAndProvenance(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	writeOrders(t, oldDir, "1.0.0", "service")
-	writeOrders(t, newDir, "1.1.0", "service")
-	root, _ := impactFleet(t, "^1.0.0")
+	testutil.WriteOrders(t, oldDir, "1.0.0", "service")
+	testutil.WriteOrders(t, newDir, "1.1.0", "service")
+	root, _ := testutil.ImpactFleet(t, "^1.0.0")
 	out, _, _ := execFleet(t, "impact", oldDir, newDir, "--local", root)
 	if !strings.Contains(out, "    path: webapp > orders  provenance: declared  via: dependency") || !strings.Contains(out, "compat=compatible") {
 		t.Fatalf("missing the why line:\n%s", out)
