@@ -6,6 +6,7 @@
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
   import LifecycleBadge from './LifecycleBadge.svelte';
+  import { successorBadge } from '../lib/behavior.ts';
 
   // One offering provider's versions, newest first. A range typed into "Versions
   // satisfying" asks the server which versions satisfy it and which is the latest
@@ -38,6 +39,9 @@
 
   const shown = $derived(checked ?? versions ?? { items: [], total: 0, count: 0 });
   const hidden = $derived((shown.items ?? []).some((v) => v.inUse == null));
+  // The range's answer also says whether it accepts the provider's successor (#464).
+  const succ = $derived(checked?.successor ?? null);
+  const succBadge = $derived(succ ? successorBadge(checked?.successorRange ?? 'unknown', range) : null);
 </script>
 
 <div class="ov">
@@ -73,6 +77,14 @@
       {/if}
     {/if}
   </div>
+  {#if succ && succBadge}
+    <div class="ov-row" data-testid="versions-successor">
+      <span class="ov-k">Successor</span>
+      {#if succ.revision}<EntityLink ref={inService(succ.revision, self)} showStatus={false} showKind={false} />{:else}<bdi class="ov-ref" title={succ.ref}>{succ.ref}</bdi>{/if}
+      <IdentityBadge label={succBadge.label} tone={succBadge.tone} title={succBadge.title} describe />
+      {#if succ.provenance !== 'inferred'}<span class="ov-note">unknown: {succ.reason || 'it does not resolve to a revision in this snapshot'}</span>{/if}
+    </div>
+  {/if}
   {#if shown.note}<p class="ov-note">{shown.note}</p>{/if}
 </div>
 
@@ -84,5 +96,6 @@
   .ov-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .ov-range input { width: 14ch; }
   .ov-note { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
+  .ov-ref { overflow-wrap: anywhere; min-width: 0; }
   .ov-err { color: var(--c-err); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

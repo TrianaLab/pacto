@@ -667,6 +667,45 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  // An offering event (#464): the subject is the offering, every provider at once.
+  it('restores an offering event link, asks with offeringKey and names the providers', async () => {
+    const pg = ref('service', 'domain-a/postgresql', 'postgresql');
+    const ha = ref('service', 'domain-b/postgresql-ha', 'postgresql-ha');
+    impactFn.mockResolvedValue(eventResult({
+      service: ref('offering', 'postgresql', 'postgresql'), offering: ref('offering', 'postgresql', 'postgresql'),
+      providers: [pg, ha], changedOwner: undefined, event: { kind: 'unavailable', offering: 'postgresql' },
+    }));
+    const { target, component } = mountView({ offering: 'postgresql', event: 'unavailable' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    const body = impactFn.mock.calls[0][0];
+    expect(body).toMatchObject({ offeringKey: 'postgresql', event: 'unavailable', limit: 100, offset: 0 });
+    expect(body.serviceKey).toBeUndefined();
+    expect(detailFn).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    // No service picker, no compare question and no regression: only the offering's events.
+    expect(target.querySelector('[data-testid="impact-service-picker"]')).toBeNull();
+    expect(target.querySelector('[data-testid="changes-mode"]')).toBeNull();
+    const ev = target.querySelector('#impact-event') as HTMLSelectElement;
+    expect([...ev.options].map((o) => o.textContent)).toEqual(['becomes unavailable', 'is removed']);
+    expect(target.querySelector('label[for="impact-event"]')?.textContent).toBe('What if this offering');
+    expect(target.querySelector('.svc-line a')?.getAttribute('href')).toBe('#/fleet/offerings/postgresql');
+    const provs = Array.from(target.querySelectorAll('[data-testid="impact-providers"] a')).map((a) => a.getAttribute('href'));
+    expect(provs).toEqual(['#/fleet/services/domain-a%2Fpostgresql', '#/fleet/services/domain-b%2Fpostgresql-ha']);
+    expect(target.textContent).toContain('What happens if postgresql becomes unavailable?');
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes?offering=postgresql&event=unavailable'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('never asks an offering about a regression', async () => {
+    const { target, component } = mountView({ offering: 'postgresql', event: 'regressed' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(impactFn).not.toHaveBeenCalled();
+    expect(target.textContent).toContain('Unknown event');
+    expect(target.textContent).toContain('Choose what happens to the offering and press Ask.');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('never answers a link that names an unknown event as another event', async () => {
     impactFn.mockResolvedValue(eventResult());
     const { target, component } = mountView({ svc: 'domain-a/payments', event: 'down' });

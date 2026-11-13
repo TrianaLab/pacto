@@ -523,6 +523,13 @@ describe('fleetChangesUrl', () => {
   });
   // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
   // in the query -- never promoted into the path where it would look canonical.
+  // An offering event names the offering, never a service key, and parses back.
+  it('carries an offering event and parses it back', () => {
+    const url = fleetChangesUrl('', { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' });
+    expect(url).toBe('#/fleet/changes?offering=postgresql&event=unavailable&outcome=breaks');
+    expect(parseHash(url)).toEqual({ view: 'changes', params: { offering: 'postgresql', event: 'unavailable', outcome: 'breaks' } });
+    expect(fleetChangesUrl('redis', { offering: 'postgresql' })).toBe('#/fleet/changes/redis');
+  });
   it('carries an unresolved legacy name as a query hint, never as the path key', () => {
     expect(fleetChangesUrl('', { name: 'payments' })).toBe('#/fleet/changes?name=payments');
   });

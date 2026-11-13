@@ -227,6 +227,50 @@ export function installScaleFixture(): void {
         }));
         prov.total = 25; prov.count = prov.items.length; prov.truncated = true;
       }
+      // Availability at its longest (#464): long environment names, five unreachable
+      // reporters with long keys, a partial environment and a long successor ref.
+      const unreachable = Array.from({ length: 5 }, (_, u) => {
+        const key = `domain-load/${longName(`unreachable-${u}`)}`;
+        return { kind: 'service', key, label: longName(`unreachable-${u}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+      });
+      const states = ['available', 'degraded', 'unavailable', 'unknown'];
+      const avail = (seed: string) => ({
+        state: 'degraded', asOf: '2026-11-10T08:00:00Z', total: 6,
+        byEnvironment: states.map((state, e) => ({
+          environment: longName(`${seed}-production-${e}`), state, provenance: ['observed', 'inferred', 'inferred', 'unknown'][e],
+          reason: longName(`${e} of 4 targets reporting; ${unreachable[0].label} cannot reach it`), reporting: e, targets: 4,
+          evidenceAt: '2026-11-10T07:00:00Z', partial: e === 1, unreachable: e ? unreachable : undefined,
+          providers: (prov?.items ?? []).slice(0, 3).map((p) => p.service),
+        })),
+      });
+      if (off) {
+        off.availability = avail('offering') as unknown as Record<string, unknown>;
+        (off as Record<string, unknown>).hiddenProviders = 2;
+      }
+      for (const [i, p] of (prov?.items ?? []).entries()) {
+        p.availability = avail(`provider-${i}`);
+        p.successor = { provenance: i % 2 ? 'unknown' : 'inferred', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: i % 2 ? longName('no revision 17.0.0 in this snapshot') : undefined };
+      }
+      const pv = (prov?.items ?? [])[0]?.service as Record<string, unknown> | undefined;
+      if (off && pv) {
+        off.observedConsumers = {
+          items: Array.from({ length: 30 }, (_, o) => o % 3 === 2
+            ? { caller: longName(`uncontracted-caller-${o}`), provider: pv, provenance: 'observed', uncontracted: true }
+            : { consumer: { kind: 'service', key: `domain-load/observed-${o}`, label: longName(`observed-caller-${o}`), href: `/fleet/services/${encodeURIComponent(`domain-load/observed-${o}`)}` },
+              provider: pv, provenance: 'observed', lastSeen: '2026-11-08T08:00:00Z', stale: o % 2 === 0, sources: [longName('mira-observation-source')] }),
+          total: 412, count: 30, truncated: true,
+        };
+        (off as Record<string, unknown>).hiddenObservedConsumers = 7;
+      }
+    }
+    // A checked range's answer carries the provider's successor at its longest ref.
+    if (route === '/api/fleet/versions') {
+      for (const pr of (doc.providers as { versions?: Record<string, unknown> }[] | undefined) ?? []) {
+        if (pr.versions && pr.versions.range) {
+          pr.versions.successor = { provenance: 'unknown', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: longName('no revision 17.0.0 in this snapshot') };
+          pr.versions.successorRange = 'unknown';
+        }
+      }
     }
     // The inbox figure at fleet scale: 60 environments with long names, a declared chain
     // through some of them and counts in the thousands. Only the figure's tallies change;
@@ -430,6 +474,13 @@ export function installScaleFixture(): void {
         };
       };
       const all = names.map(consumer);
+      // An offering event names every provider it asked about: 25, the bound.
+      if (req.offeringKey) {
+        doc.providers = Array.from({ length: 25 }, (_, i) => {
+          const key = `domain-load/${longName(`provider-${i}`)}`;
+          return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+        });
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
       // empty and the gate under them, the shape a complete snapshot gives it.
       const leaf = !!event && !cs.total;
@@ -1025,6 +1076,18 @@ export const ROUTES: Route[] = [
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
+  { name: 'offering entity postgresql', hash: '#/fleet/offerings/postgresql' },
+  { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  {
+    // The successor range line is component state, never in the URL: type the range.
+    name: 'offering entity postgresql range',
+    open: async (page) => {
+      await page.goto('/#/fleet/offerings/postgresql');
+      const input = page.locator('[data-testid="offering-provider"]').first().getByRole('textbox');
+      await input.fill('^16.0.0');
+      await expect(page.locator('[data-testid="versions-successor"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
