@@ -7,14 +7,14 @@ BUNDLE_DIR := pactos/pacto-dashboard
 # Pinned Repowise CLI version for the advisory ci-arch architecture-health leg.
 REPOWISE_VERSION ?= 0.36.0
 
-.PHONY: ci aval-gen aval-gen-check ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
+.PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test cover-gate ci-cover-merge ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -28,39 +28,10 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # must stay k8s-free, collector docs exist, fleet routes stay neutral, the OTel
 # path stays offline, the U+00A7 checker really rejects the glyph); tests/release
 # holds the one-publisher, demo-ref and release-plan gates. Both live under
-# /tests/, which ci-test EXCLUDES (AVAL_NO_TEST), so they get their own leg
+# /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
 # here and an ALWAYS-run CI job — a gate that never runs is not a gate.
-# aval.yaml's go.* entries come from the Go import graph (make aval-gen);
-# aval-gen-check fails on any drift in them. AVAL_NO_TEST is the one list of
-# packages outside the 100% gate: they get no go.* test, keep their fragment
-# (their files stay in the scope of the tests that import them), and
-# COVER_PKGS below is derived from the same list. AVAL_ALLOW_DYNAMIC: packages
-# whose tests read paths aval gen cannot resolve, each with what covers the
-# read. AVAL_VERSION must match the release the workflow's Aval actions pin.
-# Without aval installed, go run builds the pinned release (cached after the
-# first run); AVAL=aval uses an installed one.
-AVAL_VERSION = v0.12.1
-AVAL ?= GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
-AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendocs \
-	--no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
-# pkg/validation: reads the files field-coverage.yaml names, joined to "../..",
-# which aval gen adds as '**' (go.pkg.validation.test).
-# pkg/oci, internal/app, internal/mcp, internal/pactify: temporary directories only.
-# internal/runtimewatch: a smoke test of the host's /proc and cgroupfs that
-# asserts only that a snapshot is produced.
-AVAL_ALLOW_DYNAMIC = --go-allow-dynamic pkg/validation --go-allow-dynamic pkg/oci \
-	--go-allow-dynamic internal/app --go-allow-dynamic internal/mcp --go-allow-dynamic internal/pactify \
-	--go-allow-dynamic internal/runtimewatch
-AVAL_GEN_GO = gen go $(AVAL_NO_TEST) $(AVAL_ALLOW_DYNAMIC) --go-cover-profile cover
-
-ci-gates: aval-gen-check
+ci-gates:
 	go test ./tests/architecture/... ./tests/release/...
-
-aval-gen:
-	$(AVAL) $(AVAL_GEN_GO)
-
-aval-gen-check:
-	$(AVAL) $(AVAL_GEN_GO) --check
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine
@@ -388,21 +359,11 @@ verify-k8s-standalone:
 # internal/runtimewatch/ebpf is excluded the way the operator excludes its /cmd:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
-# COVER_PKGS is the package set behind the 100% gate, the packages that get
-# a go.* test (AVAL_NO_TEST above); `make coverage` reuses it. Pacto has no
-# root package, so every ID is a directory.
-COVER_PKGS = $$($(AVAL) $(AVAL_GEN_GO) --list-tests | sed 's|^|./|')
+# COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
+COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
 	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
-	@$(MAKE) --no-print-directory cover-gate
-	@echo "==> Running example tests (no coverage gate)..."
-	@go test -race ./examples/...
-	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
-	@$(MAKE) -C examples/demo validate
-
-# cover-gate is the 100% rule over coverage.out, for ci-test and ci-cover-merge.
-cover-gate:
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -410,21 +371,10 @@ cover-gate:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
-
-# ci-cover-merge is the same gate in CI with no test re-run: it merges the
-# per-package profiles the go.* tests wrote, or Aval restored on reuse, to
-# cover/go.<id, / as .>.out (--go-cover-profile) into coverage.out, one per
-# --list-tests ID. Without -coverpkg the merge equals ci-test's single
-# profile. A missing profile fails.
-ci-cover-merge:
-	@ids=$$($(AVAL) $(AVAL_GEN_GO) --list-tests) && [ -n "$$ids" ] || exit 1; \
-	files=; for id in $$ids; do \
-		f="cover/go.$$(echo "$$id" | tr / .).out"; \
-		[ -f "$$f" ] || { echo "FAIL: no coverage profile $$f"; exit 1; }; \
-		files="$$files $$f"; \
-	done; \
-	awk 'NR == 1 || FNR > 1' $$files > coverage.out
-	@$(MAKE) --no-print-directory cover-gate
+	@echo "==> Running example tests (no coverage gate)..."
+	@go test -race ./examples/...
+	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
+	@$(MAKE) -C examples/demo validate
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).
