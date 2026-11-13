@@ -214,12 +214,16 @@ type fleetSearchArgs struct {
 
 func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetSearchArgs) (*mcpsdk.CallToolResult, any, error) {
+		labels, err := fleet.ParseLabels(a.Label)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		res, err := q.Search(fleet.SearchFilter{
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
 			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
-			Labels: fleet.ParseLabels(a.Label),
+			Labels: labels,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil

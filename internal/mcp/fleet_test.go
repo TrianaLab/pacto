@@ -131,6 +131,10 @@ func TestFleetSearchHandler_InvalidFilter(t *testing.T) {
 	if !res.IsError {
 		t.Error("expected an error result for a negative limit")
 	}
+	// A label pair with no = is refused, never dropped into an unfiltered answer.
+	if res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"label": []string{"env:prod"}}); !res.IsError {
+		t.Error("expected an error result for a label with no =")
+	}
 }
 
 func TestFleetGetHandler_Service(t *testing.T) {

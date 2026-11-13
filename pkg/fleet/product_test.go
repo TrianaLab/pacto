@@ -526,11 +526,19 @@ func TestTemplatesReferencing(t *testing.T) {
 }
 
 func TestParseLabels(t *testing.T) {
-	if ParseLabels(nil) != nil {
+	if got, err := ParseLabels(nil); got != nil || err != nil {
 		t.Error("no pairs is no label filter")
 	}
-	got := ParseLabels([]string{"env=prod", "bare", "team=a=b"})
-	if len(got) != 2 || got["env"] != "prod" || got["team"] != "a=b" {
-		t.Errorf("ParseLabels = %v", got)
+	got, err := ParseLabels([]string{"env=prod", "team=a=b", "env=prod"})
+	if err != nil || len(got) != 2 || got["env"] != "prod" || got["team"] != "a=b" {
+		t.Errorf("ParseLabels = %v, %v", got, err)
+	}
+	// A pair the filter cannot read is refused, never dropped: dropping it
+	// widens the answer past what the caller asked for.
+	for _, pairs := range [][]string{{"bare"}, {"env:prod"}, {"=prod"}, {"tier=prod", "tier=pci"}} {
+		var iq *InvalidQueryError
+		if got, err := ParseLabels(pairs); got != nil || !errors.As(err, &iq) || iq.Field != "label" {
+			t.Errorf("ParseLabels(%q) = %v, %v; want InvalidQueryError", pairs, got, err)
+		}
 	}
 }
