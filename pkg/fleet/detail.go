@@ -886,6 +886,13 @@ type OfferingDetailData struct {
 	// HiddenProviders counts the providers the caller's permissions hide. They
 	// are never named. Zero outside a restricted answer.
 	HiddenProviders int `json:"hiddenProviders,omitempty"`
+	// ObservedConsumers lists the services and uncontracted callers seen
+	// calling a provider at runtime that declare no use of any provider.
+	ObservedConsumers ObservedConsumersPreview `json:"observedConsumers"`
+	// HiddenObservedConsumers counts the observed callers the caller's
+	// permissions hide that HiddenConsumers does not already count. They are
+	// never named.
+	HiddenObservedConsumers int `json:"hiddenObservedConsumers"`
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -1308,9 +1315,12 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
 	}
 	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
-	hidden := map[ServiceKey]bool{}
+	hidden, declared := map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	for _, ref := range providers {
 		maps.Copy(hidden, q.snap.hiddenConsumers[ServiceKey(ref.Key)])
+	}
+	for _, u := range uses {
+		declared[ServiceKey(u.Consumer.Key)] = true
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(append(conflicts, successorLimitations(items)...)), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
@@ -1318,7 +1328,9 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
 			Availability: q.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
+			ObservedConsumers: q.observedConsumers(records, declared), HiddenObservedConsumers: q.hiddenObservedConsumers(records),
 		},
+		Actions: []string{"impact"},
 	}, nil
 }
 

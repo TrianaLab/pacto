@@ -871,6 +871,10 @@ type FleetSnapshot struct {
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
+	// hiddenDependents maps, in a restricted snapshot, a service to the hidden
+	// services that depend on or call it and its hidden uncontracted callers
+	// (as caller:<name> keys). Only counted.
+	hiddenDependents map[ServiceKey]map[ServiceKey]bool
 	// hiddenProviders counts, in a restricted snapshot, the hidden providers
 	// of each offering that keeps a visible provider. Only counted.
 	hiddenProviders map[string]int

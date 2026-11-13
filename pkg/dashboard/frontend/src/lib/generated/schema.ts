@@ -4372,13 +4372,37 @@ export interface components {
             revisionState?: string;
             status?: string;
         };
+        ProductObservedConsumer: {
+            /** @description A caller no contract describes */
+            caller?: string;
+            consumer?: components["schemas"]["ProductRef"];
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider: components["schemas"]["ProductRef"];
+            sources?: string[] | null;
+            stale?: boolean;
+            uncontracted?: boolean;
+        };
+        ProductObservedConsumersPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductObservedConsumer"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductOfferingDetail: {
             availability: components["schemas"]["ProductAvailability"];
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
             /** Format: int64 */
             hiddenConsumers: number;
             /** Format: int64 */
+            hiddenObservedConsumers: number;
+            /** Format: int64 */
             hiddenProviders?: number;
+            observedConsumers: components["schemas"]["ProductObservedConsumersPreview"];
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {

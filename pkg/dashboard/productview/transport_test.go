@@ -414,6 +414,7 @@ func TestProductLists_DomainOfferingAndDocumentHrefs(t *testing.T) {
 	if od.Offering == nil || od.Entity.Href != "/fleet/offerings/postgres" {
 		t.Fatalf("offering detail = %+v", od)
 	}
+
 	assertNoEmptyHrefs(t, "offering", od)
 	if v := od.Offering.Providers.Items[0].Versions; v.Items[0].Revision.Href == "" || v.LatestCompatible == nil || v.LatestCompatible.Href == "" {
 		t.Errorf("provider versions = %+v", v)
@@ -497,5 +498,21 @@ func TestProductOfferingSuccessorHrefs(t *testing.T) {
 	}
 	if productSuccessor(nil) != nil {
 		t.Error("no successor gives none")
+	}
+}
+
+// TestProductOfferingObservedConsumersHrefs links an observed service and its
+// provider, and leaves an uncontracted caller with no consumer link.
+func TestProductOfferingObservedConsumersHrefs(t *testing.T) {
+	svc := fleet.EntityRef{Kind: fleet.KindService, Key: "pay"}
+	od := ToEntityDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "postgres"}, Offering: &fleet.OfferingDetailData{
+		ObservedConsumers: fleet.ObservedConsumersPreview{Total: 2, Count: 2, Items: []fleet.ObservedConsumer{
+			{Consumer: &svc, Provider: svc, Provenance: fleet.ProvenanceObserved},
+			{Caller: "cron-x", Uncontracted: true, Provider: svc, Provenance: fleet.ProvenanceObserved},
+		}},
+	}})
+	assertNoEmptyHrefs(t, "observed consumers", od)
+	if oc := od.Offering.ObservedConsumers.Items; len(oc) != 2 || oc[0].Consumer == nil || oc[0].Consumer.Href != "/fleet/services/pay" || oc[1].Consumer != nil || oc[1].Provider.Href == "" {
+		t.Errorf("observed consumers = %+v", oc)
 	}
 }

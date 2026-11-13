@@ -111,6 +111,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.hiddenConsumers = hiddenConsumers
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
+	out.hiddenDependents = hiddenDependents
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)

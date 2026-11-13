@@ -786,6 +786,30 @@ type ProductOfferingDetail struct {
 	Providers    ProductOfferingProvidersPreview `json:"providers"`
 	Consumers    ProductOfferingUsesPreview      `json:"consumers"`
 	Availability ProductAvailability             `json:"availability"`
+	// ObservedConsumers is the navigable preview of observed consumers.
+	ObservedConsumers ProductObservedConsumersPreview `json:"observedConsumers"`
+}
+
+// ProductObservedConsumer is an observed consumer with a navigable provider
+// and, for a contracted service, a navigable consumer.
+type ProductObservedConsumer struct {
+	fleet.ObservedConsumer
+	Consumer *ProductRef `json:"consumer,omitempty"`
+	Provider ProductRef  `json:"provider"`
+}
+
+// ProductObservedConsumersPreview is a navigable preview of observed consumers.
+type ProductObservedConsumersPreview struct {
+	fleet.ObservedConsumersPreview
+	Items []ProductObservedConsumer `json:"items"`
+}
+
+func productObservedConsumers(p fleet.ObservedConsumersPreview) ProductObservedConsumersPreview {
+	items := make([]ProductObservedConsumer, len(p.Items))
+	for i, c := range p.Items {
+		items[i] = ProductObservedConsumer{ObservedConsumer: c, Consumer: RefPtr(c.Consumer), Provider: Ref(c.Provider)}
+	}
+	return ProductObservedConsumersPreview{ObservedConsumersPreview: p, Items: items}
 }
 
 func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail {
@@ -809,6 +833,7 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 		Providers:          ProductOfferingProvidersPreview{OfferingProvidersPreview: d.Providers, Items: items},
 		Consumers:          productOfferingUses(d.Consumers),
 		Availability:       productAvailability(d.Availability),
+		ObservedConsumers:  productObservedConsumers(d.ObservedConsumers),
 	}
 }
 
