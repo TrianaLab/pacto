@@ -265,7 +265,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	rc := remoteCaller{auth: s.auth, cluster: cluster, newClient: d.dynamicFor, claims: claimsFlags(flagString(cmd))}
 	if deliveryMode {
-		if rc.delivery, err = remoteDelivery(cmd, d); err != nil {
+		if rc.delivery, err = remoteDeliveryClients(cmd, d); err != nil {
 			return err
 		}
 	}
@@ -316,9 +316,9 @@ func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, read
 	}
 }
 
-// remoteDelivery builds each caller's delivery client over their exchanged
-// token.
-func remoteDelivery(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
+// remoteDeliveryClients builds each caller's delivery client over their
+// exchanged token.
+func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
 	trust, err := deliveryTrust(path)
