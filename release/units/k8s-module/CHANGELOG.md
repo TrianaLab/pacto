@@ -1,5 +1,224 @@
 # @pacto/k8s-module
 
+## 6.5.0
+
+### Minor Changes
+
+- da4494d: Add `pactoVersion: "2.4"` with `service.domain`, `service.offering`,
+  `service.summary`, `service.lifecycle`, and `values` and a `configuration`
+  selector beside a configuration `ref`. Every 2.3 contract is schema-valid under
+  2.4, but 2.4 checks configuration refs strictly: a ref that cannot be resolved
+  or that matches more than one provider configuration is an error, and a
+  required ref configuration needs values in every environment. Raising a
+  contract to 2.4 can therefore turn those warnings into errors. A `"2.0"` to
+  `"2.3"` contract that sets any of the new fields reports `NEEDS_PACTO_2_4`.
+  
+  `service.domain` is the business domain a service belongs to, and `pacto diff`
+  reports an added, changed or removed domain as `NON_BREAKING`. The operator reports the
+  domain in `status.contract.domain` and writes `status.statusFormat` 2, so a
+  service seen only through Kubernetes is still grouped by it. A status from an
+  older operator leaves that service's domain unknown.
+  
+  The dashboard groups services by domain: domains have a list and a page with
+  their services, owners, operational targets and attention, and the overview
+  breaks services down by domain, with services that declare none under No domain
+  and services whose domain Pacto cannot tell under Domain unknown. Sources that
+  disagree on a domain raise `DOMAIN_CONFLICT`.
+  The registry path that used to read "domain" now reads "Registry". Services with
+  no owner from any source appear in attention as `unowned`. An operational target shows
+  the environment it runs in when its Pacto carries the
+  `delivery.pacto.trianalab.io/environment` label, and whether the revision it runs
+  declares that environment; without the label it reads Unknown. The services list
+  filters by declared capability. `pacto fleet search --business-domain`, the
+  `pacto_fleet_search` MCP tool and the TUI accept a domain, `(none)` or
+  `(unknown)`, and `pacto_edit`
+  sets one.
+- 1e7624b: An environment in `environments[]` can now declare its `lifetime`
+  (`temporary` or `persistent`), an `expires` time (RFC 3339, only with
+  `temporary`) and an `owner` in the shape of `service.owner` (pactoVersion 2.4).
+  A lifetime nobody declared reads "not declared", never persistent. Once a
+  temporary environment's `expires` has passed, `pacto validate` and
+  `pacto_check` warn `ENVIRONMENT_EXPIRED`; Pacto deletes nothing for it.
+  `pacto diff` classifies every change to these fields, and to an environment's
+  `file`, as non-breaking.
+  
+  `pacto init --delivery --env` and `pacto_create` with `delivery` also declare
+  each environment in `pacto.yaml` with an empty values file.
+  `pacto_edit add_environments` takes `lifetime`, `expires` and `owner`, and
+  `pacto_edit remove_environments` retires an environment and deletes the values
+  file no other environment names. `pacto explain --environments a,b` and
+  `pacto_check environments` list the configuration values two or more
+  environments disagree on.
+  
+  A service's environments are one list in `pacto fleet entity service`,
+  `pacto_fleet_entity` and the dashboard's service page: each environment the
+  current revision declares or a visible target reports, with its declaration,
+  its owner (declared, or the service owner labelled inferred), the targets
+  observed there, its provisioning tally, the differences between environments
+  and how the declarations changed between versions. On a delivery host the
+  service page also shows the Stages for each environment.
+  `pacto fleet entities --consumes <offering> --phase <phase> --environment <env>`
+  and the matching `pacto_fleet_entities` arguments list the consumers in a
+  provisioning phase in one environment.
+  
+  The delivery promoter emits the Kubernetes Events `EnvironmentCreated` and
+  `EnvironmentDeleted` when a Stage is first reconciled and when it is deleted,
+  and the recorder posts the CDEvents `environment.created` and
+  `environment.deleted` to its CDEvents sink. Each names one Stage.
+- 9cdf40f: `service.template` (pactoVersion 2.4) marks a contract as a golden path and
+  names the generate plugins it offers, and `service.origin` (pactoVersion 2.4)
+  records the golden path a service was created from as declared provenance
+  (`ref` and the path's content `digest`). A `"2.0"` to `"2.3"` contract that
+  sets either field reports `NEEDS_PACTO_2_4`; a repeated plugin reports
+  `DUPLICATE_TEMPLATE_PLUGIN` and an origin that is neither an `oci://` reference
+  nor a directory reports `INVALID_ORIGIN_REF`. `pacto diff` classifies every
+  change to either field as non-breaking.
+  
+  `pacto init <dir> --from <oci-ref|dir> --owner <team>` creates a service from a
+  golden path: it resets the identity, applies `--values` and `--set`, records
+  `service.origin`, validates the result with its references resolved and only
+  adds files. A path read from a registry is pulled by digest and, when the
+  trust config (`--trust` or `$PACTO_DELIVERY_TRUST`) names a `role: template`
+  key, must be signed by one; otherwise the signature step reads Unknown.
+  `--run-plugins` runs only the plugins of the path you name. `--delivery`, with
+  `--env`, `--registry-secret` and `--insecure-registry`, plans the cluster pieces
+  from the created contract when the path publishes manifests under
+  `publish.deploy`. The step list says what was checked and what Pacto cannot
+  tell yet. The MCP `pacto_create` tool gains `from`, `values`, `set`,
+  `run_plugins` and `domain`, and takes `delivery` and its options with `from`;
+  `from` serves stdio only. `pacto_edit` gains `template`.
+  
+  A blank `pacto init` now writes `--owner`, `--domain` and a publish section,
+  and no placeholder readiness block. `pacto_create` without `pactify` refuses a
+  folder that already holds `pacto.yaml` and keeps any interface or schema file
+  already there.
+  
+  The operational graph treats a service whose newest readable revision declares
+  `service.template` and that runs nowhere as a golden path. Its dependencies and
+  references are requirements, never consumption: impact, dependents, offering
+  consumers, attention and the Overview population counts leave it out, and the
+  Overview counts it in `goldenPaths` and `invalidGoldenPaths`. A running
+  service that declares `service.template` stays a service and raises
+  `GOLDEN_PATH_DEPLOYED`. A declared origin links to the golden path revision
+  whose content digest matches. Entity lists take `template` (`only` or
+  `exclude`) and `createdFrom` (MCP `created_from`), search takes `template` and
+  marks golden path hits, and a service created from a path carries a creation
+  checklist derived from what the fleet observes. A restricted viewer sees a
+  golden path with no Kubernetes target, with the services created from it that
+  they may not read counted. The CLI, MCP tools, dashboard (a Golden paths tab)
+  and TUI show all of it. Consume snippets carry structured `entries`, and a
+  values skeleton leaves out and names in `missingValues` every required value
+  no candidate satisfies.
+  
+  The operator chart's `dashboard.repositories` (operator flag
+  `--dashboard-repositories`) lists `oci://` references the operator-managed
+  dashboard reads beside the contracts it discovers, so golden paths, which are
+  never deployed, show on its Golden paths tab.
+- af4f27d: `service.lifecycle` (pactoVersion 2.4) deprecates a whole service with a
+  sunset and a successor, and a configuration `ref` takes `values` and a
+  `configuration` selector beside it (pactoVersion 2.4). Consumers of a deprecated service are warned with
+  `DEPENDENCY_SERVICE_DEPRECATED` or `DEPENDENCY_SERVICE_SUNSET`, and `pacto diff`
+  classifies the schedule like an interface lifecycle.
+  
+  Configuration references are now resolved and their values validated against
+  the referenced contract's selected configuration schema in a new
+  `configuration-refs` validation stage, in the fleet, the delivery gate,
+  `pacto_check`, `pacto_edit` and the operator. `pacto validate`, `pacto push` and
+  `pacto publish` fail with `CONFIG_REF_UNRESOLVED` on an unreachable
+  configuration ref whose values or selection depend on it, like a policy ref; a
+  `"2.0"` to `"2.3"` ref with no values anywhere only warns. Environment values
+  of `"2.0"` to `"2.3"` ref configurations are now checked, and only 2.4 reports
+  missing required values for a ref configuration. A failed configuration-refs
+  stage does not skip environments. Impact, graph traversal and dependents count
+  resolved configuration-reference consumers, and impact checks their values
+  against the new provider schema. Neighborhood edges gain the
+  `configuration_reference` relation.
+  
+  Provider adapters report provisioning status as `ResourceProvisioned`
+  evidence, written with `pacto evidence provisioned`. A trust entry needs
+  `allowedObservationKinds` listing `ResourceProvisioned` to report it. The
+  Evidence Server's targets endpoint answers `pacto.dev/evidence-source/v3` with
+  a `provisioning` list only when it holds provisioning reports, and v2
+  otherwise, and target-state files accept `pacto.dev/fleet-targets/v2` with
+  unsigned provisioning reports. Offering uses carry a provisioning status per
+  environment that reads Unknown without a current report. `pacto fleet
+  versions`, `pacto_fleet_versions` and the dashboard list each provider's
+  versions with their lifecycle and range status, `--consumes` and `consumes`
+  list an offering's consumers, and `pacto_edit` gains
+  `remove_configuration_refs`, `add_environments`, `set_environment_values` and
+  `lifecycle`. A provider with no Kubernetes target that declares its offering
+  is visible to every signed-in viewer, with its targets hidden and its hidden
+  consumers counted. `OfferingProvider.revisions` and `activeRevisions` become
+  `versions`. `pacto explain` lists each configuration with its
+  `environmentValues`, the effective values per environment an adapter
+  provisions from.
+  
+  The operator resolves configuration references with host-scoped credentials
+  and validates their values, `spec.overrides` and bound ConfigMaps against the
+  resolved schema. `status.metadata` renders non-string values as JSON.
+  The chart's `evidence.trust.configKey` (operator flag
+  `--evidence-trust-config-key`) names a structured trust config inside the
+  trust Secret, so the operator's Evidence Server can grant an adapter key
+  `ResourceProvisioned`.
+- 78fd229: `service.offering` (pactoVersion 2.4) names the platform offering a service
+  provides to other teams such as `postgresql`, and `service.summary` a one-line
+  purpose; `pacto diff` reports an added, changed or removed offering or summary as `NON_BREAKING`.
+  The operator reports both in `status.contract.offering` and
+  `status.contract.summary`.
+  
+  The dashboard gains an Offerings page. Each offering lists its providers with
+  their versions, owners, interfaces, configuration and policies, the services
+  that consume it and a snippet to consume it from a contract. A service page
+  lists the platform offerings the service uses and, marked inferred, the
+  providers its unresolved dependencies may mean. The capability filter and chips
+  now read "Declared capability" and count each extension by its ref.
+  `pacto fleet search --offering`, the `offering` argument of
+  `pacto_fleet_search` and the TUI Offerings tab find providers, and `pacto_edit`
+  gains `offering`, `summary`, `add_configuration_refs` and `add_policy_refs`.
+
+### Patch Changes
+
+- 1e7624b: Follow a service through delivery on every surface. `pacto delivery status`,
+  the `pacto_delivery_status` MCP tool and the dashboard show each Stage of a
+  service in promotion order with its upstream, the one state the board counts,
+  the version, contract and source revision it runs, its newest re-check with
+  `Watched` and what you may ask for (`offers`: promote, unfreeze, freeze and
+  undo, each with why or why not). `--why` and `/api/delivery/progress` say why
+  a candidate cannot move yet, with each reason's fix and a dry-run plan that
+  proposes nothing. Offers go unavailable when RBAC denies or cannot answer, and
+  when the delivery identity policy cannot be read, with a `--delivery-namespace`
+  hint when it is not found. A Stage whose admission policies are missing (Ready
+  False `Unguarded`) and a Stage that observes (including one that reports no
+  level) offer no promote, and none appears in `actions`.
+  
+  `pacto delivery lifecycle`, `pacto_delivery_lifecycle` and
+  `/api/delivery/lifecycle` follow one version through every Stage, and
+  `pacto delivery record get`, `pacto_delivery_record_get` and
+  `/api/delivery/record` read one signed record by its id. History takes
+  `--cause` and `--correlation-id` (`cause` and `correlation_id` in MCP, which
+  also accepts durations for `since` and `until`); both narrow the timeline too.
+  The CLI history shows applied, cause and correlation columns and marks lines
+  that are not signed. `/api/delivery/plan` and propose return the full plan
+  answer (`next`, `precedent` and `order`). Published versions show the source
+  revision `pacto publish` stamps, an annotation, not signed, and link their
+  fleet revision; a service whose Stages name two domains is listed once per
+  domain. Delivery service filters match the service name exactly. A Stage
+  waiting on exactly one held change names it (`heldOperation`). A fleet service detail carries
+  `placement`, where its targets report it runs. The CLI labels an evidence
+  gate's Pass as Checked, `pacto.contract` verdicts cite each Pacto's target,
+  status, evaluation time and findings, a held promote on a frozen Stage names
+  the `StageFrozen` conflict and the `CandidateUnverified` fix points at
+  `spec.verify`. The operator uses the shared Ready reasons and auto-promote
+  rule, and a held shadow promote keeps the person's question.
+- 8517f96: Bump Go dependencies (sigstore, sigstore-go, go-jose, oras-go, prometheus,
+  pflag, ginkgo and k8s.io/apiextensions-apiserver), dashboard frontend
+  dependencies (jsdom 31, vite, vitest, playwright, mermaid, marked, d3 and
+  svelte-check) and the cosign-installer, docker/login-action and CodeQL
+  GitHub Actions.
+- a39e7dc: Build with Go 1.27.4 (was 1.27.3) everywhere it's pinned (both modules,
+  `go.work`, both Dockerfiles) for GO-2026-6859, a `net/http` vulnerability fixed
+  in Go 1.27.4 and reachable from Pacto's code. No source changes.
+
 ## 6.4.1
 
 ### Patch Changes
