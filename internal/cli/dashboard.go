@@ -456,7 +456,7 @@ func pinSharedImpactRefs(snap *fleet.FleetSnapshot, oldRef, newRef string) (stri
 	for i, name := range [2]string{"old", "new"} {
 		ref := refs[i]
 		if graph.ParseDependencyRef(ref).IsLocal() {
-			return "", "", &oci.InvalidRefError{Ref: ref, Err: errors.New("this dashboard is shared: pass oci:// references")}
+			return "", "", &oci.InvalidRefError{Ref: ref, Err: errors.New("this dashboard serves other people, so it reads no local folder: pass oci:// references")}
 		}
 		pinned, err := pinVisibleRef(snap, ref)
 		if err != nil {

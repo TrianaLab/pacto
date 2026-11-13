@@ -19,7 +19,7 @@ func mustNew(version string, a Authoring, m Modes) *mcpsdk.Server {
 	return s
 }
 
-func TestNewServer(t *testing.T) {
+func TestNew(t *testing.T) {
 	server := mustNew("1.0.0", Authoring{}, Modes{})
 	if server == nil {
 		t.Fatal("expected non-nil server")

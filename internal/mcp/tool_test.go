@@ -9,6 +9,8 @@ import (
 	"testing/fstest"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/trianalab/pacto/v4/pkg/capability"
 )
 
 // listTools returns every tool a server lists, by name.
@@ -169,6 +171,17 @@ func TestDeliveryWriteToolsAreNotReadOnly(t *testing.T) {
 		}
 		if a.DestructiveHint == nil || *a.DestructiveHint {
 			t.Errorf("%s only asks; people and Pacto decide: destructiveHint must be false", name)
+		}
+	}
+}
+
+// A method outside GET, HEAD, PUT and DELETE gets POST's hints: not read-only
+// and destructiveHint unset, which clients read as destructive.
+func TestGeneratedHintsOtherMethodsLikePost(t *testing.T) {
+	for _, m := range []string{"OPTIONS", "TRACE", "post"} {
+		h := generatedHints(capability.Tool{Method: m})
+		if h.ReadOnlyHint || h.IdempotentHint || h.DestructiveHint != nil || h.OpenWorldHint == nil || !*h.OpenWorldHint {
+			t.Errorf("%s: %+v", m, h)
 		}
 	}
 }
