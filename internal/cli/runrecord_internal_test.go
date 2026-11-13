@@ -527,3 +527,71 @@ func TestRecordVerdictsMatchImpact(t *testing.T) {
 		}
 	}
 }
+
+// envOf is a getenv over m.
+func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+// ghEnv is a GitHub Actions run's environment, with the actor a record never names.
+var ghEnv = map[string]string{"GITHUB_REPOSITORY": "acme/payments", "GITHUB_SERVER_URL": "https://github.com",
+	"GITHUB_RUN_ID": "42", "GITHUB_ACTOR": "alice", "CI_PROJECT_PATH": "acme/gl", "CI_JOB_URL": "https://gitlab.com/acme/gl/-/jobs/7"}
+
+type ctxWant struct{ repo, runURL, env string }
+
+func checkContext(t *testing.T, spec string, env map[string]string, want ctxWant, warnings int) {
+	t.Helper()
+	repo, runURL, envName, warns := statsContext(spec, envOf(env))
+	if (ctxWant{repo, runURL, envName}) != want || len(warns) != warnings {
+		t.Fatalf("%q: got %q %q %q %q, want %+v and %d warnings", spec, repo, runURL, envName, warns, want, warnings)
+	}
+	for _, w := range warns {
+		if strings.Contains(w, "alice") || strings.Contains(w, "u:p") {
+			t.Fatalf("%q: warning echoes a secret: %q", spec, w)
+		}
+	}
+}
+
+func TestStatsContextOnlyNamedFields(t *testing.T) {
+	checkContext(t, "", ghEnv, ctxWant{}, 0)
+	checkContext(t, "repository", ghEnv, ctxWant{repo: "acme/payments"}, 0)
+	checkContext(t, " repository , ", ghEnv, ctxWant{repo: "acme/payments"}, 0)
+}
+
+func TestStatsContextGitHubAndGitLab(t *testing.T) {
+	checkContext(t, "repository,run-url", ghEnv, ctxWant{"acme/payments", "https://github.com/acme/payments/actions/runs/42", ""}, 0)
+	gl := map[string]string{"CI_PROJECT_PATH": "acme/gl", "CI_JOB_URL": "https://gitlab.com/acme/gl/-/jobs/7?x=1#f", "GITHUB_REPOSITORY": "", "GITHUB_RUN_ID": "9"}
+	checkContext(t, "repository,run-url", gl, ctxWant{"acme/gl", "https://gitlab.com/acme/gl/-/jobs/7", ""}, 0)
+	checkContext(t, "repository,run-url,environment", nil, ctxWant{}, 3)
+}
+
+func TestStatsContextExplicitValues(t *testing.T) {
+	checkContext(t, "repository=acme/x,run-url=http://ci.example/r/1?token=s,environment=prod", ghEnv,
+		ctxWant{"acme/x", "http://ci.example/r/1", "prod"}, 0)
+	checkContext(t, "repository=,environment=", ghEnv, ctxWant{}, 2)
+	checkContext(t, "actor,actor=alice", ghEnv, ctxWant{}, 2)
+}
+
+func TestStatsContextRejectsUserinfo(t *testing.T) {
+	checkContext(t, "run-url=https://u:p@x/y", ghEnv, ctxWant{}, 1)
+	checkContext(t, "run-url=ftp://x/y", ghEnv, ctxWant{}, 1)
+	checkContext(t, "run-url=https:///nohost", ghEnv, ctxWant{}, 1)
+	checkContext(t, "run-url=%zz", ghEnv, ctxWant{}, 1)
+}
+
+func TestRunRecordBadContextNeverFails(t *testing.T) {
+	statsOff(t)
+	t.Setenv("GITHUB_ACTOR", "alice")
+	t.Setenv("GITHUB_REPOSITORY", "acme/payments")
+	file := filepath.Join(t.TempDir(), "run.json")
+	old, new := diffDirs(t, true)
+	baseOut, _, base := runRoot(t, defaultDeps(), nil, "diff", old, new)
+	out, stderr, err := runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file, "--stats-context", "actor,repository")
+	data, rerr := os.ReadFile(file)
+	if !sameErr(base, err) || out != baseOut || rerr != nil {
+		t.Fatalf("err %v (want %v), read %v, stdout\n%s", err, base, rerr, out)
+	}
+	if !strings.Contains(stderr, `pacto: warning: run record context: unknown context "actor"`) ||
+		bytes.Contains(data, []byte("actor")) || bytes.Contains(data, []byte("alice")) ||
+		!bytes.Contains(data, []byte(`"repository":"acme/payments"`)) || bytes.Contains(data, []byte("ciRunUrl")) {
+		t.Fatalf("stderr %s\nrecord %s", stderr, data)
+	}
+}

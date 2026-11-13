@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -58,6 +59,7 @@ func newRunRecorder(version string, d deps) *runRecorder {
 func addStatsFlags(cmd *cobra.Command) {
 	cmd.Flags().String("stats-registry", "", "publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY")
 	cmd.Flags().String("stats-file", "", "write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE")
+	cmd.Flags().String("stats-context", "", "comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named")
 }
 
 // statsTargets is where the run record goes: each flag, else its env.
@@ -177,6 +179,12 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record) {
 	out.PactoVersion = r.version
 	out.RecordedAt = r.now().UTC().Truncate(time.Second)
 	w := cmd.ErrOrStderr()
+	spec, _ := cmd.Flags().GetString("stats-context")
+	var warns []string
+	out.Repository, out.CIRunURL, out.Environment, warns = statsContext(spec, os.Getenv)
+	for _, msg := range warns {
+		_, _ = fmt.Fprintf(w, "pacto: warning: run record context: %s\n", msg)
+	}
 	data, err := runrecord.Encode(out)
 	if file != "" {
 		if err := unlessErr(err, func() error { return writeRecordFile(file, data) }); err != nil {
@@ -220,4 +228,77 @@ func writeRecordFile(path string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// statsContext reads the context fields spec names, each from the CI
+// environment or given explicitly as name=value. A field spec does not name
+// stays empty; a bad name or value is a warning and leaves its field out.
+func statsContext(spec string, getenv func(string) string) (repo, runURL, env string, warnings []string) {
+	for _, item := range strings.Split(spec, ",") {
+		name, value, explicit := strings.Cut(strings.TrimSpace(item), "=")
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		if !explicit {
+			value = contextDefault(name, getenv)
+		}
+		var err error
+		switch name {
+		case "":
+			continue
+		case "repository":
+			repo = value
+		case "run-url":
+			runURL, err = cleanRunURL(value)
+		case "environment":
+			env = value
+		default:
+			err = fmt.Errorf("unknown context %q; use repository, run-url or environment", name)
+		}
+		if err == nil && value == "" {
+			err = fmt.Errorf("%s has no value; it was left out", name)
+		}
+		if err != nil {
+			warnings = append(warnings, err.Error())
+		}
+	}
+	return repo, runURL, env, warnings
+}
+
+// contextDefault is the CI value of a bare context name: GitHub Actions,
+// else GitLab CI. environment has no default.
+func contextDefault(name string, getenv func(string) string) string {
+	switch name {
+	case "repository":
+		return firstSet(getenv("GITHUB_REPOSITORY"), getenv("CI_PROJECT_PATH"))
+	case "run-url":
+		srv, repo, id := getenv("GITHUB_SERVER_URL"), getenv("GITHUB_REPOSITORY"), getenv("GITHUB_RUN_ID")
+		if srv != "" && repo != "" && id != "" {
+			return srv + "/" + repo + "/actions/runs/" + id
+		}
+		return getenv("CI_JOB_URL")
+	}
+	return ""
+}
+
+func firstSet(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// cleanRunURL keeps an http or https URL with a host and no userinfo, without
+// its query and fragment. An error never echoes the URL, which may hold a secret.
+func cleanRunURL(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		return "", errors.New("run-url is not an http or https URL with a host; it was left out")
+	case u.User != nil:
+		return "", errors.New("run-url carries credentials; it was left out")
+	}
+	u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = "", false, "", ""
+	return u.String(), nil
 }
