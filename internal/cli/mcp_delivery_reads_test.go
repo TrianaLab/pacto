@@ -204,6 +204,9 @@ func TestDeliveryReadErrorIsToolError(t *testing.T) {
 	// A refusal huma raises itself (a bad query) keeps its title.
 	err := routeError(&bodyRecorder{code: http.StatusUnprocessableEntity})
 	expect(t, err.Error() == "Unprocessable Entity: ", "status text: %v", err)
+	// A parameter the route refuses is named, as the dashboard's client sees it.
+	text, isErr = callText(t, mcpReadServer(t, readDeps(nil), nil), "pacto_delivery_inbox", map[string]any{"limit": 500})
+	expect(t, isErr && strings.Contains(text, "query.limit") && strings.Contains(text, "200"), "out-of-bounds limit: %s", text)
 }
 
 // stageLists records with which bearer token every Stage list was asked.

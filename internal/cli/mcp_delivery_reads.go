@@ -77,15 +77,24 @@ func checkView(ctx context.Context, opts dashboard.Options) error {
 }
 
 // routeError is the refusal a route answered with, as the dashboard's
-// DeliveryError.
+// DeliveryError. A validation failure keeps each field it names, as the
+// dashboard's client sees them.
 func routeError(rec *bodyRecorder) error {
 	var b struct {
 		Code   string `json:"code"`
 		Title  string `json:"title"`
 		Detail string `json:"detail"`
+		Errors []struct {
+			Location string `json:"location"`
+			Message  string `json:"message"`
+		} `json:"errors"`
 	}
 	_ = json.Unmarshal(rec.Bytes(), &b) // a body that is not JSON still has a status
-	return &dashboard.DeliveryError{Status: rec.code, Code: cmp.Or(b.Code, b.Title, http.StatusText(rec.code)), Detail: b.Detail}
+	detail := b.Detail
+	for _, e := range b.Errors {
+		detail += "; " + e.Location + ": " + e.Message
+	}
+	return &dashboard.DeliveryError{Status: rec.code, Code: cmp.Or(b.Code, b.Title, http.StatusText(rec.code)), Detail: detail}
 }
 
 // bodyRecorder keeps an in-process route's status and body.
