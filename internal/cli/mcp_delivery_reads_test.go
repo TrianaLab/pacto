@@ -441,7 +441,8 @@ func TestRemoteDeliveryReadsDoNotShareNamespaceCache(t *testing.T) {
 	expect(t, slices.Equal(listed("bob"), []string{"staging"}), "bob reads staging only, never alice's cached answer")
 	expect(t, len(id.stageNS) == 2, "one cache entry per caller: %d", len(id.stageNS))
 	expect(t, remoteCallerKey(authn.Person{User: "a", Groups: []string{"x", "y"}}) == remoteCallerKey(authn.Person{User: "a", Groups: []string{"y", "x"}}) &&
-		remoteCallerKey(authn.Person{User: "a"}) != remoteCallerKey(authn.Person{User: "a", Groups: []string{"x"}}) && remoteCallerKey(authn.Person{}) != "",
+		remoteCallerKey(authn.Person{User: "a"}) != remoteCallerKey(authn.Person{User: "a", Groups: []string{"x"}}) && remoteCallerKey(authn.Person{}) != "" &&
+		remoteCallerKey(authn.Person{User: "a\nb", Groups: []string{"c"}}) != remoteCallerKey(authn.Person{User: "a", Groups: []string{"b", "c"}}),
 		"the key is the identity, stable and never empty")
 }
 

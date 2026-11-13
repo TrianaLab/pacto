@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
@@ -101,8 +100,11 @@ func (r *bodyRecorder) Header() http.Header { return r.header }
 func (r *bodyRecorder) WriteHeader(code int) { r.code = code }
 
 // remoteCallerKey keys a reviewed caller's cached answers: stable for one
-// identity and never empty, so two callers never share an entry.
+// identity and never empty, so two callers never share an entry. The JSON
+// encoding keeps a user with a newline from colliding with another user's
+// groups.
 func remoteCallerKey(p authn.Person) string {
-	sum := sha256.Sum256([]byte(p.User + "\n" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\n")))
+	b, _ := json.Marshal([]any{p.User, slices.Sorted(slices.Values(p.Groups))}) // strings always marshal
+	sum := sha256.Sum256(b)
 	return string(sum[:])
 }
