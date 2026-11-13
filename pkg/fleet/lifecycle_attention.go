@@ -79,7 +79,27 @@ func (q *Query) lifecycleItem(rel Relationship) AttentionItem {
 		target = l.Successor
 	}
 	it.NextStep = "Move " + consumer.Name + " to " + target
+	q.successorOutOfRange(&it, rel, consumer, provider)
 	return it
+}
+
+// successorOutOfRange turns it into a SUCCESSOR_OUT_OF_RANGE error when rel's
+// range excludes the provider's resolved successor; a past-sunset item keeps
+// its code and gains the same next step. An unresolved successor changes
+// nothing: the deprecation item stands.
+func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consumer, provider *ServiceRecord) {
+	if rel.ProviderLifecycle.Successor == "" {
+		return
+	}
+	succ, _ := q.successorRevision(provider, rel.ProviderLifecycle.Successor)
+	if successorRange(rel.Compatibility, succ) != RangeUnsatisfied {
+		return
+	}
+	if it.Code == "DEPENDENCY_SERVICE_DEPRECATED" {
+		it.Severity, it.Code, it.Summary = severityError, CodeSuccessorOutOfRange, "Its range excludes the provider's successor"
+		it.Reason = fmt.Sprintf("%s accepts %s %s, which excludes its successor %s", consumer.Name, provider.Name, rel.Compatibility, succ.Version)
+	}
+	it.NextStep = fmt.Sprintf("Widen the range in %s's contract to accept %s", consumer.Name, succ.Version)
 }
 
 // lifecycleTally counts the distinct real services with a lifecycle item and

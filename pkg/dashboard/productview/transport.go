@@ -687,6 +687,21 @@ type ProductOfferingProvider struct {
 	Policies        ProductPoliciesPreview       `json:"policies"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
 	Availability    ProductAvailability          `json:"availability"`
+	Successor       *ProductSuccessorInfo        `json:"successor,omitempty"`
+	LatestSupported *ProductRef                  `json:"latestSupported,omitempty"`
+}
+
+// ProductSuccessorInfo is a provider's navigable successor.
+type ProductSuccessorInfo struct {
+	fleet.SuccessorInfo
+	Revision *ProductRef `json:"revision,omitempty"`
+}
+
+func productSuccessor(s *fleet.SuccessorInfo) *ProductSuccessorInfo {
+	if s == nil {
+		return nil
+	}
+	return &ProductSuccessorInfo{SuccessorInfo: *s, Revision: RefPtr(s.Revision)}
 }
 
 // ProductEnvironmentAvailability is a capability's navigable state in one
@@ -723,6 +738,7 @@ type ProductProviderVersions struct {
 	fleet.ProviderVersionsPreview
 	Items            []ProductProviderVersion `json:"items"`
 	LatestCompatible *ProductRef              `json:"latestCompatible,omitempty"`
+	Successor        *ProductSuccessorInfo    `json:"successor,omitempty"`
 }
 
 func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVersions {
@@ -730,7 +746,7 @@ func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVer
 	for i, v := range p.Items {
 		items[i] = ProductProviderVersion{ProviderVersion: v, Revision: Ref(v.Revision)}
 	}
-	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible)}
+	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible), Successor: productSuccessor(p.Successor)}
 }
 
 // ProductOfferingProviderVersions is one navigable provider's versions.
@@ -784,6 +800,8 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
 			Availability:     productAvailability(p.Availability),
+			Successor:        productSuccessor(p.Successor),
+			LatestSupported:  RefPtr(p.LatestSupported),
 		}
 	}
 	return &ProductOfferingDetail{

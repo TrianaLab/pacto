@@ -98,7 +98,7 @@ func (q *Query) applyOfferingFacts(ref *EntityRef, f *offeringFacts) {
 // one that sets an offering row's state apart, so a row never shows a state
 // without saying how Pacto knows it.
 func worstProvenance(envs []EnvironmentAvailability) string {
-	worst := EnvironmentAvailability{State: AvailabilityAvailable, Provenance: availabilityProvenanceUnknown}
+	worst := EnvironmentAvailability{State: AvailabilityAvailable, Provenance: provenanceUnknown}
 	for i, e := range envs {
 		if i == 0 || availabilityRank[e.State] > availabilityRank[worst.State] {
 			worst = e

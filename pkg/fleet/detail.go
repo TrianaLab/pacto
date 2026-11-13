@@ -642,6 +642,14 @@ type OfferingUse struct {
 	// ProviderLifecycle is the provider's service lifecycle as the newest
 	// consumer revision's relationship reaches it.
 	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
+	// SuccessorRange says whether Compatibility accepts the successor
+	// ProviderLifecycle declares; unknown when the successor does not resolve or
+	// the use has no single range. Set only with ProviderLifecycle.
+	SuccessorRange string `json:"successorRange,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// SupportedRange says whether Compatibility accepts the provider's newest
+	// revision that declares no lifecycle; absent when it has none. Set only
+	// with ProviderLifecycle.
+	SupportedRange string `json:"supportedRange,omitempty" enum:"satisfied,unsatisfied,unknown"`
 	// Provisioning is what providers report about the resource this use asked
 	// for, one status per environment (see [ProvisioningStatus]); Unknown when
 	// no provider has reported. A policy reference provisions nothing and
@@ -843,6 +851,12 @@ type OfferingProvider struct {
 	// Availability is whether this provider answers, per environment, derived
 	// from its observed targets and its consumers' reports.
 	Availability Availability `json:"availability"`
+	// Successor is the successor Lifecycle declares and the revision it
+	// resolves to.
+	Successor *SuccessorInfo `json:"successor,omitempty"`
+	// LatestSupported is the newest readable revision that declares no
+	// lifecycle.
+	LatestSupported *EntityRef `json:"latestSupported,omitempty"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -1299,7 +1313,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		maps.Copy(hidden, q.snap.hiddenConsumers[ServiceKey(ref.Key)])
 	}
 	return &EntityDetail{
-		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
+		Meta: q.productMetaWith(append(conflicts, successorLimitations(items)...)), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
@@ -1329,6 +1343,11 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
 			p.Lifecycle = rec.Contract.Service.Lifecycle
 		}
+	}
+	p.Successor = p.Versions.Successor
+	if sup := q.latestSupported(s); sup != nil {
+		ref := revisionEntityRef(sup)
+		p.LatestSupported = &ref
 	}
 	return p
 }
@@ -1386,6 +1405,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 	var lims []Limitation
 	idx := q.provisioningIndex()
 	for j, k := range keys {
+		q.fillSuccessorRanges(&uses[j])
 		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)

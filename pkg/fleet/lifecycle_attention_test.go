@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"slices"
-	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -84,26 +83,26 @@ func TestProviderLifecycleOutOfRangeSeesProvider(t *testing.T) {
 	}
 }
 
+// pinned locks the deprecated 16.1.0 and its ^17 range accepts the successor,
+// so the deprecation warning stands (app16's ^16 excludes it: see
+// TestLifecycleAttentionSuccessorOutOfRange).
 func TestLifecycleAttentionDeprecatedWarning(t *testing.T) {
 	items := lifecycleItems(t, lifecycleRangeFleet(t))
-	it := itemFor(items, "app16")
+	it := itemFor(items, "pinned")
 	if it == nil {
-		t.Fatalf("no item for app16: %+v", items)
+		t.Fatalf("no item for pinned: %+v", items)
 	}
 	want := AttentionItem{
-		Entity: it.Entity, Service: "app16", Label: "app16 uses pg", Severity: severityWarning,
+		Entity: it.Entity, Service: "pinned", Label: "pinned uses pg", Severity: severityWarning,
 		Code: "DEPENDENCY_SERVICE_DEPRECATED", Category: categoryLifecycle, Summary: "Uses a deprecated provider",
 		Reason:   "pg@16.1.0 is deprecated since 2026-01-01; successor oci://ghcr.io/acme/pg:17.0.0",
-		NextStep: "Move app16 to oci://ghcr.io/acme/pg:17.0.0",
+		NextStep: "Move pinned to oci://ghcr.io/acme/pg:17.0.0",
 	}
-	if *it != want || it.Entity.Kind != KindService || it.Entity.Key != "app16" {
+	if *it != want || it.Entity.Kind != KindService || it.Entity.Key != "pinned" {
 		t.Errorf("item = %+v\nwant %+v", *it, want)
 	}
 	if itemFor(items, "app17") != nil {
 		t.Error("app17 reaches a supported revision and has no item")
-	}
-	if itemFor(items, "pinned") == nil {
-		t.Error("pinned locks the deprecated revision and has an item")
 	}
 }
 
@@ -271,10 +270,12 @@ func TestStatusLifecycleCategory(t *testing.T) {
 	if res.Total != 2 {
 		t.Fatalf("status lifecycle total = %d, want 2: %+v", res.Total, res.Items)
 	}
+	codes := map[string]string{}
 	for _, it := range res.Items {
-		if it.Code != "DEPENDENCY_SERVICE_DEPRECATED" || !strings.HasPrefix(it.Reason, "pg@16.1.0 is deprecated") {
-			t.Errorf("status item = %+v", it)
-		}
+		codes[it.Name] = it.Code
+	}
+	if codes["pinned"] != "DEPENDENCY_SERVICE_DEPRECATED" || codes["app16"] != CodeSuccessorOutOfRange {
+		t.Errorf("status items = %+v", res.Items)
 	}
 	if res := q.Status(StatusQuery{Unowned: true}); slices.ContainsFunc(res.Items, func(it StatusItem) bool { return it.Code == "DEPENDENCY_SERVICE_DEPRECATED" }) {
 		t.Error("another category reports lifecycle items")

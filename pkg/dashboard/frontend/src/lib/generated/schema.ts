@@ -4387,12 +4387,14 @@ export interface components {
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            latestSupported?: components["schemas"]["ProductRef"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             service: components["schemas"]["ProductRef"];
+            successor?: components["schemas"]["ProductSuccessorInfo"];
             summary?: string;
             versions: components["schemas"]["ProductProviderVersions"];
         };
@@ -4417,6 +4419,10 @@ export interface components {
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            supportedRange?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
             via: "dependency" | "configuration_reference" | "policy_reference";
         };
@@ -4521,6 +4527,9 @@ export interface components {
             latestCompatible?: components["schemas"]["ProductRef"];
             note: string;
             range?: string;
+            successor?: components["schemas"]["ProductSuccessorInfo"];
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -4736,6 +4745,13 @@ export interface components {
             revisionCount: number;
             /** Format: int64 */
             targetCount: number;
+        };
+        ProductSuccessorInfo: {
+            /** @enum {string} */
+            provenance: "inferred" | "unknown";
+            reason?: string;
+            ref: string;
+            revision?: components["schemas"]["ProductRef"];
         };
         ProductTargetDetail: {
             /** @enum {string} */

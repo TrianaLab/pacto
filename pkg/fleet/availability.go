@@ -104,14 +104,15 @@ func (q *Query) providerEnvironments(s *ServiceRecord) []EnvironmentAvailability
 		envs = append(envs, markPartial(e, partial))
 	}
 	if len(envs) == 0 {
-		e := EnvironmentAvailability{State: AvailabilityUnknown, Provenance: availabilityProvenanceUnknown, Reason: cmp.Or(hiddenReason, availabilityNoneReason)}
+		e := EnvironmentAvailability{State: AvailabilityUnknown, Provenance: provenanceUnknown, Reason: cmp.Or(hiddenReason, availabilityNoneReason)}
 		envs = append(envs, markPartial(e, partial))
 	}
 	return envs
 }
 
-// availabilityProvenanceUnknown is the provenance of a state nothing fresh supports.
-const availabilityProvenanceUnknown = "unknown"
+// provenanceUnknown is the provenance of a state nothing supports: no fresh
+// evidence for availability, no matching revision for a successor.
+const provenanceUnknown = "unknown"
 
 // markPartial flags e when the viewer may not see every consumer.
 func markPartial(e EnvironmentAvailability, partial bool) EnvironmentAvailability {
@@ -229,7 +230,7 @@ func (q *Query) environmentAvailability(ev *envEvidence, hiddenReason string) En
 	e := EnvironmentAvailability{Reporting: len(ev.fresh), Targets: len(ev.targets), Unreachable: unreachableRefs(ev.reporting), EvidenceAt: newestEvidence(ev)}
 	switch {
 	case hiddenReason != "":
-		e.State, e.Provenance, e.Reason = AvailabilityUnknown, availabilityProvenanceUnknown, hiddenReason
+		e.State, e.Provenance, e.Reason = AvailabilityUnknown, provenanceUnknown, hiddenReason
 	case len(ev.fresh) > 0:
 		e.State, e.Provenance, e.Reason = q.servingAvailability(ev)
 	case len(ev.reporting) > 0:
@@ -386,7 +387,7 @@ func floorHidden(e EnvironmentAvailability, hidden int) EnvironmentAvailability 
 	note := fmt.Sprintf("%d %s you may not see", hidden, noun)
 	e.Partial = true
 	if e.State == AvailabilityUnavailable {
-		e.State, e.Provenance, e.Reason = AvailabilityUnknown, availabilityProvenanceUnknown, note
+		e.State, e.Provenance, e.Reason = AvailabilityUnknown, provenanceUnknown, note
 		return e
 	}
 	e.Reason += "; " + note

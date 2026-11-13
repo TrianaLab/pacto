@@ -478,3 +478,24 @@ func TestOfferingAvailabilityHrefs(t *testing.T) {
 		}
 	}
 }
+
+// TestProductOfferingSuccessorHrefs: a provider's successor revision and
+// latest supported revision, on the provider and in its versions, navigate.
+func TestProductOfferingSuccessorHrefs(t *testing.T) {
+	svc := fleet.EntityRef{Kind: fleet.KindService, Key: "pay"}
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:a"}
+	succ := &fleet.SuccessorInfo{Revision: &rev}
+	od := ToEntityDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "postgres"}, Offering: &fleet.OfferingDetailData{
+		Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{
+			Service: svc, Successor: succ, LatestSupported: &rev, Versions: fleet.ProviderVersionsPreview{Successor: succ},
+		}}},
+	}})
+	assertNoEmptyHrefs(t, "offering", od)
+	p := od.Offering.Providers.Items[0]
+	if p.Successor.Revision.Href == "" || p.LatestSupported.Href == "" || p.Versions.Successor.Revision.Href == "" {
+		t.Errorf("successor hrefs = %+v %+v", p.Successor, p.LatestSupported)
+	}
+	if productSuccessor(nil) != nil {
+		t.Error("no successor gives none")
+	}
+}
