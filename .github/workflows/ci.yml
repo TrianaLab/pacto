@@ -240,16 +240,60 @@ jobs:
           target: ci-static
           golangci-lint: 'true'
 
+  # ci-engine is ci-test + test-integration + test-acceptance-local: the gated
+  # packages' tests and the 100% gate run in go-unit, the examples
+  # and the integration suite here through Aval, and the local acceptance as a
+  # plain make run (aval.yaml says why).
   ci-engine:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
         with:
-          target: ci-engine
+          target: test-acceptance-local
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
+        with:
+          test: examples integration
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
+
+  # Every go.* test of aval.yaml (make aval-gen), one Go package each with
+  # -race, in one step: a package whose files and imports did not change
+  # reuses its signed result and its coverage profile. The 100% gate then
+  # merges the profiles, with no test re-run.
+  go-unit:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read # aval run reads the private attestations
+    env:
+      GOFLAGS: -race
+      # Otherwise an internal/cli test writes ~/.config/pacto/update-check.json,
+      # a timestamp in every later go.* test's scope (aval.yaml defaults paths),
+      # so those would never be reused after internal/cli runs.
+      PACTO_NO_UPDATE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
+        with:
+          test: go.*
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
+      - run: make ci-cover-merge
       - name: Upload results to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -263,6 +307,9 @@ jobs:
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -270,7 +317,11 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - run: make ci-dashboard
+      - uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
+        with:
+          test: ui
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
 
   # Browser-level acceptance for the redesigned Operational Graph + Impact UI:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
@@ -285,9 +336,13 @@ jobs:
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read # aval run reads the private attestations
     strategy:
       fail-fast: false
       matrix:
+        # Must match browser-{shard}'s count in aval.yaml.
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -303,7 +358,11 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
         timeout-minutes: 35
-        run: make test-browser PW_SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
+        uses: TrianaLab/aval/integrations/github/run@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
+        with:
+          test: browser-${{ matrix.shard }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
       - name: Upload browser traces
         if: failure()
         timeout-minutes: 5
@@ -748,15 +807,38 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: make ci-release-version
 
+  # Signs and pushes the results the aval run steps above uploaded, with this
+  # workflow's identity on main. Pull requests only read them.
+  aval-publish:
+    needs: [ci-engine, go-unit, ci-dashboard, dashboard-e2e]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: TrianaLab/aval/integrations/github/publish@f5bc5993f33d45596105408e026a732d5933dbdb # v0.12.1
+        with:
+          # Hits and misses go to the shared Aval statistics.
+          stats: true
+          stats-registry: ghcr.io/trianalab/aval-stats
+
   # Single required status for branch protection: green only when every leg that
   # ran succeeded. Skipped (path-filtered) legs do not count as failures.
   required:
     if: always()
     needs:
       - changes
+      - aval-publish
       - ci-static
       - ci-gates
       - ci-engine
+      - go-unit
       - ci-dashboard
       - ci-integration-kubernetes
       - ci-e2e-envtest
