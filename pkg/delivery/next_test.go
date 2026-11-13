@@ -109,3 +109,19 @@ func TestPlanNextHeldOnFrozenStage(t *testing.T) {
 		t.Fatalf("frozen: the freeze line comes before the deadline line: %v", got)
 	}
 }
+
+func TestIntentDiffersNamesCause(t *testing.T) {
+	stage := StageSpec{Service: ServiceRef{Name: "payments"}}
+	planned := OperationSpec{Type: TypeRollback, Stage: "payments", Params: Params{To: "sha256:a"}}
+	want := IntentDigest(planned, stage)
+	cited := planned
+	cited.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Phase: "verify", Result: "Fail"}}
+	if got := IntentDiffers(cited, stage, want); got != "cause" {
+		t.Fatalf("got %q, want cause", got)
+	}
+	both := cited
+	both.Reason = "smoke failed"
+	if got := IntentDiffers(both, stage, IntentDigest(cited, stage)); got != "reason" {
+		t.Fatalf("the reason keeps precedence: %q", got)
+	}
+}

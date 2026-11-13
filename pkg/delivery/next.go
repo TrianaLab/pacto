@@ -112,10 +112,11 @@ func duration(d time.Duration) string {
 
 // IntentDiffers names what makes spec's intent digest differ from want when
 // leaving it out gives want: a propose that passes a reason or an
-// on-behalf-of person the plan did not have. "" when that does not explain it.
+// on-behalf-of person or a cause the plan did not have. "" when that does not
+// explain it.
 func IntentDiffers(spec OperationSpec, stage StageSpec, want string) string {
-	noReason, noBehalf, neither := spec, spec, spec
-	noReason.Reason, noBehalf.OnBehalfOf = "", nil
+	noReason, noBehalf, neither, noCause := spec, spec, spec, spec
+	noReason.Reason, noBehalf.OnBehalfOf, noCause.Cause = "", nil, nil
 	neither.Reason, neither.OnBehalfOf = "", nil
 	switch {
 	case spec.Reason != "" && IntentDigest(noReason, stage) == want:
@@ -124,6 +125,8 @@ func IntentDiffers(spec OperationSpec, stage StageSpec, want string) string {
 		return "on-behalf-of person"
 	case spec.Reason != "" && spec.OnBehalfOf != nil && IntentDigest(neither, stage) == want:
 		return "reason and on-behalf-of person"
+	case spec.Cause != nil && IntentDigest(noCause, stage) == want:
+		return "cause"
 	}
 	return ""
 }

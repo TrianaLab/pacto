@@ -142,6 +142,22 @@ func TestDeliveryPlanAndPropose(t *testing.T) {
 	}
 }
 
+func TestProposeStaleOnChangedCause(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
+	plan, _, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.IntentDigest = plan.IntentDigest
+	req.Cause = &delivery.Cause{Verdict: &delivery.Verdict{Gate: "smoke", Phase: "verify", Result: "Fail"}}
+	var stale *PlanStaleError
+	if _, _, err := d.Propose(ctx, req); !errors.As(err, &stale) || stale.Differs != "cause" || !strings.Contains(err.Error(), "planned with no cause") {
+		t.Fatalf("want PlanStale naming the cause, got %v", err)
+	}
+}
+
 func TestDeliveryProposeGetCancel(t *testing.T) {
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()

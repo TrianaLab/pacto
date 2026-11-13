@@ -1693,3 +1693,18 @@ func TestAutoPromoteHasNoCorrelation(t *testing.T) {
 		t.Fatalf("auto-promote: %v %+v", err, e.ops())
 	}
 }
+
+// TestCauseDigestSkewIsFinalPlanStale: an operation citing a cause whose
+// intent digest was computed without it, as a client older than the promoter
+// computes it, is a final PlanStale refusal that still takes a seq and keeps
+// the record finalizer, so the refusal reaches the records.
+func TestCauseDigestSkewIsFinalPlanStale(t *testing.T) {
+	o := opObj("skew", delivery.TypePromote, dA, dB, bot)
+	o.Spec.Cause = &delivery.Cause{Verdict: &delivery.Verdict{Gate: "smoke", Phase: "verify", Result: delivery.Fail}}
+	e := baseEnv(t, o)
+	got := e.drive("skew")
+	wantOutcome(t, got, delivery.Rejected, "PlanStale")
+	if !strings.Contains(got.Status.Message, "plan again") || got.Status.Seq == 0 || !controllerutil.ContainsFinalizer(got, dv1.RecordFinalizer) {
+		t.Fatalf("want a final PlanStale owed a record: %+v finalizers %v", got.Status, got.Finalizers)
+	}
+}
