@@ -239,3 +239,20 @@ func TestCapabilitiesFollowTheView(t *testing.T) {
 		t.Errorf("a refused view must refuse: %+v", res)
 	}
 }
+
+// TestCapabilitiesDeliveryFollowsInstalledProbe: delivery is reported as the
+// dashboard reports it, from the cluster's discovery probe; a probe that
+// fails is not proof of absence.
+func TestCapabilitiesDeliveryFollowsInstalledProbe(t *testing.T) {
+	for _, c := range []struct {
+		installed bool
+		err       error
+		want      bool
+	}{{false, nil, false}, {true, nil, true}, {false, errors.New("discovery down"), true}} {
+		m := Modes{Delivery: &DeliveryMode{Installed: func(context.Context) (bool, error) { return c.installed, c.err }}}
+		out, err := capabilities(context.Background(), nil, Authoring{}, m)
+		if err != nil || out.Delivery != c.want || out.Caller.ClassAsOf == nil {
+			t.Errorf("installed=%v err=%v: delivery = %v, classAsOf %v, %v", c.installed, c.err, out.Delivery, out.Caller.ClassAsOf, err)
+		}
+	}
+}

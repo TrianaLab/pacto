@@ -201,6 +201,12 @@ func TestDeliveryReadsCarryListing(t *testing.T) {
 	}
 }
 
+// TestInstalledProbeNeedsCluster: with no cluster to ask, delivery counts as
+// served, as on a dashboard without discovery.
+func TestInstalledProbeNeedsCluster(t *testing.T) {
+	expect(t, (&dashboardIdentity{}).installedProbe() == nil, "no cluster, no probe")
+}
+
 func TestDeliveryReadErrorIsToolError(t *testing.T) {
 	d := readDeps(nil)
 	d.served = func(*rest.Config, string) (bool, error) { return false, nil }

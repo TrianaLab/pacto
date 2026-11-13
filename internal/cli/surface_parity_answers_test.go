@@ -372,13 +372,17 @@ func TestSurfaceParityImpactRefs(t *testing.T) {
 // server and for a fleet and delivery server.
 func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 	flags := parityFixture(t)
-	for _, withDelivery := range []bool{false, true} {
+	// installed is whether the cluster serves delivery; "" is no --delivery.
+	for _, installed := range []string{"", "yes", "no"} {
+		withDelivery := installed == "yes"
 		d, args := defaultDeps(), append([]string{"--fleet"}, flags...)
 		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true)}
-		if withDelivery {
+		if installed != "" {
 			d, args = readDeps(nil), append(args, "--delivery")
+			d.served = func(*rest.Config, string) (bool, error) { return withDelivery, nil }
 			opts.Auth = &dashboard.Auth{Local: true, State: func(*http.Request) dashboard.AuthState { return dashboard.AuthState{} }}
 			opts.Delivery = func(*http.Request) (dashboard.DeliveryAPI, error) { return nil, nil }
+			opts.DeliveryInstalled = func(context.Context) (bool, error) { return withDelivery, nil }
 		}
 		svc := app.NewService(nil, nil)
 		cmd := newMCPCommand(svc, "v", d)
@@ -402,5 +406,7 @@ func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
 		slices.Sort(shared)
 		expect(t, slices.Equal(shared, []string{"delivery", "fleet", "impact", "observed"}), "shared keys: %v", shared)
 		expect(t, mcp["delivery"] == withDelivery && mcp["observed"] == true, "delivery=%v: %s", withDelivery, m)
+		caller, _ := mcp["caller"].(map[string]any)
+		expect(t, (installed != "") == (caller["classAsOf"] != nil), "installed=%q: classAsOf says when the class was read: %s", installed, m)
 	}
 }

@@ -31,12 +31,15 @@ type capabilitiesAnswer struct {
 // capabilitiesCaller says who calls and how Pacto knows: user is observed
 // (the apiserver reviewed it) only with callerSource reviewed. class is
 // inferred from the identity policy, from its defaults when policyError says
-// the policy could not be read; both are present only with delivery.
+// the policy could not be read; both are present only with delivery, with
+// classAsOf, when they were read (at startup over stdio, where the write
+// tools also follow that class; pacto_delivery_caller reads it live).
 type capabilitiesCaller struct {
 	User         string               `json:"user"`
 	CallerSource string               `json:"callerSource"`
 	Class        *delivery.ActorClass `json:"class,omitempty"`
 	PolicyError  *string              `json:"policyError,omitempty"`
+	ClassAsOf    *time.Time           `json:"classAsOf,omitempty"`
 	Writes       bool                 `json:"writes"`
 }
 
@@ -48,7 +51,7 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 		Annotations: readOnly(false),
 		Description: "Report what this server serves: its modes (fleet, delivery, bundle or publish), the contract tools it offers, " +
 			"whether fleet, impact, observed edges and delivery are available, who you are to it (caller.user with callerSource " +
-			"reviewed, token or local; with delivery your class and whether the identity policy was read), whether writes are " +
+			"reviewed, token or local; with delivery your class, whether the identity policy was read and classAsOf, when the class was read), whether writes are " +
 			"exposed (delivery propose and cancel for you, a bundle's mutating operations or pacto_publish) and the transport. Read-only.",
 		InputSchema: map[string]any{"type": "object"},
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ map[string]any) (*mcpsdk.CallToolResult, any, error) {
@@ -79,7 +82,13 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 	if d := m.Delivery; d != nil {
 		out.Modes = append(out.Modes, "delivery")
 		out.Delivery, out.Caller.Writes = true, d.Writes
-		out.Caller.Class, out.Caller.PolicyError = &d.Caller.Class, &d.Caller.PolicyErr
+		if d.Installed != nil {
+			// As the dashboard: a probe that fails is not proof of absence.
+			installed, err := d.Installed(ctx)
+			out.Delivery = installed || err != nil
+		}
+		at := d.CallerAt.UTC()
+		out.Caller.Class, out.Caller.PolicyError, out.Caller.ClassAsOf = &d.Caller.Class, &d.Caller.PolicyErr, &at
 	}
 	if b := m.Bundle; b != nil {
 		out.Modes = append(out.Modes, "bundle")

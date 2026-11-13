@@ -304,9 +304,10 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 		return nil, err
 	}
 	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
-	reads := mcpDeliveryReads(baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace), fm, fleetNamespace(cmd))
+	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
+	reads := mcpDeliveryReads(id, fm, fleetNamespace(cmd))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
-		Reads: reads(c, "")}, nil
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
 }
 
 // fleetNamespace is the fleet --namespace, the only namespace delivery reads

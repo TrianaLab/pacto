@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"context"
 	"io"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -41,6 +43,12 @@ type DeliveryMode struct {
 	// environments, autonomy, published and refusals) to readers and agents
 	// alike.
 	Reads DeliveryReads
+	// CallerAt is when Caller was read: once at startup over stdio, per
+	// request remotely.
+	CallerAt time.Time
+	// Installed, when set, asks whether the cluster serves the delivery API,
+	// as the dashboard's /api/capabilities does; nil counts as served.
+	Installed func(context.Context) (bool, error)
 }
 
 // BundleMode serves one bundle's generated operations and pacto_skill.

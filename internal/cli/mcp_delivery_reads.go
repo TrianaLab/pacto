@@ -32,9 +32,7 @@ func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, namespace s
 	opts := dashboard.Options{DeliveryNamespace: namespace, Delivery: func(r *http.Request) (dashboard.DeliveryAPI, error) {
 		return r.Context().Value(deliveryAPIKey{}).(dashboard.DeliveryAPI), nil
 	}}
-	if id.cluster != nil {
-		opts.DeliveryInstalled = id.deliveryInstalled
-	}
+	opts.DeliveryInstalled = id.installedProbe()
 	if fm != nil {
 		opts.Fleet = fm.Src
 		if v := fm.Opts.View; v != nil {
@@ -60,6 +58,15 @@ func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, namespace s
 			return rec.Bytes(), nil
 		}
 	}
+}
+
+// installedProbe asks discovery whether the cluster serves delivery; nil,
+// which counts as served, when there is no cluster to ask.
+func (id *dashboardIdentity) installedProbe() func(context.Context) (bool, error) {
+	if id.cluster == nil {
+		return nil
+	}
+	return id.deliveryInstalled
 }
 
 // checkView fails a read whose caller the view cannot narrow for: the
