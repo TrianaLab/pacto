@@ -43,8 +43,8 @@ AVAL_VERSION = v0.12.0
 AVAL ?= GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
 AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendocs \
 	--no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
-# pkg/validation: reads the files field-coverage.yaml names, under the "../.."
-# it joins them to, which aval gen adds as the whole tree.
+# pkg/validation: reads the files field-coverage.yaml names, joined to "../..",
+# which aval gen adds as '**' (go.pkg.validation.test).
 # pkg/oci, internal/app, internal/mcp, internal/pactify: temporary directories only.
 # internal/runtimewatch: a smoke test of the host's /proc and cgroupfs that
 # asserts only that a snapshot is produced.
@@ -415,9 +415,11 @@ cover-gate:
 # per-package profiles the go.* tests wrote or Aval restored on reuse
 # (aval gen go --go-cover-profile) into coverage.out. Without -coverpkg the
 # merge equals ci-test's single profile. A missing profile fails.
-# TODO(TrianaLab/aval#334): AVAL_COVER_PROFILE is a placeholder until
-# TrianaLab/aval#334 fixes where --go-cover-profile writes (% is the unit ID);
-# AVAL_GEN_GO gets --go-cover-profile then.
+# TODO(aval-cover-profile-star): AVAL_COVER_PROFILE is a placeholder (% is the
+# unit ID). aval v0.12.0's --go-cover-profile refuses every directory here:
+# go.pkg.contract.test and go.pkg.validation.test are '**', and aval gen ignores
+# defaults.scope.exclude. Once it honours it, AVAL_GEN_GO gets
+# --go-cover-profile cover, aval.yaml's defaults exclude cover/**.
 AVAL_COVER_PROFILE = .aval/cover/%.out
 ci-cover-merge:
 	@ids=$$($(AVAL) $(AVAL_GEN_GO) --list-tests) && [ -n "$$ids" ] || exit 1; \

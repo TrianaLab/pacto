@@ -24,11 +24,63 @@ defaults:
       - {file: tests/acceptance/kind/runtime-conformance.sh, ref: "$", reason: read as text by a field-coverage test; not run here}
       - {file: tests/acceptance/local/runtime-docker.sh, ref: "${args[@]+${args[@]}}", reason: read as text by a field-coverage test; not run here}
       - {file: tests/acceptance/local/runtime-run.sh, ref: "${mode[@]}", reason: read as text by a field-coverage test; not run here}
+      # The story and demo fragments' files, here so that go.pkg.contract and
+      # go.pkg.validation, whose '**' scope reaches them, accept them too.
+      - {file: examples/story/contracts/checkout/1.8.0/deploy/checkout.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/checkout/1.9.0/deploy/checkout.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/orders/1.4.0/deploy/orders.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/pay-agent/1.0.0/deploy/pay-agent.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/pay-agent/1.1.0/deploy/pay-agent.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/2.3.0/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/2.4.0/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/2.4.1/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/2.4.2/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/2.4.3/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/contracts/payments/3.0.0/deploy/payments.yaml, ref: ghcr.io/stefanprodan/podinfo:6.7.1, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/story/plain/fraud/Dockerfile, ref: python:3.13-alpine, reason: fixture text the tests parse; nothing builds it}
+      - {file: examples/story/plain/fraud/k8s/deployment.yaml, ref: registry.example/story/images/fraud:1.0.0, reason: fixture text the tests parse; nothing pulls it}
+      - {file: examples/demo/Makefile, ref: vite, reason: "npx after npm ci runs the lockfile's vite"}
     # Symlinks are never inputs: npm ci's node_modules and two kind fixture links.
     exclude:
       - "**/node_modules/**"
       - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml"
       - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json"
+      # Files only go.pkg.contract and go.pkg.validation reach, through the
+      # '**' their repo walks give them, and neither reads (they read
+      # pacto.yaml, testdata YAML and the scripts field-coverage.yaml names):
+      # their image and tool tags would block reuse of those two results.
+      - ".github/workflows/security.yml"
+      - "Dockerfile"
+      - "Makefile"
+      - "integrations/kubernetes/Dockerfile"
+      - "integrations/kubernetes/Makefile"
+      - "integrations/kubernetes/charts/pacto-operator/Chart.yaml"
+      - "integrations/kubernetes/charts/pacto-operator/templates/_helpers.tpl"
+      - "integrations/kubernetes/charts/pacto-operator/templates/delivery/admission.yaml"
+      - "integrations/kubernetes/charts/pacto-operator/templates/delivery/recorder.yaml"
+      - "integrations/kubernetes/charts/pacto-operator/templates/dex-credentials.yaml"
+      - "integrations/kubernetes/charts/pacto-operator/tests/golden/default.yaml"
+      - "integrations/kubernetes/ci.mk"
+      - "integrations/kubernetes/config/samples/demo/kustomization.yaml"
+      - "integrations/kubernetes/config/samples/demo/workloads.yaml"
+      - "integrations/kubernetes/config/samples/scenarios/00-infrastructure.yaml"
+      - "integrations/kubernetes/config/samples/scenarios/08-runtime-conformance.yaml"
+      - "release/orchestrator/dry-run.sh"
+      - "release/orchestrator/test-release-version.sh"
+      - "tests/acceptance/kind/dashboard-modes.sh"
+      - "tests/acceptance/kind/delivery-demo.sh"
+      - "tests/acceptance/kind/delivery-identity.sh"
+      - "tests/acceptance/kind/delivery.sh"
+      - "tests/acceptance/kind/evidence.sh"
+      - "tests/acceptance/kind/fixtures/pacto-operator-v4/templates/deployment.yaml"
+      - "tests/acceptance/kind/gitops-argocd.sh"
+      - "tests/acceptance/kind/gitops-flux.sh"
+      - "tests/acceptance/kind/lib.sh"
+      - "tests/acceptance/kind/observation.sh"
+      - "tests/acceptance/kind/operational-graph.sh"
+      - "tests/acceptance/kind/reconcile.sh"
+      - "tests/acceptance/kind/upgrade-v4-v5.sh"
+      - "tests/acceptance/local/compose-demo.sh"
   environment:
     # CI runs on linux/amd64; a result from another platform is not reused.
     toolchain: {platform: "Linux x86_64"}
@@ -46,20 +98,10 @@ fragments:
     scope:
       source: ["cmd/pacto/**", "internal/**", "pkg/**"]
   # The payments story (examples/story), embedded by the demo and read by the
-  # acceptance fixture. Its manifests name images as text; nothing pulls them.
+  # acceptance fixture. Its manifests name images as text (defaults).
   story:
     scope:
       source: ["examples/story/**"]
-      allowMutable:
-        - files: ["examples/story/contracts/*/*/deploy/*.yaml"]
-          ref: ghcr.io/stefanprodan/podinfo:6.7.1
-          reason: fixture text the tests parse; nothing pulls it
-        - file: examples/story/plain/fraud/Dockerfile
-          ref: python:3.13-alpine
-          reason: fixture text the tests parse; nothing builds it
-        - file: examples/story/plain/fraud/k8s/deployment.yaml
-          ref: registry.example/story/images/fraud:1.0.0
-          reason: fixture text the tests parse; nothing pulls it
   # ui and browser: npm ci from the frontend lockfile on Node 22.
   node:
     scope:
@@ -89,8 +131,6 @@ fragments:
   demo:
     scope:
       source: ["examples/demo/*", "examples/demo/bundles/**", "examples/demo/partners/**"]
-      allowMutable:
-        - {file: examples/demo/Makefile, ref: vite, reason: "npx after npm ci runs the lockfile's vite"}
   go.cmd.pacto:
     scope:
       source:
@@ -98,8 +138,11 @@ fragments:
   go.internal.app:
     scope:
       source:
-        - internal/**
         - internal/app/*.go
+  go.internal.app.test:
+    scope:
+      source:
+        - internal/**
   go.internal.authn:
     scope:
       source:
@@ -107,8 +150,11 @@ fragments:
   go.internal.cli:
     scope:
       source:
-        - integrations/kubernetes/config/crd/bases/**
         - internal/cli/*.go
+  go.internal.cli.test:
+    scope:
+      source:
+        - integrations/kubernetes/config/crd/bases/**
         - internal/tui/yank.go
   go.internal.evidenceoci:
     scope:
@@ -131,12 +177,14 @@ fragments:
       source:
         - internal/pactify/*.go
         - internal/pactify/testdata/**
+  go.internal.pactify.test:
+    scope:
+      source:
         - internal/pactify/testdata/fraud/**
         - internal/pactify/testdata/invoices/**
   go.internal.runtimewatch:
     scope:
       source:
-        - integrations/kubernetes/config/crd/bases/pacto.trianalab.io_noderuntimeobservations.yaml
         - internal/runtimewatch/*.go
   go.internal.runtimewatch.ebpf:
     scope:
@@ -152,6 +200,10 @@ fragments:
     scope:
       source:
         - internal/runtimewatch/kubesink/*.go
+  go.internal.runtimewatch.test:
+    scope:
+      source:
+        - integrations/kubernetes/config/crd/bases/pacto.trianalab.io_noderuntimeobservations.yaml
   go.internal.testutil:
     scope:
       source:
@@ -159,8 +211,11 @@ fragments:
   go.internal.tui:
     scope:
       source:
-        - internal/tui/**
         - internal/tui/*.go
+  go.internal.tui.test:
+    scope:
+      source:
+        - internal/tui/**
   go.internal.update:
     scope:
       source:
@@ -198,6 +253,11 @@ fragments:
   go.pkg.contract:
     scope:
       source:
+        - pkg/contract/*.go
+        - pkg/contract/testdata/**
+  go.pkg.contract.test:
+    scope:
+      source:
         - '**'
         - docs/contract-reference/checks.md
         - docs/contract-reference/configuration-and-policy.md
@@ -207,8 +267,6 @@ fragments:
         - docs/contract-reference/readiness.md
         - docs/contract-reference/sections.md
         - pkg/contract/**
-        - pkg/contract/*.go
-        - pkg/contract/testdata/**
         - pkg/contract/testdata/invalid_missing_name.yaml
         - pkg/contract/testdata/invalid_missing_version.yaml
         - pkg/contract/testdata/invalid_yaml.yaml
@@ -224,10 +282,8 @@ fragments:
   go.pkg.dashboard:
     scope:
       source:
-        - examples/demo/pacto-dashboard/interfaces/openapi.json
         - pkg/dashboard/**
         - pkg/dashboard/*.go
-        - pkg/dashboard/frontend/src/lib/delivery.ts
         - pkg/dashboard/ui/assets/AnswerCard-DAfcTLZi.js
         - pkg/dashboard/ui/assets/AnswerCard-FhC5i8DL.css
         - pkg/dashboard/ui/assets/BehaviorBadges-C5sl0xyH.css
@@ -454,6 +510,11 @@ fragments:
     scope:
       source:
         - pkg/dashboard/productview/*.go
+  go.pkg.dashboard.test:
+    scope:
+      source:
+        - examples/demo/pacto-dashboard/interfaces/openapi.json
+        - pkg/dashboard/frontend/src/lib/delivery.ts
   go.pkg.delivery:
     scope:
       source:
@@ -465,10 +526,13 @@ fragments:
   go.pkg.diff:
     scope:
       source:
+        - pkg/diff/*.go
+  go.pkg.diff.test:
+    scope:
+      source:
         - examples/demo/bundles/fraud-service/v1.0.0/interfaces/fraud.proto
         - examples/demo/bundles/payments-service/v1.0.0/**
         - examples/demo/bundles/payments-service/v2.0.1/**
-        - pkg/diff/*.go
   go.pkg.doc:
     scope:
       source:
@@ -492,10 +556,13 @@ fragments:
   go.pkg.fleet:
     scope:
       source:
+        - pkg/fleet/*.go
+  go.pkg.fleet.test:
+    scope:
+      source:
         - examples/demo/bundles/postgresql/v16.1.0/**
         - examples/demo/bundles/postgresql/v16.1.0/configuration/provisioning.schema.json
         - examples/demo/bundles/postgresql/v16.1.0/pacto.yaml
-        - pkg/fleet/*.go
   go.pkg.graph:
     scope:
       source:
@@ -509,6 +576,9 @@ fragments:
       source:
         - pkg/impact/*.go
         - pkg/impact/testdata/**
+  go.pkg.impact.test:
+    scope:
+      source:
         - pkg/impact/testdata/highlight-rank.json
   go.pkg.lock:
     scope:
@@ -521,8 +591,11 @@ fragments:
   go.pkg.oci:
     scope:
       source:
-        - pkg/**
         - pkg/oci/*.go
+  go.pkg.oci.test:
+    scope:
+      source:
+        - pkg/**
   go.pkg.ocireferrer:
     scope:
       source:
@@ -542,8 +615,11 @@ fragments:
   go.pkg.plugin:
     scope:
       source:
-        - pkg/**
         - pkg/plugin/*.go
+  go.pkg.plugin.test:
+    scope:
+      source:
+        - pkg/**
   go.pkg.probe:
     scope:
       source:
@@ -595,18 +671,20 @@ fragments:
   go.pkg.validation:
     scope:
       source:
-        - '**'
-        - pkg/**
         - pkg/validation/**
         - pkg/validation/*.go
-        - pkg/validation/schema/**
-        - pkg/validation/schema/field-coverage.yaml
         - pkg/validation/schema/pacto-v2.0.schema.json
         - pkg/validation/schema/pacto-v2.1.schema.json
         - pkg/validation/schema/pacto-v2.2.schema.json
         - pkg/validation/schema/pacto-v2.3.schema.json
         - pkg/validation/schema/pacto-v2.4.schema.json
         - pkg/validation/testdata/**
+  go.pkg.validation.test:
+    scope:
+      source:
+        - '**'
+        - pkg/validation/schema/**
+        - pkg/validation/schema/field-coverage.yaml
         - pkg/validation/testdata/invalid_bad_interface.yaml
         - pkg/validation/testdata/invalid_state_conflict.yaml
         - pkg/validation/testdata/invalid_unsupported_version.yaml
@@ -761,6 +839,7 @@ tests:
     runner: {command: [go, test, ./internal/app]}
     use:
       - go.internal.app
+      - go.internal.app.test
       - go.internal.authn
       - go.internal.evidenceoci
       - go.internal.fleetsrc
@@ -834,6 +913,7 @@ tests:
       - go.internal.app
       - go.internal.authn
       - go.internal.cli
+      - go.internal.cli.test
       - go.internal.evidenceoci
       - go.internal.fleetsrc
       - go.internal.k8sclient
@@ -1006,6 +1086,7 @@ tests:
       - go.internal.fleetsrc
       - go.internal.k8sclient
       - go.internal.pactify
+      - go.internal.pactify.test
       - go.internal.runtimewatch.kubesink
       - go.module
       - go.pkg.capability
@@ -1040,6 +1121,7 @@ tests:
     runner: {command: [go, test, ./internal/runtimewatch]}
     use:
       - go.internal.runtimewatch
+      - go.internal.runtimewatch.test
       - go.module
       - go.pkg.evidence
       - go.pkg.logging
@@ -1080,6 +1162,7 @@ tests:
       - go.internal.runtimewatch.kubesink
       - go.internal.testutil
       - go.internal.tui
+      - go.internal.tui.test
       - go.module
       - go.pkg.capability
       - go.pkg.catalog
@@ -1162,6 +1245,7 @@ tests:
     use:
       - go.module
       - go.pkg.contract
+      - go.pkg.contract.test
   - metadata: {name: go.pkg.contractview}
     runner: {command: [go, test, ./pkg/contractview]}
     use:
@@ -1193,6 +1277,7 @@ tests:
       - go.pkg.contractview
       - go.pkg.dashboard
       - go.pkg.dashboard.productview
+      - go.pkg.dashboard.test
       - go.pkg.delivery
       - go.pkg.diff
       - go.pkg.evidence
@@ -1292,6 +1377,7 @@ tests:
       - go.module
       - go.pkg.contract
       - go.pkg.diff
+      - go.pkg.diff.test
       - go.pkg.evidence
       - go.pkg.finding
       - go.pkg.graph
@@ -1377,6 +1463,7 @@ tests:
       - go.pkg.evidence
       - go.pkg.finding
       - go.pkg.fleet
+      - go.pkg.fleet.test
       - go.pkg.graph
       - go.pkg.lock
       - go.pkg.logging
@@ -1412,6 +1499,7 @@ tests:
       - go.pkg.fleet
       - go.pkg.graph
       - go.pkg.impact
+      - go.pkg.impact.test
       - go.pkg.lock
       - go.pkg.logging
       - go.pkg.openapi
@@ -1439,6 +1527,7 @@ tests:
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.oci
+      - go.pkg.oci.test
       - go.pkg.semver
   - metadata: {name: go.pkg.ocireferrer}
     runner: {command: [go, test, ./pkg/ocireferrer]}
@@ -1474,6 +1563,7 @@ tests:
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.plugin
+      - go.pkg.plugin.test
   - metadata: {name: go.pkg.probe}
     runner: {command: [go, test, ./pkg/probe]}
     use:
@@ -1594,3 +1684,4 @@ tests:
       - go.pkg.logging
       - go.pkg.strictjson
       - go.pkg.validation
+      - go.pkg.validation.test
