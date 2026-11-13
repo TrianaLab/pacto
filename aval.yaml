@@ -1,10 +1,9 @@
-# Every test CI runs through Aval, and the files each one reads. The go.*
-# fragments and tests are generated (make aval-gen; ci-gates checks them with
-# make aval-gen-check): one test per Go package behind the 100% gate, its tests
-# plus that package's own coverage gate, scoped to the package and what it
-# imports. Everything else is hand-written: the shared defaults (toolchain, go
-# modules, the files tests read outside their package), the suites that are not
-# one package's go test (integration, examples, ui, browser) and their fragments.
+# Every test CI runs through Aval, and the files each one reads.
+# Generated (make aval-gen, checked by ci-gates): the go.* fragments and
+# tests, one per Go package with a test, scoped to the package, what it
+# imports and the files it reads, plus go.module (toolchain, go.mod/go.work,
+# Go environment). Hand-written: what no generator can know, each with its
+# reason below.
 # Left out, and run as plain make jobs: suites that build an image from an
 # unpinned base (Dockerfile, integrations/kubernetes/Dockerfile: every kind,
 # Compose and runtime suite), pull tags (registry:2, alpine:3, agnhost),
@@ -16,34 +15,7 @@ apiVersion: aval.trianalab.io/v1
 kind: TestSet
 defaults:
   scope:
-    # The Go workspace: minimum version selection spans both modules.
-    dependencies: [go.work, go.work.sum, go.mod, go.sum, integrations/kubernetes/go.mod, integrations/kubernetes/go.sum]
-    # Files tests read outside their package, which no import names.
-    source:
-      # pkg/contract: every pacto.yaml and testdata .yaml of the repository,
-      # the schema and the contract reference.
-      - "**/pacto.yaml"
-      - "**/*testdata*/**/*.yaml"
-      - "pkg/validation/schema/**"
-      - "docs/contract-reference/**"
-      # internal/cli, internal/runtimewatch: the CRDs.
-      - "integrations/kubernetes/config/crd/bases/**"
-      # pkg/dashboard, pkg/diff, pkg/fleet: demo bundles and the dashboard demo.
-      - "examples/demo/bundles/**"
-      - "examples/demo/pacto-dashboard/**"
-      # pkg/validation: the files field-coverage.yaml names.
-      - "integrations/kubernetes/**/*_test.go"
-      - "internal/app/validate*_test.go"
-      - "internal/cli/run_internal_test.go"
-      - "internal/runtimewatch/evalsink/sink_test.go"
-      - "pkg/contract/*_test.go"
-      - "pkg/delivery/eval_test.go"
-      - "pkg/diff/*_test.go"
-      - "pkg/graph/resolver_test.go"
-      - "pkg/readiness/readiness_test.go"
-      - "tests/integration/field_coverage_test.go"
-      - "tests/acceptance/kind/runtime-conformance.sh"
-      - "tests/acceptance/local/runtime-*.sh"
+    # Image names that test fixtures hold as text; nothing builds or pulls them.
     allowMutable:
       - {file: internal/pactify/testdata/fraud/Dockerfile, ref: python:3.13-alpine, reason: fixture text; nothing builds it}
       - {file: internal/pactify/testdata/invoices/Dockerfile, ref: node:22-alpine, reason: fixture text; nothing builds it}
@@ -57,15 +29,14 @@ defaults:
       - "**/node_modules/**"
       - "tests/acceptance/kind/fixtures/delivery-demo/audit-policy.yaml"
       - "tests/acceptance/kind/fixtures/delivery-demo/pacto-realm.json"
-  # Every test gets the Go toolchain: generated tests need it and only
-  # defaults reach them.
   environment:
-    toolchain: {platform: "Linux x86_64", go: "1.27.4"}
-    probe: {platform: [uname, -sm], go: [go, env, GOVERSION]}
-    # GOFLAGS carries -race in CI. viper reads PACTO_<key> for every key
-    # (internal/cli/root.go AutomaticEnv); the CLI reads its config dir
-    # (credentials, plugins) outside the tree.
-    env: [GOFLAGS, GOEXPERIMENT, CGO_ENABLED, GOOS, GOARCH, GOWORK, GODEBUG, "PACTO_*", NO_COLOR]
+    # CI runs on linux/amd64; a result from another platform is not reused.
+    toolchain: {platform: "Linux x86_64"}
+    probe: {platform: [uname, -sm]}
+    # viper reads PACTO_<key> for every key (internal/cli/root.go
+    # AutomaticEnv); the CLI reads its config dir (credentials, plugins)
+    # outside the tree.
+    env: ["PACTO_*", NO_COLOR]
     paths: ["~/.config/pacto", "${XDG_CONFIG_HOME}/pacto"]
   cacheability: hermetic
 fragments:
@@ -89,6 +60,7 @@ fragments:
         - file: examples/story/plain/fraud/k8s/deployment.yaml
           ref: registry.example/story/images/fraud:1.0.0
           reason: fixture text the tests parse; nothing pulls it
+  # ui and browser: npm ci from the frontend lockfile on Node 22.
   node:
     scope:
       dependencies: [pkg/dashboard/frontend/package.json, pkg/dashboard/frontend/package-lock.json]
@@ -126,6 +98,7 @@ fragments:
   go.internal.app:
     scope:
       source:
+        - internal/**
         - internal/app/*.go
   go.internal.authn:
     scope:
@@ -134,7 +107,9 @@ fragments:
   go.internal.cli:
     scope:
       source:
+        - integrations/kubernetes/config/crd/bases/**
         - internal/cli/*.go
+        - internal/tui/yank.go
   go.internal.evidenceoci:
     scope:
       source:
@@ -156,9 +131,12 @@ fragments:
       source:
         - internal/pactify/*.go
         - internal/pactify/testdata/**
+        - internal/pactify/testdata/fraud/**
+        - internal/pactify/testdata/invoices/**
   go.internal.runtimewatch:
     scope:
       source:
+        - integrations/kubernetes/config/crd/bases/pacto.trianalab.io_noderuntimeobservations.yaml
         - internal/runtimewatch/*.go
   go.internal.runtimewatch.ebpf:
     scope:
@@ -181,11 +159,34 @@ fragments:
   go.internal.tui:
     scope:
       source:
+        - internal/tui/**
         - internal/tui/*.go
   go.internal.update:
     scope:
       source:
         - internal/update/*.go
+  go.module:
+    scope:
+      dependencies:
+        - go.mod
+        - go.sum
+        - go.work
+        - go.work.sum
+        - integrations/kubernetes/go.mod
+        - integrations/kubernetes/go.sum
+    environment:
+      toolchain: {go: 1.27.4}
+      probe:
+        go: [go, env, GOVERSION]
+      env:
+        - CGO_ENABLED
+        - GOARCH
+        - GODEBUG
+        - GOEXPERIMENT
+        - GOFLAGS
+        - GOOS
+        - GOTOOLCHAIN
+        - GOWORK
   go.pkg.capability:
     scope:
       source:
@@ -197,8 +198,25 @@ fragments:
   go.pkg.contract:
     scope:
       source:
+        - '**'
+        - docs/contract-reference/checks.md
+        - docs/contract-reference/configuration-and-policy.md
+        - docs/contract-reference/dependencies-and-state.md
+        - docs/contract-reference/environments.md
+        - docs/contract-reference/publish.md
+        - docs/contract-reference/readiness.md
+        - docs/contract-reference/sections.md
+        - pkg/contract/**
         - pkg/contract/*.go
         - pkg/contract/testdata/**
+        - pkg/contract/testdata/invalid_missing_name.yaml
+        - pkg/contract/testdata/invalid_missing_version.yaml
+        - pkg/contract/testdata/invalid_yaml.yaml
+        - pkg/contract/testdata/valid_full.yaml
+        - pkg/contract/testdata/valid_minimal.yaml
+        - pkg/contract/testdata/valid_readiness.yaml
+        - pkg/contract/testdata/valid_structured_owner.yaml
+        - pkg/validation/schema/pacto-v2.4.schema.json
   go.pkg.contractview:
     scope:
       source:
@@ -206,6 +224,7 @@ fragments:
   go.pkg.dashboard:
     scope:
       source:
+        - examples/demo/pacto-dashboard/interfaces/openapi.json
         - pkg/dashboard/**
         - pkg/dashboard/*.go
         - pkg/dashboard/ui/assets/BehaviorBadges-C5sl0xyH.css
@@ -441,6 +460,9 @@ fragments:
   go.pkg.diff:
     scope:
       source:
+        - examples/demo/bundles/fraud-service/v1.0.0/interfaces/fraud.proto
+        - examples/demo/bundles/payments-service/v1.0.0/**
+        - examples/demo/bundles/payments-service/v2.0.1/**
         - pkg/diff/*.go
   go.pkg.doc:
     scope:
@@ -465,6 +487,9 @@ fragments:
   go.pkg.fleet:
     scope:
       source:
+        - examples/demo/bundles/postgresql/v16.1.0/**
+        - examples/demo/bundles/postgresql/v16.1.0/configuration/provisioning.schema.json
+        - examples/demo/bundles/postgresql/v16.1.0/pacto.yaml
         - pkg/fleet/*.go
   go.pkg.graph:
     scope:
@@ -479,6 +504,7 @@ fragments:
       source:
         - pkg/impact/*.go
         - pkg/impact/testdata/**
+        - pkg/impact/testdata/highlight-rank.json
   go.pkg.lock:
     scope:
       source:
@@ -490,6 +516,7 @@ fragments:
   go.pkg.oci:
     scope:
       source:
+        - pkg/**
         - pkg/oci/*.go
   go.pkg.ocireferrer:
     scope:
@@ -510,6 +537,7 @@ fragments:
   go.pkg.plugin:
     scope:
       source:
+        - pkg/**
         - pkg/plugin/*.go
   go.pkg.probe:
     scope:
@@ -562,19 +590,28 @@ fragments:
   go.pkg.validation:
     scope:
       source:
+        - '**'
+        - pkg/**
         - pkg/validation/**
         - pkg/validation/*.go
+        - pkg/validation/schema/**
+        - pkg/validation/schema/field-coverage.yaml
         - pkg/validation/schema/pacto-v2.0.schema.json
         - pkg/validation/schema/pacto-v2.1.schema.json
         - pkg/validation/schema/pacto-v2.2.schema.json
         - pkg/validation/schema/pacto-v2.3.schema.json
         - pkg/validation/schema/pacto-v2.4.schema.json
         - pkg/validation/testdata/**
+        - pkg/validation/testdata/invalid_bad_interface.yaml
+        - pkg/validation/testdata/invalid_state_conflict.yaml
+        - pkg/validation/testdata/invalid_unsupported_version.yaml
+        - pkg/validation/testdata/valid_minimal.yaml
+        - pkg/validation/testdata/valid_stateful.yaml
 tests:
   # The part of make ci-test outside the 100% gate: the examples' Go tests and
   # the offline demo validation. The gated packages are the go.* tests.
   - metadata: {name: examples}
-    use: [engine, story, demo, make]
+    use: [go.module, engine, story, demo, make]
     runner: {command: [sh, -c, "go test -race ./examples/... && make -C examples/demo validate"]}
     scope:
       source: ["examples/demo/pacto-dashboard/**", "examples/demo/generated/**", "examples/demo/publishbundles/**", "examples/demo/validatebundles/**"]
@@ -584,7 +621,7 @@ tests:
   # make test-integration: the CLI in process against an in-process registry
   # and a real plugin binary, then the acceptance layer's own Go code.
   - metadata: {name: integration}
-    use: [engine, story, make]
+    use: [go.module, engine, story, make]
     runner: {command: [make, test-integration]}
     scope:
       source:
@@ -612,7 +649,7 @@ tests:
   #   generated from the Go API and committed (make check-dashboard-sdk-drift):
   #   ui reads it from src/**, go.pkg.dashboard from pkg/dashboard/**.
   # - its OpenAPI copy examples/demo/pacto-dashboard/interfaces/openapi.json is
-  #   in defaults (pkg/dashboard tests read it) and in examples.
+  #   in go.pkg.dashboard (aval gen sees the tests read it) and in examples.
   # - the WASM demo is built from the Go sources by test-browser, whose scope
   #   holds them (engine, demo, story).
   # - vitest reads pkg/impact/testdata/highlight-rank.json, README.md and
@@ -641,7 +678,7 @@ tests:
   # at the version the lockfile pins. CI is an input: it sets forbidOnly,
   # retries and reuseExistingServer in playwright.config.ts.
   - metadata: {name: "browser-{shard}"}
-    use: [engine, story, demo, node, make]
+    use: [go.module, engine, story, demo, node, make]
     runner: {command: [make, test-browser, "PW_SHARD={shard}/{shard_count}"]}
     matrix: {shard: {count: 3}}
     scope:
@@ -657,7 +694,7 @@ tests:
       env: [CI, PW_PORT, PW_DOC_PORT, BASE, DIST, DOC_DIST, DOC_BUNDLE, VERSION]
     cacheability: controlled-environment
   - metadata: {name: go.cmd.pacto}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./cmd/pacto]}
+    runner: {command: [go, test, ./cmd/pacto]}
     use:
       - go.cmd.pacto
       - go.internal.app
@@ -675,6 +712,7 @@ tests:
       - go.internal.testutil
       - go.internal.tui
       - go.internal.update
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -715,7 +753,7 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.app}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/app]}
+    runner: {command: [go, test, ./internal/app]}
     use:
       - go.internal.app
       - go.internal.authn
@@ -725,6 +763,7 @@ tests:
       - go.internal.pactify
       - go.internal.runtimewatch.kubesink
       - go.internal.testutil
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -764,9 +803,10 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.authn}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/authn]}
+    runner: {command: [go, test, ./internal/authn]}
     use:
       - go.internal.authn
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.evidence
@@ -784,7 +824,7 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.cli}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/cli]}
+    runner: {command: [go, test, ./internal/cli]}
     use:
       - go.internal.app
       - go.internal.authn
@@ -801,6 +841,7 @@ tests:
       - go.internal.testutil
       - go.internal.tui
       - go.internal.update
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -841,10 +882,11 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.evidenceoci}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/evidenceoci]}
+    runner: {command: [go, test, ./internal/evidenceoci]}
     use:
       - go.internal.evidenceoci
       - go.internal.testutil
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.evidence
@@ -867,10 +909,11 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.fleetsrc}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/fleetsrc]}
+    runner: {command: [go, test, ./internal/fleetsrc]}
     use:
       - go.internal.fleetsrc
       - go.internal.k8sclient
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -897,11 +940,12 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.k8sclient}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/k8sclient]}
+    runner: {command: [go, test, ./internal/k8sclient]}
     use:
       - go.internal.k8sclient
+      - go.module
   - metadata: {name: go.internal.mcp}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/mcp]}
+    runner: {command: [go, test, ./internal/mcp]}
     use:
       - go.internal.app
       - go.internal.authn
@@ -912,6 +956,7 @@ tests:
       - go.internal.pactify
       - go.internal.runtimewatch.kubesink
       - go.internal.testutil
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -951,12 +996,13 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.pactify}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/pactify]}
+    runner: {command: [go, test, ./internal/pactify]}
     use:
       - go.internal.fleetsrc
       - go.internal.k8sclient
       - go.internal.pactify
       - go.internal.runtimewatch.kubesink
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -986,18 +1032,20 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.runtimewatch}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/runtimewatch]}
+    runner: {command: [go, test, ./internal/runtimewatch]}
     use:
       - go.internal.runtimewatch
+      - go.module
       - go.pkg.evidence
       - go.pkg.logging
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.internal.runtimewatch.evalsink}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/runtimewatch/evalsink]}
+    runner: {command: [go, test, ./internal/runtimewatch/evalsink]}
     use:
       - go.internal.runtimewatch
       - go.internal.runtimewatch.evalsink
+      - go.module
       - go.pkg.contract
       - go.pkg.evidence
       - go.pkg.finding
@@ -1008,14 +1056,15 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.runtimewatch.kubesink}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/runtimewatch/kubesink]}
+    runner: {command: [go, test, ./internal/runtimewatch/kubesink]}
     use:
       - go.internal.runtimewatch.kubesink
+      - go.module
       - go.pkg.evidence
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.internal.tui}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/tui]}
+    runner: {command: [go, test, ./internal/tui]}
     use:
       - go.internal.app
       - go.internal.authn
@@ -1026,6 +1075,7 @@ tests:
       - go.internal.runtimewatch.kubesink
       - go.internal.testutil
       - go.internal.tui
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1065,23 +1115,26 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.internal.update}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./internal/update]}
+    runner: {command: [go, test, ./internal/update]}
     use:
       - go.internal.update
+      - go.module
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.oci
       - go.pkg.plugin
       - go.pkg.semver
   - metadata: {name: go.pkg.capability}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/capability]}
+    runner: {command: [go, test, ./pkg/capability]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.openapi
   - metadata: {name: go.pkg.catalog}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/catalog]}
+    runner: {command: [go, test, ./pkg/catalog]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1100,12 +1153,14 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.contract}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/contract]}
+    runner: {command: [go, test, ./pkg/contract]}
     use:
+      - go.module
       - go.pkg.contract
   - metadata: {name: go.pkg.contractview}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/contractview]}
+    runner: {command: [go, test, ./pkg/contractview]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.contractview
@@ -1124,8 +1179,9 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.dashboard}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/dashboard]}
+    runner: {command: [go, test, ./pkg/dashboard]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1151,8 +1207,9 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.dashboard.productview}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/dashboard/productview]}
+    runner: {command: [go, test, ./pkg/dashboard/productview]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.dashboard.productview
@@ -1171,8 +1228,9 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.delivery}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/delivery]}
+    runner: {command: [go, test, ./pkg/delivery]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1194,9 +1252,10 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.deliveryrecord}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/deliveryrecord]}
+    runner: {command: [go, test, ./pkg/deliveryrecord]}
     use:
       - go.internal.testutil
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1223,8 +1282,9 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.diff}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/diff]}
+    runner: {command: [go, test, ./pkg/diff]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.diff
       - go.pkg.evidence
@@ -1235,8 +1295,9 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.doc}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/doc]}
+    runner: {command: [go, test, ./pkg/doc]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1263,19 +1324,22 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.evidence}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/evidence]}
+    runner: {command: [go, test, ./pkg/evidence]}
     use:
+      - go.module
       - go.pkg.evidence
       - go.pkg.strictjson
   - metadata: {name: go.pkg.evidenceenvelope}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/evidenceenvelope]}
+    runner: {command: [go, test, ./pkg/evidenceenvelope]}
     use:
+      - go.module
       - go.pkg.evidence
       - go.pkg.evidenceenvelope
       - go.pkg.strictjson
   - metadata: {name: go.pkg.evidenceingest}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/evidenceingest]}
+    runner: {command: [go, test, ./pkg/evidenceingest]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.evidence
@@ -1295,12 +1359,14 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.finding}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/finding]}
+    runner: {command: [go, test, ./pkg/finding]}
     use:
+      - go.module
       - go.pkg.finding
   - metadata: {name: go.pkg.fleet}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/fleet]}
+    runner: {command: [go, test, ./pkg/fleet]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.evidence
@@ -1318,18 +1384,21 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.graph}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/graph]}
+    runner: {command: [go, test, ./pkg/graph]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.graph
       - go.pkg.logging
   - metadata: {name: go.pkg.ignore}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/ignore]}
+    runner: {command: [go, test, ./pkg/ignore]}
     use:
+      - go.module
       - go.pkg.ignore
   - metadata: {name: go.pkg.impact}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/impact]}
+    runner: {command: [go, test, ./pkg/impact]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.contract
       - go.pkg.diff
@@ -1349,60 +1418,70 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.lock}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/lock]}
+    runner: {command: [go, test, ./pkg/lock]}
     use:
+      - go.module
       - go.pkg.lock
   - metadata: {name: go.pkg.logging}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/logging]}
+    runner: {command: [go, test, ./pkg/logging]}
     use:
+      - go.module
       - go.pkg.logging
   - metadata: {name: go.pkg.oci}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/oci]}
+    runner: {command: [go, test, ./pkg/oci]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.oci
       - go.pkg.semver
   - metadata: {name: go.pkg.ocireferrer}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/ocireferrer]}
+    runner: {command: [go, test, ./pkg/ocireferrer]}
     use:
       - go.internal.testutil
+      - go.module
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.ocireferrer
       - go.pkg.plugin
   - metadata: {name: go.pkg.openapi}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/openapi]}
+    runner: {command: [go, test, ./pkg/openapi]}
     use:
+      - go.module
       - go.pkg.openapi
   - metadata: {name: go.pkg.otelobserver}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/otelobserver]}
+    runner: {command: [go, test, ./pkg/otelobserver]}
     use:
+      - go.module
       - go.pkg.evidence
       - go.pkg.otelobserver
       - go.pkg.strictjson
   - metadata: {name: go.pkg.override}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/override]}
+    runner: {command: [go, test, ./pkg/override]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.override
   - metadata: {name: go.pkg.plugin}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/plugin]}
+    runner: {command: [go, test, ./pkg/plugin]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.logging
       - go.pkg.plugin
   - metadata: {name: go.pkg.probe}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/probe]}
+    runner: {command: [go, test, ./pkg/probe]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.evidence
       - go.pkg.probe
       - go.pkg.strictjson
   - metadata: {name: go.pkg.publish}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/publish]}
+    runner: {command: [go, test, ./pkg/publish]}
     use:
       - go.internal.testutil
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1431,35 +1510,42 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.readiness}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/readiness]}
+    runner: {command: [go, test, ./pkg/readiness]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.readiness
   - metadata: {name: go.pkg.reconcile}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/reconcile]}
+    runner: {command: [go, test, ./pkg/reconcile]}
     use:
+      - go.module
       - go.pkg.reconcile
   - metadata: {name: go.pkg.runtimefacts}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/runtimefacts]}
+    runner: {command: [go, test, ./pkg/runtimefacts]}
     use:
+      - go.module
       - go.pkg.evidence
       - go.pkg.runtimefacts
       - go.pkg.strictjson
   - metadata: {name: go.pkg.sbom}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/sbom]}
+    runner: {command: [go, test, ./pkg/sbom]}
     use:
+      - go.module
       - go.pkg.sbom
   - metadata: {name: go.pkg.schemax}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/schemax]}
+    runner: {command: [go, test, ./pkg/schemax]}
     use:
+      - go.module
       - go.pkg.schemax
   - metadata: {name: go.pkg.semver}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/semver]}
+    runner: {command: [go, test, ./pkg/semver]}
     use:
+      - go.module
       - go.pkg.semver
   - metadata: {name: go.pkg.signing}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/signing]}
+    runner: {command: [go, test, ./pkg/signing]}
     use:
+      - go.module
       - go.pkg.capability
       - go.pkg.catalog
       - go.pkg.contract
@@ -1483,16 +1569,19 @@ tests:
       - go.pkg.strictjson
       - go.pkg.validation
   - metadata: {name: go.pkg.skills}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/skills]}
+    runner: {command: [go, test, ./pkg/skills]}
     use:
+      - go.module
       - go.pkg.skills
   - metadata: {name: go.pkg.strictjson}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/strictjson]}
+    runner: {command: [go, test, ./pkg/strictjson]}
     use:
+      - go.module
       - go.pkg.strictjson
   - metadata: {name: go.pkg.validation}
-    runner: {command: [sh, -c, 'p=$(mktemp) || exit 1; go test -coverprofile="$p" "$0" && awk ''NR>1 {t+=$2; if ($3>0) c+=$2} END {if (t!=c) {print "coverage: below 100.0% of statements"; exit 1}}'' "$p"; s=$?; rm -f "$p"; exit $s', ./pkg/validation]}
+    runner: {command: [go, test, ./pkg/validation]}
     use:
+      - go.module
       - go.pkg.contract
       - go.pkg.evidence
       - go.pkg.finding

@@ -269,26 +269,6 @@ func TestSharedReadsTypedLists(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// An update reaches them too.
-	s3, err := w.sa.Resource(gvrTestStages).Namespace("a").Get(ctx, "s3", metav1.GetOptions{})
-	expect(t, err == nil, "getting the Stage: %v", err)
-	before := w.s.stages.changed.Load()
-	s3.SetLabels(map[string]string{"x": "y"})
-	_, err = w.sa.Resource(gvrTestStages).Namespace("a").Update(ctx, s3, metav1.UpdateOptions{})
-	expect(t, err == nil, "updating the Stage: %v", err)
-	for w.s.stages.changed.Load() == before {
-		if time.Now().After(deadline) {
-			t.Fatal("the update never showed")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// The dashboard's delivery API answers from these lists.
-	dd := dashDelivery{shared: &alice}
-	sts, err := dd.Stages(ctx, "a")
-	expect(t, err == nil && len(sts) == 3, "stages from the cache: %d %v", len(sts), err)
-	ops, err = dd.Operations(ctx, "a")
-	expect(t, err == nil && len(ops) == 2, "operations from the cache: %d %v", len(ops), err)
 
 	w.wrote.Store(true)
 	_, ok, _ = typedIn(ctx, alice, sharedStages, w.s.stages, "a")

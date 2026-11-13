@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
+       verify-k8s-standalone ci-test ci-cover ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -28,22 +28,33 @@ ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-e
 # must stay k8s-free, collector docs exist, fleet routes stay neutral, the OTel
 # path stays offline, the U+00A7 checker really rejects the glyph); tests/release
 # holds the one-publisher, demo-ref and release-plan gates. Both live under
-# /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
+# /tests/, which ci-test EXCLUDES (AVAL_NO_TEST), so they get their own leg
 # here and an ALWAYS-run CI job — a gate that never runs is not a gate.
-# AVAL_VERSION is the aval release behind `make aval-gen`; keep it at the
-# version the workflow's Aval actions pin. AVAL_GEN_GO writes aval.yaml's go.*
-# entries: one test per Go package with its own 100% coverage gate, except the
-# packages COVER_PKGS leaves out of the gate, which keep their fragment (their
-# files stay in the scope of the tests that import them) and get no test.
-AVAL_VERSION = v0.11.0
-AVAL_GEN_GO = gen go --go-cover --no-test 'tests/**' --no-test '**/testutil' \
-	--no-test cmd/gendocs --no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
-AVAL = GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
+# aval.yaml's go.* entries come from the Go import graph (make aval-gen);
+# aval-gen-check fails on any drift in them. AVAL_NO_TEST is the one list of
+# packages outside the 100% gate: they get no go.* test, keep their fragment
+# (their files stay in the scope of the tests that import them), and
+# COVER_PKGS below is derived from the same list. AVAL_ALLOW_DYNAMIC: packages
+# whose tests read paths aval gen cannot resolve, each with what covers the
+# read. AVAL_VERSION must match the release the workflow's Aval actions pin.
+# Without aval installed, go run builds the pinned release (cached after the
+# first run); AVAL=aval uses an installed one.
+AVAL_VERSION = v0.12.0
+AVAL ?= GOFLAGS= go run github.com/TrianaLab/aval/cmd/aval@$(AVAL_VERSION)
+AVAL_NO_TEST = --no-test 'tests/**' --no-test '**/testutil' --no-test cmd/gendocs \
+	--no-test cmd/genbundle --no-test 'examples/**' --no-test internal/runtimewatch/ebpf
+# pkg/validation: reads the files field-coverage.yaml names, under the "../.."
+# it joins them to, which aval gen adds as the whole tree.
+# pkg/oci, internal/app, internal/mcp: temporary directories only.
+# internal/runtimewatch: a smoke test of the host's /proc and cgroupfs that
+# asserts only that a snapshot is produced.
+AVAL_ALLOW_DYNAMIC = --go-allow-dynamic pkg/validation --go-allow-dynamic pkg/oci \
+	--go-allow-dynamic internal/app --go-allow-dynamic internal/mcp --go-allow-dynamic internal/runtimewatch
+AVAL_GEN_GO = gen go $(AVAL_NO_TEST) $(AVAL_ALLOW_DYNAMIC)
+
 ci-gates: aval-gen-check
 	go test ./tests/architecture/... ./tests/release/...
 
-# aval-gen rewrites aval.yaml's go.* entries from the import graph;
-# aval-gen-check fails when they no longer match it.
 aval-gen:
 	$(AVAL) $(AVAL_GEN_GO)
 
@@ -376,9 +387,18 @@ verify-k8s-standalone:
 # internal/runtimewatch/ebpf is excluded the way the operator excludes its /cmd:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
-# COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
-COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
-ci-test:
+# COVER_PKGS is the package set behind the 100% gate, the packages that get
+# a go.* test (AVAL_NO_TEST above); `make coverage` reuses it. Pacto has no
+# root package, so every ID is a directory.
+COVER_PKGS = $$($(AVAL) $(AVAL_GEN_GO) --list-tests | sed 's|^|./|')
+ci-test: ci-cover
+	@echo "==> Running example tests (no coverage gate)..."
+	@go test -race ./examples/...
+	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
+	@$(MAKE) -C examples/demo validate
+
+# ci-cover is the 100% gate alone; CI runs it in its own job.
+ci-cover:
 	@echo "==> Running unit tests with race detector and coverage..."
 	@go test -race $(COVER_PKGS) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
@@ -388,10 +408,6 @@ ci-test:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
-	@echo "==> Running example tests (no coverage gate)..."
-	@go test -race ./examples/...
-	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
-	@$(MAKE) -C examples/demo validate
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).

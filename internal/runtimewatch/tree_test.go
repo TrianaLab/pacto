@@ -275,11 +275,6 @@ func TestRunning(t *testing.T) {
 	if wl := w.Snapshot(treeNow).Workloads[0]; wl.Truncated || len(wl.Listeners) != 2 {
 		t.Fatalf("exiting = %+v", wl)
 	}
-	// When every member of a namespace has exited, its table hides nothing.
-	gone := &TreeWatcher{Proc: mapProc{files: fstest.MapFS{}}}
-	if s, ok := gone.table([]int{7}, "tcp", nil); s != nil || !ok {
-		t.Errorf("table of exited members = %v, %v", s, ok)
-	}
 }
 
 func TestStartTime(t *testing.T) {

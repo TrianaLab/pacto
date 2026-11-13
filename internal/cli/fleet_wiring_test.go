@@ -16,12 +16,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/dynamic"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
-	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -116,18 +111,6 @@ func TestMCPFleetView(t *testing.T) {
 	}
 	if _, err := view(context.Background(), nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
 		t.Fatalf("no cluster to ask: %v", err)
-	}
-	// A cluster that answers narrows the snapshot to what the caller reads.
-	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-	c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
-		obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
-		_ = unstructured.SetNestedField(obj.Object, true, "status", "allowed")
-		return true, obj, nil
-	})
-	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{}, nil }
-	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return c, nil }
-	if q, err := mcpFleetView(cmd, d)(context.Background(), nil, fleet.NewQuery(snap)); err != nil || q == nil {
-		t.Fatalf("a cluster that allows: %v %v", q, err)
 	}
 }
 

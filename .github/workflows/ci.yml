@@ -240,6 +240,10 @@ jobs:
           target: ci-static
           golangci-lint: 'true'
 
+  # ci-engine is ci-test + test-integration + test-acceptance-local: the 100%
+  # gate runs in coverage, the gated packages' tests in go-unit, the examples
+  # and the integration suite here through Aval, and the local acceptance as a
+  # plain make run (aval.yaml says why).
   ci-engine:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
@@ -250,53 +254,45 @@ jobs:
       packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # ci-engine is ci-test + test-integration + test-acceptance-local: the
-      # gated packages run in go-packages, the examples here, and the local
-      # acceptance stays a plain make run (aval.yaml says why).
       - uses: ./.github/actions/ci
         with:
           target: test-acceptance-local
       - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
-          test: examples
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ github.token }}
-      - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
-        with:
-          test: integration
+          test: examples integration
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
 
-  # One job per go.* test in aval.yaml (make aval-gen): a Go package's tests
-  # with -race and its 100% coverage, reused while neither the package nor what
-  # it imports changed.
-  go-packages-list:
+  # The 100% coverage gate (make ci-cover), as before Aval.
+  coverage:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      tests: ${{ steps.list.outputs.tests }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/ci
         with:
-          persist-credentials: false
-      - id: list
-        run: |
-          tests=$(grep -oE '^  - metadata: \{name: go\.[^}]+' aval.yaml | sed 's/.*name: //' | jq -R . | jq -sc .)
-          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          target: ci-cover
+      - name: Upload results to Codecov
+        if: github.event_name == 'push'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          fail_ci_if_error: true
 
-  go-packages:
-    needs: go-packages-list
+  # Every go.* test of aval.yaml (make aval-gen), one Go package each with
+  # -race, in one step: a package whose files and imports did not change
+  # reuses its signed result.
+  go-unit:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read # aval run reads the private attestations
-    strategy:
-      fail-fast: false
-      matrix:
-        test: ${{ fromJSON(needs.go-packages-list.outputs.tests) }}
     env:
       GOFLAGS: -race
     steps:
@@ -308,7 +304,7 @@ jobs:
           go-version-file: go.mod
       - uses: TrianaLab/aval/integrations/github/run@6478f27d999a09de9551edae09bd662de62d7b2a # v0.11.0
         with:
-          test: ${{ matrix.test }}
+          test: go.*
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
 
@@ -322,10 +318,6 @@ jobs:
       packages: read # aval run reads the private attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The Go toolchain probe in aval.yaml's defaults runs for every test.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
@@ -824,7 +816,7 @@ jobs:
   # Signs and pushes the results the aval run steps above uploaded, with this
   # workflow's identity on main. Pull requests only read them.
   aval-publish:
-    needs: [ci-engine, go-packages, ci-dashboard, dashboard-e2e]
+    needs: [ci-engine, go-unit, ci-dashboard, dashboard-e2e]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -852,8 +844,8 @@ jobs:
       - ci-static
       - ci-gates
       - ci-engine
-      - go-packages-list
-      - go-packages
+      - coverage
+      - go-unit
       - ci-dashboard
       - ci-integration-kubernetes
       - ci-e2e-envtest
