@@ -9,7 +9,8 @@ combine and the tool-call log.
 `--publish` adds `pacto_publish_plan` (what publishing would write and which
 checks refuse it, without writing) and `pacto_publish` (publishes the version
 the same way `pacto publish` does, with this process's registry credentials,
-always to a new tag) beside the authoring tools. It runs over stdio
+always to a new tag) beside the authoring tools and `pacto_capabilities`,
+which reports the `publish` mode with `writes` true. It runs over stdio
 only.
 
 ## The delivery server

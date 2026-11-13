@@ -21,6 +21,7 @@ queries, so an agent and a person asking the same question get the same answer.
 | Where are the biggest operational risks? | `pacto_fleet_attention` (most severe first), `pacto_fleet_entities` with `sort=health` | `pacto fleet attention`, `pacto fleet entities --sort health` | Needs attention |
 | What waits on me? | `pacto_delivery_inbox` (with `--delivery`) | `pacto delivery inbox` | Delivery, Inbox |
 | Which environments run which version? | `pacto_delivery_environments` (with `--delivery`) | `pacto delivery environments` | Delivery, Stages |
+| Who am I to delivery? | `pacto_delivery_caller` (with `--delivery`) | `pacto delivery caller` | `GET /api/delivery/caller` |
 | What can this server do? | `pacto_capabilities` | Not needed: the CLI runs every command as you | `GET /api/capabilities` |
 
 ## Read the answer

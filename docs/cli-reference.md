@@ -342,6 +342,22 @@ pacto delivery blame [flags]
       --stage string        the Stage (required)
 ```
 
+### `pacto delivery caller`
+
+The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+
+It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads every namespace you can list; one you cannot makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery caller [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for caller
+```
+
 ### `pacto delivery cancel`
 
 Cancel an operation that has not moved the pointer yet
@@ -982,20 +998,25 @@ pacto fleet attention [flags]
 **Flags:**
 
 ```
-      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
-      --category string          attention category
-  -h, --help[=true|false]        help for attention
-      --limit int                maximum results (0 = 200, capped at 500)
-      --offset int               result offset for paging
-      --owner string             free-text owner search over team, DRI and contacts
-      --owner-key string         exact owner key, such as team:platform or dri:alice
-      --service string           items of this service: its key, or a name only one domain uses
-      --severity string          attention severity (error, warning, info)
+      --business-domain string    exact business domain, (none) for none or (unknown) for unknown
+      --category string           attention category
+  -h, --help[=true|false]         help for attention
+      --key string                items about the entity with this exact key
+      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering)
+      --limit int                 maximum results (0 = 200, capped at 500)
+      --offset int                result offset for paging
+      --owner string              free-text owner search over team, DRI and contacts
+      --owner-key string          exact owner key, such as team:platform or dri:alice
+      --service string            items of this service: its key, or a name only one domain uses
+      --severity string           attention severity (error, warning, info)
+      --source string             items a fleet source reported, by source key
+      --stale-only[=true|false]   only the items about stale evidence
+      --status string             items about entities with this canonical compliance status
 ```
 
 ### `pacto fleet entities`
 
-Lists services, owners, business domains and platform offerings, paged. Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.
+Lists services, owners, business domains and platform offerings, paged, or the one --kind you name. A filter that applies to one kind only (--readiness, --scope, --source-kind, --source-health) lists that kind when --kind is empty. Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.
 
 ```
 pacto fleet entities [text] [flags]
@@ -1005,12 +1026,14 @@ pacto fleet entities [text] [flags]
 
 ```
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
+      --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
+      --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
-      --kind string                      entity kind (service, owner, domain, offering; empty lists all four)
+      --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
@@ -1018,7 +1041,12 @@ pacto fleet entities [text] [flags]
       --owner-key string                 exact owner key, such as team:platform or dri:alice
       --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
+      --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
+      --scope string                     targets in this scope, such as a namespace
+      --service string                   this service and its revisions and targets, by service key
       --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)
+      --source string                    entities read from this fleet source, by source key
+      --source-health string             sources by health (available, partial, stale, unavailable)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out
@@ -1665,7 +1693,7 @@ The default server exposes the authoring tools above. A bundle reference, `--fle
 | `pacto mcp` | Authoring tools. |
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
 | `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
-| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |
+| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry, and `pacto_capabilities`. Stdio only. |
 | `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and the dashboard's delivery views and, for an agent, ask for or cancel a change. There is no approve tool. |
 | `pacto mcp --fleet --delivery [<bundle-ref>]` | Authoring tools plus the tools of every mode named, in one session. |
 | `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. Catalog mode registers only catalog tools, and none of them writes to disk. |
@@ -1678,15 +1706,15 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `limit`, `offset` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `label` (target labels as `key=value`), `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`, `golden_path_deployed`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
-| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entities` | `text`, `kind` (any entity kind; empty lists services, owners, domains and offerings, or the one kind a `readiness`, `scope`, `source_kind` or `source_health` filter applies to), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `phase`, `environment`, `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `has_non_compliant`, `capability`, `domain`, `service`, `source`, `scope`, `readiness`, `source_kind`, `source_health`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
-| `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
-| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
+| `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `kind`, `key`, `source`, `status`, `stale_only`, `limit`, `offset` |
+| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`), `max_nodes` and `max_edges` |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |

@@ -97,7 +97,7 @@ the note says where that answer lives instead.
 | What is the whole read model? | `pacto fleet snapshot` | - | `GET /api/fleet/snapshot` | MCP answers through the fleet tools |
 | Which consumers does this change affect? | `pacto impact` | `pacto_impact` | `GET /api/fleet/impact`, `POST /api/fleet/impact` | Over HTTP and on a shared dashboard, only revisions in your view |
 | What does this server serve? | - | `pacto_capabilities` | `GET /api/capabilities` | The CLI runs every command as the local user |
-| Who am I to delivery? | - | `pacto_delivery_caller` | `GET /api/delivery/caller` | Each delivery command runs as the kubeconfig user |
+| Who am I to delivery? | `pacto delivery caller` | `pacto_delivery_caller` | `GET /api/delivery/caller` | |
 | What waits on me? | `pacto delivery inbox` | `pacto_delivery_inbox` | `GET /api/delivery/inbox` | |
 | Which environments run which version? | `pacto delivery environments` | `pacto_delivery_environments` | `GET /api/delivery/environments` | |
 | How far is each Stage from autonomy? | `pacto delivery autonomy` | `pacto_delivery_autonomy` | `GET /api/delivery/autonomy` | |
