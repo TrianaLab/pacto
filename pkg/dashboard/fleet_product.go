@@ -33,7 +33,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-entities", Method: http.MethodGet, Path: "/api/fleet/entities",
 		Summary: "Search entities", Tags: []string{"Fleet"},
-		Description: "Searches services, revisions, targets, owners and sources, returning stable navigable references. Powers global search, graph focus and entity pickers.",
+		Description: "Searches services, revisions, targets, owners, sources, business domains and platform offerings, returning stable navigable references. Powers global search, graph focus and entity pickers.",
 	}, s.fleetEntities)
 
 	huma.Register(api, huma.Operation{
@@ -45,7 +45,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-entity-detail", Method: http.MethodGet, Path: "/api/fleet/entities/{kind}",
 		Summary: "Entity detail", Tags: []string{"Fleet"},
-		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.",
+		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.",
 	}, s.fleetEntityDetail)
 
 	huma.Register(api, huma.Operation{
@@ -70,7 +70,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 		huma.Register(api, huma.Operation{
 			OperationID: "fleet-impact-post", Method: http.MethodPost, Path: "/api/fleet/impact",
 			Summary: "Analyze impact by canonical identity", Tags: []string{"Fleet"},
-			Description: "Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.",
+			Description: "Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, or offeringKey, every provider of a platform offering, becomes unavailable or is removed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.",
 		}, s.fleetImpactPost)
 	}
 }
@@ -108,6 +108,8 @@ type fleetEntitiesInput struct {
 	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
 	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
 	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
+	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision"`
+	Failed          bool     `query:"failed" doc:"Keeps the offerings with at least one failed provisioning request (offering entities)"`
 	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers" doc:"Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key"`
 	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset          int      `query:"offset" minimum:"0"`
@@ -128,8 +130,8 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
-		HasNonCompliant: in.HasNonCompliant,
-		Ownership:       in.Ownership, Readiness: in.Readiness,
+		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed,
+		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
@@ -293,6 +295,8 @@ type ProductImpact struct {
 	ActiveTargets ProductRefPreview          `json:"activeTargets"`
 	Templates     ProductRefPreview          `json:"templates" doc:"The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each"`
 	ChangedOwner  *ProductRef                `json:"changedOwner,omitempty"`
+	Offering      *ProductRef                `json:"offering,omitempty" doc:"The platform offering an offering event is about; service is then the same offering reference"`
+	Providers     []ProductRef               `json:"providers,omitempty" doc:"The services that provide the offering of an offering event, each with its owner"`
 }
 
 func toProductImpact(p *impact.Product) *ProductImpact {
@@ -321,7 +325,17 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 		ActiveTargets: productview.RefPreview(p.ActiveTargets),
 		Templates:     productview.RefPreview(p.Templates),
 		ChangedOwner:  productview.RefPtr(p.ChangedOwner),
+		Offering:      productview.RefPtr(p.Offering),
+		Providers:     refsOrNil(p.Providers),
 	}
+}
+
+// refsOrNil keeps an absent list absent, so a service answer has no providers.
+func refsOrNil(es []fleet.EntityRef) []ProductRef {
+	if len(es) == 0 {
+		return nil
+	}
+	return productview.Refs(es)
 }
 
 // impactRequest is the POST-impact body: canonical revision keys, the snapshot the
@@ -329,6 +343,7 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 type impactRequest struct {
 	SnapshotID      string `json:"snapshotId,omitempty" doc:"The snapshot the client analyzed; a mismatch with the published snapshot is rejected"`
 	ServiceKey      string `json:"serviceKey,omitempty"`
+	OfferingKey     string `json:"offeringKey,omitempty" doc:"With event unavailable or removed: a platform offering instead of serviceKey"`
 	FromRevisionKey string `json:"fromRevisionKey,omitempty" doc:"Canonical revision key of the old revision. Required unless event is set"`
 	ToRevisionKey   string `json:"toRevisionKey,omitempty" doc:"Canonical revision key of the new revision. Required unless event is set"`
 	Event           string `json:"event,omitempty" enum:"unavailable,removed,regressed" doc:"Ask what happens if serviceKey becomes unavailable, is removed or regressed, instead of comparing two revisions"`
@@ -360,6 +375,9 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	}
 	if b.Event != "" {
 		return s.fleetImpactEvent(ctx, q, b)
+	}
+	if b.OfferingKey != "" {
+		return nil, huma.Error422UnprocessableEntity("offeringKey", errors.New("offeringKey is read only with event unavailable or removed"))
 	}
 	if b.FromRevisionKey == "" || b.ToRevisionKey == "" {
 		return nil, huma.Error422UnprocessableEntity("revisionKey", errors.New("a contract change needs fromRevisionKey and toRevisionKey; an event needs event and serviceKey"))

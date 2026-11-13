@@ -397,7 +397,7 @@ export interface paths {
         };
         /**
          * Search entities
-         * @description Searches services, revisions, targets, owners and sources, returning stable navigable references. Powers global search, graph focus and entity pickers.
+         * @description Searches services, revisions, targets, owners, sources, business domains and platform offerings, returning stable navigable references. Powers global search, graph focus and entity pickers.
          */
         get: operations["fleet-entities"];
         put?: never;
@@ -417,7 +417,7 @@ export interface paths {
         };
         /**
          * Entity detail
-         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.
+         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.
          */
         get: operations["fleet-entity-detail"];
         put?: never;
@@ -443,7 +443,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze impact by canonical identity
-         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
+         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, or offeringKey, every provider of a platform offering, becomes unavailable or is removed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
         delete?: never;
@@ -3592,6 +3592,8 @@ export interface components {
              * @description Max consumers per page (negatives rejected; excessive values capped)
              */
             limit?: number;
+            /** @description With event unavailable or removed: a platform offering instead of serviceKey */
+            offeringKey?: string;
             /**
              * Format: int64
              * @description Consumer page offset (negatives rejected)
@@ -4235,11 +4237,11 @@ export interface components {
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
             /** @description The platform offering an offering event is about; service is then the same offering reference */
-            offering?: components["schemas"]["Fleet.EntityRef"];
+            offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
             /** @description The services that provide the offering of an offering event, each with its owner */
-            providers?: components["schemas"]["Fleet.EntityRef"][] | null;
+            providers?: components["schemas"]["ProductRef"][] | null;
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
@@ -7025,6 +7027,10 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision */
+                lifecycle?: "deprecated" | "sunset";
+                /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
+                failed?: boolean;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -26,7 +27,8 @@ func offeringDashboardQuery(t *testing.T) *fleet.Query {
 	app := &contract.Contract{Service: contract.Service{Name: "platform-app-config", Version: "1.0.0", Offering: "shared-config"},
 		Configurations: []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}}
 	worker := &contract.Contract{Service: contract.Service{Name: "platform-worker-config", Version: "1.2.0", Offering: "shared-config"}, Workload: contract.WorkloadService}
-	redis := &contract.Contract{Service: contract.Service{Name: "redis", Version: "7.0.0", Offering: "redis"}, Workload: contract.WorkloadService}
+	redis := &contract.Contract{Service: contract.Service{Name: "redis", Version: "7.0.0", Offering: "redis",
+		Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}}, Workload: contract.WorkloadService}
 	pay := &contract.Contract{Service: contract.Service{Name: "payments-service", Version: "1.0.0"}, Dependencies: []contract.Dependency{
 		{Name: "platform-worker-config", Ref: "oci://ghcr.io/acme/platform-worker-config", Required: true, Compatibility: "^1.0.0"},
 		{Name: "redis", External: true, Version: "7"},
@@ -178,4 +180,67 @@ func TestFleetEntitiesConsumesParam(t *testing.T) {
 		t.Errorf("consumers of redis = %+v", list.Entities)
 	}
 	expectStatus(t, base+"/api/fleet/entities?kinds=revision&consumes=redis", http.StatusUnprocessableEntity)
+}
+
+func TestFleetEntitiesLifecycleParam(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	var list ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=offering&lifecycle=deprecated", http.StatusOK, &list)
+	if list.Total != 1 || list.Entities[0].Href != "/fleet/offerings/redis" || list.Entities[0].Lifecycle != "deprecated" {
+		t.Errorf("deprecated offerings = %+v", list.Entities)
+	}
+	getJSON(t, base+"/api/fleet/entities?kinds=offering&lifecycle=sunset", http.StatusOK, &list)
+	if list.Total != 0 {
+		t.Errorf("sunset offerings = %+v", list.Entities)
+	}
+	expectStatus(t, base+"/api/fleet/entities?kinds=offering&lifecycle=retired", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/entities?kinds=revision&lifecycle=deprecated", http.StatusUnprocessableEntity)
+}
+
+func TestFleetEntitiesFailedParam(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	var list ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=offering&failed=true", http.StatusOK, &list)
+	if list.Total != 0 {
+		t.Errorf("no provider reported a failed request, got %+v", list.Entities)
+	}
+	getJSON(t, base+"/api/fleet/entities?kinds=offering&failed=false", http.StatusOK, &list)
+	if list.Total != 2 {
+		t.Errorf("failed=false narrows nothing, got %+v", list.Entities)
+	}
+	expectStatus(t, base+"/api/fleet/entities?kinds=service&failed=true", http.StatusUnprocessableEntity)
+}
+
+// TestFleetEntitiesDescriptionsNameOfferings: the search and entity detail
+// operations say they cover business domains and platform offerings.
+func TestFleetEntitiesDescriptionsNameOfferings(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Description string `json:"description"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"/api/fleet/entities":        "platform offerings",
+		"/api/fleet/entities/{kind}": "domain or offering",
+	} {
+		if d := doc.Paths[path]["get"].Description; !strings.Contains(d, want) {
+			t.Errorf("%s description %q lacks %q", path, d, want)
+		}
+	}
+	if d := doc.Paths["/api/fleet/impact"]["post"].Description; !strings.Contains(d, "offeringKey") {
+		t.Errorf("impact description %q lacks offeringKey", d)
+	}
 }

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -19,29 +20,48 @@ import (
 // runs on a fresh Kubernetes target.
 func eventFleetQuery(t *testing.T) *fleet.Query {
 	t.Helper()
+	return eventFleetQueryOffering(t, "")
+}
+
+// eventFleetQueryOffering is eventFleetQuery with lib and a second, unused
+// provider lib2 providing offering (no provider when offering is empty).
+func eventFleetQueryOffering(t *testing.T, offering string) *fleet.Query {
+	t.Helper()
 	now := time.Now().UTC()
 	ev := now.Add(-time.Hour)
-	hex := map[string]string{"lib": "a", "app": "b", "web": "c"}
+	hex := map[string]string{"lib": "a", "app": "b", "web": "c", "lib2": "e"}
+	offerings, version := map[string]string{}, "2.0"
+	if offering != "" {
+		offerings["lib"], offerings["lib2"], version = offering, offering, "2.4"
+	}
 	bundle := func(name, team string, deps ...contract.Dependency) fleet.RawRevision {
 		b := &contract.Bundle{Contract: &contract.Contract{
-			PactoVersion: "2.0",
-			Service:      contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}},
+			PactoVersion: version,
+			Service:      contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}, Offering: offerings[name]},
 			Dependencies: deps,
 		}, RawYAML: []byte(name), FS: fstest.MapFS{}}
+		if offering != "" {
+			b.RawYAML = nil // unvalidated, so its declared offering is read
+		}
 		return fleet.RawRevision{Bundle: b, ResolvedRef: "oci://x/" + name + "@" + validDigest(hex[name]), Digest: validDigest(hex[name])}
 	}
 	target := func(name string) fleet.RawTarget {
 		return fleet.RawTarget{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: name, Service: name,
 			ResolvedRef: "oci://x/" + name + "@" + validDigest(hex[name]), Digest: validDigest(hex[name]), EvidenceAt: &ev}
 	}
+	revs := []fleet.RawRevision{
+		bundle("lib", "team-l"),
+		bundle("app", "team-a", contract.Dependency{Name: "lib", Ref: "oci://x/lib", Required: true}),
+		bundle("web", "team-w", contract.Dependency{Name: "lib", Ref: "oci://x/lib"}),
+	}
+	targets := []fleet.RawTarget{target("lib"), target("app"), target("web")}
+	if offering != "" {
+		revs, targets = append(revs, bundle("lib2", "team-l2")), append(targets, target("lib2"))
+	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return now }},
 		fleet.NewMemorySource("local", "local", &fleet.Collection{
-			Revisions: []fleet.RawRevision{
-				bundle("lib", "team-l"),
-				bundle("app", "team-a", contract.Dependency{Name: "lib", Ref: "oci://x/lib", Required: true}),
-				bundle("web", "team-w", contract.Dependency{Name: "lib", Ref: "oci://x/lib"}),
-			},
-			Targets: []fleet.RawTarget{target("lib"), target("app"), target("web")},
+			Revisions: revs,
+			Targets:   targets,
 		}))
 	if err != nil {
 		t.Fatal(err)
@@ -315,5 +335,107 @@ func TestImpactTemplatesHaveHrefs(t *testing.T) {
 	p := toProductImpact(&impact.Product{Templates: fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindService, Key: "http-path", Label: "http-path"}}}})
 	if p.Templates.Total != 1 || !hrefsNonEmpty(p.Templates.Items...) {
 		t.Errorf("templates = %+v", p.Templates)
+	}
+}
+
+func offeringServer(t *testing.T, view func(context.Context, *fleet.Query) (*fleet.Query, error)) string {
+	t.Helper()
+	q := eventFleetQueryOffering(t, "db")
+	o := Options{Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }, Impact: noImpact(t), View: view}
+	if view != nil {
+		o.Auth = &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }}
+	}
+	return serveOptions(t, o)
+}
+
+// TestImpactOfferingEvent: offeringKey asks the event of every provider of
+// the offering; the answer's service is the offering itself, with its page.
+func TestImpactOfferingEvent(t *testing.T) {
+	base := offeringServer(t, nil)
+	for _, kind := range []string{impact.EventUnavailable, impact.EventRemoved} {
+		var out ProductImpact
+		postJSON(t, base+"/api/fleet/impact", impactRequest{Event: kind, OfferingKey: "db"}, http.StatusOK, &out)
+		checkOfferingAnswer(t, kind, &out)
+	}
+}
+
+// checkOfferingAnswer asserts the subject, providers and consumers of an
+// offering answer over offeringServer's fleet.
+func checkOfferingAnswer(t *testing.T, kind string, out *ProductImpact) {
+	t.Helper()
+	if out.Event == nil || out.Event.Offering != "db" || out.Event.Service != "" {
+		t.Fatalf("%s event = %+v", kind, out.Event)
+	}
+	if out.Service.Kind != fleet.KindOffering || out.Service.Href != "/fleet/offerings/db" {
+		t.Errorf("%s service = %+v, want the offering page", kind, out.Service)
+	}
+	if out.Offering == nil || out.Offering.Href != out.Service.Href {
+		t.Errorf("%s offering = %+v", kind, out.Offering)
+	}
+	if len(out.Providers) != 2 || !hrefsNonEmpty(out.Providers...) || out.Providers[0].Owner == "" {
+		t.Errorf("%s providers = %+v", kind, out.Providers)
+	}
+	if out.ChangedOwner != nil {
+		t.Errorf("%s changed owner = %+v, want none on an offering answer", kind, out.ChangedOwner)
+	}
+	checkOfferingConsumers(t, kind, out)
+}
+
+// checkOfferingConsumers: app breaks, web may degrade and no provider is
+// its own consumer.
+func checkOfferingConsumers(t *testing.T, kind string, out *ProductImpact) {
+	t.Helper()
+	if tally(out.Consumers.ByOutcome, impact.EffectBreaks) != 1 || tally(out.Consumers.ByOutcome, impact.EffectMayDegrade) != 1 {
+		t.Errorf("%s byOutcome = %+v", kind, out.Consumers.ByOutcome)
+	}
+	for _, c := range out.Consumers.Items {
+		if c.Service.Href == "" || c.Service.Label == "lib2" || c.Service.Label == "lib" {
+			t.Errorf("%s consumer = %+v", kind, c.Service)
+		}
+	}
+}
+
+func TestImpactOfferingNeedsOneSubject(t *testing.T) {
+	base := offeringServer(t, nil)
+	lib := libKey(t, base)
+	postJSON(t, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, ServiceKey: lib, OfferingKey: "db"}, http.StatusUnprocessableEntity, nil)
+	postJSON(t, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable}, http.StatusUnprocessableEntity, nil)
+	// An offering is asked as an event, never between two revisions.
+	postJSON(t, base+"/api/fleet/impact", impactRequest{OfferingKey: "db", FromRevisionKey: "a", ToRevisionKey: "b"}, http.StatusUnprocessableEntity, nil)
+	postJSON(t, base+"/api/fleet/impact", impactRequest{Event: impact.EventRemoved, OfferingKey: "db", FromRevisionKey: "a", ToRevisionKey: "b"}, http.StatusUnprocessableEntity, nil)
+}
+
+func TestImpactOfferingRegressed422(t *testing.T) {
+	base := offeringServer(t, nil)
+	code, body := call(t, http.MethodPost, base+"/api/fleet/impact", impactRequest{Event: impact.EventRegressed, OfferingKey: "db", Revision: "1.0.0"})
+	if code != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(body), "one revision") {
+		t.Errorf("regressed offering = %d %v", code, body)
+	}
+}
+
+// TestImpactOfferingHiddenNotFound: an offering whose every provider the
+// viewer may not see answers exactly as one that does not exist.
+func TestImpactOfferingHiddenNotFound(t *testing.T) {
+	base := offeringServer(t, func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+	})
+	code, hidden := call(t, http.MethodPost, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, OfferingKey: "db"})
+	_, missing := call(t, http.MethodPost, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, OfferingKey: "no-such-offering"})
+	if code != http.StatusNotFound || hidden["detail"] != missing["detail"] || hidden["status"] != missing["status"] {
+		t.Errorf("hidden %v and missing %v must answer the same 404", hidden, missing)
+	}
+}
+
+// TestImpactRequestServiceStillWorks: a serviceKey event answers about that
+// service alone, with no offering or providers, even when it provides one.
+func TestImpactRequestServiceStillWorks(t *testing.T) {
+	base := offeringServer(t, nil)
+	var out ProductImpact
+	postJSON(t, base+"/api/fleet/impact", impactRequest{Event: impact.EventUnavailable, ServiceKey: libKey(t, base)}, http.StatusOK, &out)
+	if out.Service.Kind != fleet.KindService || out.Service.Label != "lib" || out.Offering != nil || out.Providers != nil {
+		t.Errorf("service answer = service %+v offering %+v providers %+v", out.Service, out.Offering, out.Providers)
+	}
+	if out.ChangedOwner == nil || out.ChangedOwner.Key != "team:team-l" {
+		t.Errorf("changed owner = %+v", out.ChangedOwner)
 	}
 }
