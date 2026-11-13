@@ -72,7 +72,7 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 // only when the caller is not a human identity, so a person's credentials in an
 // agent's hands propose nothing through this server.
 func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+deliveryInstructions, a)
+	server := newServer(version, baseFor(a)+"\n\n"+deliveryInstructions, a)
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_operation_types",
 		Annotations: readOnly(true),

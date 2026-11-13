@@ -64,6 +64,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"the API server does not confirm it, so the mapping must match its claimMappings.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
+			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
 			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
@@ -111,6 +112,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if s.server, err = buildMCPServer(cmd, svc, version, args, d); err != nil {
 				return err
 			}
+			// The catalog server registers no contract tools at all.
+			s.remoteAuthoring = s.transport != "stdio" && !cmd.Flags().Changed("root")
 			return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
 		},
 	}
@@ -320,12 +323,15 @@ var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, 
 var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
 
-// mcpAuthoring is what every server's authoring tools get. pacto_create from
-// serves stdio only: over HTTP every caller would pull with this process's
-// registry credentials and write to its folders, so Init stays nil there.
+// mcpAuthoring is what every server's authoring tools get. pacto_create,
+// pacto_edit and pacto_check serve stdio only: over HTTP every caller would
+// read and write this process's folders, read its kubeconfig and follow refs
+// with its registry credentials, so Remote leaves only pacto_schema there.
 func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	a := pactomcp.Authoring{Validate: svc.ValidationReport}
-	if transport, _ := cmd.Flags().GetString("transport"); transport == "stdio" {
+	transport, _ := cmd.Flags().GetString("transport")
+	a.Remote = transport != "stdio"
+	if !a.Remote {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
 		a.Init = mcpInit(svc, trust)
 	}
@@ -511,6 +517,9 @@ func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
 			return err
 		}
 		_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
+		if s.remoteAuthoring {
+			_, _ = fmt.Fprintln(stderr, "contract tools: pacto_schema only over HTTP; pacto_create, pacto_edit and pacto_check run beside the agent with pacto mcp over stdio")
+		}
 		return serveHTTP(ctx, mcpHandler(s), listener)
 	case "stdio":
 		_, _ = fmt.Fprintln(stderr, "MCP server running on stdio")

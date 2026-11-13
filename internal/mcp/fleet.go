@@ -77,7 +77,7 @@ type FleetOptions struct {
 // register (identical to NewServer) so a caller with no fleet sources degrades
 // cleanly.
 func NewFleetServer(version string, src FleetQuerySource, a Authoring, opts FleetOptions) *mcpsdk.Server {
-	instructions := baseInstructions
+	instructions := baseFor(a)
 	if src != nil {
 		instructions += "\n\n" + fleetInstructions
 	}

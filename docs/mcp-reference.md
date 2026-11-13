@@ -188,8 +188,10 @@ or schema file already there as it is, listed in `kept`.
   Nothing else runs. A `dry_run` lists each plugin and the binary it runs.
 - `from` refuses the intent inputs, such as `interfaces`, and `pactify`,
   `fleet_roots` and the cluster inputs.
-- `from` serves stdio only. Over HTTP every caller would pull with the
-  server's registry credentials, read its directories and write to its paths.
+- `pacto_create`, `pacto_edit` and `pacto_check` serve stdio only. Over HTTP
+  every caller would pull with the server's registry credentials, read its
+  directories and write to its paths, so an HTTP server offers only
+  `pacto_schema` from the contract tools.
 - `pacto_fleet_entities` with `template: only` lists golden paths.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates

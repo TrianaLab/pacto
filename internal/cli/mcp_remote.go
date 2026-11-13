@@ -47,6 +47,9 @@ type mcpServe struct {
 	auth       mcpAuth
 	issuer     string
 	resource   string
+	// remoteAuthoring: the server answers over HTTP and offers only
+	// pacto_schema from the contract tools (pactomcp.Authoring.Remote).
+	remoteAuthoring bool
 }
 
 // errServiceCredsBeyondLoopback refuses to lend this process's service
@@ -206,8 +209,9 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 		records: d.newRecordRepo, trust: trust,
 		policyNS: policyNS, claims: claimsFlags(flagString(cmd)),
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
-			return pactomcp.NewDeliveryServer(version, api, writes, pactomcp.Authoring{Validate: svc.ValidationReport})
+			return pactomcp.NewDeliveryServer(version, api, writes, pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true})
 		}}
 	s.perRequest = rd.middleware
+	s.remoteAuthoring = true
 	return nil
 }

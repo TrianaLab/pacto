@@ -480,15 +480,21 @@ type schemaResult struct {
 	JSONSchema  string `json:"jsonSchema"`
 }
 
-func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
+// schemaHandler answers pacto_schema. remote swaps the sentence on the file
+// tools for where they run, since an HTTP server does not offer them.
+func schemaHandler(remote bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+	tools := "Use pacto_create to generate new contracts and pacto_edit to " +
+		"modify existing ones. Use pacto_check to validate and get improvement suggestions."
+	if remote {
+		tools = remoteAuthoringSentence
+	}
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
 			Description: "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 				"A pacto.yaml file describes one service: who owns it (service.owner.team, a bare team name such as billing), " +
 				"its interfaces, the services it calls and the versions of each it accepts, its configuration, " +
 				"workload and state semantics, health and policies. The publish section is opt-in and only pacto publish reads it. " +
-				"Use pacto_create to generate new contracts and pacto_edit to " +
-				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",
+				tools,
 			Agents:     agentGuidance,
 			Docs:       docsURL,
 			JSONSchema: string(validation.SchemaBytes()),

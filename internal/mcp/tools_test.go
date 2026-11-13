@@ -554,8 +554,8 @@ func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
 // from say what Pacto is and steer a documentation request to describe_only.
 func TestServerInstructionsPosition(t *testing.T) {
 	for _, want := range []string{"Pacto tells you which services a change breaks before it ships, and checks what is actually running.", "describe_only", "AI agent"} {
-		if !strings.Contains(baseInstructions, want) {
-			t.Errorf("baseInstructions lacks %q", want)
+		if !strings.Contains(stdioInstructions, want) {
+			t.Errorf("stdioInstructions lacks %q", want)
 		}
 	}
 }

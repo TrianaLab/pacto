@@ -1465,6 +1465,8 @@ Over HTTP, --auth-issuer and --resource make every request carry a bearer token 
 
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
 
+Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.
+
 A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
 
 ```

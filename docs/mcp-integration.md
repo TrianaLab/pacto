@@ -143,13 +143,18 @@ change.
   then refuses `--auth` and `--allow-writes`, which would lend one
   credential to every caller. See
   [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+- **Over HTTP the only contract tool is `pacto_schema`.** `pacto_create`,
+  `pacto_edit` and `pacto_check` read and write the server's folders, read
+  its kubeconfig and follow refs with its registry credentials, so they run
+  beside the agent with `pacto mcp` over stdio.
 
 ## Which tools exist
 
 | Tools | Mode | Read or write |
 |---|---|---|
-| `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
-| `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
+| `pacto_create`, `pacto_edit` | every mode but `--root`, over stdio only | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
+| `pacto_check` | every mode but `--root`, over stdio only | Read |
+| `pacto_schema` | every mode but `--root` | Read |
 | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_impact` | `--fleet` | Read |
 | `pacto_catalog_revision`, plus two MCP resources (documents the agent reads): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
 | One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |

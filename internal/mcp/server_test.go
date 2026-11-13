@@ -3,6 +3,8 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,5 +73,83 @@ func TestErrorResult(t *testing.T) {
 	tc := result.Content[0].(*mcpsdk.TextContent)
 	if tc.Text != "something failed" {
 		t.Errorf("expected error message, got %q", tc.Text)
+	}
+}
+
+// authoringVariants builds every server that registers the contract tools with a.
+func authoringVariants(t *testing.T, a Authoring) map[string]*mcpsdk.Server {
+	t.Helper()
+	capability, err := NewCapabilityServer(shadowBundle(), CapabilityOptions{BaseURL: "http://x", Authoring: a}, "test", io.Discard)
+	if err != nil {
+		t.Fatalf("NewCapabilityServer: %v", err)
+	}
+	return map[string]*mcpsdk.Server{
+		"authoring":  NewServer(a, "test"),
+		"fleet":      NewFleetServer("test", staticFleet(buildFleetQuery(t)), a, FleetOptions{Impact: stubImpact(nil, nil, nil)}),
+		"delivery":   NewDeliveryServer("test", &stubDelivery{}, true, a),
+		"publish":    NewPublishServer("test", nil, a),
+		"capability": capability,
+	}
+}
+
+var fileTools = []string{"pacto_create", "pacto_edit", "pacto_check"}
+
+func TestRemoteAuthoringRegistersOnlySchema(t *testing.T) {
+	for name, server := range authoringVariants(t, Authoring{Remote: true}) {
+		tools := listTools(t, server)
+		for _, ft := range fileTools {
+			if tools[ft] != nil {
+				t.Errorf("%s: remote server registers %s", name, ft)
+			}
+		}
+		if tools["pacto_schema"] == nil {
+			t.Errorf("%s: remote server lacks pacto_schema", name)
+		}
+	}
+	for name, server := range authoringVariants(t, Authoring{}) {
+		tools := listTools(t, server)
+		for _, ft := range append(fileTools, "pacto_schema") {
+			if tools[ft] == nil {
+				t.Errorf("%s: stdio server lacks %s", name, ft)
+			}
+		}
+	}
+}
+
+func TestRemoteInstructionsNameNoFileTool(t *testing.T) {
+	for name, server := range authoringVariants(t, Authoring{Remote: true}) {
+		got := catalogSession(t, server).InitializeResult().Instructions
+		if !strings.HasPrefix(got, remoteInstructions) {
+			t.Errorf("%s: instructions do not open with the remote text: %q", name, got)
+		}
+	}
+	rest := strings.Replace(remoteInstructions, remoteAuthoringSentence, "", 1)
+	for _, ft := range fileTools {
+		if strings.Contains(rest, ft) {
+			t.Errorf("remote instructions name %s outside the stdio sentence", ft)
+		}
+	}
+	if !strings.Contains(remoteInstructions, "pacto_create, pacto_edit and pacto_check run beside the agent") {
+		t.Error("remote instructions do not say where the file tools run")
+	}
+	if !strings.HasPrefix(baseFor(Authoring{}), stdioInstructions) {
+		t.Error("a stdio server lost its authoring instructions")
+	}
+}
+
+func TestRemoteSchemaNamesNoFileTool(t *testing.T) {
+	text := func(a Authoring) string {
+		res := callToolOn(t, NewServer(a, "test"), "pacto_schema", map[string]any{})
+		var got schemaResult
+		if err := json.Unmarshal([]byte(res.Content[0].(*mcpsdk.TextContent).Text), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Description
+	}
+	if got := text(Authoring{Remote: true}); strings.Contains(got, "Use pacto_create") || !strings.Contains(got, remoteAuthoringSentence) {
+		t.Errorf("remote pacto_schema description: %q", got)
+	}
+	if got := text(Authoring{}); !strings.Contains(got, "Use pacto_create") {
+		t.Errorf("stdio pacto_schema description: %q", got)
 	}
 }

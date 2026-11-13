@@ -541,3 +541,109 @@ func TestMCPImpactStdioReadsDelivery(t *testing.T) {
 		t.Fatalf("stdio regressed = %+v %v", res, err)
 	}
 }
+
+var fileTools = []string{"pacto_create", "pacto_edit", "pacto_check"}
+
+// builtTools builds the server the flags select and lists its tool names.
+func builtTools(t *testing.T, args []string, flags map[string]string) map[string]bool {
+	t.Helper()
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	for k, v := range flags {
+		if err := cmd.Flags().Set(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := buildMCPServer(cmd, svc, "v", args, defaultDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, tl := range res.Tools {
+		names[tl.Name] = true
+	}
+	return names
+}
+
+// authoringServers are the fleet, bundle and default servers for one transport.
+func authoringServers(t *testing.T, transport string) map[string]map[string]bool {
+	t.Helper()
+	local := t.TempDir()
+	return map[string]map[string]bool{
+		"default": builtTools(t, nil, map[string]string{"transport": transport}),
+		"fleet":   builtTools(t, nil, map[string]string{"transport": transport, "fleet": "true", "local": local}),
+		"bundle":  builtTools(t, []string{writeCapabilityBundle(t)}, map[string]string{"transport": transport, "base-url": "http://example.com"}),
+	}
+}
+
+func TestHTTPServersRegisterOnlySchemaFromAuthoring(t *testing.T) {
+	for name, tools := range authoringServers(t, "http") {
+		for _, ft := range fileTools {
+			expect(t, !tools[ft], "%s over HTTP registers %s", name, ft)
+		}
+		expect(t, tools["pacto_schema"], "%s over HTTP lacks pacto_schema", name)
+	}
+	// The per-request remote delivery server, for an agent and for a person.
+	w := newRemoteWorld(t)
+	for _, user := range []string{w.user, "https://idp#carol"} {
+		w.user = user
+		body := post(t, w.h, "good", listTools).Body.String()
+		expect(t, strings.Contains(body, `"pacto_schema"`) && strings.Contains(body, "pacto_delivery_get"), "remote delivery tools for %s: %s", user, body)
+		for _, ft := range fileTools {
+			expect(t, !strings.Contains(body, `"name":"`+ft+`"`), "remote delivery for %s registers %s", user, ft)
+		}
+	}
+}
+
+func TestStdioServersKeepEveryAuthoringTool(t *testing.T) {
+	for name, tools := range authoringServers(t, "stdio") {
+		for _, ft := range append(fileTools, "pacto_schema") {
+			expect(t, tools[ft], "%s over stdio lacks %s", name, ft)
+		}
+	}
+}
+
+const schemaOnlyLine = "contract tools: pacto_schema only over HTTP"
+
+func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
+	run := func(args ...string) string {
+		root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+		ctx, cancel := context.WithCancel(context.Background())
+		root.SetArgs(append([]string{"mcp", "--port", "0"}, args...))
+		var stderr bytes.Buffer
+		root.SetErr(&stderr)
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+		}()
+		_ = root.ExecuteContext(ctx)
+		return stderr.String()
+	}
+	expect(t, strings.Contains(run("-t", "http"), schemaOnlyLine), "HTTP startup must say pacto_schema only")
+	expect(t, !strings.Contains(run(), schemaOnlyLine), "stdio startup offers every contract tool")
+	// The catalog server registers no contract tools, so it says nothing about them.
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runMCPServer(ctx, mcpServe{transport: "http", port: 0}, &stderr)
+	expect(t, !strings.Contains(stderr.String(), schemaOnlyLine), "no contract tools, no line: %s", stderr.String())
+	// Remote delivery serves per request and offers only pacto_schema too.
+	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
+	expect(t, remoteDeliveryFor(newMCPCommand(app.NewService(nil, nil), "v", d), app.NewService(nil, nil), "v", d, &s) == nil && s.remoteAuthoring,
+		"remote delivery must report schema-only authoring")
+}

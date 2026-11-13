@@ -31,7 +31,7 @@ type CapabilityOptions struct {
 // and the bundle's capability tools + pacto_skill. The server's instructions
 // describe the capability tools so an agent knows they invoke the live service.
 func NewCapabilityServer(bundle *contract.Bundle, opts CapabilityOptions, version string, stderr io.Writer) (*mcpsdk.Server, error) {
-	server := newServer(version, baseInstructions+"\n\n"+capabilityInstructions(bundle, opts), opts.Authoring)
+	server := newServer(version, baseFor(opts.Authoring)+"\n\n"+capabilityInstructions(bundle, opts), opts.Authoring)
 	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
 		return nil, err
 	}
