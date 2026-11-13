@@ -414,7 +414,8 @@ func (r *round) capabilityURL(c contract.Capability, fallbackPath string) (strin
 }
 
 // hold keeps an open window open without counting the round as a negative: the operator's rule for an answer
-// that neither confirms nor refutes (a 5xx, no answer), which only a positive may close.
+// that neither confirms nor refutes (a 501, a 405, any other status that is neither an answer nor a 404, no
+// answer), which only an answer may close.
 func (r *round) hold(key string) {
 	key = r.t.Name + "/" + key
 	if first, open := r.windows[key]; open {
@@ -422,8 +423,9 @@ func (r *round) hold(key string) {
 	}
 }
 
-// observeHealth probes the health endpoint: a 2xx or 3xx is present, a 404 that persists past the window
-// absent, anything else (no answer, an error status) inconclusive and leaves the window as it was.
+// observeHealth probes the health endpoint: a 2xx or 3xx is present, a 5xx other than 501 present and failing
+// (HEALTH_FAILING), a 404 that persists past the window absent, anything else (no answer, a 501, a 405)
+// inconclusive and leaves the window as it was. Both answers close the window, as in the operator.
 func (r *round) observeHealth(c contract.Capability) evidence.Observation {
 	subj := evidence.SubjectRef{Kind: "capability", Name: c.AssertionKey()}
 	u, ok := r.capabilityURL(c, "/")
@@ -434,6 +436,8 @@ func (r *round) observeHealth(c contract.Capability) evidence.Observation {
 	switch {
 	case res.Reachable && res.StatusCode >= 200 && res.StatusCode < 400:
 		return evidence.NewCapabilityObserved(subj, true, r.probed())
+	case res.Reachable && res.StatusCode >= 500 && res.StatusCode != 501:
+		return evidence.NewCapabilityFailing(subj, r.probed())
 	case res.Reachable && res.StatusCode == 404 && r.stabilize("capability/"+subj.Name, runtimefacts.Negative) == runtimefacts.Negative:
 		return evidence.NewCapabilityObserved(subj, false, r.probed())
 	case !res.Reachable || res.StatusCode != 404:

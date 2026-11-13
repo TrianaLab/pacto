@@ -134,6 +134,11 @@ finding code says why:
 - **`COLLECTION_FAILED`**: the cluster query errored, or the node agent
   could not load its kernel program. Check the `RuntimeObserved` condition and
   the operator logs.
+- **`HEALTH_FAILING`**: the declared health endpoint answered with a 5xx
+  (other than 501), or the readiness probe on the declared health path keeps
+  every pod out of Ready. The service is failing its own health check; check
+  the pod's events and logs. Compliance stays `Unknown` because a failing
+  endpoint does not contradict the contract.
 - **`EVIDENCE_STALE`**: the node agent on the pod's node stopped reporting.
   See [Node agent evidence is missing](#node-agent-evidence-is-missing).
 - **`EVIDENCE_INSUFFICIENT`**: some evidence arrived but not enough to decide,
@@ -186,7 +191,8 @@ readiness probe** on the container behind the health capability's port plus a
 Ready endpoint for it. When the capability declares a path, the probe's path
 must equal it. A liveness-only pod, an `exec` or `tcpSocket` probe or
 no probe leaves nothing to read. Passive observation can confirm health but
-never contradict it, so the answer here is `Unknown`.
+never contradict it, so the answer here is `Unknown`. A readiness probe that
+keeps every pod out of Ready reads `HEALTH_FAILING`, which is also `Unknown`.
 
 ## Operator RBAC errors
 

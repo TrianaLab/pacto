@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -29,6 +30,7 @@ import (
 	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/probe"
 )
 
 // countGets counts Gets of one object type and fails them with failWith when it is set.
@@ -168,10 +170,10 @@ func TestCheckReadinessProbeFallback_EndpointListFailure(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{List: failList[*discoveryv1.EndpointSliceList]()}).Build()
 	o := &Observer{client: c, run: newCollectRun()}
 
-	hasProbe, ready := o.checkReadinessProbeFallback(context.Background(),
+	got := o.checkReadinessProbeFallback(context.Background(),
 		CollectInput{Namespace: "default", ServiceName: "web", WorkloadName: "web", WorkloadKind: workloadDeployment}, svc, 80, "/healthz")
-	if !hasProbe || ready {
-		t.Fatalf("got (%v, %v), want a probe that cannot be confirmed ready", hasProbe, ready)
+	if got != tierBUnreadable {
+		t.Fatalf("got %v, want a probe whose readiness cannot be read", got)
 	}
 	if len(o.run.failures) != 1 || !strings.HasPrefix(o.run.failures[0].Error(), "health: ") {
 		t.Fatalf("failures = %v, want the EndpointSlice list failure", o.run.failures)
@@ -315,5 +317,52 @@ func TestMonitors_ListedOncePerCollect(t *testing.T) {
 	}
 	if lists != 2 {
 		t.Fatalf("listed %d times, want once per monitor kind", lists)
+	}
+}
+
+// readinessFallbackObserver serves a Deployment with a /healthz readiness probe behind svc; listErr makes the
+// EndpointSlice read fail.
+func readinessFallbackObserver(svc *corev1.Service, listErr bool) *Observer {
+	dep := makeDeployment("default", "web", nil)
+	dep.Spec.Template.Spec.Containers = []corev1.Container{{
+		Name:           "app",
+		Ports:          []corev1.ContainerPort{{ContainerPort: 8080}},
+		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz"}}},
+	}}
+	b := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(svc, dep)
+	if listErr {
+		b = b.WithInterceptorFuncs(interceptor.Funcs{List: failList[*discoveryv1.EndpointSliceList]()})
+	}
+	return &Observer{client: b.Build(), run: newCollectRun()}
+}
+
+// A readiness probe whose readiness cannot be read is a collector failure, never a failing health check.
+func TestHandleHealthProbeResult_EndpointListFailureIsCollectionFailed(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "web"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromInt32(8080)}},
+		},
+	}
+	o := readinessFallbackObserver(svc, true)
+	input := CollectInput{Namespace: "default", ServiceName: "web", WorkloadName: "web", WorkloadKind: workloadDeployment}
+	obs, updates := o.handleHealthProbeResult(context.Background(), probe.Result{}, evidence.SubjectRef{Kind: "capability", Name: "health"},
+		"health", input, evidence.Provenance{Collector: "k8s-observer"}, time.Now(), 80, "/healthz")
+	if obs.Outcome != evidence.Failed || len(updates) != 0 {
+		t.Fatalf("got %s %+v, want Failed and no window update", obs.Outcome, updates)
+	}
+}
+
+// Endpoints that cannot be mapped to the port (a selector-less Service) give no readiness verdict.
+func TestCheckReadinessProbeFallback_UnmappableEndpointsNoVerdict(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromInt32(8080)}}},
+	}
+	got := readinessFallbackObserver(svc, false).checkReadinessProbeFallback(context.Background(),
+		CollectInput{Namespace: "default", ServiceName: "web", WorkloadName: "web", WorkloadKind: workloadDeployment}, svc, 80, "/healthz")
+	if got != tierBNone {
+		t.Fatalf("got %v, want no readiness verdict", got)
 	}
 }

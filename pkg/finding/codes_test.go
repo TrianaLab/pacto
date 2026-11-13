@@ -90,6 +90,7 @@ func expectedSeverities() map[Code]Severity {
 		CodeCollectionFailed:       SeverityUnknown,
 		CodeEvidenceStale:          SeverityUnknown,
 		CodeEvidenceInsufficient:   SeverityUnknown,
+		CodeHealthFailing:          SeverityUnknown,
 	}
 	return m
 }
@@ -281,5 +282,16 @@ func TestRegistry(t *testing.T) {
 	rows[0].Code = "MUTATED"
 	if Registry()[0].Code == "MUTATED" {
 		t.Error("Registry must return a copy")
+	}
+}
+
+func TestHealthFailingIsFamily2(t *testing.T) {
+	for _, required := range []bool{true, false} {
+		if got := CategoryFor(CodeHealthFailing, required); got != CategoryInconclusive {
+			t.Errorf("required=%v: category %q, want Inconclusive", required, got)
+		}
+		if got := SeverityFor(CodeHealthFailing, required); got != SeverityUnknown {
+			t.Errorf("required=%v: severity %q, want unknown", required, got)
+		}
 	}
 }

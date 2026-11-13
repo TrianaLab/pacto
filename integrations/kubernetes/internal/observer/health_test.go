@@ -419,7 +419,7 @@ func TestObserveHealthDim_TierB_LivenessOnly_Insufficient(t *testing.T) {
 	}
 }
 
-func TestObserveHealthDim_TierB_NotReady_Failed(t *testing.T) {
+func TestObserveHealthDim_TierB_NotReady_Failing(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
@@ -506,11 +506,24 @@ func TestObserveHealthDim_TierB_NotReady_Failed(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
+	obs, updates := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
 
-	// Direct probe fails, tier B has readiness probe but not ready -> Failed.
-	if obs.Outcome != evidence.Failed {
-		t.Errorf("expected Failed for not-ready, got %s", obs.Outcome)
+	// Direct probe fails, tier B has a readiness probe on the declared path but no Pod is Ready -> the
+	// health check is failing: Observed, present, healthy false, and the window cleared.
+	assertHealthFailing(t, obs, updates)
+}
+
+// assertHealthFailing checks a failing-health answer: Observed {present: true, healthy: false} with the
+// capability's window cleared.
+func assertHealthFailing(t *testing.T, obs evidence.Observation, updates []ObservationWindowUpdate) {
+	t.Helper()
+	p, err := obs.GetCapabilityObservation()
+	if err != nil || !p.Present || p.Healthy == nil || *p.Healthy {
+		t.Errorf("expected Observed present and failing, got %+v (%v)", obs, err)
+	}
+	if len(updates) != 1 || updates[0].Kind != kindCapability || updates[0].Subject != "health" ||
+		updates[0].FirstObservedNegativeAt != nil {
+		t.Errorf("expected the health window cleared, got %+v", updates)
 	}
 }
 
@@ -1283,28 +1296,42 @@ func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
 	}
 }
 
-func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
-	result := probe.Result{
-		Reachable:  true,
-		StatusCode: 500,
-	}
+func TestHandleHealthProbeResult_5xxFailing(t *testing.T) {
 	subj := evidence.SubjectRef{Kind: "capability", Name: "health"}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+	for _, tc := range []struct {
+		status  int32
+		failing bool
+	}{{500, true}, {502, true}, {503, true}, {504, true}, {501, false}, {405, false}} {
+		input := CollectInput{
+			StabilizationWindow: 2 * time.Minute,
+			ObservationWindows:  make(map[string]*metav1.Time),
+			Now:                 time.Now(),
+		}
+		obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(),
+			probe.Result{Reachable: true, StatusCode: tc.status}, subj, "health", input, prov, input.Now, 8080, "")
+		if tc.failing {
+			assertHealthFailing(t, obs, updates)
+			continue
+		}
+		if obs.Outcome != evidence.Insufficient || len(updates) != 0 {
+			t.Errorf("%d: expected Insufficient and no window update, got %s %+v", tc.status, obs.Outcome, updates)
+		}
+	}
+}
+
+// A failing answer is an answer: it clears an open 404 window like a 2xx, so a later 404 starts afresh.
+func TestHandleHealthProbeResult_5xxClearsWindow(t *testing.T) {
+	opened := metav1.NewTime(time.Now().Add(-time.Minute))
 	input := CollectInput{
 		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
+		ObservationWindows:  map[string]*metav1.Time{kindCapability + "/health": &opened},
 		Now:                 time.Now(),
 	}
-	prov := evidence.Provenance{Collector: "k8s-observer"}
-
-	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
-
-	if obs.Outcome != evidence.Insufficient {
-		t.Errorf("expected Insufficient for 5xx, got %s", obs.Outcome)
-	}
-
-	if len(updates) != 0 {
-		t.Errorf("expected no window updates for 5xx, got %d", len(updates))
-	}
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(),
+		probe.Result{Reachable: true, StatusCode: 503}, evidence.SubjectRef{Kind: "capability", Name: "health"},
+		"health", input, evidence.Provenance{Collector: "k8s-observer"}, input.Now, 8080, "")
+	assertHealthFailing(t, obs, updates)
 }
 
 func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
@@ -1710,10 +1737,8 @@ func TestCheckReadinessProbeFallbackFromInput_ServiceGetError(t *testing.T) {
 		},
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input, 8080, "")
-
-	if hasProbe || podReady {
-		t.Errorf("expected (false, false) for Service GET error, got (%v, %v)", hasProbe, podReady)
+	if got := o.checkReadinessProbeFallbackFromInput(context.Background(), input, 8080, ""); got != tierBNone {
+		t.Errorf("expected no readiness verdict for Service GET error, got %v", got)
 	}
 }
 
@@ -1761,10 +1786,8 @@ func TestCheckReadinessProbeFallback_NoPodSpec(t *testing.T) {
 		WorkloadKind: "Deployment",
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, "")
-
-	if hasProbe || podReady {
-		t.Errorf("expected (false, false) for nil podSpec, got (%v, %v)", hasProbe, podReady)
+	if got := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, ""); got != tierBNone {
+		t.Errorf("expected no readiness verdict for nil podSpec, got %v", got)
 	}
 }
 
@@ -1810,10 +1833,8 @@ func TestCheckReadinessProbeFallback_NoTargetPortMatch(t *testing.T) {
 		WorkloadKind: "Deployment",
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, "")
-
-	if hasProbe || podReady {
-		t.Errorf("expected (false, false) for no target port match, got (%v, %v)", hasProbe, podReady)
+	if got := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, ""); got != tierBNone {
+		t.Errorf("expected no readiness verdict for no target port match, got %v", got)
 	}
 }
 

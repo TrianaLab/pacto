@@ -86,6 +86,9 @@ const (
 	CodeCollectionFailed       Code = "COLLECTION_FAILED"
 	CodeEvidenceStale          Code = "EVIDENCE_STALE"
 	CodeEvidenceInsufficient   Code = "EVIDENCE_INSUFFICIENT"
+	// The capability's own health check answered and reports it is not healthy. Compliance stays Unknown:
+	// a failing endpoint does not contradict the contract.
+	CodeHealthFailing Code = "HEALTH_FAILING"
 
 	// Structural (crossfield) — capability binding. Registry: {InvalidCapability, Error}.
 	CodeCapabilityInterfaceUnknown Code = "CAPABILITY_INTERFACE_UNKNOWN" // binding.interface references no declared interface
@@ -183,6 +186,7 @@ var registry = map[Code]codeMeta{
 	CodeCollectionFailed:       {CategoryInconclusive, SeverityUnknown},
 	CodeEvidenceStale:          {CategoryInconclusive, SeverityUnknown},
 	CodeEvidenceInsufficient:   {CategoryInconclusive, SeverityUnknown},
+	CodeHealthFailing:          {CategoryInconclusive, SeverityUnknown},
 
 	// Structural (crossfield) — capability binding
 	CodeCapabilityInterfaceUnknown: {CategoryInvalidCapability, SeverityError},

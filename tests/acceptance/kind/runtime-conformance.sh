@@ -282,6 +282,12 @@ service: {name: health-404, version: "1.0.0"}
 interfaces: [{name: api, type: openapi, ref: openapi.yaml, visibility: public}]
 capabilities: [{type: health, binding: {type: http, interface: api, path: /nope}}]
 YAML
+publish health-failing <<YAML
+$HDR
+service: {name: health-failing, version: "1.0.0"}
+interfaces: [$API]
+capabilities: [{type: health, binding: {type: http, interface: api, path: /healthz}}]
+YAML
 publish multi <<YAML
 $HDR
 service: {name: multi, version: "1.0.0"}
@@ -402,6 +408,10 @@ kubectl -n "$APP" patch svc probe-lb --subresource=status --type=merge \
   -p '{"status":{"loadBalancer":{"ingress":[{"ip":"203.0.113.10"}]}}}' >/dev/null
 workload metrics 1 "[{name: server, image: $AGNHOST, imagePullPolicy: Never, args: [porter], env: [{name: SERVE_PORT_8080, value: \"# TYPE up gauge\\nup 1\\n\"}], ports: [{containerPort: 8080}]}]"
 service metrics
+# agnhost liveness answers /healthz with 200 for about 10 seconds, then 500. It carries no readiness probe on
+# purpose: the pod stays Ready, so the interface stays available and only the health check fails.
+workload health-failing 1 "[{name: server, image: $AGNHOST, imagePullPolicy: Never, args: [liveness], ports: [{containerPort: 8080}]}]"
+service health-failing
 workload scratch 1 "[$PAUSE]" "[{name: data, emptyDir: {}}]"
 workload shared 2 "[$PAUSE]" "[{name: data, persistentVolumeClaim: {claimName: shared-data}}]"
 workload durable 1 "[$PAUSE]" "[{name: data, persistentVolumeClaim: {claimName: durable-data}}]"
@@ -424,7 +434,7 @@ spec:
       template:
         spec: {restartPolicy: Never, containers: [$PAUSE]}
 YAML
-for d in backend conforming deaf caller deaf-caller curl probe-target metrics scratch shared durable; do
+for d in backend conforming deaf caller deaf-caller curl probe-target metrics health-failing scratch shared durable; do
   rollout "deploy/$d" || fail "deployment $d never rolled out"
 done
 
@@ -465,13 +475,15 @@ pacto public-api "{serviceName: probe-lb, interfaceBindings: $HTTP80}"
 pacto health-404 "{serviceName: probe-target, interfaceBindings: $HTTP80}"
 pacto multi "{serviceName: probe-lb, workloadRef: {name: probe-target, kind: Deployment}, interfaceBindings: [{interface: rpc, servicePort: 80}, {interface: api, servicePort: 80}]}"
 pacto metrics "{serviceName: metrics, interfaceBindings: $HTTP80}"
+pacto health-failing "{serviceName: health-failing, interfaceBindings: $HTTP80}"
 pacto unbound "{workloadRef: {name: backend}}"
 
 # The violations every non-conforming workload below produces. None may ever land
 # on the conforming Pacto, which shares the node, the kernel and the agent.
 VIOLATIONS=(INTERFACE_ABSENT INTERFACE_PROTOCOL_MISMATCH INTERFACE_VISIBILITY_MISMATCH DEPENDENCY_UNREACHABLE
             DEPENDENCY_VERSION_MISMATCH DEPENDENCY_UNDECLARED WORKLOAD_MISMATCH PERSISTENCE_MISMATCH
-            CONFIGURATION_ABSENT CONFIGURATION_MISMATCH CAPABILITY_ABSENT EVIDENCE_STALE COLLECTION_FAILED)
+            CONFIGURATION_ABSENT CONFIGURATION_MISMATCH CAPABILITY_ABSENT EVIDENCE_STALE COLLECTION_FAILED
+            HEALTH_FAILING)
 FORBID=()
 for c in "${VIOLATIONS[@]}"; do FORBID+=(-forbid "$c"); done
 
@@ -487,6 +499,10 @@ expect_pacto backend "$R" -status Compliant -no-findings -covered
 scenario "health-capability" "/healthz answers 200 (satisfied); /nope answers 404 (CAPABILITY_ABSENT with probing)"
 expect_pacto conforming 5 -forbid CAPABILITY_ABSENT -covered
 expect_pacto health-404 "$R" -status NonCompliant -expect CAPABILITY_ABSENT:error:capability/health
+
+scenario "health-failing" "/healthz turns 500: HEALTH_FAILING, status Unknown"
+expect_pacto health-failing "$R" -status Unknown -expect HEALTH_FAILING:unknown:capability/health \
+  -forbid COLLECTION_FAILED -forbid CAPABILITY_ABSENT
 
 scenario "listener-absent" "endpoints ready by exec probe, the kernel sees no listener on 8080"
 expect_pacto deaf "$R" -status NonCompliant -expect INTERFACE_ABSENT:error:interface/api -collector INTERFACE_ABSENT=ebpf
