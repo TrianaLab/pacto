@@ -909,3 +909,143 @@ func assertSharedBudget(t *testing.T, h *Handler, url string) {
 		}
 	}
 }
+
+// scopedContract is a consumer in ghcr.io/a/orders that takes its "db"
+// configuration from cfgRef and declares a ref-less external dependency.
+func scopedContract(cfgRef string) contract.Contract {
+	c := ordersContract()
+	c.Configurations = []contract.Configuration{{Name: "db", Ref: cfgRef}}
+	c.Dependencies = append(c.Dependencies, contract.Dependency{Name: "stripe", External: true, Version: "2024-06"})
+	return c
+}
+
+// acceptScoped reports one Ready provisioning observation about subject
+// (kind/name) from a key scoped to scope, against the consumer c.
+func acceptScoped(t *testing.T, c contract.Contract, scope []string, kind, name string) error {
+	t.Helper()
+	pub, priv := testKeypair()
+	trust := evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{
+		PublicKey: pub, ProducerID: "env-a",
+		AllowedObservationKinds: []string{string(evidence.ResourceProvisioned)},
+		ProviderRepos:           scope,
+	}}
+	a := NewAcceptor(trust, fakeResolver{c: c}, NewMemoryStore(), fixedNow)
+	set := provisionedSet("ghcr.io/a/orders/production/"+name, fixedNow().Add(-time.Minute), provisioned(kind, name, "production"))
+	_, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", set))
+	return err
+}
+
+var pgScope = []string{"ghcr.io/acme/platform/postgresql"}
+
+func TestProviderScopeAcceptsOwnRepo(t *testing.T) {
+	if err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/postgresql:16.1.0"), pgScope, "configuration", "db"); err != nil {
+		t.Fatalf("own provider rejected: %v", err)
+	}
+}
+
+func TestProviderScopeRejectsForeignRepo(t *testing.T) {
+	err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/redis:7"), pgScope, "configuration", "db")
+	if !errors.Is(err, ErrProviderNotAllowed) || !errors.Is(err, ErrInvalidEvidence) {
+		t.Fatalf("foreign provider = %v, want ErrProviderNotAllowed inside ErrInvalidEvidence", err)
+	}
+	if !strings.Contains(err.Error(), "ghcr.io/acme/platform/redis") {
+		t.Errorf("the server-log detail names no repository: %v", err)
+	}
+}
+
+func TestProviderScopeSegmentBoundary(t *testing.T) {
+	digest := "@sha256:" + strings.Repeat("d", 64)
+	cases := []struct {
+		ref  string
+		want error
+	}{
+		{"oci://ghcr.io/acme/platform/postgresql-evil:16", ErrProviderNotAllowed},
+		{"oci://ghcr.io/acme/platform/postgresql" + digest, nil},
+		{"oci://ghcr.io/acme/platform/postgresql:16" + digest, nil},
+		{"oci://ghcr.io/acme/platform/postgresql", nil},
+		{"oci://ghcr.io/acme/platform/postgresql/sub:1", nil},
+	}
+	for _, tc := range cases {
+		if err := acceptScoped(t, scopedContract(tc.ref), pgScope, "configuration", "db"); !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.ref, err, tc.want)
+		}
+	}
+}
+
+func TestProviderScopeRejectsLocalPathRef(t *testing.T) {
+	for _, ref := range []string{"../postgresql", "ghcr.io/acme/platform/postgresql"} {
+		err := acceptScoped(t, scopedContract(ref), pgScope, "configuration", "db")
+		if !errors.Is(err, ErrProviderNotAllowed) {
+			t.Errorf("%q: got %v, want ErrProviderNotAllowed", ref, err)
+		}
+	}
+}
+
+func TestProviderScopeRejectsRefLessDependency(t *testing.T) {
+	err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/postgresql:16"), pgScope, "dependency", "stripe")
+	if !errors.Is(err, ErrProviderNotAllowed) {
+		t.Fatalf("ref-less dependency = %v, want ErrProviderNotAllowed", err)
+	}
+	if !strings.Contains(err.Error(), "no provider repository") {
+		t.Errorf("detail = %v", err)
+	}
+}
+
+func TestProviderScopeUnscopedUnchanged(t *testing.T) {
+	cases := []struct{ ref, kind, name string }{
+		{"oci://ghcr.io/acme/platform/redis:7", "configuration", "db"},
+		{"oci://ghcr.io/acme/platform/postgresql-evil:16", "configuration", "db"},
+		{"../postgresql", "configuration", "db"},
+		{"oci://ghcr.io/acme/platform/postgresql:16", "dependency", "stripe"},
+	}
+	for _, tc := range cases {
+		if err := acceptScoped(t, scopedContract(tc.ref), nil, tc.kind, tc.name); err != nil {
+			t.Errorf("%s %s (%s): unscoped key rejected: %v", tc.kind, tc.name, tc.ref, err)
+		}
+	}
+}
+
+func TestProviderScopeMultiplePrefixes(t *testing.T) {
+	scope := []string{"ghcr.io/acme/platform/redis", "ghcr.io/acme/platform/postgresql"}
+	if err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/postgresql:16"), scope, "configuration", "db"); err != nil {
+		t.Errorf("second prefix: %v", err)
+	}
+	// The consumer's dependency postgresql refs ghcr.io/platform/postgresql, under neither prefix.
+	if err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/postgresql:16"), scope, "dependency", "postgresql"); !errors.Is(err, ErrProviderNotAllowed) {
+		t.Errorf("dependency outside every prefix: %v", err)
+	}
+	if err := acceptScoped(t, scopedContract("oci://ghcr.io/acme/platform/postgresql:16"), append(scope, "ghcr.io/platform"), "dependency", "postgresql"); err != nil {
+		t.Errorf("dependency under a registry-path prefix: %v", err)
+	}
+}
+
+func TestClassifyProviderNotAllowed(t *testing.T) {
+	err := fmt.Errorf("%w: observation[0]: %w: configuration \"db\" refers to ghcr.io/acme/platform/redis, outside [ghcr.io/acme/platform/postgresql]", ErrInvalidEvidence, ErrProviderNotAllowed)
+	status, code, msg := classifyAcceptError(err)
+	if status != http.StatusForbidden || code != "provider_not_allowed" {
+		t.Fatalf("got (%d,%q), want (403,provider_not_allowed)", status, code)
+	}
+	if strings.Contains(msg, "ghcr.io") || strings.Contains(msg, "redis") || strings.Contains(msg, "postgresql") {
+		t.Errorf("message leaks the repository: %q", msg)
+	}
+}
+
+func TestRepoUnder(t *testing.T) {
+	cases := []struct {
+		repo     string
+		prefixes []string
+		want     bool
+	}{
+		{"ghcr.io/acme/svc", []string{"ghcr.io/acme"}, true},
+		{"ghcr.io/acme", []string{"ghcr.io/acme"}, true},
+		{"ghcr.io/acme-attacker/svc", []string{"ghcr.io/acme"}, false},
+		{"ghcr.io/acme/svc", []string{"ghcr.io/other", "ghcr.io/acme/svc"}, true},
+		{"ghcr.io/acme/svc", nil, false},
+		{"ghcr.io/acme/svc", []string{"ghcr.io/acme/svc/sub"}, false},
+	}
+	for _, tc := range cases {
+		if got := repoUnder(tc.repo, tc.prefixes); got != tc.want {
+			t.Errorf("repoUnder(%q, %v) = %v, want %v", tc.repo, tc.prefixes, got, tc.want)
+		}
+	}
+}

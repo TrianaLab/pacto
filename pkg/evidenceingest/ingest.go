@@ -23,6 +23,7 @@
 package evidenceingest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,6 +58,18 @@ var ErrInvalidEvidence = errors.New("evidence ingest: evidence set is invalid")
 // arbitrary local path, pin evaluation to a mutable tag, or reference an
 // unapproved registry.
 var ErrContractRefPolicy = errors.New("evidence ingest: contract reference violates ingestion policy")
+
+// ErrProviderNotAllowed is returned when a key scoped to provider repositories
+// (its trust entry's ProviderRepos) reports provisioning about a use whose
+// declared ref names no repository under that scope, so one team's adapter can
+// never mark another team's resource Ready. A ref that is not oci:// and a
+// dependency with no ref name no provider repository and are rejected too.
+var ErrProviderNotAllowed = errors.New("evidence ingest: the key may not report provisioning for this provider")
+
+// providerScopedKinds are the observation kinds a trust entry's ProviderRepos
+// scope applies to. A usage kind (#468's possible ResourceUsage) is the next
+// entry if one is added.
+var providerScopedKinds = []evidence.ObservationKind{evidence.ResourceProvisioned}
 
 // Category sentinels wrap the raw, potentially-sensitive errors from decoding,
 // contract resolution and the durable store, so the HTTP layer can return a
@@ -102,15 +115,30 @@ func validateContractRef(ref string, allowedRepos []string) error {
 	if repo == "" {
 		return ErrContractRefPolicy
 	}
-	if len(allowedRepos) == 0 {
+	if len(allowedRepos) == 0 || repoUnder(repo, allowedRepos) {
 		return nil
 	}
-	for _, prefix := range allowedRepos {
-		if repo == prefix || strings.HasPrefix(repo, prefix+"/") {
-			return nil
-		}
-	}
 	return ErrContractRefPolicy
+}
+
+// repoUnder reports whether repo is one of prefixes or sits under one of them
+// on a path-segment boundary, so "ghcr.io/acme" never matches
+// "ghcr.io/acme-attacker".
+func repoUnder(repo string, prefixes []string) bool {
+	return slices.ContainsFunc(prefixes, func(p string) bool {
+		return repo == p || strings.HasPrefix(repo, p+"/")
+	})
+}
+
+// providerRepo returns the repository a declared ref names, with scheme, tag and
+// digest dropped. It is false for a ref that is not oci:// (a local path) or
+// that names no repository, so a scoped key never matches either.
+func providerRepo(ref string) (string, bool) {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		return "", false
+	}
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo, repo != ""
 }
 
 func digestOf(ref string) string {
@@ -262,7 +290,7 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	if isProvisioning(env.EvidenceSet) {
 		// A provisioning report claims nothing about the consumer's compliance:
 		// it is checked against what the consumer declared and stored as is.
-		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt); err != nil {
+		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt, entry.ProviderRepos); err != nil {
 			return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
 		}
 	} else {
@@ -300,8 +328,10 @@ func isProvisioning(set evidence.EvidenceSet) bool {
 // under the consumer's repository path (so trust-entry subject globs scope which
 // consumers a key may report for), it is not dated beyond the allowed clock skew
 // past acceptedAt, and every observation names a configuration reference or a
-// dependency the consumer declares, in an environment it declares.
-func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time) error {
+// dependency the consumer declares, in an environment it declares. When scope
+// is non-empty, the declared ref of each use must also name a provider
+// repository under it.
+func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time, scope []string) error {
 	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
 	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
 		return fmt.Errorf("provisioning subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
@@ -310,19 +340,25 @@ func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt
 		return fmt.Errorf("provisioning report is dated %s, more than %s after it was accepted", set.ObservedAt.Format(time.RFC3339), fleet.MaxProvisioningClockSkew)
 	}
 	for i, o := range set.Observations {
-		if err := checkProvisionedObservation(c, o); err != nil {
+		if err := checkProvisionedObservation(c, o, scope); err != nil {
 			return fmt.Errorf("observation[%d]: %w", i, err)
 		}
 	}
 	return nil
 }
 
-func checkProvisionedObservation(c contract.Contract, o evidence.Observation) error {
+func checkProvisionedObservation(c contract.Contract, o evidence.Observation, scope []string) error {
 	if o.Kind != evidence.ResourceProvisioned {
 		return errors.New("a ResourceProvisioned evidence set carries only ResourceProvisioned observations")
 	}
-	if !declaresUse(c, o.Subject) {
+	ref, ok := declaredUseRef(c, o.Subject)
+	if !ok {
 		return fmt.Errorf("the contract declares no configuration reference or dependency %s %q", o.Subject.Kind, o.Subject.Name)
+	}
+	if len(scope) > 0 && slices.Contains(providerScopedKinds, o.Kind) {
+		if repo, ok := providerRepo(ref); !ok || !repoUnder(repo, scope) {
+			return fmt.Errorf("%w: %s %q refers to %s, outside %v", ErrProviderNotAllowed, o.Subject.Kind, o.Subject.Name, cmp.Or(repo, "no provider repository"), scope)
+		}
 	}
 	if env := o.ProvisionedEnvironment(); env != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }) {
 		return fmt.Errorf("the contract declares no environment %q", env)
@@ -330,15 +366,24 @@ func checkProvisionedObservation(c contract.Contract, o evidence.Observation) er
 	return nil
 }
 
-// declaresUse reports whether c asks for a resource through subject: a
-// configuration that takes its schema by ref, or any declared dependency.
-func declaresUse(c contract.Contract, subject evidence.SubjectRef) bool {
+// declaredUseRef returns the ref through which c asks for a resource named by
+// subject: a configuration that takes its schema by ref, or any declared
+// dependency (whose ref may be empty). ok is false when c declares no such use.
+func declaredUseRef(c contract.Contract, subject evidence.SubjectRef) (ref string, ok bool) {
 	if subject.Kind == "configuration" {
-		return slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool {
+		i := slices.IndexFunc(c.Configurations, func(cfg contract.Configuration) bool {
 			return cfg.Name == subject.Name && cfg.Ref != ""
 		})
+		if i < 0 {
+			return "", false
+		}
+		return c.Configurations[i].Ref, true
 	}
-	return slices.ContainsFunc(c.Dependencies, func(d contract.Dependency) bool { return d.Name == subject.Name })
+	i := slices.IndexFunc(c.Dependencies, func(d contract.Dependency) bool { return d.Name == subject.Name })
+	if i < 0 {
+		return "", false
+	}
+	return c.Dependencies[i].Ref, true
 }
 
 // List returns the latest committed record per target, for the read-only source
@@ -673,6 +718,9 @@ func classifyAcceptError(err error) (int, string, string) {
 		return http.StatusUnauthorized, "unauthorized_producer", "the envelope could not be authenticated or is not authorized for this producer or subject"
 	case errors.Is(err, ErrContractRefPolicy):
 		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"
+	// Before ErrInvalidEvidence, which wraps it.
+	case errors.Is(err, ErrProviderNotAllowed):
+		return http.StatusForbidden, "provider_not_allowed", "the producer's key may not report provisioning for this provider"
 	case errors.Is(err, ErrInvalidEvidence):
 		return http.StatusUnprocessableEntity, "invalid_evidence", "the evidence set is invalid"
 	case errors.Is(err, ErrMalformedEnvelope):
