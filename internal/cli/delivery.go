@@ -200,7 +200,7 @@ func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("reason", "", "why, for the record")
 	cmd.Flags().String("correlation-id", "", "an id that ties this change to an incident or another change, such as a ticket; "+
 		"kept with the change and its record, filtered by pacto delivery history --correlation-id")
-	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified)")
+	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change")
 	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain --output-format json` prints it) you cite as the cause; "+
 		"the promoter runs it again and refuses a cause that does not hold")
 	_ = cmd.MarkFlagRequired("stage")

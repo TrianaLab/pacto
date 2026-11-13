@@ -736,7 +736,7 @@ func TestDeliveryCandidates(t *testing.T) {
 func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
-	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
 	plan, _, err := d.Plan(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -747,9 +747,9 @@ func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 	req.IntentDigest, req.OnBehalfOf = "sha256:0", "alice"
 	_, _, err = d.Propose(ctx, req)
 	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of "alice"`)
-	req.OnBehalfOf = ""
+	req.OnBehalfOf = "bob"
 	_, _, err = d.Propose(ctx, req)
-	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of ""`)
+	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of "bob"`)
 }
 
 // TestWhoAmIPolicyNotFoundHint: a policy that could not be read is carried

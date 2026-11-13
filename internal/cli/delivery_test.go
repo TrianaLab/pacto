@@ -400,8 +400,9 @@ func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
 }
 
 func TestDeliveryCommandWriteVerbs(t *testing.T) {
-	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB}
+	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--on-behalf-of", "dana"}
 	checkDeliveryRuns(t, approveDeps("system:serviceaccount:agents:bot", nil), []deliveryRun{
+		{"text", propose[:7], true, []string{"must name the person it acts for", "--on-behalf-of"}},
 		{"text", append(propose, "--name", "p1", "--type", "promote"), false, []string{"proposed prod/p1"}},
 		{"json", append(propose, "--name", "p2"), false, []string{`"operation"`}},
 		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},

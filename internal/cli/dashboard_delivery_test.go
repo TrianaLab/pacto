@@ -183,6 +183,9 @@ func TestDashDeliveryAdapterActions(t *testing.T) {
 	expect(t, isRefusal(err, http.StatusServiceUnavailable), "a timeout says the cluster is unreachable: %v", err)
 	err = refusal(apierrors.NewForbidden(schema.GroupResource{Resource: "approvals"}, "", errors.New("spec.groups must be the groups of the user")))
 	expect(t, isRefusal(err, http.StatusForbidden) && err.(*dashboard.DeliveryError).Code == "Forbidden", "a VAP refusal keeps its status and message: %v", err)
+	err = refusal(&app.PrincipalError{Code: "NoPrincipal", Agent: "bot", Why: "name the person"})
+	expect(t, isRefusal(err, http.StatusForbidden) && err.(*dashboard.DeliveryError).Code == "NoPrincipal" && err.(*dashboard.DeliveryError).Detail == "name the person",
+		"an agent naming no person is a 403 with its code: %v", err)
 	var _ app.DeliveryRegistry = cliRegistry{}
 }
 

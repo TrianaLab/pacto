@@ -716,7 +716,8 @@ digest_of() { cat "$DEMO/digests/$1-$2"; } # SERVICE VERSION
 # advances on its own there (autonomous), so the promoter names it.
 prod_op() { op_to prod payments "$(digest_of payments "$1")" | head -1; }
 remember() { mkdir -p "$DEMO/digests"; echo "$3" > "$DEMO/digests/$1-$2"; }
-propose() { KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose "$@" >/dev/null; } # as pay-agent
+# pay-agent names dana, a developer no change asks, as the person it acts for.
+propose() { KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose --on-behalf-of dana@example.com "$@" >/dev/null; } # as pay-agent
 # ship_test SERVICE VERSION — publish it and wait until test verified it.
 ship_test() {
   local d op; d="$(publish "$1" "$2")"; remember "$1" "$2" "$d"
@@ -1120,7 +1121,7 @@ b10() {
   conflict() { [ "$(condition reason)" = StreamConflict ]; }
   eventually 60 conflict || fail "the recorder did not stop on the missing record: $(condition message)"
   eventually 30 frozen || fail "the payments prod Stage did not freeze on the missing record"
-  out="$(KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose -n prod --stage payments --type unfreeze --name b10-agent-unfreeze --reason "B10" 2>&1 || true)"
+  out="$(KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose -n prod --stage payments --type unfreeze --name b10-agent-unfreeze --reason "B10" --on-behalf-of dana@example.com 2>&1 || true)"
   grep -q "only a person or break-glass may unfreeze" <<<"$out" || fail "pay-agent's unfreeze was not refused: $out"
   echo "  pay-agent tries to unfreeze it: refused, only a person or break-glass may unfreeze a Stage"
   # The same signed bundle restores the record: its id is the digest of its
@@ -1554,7 +1555,7 @@ EOF
   cat <<EOF
 Explore more:
   B6, as the agent: ship checkout 1.9 first, and the held change asks only orders
-       $a $p delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
+       $a $p delivery propose --on-behalf-of dana@example.com -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
        or play and check B6 to B9 (B7 to B9 in Chromium): make e2e-delivery-demo-browser
   B7, in the browser: pay-agent and alice cannot approve; carol signs in again and approves
   B8: prod sends too little telemetry for 3.0.0 (generated), so the check says Unknown and waits for carol

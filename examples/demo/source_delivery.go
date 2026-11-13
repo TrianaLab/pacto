@@ -314,7 +314,8 @@ func (d *demoDelivery) replay(start time.Time) error {
 	}
 	for _, s := range steps {
 		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to),
-			CorrelationID: map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to]}
+			CorrelationID: map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to],
+			OnBehalfOf:    story.Dana.User}
 		o, _, err := d.propose(req, story.PayAgent)
 		if err != nil {
 			return err
@@ -385,7 +386,7 @@ func (d *demoDelivery) frozenHeld() error {
 	st.Status.Level = delivery.LevelAdvise
 	st.Status.Frozen, st.Status.FrozenReason = true, "frozen by alice@example.com while the prod-us payment database fails over"
 	_, _, err := d.propose(delivery.Request{Namespace: "prod-us", Stage: "checkout", To: story.ArtifactDigest("checkout", "1.9.0"),
-		Reason: "checkout 1.9.0 passed test"}, story.PayAgent)
+		Reason: "checkout 1.9.0 passed test", OnBehalfOf: story.Dana.User}, story.PayAgent)
 	return err
 }
 
@@ -611,6 +612,9 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 	}
 	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, Cause: req.Cause,
 		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}, CorrelationID: req.CorrelationID}
+	if req.OnBehalfOf != "" {
+		spec.OnBehalfOf = &delivery.Principal{User: req.OnBehalfOf}
+	}
 	switch {
 	case typ == delivery.TypeRollback:
 		cited := d.op(req.Namespace, req.Undoes)
@@ -700,6 +704,10 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	p, spec, err := d.plan(req, actor)
 	if err != nil {
 		return nil, p, err
+	}
+	if r := delivery.AdmitPrincipal(spec, actor.Class(), story.Policy); r != "" {
+		code, why, _ := strings.Cut(r, ": ")
+		return nil, p, dashboard.Refuse(http.StatusForbidden, code, why) // as the cluster dashboard answers it
 	}
 	if req.IntentDigest != "" && req.IntentDigest != p.IntentDigest {
 		e := dashboard.Refuse(http.StatusConflict, "PlanStale", "the Stage moved since you planned; review the fresh plan and propose again")

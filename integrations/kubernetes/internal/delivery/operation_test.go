@@ -1708,3 +1708,43 @@ func TestCauseDigestSkewIsFinalPlanStale(t *testing.T) {
 		t.Fatalf("want a final PlanStale owed a record: %+v finalizers %v", got.Status, got.Finalizers)
 	}
 }
+
+// TestAdmissionRefusesAgentWithoutPrincipal: an agent's operation that names
+// no person, itself or a service account is a final refusal that takes a seq
+// and keeps the record finalizer, so the refusal reaches the records.
+func TestAdmissionRefusesAgentWithoutPrincipal(t *testing.T) {
+	named := func(name, user string) *dv1.Operation {
+		o := opObj(name, delivery.TypePromote, dA, dB, bot)
+		o.Spec.OnBehalfOf = &delivery.Principal{User: user}
+		if user == "" {
+			o.Spec.OnBehalfOf = nil
+		}
+		o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, stageObj("").Spec)
+		return o
+	}
+	e := baseEnv(t, nil)
+	e.op.Records = true
+	e.create(named("none", ""), named("self", bot), named("sa", promoterSA))
+	for name, reason := range map[string]string{"none": "NoPrincipal", "self": "SelfPrincipal", "sa": "NotAPerson"} {
+		o := e.drive(name)
+		wantOutcome(t, o, delivery.Rejected, reason)
+		if o.Status.Seq == 0 || !controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
+			t.Fatalf("%s: seq %d finalizers %v", name, o.Status.Seq, o.Finalizers)
+		}
+	}
+}
+
+// TestPromoterRaisedNeedsNoPrincipal: the promoter names nobody on the
+// rollback it raises, and admission lets it through.
+func TestPromoterRaisedNeedsNoPrincipal(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	e.drive("p1")
+	rb := e.drive("p1-rollback")
+	if rb.Spec.OnBehalfOf != nil || rb.Status.ActorClass != delivery.ClassController || rb.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("automatic rollback: %+v %+v", rb.Spec.OnBehalfOf, rb.Status)
+	}
+}

@@ -112,6 +112,41 @@ func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a Appro
 	return "", ""
 }
 
+// AdmitPrincipal says why an operation of class may not be raised as
+// spec names its principal: an agent names the person it acts for, never
+// itself, a service account or the promoter. The name is asserted, never
+// verified; requiring it stops that person approving the change (OwnChange).
+// Only proposals are checked: a plan is a preview and names nobody.
+func AdmitPrincipal(spec OperationSpec, class ActorClass, p ClassPolicy) string {
+	switch {
+	case class != ClassAgent:
+		return ""
+	case !named(spec):
+		return "NoPrincipal: an agent must name the person it acts for (onBehalfOf); that person may not approve this change"
+	case spec.OnBehalfOf.User == spec.Actor.User:
+		return "SelfPrincipal: an agent cannot act on behalf of itself; name the person who asked for this change"
+	case isServiceAccount(spec.OnBehalfOf.User) || spec.OnBehalfOf.User == p.ControllerUser:
+		return "NotAPerson: onBehalfOf names a service account or the promoter; name the person who asked for this change"
+	}
+	return ""
+}
+
+// named says whether spec names a principal.
+func named(spec OperationSpec) bool { return spec.OnBehalfOf != nil && spec.OnBehalfOf.User != "" }
+
+// askerMay says why a may not decide op for who asked for it: the person
+// who asked never decides, and an agent's change that names nobody it acts
+// for (admitted before that was required) has nobody who may.
+func askerMay(spec OperationSpec, st OperationStatus, a ApprovalSpec) (string, string) {
+	switch {
+	case st.ActorClass == ClassAgent && !named(spec):
+		return "NoPrincipal", "an agent raised this change without naming the person it acts for, so nobody may approve it; propose it again with onBehalfOf"
+	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
+		return "OwnChange", a.By + " asked for this change, so someone else must decide it"
+	}
+	return "", ""
+}
+
 // approverMay says why whoever gave a may not decide op.
 func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (string, string) {
 	var owners []string
@@ -121,9 +156,10 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 	held, _ := time.Parse(time.RFC3339, st.Times.Held)
 	login, ok := ParseAuthTime(a.AuthTime)
 	age := created.Sub(login)
+	if code, why := askerMay(spec, st, a); code != "" {
+		return code, why
+	}
 	switch {
-	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
-		return "OwnChange", a.By + " asked for this change, so someone else must decide it"
 	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
 		return "AgentsMayNotApprove", a.By + " is not a person, and only people decide"
 	case len(owners) == 0 && p.RequireOwnerTeam:

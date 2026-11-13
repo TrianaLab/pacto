@@ -378,7 +378,7 @@ func requestSchema(extra ...string) map[string]any {
 		"from":         {Type: "string", Description: "Digest the Stage runs now (defaults to its pointer)"},
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},
-		"on_behalf_of": {Type: "string", Description: "The person you act for (asserted, not verified)"},
+		"on_behalf_of": {Type: "string", Description: "The person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change"},
 		"correlation_id": {Type: "string", Description: "An id that ties this change to an incident or another change, such as a ticket " +
 			"(at most 128 printable ASCII characters). Not part of the intent digest; pacto_delivery_history filters by it"},
 		"cause_verdict": {Type: "string", Description: "A verdict you cite as the cause, as JSON (a verdict from pacto_delivery_explain); " +

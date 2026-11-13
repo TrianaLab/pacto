@@ -494,7 +494,12 @@ YAML
 }
 AGENT_A="$(agent_kubeconfig agent-a)"
 AGENT_B="$(agent_kubeconfig agent-b)"
-as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
+# An agent's propose names the person it acts for: dana, who approves nothing here.
+as_agent() {
+  local kc="$1"; shift
+  if [ "$1" = propose ]; then shift; set -- propose --on-behalf-of dana@example.com "$@"; fi
+  KUBECONFIG="$kc" "$PACTO" delivery "$@"
+}
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 # approve_as USER TEAM NS OP DECISION [NOTE] — the Approval a person with a
