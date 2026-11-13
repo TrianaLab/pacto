@@ -32,8 +32,8 @@ func TestDashboardImpactSharedRefusesRefOutsideView(t *testing.T) {
 	if len(*pulled) != 0 {
 		t.Fatalf("a refused request resolved %v", *pulled)
 	}
-	_, _ = provide(context.Background(), viewSnapshot(), "oci://attacker.example/x@sha256:aaa", "oci://reg.example/orders:2", false)
-	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaa") {
+	_, _ = provide(context.Background(), viewSnapshot(), "oci://attacker.example/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "oci://reg.example/orders:2", false)
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 		t.Fatalf("resolved %v, want the visible revision's ResolvedRef", *pulled)
 	}
 }

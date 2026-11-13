@@ -522,9 +522,9 @@ func viewSnapshot() *fleet.FleetSnapshot {
 	return &fleet.FleetSnapshot{
 		GeneratedAt: time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC),
 		Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{
-			"orders@sha256:aaa": {Service: "orders", RequestedRef: "oci://reg.example/orders:1", ResolvedRef: "oci://reg.example/orders@sha256:aaa", Digest: "sha256:aaa"},
-			"orders@sha256:bbb": {Service: "orders", RequestedRef: "oci://reg.example/orders:2", ResolvedRef: "oci://reg.example/orders@sha256:bbb", Digest: "sha256:bbb"},
-			"local@sha256:ccc":  {Service: "local", RequestedRef: "oci://reg.example/local:1", ResolvedRef: "/srv/local", Digest: "sha256:ccc"},
+			"orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {Service: "orders", RequestedRef: "oci://reg.example/orders:1", ResolvedRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {Service: "orders", RequestedRef: "oci://reg.example/orders:2", ResolvedRef: "oci://reg.example/orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			"local@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc":  {Service: "local", RequestedRef: "oci://reg.example/local:1", ResolvedRef: "/srv/local", Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
 		},
 	}
 }
@@ -562,26 +562,26 @@ func TestMCPImpactHTTPRefusesRefOutsideView(t *testing.T) {
 
 func TestMCPImpactHTTPAcceptsVisibleRevisionRef(t *testing.T) {
 	svc, pulled := pullRecorder()
-	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:aaa", NewRef: "oci://reg.example/orders:2"})
-	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaa") {
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 		t.Fatalf("resolved %v, want the visible revision's ResolvedRef", *pulled)
 	}
 }
 
 func TestMCPImpactHTTPAcceptsDigestRef(t *testing.T) {
 	svc, pulled := pullRecorder()
-	if _, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:bbb", NewRef: "oci://reg.example/orders@sha256:aaa"}); err == nil || strings.Contains(err.Error(), "fleet view") {
+	if _, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", NewRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}); err == nil || strings.Contains(err.Error(), "fleet view") {
 		t.Fatalf("digest refs: %v", err)
 	}
-	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "orders@sha256:bbb") {
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
 		t.Fatalf("resolved %v", *pulled)
 	}
 }
 
 func TestMCPImpactHTTPDigestOnForeignHostResolvesPinnedRef(t *testing.T) {
 	svc, pulled := pullRecorder()
-	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://attacker.example/x@sha256:aaa", NewRef: "oci://reg.example/orders:2"})
-	if len(*pulled) != 1 || strings.Contains((*pulled)[0], "attacker.example") || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaa") {
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://attacker.example/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || strings.Contains((*pulled)[0], "attacker.example") || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 		t.Fatalf("resolved %v, want only the visible revision's own registry", *pulled)
 	}
 }
@@ -589,8 +589,26 @@ func TestMCPImpactHTTPDigestOnForeignHostResolvesPinnedRef(t *testing.T) {
 func TestMCPImpactHTTPRefusesLocalSourceRevision(t *testing.T) {
 	svc, pulled := pullRecorder()
 	_, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/local:1", NewRef: "oci://reg.example/orders:2"})
-	if err == nil || err.Error() != "old_ref "+outsideView || len(*pulled) != 0 {
+	if err == nil || !strings.HasPrefix(err.Error(), "old_ref "+outsideView) || !strings.Contains(err.Error(), "local filesystem path") || len(*pulled) != 0 {
 		t.Fatalf("local-source revision: %v (resolved %v)", err, *pulled)
+	}
+}
+
+// TestMCPImpactHTTPRefusesMutableRevisionRef: a visible revision whose
+// ResolvedRef is a mutable tag, or a digest that disagrees with the recorded
+// one, is refused: the server would resolve whatever the tag points at now.
+func TestMCPImpactHTTPRefusesMutableRevisionRef(t *testing.T) {
+	snap := viewSnapshot()
+	snap.Revisions[fleet.RevisionKey("tagged@sha256:"+strings.Repeat("d", 64))] = &fleet.ContractRevision{Service: "tagged", RequestedRef: "oci://reg.example/tagged:1",
+		ResolvedRef: "oci://reg.example/tagged:1", Digest: "sha256:" + strings.Repeat("d", 64)}
+	snap.Revisions[fleet.RevisionKey("skewed@sha256:"+strings.Repeat("e", 64))] = &fleet.ContractRevision{Service: "skewed", RequestedRef: "oci://reg.example/skewed:1",
+		ResolvedRef: "oci://reg.example/skewed@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("e", 64)}
+	for _, ref := range []string{"oci://reg.example/tagged:1", "oci://reg.example/skewed:1"} {
+		svc, pulled := pullRecorder()
+		_, err := httpImpact(svc, false)(context.Background(), snap, pactomcp.ImpactRequest{OldRef: ref, NewRef: "oci://reg.example/orders:2"})
+		if err == nil || !strings.Contains(err.Error(), "has no immutable ref") || len(*pulled) != 0 {
+			t.Errorf("%s: %v (resolved %v)", ref, err, *pulled)
+		}
 	}
 }
 
