@@ -17,10 +17,11 @@ const publishInstructions = "pacto_publish_plan shows what publishing a contract
 	"published as a minor. pacto_publish publishes it the same way `pacto publish` does in CI: never over an existing " +
 	"tag, signed, the deploy artifact last. Running it again changes nothing."
 
-// NewPublishServer builds a server with the authoring tools and the two
-// publish tools.
+// NewPublishServer builds a server with the authoring tools, the two publish
+// tools and pacto_capabilities. It serves stdio only.
 func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Server {
-	server := newServer(version, baseFor(a)+"\n\n"+publishInstructions, a)
+	server := newServer(version, baseFor(a)+"\n\n"+publishInstructions+"\n\n"+capabilitiesInstructions, a)
+	registerCapabilitiesTool(server, a, Modes{Transport: "stdio", publish: true})
 	schema := inputSchema(map[string]property{
 		"path":     {Type: "string", Description: "Contract directory (default: the server's working directory)"},
 		"revision": {Type: "string", Description: "Source revision to stamp (default: the git commit of path, whose checkout must have no uncommitted changes)"},

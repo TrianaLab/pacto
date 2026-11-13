@@ -46,10 +46,10 @@ func registerCapabilitiesTool(server *mcpsdk.Server, a Authoring, m Modes) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_capabilities",
 		Annotations: readOnly(false),
-		Description: "Report what this server serves: its modes (fleet, delivery, bundle), the contract tools it offers, " +
+		Description: "Report what this server serves: its modes (fleet, delivery, bundle or publish), the contract tools it offers, " +
 			"whether fleet, impact, observed edges and delivery are available, who you are to it (caller.user with callerSource " +
 			"reviewed, token or local; with delivery your class and whether the identity policy was read), whether writes are " +
-			"exposed (delivery propose and cancel for you, or a bundle's mutating operations) and the transport. Read-only.",
+			"exposed (delivery propose and cancel for you, a bundle's mutating operations or pacto_publish) and the transport. Read-only.",
 		InputSchema: map[string]any{"type": "object"},
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, _ map[string]any) (*mcpsdk.CallToolResult, any, error) {
 		out, err := capabilities(ctx, req, a, m)
@@ -84,6 +84,10 @@ func capabilities(ctx context.Context, req *mcpsdk.CallToolRequest, a Authoring,
 	if b := m.Bundle; b != nil {
 		out.Modes = append(out.Modes, "bundle")
 		out.Writes = b.Opts.AllowWrites
+	}
+	if m.publish {
+		out.Modes = append(out.Modes, "publish")
+		out.Writes = true // pacto_publish pushes to the registry
 	}
 	out.Writes = out.Writes || out.Caller.Writes
 	return out, nil

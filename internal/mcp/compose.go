@@ -20,6 +20,8 @@ type Modes struct {
 	// Transport is how the server answers (stdio or http), as
 	// pacto_capabilities reports it.
 	Transport string
+	// publish is set by NewPublishServer, the one server that serves it.
+	publish bool
 }
 
 // FleetMode serves the read-only fleet tools over Src.
