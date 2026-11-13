@@ -53,7 +53,7 @@ func TestAuditLineFields(t *testing.T) {
 	buf := &strings.Builder{}
 	ctx := jsonLogger(buf)
 	q := buildFleetQuery(t)
-	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{})
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(q), Opts: FleetOptions{}}})
 	if _, err := loggedSession(t, ctx, server).CallTool(ctx, &mcpsdk.CallToolParams{Name: "pacto_fleet_status", Arguments: map[string]any{}}); err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestAuditLineFields(t *testing.T) {
 func TestAuditLineHasNoArguments(t *testing.T) {
 	buf := &strings.Builder{}
 	ctx := jsonLogger(buf)
-	server := NewServer(Authoring{}, "test")
+	server := mustNew("test", Authoring{}, Modes{})
 	_, _ = loggedSession(t, ctx, server).CallTool(ctx, &mcpsdk.CallToolParams{Name: "pacto_schema", Arguments: map[string]any{"text": "s3cr3t"}})
 	if strings.Contains(buf.String(), "s3cr3t") {
 		t.Fatalf("the audit line carries an argument:\n%s", buf)

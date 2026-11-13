@@ -130,6 +130,7 @@ type remoteCaller struct {
 type reviewed struct {
 	person   authn.Person
 	delivery *app.Delivery
+	caller   delivery.Caller
 	writes   bool
 }
 
@@ -165,7 +166,7 @@ func (rc remoteCaller) review(ctx context.Context, dyn dynamic.Interface) (revie
 		err = errNobodyReviewed
 	}
 	writes := caller.Class == delivery.ClassAgent
-	return reviewed{person: authn.Person{User: caller.User, Groups: caller.Groups}, delivery: c, writes: writes},
+	return reviewed{person: authn.Person{User: caller.User, Groups: caller.Groups}, delivery: c, caller: caller, writes: writes},
 		[]any{"user", caller.User, "class", caller.Class, "writeTools", writes}, err
 }
 
@@ -245,8 +246,9 @@ func mcpRemote(cmd *cobra.Command, d deps, s *mcpServe) error {
 
 // remoteCallerFor wires a per-request server for an authenticated HTTP fleet
 // or delivery server: each request is named by the apiserver, so without
-// token exchange there is none.
-func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, d deps, s *mcpServe) error {
+// token exchange there is none. Fleet and the bundle are built once and
+// shared; delivery is built for each request's caller.
+func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps, s *mcpServe) error {
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	switch {
 	case deliveryMode && s.auth == nil:
@@ -262,45 +264,46 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, d dep
 	}
 	rc := remoteCaller{auth: s.auth, cluster: cluster, newClient: d.dynamicFor, claims: claimsFlags(flagString(cmd))}
 	if deliveryMode {
-		err = remoteDeliveryTools(cmd, svc, version, d, &rc)
-	} else {
-		err = remoteFleetTools(cmd, svc, version, d, &rc)
+		if rc.delivery, err = remoteDelivery(cmd, d); err != nil {
+			return err
+		}
 	}
+	m, err := mcpModes(cmd, svc, version, args, d)
 	if err != nil {
 		return err
+	}
+	// This path always answers over HTTP.
+	m.Transport = "http"
+	a := pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true}
+	// The modes register the same way on every request, so a bundle that
+	// cannot register fails here, at startup.
+	if _, err := pactomcp.New(version, a, m); err != nil {
+		return err
+	}
+	rc.build = func(ctx context.Context) *mcpsdk.Server {
+		mm := m
+		if who := reviewedFrom(ctx); who.delivery != nil {
+			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller}
+		}
+		srv, _ := pactomcp.New(version, a, mm) // registered once at startup above
+		return srv
 	}
 	s.perRequest = rc.middleware
 	s.remoteAuthoring = true
 	return nil
 }
 
-// remoteDeliveryTools builds the delivery tools for each request as its
-// reviewed caller.
-func remoteDeliveryTools(cmd *cobra.Command, svc *app.Service, version string, d deps, rc *remoteCaller) error {
+// remoteDelivery builds each caller's delivery client over their exchanged
+// token.
+func remoteDelivery(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
 	trust, err := deliveryTrust(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	rc.delivery = func(dyn dynamic.Interface) *app.Delivery {
+	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
 			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}
-	}
-	rc.build = func(ctx context.Context) *mcpsdk.Server {
-		who := reviewedFrom(ctx)
-		return pactomcp.NewDeliveryServer(version, mcpDelivery{who.delivery}, who.writes, pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true})
-	}
-	return nil
-}
-
-// remoteFleetTools serves one fleet server to every request: its view reads
-// the reviewed caller from each request's context.
-func remoteFleetTools(cmd *cobra.Command, svc *app.Service, version string, d deps, rc *remoteCaller) error {
-	srv, err := buildFleetServer(cmd, svc, version, d)
-	if err != nil {
-		return err
-	}
-	rc.build = func(context.Context) *mcpsdk.Server { return srv }
-	return nil
+	}, nil
 }

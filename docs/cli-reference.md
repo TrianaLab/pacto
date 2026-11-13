@@ -1470,7 +1470,7 @@ With --publish, the authoring server also exposes pacto_publish_plan and pacto_p
 
 Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.
 
-A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
+A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. Call pacto_capabilities to learn what a server serves.
 
 ```
 pacto mcp [bundle-ref] [flags]

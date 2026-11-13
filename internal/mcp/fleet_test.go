@@ -321,7 +321,11 @@ func staticFleet(q *fleet.Query) FleetQuerySource {
 func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{Impact: provideImpact})
+	var m Modes
+	if q != nil {
+		m.Fleet = &FleetMode{Src: staticFleet(q), Opts: FleetOptions{Impact: provideImpact}}
+	}
+	server := mustNew("test", Authoring{}, m)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {
@@ -335,7 +339,7 @@ func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvid
 	return session
 }
 
-func TestNewFleetServer_NilQuery_OnlyAuthoringTools(t *testing.T) {
+func TestNoFleetMode_OnlyAuthoringTools(t *testing.T) {
 	session := connectFleetServer(t, nil, nil)
 	names := toolNames(t, session)
 	if !names["pacto_create"] {
@@ -343,15 +347,15 @@ func TestNewFleetServer_NilQuery_OnlyAuthoringTools(t *testing.T) {
 	}
 	for _, ft := range fleetToolNames {
 		if names[ft] {
-			t.Errorf("did not expect %s when query is nil", ft)
+			t.Errorf("did not expect %s without a fleet mode", ft)
 		}
 	}
 	if strings.Contains(session.InitializeResult().Instructions, fleetInstructions) {
-		t.Error("fleet instructions should not be appended when query is nil")
+		t.Error("fleet instructions should not be appended without a fleet mode")
 	}
 }
 
-func TestNewFleetServer_WithQuery_RegistersFleetTools(t *testing.T) {
+func TestFleetMode_WithQuery_RegistersFleetTools(t *testing.T) {
 	session := connectFleetServer(t, buildFleetQuery(t), nil)
 	names := toolNames(t, session)
 	if !names["pacto_create"] {
@@ -667,7 +671,7 @@ func TestFleetVersionsTool(t *testing.T) {
 // TestFleetVersionsToolLinks: with a dashboard URL, the provider, each version
 // and the latest compatible version link to their entity pages.
 func TestFleetVersionsToolLinks(t *testing.T) {
-	server := NewFleetServer("test", staticFleet(offeringFleet(t)), Authoring{}, FleetOptions{DashboardURL: "https://pacto.example"})
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(offeringFleet(t)), Opts: FleetOptions{DashboardURL: "https://pacto.example"}}})
 	text := resultText(t, callToolOn(t, server, "pacto_fleet_versions", map[string]any{"offering": "postgresql", "range": "^16.0.0"}))
 	for _, want := range []string{`"href":"https://pacto.example/#/fleet/services/`, `"href":"https://pacto.example/#/fleet/revisions/`} {
 		if !strings.Contains(strings.ReplaceAll(text, " ", ""), want) {
@@ -702,7 +706,7 @@ func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(offeringFleet(t)), Authoring{}, FleetOptions{View: view})
+	server := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(offeringFleet(t)), Opts: FleetOptions{View: view}}})
 	for _, c := range []struct {
 		tool string
 		args map[string]any

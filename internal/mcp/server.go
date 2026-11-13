@@ -37,7 +37,7 @@ const remoteInstructions = contractIntro + schemaSentence + remoteAuthoringSente
 // remoteAuthoringSentence says where the file tools run when this server does
 // not offer them.
 const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offered from the contract tools; " +
-	"pacto_create, pacto_edit and pacto_check run beside the agent with `pacto mcp` over stdio."
+	"pacto_create, pacto_edit and pacto_check run beside the agent over stdio, from pacto mcp --transport stdio."
 
 // baseFor is the instructions for the contract tools a server registers.
 func baseFor(a Authoring) string {
@@ -93,11 +93,6 @@ type Authoring struct {
 	Validate Validator
 	Init     Initializer
 	Remote   bool
-}
-
-// NewServer creates a new MCP server with all Pacto authoring tools registered.
-func NewServer(a Authoring, version string) *mcpsdk.Server {
-	return newServer(version, baseFor(a), a)
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose

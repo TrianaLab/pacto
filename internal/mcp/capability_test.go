@@ -40,7 +40,7 @@ func httpIface(name, path string) contract.Interface {
 func connectCaps(t *testing.T, bundle *contract.Bundle, opts CapabilityOptions, stderr io.Writer) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewServer(Authoring{}, "test")
+	server := mustNew("test", Authoring{}, Modes{})
 	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
 		t.Fatalf("RegisterCapabilities: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestRegisterCapabilities_SkipsNonHTTP(t *testing.T) {
 
 func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{}, httpIface("http", "missing.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error for missing openapi file")
 	}
@@ -185,13 +185,13 @@ func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 
 func TestRegisterCapabilities_NoBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{}, io.Discard)
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle, CapabilityOptions{}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when no base URL and no servers")
 	}
 }
 
-func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
+func TestBundleMode_InstructionsReachClient(t *testing.T) {
 	fsys := fstest.MapFS{
 		"o.json":      {Data: []byte(capSpec)},
 		"skills/x.md": {Data: []byte("x")},
@@ -203,9 +203,9 @@ func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
 		},
 		FS: fsys,
 	}
-	server, err := NewCapabilityServer(bundle, CapabilityOptions{BaseURL: "http://x"}, "test", io.Discard)
+	server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard}})
 	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	ctx := context.Background()
@@ -244,18 +244,18 @@ func TestCapabilityInstructions_AllowWrites(t *testing.T) {
 	}
 }
 
-func TestNewCapabilityServer_Error(t *testing.T) {
+func TestBundleMode_Error(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
 	// creds without base URL → RegisterCapabilities error propagates
-	_, err := NewCapabilityServer(bundle, CapabilityOptions{Creds: map[string]string{"k": "v"}}, "t", io.Discard)
+	_, err := New("t", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{Creds: map[string]string{"k": "v"}}, Stderr: io.Discard}})
 	if err == nil {
-		t.Fatal("expected error from NewCapabilityServer")
+		t.Fatal("expected error from New with a bundle mode")
 	}
 }
 
 func TestRegisterCapabilities_CredsRequireBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle,
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle,
 		CapabilityOptions{Creds: map[string]string{"apiKey": "secret"}}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error: --auth without --base-url must be refused")
@@ -571,12 +571,20 @@ func TestPactoPrefixReservedOnEveryServer(t *testing.T) {
 		})
 	}
 	t.Run("capability", func(t *testing.T) {
-		pacto := toolNames(t, catalogSession(t, NewServer(Authoring{}, "test")))
-		server, err := NewCapabilityServer(shadowBundle(), opts, "test", io.Discard)
+		pacto := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, Modes{})))
+		server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: shadowBundle(), Opts: opts, Stderr: io.Discard}})
 		if err != nil {
-			t.Fatalf("NewCapabilityServer: %v", err)
+			t.Fatalf("New: %v", err)
 		}
 		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
+	})
+	t.Run("composed", func(t *testing.T) {
+		bare := composedModes(t, true)
+		bare.Bundle = nil
+		pacto := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, bare)))
+		m := composedModes(t, true)
+		m.Bundle.Opts = opts
+		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, mustNew("test", Authoring{}, m))), pacto, generated)
 	})
 }
 
@@ -585,14 +593,28 @@ func serverVariants(t *testing.T) map[string]func() *mcpsdk.Server {
 	t.Helper()
 	cat, _ := platformCatalog(t)
 	return map[string]func() *mcpsdk.Server{
-		"authoring": func() *mcpsdk.Server { return NewServer(Authoring{}, "test") },
+		"authoring": func() *mcpsdk.Server { return mustNew("test", Authoring{}, Modes{}) },
 		"fleet": func() *mcpsdk.Server {
-			return NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
+			return mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}})
 		},
-		"catalog":         func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
-		"delivery-read":   func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, false, Authoring{}) },
-		"delivery-writes": func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, true, Authoring{}) },
-		"publish":         func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
+		"catalog": func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
+		"delivery-read": func() *mcpsdk.Server {
+			return mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
+		},
+		"delivery-writes": func() *mcpsdk.Server {
+			return mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})
+		},
+		"publish": func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
+		"fleet+delivery": func() *mcpsdk.Server {
+			m := composedModes(t, true)
+			m.Bundle = nil
+			return mustNew("test", Authoring{}, m)
+		},
+		"fleet+delivery-remote": func() *mcpsdk.Server {
+			m := composedModes(t, false)
+			m.Bundle = nil
+			return mustNew("test", Authoring{Remote: true}, m)
+		},
 	}
 }
 
@@ -617,8 +639,8 @@ func assertOnlyPactoOrGenerated(t *testing.T, got, pacto, generated map[string]b
 // another server and a name no Pacto tool uses yet are all skipped, each with
 // one stderr line.
 func TestBundleCannotShadowDeliveryTool(t *testing.T) {
-	server := NewDeliveryServer("test", &stubDelivery{}, false, Authoring{})
-	before := toolNames(t, catalogSession(t, NewDeliveryServer("test", &stubDelivery{}, false, Authoring{})))
+	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
+	before := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})))
 	bundle := shadowBundle()
 	var stderr strings.Builder
 	if err := RegisterCapabilities(server, bundle, CapabilityOptions{BaseURL: "http://x"}, &stderr); err != nil {

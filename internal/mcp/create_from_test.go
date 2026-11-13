@@ -30,7 +30,7 @@ func (f *fakeInit) init(_ context.Context, opts pactify.Options, req FromRequest
 
 func callFrom(t *testing.T, init Initializer, args map[string]any) (string, bool) {
 	t.Helper()
-	res := callToolOn(t, NewServer(Authoring{Init: init}, "test"), "pacto_create", args)
+	res := callToolOn(t, mustNew("test", Authoring{Init: init}, Modes{}), "pacto_create", args)
 	return resultText(t, res), res.IsError
 }
 
@@ -181,11 +181,11 @@ func TestEditTemplateTool(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: http-service\n  version: 1.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := callToolOn(t, NewServer(Authoring{}, "test"), "pacto_edit", map[string]any{"path": dir, "template": `{"plugins":[{"name":"ci"}]}`})
+	res := callToolOn(t, mustNew("test", Authoring{}, Modes{}), "pacto_edit", map[string]any{"path": dir, "template": `{"plugins":[{"name":"ci"}]}`})
 	if c := readContract(t, dir); res.IsError || c.Service.Template == nil || c.PactoVersion != "2.4" {
 		t.Errorf("tool: %s", resultText(t, res))
 	}
-	if res := callToolOn(t, NewServer(Authoring{}, "test"), "pacto_edit", map[string]any{"path": dir, "origin": "{}"}); !res.IsError {
+	if res := callToolOn(t, mustNew("test", Authoring{}, Modes{}), "pacto_edit", map[string]any{"path": dir, "origin": "{}"}); !res.IsError {
 		t.Error("origin is not settable")
 	}
 }

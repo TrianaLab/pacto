@@ -67,12 +67,11 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
 	"service for you, and order.unknown says what it could not see." + checkedPass + noApprove
 
-// NewDeliveryServer builds a server with the authoring tools and the delivery
-// tools. writes registers propose and cancel; the command layer passes true
-// only when the caller is not a human identity, so a person's credentials in an
-// agent's hands propose nothing through this server.
-func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring) *mcpsdk.Server {
-	server := newServer(version, baseFor(a)+"\n\n"+deliveryInstructions, a)
+// registerDelivery adds the delivery tools. writes registers propose and
+// cancel; the command layer passes true only when the caller is not a human
+// identity, so a person's credentials in an agent's hands propose nothing
+// through this server.
+func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_operation_types",
 		Annotations: readOnly(true),
@@ -263,7 +262,6 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 	if writes {
 		registerDeliveryWrites(server, api)
 	}
-	return server
 }
 
 // noProposeNote ends a status answer on a server that registered no write

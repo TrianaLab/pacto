@@ -28,7 +28,7 @@ func listTools(t *testing.T, server *mcpsdk.Server) map[string]*mcpsdk.Tool {
 // readOnlyPactoTools are the Pacto tools that change nothing.
 var readOnlyPactoTools = map[string]bool{
 	"pacto_schema": true, "pacto_check": true, "pacto_skill": true, "pacto_impact": true,
-	"pacto_catalog_revision": true, "pacto_publish_plan": true,
+	"pacto_catalog_revision": true, "pacto_publish_plan": true, "pacto_capabilities": true,
 }
 
 func wantReadOnly(name string) bool {
@@ -44,12 +44,13 @@ func wantReadOnly(name string) bool {
 func TestEveryToolAnnotated(t *testing.T) {
 	variants := serverVariants(t)
 	variants["capability"] = func() *mcpsdk.Server {
-		s, err := NewCapabilityServer(shadowBundle(), CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, "test", io.Discard)
+		s, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: shadowBundle(), Opts: CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, Stderr: io.Discard}})
 		if err != nil {
-			t.Fatalf("NewCapabilityServer: %v", err)
+			t.Fatalf("New: %v", err)
 		}
 		return s
 	}
+	variants["composed"] = func() *mcpsdk.Server { return mustNew("test", Authoring{}, composedModes(t, true)) }
 	for name, build := range variants {
 		t.Run(name, func(t *testing.T) {
 			for tn, tl := range listTools(t, build()) {
@@ -70,9 +71,9 @@ func TestGeneratedToolHintsFromMethod(t *testing.T) {
 	  "get":{"operationId":"g"},"head":{"operationId":"h"},"post":{"operationId":"po"},
 	  "put":{"operationId":"pu"},"patch":{"operationId":"pa"},"delete":{"operationId":"d"}}}}`
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(spec)}}, httpIface("http", "o.json"))
-	server, err := NewCapabilityServer(bundle, CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, "test", io.Discard)
+	server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, Stderr: io.Discard}})
 	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	tools := listTools(t, server)
 	cases := []struct {
@@ -111,7 +112,7 @@ func TestGeneratedToolHintsFromMethod(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 func TestAuthoringToolHints(t *testing.T) {
-	tools := listTools(t, NewServer(Authoring{}, "test"))
+	tools := listTools(t, mustNew("test", Authoring{}, Modes{}))
 	edit, create := tools["pacto_edit"].Annotations, tools["pacto_create"].Annotations
 	if edit.DestructiveHint == nil || !*edit.DestructiveHint {
 		t.Errorf("pacto_edit removes entries in place: destructiveHint must be true, got %v", edit.DestructiveHint)
@@ -145,9 +146,9 @@ func TestUnavailableStandInIsReadOnly(t *testing.T) {
 	spec := `{"openapi":"3.1.0","paths":{"/broken":{"post":{"operationId":"broken","parameters":[
 	  {"name":"q","in":"query","schema":{"$ref":"#/components/schemas/Nope"}}]}}}}`
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(spec)}}, httpIface("http", "o.json"))
-	server, err := NewCapabilityServer(bundle, CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, "test", io.Discard)
+	server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{BaseURL: "http://x", AllowWrites: true}, Stderr: io.Discard}})
 	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	broken := listTools(t, server)["broken"]
 	if !strings.Contains(broken.Description, "UNAVAILABLE") {
@@ -159,7 +160,7 @@ func TestUnavailableStandInIsReadOnly(t *testing.T) {
 }
 
 func TestDeliveryWriteToolsAreNotReadOnly(t *testing.T) {
-	tools := listTools(t, NewDeliveryServer("test", &stubDelivery{}, true, Authoring{}))
+	tools := listTools(t, mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}}))
 	for _, name := range []string{"pacto_delivery_operation_propose", "pacto_delivery_cancel"} {
 		a := tools[name].Annotations
 		if a == nil || a.ReadOnlyHint {

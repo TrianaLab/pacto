@@ -10,8 +10,17 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// mustNew is New for a test whose modes cannot fail to register.
+func mustNew(version string, a Authoring, m Modes) *mcpsdk.Server {
+	s, err := New(version, a, m)
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
 func TestNewServer(t *testing.T) {
-	server := NewServer(Authoring{}, "1.0.0")
+	server := mustNew("1.0.0", Authoring{}, Modes{})
 	if server == nil {
 		t.Fatal("expected non-nil server")
 	}
@@ -79,14 +88,11 @@ func TestErrorResult(t *testing.T) {
 // authoringVariants builds every server that registers the contract tools with a.
 func authoringVariants(t *testing.T, a Authoring) map[string]*mcpsdk.Server {
 	t.Helper()
-	capability, err := NewCapabilityServer(shadowBundle(), CapabilityOptions{BaseURL: "http://x", Authoring: a}, "test", io.Discard)
-	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
-	}
+	capability := mustNew("test", a, Modes{Bundle: &BundleMode{Bundle: shadowBundle(), Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard}})
 	return map[string]*mcpsdk.Server{
-		"authoring":  NewServer(a, "test"),
-		"fleet":      NewFleetServer("test", staticFleet(buildFleetQuery(t)), a, FleetOptions{Impact: stubImpact(nil, nil, nil)}),
-		"delivery":   NewDeliveryServer("test", &stubDelivery{}, true, a),
+		"authoring":  mustNew("test", a, Modes{}),
+		"fleet":      mustNew("test", a, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}}),
+		"delivery":   mustNew("test", a, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}}),
 		"publish":    NewPublishServer("test", nil, a),
 		"capability": capability,
 	}
@@ -139,7 +145,7 @@ func TestRemoteInstructionsNameNoFileTool(t *testing.T) {
 
 func TestRemoteSchemaNamesNoFileTool(t *testing.T) {
 	text := func(a Authoring) string {
-		res := callToolOn(t, NewServer(a, "test"), "pacto_schema", map[string]any{})
+		res := callToolOn(t, mustNew("test", a, Modes{}), "pacto_schema", map[string]any{})
 		var got schemaResult
 		if err := json.Unmarshal([]byte(res.Content[0].(*mcpsdk.TextContent).Text), &got); err != nil {
 			t.Fatal(err)

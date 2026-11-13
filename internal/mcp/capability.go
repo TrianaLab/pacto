@@ -24,21 +24,6 @@ type CapabilityOptions struct {
 	// Version is the pacto version every generated call names in its
 	// User-Agent (pacto-mcp/<version>).
 	Version string
-	// Authoring is passed through to the authoring tools this server also
-	// registers, so pacto_check here runs the same validation path `pacto
-	// validate` runs. See Authoring.
-	Authoring Authoring
-}
-
-// NewCapabilityServer builds an MCP server that exposes both the authoring tools
-// and the bundle's capability tools + pacto_skill. The server's instructions
-// describe the capability tools so an agent knows they invoke the live service.
-func NewCapabilityServer(bundle *contract.Bundle, opts CapabilityOptions, version string, stderr io.Writer) (*mcpsdk.Server, error) {
-	server := newServer(version, baseFor(opts.Authoring)+"\n\n"+capabilityInstructions(bundle, opts), opts.Authoring)
-	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
-		return nil, err
-	}
-	return server, nil
 }
 
 // capabilityInstructions is the server-level guidance describing how to use the

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -215,42 +216,31 @@ func TestMCPCatalogMode_CancelledStartupStaysPartial(t *testing.T) {
 	}
 }
 
-func TestMCPModesAreMutuallyExclusive(t *testing.T) {
+func TestMCPModeCombinations(t *testing.T) {
 	_, rootA, _ := catalogRootsFixture(t)
 	bundle := writeCapabilityBundle(t)
 
-	cases := map[string]struct {
+	refused := map[string]struct {
 		args []string
 		want []string
 	}{
-		"catalog and capability": {
-			args: []string{"mcp", "--root", rootA, bundle},
-			want: []string{"a bundle reference", "--root"},
-		},
-		"catalog and fleet": {
-			args: []string{"mcp", "--root", rootA, "--fleet"},
-			want: []string{"--root", "--fleet"},
-		},
-		"capability and fleet": {
-			args: []string{"mcp", "--fleet", bundle},
-			want: []string{"a bundle reference", "--fleet"},
-		},
-		"all three": {
-			args: []string{"mcp", "--root", rootA, "--fleet", bundle},
-			want: []string{"a bundle reference", "--root", "--fleet"},
-		},
+		"catalog and capability": {[]string{"mcp", "--root", rootA, bundle}, []string{"a bundle reference", "--root"}},
+		"catalog and fleet":      {[]string{"mcp", "--root", rootA, "--fleet"}, []string{"--root", "--fleet"}},
+		"publish and fleet":      {[]string{"mcp", "--publish", "--fleet"}, []string{"--fleet", "--publish"}},
+		"publish and bundle":     {[]string{"mcp", "--publish", bundle}, []string{"a bundle reference", "--publish"}},
+		"publish and delivery":   {[]string{"mcp", "--publish", "--delivery"}, []string{"--delivery", "--publish"}},
+		"catalog and all":        {[]string{"mcp", "--root", rootA, "--fleet", "--delivery", bundle}, []string{"a bundle reference", "--root", "--fleet", "--delivery"}},
 	}
-	for name, tc := range cases {
+	for name, tc := range refused {
 		t.Run(name, func(t *testing.T) {
 			root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
 			root.SetArgs(tc.args)
 			var out bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&out)
-
 			err := root.Execute()
-			if err == nil {
-				t.Fatalf("%v started a server, want an explicit error rather than a silent choice", tc.args)
+			if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+				t.Fatalf("%v: %v, want an explicit refusal rather than a silent choice", tc.args, err)
 			}
 			for _, want := range tc.want {
 				if !strings.Contains(err.Error(), want) {
@@ -259,6 +249,72 @@ func TestMCPModesAreMutuallyExclusive(t *testing.T) {
 			}
 		})
 	}
+
+	allowed := map[string]struct {
+		bundle bool
+		flags  map[string]string
+		want   []string
+	}{
+		"bundle and fleet":    {true, map[string]string{"fleet": "true"}, []string{"pacto_fleet_get", "pacto_skill"}},
+		"fleet and delivery":  {false, map[string]string{"fleet": "true", "delivery": "true"}, []string{"pacto_fleet_get", "pacto_delivery_get"}},
+		"bundle and delivery": {true, map[string]string{"delivery": "true"}, []string{"pacto_delivery_get", "pacto_skill"}},
+		"all three":           {true, map[string]string{"fleet": "true", "delivery": "true"}, []string{"pacto_fleet_get", "pacto_delivery_get", "pacto_skill"}},
+	}
+	for name, tc := range allowed {
+		t.Run(name, func(t *testing.T) {
+			d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+			svc := app.NewService(nil, nil)
+			cmd := newMCPCommand(svc, "v", d)
+			cmd.SetContext(context.Background())
+			flags := map[string]string{"local": t.TempDir(), "base-url": "http://example.com"}
+			maps.Copy(flags, tc.flags)
+			for k, v := range flags {
+				if err := cmd.Flags().Set(k, v); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var args []string
+			if tc.bundle {
+				args = []string{bundle}
+			}
+			if err := checkMCPMode(tc.bundle, false, flags["fleet"] == "true", flags["delivery"] == "true", false); err != nil {
+				t.Fatalf("check: %v", err)
+			}
+			server, err := buildMCPServer(cmd, svc, "v", args, d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tools := toolSet(t, server)
+			for _, want := range append(tc.want, "pacto_capabilities") {
+				if !tools[want] {
+					t.Errorf("%s lacks %s", name, want)
+				}
+			}
+		})
+	}
+}
+
+// toolSet lists the tool names server registers.
+func toolSet(t *testing.T, server *mcpsdk.Server) map[string]bool {
+	t.Helper()
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, tl := range res.Tools {
+		names[tl.Name] = true
+	}
+	return names
 }
 
 func TestMCPCommand_RootFlagIsRepeatable(t *testing.T) {

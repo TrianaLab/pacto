@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestMCPRemoteRefusals(t *testing.T) {
 	d.newMCPAuth = func(authn.MCPConfig) (mcpAuth, error) { return &fakeMCPAuth{exchange: true}, nil }
 	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no cluster") }
 	wantErr(t, remoteCmd(t, d, "--delivery", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"), "no cluster")
-	wantErr(t, remoteCmd(t, d, "--delivery", "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp"), "cannot be combined")
+	wantErr(t, remoteCmd(t, d, "--delivery", "--root", "x", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp"), "cannot be combined")
 }
 
 // post sends one JSON-RPC request through h and returns the answer.
@@ -168,7 +169,7 @@ func newRemoteWorld(t *testing.T) *remoteWorld {
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = cmd.Flags().Set("oidc-username-claim", "email")
 	_ = cmd.Flags().Set("delivery", "true")
-	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s)
+	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s)
 	expect(t, err == nil, "remote delivery: %v", err)
 	w.h = mcpHandler(s)
 	return w
@@ -247,7 +248,7 @@ func TestRemoteDeliveryRefusesABadTrustConfig(t *testing.T) {
 	_ = cmd.Flags().Set("delivery-trust", filepath.Join(t.TempDir(), "absent"))
 	_ = cmd.Flags().Set("delivery", "true")
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
-	if err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s); err == nil || !strings.Contains(err.Error(), "trust config") {
+	if err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s); err == nil || !strings.Contains(err.Error(), "trust config") {
 		t.Fatalf("a missing trust config must fail: %v", err)
 	}
 }
@@ -322,7 +323,7 @@ func newRemoteFleet(t *testing.T) *remoteFleet {
 		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
 	}
 	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
-	expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", d, &s) == nil, "remote fleet")
+	expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s) == nil, "remote fleet")
 	w.perRequest = s.perRequest != nil
 	w.h = mcpHandler(s)
 	return w
@@ -433,7 +434,7 @@ func loopbackServe(t *testing.T, args ...string) mcpServe {
 	for i := 0; i < len(args); i += 2 {
 		_ = cmd.Flags().Set(args[i], args[i+1])
 	}
-	s := mcpServe{transport: "http", server: pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "v")}
+	s := mcpServe{transport: "http", server: mustNewMCP("v", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})}
 	expect(t, mcpRemote(cmd, deps{newMCPAuth: func(authn.MCPConfig) (mcpAuth, error) { return &fakeMCPAuth{}, nil }}, &s) == nil, "mcpRemote")
 	return s
 }
@@ -470,4 +471,52 @@ func TestIssuerServerHasNoLaunchToken(t *testing.T) {
 	cancel()
 	_ = runMCPServer(ctx, s, &stderr)
 	expect(t, !strings.Contains(stderr.String(), "bearer:"), "no bearer printed: %s", stderr.String())
+}
+
+// TestRemoteComposedPerCaller: one remote server with --fleet and --delivery
+// answers each request for the caller the apiserver reviewed: the fleet
+// narrowed to what they may read, delivery tools for their class.
+func TestRemoteComposedPerCaller(t *testing.T) {
+	user := "system:serviceaccount:agents:bot"
+	var asked []string
+	d := deliveryDeps(user, nil)
+	d.clusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
+	}
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) {
+		dyn, _ := deliveryDeps(user, nil).newDynamic()
+		dyn.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+			who, _, _ := unstructured.NestedString(o.Object, "spec", "user")
+			asked = append(asked, who)
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": who == "system:serviceaccount:agents:bot"}}}, nil
+		})
+		return dyn, nil
+	}
+	root := t.TempDir()
+	writeCLIBundle(t, filepath.Join(root, "orders"), "orders", "1.0.0")
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	cmd.SetContext(context.Background())
+	for k, v := range map[string]string{"fleet": "true", "delivery": "true", "local": root, "transport": "http", "auth-issuer": "https://idp"} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s) == nil, "remote composed")
+	h := mcpHandler(s)
+
+	tools := post(t, h, "good", listTools).Body.String()
+	entities := post(t, h, "good", listEntities).Body.String()
+	expect(t, strings.Contains(tools, "pacto_delivery_operation_propose") && strings.Contains(tools, "pacto_fleet_entities") &&
+		strings.Contains(tools, "pacto_capabilities"), "the agent's composed tools: %s", tools)
+	expect(t, strings.Contains(entities, "orders") && slices.Contains(asked, user), "the agent reads the fleet as itself: %s %v", entities, asked)
+	caps := post(t, h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pacto_capabilities","arguments":{}}}`).Body.String()
+	expect(t, strings.Contains(caps, `\"callerSource\": \"reviewed\"`) && strings.Contains(caps, `\"user\": \"`+user+`\"`) &&
+		strings.Contains(caps, `\"class\": \"agent\"`) && strings.Contains(caps, `\"transport\": \"http\"`), "capabilities: %s", caps)
+
+	// A person on the next request: read-only delivery and their own view.
+	user = "https://idp#carol"
+	tools = post(t, h, "good", listTools).Body.String()
+	entities = post(t, h, "good", listEntities).Body.String()
+	expect(t, !strings.Contains(tools, "pacto_delivery_operation_propose") && strings.Contains(tools, "pacto_delivery_get"), "a person's tools: %s", tools)
+	expect(t, !strings.Contains(entities, `\"orders\"`) && slices.Contains(asked, user), "carol's own view: %s %v", entities, asked)
 }

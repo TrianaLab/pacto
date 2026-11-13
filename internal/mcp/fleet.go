@@ -21,7 +21,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"change really affects. It reports the semantic classification, breaking changes, affected " +
 	"consumers with confidence and compatibility, active targets and owners to review. " +
 	"Distinguish the three tool families: authoring tools " +
-	"(pacto_create/edit/check/schema) create and check contracts; generated service " +
+	"(pacto_create/edit/check/schema; over HTTP only pacto_schema, the rest from pacto mcp --transport stdio) create and check contracts; generated service " +
 	"tools (derived from a bundle's OpenAPI interfaces) invoke LIVE service operations; " +
 	"fleet tools read the operational system and its state. Fleet tools only " +
 	"OBSERVE: they never modify contracts, deploy, invoke services or grant " +
@@ -43,7 +43,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
 	"version match and a relationship provenance reserved for future use. pacto_fleet_entities " +
-	"with template=only lists golden paths, the starting points pacto_create takes as 'from'; a " +
+	"with template=only lists golden paths, the starting points pacto_create takes as 'from' (over stdio, from pacto mcp --transport stdio); a " +
 	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
@@ -72,22 +72,6 @@ type FleetOptions struct {
 	DashboardURL string
 }
 
-// NewFleetServer builds a server with the authoring tools plus the read-only
-// fleet query tools backed by src. When src is nil, only authoring tools
-// register (identical to NewServer) so a caller with no fleet sources degrades
-// cleanly.
-func NewFleetServer(version string, src FleetQuerySource, a Authoring, opts FleetOptions) *mcpsdk.Server {
-	instructions := baseFor(a)
-	if src != nil {
-		instructions += "\n\n" + fleetInstructions
-	}
-	server := newServer(version, instructions, a)
-	if src != nil {
-		registerFleetTools(server, src, opts)
-	}
-	return server
-}
-
 // FleetView narrows q to what the verified caller may see (caller is nil over
 // stdio). An error is answered as the tool's error, never as a smaller answer.
 type FleetView func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error)
@@ -96,24 +80,28 @@ type FleetView func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query)
 // one is set.
 func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) mcpsdk.ToolHandlerFor[A, any] {
 	return func(ctx context.Context, req *mcpsdk.CallToolRequest, a A) (*mcpsdk.CallToolResult, any, error) {
-		q, err := src(ctx)
+		q, err := viewQuery(ctx, req, src, view)
 		if err != nil {
 			return errorResult(err), nil, nil
-		}
-		if view != nil {
-			var caller *auth.TokenInfo
-			if req != nil && req.Extra != nil {
-				caller = req.Extra.TokenInfo
-			}
-			if q, err = view(ctx, caller, q); err != nil {
-				return errorResult(err), nil, nil
-			}
 		}
 		if n := noteFrom(ctx); n != nil {
 			n.snapshotID = q.SnapshotID()
 		}
 		return h(q)(ctx, req, a)
 	}
+}
+
+// viewQuery is the current query from src, narrowed by view when one is set.
+func viewQuery(ctx context.Context, req *mcpsdk.CallToolRequest, src FleetQuerySource, view FleetView) (*fleet.Query, error) {
+	q, err := src(ctx)
+	if err != nil || view == nil {
+		return q, err
+	}
+	var caller *auth.TokenInfo
+	if req != nil && req.Extra != nil {
+		caller = req.Extra.TokenInfo
+	}
+	return view(ctx, caller, q)
 }
 
 // addFleetTool registers one fleet tool: answered from the current (viewed)

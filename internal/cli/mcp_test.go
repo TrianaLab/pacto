@@ -118,7 +118,7 @@ func TestMCPCommand_UnknownTransportBeforeBuild(t *testing.T) {
 }
 
 func TestRunMCPServer_UnknownTransport(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "bogus"}, &stderr)
@@ -275,7 +275,7 @@ func TestMCPCommand_RunE_HTTP(t *testing.T) {
 
 func TestRunMCPServer_HTTP(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	cancel()
@@ -293,7 +293,7 @@ func TestRunMCPServer_HTTP(t *testing.T) {
 func TestRunMCPServer_StdioMessage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	_ = runMCPServer(ctx, mcpServe{server: server, transport: "stdio"}, &stderr)
@@ -305,7 +305,7 @@ func TestRunMCPServer_StdioMessage(t *testing.T) {
 }
 
 func TestRunMCPServer_InvalidPort(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "http", port: -1}, &stderr)
@@ -315,7 +315,7 @@ func TestRunMCPServer_InvalidPort(t *testing.T) {
 }
 
 func TestServeHTTP_ContextCancel(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -361,7 +361,7 @@ func TestServeHTTP_ContextCancel(t *testing.T) {
 }
 
 func TestServeHTTP_ListenerClosed(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -659,24 +659,7 @@ func builtTools(t *testing.T, args []string, flags map[string]string) map[string
 	if err != nil {
 		t.Fatal(err)
 	}
-	ct, st := mcpsdk.NewInMemoryTransports()
-	if _, err := server.Connect(context.Background(), st, nil); err != nil {
-		t.Fatal(err)
-	}
-	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = session.Close() }()
-	res, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]bool{}
-	for _, tl := range res.Tools {
-		names[tl.Name] = true
-	}
-	return names
+	return toolSet(t, server)
 }
 
 // authoringServers are the fleet, bundle and default servers for one transport.
@@ -746,6 +729,15 @@ func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
 	dcmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = dcmd.Flags().Set("delivery", "true")
-	expect(t, remoteCallerFor(dcmd, app.NewService(nil, nil), "v", d, &s) == nil && s.remoteAuthoring,
+	expect(t, remoteCallerFor(dcmd, app.NewService(nil, nil), "v", nil, d, &s) == nil && s.remoteAuthoring,
 		"remote delivery must report schema-only authoring")
+}
+
+// mustNewMCP is pactomcp.New for modes that cannot fail to register.
+func mustNewMCP(version string, a pactomcp.Authoring, m pactomcp.Modes) *mcpsdk.Server {
+	s, err := pactomcp.New(version, a, m)
+	if err != nil {
+		panic(err)
+	}
+	return s
 }

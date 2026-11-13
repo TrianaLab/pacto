@@ -66,7 +66,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.\n\n" +
-			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
+			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
+			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
 
@@ -111,7 +112,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			// Delivery over HTTP always names its callers (or refuses); fleet
 			// does once callers sign in.
 			if s.transport == "http" && (deliveryMode || fleetMode && s.issuer != "") {
-				if err := remoteCallerFor(cmd, svc, version, d, &s); err != nil {
+				if err := remoteCallerFor(cmd, svc, version, args, d, &s); err != nil {
 					return err
 				}
 				return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
@@ -157,41 +158,57 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	return cmd
 }
 
-// buildMCPServer constructs the MCP server for the one mode the invocation
-// selected (RunE checked there is one): catalog discovery from explicit roots,
-// fleet queries, a bundle's capability tools, or the authoring tools when
-// nothing else is asked for.
+// buildMCPServer constructs the MCP server the invocation selected (RunE
+// checked the combination): the catalog from explicit roots, the publish
+// server, or the contract tools composed with any of fleet, delivery and a
+// bundle's operations.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (*mcpsdk.Server, error) {
 	roots, _ := cmd.Flags().GetStringArray("root")
-	fleetMode, _ := cmd.Flags().GetBool("fleet")
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	publishMode, _ := cmd.Flags().GetBool("publish")
-	catalogMode := cmd.Flags().Changed("root")
-
 	switch {
 	case publishMode:
 		return pactomcp.NewPublishServer(version, mcpPublish(svc, d), mcpAuthoring(cmd, svc)), nil
-	case deliveryMode:
-		return buildDeliveryServer(cmd, svc, version, d)
-	case catalogMode:
+	case cmd.Flags().Changed("root"):
 		cat, err := buildCatalog(cmd, svc, roots)
 		if err != nil {
 			return nil, err
 		}
 		return pactomcp.NewCatalogServer(version, cat), nil
-	case fleetMode:
-		return buildFleetServer(cmd, svc, version, d)
-	case len(args) > 0:
-		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(mcpAuthoring(cmd, svc), version), nil
+	m, err := mcpModes(cmd, svc, version, args, d)
+	if err == nil && deliveryMode {
+		m.Delivery, err = buildDeliveryMode(cmd, d)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return pactomcp.New(version, mcpAuthoring(cmd, svc), m)
 }
 
-// buildFleetServer exposes the fleet tools over a snapshot that rebuilds after
+// mcpModes builds the modes every request shares: the fleet over one
+// refreshing snapshot and the bundle's operations. Delivery is per caller.
+func mcpModes(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (pactomcp.Modes, error) {
+	transport, _ := cmd.Flags().GetString("transport")
+	fleetMode, _ := cmd.Flags().GetBool("fleet")
+	m := pactomcp.Modes{Transport: transport}
+	var err error
+	if fleetMode {
+		if m.Fleet, err = buildFleetMode(cmd, svc, d); err != nil {
+			return m, err
+		}
+	}
+	if len(args) > 0 {
+		m.Bundle, err = buildBundleMode(cmd, svc, version, args[0])
+	}
+	return m, err
+}
+
+// buildFleetMode serves the fleet tools over a snapshot that rebuilds after
 // the dashboard's refresh interval. The first build fails startup; later ones
 // run on the command's lifetime context, never a request's, so a cancelled call
 // cannot abort the build other sessions wait on.
-func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
+func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.FleetMode, error) {
 	fopts := fleetOptions(cmd)
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
@@ -204,11 +221,11 @@ func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d de
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
 	transport, _ := cmd.Flags().GetString("transport")
-	return pactomcp.NewFleetServer(version, src, mcpAuthoring(cmd, svc), pactomcp.FleetOptions{
+	return &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
-	}), nil
+	}}, nil
 }
 
 // mcpFleetSource builds the first snapshot (its error fails startup) and
@@ -250,37 +267,32 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 // errDashboardURLNeedsFleet: only the fleet tools answer with entities to link.
 var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only the fleet tools link answers to a dashboard")
 
-// checkMCPMode rejects an invocation that selects more than one server. The
-// modes expose disjoint surfaces, so honouring one and dropping the rest would
-// hand a client a server it did not ask for; saying so is the only safe answer.
+// checkMCPMode rejects --root or --publish beside any other mode: each
+// selects a server of its own, so honouring one and dropping the rest would
+// hand a client a server it did not ask for. A bundle reference, --fleet and
+// --delivery combine in one server.
 func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool) error {
 	var selected []string
-	if hasBundle {
-		selected = append(selected, "a bundle reference")
+	for _, m := range []struct {
+		on   bool
+		name string
+	}{{hasBundle, "a bundle reference"}, {hasRoots, "--root"}, {fleetMode, "--fleet"}, {deliveryMode, "--delivery"}, {publishMode, "--publish"}} {
+		if m.on {
+			selected = append(selected, m.name)
+		}
 	}
-	if hasRoots {
-		selected = append(selected, "--root")
-	}
-	if fleetMode {
-		selected = append(selected, "--fleet")
-	}
-	if deliveryMode {
-		selected = append(selected, "--delivery")
-	}
-	if publishMode {
-		selected = append(selected, "--publish")
-	}
-	if len(selected) > 1 {
-		return fmt.Errorf("%s cannot be combined: each selects a different MCP server, so pass only one",
+	if len(selected) > 1 && (hasRoots || publishMode) {
+		return fmt.Errorf("%s cannot be combined: --root and --publish each select an MCP server of their own, so pass them alone",
 			strings.Join(selected, ", "))
 	}
 	return nil
 }
 
-// buildDeliveryServer exposes the delivery tools. Write tools register only when
-// the apiserver says the caller is an agent: an agent must run under its own
-// identity, and a person's credentials get the read-only surface.
-func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
+// buildDeliveryMode serves the delivery tools for the kubeconfig's caller.
+// Write tools register only when the apiserver says the caller is an agent:
+// an agent must run under its own identity, and a person's credentials get
+// the read-only surface.
+func buildDeliveryMode(cmd *cobra.Command, d deps) (*pactomcp.DeliveryMode, error) {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return nil, err
@@ -289,7 +301,7 @@ func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d
 	if err != nil {
 		return nil, err
 	}
-	return pactomcp.NewDeliveryServer(version, mcpDelivery{c}, caller.Class == delivery.ClassAgent, mcpAuthoring(cmd, svc)), nil
+	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -391,8 +403,8 @@ func buildCatalog(cmd *cobra.Command, svc *app.Service, roots []string) (*catalo
 	})
 }
 
-// buildCapabilityServer exposes one bundle's OpenAPI operations and skills.
-func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref string) (*mcpsdk.Server, error) {
+// buildBundleMode serves one bundle's OpenAPI operations and skills.
+func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) (*pactomcp.BundleMode, error) {
 	bundle, err := svc.ResolveBundle(cmd.Context(), ref)
 	if err != nil {
 		return nil, err
@@ -404,14 +416,12 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 	}
 	baseURL, _ := cmd.Flags().GetString("base-url")
 	allowWrites, _ := cmd.Flags().GetBool("allow-writes")
-	opts := pactomcp.CapabilityOptions{
+	return &pactomcp.BundleMode{Bundle: bundle, Stderr: cmd.ErrOrStderr(), Opts: pactomcp.CapabilityOptions{
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
-		Authoring:   mcpAuthoring(cmd, svc),
 		Version:     version,
-	}
-	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
+	}}, nil
 }
 
 // mcpImpactProvider builds the impact provider for pacto_impact. It analyses
