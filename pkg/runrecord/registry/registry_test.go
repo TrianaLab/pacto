@@ -93,6 +93,31 @@ func fetchRecord(t *testing.T, repo *remote.Repository, desc ocispec.Descriptor)
 	return got
 }
 
+func TestPublishTagFallback(t *testing.T) {
+	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}))
+	t.Cleanup(srv.Close)
+	path := strings.TrimPrefix(srv.URL, "http://") + "/acme/pacto-stats"
+	repo, _ := Open(path, nil, nil)
+	ctx := t.Context()
+	desc, err := Publish(ctx, repo, record())
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := Anchor("payments").ManifestDesc
+	tagged, err := repo.Resolve(ctx, "sha256-"+anchor.Digest.Encoded())
+	if err != nil || tagged.MediaType != ocispec.MediaTypeImageIndex {
+		t.Fatalf("referrers tag = %+v %v", tagged, err)
+	}
+	fresh, _ := Open(path, nil, nil)
+	var listed []ocispec.Descriptor
+	if err := fresh.Referrers(ctx, anchor, "", func(p []ocispec.Descriptor) error { listed = append(listed, p...); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Digest != desc.Digest {
+		t.Fatalf("referrers = %+v", listed)
+	}
+}
+
 func TestPublishIdempotent(t *testing.T) {
 	repo, _ := Open(serve(t, nil), nil, nil)
 	ctx := t.Context()

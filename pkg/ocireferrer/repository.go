@@ -34,12 +34,18 @@ type Options struct {
 	// PageSize sets the Referrers page size. Zero leaves the registry's default;
 	// a small value is how tests exercise multi-page enumeration.
 	PageSize int
+	// AllowTagFallback leaves the Referrers capability for oras-go to detect,
+	// so a registry without the native API indexes referrers under the OCI
+	// referrers tag. Only run records (pkg/runrecord/registry) set it:
+	// statistics may share a mutable index; evidence must not.
+	AllowTagFallback bool
 }
 
-// Open opens the ORAS repository at path ("<registry>/<repository>"). Its
-// referrers capability is asserted up front, which is what forbids oras-go's
-// legacy referrers-tag fallback: a registry without the native OCI 1.1 endpoint
-// surfaces an error instead of silently reading or writing a mutable tag.
+// Open opens the ORAS repository at path ("<registry>/<repository>"). Unless
+// [Options.AllowTagFallback] is set, its referrers capability is asserted up
+// front, which is what forbids oras-go's legacy referrers-tag fallback: a
+// registry without the native OCI 1.1 endpoint surfaces an error instead of
+// silently reading or writing a mutable tag.
 func Open(path string, opts Options) (*remote.Repository, error) {
 	repo, err := remote.NewRepository(path)
 	if err != nil {
@@ -56,7 +62,9 @@ func Open(path string, opts Options) (*remote.Repository, error) {
 	}
 	// Never false: an unsupported endpoint must fail, not fall back. The only
 	// error is "already set", which a repository built one line ago cannot be.
-	_ = repo.SetReferrersCapability(true)
+	if !opts.AllowTagFallback {
+		_ = repo.SetReferrersCapability(true)
+	}
 	return repo, nil
 }
 

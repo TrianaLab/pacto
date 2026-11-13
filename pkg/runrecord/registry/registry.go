@@ -18,9 +18,12 @@ import (
 )
 
 // Open opens the stats repository at path ("<registry>/<repository>") with
-// the shared keychain and insecure-host list.
+// the shared keychain and insecure-host list. A registry without the native
+// Referrers API (GHCR, released distribution) indexes records under the OCI
+// referrers tag instead: two concurrent records of one service there can drop
+// one, which statistics tolerate and evidence would not.
 func Open(path string, kc authn.Keychain, insecure []string) (*remote.Repository, error) {
-	return ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure})
+	return ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure, AllowTagFallback: true})
 }
 
 // Anchor is the anchor every record of service is attached to.

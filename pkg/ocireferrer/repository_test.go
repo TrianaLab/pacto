@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote/auth"
+
+	"github.com/trianalab/pacto/v4/internal/testutil"
 )
 
 func TestPlainHTTP(t *testing.T) {
@@ -35,6 +38,28 @@ func TestPlainHTTP(t *testing.T) {
 func TestOpen_RejectsUnparseablePath(t *testing.T) {
 	if _, err := Open("not a host/team/orders", Options{}); err == nil {
 		t.Fatal("opening a repository on an unparseable host succeeded")
+	}
+}
+
+// The default posture (no fallback) is pinned by TestNoTagFallback.
+func TestOpenAllowsFallbackWhenAsked(t *testing.T) {
+	_, path := open(t, testutil.ReferrersOptions{Unsupported: true})
+	repo, _ := Open(path, Options{AllowTagFallback: true})
+	ctx := t.Context()
+	anchor := Build("application/x-anchor", "application/x-layer", []byte("a"), nil, nil)
+	rec := Build("application/x-rec", "application/x-layer", []byte("r"), &anchor.ManifestDesc, nil)
+	for _, art := range []Artifact{anchor, rec} {
+		if err := Push(ctx, repo, art); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fresh, _ := Open(path, Options{AllowTagFallback: true})
+	var listed []ocispec.Descriptor
+	if err := fresh.Referrers(ctx, anchor.ManifestDesc, "", func(p []ocispec.Descriptor) error { listed = append(listed, p...); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Digest != rec.ManifestDesc.Digest {
+		t.Fatalf("referrers through the tag fallback = %+v", listed)
 	}
 }
 
