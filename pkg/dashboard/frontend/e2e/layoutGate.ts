@@ -981,6 +981,7 @@ export const ROUTES: Route[] = [
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
+  { name: 'offering entity unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },

@@ -180,6 +180,14 @@ describe('useDetailModel (A6, G2)', () => {
     expect(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod' }, 'at 1').key)).toBe(sessionKey(useDetailModel({ phase: 'Ready', environment: 'prod', asOf: 'later' }, 'at 2').key));
     expect(useDetailModel({ phase: 'Ready', environment: 'prod', entry: 'db', verified: false }, 'x').summary).toContain('not signed');
   });
+  it('never draws an unsigned Ready as positive', () => {
+    const m = useDetailModel({ phase: 'Ready', verified: false }, 'at 1');
+    expect(m.stations[2]).toMatchObject({ tone: 'info', glyph: 'none' });
+    expect(m.steps[0].cap).toBe('Ready (unsigned): reported at 1.');
+    expect(m.summary).toContain('The report is not signed.');
+    expect(useDetailModel({ phase: 'Ready', verified: true }, 'at 1').stations[2]).toMatchObject({ tone: 'ok', glyph: 'ok' });
+    expect(useDetailModel({ phase: 'Failed', verified: false }, 'at 1').steps[0].cap).toBe('Failed: reported at 1.');
+  });
 });
 
 describe('evidenceModel (G3)', () => {

@@ -139,7 +139,10 @@
 {/if}
 
 <style>
-  .ps-clipped { max-height: 22rem; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+  /* position: relative makes the clip the containing block of its absolutely positioned
+     descendants (the visually-hidden badge descriptions), so they are clipped with the rest
+     instead of stretching the page past its foot. */
+  .ps-clipped { position: relative; max-height: 22rem; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
   .ps-all { margin-top: var(--sp-2); }
   .ps { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   /* Tone is a left edge, not a fill: a section that needs attention has to be findable

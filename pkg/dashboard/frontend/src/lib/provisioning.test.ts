@@ -8,12 +8,18 @@ describe('phaseTone', () => {
   it.each([
     ['Ready', 'ok'], ['Failed', 'err'], ['Requested', 'info'], ['Provisioning', 'info'], ['Deleting', 'info'], ['Unknown', 'neutral'], [undefined, 'neutral'],
   ])('%s is %s', (phase, tone) => expect(phaseTone(phase)).toBe(tone));
+  it.each([
+    ['Ready', true, 'ok'], ['Ready', false, 'info'], ['Failed', false, 'err'], ['Provisioning', false, 'info'], ['Unknown', false, 'neutral'],
+  ])('%s verified=%s is %s: only a signed Ready reads positive', (phase, verified, tone) => expect(phaseTone(phase, verified)).toBe(tone));
 });
 
 describe('phaseGlyph', () => {
   it.each([
     ['Ready', 'ok'], ['Failed', 'err'], ['Requested', 'progress'], ['Provisioning', 'progress'], ['Deleting', 'none'], ['Unknown', 'unknown'], [undefined, 'unknown'],
   ])('%s is %s', (phase, glyph) => expect(phaseGlyph(phase)).toBe(glyph));
+  it.each([
+    ['Ready', true, 'ok'], ['Ready', false, 'none'], ['Failed', false, 'err'], ['Provisioning', false, 'progress'], ['Unknown', false, 'unknown'],
+  ])('%s verified=%s is %s: an unsigned Ready never draws the check', (phase, verified, glyph) => expect(phaseGlyph(phase, verified)).toBe(glyph));
 });
 
 describe('phaseBadgeLabel', () => {
@@ -22,6 +28,18 @@ describe('phaseBadgeLabel', () => {
     expect(phaseBadgeLabel(st({ phase: 'Failed', environment: 'production', entry: 'primary' }))).toBe('production primary: Failed');
     expect(phaseBadgeLabel(st({ entry: 'replica' }))).toBe('replica: Unknown');
     expect(phaseBadgeLabel(st({}))).toBe('Unknown');
+  });
+  // The CLI rule (provisioningText): " (unsigned)" follows exactly when a status has a
+  // source and is not verified, whatever its phase.
+  it.each([
+    ['Ready', 'targetstate', false, 'production: Ready (unsigned)'],
+    ['Failed', 'targetstate', false, 'production: Failed (unsigned)'],
+    ['Unknown', 'targetstate', false, 'production: Unknown (unsigned)'],
+    ['Ready', 'evidence', true, 'production: Ready'],
+    ['Unknown', undefined, false, 'production: Unknown'],
+    ['Ready', '', false, 'production: Ready'],
+  ])('%s from source %s verified=%s reads %s', (phase, source, verified, label) => {
+    expect(phaseBadgeLabel(st({ phase: phase as ProvisioningStatus['phase'], source, verified, environment: 'production' }))).toBe(label);
   });
 });
 
@@ -47,13 +65,13 @@ describe('phaseLabel', () => {
 });
 
 describe('provisioningTitle', () => {
-  it('carries the provider, externalRef, source kind, time and consumer revision', () => {
+  it('carries the adapter, externalRef, source kind, time and consumer revision', () => {
     const t = provisioningTitle(st({
       phase: 'Ready', verified: true, producer: 'p', source: 's', asOf: '2026-11-06T10:00:00Z', provider: 'postgresql',
       externalRef: 'db-orders-prod', sourceKind: 'evidence-http', revision: { kind: 'revision', key: 'k', label: 'orders 1.3.0', href: '' },
     }), NOW).split('\n');
     expect(t[0]).toBe('Ready (reported by p through s, 2 hours ago)');
-    expect(t.slice(1, 4)).toEqual(['Provider: postgresql', 'External reference: db-orders-prod', 'Source: evidence-http']);
+    expect(t.slice(1, 4)).toEqual(['Adapter: postgresql', 'External reference: db-orders-prod', 'Source: evidence-http']);
     expect(t[4]).toMatch(/^As of: /);
     expect(t[5]).toBe('Consumer revision: orders 1.3.0');
     expect(provisioningTitle(st({}))).toBe('Unknown: no provider has reported');
