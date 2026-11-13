@@ -261,12 +261,26 @@ keys:
     allowedSubjects: [payments-*]                  # path.Match globs; empty = any
     allowedContractRepos: [registry.example.com/acme/contracts]  # prefixes; empty = any
     allowedObservationKinds: [ResourceProvisioned]  # empty = every kind except ResourceProvisioned
+    allowedProviderRepos: [ghcr.io/acme/platform/postgresql]  # prefixes of provider repositories; empty = any provider
 ```
 
 An empty `allowedObservationKinds` withholds `ResourceProvisioned`, so a
 team's runtime key cannot mark its own resources Ready. Give a provider adapter
 its own key that lists it. A key that lists only `ResourceProvisioned` cannot
 send an empty EvidenceSet.
+
+`allowedProviderRepos` scopes a provisioning key to the providers it serves:
+the Evidence Server accepts its report only when the consumer's declared
+configuration or dependency ref names a repository under one of the prefixes,
+and refuses any other with HTTP 403 and the code `provider_not_allowed`. A
+scope requires `ResourceProvisioned` in `allowedObservationKinds`. The server
+logs a warning at startup for every key that may report provisioning for every
+provider. The field needs Pacto core 4.5.0 or later. `pacto evidence verify`
+holds no consumer contract, so it checks the signature, producer, subject and
+kind only. The scope applies to reports accepted after the change: reports
+already accepted stay until a newer report replaces them or they pass the
+provisioning window, so after narrowing a key have the right adapter report
+again.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 
