@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -246,8 +247,8 @@ func mcpRemote(cmd *cobra.Command, d deps, s *mcpServe) error {
 
 // remoteCallerFor wires a per-request server for an authenticated HTTP fleet
 // or delivery server: each request is named by the apiserver, so without
-// token exchange there is none. Fleet and the bundle are built once and
-// shared; delivery is built for each request's caller.
+// token exchange there is none. Without delivery one server answers every
+// request; with it, delivery is built for each request's caller.
 func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps, s *mcpServe) error {
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	switch {
@@ -276,27 +277,42 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	m.Transport = "http"
 	a := pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true}
 	// The modes register the same way on every request, so a bundle that
-	// cannot register fails here, at startup.
-	if _, err := pactomcp.New(version, a, m); err != nil {
+	// cannot register fails here, at startup, and reports what it skipped once.
+	shared, err := pactomcp.New(version, a, m)
+	if err != nil {
 		return err
 	}
-	var reads func(*app.Delivery, string) pactomcp.DeliveryReads
+	// Nothing else is per caller: the fleet view and the audit line read the
+	// caller from the request's context.
+	rc.build = func(context.Context) *mcpsdk.Server { return shared }
 	if rc.delivery != nil {
 		policy := rc.delivery(nil) // only its trust and policy namespace are read
-		reads = mcpDeliveryReads(baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace), m.Fleet, fleetNamespace(cmd))
+		reads := mcpDeliveryReads(baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace), m.Fleet, fleetNamespace(cmd))
+		rc.build = perCallerBuild(version, a, m, reads)
 	}
-	rc.build = func(ctx context.Context) *mcpsdk.Server {
+	s.perRequest = rc.middleware
+	s.remoteAuthoring = true
+	return nil
+}
+
+// perCallerBuild builds each request's server with its caller's delivery
+// tools. The bundle's notices went out once at startup, so the per-request
+// builds discard them.
+func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, reads func(*app.Delivery, string) pactomcp.DeliveryReads) func(context.Context) *mcpsdk.Server {
+	if m.Bundle != nil {
+		quiet := *m.Bundle
+		quiet.Stderr = io.Discard
+		m.Bundle = &quiet
+	}
+	return func(ctx context.Context) *mcpsdk.Server {
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
 			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller,
 				Reads: reads(who.delivery, remoteCallerKey(who.person))}
 		}
-		srv, _ := pactomcp.New(version, a, mm) // registered once at startup above
+		srv, _ := pactomcp.New(version, a, mm) // registered once at startup
 		return srv
 	}
-	s.perRequest = rc.middleware
-	s.remoteAuthoring = true
-	return nil
 }
 
 // remoteDelivery builds each caller's delivery client over their exchanged

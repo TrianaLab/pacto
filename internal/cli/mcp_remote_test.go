@@ -520,3 +520,33 @@ func TestRemoteComposedPerCaller(t *testing.T) {
 	expect(t, !strings.Contains(tools, "pacto_delivery_operation_propose") && strings.Contains(tools, "pacto_delivery_get"), "a person's tools: %s", tools)
 	expect(t, !strings.Contains(entities, `\"orders\"`) && slices.Contains(asked, user), "carol's own view: %s %v", entities, asked)
 }
+
+// TestRemoteBundleNoticesOnceAtStartup: a remote server reports what its
+// bundle skipped once, at startup, never again on each request, with or
+// without per-caller delivery.
+func TestRemoteBundleNoticesOnceAtStartup(t *testing.T) {
+	for _, delivery := range []string{"false", "true"} {
+		user := "https://idp#carol"
+		d := deliveryDeps(user, nil)
+		d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
+		d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return deliveryDeps(user, nil).newDynamic() }
+		bundle := writeCapabilityBundle(t)
+		spec := `{"paths":{"/ping":{"get":{"operationId":"ping"},"post":{"operationId":"poke"}}}}`
+		expect(t, os.WriteFile(filepath.Join(bundle, "interfaces", "openapi.json"), []byte(spec), 0o644) == nil, "spec")
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+		cmd.SetContext(context.Background())
+		var stderr bytes.Buffer
+		cmd.SetErr(&stderr)
+		for k, v := range map[string]string{"fleet": "true", "delivery": delivery, "local": t.TempDir(), "transport": "http",
+			"auth-issuer": "https://idp", "base-url": "http://svc.example"} {
+			expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+		}
+		s := mcpServe{auth: &fakeMCPAuth{exchange: true}, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+		expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", []string{bundle}, d, &s) == nil, "delivery=%s: remote server", delivery)
+		h := mcpHandler(s)
+		for range 3 {
+			expect(t, post(t, h, "good", listTools).Code == http.StatusOK, "delivery=%s: tools/list", delivery)
+		}
+		expect(t, strings.Count(stderr.String(), "skipped 1 mutating operation(s)") == 1, "delivery=%s: one notice: %q", delivery, stderr.String())
+	}
+}
