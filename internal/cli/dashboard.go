@@ -24,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -169,7 +170,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
 				Published:  managerPublished(mgr),
-				Impact:     impactProviderForFleet(svc),
+				Impact:     impactProviderForFleet(svc, identity.auth.Local()),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
@@ -425,13 +426,41 @@ func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
 // snapshotId matches the Operational Graph the user is looking at and leaves
 // out what their permissions hide. The snapshot keeps its query indexes, which
 // impact traverses and a serialization clone would not.
-func impactProviderForFleet(svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+//
+// A shared or open dashboard (not trusted) resolves no local dir and no ref a
+// caller names: each ref must name a revision in the caller's view, and the
+// revision's pinned ResolvedRef is what gets read.
+func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		if !trusted {
+			var err error
+			if oldRef, newRef, err = pinSharedImpactRefs(snap, oldRef, newRef); err != nil {
+				return nil, err
+			}
+		}
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,
 		}, snap)
 	}
+}
+
+// pinSharedImpactRefs refuses a local ref, then pins each ref with
+// pinVisibleRef. A refusal is an *oci.InvalidRefError, so the route answers 422.
+func pinSharedImpactRefs(snap *fleet.FleetSnapshot, oldRef, newRef string) (string, string, error) {
+	refs := [2]string{oldRef, newRef}
+	for i, name := range [2]string{"old", "new"} {
+		ref := refs[i]
+		if graph.ParseDependencyRef(ref).IsLocal() {
+			return "", "", &oci.InvalidRefError{Ref: ref, Err: errors.New("this dashboard is shared: pass oci:// references")}
+		}
+		pinned, err := pinVisibleRef(snap, ref)
+		if err != nil {
+			return "", "", &oci.InvalidRefError{Ref: ref, Err: fmt.Errorf("%s %w", name, err)}
+		}
+		refs[i] = pinned
+	}
+	return refs[0], refs[1], nil
 }
 
 // observationSources resolves the dashboard's two ways of naming offline trace

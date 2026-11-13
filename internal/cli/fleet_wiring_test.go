@@ -139,7 +139,7 @@ func TestImpactProviderForFleet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provide := impactProviderForFleet(svc)
+	provide := impactProviderForFleet(svc, true)
 
 	if _, err := provide(context.Background(), snap, "/nonexistent/old", "/nonexistent/new", false); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")

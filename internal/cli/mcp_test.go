@@ -18,6 +18,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -511,6 +513,104 @@ func TestMCPImpactSignedInRefusesLocalRefs(t *testing.T) {
 		if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, req); err == nil || !strings.Contains(err.Error(), "pass oci:// references") {
 			t.Errorf("%+v: %v", req, err)
 		}
+	}
+}
+
+// viewSnapshot is a caller's view: orders is visible with a digest-pinned
+// ResolvedRef, and a local-source revision has a path for its ResolvedRef.
+func viewSnapshot() *fleet.FleetSnapshot {
+	return &fleet.FleetSnapshot{
+		GeneratedAt: time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC),
+		Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{
+			"orders@sha256:aaa": {Service: "orders", RequestedRef: "oci://reg.example/orders:1", ResolvedRef: "oci://reg.example/orders@sha256:aaa", Digest: "sha256:aaa"},
+			"orders@sha256:bbb": {Service: "orders", RequestedRef: "oci://reg.example/orders:2", ResolvedRef: "oci://reg.example/orders@sha256:bbb", Digest: "sha256:bbb"},
+			"local@sha256:ccc":  {Service: "local", RequestedRef: "oci://reg.example/local:1", ResolvedRef: "/srv/local", Digest: "sha256:ccc"},
+		},
+	}
+}
+
+// pullRecorder is a service whose registry records every ref it is asked for
+// and serves none, so an impact call stops right after resolution starts.
+func pullRecorder() (*app.Service, *[]string) {
+	var pulled []string
+	store := &testutil.MockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+		pulled = append(pulled, ref)
+		return nil, errors.New("not served")
+	}}
+	return app.NewService(store, nil), &pulled
+}
+
+// httpImpact is the provider of an HTTP server whose callers sign in, over svc.
+func httpImpact(svc *app.Service, trusted bool) func(context.Context, *fleet.FleetSnapshot, pactomcp.ImpactRequest) (*impact.Result, error) {
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	return mcpImpactProvider(cmd, svc, defaultDeps(), false, trusted)
+}
+
+const outsideView = "is not a revision in your fleet view (asOf 2026-11-13T10:00:00Z); over HTTP, name a revision you can see, or run pacto impact locally"
+
+func TestMCPImpactHTTPRefusesRefOutsideView(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders:1", NewRef: "oci://reg.example/ledger:2"})
+	if err == nil || err.Error() != "new_ref "+outsideView {
+		t.Fatalf("hidden ref: %v", err)
+	}
+	if len(*pulled) != 0 {
+		t.Fatalf("a refused request resolved %v", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPAcceptsVisibleRevisionRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:aaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaa") {
+		t.Fatalf("resolved %v, want the visible revision's ResolvedRef", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPAcceptsDigestRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	if _, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:bbb", NewRef: "oci://reg.example/orders@sha256:aaa"}); err == nil || strings.Contains(err.Error(), "fleet view") {
+		t.Fatalf("digest refs: %v", err)
+	}
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "orders@sha256:bbb") {
+		t.Fatalf("resolved %v", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPDigestOnForeignHostResolvesPinnedRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://attacker.example/x@sha256:aaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || strings.Contains((*pulled)[0], "attacker.example") || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaa") {
+		t.Fatalf("resolved %v, want only the visible revision's own registry", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPRefusesLocalSourceRevision(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/local:1", NewRef: "oci://reg.example/orders:2"})
+	if err == nil || err.Error() != "old_ref "+outsideView || len(*pulled) != 0 {
+		t.Fatalf("local-source revision: %v (resolved %v)", err, *pulled)
+	}
+}
+
+// TestMCPImpactHTTPNoAuthRefusesUnknownRef: a loopback HTTP server without
+// --auth-issuer adds a missing revision, so a ref no source holds is refused
+// before anything is added.
+func TestMCPImpactHTTPNoAuthRefusesUnknownRef(t *testing.T) {
+	s := mcpImpactSession(t, map[string]string{"transport": "http"})
+	if text, failed := callImpact(t, s, map[string]any{"old_ref": "oci://x/a:1", "new_ref": "oci://x/a:2"}); !failed || !strings.Contains(text, "old_ref is not a revision in your fleet view") {
+		t.Fatalf("unknown ref over HTTP:\n%s", text)
+	}
+}
+
+// TestMCPImpactStdioRefsUnchanged: a stdio server resolves the caller's refs
+// as given, in the view or not.
+func TestMCPImpactStdioRefsUnchanged(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, true)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://other.example/x:1", NewRef: "oci://other.example/x:2"})
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "other.example/x:1") {
+		t.Fatalf("stdio resolved %v, want the caller's ref", *pulled)
 	}
 }
 

@@ -420,7 +420,8 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 	fopts := fleetOptions(cmd)
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
-		if err := refuseUntrustedImpact(req, trusted); err != nil {
+		req, err := refuseUntrustedImpact(req, trusted, snap)
+		if err != nil {
 			return nil, err
 		}
 		var traces []byte
@@ -443,18 +444,24 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 	}
 }
 
-// refuseUntrustedImpact keeps an HTTP caller from naming a file path or a
-// local ref: the server would read them with its own access.
-func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool) error {
+// refuseUntrustedImpact keeps an HTTP caller from naming a file path, a
+// local ref or a revision outside their fleet view: the server would read
+// them with its own access. Over HTTP the returned request carries each
+// revision's pinned ResolvedRef in place of the caller's string.
+func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool, snap *fleet.FleetSnapshot) (pactomcp.ImpactRequest, error) {
 	switch {
 	case trusted:
-		return nil
+		return req, nil
 	case req.TracesPath != "":
-		return errors.New("this server answers over HTTP: it reads no file path a caller names")
-	case req.Event == nil && (graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal()):
-		return errors.New("this server answers over HTTP: pass oci:// references")
+		return req, errors.New("this server answers over HTTP: it reads no file path a caller names")
+	case req.Event != nil:
+		return req, nil
+	case graph.ParseDependencyRef(req.OldRef).IsLocal() || graph.ParseDependencyRef(req.NewRef).IsLocal():
+		return req, errors.New("this server answers over HTTP: pass oci:// references")
 	}
-	return nil
+	var err error
+	req.OldRef, req.NewRef, err = pinVisibleRefs(snap, req.OldRef, req.NewRef, "old_ref", "new_ref")
+	return req, err
 }
 
 // mcpRegression reads delivery about a regressed revision for a trusted
