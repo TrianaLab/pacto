@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -538,21 +539,96 @@ func TestNormalizeDraft4Bounds(t *testing.T) {
 	}
 }
 
-// TestReservedToolNames_CoversEveryPactoTool keeps the reserved set honest: it is
-// read back from a fully-loaded server, so a tool added to Pacto without being
-// reserved becomes shadowable and this test says so.
-func TestReservedToolNames_CoversEveryPactoTool(t *testing.T) {
+// shadowSpec declares operations named like Pacto tools, one of which no Pacto
+// tool uses yet, beside one ordinary operation.
+const shadowSpec = `{"openapi":"3.1.0","paths":{
+  "/a":{"get":{"operationId":"pacto_delivery_get"}},
+  "/b":{"get":{"operationId":"pacto_publish"}},
+  "/c":{"get":{"operationId":"pacto_future_tool"}},
+  "/d":{"get":{"operationId":"lookup"}},
+  "/e":{"post":{"operationId":"createRefund"}}}}`
+
+func shadowBundle() *contract.Bundle {
+	return capBundle(fstest.MapFS{"shadow.json": &fstest.MapFile{Data: []byte(shadowSpec)}}, httpIface("shadow", "shadow.json"))
+}
+
+// TestPactoPrefixReservedOnEveryServer builds every server variant twice, once
+// bare and once with a bundle that declares pacto_ names: with the bundle, a
+// pacto_ tool is one the bare variant registers and every other tool is a
+// generated operation of the fixture.
+func TestPactoPrefixReservedOnEveryServer(t *testing.T) {
 	cat, _ := platformCatalog(t)
-	server := NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
-	registerCatalogSurface(server, cat)
-	bundle := capBundle(fstest.MapFS{"openapi.json": &fstest.MapFile{Data: []byte(capSpec)}},
-		httpIface("api", "openapi.json"))
-	if err := RegisterCapabilities(server, bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard); err != nil {
+	variants := map[string]func() *mcpsdk.Server{
+		"authoring": func() *mcpsdk.Server { return NewServer(Authoring{}, "test") },
+		"fleet": func() *mcpsdk.Server {
+			return NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
+		},
+		"catalog":         func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
+		"delivery-read":   func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, false, Authoring{}) },
+		"delivery-writes": func() *mcpsdk.Server { return NewDeliveryServer("test", &stubDelivery{}, true, Authoring{}) },
+		"publish":         func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
+	}
+	generated := map[string]bool{"createRefund": true, "lookup": true}
+	opts := CapabilityOptions{BaseURL: "http://x", AllowWrites: true}
+	for name, build := range variants {
+		t.Run(name, func(t *testing.T) {
+			pacto := toolNames(t, catalogSession(t, build()))
+			server := build()
+			if err := RegisterCapabilities(server, shadowBundle(), opts, io.Discard); err != nil {
+				t.Fatalf("RegisterCapabilities: %v", err)
+			}
+			assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
+		})
+	}
+	t.Run("capability", func(t *testing.T) {
+		pacto := toolNames(t, catalogSession(t, NewServer(Authoring{}, "test")))
+		server, err := NewCapabilityServer(shadowBundle(), opts, "test", io.Discard)
+		if err != nil {
+			t.Fatalf("NewCapabilityServer: %v", err)
+		}
+		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
+	})
+}
+
+func assertOnlyPactoOrGenerated(t *testing.T, got, pacto, generated map[string]bool) {
+	t.Helper()
+	for name := range got {
+		if strings.HasPrefix(name, "pacto_") && !pacto[name] && name != "pacto_skill" {
+			t.Errorf("tool %q starts with pacto_ but Pacto did not register it: bundle content took the name", name)
+		}
+		if !strings.HasPrefix(name, "pacto_") && !generated[name] {
+			t.Errorf("tool %q is neither a Pacto tool nor a fixture operation", name)
+		}
+	}
+	for name := range generated {
+		if !got[name] {
+			t.Errorf("fixture operation %q was not registered", name)
+		}
+	}
+}
+
+// TestBundleCannotShadowDeliveryTool: a delivery tool name, a Pacto tool of
+// another server and a name no Pacto tool uses yet are all skipped, each with
+// one stderr line.
+func TestBundleCannotShadowDeliveryTool(t *testing.T) {
+	server := NewDeliveryServer("test", &stubDelivery{}, false, Authoring{})
+	before := toolNames(t, catalogSession(t, NewDeliveryServer("test", &stubDelivery{}, false, Authoring{})))
+	bundle := shadowBundle()
+	var stderr strings.Builder
+	if err := RegisterCapabilities(server, bundle, CapabilityOptions{BaseURL: "http://x"}, &stderr); err != nil {
 		t.Fatalf("RegisterCapabilities: %v", err)
 	}
-	for name := range toolNames(t, catalogSession(t, server)) {
-		if strings.HasPrefix(name, "pacto_") && !reservedToolNames[name] {
-			t.Errorf("tool %q is registered by Pacto but not reserved: bundle content can shadow it", name)
+	got := toolNames(t, catalogSession(t, server))
+	for _, name := range []string{"pacto_delivery_get", "pacto_publish", "pacto_future_tool"} {
+		if got[name] && !before[name] {
+			t.Errorf("bundle operation %q was registered", name)
 		}
+		line := fmt.Sprintf("pacto mcp: skipped operation %q in interface \"shadow\" (names starting with pacto_ belong to Pacto)\n", name)
+		if n := strings.Count(stderr.String(), line); n != 1 {
+			t.Errorf("want one skip line for %q, got %d in %q", name, n, stderr.String())
+		}
+	}
+	if !got["lookup"] {
+		t.Error("the ordinary operation was not registered")
 	}
 }

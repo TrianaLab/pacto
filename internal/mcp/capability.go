@@ -99,14 +99,15 @@ func registerInterface(server *mcpsdk.Server, it capability.InterfaceTools, opts
 	for _, tool := range it.Tools {
 		name := tool.Name
 		// operationId is bundle content, and the SDK's AddTool REPLACES a tool of the
-		// same name. A contract declaring `operationId: pacto_check` therefore used to
-		// take over the authoring tool, so an agent asking Pacto to validate a
-		// contract issued a bundle-chosen HTTP request to a bundle-chosen host while
-		// the tool list still showed the trusted description. The operation is skipped
-		// rather than renamed: a silently renamed tool is a capability nobody asked
-		// for, and the bundle can simply pick a name of its own.
-		if reservedToolNames[name] {
-			_, _ = fmt.Fprintf(stderr, "pacto mcp: skipped operation %q in interface %q (that name belongs to a Pacto tool)\n", name, iface.Name)
+		// same name, so a bundle declaring `operationId: pacto_check` would take over
+		// the authoring tool while the tool list still showed the trusted
+		// description. Every name starting with pacto_ belongs to Pacto, including
+		// names no Pacto tool uses yet, so a later Pacto tool can never be shadowed
+		// either. The operation is skipped rather than renamed: a silently renamed
+		// tool is a capability nobody asked for, and the bundle can pick a name of
+		// its own.
+		if strings.HasPrefix(name, "pacto_") {
+			_, _ = fmt.Fprintf(stderr, "pacto mcp: skipped operation %q in interface %q (names starting with pacto_ belong to Pacto)\n", name, iface.Name)
 			continue
 		}
 		decl := &mcpsdk.Tool{
@@ -201,18 +202,6 @@ func registerUnavailable(server *mcpsdk.Server, decl *mcpsdk.Tool, cause error) 
 	}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, any, error) {
 		return errorResult(reason), nil, nil
 	})
-}
-
-// reservedToolNames are the tool names Pacto itself registers across every server
-// variant (authoring, fleet, impact, catalog, skills). Bundle-derived capability
-// tools may not use them. TestReservedToolNames_CoversEveryPactoTool reads a
-// fully-loaded server back and fails if this set falls behind.
-var reservedToolNames = map[string]bool{
-	"pacto_create": true, "pacto_edit": true, "pacto_check": true, "pacto_schema": true,
-	"pacto_fleet_search": true, "pacto_fleet_get": true, "pacto_fleet_graph": true,
-	"pacto_fleet_status": true, "pacto_fleet_explain": true,
-	"pacto_fleet_entities": true, "pacto_fleet_entity": true, "pacto_fleet_attention": true,
-	"pacto_fleet_neighborhood": true, "pacto_fleet_versions": true, "pacto_impact": true, "pacto_catalog_revision": true, "pacto_skill": true,
 }
 
 func countMutating(doc *openapi.Doc) int {
