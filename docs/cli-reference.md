@@ -1965,7 +1965,7 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ## `pacto stats`
 
-Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is unknown, never 0. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
+Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is marked unknown. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
 
 ```
 pacto stats [flags]

@@ -27,7 +27,7 @@ var statsKinds = []string{runrecord.KindDiff, runrecord.KindImpact, runrecord.Ki
 // string share it.
 func statsQuery(since, until, by, service string, kinds []string, now time.Time) (stats.Query, error) {
 	if by != "" && !slices.Contains(stats.GroupBy, by) {
-		return stats.Query{}, fmt.Errorf("unsupported --by %q: give one of %s", by, strings.Join(stats.GroupBy, ", "))
+		return stats.Query{}, fmt.Errorf("unsupported by %q: give one of %s", by, strings.Join(stats.GroupBy, ", "))
 	}
 	var ks []string
 	for _, v := range kinds {
@@ -36,7 +36,7 @@ func statsQuery(since, until, by, service string, kinds []string, now time.Time)
 				continue
 			}
 			if !slices.Contains(statsKinds, k) {
-				return stats.Query{}, fmt.Errorf("unsupported --kind %q: give one of %s", k, strings.Join(statsKinds, ", "))
+				return stats.Query{}, fmt.Errorf("unsupported kind %q: give one of %s", k, strings.Join(statsKinds, ", "))
 			}
 			ks = append(ks, k)
 		}

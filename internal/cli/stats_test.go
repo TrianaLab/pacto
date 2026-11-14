@@ -209,7 +209,7 @@ func TestStatsCommandBuildsFleetOnlyForOwnerOrDomain(t *testing.T) {
 func TestStatsCommandRejectsBadBy(t *testing.T) {
 	path := statsRegistry(t)
 	_, _, err := statsCmd(t, "--registry", path, "--by", "team")
-	if err == nil || err.Error() != `unsupported --by "team": give one of service, owner, domain, repository, environment` {
+	if err == nil || err.Error() != `unsupported by "team": give one of service, owner, domain, repository, environment` {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -217,7 +217,7 @@ func TestStatsCommandRejectsBadBy(t *testing.T) {
 func TestStatsCommandRejectsBadKind(t *testing.T) {
 	path := statsRegistry(t)
 	_, _, err := statsCmd(t, "--registry", path, "--kind", "impact, ,coverage")
-	if err == nil || err.Error() != `unsupported --kind "coverage": give one of diff, impact, publish, operation` {
+	if err == nil || err.Error() != `unsupported kind "coverage": give one of diff, impact, publish, operation` {
 		t.Fatalf("err = %v", err)
 	}
 }
