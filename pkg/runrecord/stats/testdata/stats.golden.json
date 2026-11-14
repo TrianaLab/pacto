@@ -1,0 +1,44 @@
+{
+  "asOf": "2026-11-14T12:00:00Z",
+  "window": {
+    "since": "2026-10-15T12:00:00Z",
+    "until": "2026-11-14T12:00:00Z"
+  },
+  "registry": "registry.example.com/acme/pacto-stats",
+  "provenance": "unsigned statistics",
+  "recordsRead": 4,
+  "runs": 3,
+  "distinctChanges": 2,
+  "skipped": {
+    "malformed": 1,
+    "oversized": 0,
+    "unreadable": 0
+  },
+  "truncated": "",
+  "hidden": {
+    "present": false
+  },
+  "completeness": "partial",
+  "limitations": [
+    {
+      "code": "RUN_RECORDS_SKIPPED",
+      "message": "1 records could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number"
+    }
+  ],
+  "by": "service",
+  "totals": {
+    "breakingCaught": {
+      "distinct": 1,
+      "runs": 2
+    },
+    "consumersProtected": {
+      "count": 2,
+      "unknown": 1
+    },
+    "gates": {
+      "clear": 1,
+      "blocked": 1,
+      "unverified": 0
+    }
+  }
+}
