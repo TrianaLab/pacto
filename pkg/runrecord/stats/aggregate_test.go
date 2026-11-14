@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
@@ -226,8 +227,11 @@ func TestAggregateNoRecordsHasNoTotals(t *testing.T) {
 func TestAggregateGoldenJSON(t *testing.T) {
 	impact := breaking(gated(rec(runrecord.KindImpact, "sha256:new", hoursAgo(2)), runrecord.VerdictBlocked, 2, 1))
 	diff := breaking(rec(runrecord.KindDiff, "sha256:new", hoursAgo(3)))
-	publish := gated(rec(runrecord.KindPublish, "sha256:next", hoursAgo(1)), runrecord.VerdictClear, 0, 0)
-	s := set(impact, diff, publish, impact)
+	publish := gated(rec(runrecord.KindPublish, "sha256:next", hoursAgo(2)), runrecord.VerdictClear, 0, 0)
+	publish.DeployDigest = digest('d')
+	held := verifiedTo(digest('d'), hoursAgo(1))
+	held.HeldFor = "30m0s"
+	s := set(impact, diff, publish, impact, held, promote(delivery.Failed, "", hoursAgo(1)))
 	s.Skipped = map[string]Skipped{runrecord.AnchorTag("orders"): {Malformed: 1}}
 	st := Aggregate(s, Query{Window: aggWindow, By: "service"}, Scope{}, aggNow)
 	st.Registry = "registry.example.com/acme/pacto-stats"

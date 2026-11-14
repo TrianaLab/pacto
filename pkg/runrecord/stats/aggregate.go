@@ -47,7 +47,10 @@ type Ratio struct {
 }
 
 func ratio(count, of int) Ratio {
-	return Ratio{Count: count, Of: of, Unknown: of == 0}
+	if of == 0 {
+		return Ratio{Unknown: true}
+	}
+	return Ratio{Count: count, Of: of}
 }
 
 // Hidden says whether records outside a restricted caller's view exist. It
@@ -73,11 +76,6 @@ type Gates struct {
 	Clear      int `json:"clear" doc:"Changes whose newest gate verdict is clear"`
 	Blocked    int `json:"blocked" doc:"Changes whose newest gate verdict is blocked"`
 	Unverified int `json:"unverified" doc:"Changes whose newest gate verdict is unverified"`
-}
-
-// EnvironmentMetrics are the delivery numbers of one environment.
-type EnvironmentMetrics struct {
-	Environment string `json:"environment" doc:"Environment name"`
 }
 
 // Metrics are the numbers of one group or of every record.
@@ -138,9 +136,13 @@ func Aggregate(set RecordSet, q Query, _ Scope, now time.Time) *Stats {
 	st.Runs = len(entries)
 	if len(entries) > 0 {
 		m, changes := ciMetrics(entries)
+		m.Environments = environmentMetrics(entries, publishesOf(current))
 		st.Totals, st.DistinctChanges = &m, changes
 	}
 	st.Limitations, st.Completeness = limitations(st, future)
+	if st.Totals != nil {
+		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
+	}
 	return st
 }
 
@@ -157,12 +159,6 @@ func notFuture(entries []Entry, now time.Time) ([]Entry, int) {
 	return kept, len(entries) - len(kept)
 }
 
-// finishedAt parses an operation record's finishedAt.
-func finishedAt(r runrecord.Record) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, r.FinishedAt)
-	return t, err == nil
-}
-
 // recordTime is when a record happened: an operation's finish, else when it
 // was recorded.
 func recordTime(r runrecord.Record) time.Time {
@@ -170,6 +166,18 @@ func recordTime(r runrecord.Record) time.Time {
 		return t
 	}
 	return r.RecordedAt
+}
+
+// publishesOf is every publish record, in the window or before it, so a
+// promotion in the window joins the publish that preceded it.
+func publishesOf(entries []Entry) []Entry {
+	var out []Entry
+	for _, e := range entries {
+		if e.Record.Kind == runrecord.KindPublish {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func selectEntries(entries []Entry, q Query) []Entry {

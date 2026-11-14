@@ -6,8 +6,8 @@
   },
   "registry": "registry.example.com/acme/pacto-stats",
   "provenance": "unsigned statistics",
-  "recordsRead": 4,
-  "runs": 3,
+  "recordsRead": 6,
+  "runs": 5,
   "distinctChanges": 2,
   "skipped": {
     "malformed": 1,
@@ -39,6 +39,36 @@
       "clear": 1,
       "blocked": 1,
       "unverified": 0
-    }
+    },
+    "environments": [
+      {
+        "environment": "production",
+        "source": "context",
+        "operations": 2,
+        "held": {
+          "count": 1,
+          "of": 2
+        },
+        "failed": {
+          "count": 1,
+          "of": 2
+        },
+        "rolledBack": {
+          "count": 0,
+          "of": 1
+        },
+        "verificationFailed": {
+          "count": 0,
+          "of": 1
+        },
+        "acceptedUnknown": 0,
+        "leadTime": {
+          "p50Seconds": 3600,
+          "p90Seconds": 3600,
+          "joined": 1,
+          "unjoined": 0
+        }
+      }
+    ]
   }
 }
