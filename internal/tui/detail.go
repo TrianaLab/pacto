@@ -400,6 +400,9 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 		if u.SuccessorRange != "" {
 			successor = ", successor range " + u.SuccessorRange
 		}
+		if u.SupportedRange != "" {
+			successor += ", latest supported range " + u.SupportedRange
+		}
 		fmt.Fprintf(b, "  %s -> %s%s\n", safeText(u.Consumer.Label), safeText(u.Provider.Label), successor)
 	}
 	if o.Consumers.Truncated {

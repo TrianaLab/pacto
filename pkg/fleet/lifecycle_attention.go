@@ -107,10 +107,8 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 // agree.
 func (q *Query) lifecycleTally() (int, string) {
 	consumers, sev := map[string]bool{}, severityWarning
+	// lifecycleAttention already leaves golden paths out (TestLifecycleAttentionGoldenPathSkipped).
 	for _, it := range q.lifecycleAttention() {
-		if !q.populationService(ServiceKey(it.Service)) {
-			continue
-		}
 		consumers[it.Service] = true
 		if it.Severity == severityError {
 			sev = severityError

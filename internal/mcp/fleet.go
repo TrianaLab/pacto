@@ -554,7 +554,8 @@ func fleetVersionsTool() *mcpsdk.Tool {
 			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
 			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
 			"revisions the snapshot holds; the registry may publish others. Each provider names the 'successor' its newest " +
-			"revision declares (unknown when it resolves to no revision) and, with 'range', 'successorRange'. Read-only.",
+			"revision declares (unknown when it resolves to no revision); with 'range', the one the newest revision in the " +
+			"range declares, and 'successorRange'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"offering": {Type: "string", Description: "Platform offering slug, such as postgresql"},
 			"provider": {Type: "string", Description: "Only this provider: its key, or a name only one domain uses"},

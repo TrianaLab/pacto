@@ -166,7 +166,7 @@ func TestOfferingTextEdges(t *testing.T) {
 		Consumers:       fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"}, Offering: "pg", Via: "dependency", ProviderLifecycle: versions.Items[0].Lifecycle}}},
 		HiddenConsumers: 3,
 	})
-	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "3 consumers you may not see\n"} {
+	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "Consumers you may not see: 3\n"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
 		}

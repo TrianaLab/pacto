@@ -189,8 +189,19 @@ func TestVersionsCarrySuccessorRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 17.0.0 is the newest and declares nothing, so it names no successor.
+	// ^16 reaches 16.1.0, whose successor 17.0.0 the range excludes, even
+	// though the newest revision 17.0.0 declares nothing.
+	if v := res.Providers[0].Versions; v.Successor == nil || v.Successor.Revision == nil || v.SuccessorRange != RangeUnsatisfied {
+		t.Errorf("versions = %+v", v)
+	}
+	// Without a range the newest revision speaks: 17.0.0 names no successor.
+	res, _ = q.OfferingVersions("postgresql", "", "")
 	if v := res.Providers[0].Versions; v.Successor != nil || v.SuccessorRange != "" {
+		t.Errorf("versions = %+v", v)
+	}
+	// A range that reaches nothing falls back to the newest revision.
+	res, _ = q.OfferingVersions("postgresql", "", "^18.0.0")
+	if v := res.Providers[0].Versions; v.Successor != nil {
 		t.Errorf("versions = %+v", v)
 	}
 	q = successorFleet(t, &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://ghcr.io/acme/pg:16.0.0"})

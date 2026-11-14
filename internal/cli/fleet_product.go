@@ -490,7 +490,7 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 	}
 	printOfferingUses(w, "Consumers:", o.Consumers)
 	if o.HiddenConsumers > 0 {
-		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
+		_, _ = fmt.Fprintf(w, "Consumers you may not see: %d\n", o.HiddenConsumers)
 	}
 	printObservedConsumers(w, o)
 }
@@ -652,6 +652,9 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 		}
 		if u.SuccessorRange != "" {
 			_, _ = fmt.Fprintf(w, ", successor range %s", u.SuccessorRange)
+		}
+		if u.SupportedRange != "" {
+			_, _ = fmt.Fprintf(w, ", latest supported range %s", u.SupportedRange)
 		}
 		_, _ = fmt.Fprintln(w)
 		for _, st := range u.Provisioning {

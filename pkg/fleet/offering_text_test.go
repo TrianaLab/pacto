@@ -6,16 +6,20 @@ import (
 )
 
 // TestAvailabilityLines: each environment says its state, provenance and
-// reason, the unlabelled group is named, partial is marked and the bound is
-// counted.
+// reason, the unlabelled group and the nowhere-observed entry are named apart,
+// partial is marked and the bound is counted.
 func TestAvailabilityLines(t *testing.T) {
-	a := Availability{Total: 3, ByEnvironment: []EnvironmentAvailability{
+	a := Availability{Total: 5, ByEnvironment: []EnvironmentAvailability{
 		{Environment: "prod", State: AvailabilityAvailable, Provenance: ProvenanceObserved, Reason: "2 of 2 targets reporting"},
-		{State: AvailabilityUnknown, Provenance: provenanceUnknown, Reason: "r", Partial: true},
+		{State: AvailabilityUnknown, Provenance: ProvenanceObserved, Reason: "r", Targets: 1, Partial: true},
+		{State: AvailabilityDegraded, Provenance: ProvenanceInferred, Reason: "u", Unreachable: []EntityRef{{Label: "a"}}},
+		{State: AvailabilityUnknown, Provenance: provenanceUnknown, Reason: "n"},
 	}}
 	want := []string{
 		"prod: available (observed, 2 of 2 targets reporting)",
-		"(no environment label): unknown (unknown, r) [partial]",
+		"(no environment label): unknown (observed, r) [partial]",
+		"(no environment label): degraded (inferred, u)",
+		"(nowhere observed): unknown (unknown, n)",
 		"1 more environments",
 	}
 	if got := a.Lines(); !slices.Equal(got, want) {

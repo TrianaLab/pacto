@@ -95,7 +95,7 @@ func TestAvailabilityAvailableFreshTarget(t *testing.T) {
 	av := providerAvail(a, "pg")
 	e := envOf(t, av, "prod")
 	wantState(t, e, AvailabilityAvailable, ProvenanceObserved)
-	if av.State != AvailabilityAvailable || e.Reporting != 1 || e.Targets != 1 || e.Reason != "1 of 1 targets reporting, evidence 1h0m0s old" || !av.AsOf.Equal(availNow) || e.EvidenceAt == nil {
+	if av.State != AvailabilityAvailable || e.Reporting != 1 || e.Targets != 1 || e.Reason != "1 of 1 targets reporting, evidence 1h old" || !av.AsOf.Equal(availNow) || e.EvidenceAt == nil {
 		t.Errorf("availability = %+v", av)
 	}
 }
@@ -251,8 +251,28 @@ func TestAvailabilityNoTargetUnknown(t *testing.T) {
 		t.Fatalf("availability = %+v", av)
 	}
 	wantState(t, av.ByEnvironment[0], AvailabilityUnknown, "unknown")
-	if av.ByEnvironment[0].Reason != availabilityNoneReason {
-		t.Errorf("reason = %q", av.ByEnvironment[0].Reason)
+	if av.ByEnvironment[0].Reason != availabilityNoneReason || av.ByEnvironment[0].label() != "(nowhere observed)" {
+		t.Errorf("entry = %+v", av.ByEnvironment[0])
+	}
+}
+
+// TestAvailabilityUnknownConsumerSkipped: an edge from a service the snapshot
+// does not hold contributes no report.
+func TestAvailabilityUnknownConsumerSkipped(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.dep("c", "pg", "db")
+	delete(a.Services, "c")
+	if av := providerAvail(a, "pg"); len(av.ByEnvironment) != 1 || av.ByEnvironment[0].Environment != "" {
+		t.Errorf("availability = %+v", av)
+	}
+}
+
+func TestShortAge(t *testing.T) {
+	for d, want := range map[time.Duration]string{0: "0m", 15 * time.Minute: "15m", time.Hour: "1h", 90 * time.Minute: "1h30m", 25 * time.Hour: "25h"} {
+		if got := shortAge(d); got != want {
+			t.Errorf("shortAge(%s) = %q, want %q", d, got, want)
+		}
 	}
 }
 

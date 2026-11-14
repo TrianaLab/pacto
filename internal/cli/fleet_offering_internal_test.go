@@ -94,14 +94,14 @@ func TestFleetEntityOfferingSuccessorText(t *testing.T) {
 			{Service: fleet.EntityRef{Label: "ha"}, Successor: &fleet.SuccessorInfo{Ref: "oci://x/ha:2", Reason: "no revision matches it"}},
 		}},
 		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"},
-			Offering: "pg", Via: "dependency", RangeStatus: fleet.RangeSatisfied, SuccessorRange: fleet.RangeUnsatisfied}}},
+			Offering: "pg", Via: "dependency", RangeStatus: fleet.RangeSatisfied, SuccessorRange: fleet.RangeUnsatisfied, SupportedRange: fleet.RangeSatisfied}}},
 	}
 	var buf bytes.Buffer
 	printOfferingText(&buf, o)
 	wantLines(t, buf.String(),
 		"    successor: oci://x/pg:17.0.0 (pg 17.0.0)\n    latest supported: pg 16.0.1\n",
 		"    successor: oci://x/ha:2 (unknown: no revision matches it)\n",
-		"  app -> pg (pg) via dependency, range satisfied, successor range unsatisfied\n")
+		"  app -> pg (pg) via dependency, range satisfied, successor range unsatisfied, latest supported range satisfied\n")
 }
 
 func TestFleetEntityObservedConsumersText(t *testing.T) {

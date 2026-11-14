@@ -254,7 +254,16 @@ func (q *Query) servingAvailability(ev *envEvidence) (AvailabilityState, string,
 		return AvailabilityDegraded, ProvenanceInferred, fmt.Sprintf("%d targets reporting; %s cannot reach it", len(ev.fresh), reporterNames(ev.reporting))
 	}
 	age := q.snap.GeneratedAt.Sub(*newestEvidence(ev)).Round(time.Minute)
-	return AvailabilityAvailable, ProvenanceObserved, fmt.Sprintf("%d of %d targets reporting, evidence %s old", len(ev.fresh), len(ev.targets), age)
+	return AvailabilityAvailable, ProvenanceObserved, fmt.Sprintf("%d of %d targets reporting, evidence %s old", len(ev.fresh), len(ev.targets), shortAge(age))
+}
+
+// shortAge writes a whole-minute age the way a person would: 1h, 1h30m, 15m.
+func shortAge(d time.Duration) string {
+	s := strings.TrimSuffix(d.String(), "0s")
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return cmp.Or(s, "0m")
 }
 
 // reportedAvailability is the state of an environment with no fresh provider
@@ -407,10 +416,23 @@ func (a Availability) Lines() []string {
 	return out
 }
 
+// label names e's environment: "(nowhere observed)" for the entry that keeps
+// the reason when no target or report places the provider anywhere,
+// "(no environment label)" for targets that carry no environment label.
+func (e EnvironmentAvailability) label() string {
+	if e.Environment != "" {
+		return e.Environment
+	}
+	if e.Targets == 0 && len(e.Unreachable) == 0 {
+		return "(nowhere observed)"
+	}
+	return "(no environment label)"
+}
+
 // Line renders e as "prod: available (observed, <reason>)", marked partial
 // when the viewer may not see every consumer or provider.
 func (e EnvironmentAvailability) Line() string {
-	s := fmt.Sprintf("%s: %s (%s, %s)", cmp.Or(e.Environment, "(no environment label)"), e.State, e.Provenance, e.Reason)
+	s := fmt.Sprintf("%s: %s (%s, %s)", e.label(), e.State, e.Provenance, e.Reason)
 	if e.Partial {
 		s += " [partial]"
 	}
