@@ -150,6 +150,8 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 		},
+		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
+			"stats-context", "stats-file", "stats-registry"),
 		alike("impact", "", "", "overrides the CLI applies to local contracts before comparing; MCP and the dashboard compare published revisions as they are",
 			"new-set", "new-values", "old-set", "old-values"),
 		body("", "", "POST /api/fleet/impact", whyKeyedImpact, "from-revision-key", "to-revision-key"),

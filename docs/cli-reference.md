@@ -52,6 +52,8 @@ distinguish "the check failed" from "the command could not run"**. `2` means
 command exits `2` for its own result. `pacto run` exits with the exit code of
 the command it wraps, whatever it is, or `1` when that command exits `0` and
 the final verdict fails `--fail-on`.
+Recording a run record (`--stats-registry`, `--stats-file`) never changes an
+exit code. `pacto stats publish` exits `1` when a file could not be published.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
@@ -59,6 +61,7 @@ the final verdict fails `--fail-on`.
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
 | `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target, or a policy referrer that fails the new policy does | `pacto impact` where the gate is `clear`: the change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one; an event (`--unavailable`, `--removed` or `--regressed`) when the complete snapshot shows nothing depends on the service |
+| `pacto stats publish` when a file could not be read, parsed or published | `pacto stats publish` that published every file |
 | **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
 
 | Exits `2` |
@@ -727,6 +730,9 @@ pacto diff <old> <new> [flags]
       --new-values stringArray   values file to merge into the new contract (can be repeated)
       --old-set stringArray      set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray   values file to merge into the old contract (can be repeated)
+      --stats-context string     comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string        write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string    publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
 ```
 
 **Exit code:** `1` when the overall classification is `BREAKING`, and also when the diff could not be produced. A non-zero exit alone is therefore no contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that stops on it must read the classification.
@@ -1363,6 +1369,9 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
       --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable
@@ -1831,6 +1840,9 @@ pacto publish [dir] [flags]
       --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
       --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
       --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
+      --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
+      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
+      --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --values stringArray         values file to merge into the contract (can be repeated; last wins)
 ```
 
@@ -1945,6 +1957,37 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
       --report string                   file every round is appended to instead of stderr (truncated when the run starts)
       --ringbuf-size uint32             kernel ring buffer size in bytes; a power of two and a multiple of the page size (default 262144)
       --stabilization-window duration   how long a negative must persist before it is reported (default 2m0s)
+```
+
+---
+
+## `pacto stats`
+
+Run records are unsigned statistics about Pacto runs. Nothing that decides ever reads them.
+
+```
+pacto stats [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for stats
+```
+
+### `pacto stats publish`
+
+Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
+
+```
+pacto stats publish <file...> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for publish
+      --registry string     stats repository to publish to (default $PACTO_STATS_REGISTRY)
 ```
 
 ---

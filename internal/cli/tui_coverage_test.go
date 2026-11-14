@@ -49,6 +49,7 @@ var excludedFromTUI = map[string]string{
 	"pack":                 "a build step for pipelines, with no reading to do afterwards",
 	"publish":              "builds, signs and writes to a registry; a pipeline step, and the TUI never acts",
 	"otel observe":         "a long-running collector",
+	"stats publish":        "a pipeline step that writes unsigned statistics to a registry; the TUI never acts",
 	"fleet snapshot":       "writes a snapshot file; the TUI already holds the snapshot in memory",
 	"fleet versions":       "the offering detail already lists each provider's versions; a range is text the TUI has no prompt for",
 	"login":                "reads a secret from the terminal it does not own under an alt screen",

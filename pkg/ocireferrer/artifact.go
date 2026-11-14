@@ -1,6 +1,7 @@
 // Package ocireferrer is Pacto's one write path for OCI 1.1 referrers: evidence
 // records and delivery operation records both go through it. It opens a
-// repository with the native Referrers API required (no tag fallback), builds a
+// repository with the native Referrers API required (no tag fallback, except
+// for run records, which are unsigned statistics), builds a
 // deterministic referrer manifest, pushes it and confirms the Referrers API
 // lists it before anyone calls the write done.
 //

@@ -34,6 +34,9 @@ type ImpactOptions struct {
 	// Traces is optional OTLP/JSON trace data; its observed caller→provider edges
 	// corroborate declared consumers and surface shadow (observed-only) ones.
 	Traces []byte
+	// OnResolved is called by [Service.Impact] once both revisions resolve;
+	// nil does nothing. The snapshot paths never call it.
+	OnResolved func(old, new *contract.Bundle)
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -44,6 +47,9 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if opts.OnResolved != nil {
+		opts.OnResolved(oldBundle, newBundle)
 	}
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
