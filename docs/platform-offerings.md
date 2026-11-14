@@ -2,7 +2,10 @@
 
 This page describes how [the operational graph](operational-graph.md) groups
 services by platform offering: providers and their versions, consumers, the
-consume snippet, provisioning status and what a restricted viewer sees. The
+consume snippet, provisioning status and what a restricted viewer sees.
+[Offering availability and lifecycle](offering-availability.md) covers whether
+an offering serves, deprecated providers and their successors, observed
+callers and offering impact. The
 [operational graph reference](operational-graph-reference.md) covers sources
 and queries.
 
@@ -35,6 +38,35 @@ An offering's detail lists its providers and its consumers:
 Each provider says where its membership comes from in `offeringProvenance`:
 `declared` when a contract revision declares the offering, `observed` when only
 the operators observing its targets report it.
+
+## The Offerings list
+
+Each offering row of `pacto fleet entities --kind offering`,
+`pacto_fleet_entities` and the dashboard's Offerings list carries:
+
+- `owner`: the providers' owner, or "2 owners claim it" when they disagree;
+- `lifecycle`: the worst lifecycle over the providers' current revisions
+  (`supported`, `deprecated` or `sunset`), `unknown` when a provider is
+  observed only or its current revision is unreadable;
+- `availability` and `availabilityProvenance`: the offering's
+  [availability](offering-availability.md#is-an-offering-available) roll-up and where its worst
+  environment comes from;
+- `consumers`: distinct declared consumers, and `hiddenConsumers` under a
+  restricted view, where `consumers` and `failedRequests` are lower bounds;
+- `failedRequests`: distinct consumers with a `Failed` provisioning status;
+- `targets`: the providers' observed targets, or `targetsUnknown: true` with
+  no count when a provider's targets are hidden or a target source is
+  incomplete. Pacto prints "observed targets unknown", never 0.
+
+The `lifecycle` filter (`deprecated` or `sunset`) and the `failed` filter
+narrow the list; `--sort failed` and `--sort consumers` order it. The
+aggregate tallies every matched offering's provisioning statuses by phase in
+`offeringPhases` and `offeringPhaseConsumers`, and names the three offerings
+with the most failures in `failedByOffering`. The dashboard draws that tally
+as the phase track above the list.
+
+![The Offerings list: 20 provisioning requests across 5 offerings drawn as a phase track, with one failed postgresql request and the lifecycle and failed-request filters](assets/screenshots/dashboard-offerings-list-light.png#only-light)
+![The Offerings list: 20 provisioning requests across 5 offerings drawn as a phase track, with one failed postgresql request and the lifecycle and failed-request filters](assets/screenshots/dashboard-offerings-list-dark.png#only-dark)
 
 ## Consumers
 
@@ -155,3 +187,7 @@ consumer whose configuration reference resolves to a hidden provider has the
 reference validated again without it, so the reference reads
 `CONFIG_REF_UNVERIFIED` and no finding carries what the hidden provider
 declares.
+
+Availability, observed callers and offering impact count what a restricted
+view hides; see
+[Under a restricted view](offering-availability.md#under-a-restricted-view).

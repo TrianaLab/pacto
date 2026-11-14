@@ -270,6 +270,9 @@ Attention items fall into these categories, worst first:
 | `stale` | `STALE_EVIDENCE` | warning |
 | `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
 | `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
+| `lifecycle` | `DEPENDENCY_SERVICE_DEPRECATED`, a provider the consumer's range reaches is deprecated | warning |
+| `lifecycle` | `DEPENDENCY_SERVICE_SUNSET`, that provider is past its sunset | error |
+| `lifecycle` | `SUCCESSOR_OUT_OF_RANGE`, the consumer's range excludes the provider's successor | error |
 | `undeclared` | `DEPENDENCY_UNDECLARED`, a runtime call no contract declares | warning |
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `readiness` | `MISSING_READINESS` | info |
@@ -370,7 +373,21 @@ See the [golden paths reference](golden-paths-reference.md).
 
 ## Platform offerings
 
-See the [platform offerings reference](platform-offerings.md).
+See the [platform offerings reference](platform-offerings.md) and
+[offering availability and lifecycle](offering-availability.md).
+
+| `AvailabilityState` | Meaning |
+|---------------------|---------|
+| `available` | Fresh provider targets serve and no consumer reports the provider unreachable. |
+| `degraded` | Some provider targets report `INTERFACE_ABSENT`, or some consumer targets cannot reach it. |
+| `unavailable` | Every fresh provider target reports `INTERFACE_ABSENT`, or with no fresh provider target every consumer target that declares it cannot reach it. |
+| `unknown` | Targets are hidden, a target source is incomplete or no fresh evidence exists. |
+
+| Limitation | Raised when |
+|------------|-------------|
+| `SUCCESSOR_UNRESOLVED` | A provider's declared successor names no revision in the fleet. |
+| `HIDDEN_PROVIDERS` | An offering event has providers the viewer cannot see. |
+| `OFFERING_NOT_IN_FLEET` | No visible service provides the offering an event names. |
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.
