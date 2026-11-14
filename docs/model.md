@@ -50,7 +50,7 @@ observation and produces exactly one of three results:
 | Result | When | Finding |
 |---|---|---|
 | **Confirmed violation** | A matching observation has `Outcome=Observed` and its payload contradicts the contract. | `error`, category `RuntimeDrift`, for example `CONFIGURATION_ABSENT`, `CONFIGURATION_MISMATCH`, `INTERFACE_ABSENT`, `DEPENDENCY_UNREACHABLE`. |
-| **Uncertainty** | No usable observation exists: missing, `Unsupported`, `Failed`, `Stale` or `Insufficient`. | `unknown`, category `Inconclusive`, for example `EVIDENCE_MISSING`, `COLLECTION_FAILED`. |
+| **Uncertainty** | No usable observation exists: missing, `Unsupported`, `Failed`, `Stale` or `Insufficient`. A health check that answered and reports it is not healthy also lands here, since a failing endpoint does not contradict the contract. | `unknown`, category `Inconclusive`, for example `EVIDENCE_MISSING`, `COLLECTION_FAILED`, `HEALTH_FAILING`. |
 | **Satisfied** | A matching `Observed` observation is consistent with the contract. | None. |
 
 A required assertion Pacto cannot observe never counts as a pass.

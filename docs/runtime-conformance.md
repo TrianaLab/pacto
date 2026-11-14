@@ -67,7 +67,10 @@ Every runtime check ends in one of three answers:
 | **Don't know** | `Unknown` | the observer stopped reporting, or could not see enough to decide |
 
 Silence is never a violation. If Pacto cannot see, it says "don't know" and
-names why (for example `EVIDENCE_STALE` or `COLLECTION_FAILED`). A negative must
+names why (for example `EVIDENCE_STALE` or `COLLECTION_FAILED`). A declared
+health endpoint that answers with a 5xx (other than 501) reads `HEALTH_FAILING`:
+the service is failing its own check, which says nothing about the contract, so
+the status stays `Unknown`. A negative must
 also last for a *stabilization window* (two minutes by default) before it is
 reported, so a service has time to start before Pacto reports it broken.
 

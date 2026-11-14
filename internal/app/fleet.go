@@ -145,6 +145,9 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		FreshnessWindow: opts.FreshnessWindow,
 		Concurrency:     opts.Concurrency,
 		DisallowPartial: opts.DisallowPartial,
+		// The product answers say when freshness was not checked; the delivery
+		// planner's own build leaves this false.
+		DiscloseUncheckedFreshness: true,
 	}, sources...)
 }
 
