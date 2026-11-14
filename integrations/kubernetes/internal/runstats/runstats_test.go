@@ -311,3 +311,28 @@ func TestRunCountsQueuedOnShutdown(t *testing.T) {
 		t.Fatalf("log = %q", lines)
 	}
 }
+
+func TestRunCountsInFlightAtShutdownAsPublishFailed(t *testing.T) {
+	Dropped.Reset()
+	started := make(chan struct{})
+	e := newEmitter(func(ctx context.Context, _ runrecord.Record) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- e.Run(ctx) }()
+	e.Emit(promote())
+	<-started
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")); v != 1 {
+		t.Fatalf("publish-failed = %v", v)
+	}
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("shutdown")); v != 0 {
+		t.Fatalf("shutdown = %v", v)
+	}
+}

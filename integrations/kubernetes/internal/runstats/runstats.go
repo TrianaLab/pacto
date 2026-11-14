@@ -83,6 +83,7 @@ func (e *Emitter) Emit(op *dv1.Operation) {
 }
 
 // Run publishes queued records until ctx ends, then counts what is still queued.
+// A record in flight when ctx ends counts as publish-failed.
 func (e *Emitter) Run(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
 	for ctx.Err() == nil {
