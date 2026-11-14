@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
+
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
@@ -27,7 +30,7 @@ func statsDeps(calls *[]statsCall, err error) deps {
 
 func runStatsPublish(t *testing.T, d deps, args ...string) (string, error) {
 	t.Helper()
-	cmd := newStatsCommand(d)
+	cmd := newStatsCommand(app.NewService(nil, nil), viper.New(), d)
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(&strings.Builder{})

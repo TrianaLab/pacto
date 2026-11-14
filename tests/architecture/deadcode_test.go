@@ -49,9 +49,6 @@ const runtimeBoundsV6 = "deprecated public API of the released k8s module v6.0, 
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
-	"pkg/runrecord/stats.ParseWindow":    "caller lands in P5 of the same PR",
-	"pkg/runrecord/stats.FleetPlacement": "caller lands in P5 of the same PR",
-
 	"internal/tui.VerbCommands": "the TUI's verb-to-command table, read by " +
 		"internal/cli/tui_coverage_test.go to prove that every registered CLI command is " +
 		"either reachable from the TUI or deliberately classified as excluded. That is an " +

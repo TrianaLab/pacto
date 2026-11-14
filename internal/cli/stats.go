@@ -8,19 +8,41 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // errNoStatsRegistry is what every stats command says when it has nowhere to go.
 var errNoStatsRegistry = errors.New("no stats registry: pass --registry or set PACTO_STATS_REGISTRY")
 
-func newStatsCommand(d deps) *cobra.Command {
+func newStatsCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stats",
-		Short: "Work with Pacto's unsigned run statistics",
-		Long:  "Run records are unsigned statistics about Pacto runs. Nothing that decides ever reads them.",
+		Short: "Total what Pacto did from its unsigned run statistics",
+		Long: "Total the run records in a stats repository for a time window, as text or JSON. " +
+			"Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. " +
+			"Every answer says how many records were read, how many could not be read and which bound cut the read; " +
+			"a rate with nothing to take it over is unknown, never 0. " +
+			"With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.",
+		Example: `  pacto stats --registry ghcr.io/acme/pacto-stats
+  pacto stats --since 7d --by environment --output-format json
+  pacto stats --by owner --kind impact --kind publish`,
+		Args: cobra.NoArgs,
+		RunE: runStats(svc, v),
 	}
+	cmd.PersistentFlags().String("registry", "", "stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)")
+	f := cmd.Flags()
+	f.String("since", "", "start of the window: 30d, 12h, a date or RFC 3339 (default 30d)")
+	f.String("until", "", "end of the window: 30d, 12h, a date or RFC 3339 (default now)")
+	f.String("by", "", "group the numbers by "+strings.Join(stats.GroupBy, ", "))
+	f.String("service", "", "total only the run records of this service")
+	f.StringArray("kind", nil, "total only run records of this kind: "+strings.Join(statsKinds, ", ")+" (repeatable)")
+	addFleetSourceFlags(f)
+	_ = cmd.RegisterFlagCompletionFunc("by", staticCompletions(stats.GroupBy...))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(statsKinds...))
 	cmd.AddCommand(newStatsPublishCommand(d))
 	return cmd
 }
@@ -53,7 +75,6 @@ func newStatsPublishCommand(d deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("registry", "", "stats repository to publish to (default $PACTO_STATS_REGISTRY)")
 	return cmd
 }
 

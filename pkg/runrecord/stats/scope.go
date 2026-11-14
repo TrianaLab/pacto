@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -201,17 +202,16 @@ func groups(entries, publishes []Entry, by string, sc Scope) []Group {
 		m, _ := metricsOf(es, publishes)
 		out = append(out, Group{Key: k, Label: labels[k], Metrics: m})
 	}
+	// Every comparison runs whatever order the map yields, so coverage
+	// never depends on it.
+	unnamed := func(g Group) int {
+		if strings.HasPrefix(g.Key, "(") {
+			return 1
+		}
+		return 0
+	}
 	slices.SortFunc(out, func(a, b Group) int {
-		if sa, sb := strings.HasPrefix(a.Key, "("), strings.HasPrefix(b.Key, "("); sa != sb {
-			if sa {
-				return 1
-			}
-			return -1
-		}
-		if c := fleet.NaturalCompare(a.Label, b.Label); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Key, b.Key)
+		return cmp.Or(unnamed(a)-unnamed(b), fleet.NaturalCompare(a.Label, b.Label), strings.Compare(a.Key, b.Key))
 	})
 	return out
 }
