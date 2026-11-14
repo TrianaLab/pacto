@@ -9,6 +9,7 @@ import { MAX_STACK_LAYERS, sharePct } from './figure.ts';
 import type { Step } from './narrate.ts';
 import { stageName } from './behavior.ts';
 import { countOf, formatCount } from './format.ts';
+import { phaseGlyph, phaseTone } from './provisioning.ts';
 
 type Ref = { key?: string; label?: string; href?: string };
 
@@ -255,9 +256,6 @@ export function offeringModel(providers: { total?: number; items?: Ref[] }, phas
 
 export interface UseRequest { phase?: string; environment?: string; entry?: string; asOf?: string; verified?: boolean }
 
-const USE_TONE: Record<string, FigTone> = { Requested: 'info', Provisioning: 'info', Ready: 'ok', Failed: 'err', Deleting: 'info' };
-const USE_GLYPH: Record<string, GlyphName> = { Requested: 'progress', Provisioning: 'progress', Ready: 'ok', Failed: 'err', Deleting: 'none' };
-
 /**
  * useDetailModel is one request of an offering use on its rail: Requested →
  * Provisioning → Ready (or Failed), then Deleting when that is where it is. A provider
@@ -270,15 +268,16 @@ export function useDetailModel(req: UseRequest, when: string) {
   const phase = req.phase ?? 'Unknown';
   const names = ['Requested', 'Provisioning', phase === 'Failed' ? 'Failed' : 'Ready', ...(phase === 'Deleting' ? ['Deleting'] : [])];
   const cur = names.indexOf(phase);
+  const verified = req.verified !== false;
   const stations: RailStation[] = names.map((label, k) => cur < 0
     ? { key: label, label, sub: 'unknown', tone: 'neutral', hatch: true, glyph: '', reached: false }
     : {
       key: label, label, reached: k <= cur,
-      tone: k === cur ? USE_TONE[phase] : 'neutral', glyph: k === cur ? USE_GLYPH[phase] : '',
+      tone: k === cur ? phaseTone(phase, verified) : 'neutral', glyph: k === cur ? phaseGlyph(phase, verified) : '',
       sub: k === cur ? `last reported ${when}` : k < cur ? 'came before' : 'not reached',
     });
   const wires = stations.slice(1).map((_, k) => chainWire(k, k < cur ? 'obs' : 'proj'));
-  const steps: Step[] = cur < 0 ? [] : [{ cap: `${phase}: reported ${when}.`, dur: 240, show: [`[data-m="f${cur}"]`] }];
+  const steps: Step[] = cur < 0 ? [] : [{ cap: `${phase}${phase === 'Ready' && !verified ? ' (unsigned)' : ''}: reported ${when}.`, dur: 240, show: [`[data-m="f${cur}"]`] }];
   const where = [req.environment, req.entry].filter(Boolean).join(' ');
   return {
     stations, wires, steps,

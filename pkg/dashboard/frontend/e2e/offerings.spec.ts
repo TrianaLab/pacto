@@ -68,14 +68,29 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(lifecycle).toBeVisible();
     await expect(lifecycle).toHaveAttribute('title', /sunset .*successor oci:\/\/ghcr\.io\/trianalab\/pacto\/postgresql:17\.0\.0/);
     await expect(provider.locator('.ov-chips li').filter({ hasText: '16.1.0' }).locator('.tag', { hasText: 'Deprecated' })).toBeVisible();
-    // catalog-service requests its database by configuration reference; the adapter reports it Ready.
+    // catalog-service requests its database by configuration reference; the adapter reports it
+    // Ready, unsigned, so the badge says so and never reads as a green Ready.
     const catalog = page.getByTestId('offering-consumer').filter({ hasText: 'catalog-service' }).filter({ hasText: 'configuration' });
-    await expect(catalog.getByTestId('provisioning-badge').locator('.tag')).toHaveText('production: Ready');
+    const badge = catalog.getByTestId('provisioning-badge');
+    await expect(badge.locator('.tag')).toHaveText('production: Ready (unsigned)');
+    await expect(badge.locator('svg.pb-info')).toHaveCount(1);
+    await expect(badge.locator('svg.pb-ok')).toHaveCount(0);
     await expect(catalog.locator('.tag', { hasText: 'Deprecated' })).toBeVisible();
-    // The adapter could not observe orders-service's database, so it stays Unknown.
+    // The adapter could not observe orders-service's database, so it stays Unknown (and unsigned).
     const orders = page.getByTestId('offering-consumer').filter({ hasText: 'orders-service' });
-    await expect(orders.getByTestId('provisioning-badge').locator('.tag')).toHaveText('Unknown');
+    await expect(orders.getByTestId('provisioning-badge').locator('.tag')).toHaveText('Unknown (unsigned)');
     expect(await noSideScroll(page)).toBe(true);
+  });
+
+  test('the catalog-service page words its unsigned database report the same way', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/services/catalog-service');
+    const use = page.getByTestId('service-offerings-used').locator('.se-use').filter({ hasText: 'postgresql' });
+    // catalog-service 1.3.0 uses postgresql twice; the adapter reported only the configuration's database.
+    const badge = use.getByTestId('provisioning-badge').filter({ has: page.locator('.tag', { hasText: 'Ready' }) });
+    await expect(badge.locator('.tag')).toHaveText('production: Ready (unsigned)', { timeout: T });
+    await expect(badge.locator('svg.pb-info')).toHaveCount(1);
+    await expect(badge.locator('svg.pb-ok')).toHaveCount(0);
   });
 
   test('a range on the postgresql page asks the server which versions satisfy it', async ({ page }) => {

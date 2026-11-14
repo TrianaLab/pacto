@@ -16,8 +16,8 @@
 
 {#each statuses as st, i (`${st.environment ?? ''}:${st.entry ?? ''}:${i}`)}
   {#snippet badge()}
-    <svg class="pb-g pb-{phaseTone(st.phase)}" width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true" focusable="false"><path d={GLYPH_PATH[phaseGlyph(st.phase)]} /></svg>
-    <IdentityBadge label={phaseBadgeLabel(st)} tone={phaseTone(st.phase)} title={provisioningTitle(st)} describe />
+    <svg class="pb-g pb-{phaseTone(st.phase, st.verified)}" width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true" focusable="false"><path d={GLYPH_PATH[phaseGlyph(st.phase, st.verified)]} /></svg>
+    <IdentityBadge label={phaseBadgeLabel(st)} tone={phaseTone(st.phase, st.verified)} title={provisioningTitle(st)} describe />
   {/snippet}
   {#if onselect}
     <button type="button" class="pb pb-btn" data-testid="provisioning-badge" aria-pressed={selected === i} onclick={() => onselect(selected === i ? -1 : i)}>{@render badge()}</button>

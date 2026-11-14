@@ -136,8 +136,8 @@ func Sign(e Envelope, key ed25519.PrivateKey) (Envelope, error) {
 // TrustEntry binds a key id to its public key AND the identity and scope it is
 // authorized to claim. Binding the producer id to the key is what stops one
 // trusted key from impersonating another producer; the optional allowlists scope
-// which subjects it may report and which contract repos its evidence may
-// reference. Rotation is adding a new entry and removing the old one, so a
+// which subjects it may report, which contract repos its evidence may reference
+// and which provider repos its provisioning reports may be about. Rotation is adding a new entry and removing the old one, so a
 // producer's identity survives a key change without any key being able to assume
 // another producer's identity.
 type TrustEntry struct {
@@ -157,6 +157,12 @@ type TrustEntry struct {
 	// ResourceProvisioned, which a key reports only when it lists it, so a
 	// team's runtime-evidence key cannot certify its own resources as Ready.
 	AllowedObservationKinds []string
+	// ProviderRepos, when non-empty, is the allowlist of provider-contract
+	// repository prefixes a provisioning report from this key may be about: the
+	// consumer's declared configuration or dependency ref must name a repository
+	// under one of them. Empty means any provider. Enforced at the ingestion
+	// seam, which holds the consumer contract.
+	ProviderRepos []string
 }
 
 // KindAllowed reports whether this key may report observations of kind k.
