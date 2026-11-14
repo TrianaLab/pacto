@@ -92,7 +92,7 @@
   .ov { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
   .ov-row, .ov-range { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .ov-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); min-width: 0; }
-  .ov-chips li { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+  .ov-chips li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-width: 0; }
   .ov-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .ov-range input { width: 14ch; }
   .ov-note { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
