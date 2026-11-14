@@ -86,7 +86,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | Key | Type | Present | Holds |
 | --- | --- | --- | --- |
 | `version` | string | always | `pacto.trianalab.io/run-record/v1` |
-| `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it |
+| `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it. On an `operation` record, the operation's Kubernetes UID |
 | `kind` | string | always | `diff`, `impact` or `publish`, or `operation` for an [operation record](#operation-records) |
 | `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
@@ -129,8 +129,8 @@ environment variable it does not name here.
 ### Operation records
 
 The delivery promoter writes an `operation` record for each delivery operation
-it concludes. Its `id` is the operation's Kubernetes UID, so a record written
-twice is one record, and its `outcome` is the operation's outcome: `Succeeded`,
+it concludes. Its `id` is the operation's Kubernetes UID: a record published
+twice is two referrers with one `id`, which readers count once. Its `outcome` is the operation's outcome: `Succeeded`,
 `Failed`, `Errored`, `Cancelled`, `Expired`, `Rejected`, `Superseded` or
 `Witnessed`. An operation record never holds the CI-only keys above
 (`oldRevision` through `asOf`, `repository` and `ciRunUrl`), and a CI record
@@ -142,8 +142,8 @@ never holds the keys below.
 | `verification` | string | when set | `Verified`, `AcceptedUnknown` or `Unverified` |
 | `reason` | string | when it is a plain code | the outcome's machine code, such as `PlanStale` |
 | `actorClass` | string | when set | `controller`, `agent`, `human` or `break-glass`, never a name |
-| `delegated` | boolean | when `true` | the operation named a person it acted for (`onBehalfOf`); the person is never recorded |
-| `heldFor` | string | when the operation was held | how long it last waited on a person, as a Go duration such as `14m0s` |
+| `delegated` | boolean | when `true` | the operation named a person it acted for (`onBehalfOf` with a `user`); the person is never recorded |
+| `heldFor` | string | when the operation was held | the time from its last hold until it applied or, when it never applied, concluded, as a Go duration such as `14m0s`; it includes the waits after a person answered, on the Stage lock, a freeze and the apply |
 | `serviceDomain` | string | when the Stage's service has one | the domain of the Stage's service |
 | `stage` | object | always | the Stage the operation ran on |
 | `stage.namespace` | string | always | the Stage's namespace |

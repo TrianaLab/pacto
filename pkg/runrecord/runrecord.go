@@ -161,10 +161,11 @@ type Record struct {
 	// ActorClass is the class of who raised the operation, never a name.
 	ActorClass string `json:"actorClass,omitempty"`
 	// Delegated is true when the operation named a person it acted for
-	// (onBehalfOf). The person is never recorded.
+	// (onBehalfOf with a user). The person is never recorded.
 	Delegated bool `json:"delegated,omitempty"`
-	// HeldFor is how long the operation last waited on a person, as a Go
-	// duration, when it was held.
+	// HeldFor runs from the operation's last hold until it applied or, when it
+	// never applied, concluded, as a Go duration, when it was held. It
+	// includes waits after the answer: the Stage lock, a freeze and the apply.
 	HeldFor string `json:"heldFor,omitempty"`
 	// ServiceDomain is the domain of the Stage's service, when it has one.
 	ServiceDomain string `json:"serviceDomain,omitempty"`

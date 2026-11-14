@@ -102,6 +102,11 @@ func TestFromOperationDelegated(t *testing.T) {
 	if _, plain := mustBuild(t, goldenInput()); strings.Contains(plain, `"delegated"`) {
 		t.Fatalf("an operation with no onBehalfOf records delegated: %s", plain)
 	}
+	empty := goldenInput()
+	empty.Spec.OnBehalfOf = &delivery.Principal{}
+	if r, _ := mustBuild(t, empty); r.Delegated {
+		t.Fatal("an onBehalfOf that names no user is not delegated")
+	}
 }
 
 func TestFromOperationNoStage(t *testing.T) {

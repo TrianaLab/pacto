@@ -51,7 +51,7 @@ func FromOperation(in OperationInput) (Record, bool) {
 		Outcome: string(st.Outcome), PactoVersion: in.PactoVersion,
 		RecordedAt: in.RecordedAt.UTC().Truncate(time.Second), Environment: p.Environment,
 		Type: path.Base(in.Spec.Type), Verification: string(st.Verification), Reason: reasonCode(st.Reason),
-		ActorClass: string(st.ActorClass), Delegated: in.Spec.OnBehalfOf != nil, HeldFor: heldFor(st.Times), ServiceDomain: p.Service.Domain,
+		ActorClass: string(st.ActorClass), Delegated: in.Spec.OnBehalfOf != nil && in.Spec.OnBehalfOf.User != "", HeldFor: heldFor(st.Times), ServiceDomain: p.Service.Domain,
 		Stage: &StageRef{Namespace: in.Namespace, Name: in.Spec.Stage, Cluster: in.ClusterID},
 		To:    pointerDigest(in.Spec, in.Spec.Params.To), From: pointerDigest(in.Spec, in.Spec.Params.From),
 		Contract: contractDigest(st), Gates: gateResultsOf(st.Verdicts),
@@ -101,8 +101,9 @@ func contractDigest(st delivery.OperationStatus) string {
 	return ""
 }
 
-// heldFor is how long the operation waited on a person: from its hold to the
-// apply an approval allowed, else to its conclusion.
+// heldFor runs from the operation's last hold until it could proceed: to the
+// apply an approval allowed, else to its conclusion. It includes the waits
+// after the answer, on the Stage lock, a freeze and the apply itself.
 // ponytail: Times.Held is the last hold, so a twice-asked operation reports its last wait; keep a running total in status if that matters.
 func heldFor(t delivery.Times) string {
 	held, err := time.Parse(time.RFC3339, t.Held)
