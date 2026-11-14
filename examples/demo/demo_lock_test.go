@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -124,6 +125,43 @@ func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
 	for _, c := range res.Consumers {
 		if c.Effect != impact.EffectBreaks {
 			t.Errorf("%s effect %s via %v", c.Service, c.Effect, c.Path)
+		}
+	}
+}
+
+// TestDemoOfferingUnavailablePostgres: the offering answer lists every
+// consumer each provider's own answer lists, and nothing else; a provider is
+// never its own consumer. shared-config has two providers (and, today, no
+// consumer an availability event reads), so the union runs over the demo too.
+func TestDemoOfferingUnavailablePostgres(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(res *impact.Result) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range res.Consumers {
+			out[c.Domain+"/"+c.Service] = true
+		}
+		return out
+	}
+	for offering, providers := range map[string]int{"postgresql": 1, "shared-config": 2} {
+		res := impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Offering: offering}})
+		if len(res.Providers) != providers {
+			t.Fatalf("%s providers %v", offering, res.Providers)
+		}
+		got, want := names(res), map[string]bool{}
+		for _, p := range res.Providers {
+			for n := range names(impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Service: p}})) {
+				want[n] = true
+			}
+		}
+		for _, p := range res.Providers {
+			d, n := fleet.ParseServiceKey(fleet.ServiceKey(p))
+			delete(want, d+"/"+n)
+		}
+		if (offering == "postgresql" && len(got) == 0) || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: offering consumers %v, provider consumers %v", offering, got, want)
 		}
 	}
 }
@@ -323,5 +361,55 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 		if r[1] != cur.Version {
 			t.Errorf("source_fleet.go runs storefront-web %s, the CLI demo %s", r[1], cur.Version)
 		}
+	}
+}
+
+// TestDemoOfferingRows: on the demo fleet, the only deprecated offering is
+// postgresql, and its row counts the services that consume it. The clock is
+// pinned before postgresql 16.1.0's sunset, so the answer never ages.
+func TestDemoOfferingRows(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
+		t.Errorf("deprecated offerings = %+v", l.Entities)
+	}
+}
+
+// TestDemoOfferingPhaseTallyMatchesDetail: over the CLI demo fleet, the
+// fleet-wide phase tally of the Offerings list is the sum of the tallies each
+// offering page shows, so the figure and the pages never disagree.
+func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Limit: fleet.MaxEntityLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var phases, consumers fleet.PhaseTally
+	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
+		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown}
+	}
+	for _, r := range l.Entities {
+		d, err := q.EntityDetail(fleet.KindOffering, r.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(&phases, d.Offering.Consumers.Phases)
+		add(&consumers, d.Offering.Consumers.PhaseConsumers)
+	}
+	if l.Aggregate.OfferingPhases != phases || l.Aggregate.OfferingPhaseConsumers != consumers || phases == (fleet.PhaseTally{}) {
+		t.Errorf("aggregate %+v / %+v, pages %+v / %+v", l.Aggregate.OfferingPhases, l.Aggregate.OfferingPhaseConsumers, phases, consumers)
 	}
 }

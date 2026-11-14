@@ -88,7 +88,7 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"capability", "domain", "readiness", "scope", "service", "source", "source-health"),
+			"capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
@@ -106,7 +106,7 @@ func fleetRows() []surfaceRow {
 		alike("fleet search", "pacto_fleet_search", "", whySearchRoute, "business-domain", "compliance", "has-capability", "has-dependency", "not-ready", "offering", "ready", "workload"),
 		[]surfaceRow{{"fleet search --label", "pacto_fleet_search.label", "", whySearchRoute}},
 		alike("fleet status", "pacto_fleet_status", "", whyStatusRoute, "golden-path-deployed", "invalid", "limit", "missing-readiness", "needs-attention",
-			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
+			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges", "lifecycle"),
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
 			{"", "", "GET /api/fleet/overview", "the CLI has no overview command and MCP has no overview tool yet (#460 adds pacto_fleet_overview)"},
@@ -149,6 +149,7 @@ func impactRows() []surfaceRow {
 			{"impact --regressed", "", "", "pacto_impact.event and the dashboard's body.event take regressed as a value"},
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
+			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as the event flag's value, offering:<name>"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
 			"stats-context", "stats-file", "stats-registry"),

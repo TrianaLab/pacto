@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -306,5 +307,114 @@ func TestPrintOriginRanking(t *testing.T) {
 		"Plus 2 created from a golden path and hidden by your permissions\n"
 	if buf.String() != want {
 		t.Errorf("origin text = %q, want %q", buf.String(), want)
+	}
+}
+
+// resourcesFixture is a service with one configuration-reference use reported
+// Failed by a signed adapter and one dependency use nothing reported on.
+func resourcesFixture() *fleet.ServiceDetailData {
+	asOf := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	consumption := []fleet.ResourceConsumption{{Environment: "production", State: "not-reported", Provenance: "observed"}}
+	return &fleet.ServiceDetailData{
+		HiddenProviders: 2,
+		ConsumedOfferings: fleet.OfferingUsesPreview{Total: 2, Count: 2, Items: []fleet.OfferingUse{
+			{
+				Offering: "postgresql", Provider: fleet.EntityRef{Label: "postgresql"}, Via: "configuration_reference",
+				ProviderOwner:        &fleet.OwnershipInfo{Owner: "infra-data", Declared: true},
+				ProviderAvailability: &fleet.Availability{State: fleet.AvailabilityDegraded},
+				Requested: []fleet.RequestedConfiguration{{
+					Entry: "database", Configuration: "provisioning", Provenance: "declared",
+					Revision: &fleet.EntityRef{Label: "postgresql 16.1.0", ParentService: "postgresql", Version: "16.1.0"},
+					Values:   fleet.RuntimePreview{Items: []fleet.RuntimeFact{{Key: "size", Value: "medium"}, {Key: "storageGi", Value: "50"}}},
+				}},
+				Provisioning: []fleet.ProvisioningStatus{{
+					Environment: "production", Entry: "database", Phase: "Failed", Provider: "platform-db",
+					ExternalRef: "databases/catalog", Source: "evidence", Verified: true, AsOf: &asOf,
+				}},
+				Consumption: consumption,
+			},
+			{
+				Provider: fleet.EntityRef{Label: "email-provider"}, Via: "dependency", RangeStatus: "satisfied",
+				Provisioning: []fleet.ProvisioningStatus{{Environment: "production", Phase: "Unknown", ReportedPhase: "Ready", Source: "target-state", AsOf: &asOf, Stale: true, Reason: "the last report is older than the provisioning window"}},
+				Consumption:  consumption,
+			},
+		}},
+	}
+}
+
+func printedResources(d *fleet.ServiceDetailData) string {
+	var b bytes.Buffer
+	printResources(&b, d)
+	return b.String()
+}
+
+func TestPrintResourcesProvenance(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	for _, want := range []string{
+		"    production database  Failed  platform-db databases/catalog  signed  asOf 2026-11-01T09:00:00Z\n",
+		"    production  Unknown (reported Ready)  unsigned  asOf 2026-11-01T09:00:00Z: the last report is older than the provisioning window\n",
+		"    owner infra-data, availability degraded\n",
+		"    owner unknown, availability unknown\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintResourcesRequestedDeclared(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	want := "    requested (declared): size=medium storageGi=50, provider postgresql@16.1.0, configuration provisioning\n"
+	if strings.Count(out, "requested (declared)") != 1 || !strings.Contains(out, want) {
+		t.Errorf("resources lack %q once:\n%s", want, out)
+	}
+	d := resourcesFixture()
+	d.ConsumedOfferings.Items[0].Requested[0] = fleet.RequestedConfiguration{Entry: "database", Provenance: "declared"}
+	d.ConsumedOfferings.Items[0].RequestedTruncated = true
+	out = printedResources(d)
+	if !strings.Contains(out, "    requested (declared): none\n") || !strings.Contains(out, "    requested values may be missing: the configurations list was cut\n") {
+		t.Errorf("bare request:\n%s", out)
+	}
+}
+
+func TestPrintResourcesNoOffering(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	for _, want := range []string{"Resources:\n  postgresql (offering postgresql) via configuration_reference\n", "  email-provider (no offering) via dependency, range satisfied\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintResourcesHiddenProviders(t *testing.T) {
+	if out := printedResources(resourcesFixture()); !strings.Contains(out, "  at least 2 resources from providers you may not see\n") {
+		t.Errorf("hidden providers:\n%s", out)
+	}
+	// Only hidden uses still print the block: nothing visible never reads as none.
+	out := printedResources(&fleet.ServiceDetailData{HiddenProviders: 1})
+	if !strings.HasPrefix(out, "Resources:\n  at least 1 resources from providers you may not see\n") {
+		t.Errorf("only hidden:\n%s", out)
+	}
+	if out := printedResources(&fleet.ServiceDetailData{}); out != "" {
+		t.Errorf("no resources printed %q", out)
+	}
+}
+
+func TestPrintResourcesConsumptionNotReported(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	want := "    usage production: not reported by any provider; for live signals ask Mira (query_metric)\n"
+	if strings.Count(out, want) != 2 {
+		t.Errorf("resources lack %q twice:\n%s", want, out)
+	}
+	if got := consumptionText(fleet.ResourceConsumption{State: "unknown", Reason: "stale"}); got != "    usage: unknown: stale" {
+		t.Errorf("other state = %q", got)
+	}
+}
+
+func TestPrintResourcesFooter(t *testing.T) {
+	out := printedResources(resourcesFixture())
+	const footer = "Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it."
+	if !strings.HasSuffix(out, "  "+footer+"\n") || fleet.ResourceActionsNote != footer {
+		t.Errorf("footer:\n%s", out)
 	}
 }

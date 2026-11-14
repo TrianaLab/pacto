@@ -66,13 +66,17 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 		categoryStale:        func(s *StatusQuery) { s.StaleEvidence = true },
 		categoryUnresolved:   func(s *StatusQuery) { s.UnresolvedDeps = true },
 		categoryOutOfRange:   func(s *StatusQuery) { s.UnsatisfiedRanges = true },
+		categoryLifecycle:    func(s *StatusQuery) { s.Lifecycle = true },
 		categoryUndeclared:   func(s *StatusQuery) { s.Undeclared = true },
 		categoryReadiness:    func(s *StatusQuery) { s.MissingReadiness = true },
 		categoryUnowned:      func(s *StatusQuery) { s.Unowned = true },
 		categoryGoldenPath:   func(s *StatusQuery) { s.GoldenPathDeployed = true },
 	}
-	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t)}
+	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t), lifecycleRangeFleet(t)}
 	for _, c := range AttentionCategoriesList() {
+		if c == categoryProvisioning {
+			continue // no flag selects it alone: TestStatusIncludesProvisioning
+		}
 		set, ok := flag[c]
 		if !ok {
 			t.Fatalf("category %q has no status flag", c)

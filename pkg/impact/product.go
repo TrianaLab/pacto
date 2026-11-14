@@ -182,6 +182,11 @@ type Product struct {
 	// Templates are the golden paths that reference the changed service's
 	// policy, as [Result.Templates]: listed to review, never consumers.
 	Templates fleet.RefPreview `json:"templates" doc:"The golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate. Review each"`
+	// Offering and Providers name the offering of an offering event and its
+	// visible providers, each with its owner; Service is then the offering's
+	// own reference.
+	Offering  *fleet.EntityRef  `json:"offering,omitempty" doc:"The platform offering an offering event is about; service is then the same offering reference"`
+	Providers []fleet.EntityRef `json:"providers,omitempty" doc:"The services that provide the offering of an offering event, each with its owner"`
 	// ChangedOwner is the changed service's own owner.
 	ChangedOwner *fleet.EntityRef `json:"changedOwner,omitempty" doc:"A reference to the changed service's owner"`
 	// Gate and GateReason are the release gate of the analysis, as
@@ -292,9 +297,8 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 	for _, tk := range res.ActiveTargets {
 		targets = append(targets, targetRef(snap, tk))
 	}
-	return &Product{
+	p := &Product{
 		Meta: meta, SnapshotID: snap.SnapshotID, SnapshotMatch: true,
-		Service:        serviceRef(snap, svcKey),
 		OldRevision:    revisionRef(fromRev),
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
@@ -309,6 +313,26 @@ func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcK
 		GateReason:     res.GateReason,
 		Event:          res.Event,
 		Regression:     slices.Clone(res.Regression),
+	}
+	p.setSubject(snap, svcKey, res)
+	return p
+}
+
+// setSubject sets the service the answer is about or, for an offering event,
+// the offering's own reference and its providers.
+func (p *Product) setSubject(snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, res *Result) {
+	if res.Event == nil || res.Event.Offering == "" {
+		p.Service = serviceRef(snap, svcKey)
+		return
+	}
+	ref := fleet.OfferingRef(snap, res.Event.Offering)
+	p.Service, p.Offering = ref, &ref
+	for _, k := range res.Providers {
+		pr := serviceRef(snap, fleet.ServiceKey(k))
+		if s := snap.Services[fleet.ServiceKey(k)]; s != nil {
+			pr.Owner = s.Owner.DisplayString()
+		}
+		p.Providers = append(p.Providers, pr)
 	}
 }
 

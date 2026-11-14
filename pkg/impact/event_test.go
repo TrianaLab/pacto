@@ -378,8 +378,9 @@ func TestEventRemovedResources(t *testing.T) {
 	if c.ResourcesTotal != 3 || !reflect.DeepEqual(phases, []string{"production=Ready/fresh", "staging=Unknown/stale", "=Unknown/fresh"}) {
 		t.Errorf("resources %v (%d)", phases, c.ResourcesTotal)
 	}
-	if res := event(pgProvisioned(t, "production"), EventUnavailable, "postgresql"); len(onlyConsumer(t, res).Resources) != 0 {
-		t.Errorf("unavailable named resources")
+	// An unavailable provider leaves the same resources unserved.
+	if res := event(pgProvisioned(t, "production"), EventUnavailable, "postgresql"); onlyConsumer(t, res).ResourcesTotal != 2 {
+		t.Errorf("unavailable resources %+v", onlyConsumer(t, res).Resources)
 	}
 	many := make([]fleet.ProvisioningStatus, MaxConsumerResources+3)
 	for i := range many {

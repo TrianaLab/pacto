@@ -390,6 +390,20 @@ type EntityAggregate struct {
 	Offerings     []TypeCount `json:"offerings,omitempty"`
 	OfferingTypes int         `json:"offeringTypes,omitempty"`
 	OfferingCount int         `json:"offeringCount"`
+	// OfferingPhases counts the provisioning statuses of every use of the
+	// matched offerings by phase, the sum of each offering's Consumers.Phases;
+	// Unknown is the requests no provider reported a phase for.
+	// OfferingPhaseConsumers counts the distinct consumer and offering pairs
+	// with a status in each phase, summed over the matched offerings: the
+	// population the consumes and phase filters list.
+	OfferingPhases         PhaseTally `json:"offeringPhases"`
+	OfferingPhaseConsumers PhaseTally `json:"offeringPhaseConsumers"`
+	// FailedByOffering ranks the matched offerings by their distinct
+	// consumers with a Failed status (Services counts those consumers), most
+	// first then by name, bounded to maxFailedOfferings;
+	// FailedOfferingsBeyond is how many more offerings have one.
+	FailedByOffering      []TypeCount `json:"failedByOffering,omitempty"`
+	FailedOfferingsBeyond int         `json:"failedOfferingsBeyond,omitempty"`
 	// Origins partitions the matched services that are no golden path by the
 	// golden path they were created from.
 	Origins OriginTally `json:"origins"`
@@ -546,12 +560,13 @@ func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
 // aggregate tallies the complete matched population. refs are the filtered
 // references BEFORE paging, which is the whole point: this is the denominator the
 // page is a slice of.
-func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
+func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
+	var offeringNames []string
 	byOwner := map[string]*OwnerCount{}
 	byDomain := map[string]*DomainCount{}
 	present := map[string]bool{}
-	capabilities, offerings := map[string]int{}, map[string]int{}
+	capabilities, provided := map[string]int{}, map[string]int{}
 	byPath := map[string]*OriginCount{}
 	for _, r := range refs {
 		switch r.Kind {
@@ -565,7 +580,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 				capabilities[c]++
 			}
 			if s.Offering != "" {
-				offerings[s.Offering]++
+				provided[s.Offering]++
 			}
 			agg.tallyOwner(q.ownerClaimsOf(s), s, nc, byOwner, present)
 			if !s.Template {
@@ -585,6 +600,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Domains++
 		case KindOffering:
 			agg.OfferingCount++
+			offeringNames = append(offeringNames, r.Key)
 		}
 	}
 	agg.RankedOwners = len(byOwner)
@@ -594,7 +610,8 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg.NonCompliantByOwner, agg.NonCompliantBeyondRanking, agg.NonCompliantOwners = rankNonCompliantOwners(byOwner)
 	agg.NonCompliantByDomain, agg.NonCompliantDomainsBeyond, agg.NonCompliantDomains = rankNonCompliantDomains(byDomain)
 	agg.Capabilities, agg.CapabilityTypes = typeFacet(capabilities)
-	agg.Offerings, agg.OfferingTypes = typeFacet(offerings)
+	agg.Offerings, agg.OfferingTypes = typeFacet(provided)
+	tallyOfferingPhases(&agg, offeringNames, offerings)
 	q.rankPaths(&agg.Origins, byPath)
 	return agg
 }

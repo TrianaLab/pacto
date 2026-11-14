@@ -480,7 +480,7 @@
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
     <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
+      limit={route.params.limit || ''} lifecycle={route.params.lifecycle || ''} failed={route.params.failed || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-golden-paths'}
     <LazyView load={loadFleetGoldenPathsView} text={route.params.text || ''} offset={route.params.offset || ''}
