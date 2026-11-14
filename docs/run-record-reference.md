@@ -87,7 +87,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | --- | --- | --- | --- |
 | `version` | string | always | `pacto.trianalab.io/run-record/v1` |
 | `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it |
-| `kind` | string | always | `diff`, `impact` or `publish` |
+| `kind` | string | always | `diff`, `impact` or `publish`, or `operation` for an [operation record](#operation-records) |
 | `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
@@ -110,7 +110,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second |
 | `repository` | string | when named | see [context fields](#context-fields) |
 | `ciRunUrl` | string | when named | see [context fields](#context-fields) |
-| `environment` | string | when named | see [context fields](#context-fields) |
+| `environment` | string | when named | see [context fields](#context-fields); on an operation record, the environment its Stage delivers to |
 
 The four consumer counts `incompatible`, `unknown`, `compatible` and
 `unclassified` split the consumers with no overlap, so a reader never has to
@@ -125,6 +125,41 @@ bundle, so its digest names no published bundle.
 
 A record never holds a person's name, an email address, a token or any
 environment variable it does not name here.
+
+### Operation records
+
+The delivery promoter writes an `operation` record for each delivery operation
+it concludes. Its `id` is the operation's Kubernetes UID, so a record written
+twice is one record, and its `outcome` is the operation's outcome: `Succeeded`,
+`Failed`, `Errored`, `Cancelled`, `Expired`, `Rejected`, `Superseded` or
+`Witnessed`. An operation record never holds the CI-only keys above
+(`oldRevision` through `asOf`, `repository` and `ciRunUrl`), and a CI record
+never holds the keys below.
+
+| Key | Type | Present | Holds |
+| --- | --- | --- | --- |
+| `type` | string | always | the last segment of the operation type, such as `promote` or `rollback` |
+| `verification` | string | when set | `Verified`, `AcceptedUnknown` or `Unverified` |
+| `reason` | string | when it is a plain code | the outcome's machine code, such as `PlanStale` |
+| `actorClass` | string | when set | `controller`, `agent`, `human` or `break-glass`, never a name |
+| `heldFor` | string | when the operation was held | how long it last waited on a person, as a Go duration such as `14m0s` |
+| `serviceDomain` | string | when the Stage's service has one | the domain of the Stage's service |
+| `stage` | object | always | the Stage the operation ran on |
+| `stage.namespace` | string | always | the Stage's namespace |
+| `stage.name` | string | always | the Stage's name |
+| `stage.cluster` | string | always | the cluster's id: its `kube-system` namespace UID |
+| `to` | string | pointer operations, when a digest | the digest the operation moves to |
+| `from` | string | pointer operations, when a digest | the digest the operation moves from |
+| `contract` | string | when a gate cited one | the contract digest a gate cited |
+| `gates` | array | when gates ran | one entry per gate result, in order |
+| `gates.gate` | string | with `gates` | the gate id |
+| `gates.phase` | string | with `gates` | `pre` or `verify` |
+| `gates.result` | string | with `gates` | `Pass`, `Fail` or `Unknown` |
+| `startedAt` | string | when admitted | when the operation was admitted, RFC 3339 |
+| `finishedAt` | string | always | when the operation concluded, RFC 3339 |
+
+`service` is the service the Stage declares. An operation record holds no
+actor, approver, note, message, citation or correlation id.
 
 ### Impact gate codes
 
