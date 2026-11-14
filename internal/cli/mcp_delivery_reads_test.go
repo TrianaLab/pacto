@@ -175,16 +175,11 @@ func listingOf(t *testing.T, text string) listing {
 
 func TestDeliveryReadsCarryListing(t *testing.T) {
 	session := mcpReadServer(t, readDeps(nil), nil)
-	for _, route := range []string{"environments", "published"} {
+	for _, route := range []string{"inbox", "environments", "published"} {
 		text, _ := callText(t, session, "pacto_delivery_"+route, map[string]any{})
 		l := listingOf(t, text)
 		expect(t, l.AsOf != "" && l.Completeness == "complete", "%s: %+v", route, l)
 	}
-	// Without --fleet no owner is known: the inbox shows every Stage as the
-	// caller's and says so, never as a complete answer.
-	text, _ := callText(t, session, "pacto_delivery_inbox", map[string]any{})
-	l := listingOf(t, text)
-	expect(t, l.AsOf != "" && l.Completeness == "partial" && len(l.Unreadable) == 1 && strings.HasPrefix(l.Unreadable[0], "owners: no fleet snapshot"), "inbox: %+v", l)
 	forbidProd := func(f *dynamicfake.FakeDynamicClient) {
 		f.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
 			if a.GetNamespace() == "prod" {
@@ -197,7 +192,7 @@ func TestDeliveryReadsCarryListing(t *testing.T) {
 	for _, route := range []string{"inbox", "environments", "published"} {
 		text, _ := callText(t, session, "pacto_delivery_"+route, map[string]any{})
 		l := listingOf(t, text)
-		expect(t, l.Completeness == "partial" && len(l.Unreadable) > 0 && l.Unreadable[0] == "prod", "%s: %+v", route, l)
+		expect(t, l.Completeness == "partial" && slices.Equal(l.Unreadable, []string{"prod"}), "%s: %+v", route, l)
 	}
 }
 
