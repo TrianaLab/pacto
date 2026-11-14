@@ -116,3 +116,11 @@ func TestEncodeRefusesInvalid(t *testing.T) {
 		t.Fatal("encoded an unknown kind")
 	}
 }
+
+func TestEncodeRejectsOversize(t *testing.T) {
+	r := Record{Version: Version, ID: ID(KindDiff, "s", "", ""), Kind: KindDiff, Service: "s", Outcome: OutcomePassed,
+		RecordedAt: time.Now(), Environment: strings.Repeat("x", MaxRecordBytes)}
+	if _, err := Encode(r); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("encoded a record Parse refuses: %v", err)
+	}
+}

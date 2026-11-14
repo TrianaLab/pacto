@@ -82,13 +82,16 @@ type Gate struct {
 }
 
 // Consumers counts an impact run's consumers. The first four are a disjoint
-// partition: every consumer is in exactly one of them.
+// partition: every consumer is in exactly one of them. Every count comes from
+// declared ranges and guarantees: none of them is observed runtime behaviour.
 type Consumers struct {
-	// Incompatible consumers break on the change.
+	// Incompatible consumers declare a range or a required guarantee that
+	// rejects the new version, whether they run anywhere or not.
 	Incompatible int `json:"incompatible"`
 	// Unknown consumers could not be classified from the evidence.
 	Unknown int `json:"unknown"`
-	// Compatible consumers keep working.
+	// Compatible consumers declare a range that accepts the new version; a
+	// BREAKING change can still break them.
 	Compatible int `json:"compatible"`
 	// Unclassified consumers carry no recognised verdict.
 	Unclassified int `json:"unclassified"`
@@ -107,12 +110,15 @@ type Record struct {
 	// Service is the contract's service.name.
 	Service string `json:"service"`
 	// OldRevision is the old bundle digest (diff, impact) or the published
-	// baseline version (publish), when there is one.
+	// baseline version (publish), when there is one. A bundle digest is of
+	// the content compared, after any value overrides, so an overridden
+	// bundle's digest names no published bundle.
 	OldRevision string `json:"oldRevision,omitempty"`
 	// NewRevision is the new bundle digest (diff, impact) or the version
 	// being published (publish).
 	NewRevision string `json:"newRevision,omitempty"`
-	// BundleDigest is the published bundle's digest (publish only).
+	// BundleDigest is the published bundle's digest (publish only, when the
+	// run did not fail).
 	BundleDigest string `json:"bundleDigest,omitempty"`
 	// DeployDigest is the published deploy artifact's digest (publish only).
 	DeployDigest string `json:"deployDigest,omitempty"`
@@ -163,7 +169,11 @@ func Encode(r Record) ([]byte, error) {
 	if err := validate(r); err != nil {
 		return nil, err
 	}
-	return json.Marshal(r)
+	data, err := json.Marshal(r)
+	if err == nil && len(data) > MaxRecordBytes {
+		return nil, fmt.Errorf("run record is larger than %d bytes", MaxRecordBytes)
+	}
+	return data, err
 }
 
 // Parse strictly decodes one record of at most [MaxRecordBytes] and checks its
