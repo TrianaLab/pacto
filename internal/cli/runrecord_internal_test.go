@@ -140,7 +140,8 @@ func recordCases(t *testing.T) []recCase {
 		Digests: map[string]string{publish.BundleItem: "sha256:b"}, Deploy: "reg/deploy@sha256:d"}
 	published.Plan.Baseline, published.Plan.Classification = "0.9.0", "NON_BREAKING"
 	unchanged := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}}
-	failed := &publish.Result{Plan: publishPlan(true), Deploy: "reg/deploy@sha256:d"}
+	// apply fills the bundle digest before it pushes, so a failed push still carries it.
+	failed := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{publish.BundleItem: "sha256:b"}, Deploy: "reg/deploy@sha256:d"}
 	return append([]recCase{
 		{name: "diff breaking", d: defaultDeps, args: []string{"diff", brOld, brNew},
 			want: runrecord.Record{Kind: runrecord.KindDiff, Service: "renamed-svc", Classification: "BREAKING", Outcome: runrecord.OutcomeFailed}},
@@ -377,8 +378,11 @@ func TestRunRecordStatsFileWrites(t *testing.T) {
 	statsOff(t)
 	file := filepath.Join(t.TempDir(), "run.json")
 	old, new := diffDirs(t, true)
-	for range 2 { // the second run replaces the first run's record
+	for i := range 2 { // the second run replaces the first run's record, and says so
 		_, stderr, _ := runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
+		if replaced := strings.Contains(stderr, "pacto: warning: replaced the run record of diff renamed-svc in "+file); replaced != (i == 1) {
+			t.Fatalf("run %d: stderr %s", i, stderr)
+		}
 		data, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("%v\n%s", err, stderr)
@@ -405,11 +409,11 @@ func TestRunRecordStatsFileNeverClobbers(t *testing.T) {
 
 func TestWriteRecordFileErrors(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeRecordFile(dir, []byte("{}")); err == nil {
+	if _, err := writeRecordFile(dir, []byte("{}")); err == nil {
 		t.Fatal("wrote over a directory")
 	}
 	notDir := writeTemp(t, "f", []byte("x"))
-	if err := writeRecordFile(filepath.Join(notDir, "run.json"), []byte("{}")); err == nil {
+	if _, err := writeRecordFile(filepath.Join(notDir, "run.json"), []byte("{}")); err == nil {
 		t.Fatal("wrote below a file")
 	}
 }
@@ -426,7 +430,7 @@ func TestRunRecordInvalidRecordWarns(t *testing.T) {
 	var calls []statsCall
 	rec := newRunRecorder("dev", recDeps(deps{}, &calls, nil))
 	out := &runrecord.Record{Kind: runrecord.KindDiff, Outcome: runrecord.OutcomePassed} // no service
-	rec.save(cmd, &out)
+	rec.save(cmd, &out, nil)
 	if len(calls) != 0 || strings.Count(stderr.String(), "service is empty") != 2 {
 		t.Fatalf("calls %d, stderr %s", len(calls), stderr)
 	}
@@ -604,5 +608,56 @@ func TestRunRecordBadContextNeverFails(t *testing.T) {
 		bytes.Contains(data, []byte("actor")) || bytes.Contains(data, []byte("alice")) ||
 		!bytes.Contains(data, []byte(`"repository":"acme/payments"`)) || bytes.Contains(data, []byte("ciRunUrl")) {
 		t.Fatalf("stderr %s\nrecord %s", stderr, data)
+	}
+}
+
+// A file made in advance (mktemp, touch) is empty, holds nothing and is written.
+func TestRunRecordStatsFileEmpty(t *testing.T) {
+	statsOff(t)
+	file := writeTemp(t, "run.json", nil)
+	old, new := diffDirs(t, false)
+	_, stderr, _ := runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
+	data, _ := os.ReadFile(file)
+	if _, err := runrecord.Parse(data); err != nil || strings.Contains(stderr, "warning") {
+		t.Fatalf("%v: stderr %s", err, stderr)
+	}
+}
+
+// An explicit empty flag turns its env var off for that one command.
+func TestRunRecordEmptyFlagOverridesEnv(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "run.json")
+	t.Setenv("PACTO_STATS_REGISTRY", "reg/env")
+	t.Setenv("PACTO_STATS_FILE", file)
+	old, new := diffDirs(t, false)
+	var calls []statsCall
+	_, stderr, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "diff", old, new, "--stats-registry=", "--stats-file=")
+	if _, ferr := os.Stat(file); err != nil || ferr == nil || len(calls) != 0 || strings.Contains(stderr, "run record") {
+		t.Fatalf("err %v, file %v, calls %+v, stderr %s", err, ferr, calls, stderr)
+	}
+	rec := fixture(t, "impact-blocked.json")
+	if _, _, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "stats", "publish", "--registry=", rec); !errors.Is(err, errNoStatsRegistry) || len(calls) != 0 {
+		t.Fatalf("stats publish: err %v, calls %d", err, len(calls))
+	}
+}
+
+// A bundle whose digest cannot be computed records nothing: an empty revision
+// would merge unrelated changes under one id.
+func TestRunRecordDigestErrorRecordsNothing(t *testing.T) {
+	statsOff(t)
+	old, new := diffDirs(t, false)
+	locked := filepath.Join(new, "locked")
+	if err := os.WriteFile(locked, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := os.Open(locked); err == nil {
+		_ = f.Close()
+		t.Skip("running as a user that reads a mode-000 file")
+	}
+	file := filepath.Join(t.TempDir(), "run.json")
+	var calls []statsCall
+	_, stderr, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "diff", old, new, "--stats-file", file, "--stats-registry", "reg/x")
+	if _, ferr := os.Stat(file); err != nil || ferr == nil || len(calls) != 0 ||
+		strings.Count(stderr, "pacto: warning: run record not written: could not compute the bundle digest") != 1 {
+		t.Fatalf("err %v, file %v, calls %d, stderr %s", err, ferr, len(calls), stderr)
 	}
 }

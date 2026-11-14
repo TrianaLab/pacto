@@ -23,8 +23,8 @@ func newDiffCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *cobra.C
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var out *runrecord.Record
-			defer rec.save(cmd, &out)
 			var revs revisions
+			defer rec.save(cmd, &out, &revs)
 			oldOverrides, newOverrides := getDiffOverrides(cmd)
 			format := v.GetString(outputFormatKey)
 

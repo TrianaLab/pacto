@@ -58,25 +58,31 @@ func newRunRecorder(version string, d deps) *runRecorder {
 // never bound to viper: viper reads ./pacto.yaml, the contract, as config.
 func addStatsFlags(cmd *cobra.Command) {
 	cmd.Flags().String("stats-registry", "", "publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY")
-	cmd.Flags().String("stats-file", "", "write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE")
+	cmd.Flags().String("stats-file", "", "write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE")
 	cmd.Flags().String("stats-context", "", "comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named")
 }
 
-// statsTargets is where the run record goes: each flag, else its env.
+// statsTargets is where the run record goes: each flag when set, even to
+// empty, else its env.
 func statsTargets(cmd *cobra.Command) (registry, file string) {
-	registry, _ = cmd.Flags().GetString("stats-registry")
-	file, _ = cmd.Flags().GetString("stats-file")
-	if registry == "" {
-		registry = os.Getenv("PACTO_STATS_REGISTRY")
-	}
-	if file == "" {
-		file = os.Getenv("PACTO_STATS_FILE")
-	}
-	return registry, file
+	return flagOrEnv(cmd, "stats-registry", "PACTO_STATS_REGISTRY"), flagOrEnv(cmd, "stats-file", "PACTO_STATS_FILE")
 }
 
-// revisions identifies a change: the service and both bundle digests.
-type revisions struct{ service, old, new string }
+// flagOrEnv is the flag's value when it was set, even to empty, else env's.
+func flagOrEnv(cmd *cobra.Command, flag, env string) string {
+	if cmd.Flags().Changed(flag) {
+		v, _ := cmd.Flags().GetString(flag)
+		return v
+	}
+	return os.Getenv(env)
+}
+
+// revisions identifies a change: the service and both bundle digests. err is
+// why a digest could not be computed; the run then records nothing.
+type revisions struct {
+	service, old, new string
+	err               error
+}
 
 // hook fills revs once both bundles resolve. It is nil when recording is off,
 // so a run without recording computes no digest.
@@ -86,9 +92,10 @@ func (r *runRecorder) hook(cmd *cobra.Command, revs *revisions) func(old, new *c
 	}
 	return func(old, new *contract.Bundle) {
 		revs.service = new.Contract.Service.Name
-		// A digest error leaves that revision empty; the run still counts.
-		revs.old, _ = oci.BundleDigest(old)
-		revs.new, _ = oci.BundleDigest(new)
+		var oerr, nerr error
+		revs.old, oerr = oci.BundleDigest(old)
+		revs.new, nerr = oci.BundleDigest(new)
+		revs.err = errors.Join(oerr, nerr)
 	}
 }
 
@@ -132,7 +139,7 @@ var impactOutcomes = map[string]string{
 func publishRecord(res *publish.Result, err error) *runrecord.Record {
 	p := res.Plan
 	rec := &runrecord.Record{Kind: runrecord.KindPublish, Service: p.Service, OldRevision: p.Baseline, NewRevision: p.Version,
-		BundleDigest: res.Digests[publish.BundleItem], Classification: p.Classification}
+		Classification: p.Classification}
 	switch {
 	case err == nil && len(res.Actions) > 0:
 		rec.Outcome = runrecord.OutcomePublished
@@ -144,7 +151,8 @@ func publishRecord(res *publish.Result, err error) *runrecord.Record {
 	default:
 		rec.Outcome = runrecord.OutcomeFailed
 	}
-	if err == nil {
+	if err == nil { // a failed run may hold the digest of a bundle it never wrote
+		rec.BundleDigest = res.Digests[publish.BundleItem]
 		_, rec.DeployDigest, _ = strings.Cut(res.Deploy, "@")
 	}
 	return rec
@@ -167,10 +175,16 @@ func refusalReason(p publish.Plan) string {
 }
 
 // save writes and publishes *rec when it is set and a target is. Deferred at
-// the top of RunE, it runs after the return value is chosen and never touches it.
-func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record) {
+// the top of RunE, it runs after the return value is chosen and never touches
+// it. revs, nil for publish, carries a digest error that drops the record.
+func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record, revs *revisions) {
 	reg, file := statsTargets(cmd)
 	if *rec == nil || (reg == "" && file == "") {
+		return
+	}
+	w := cmd.ErrOrStderr()
+	if revs != nil && revs.err != nil {
+		_, _ = fmt.Fprintf(w, "pacto: warning: run record not written: could not compute the bundle digest: %v\n", revs.err)
 		return
 	}
 	out := **rec
@@ -178,7 +192,6 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record) {
 	out.ID = runrecord.ID(out.Kind, out.Service, out.OldRevision, out.NewRevision)
 	out.PactoVersion = r.version
 	out.RecordedAt = r.now().UTC().Truncate(time.Second)
-	w := cmd.ErrOrStderr()
 	spec, _ := cmd.Flags().GetString("stats-context")
 	var warns []string
 	out.Repository, out.CIRunURL, out.Environment, warns = statsContext(spec, os.Getenv)
@@ -187,9 +200,13 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record) {
 	}
 	data, err := runrecord.Encode(out)
 	if file != "" {
-		if err := unlessErr(err, func() error { return writeRecordFile(file, data) }); err != nil {
+		var replaced *runrecord.Record
+		if err := unlessErr(err, func() (werr error) { replaced, werr = writeRecordFile(file, data); return werr }); err != nil {
 			_, _ = fmt.Fprintf(w, "pacto: warning: run record not written: %v\n", err)
 		} else {
+			if replaced != nil {
+				_, _ = fmt.Fprintf(w, "pacto: warning: replaced the run record of %s %s in %s\n", replaced.Kind, replaced.Service, file)
+			}
 			_, _ = fmt.Fprintf(w, "pacto: run record written to %s\n", file)
 		}
 	}
@@ -212,22 +229,28 @@ func unlessErr(err error, next func() error) error {
 	return next()
 }
 
-// writeRecordFile writes data to path, refusing to overwrite a file that
-// holds something other than a run record.
-func writeRecordFile(path string, data []byte) error {
+// writeRecordFile writes data to path and returns the run record it replaced,
+// if any. It refuses to overwrite a file that holds something other than a run
+// record; an empty file holds nothing and is written like a missing one.
+func writeRecordFile(path string, data []byte) (*runrecord.Record, error) {
+	var replaced *runrecord.Record
 	if f, err := os.Open(path); err == nil {
 		old, rerr := io.ReadAll(io.LimitReader(f, runrecord.MaxRecordBytes+1))
 		_ = f.Close()
 		if rerr != nil {
-			return rerr
+			return nil, rerr
 		}
-		if _, perr := runrecord.Parse(old); perr != nil {
-			return fmt.Errorf("%s holds something other than a run record; it was left untouched", path)
+		if len(old) > 0 {
+			prev, perr := runrecord.Parse(old)
+			if perr != nil {
+				return nil, fmt.Errorf("%s holds something other than a run record; it was left untouched", path)
+			}
+			replaced = &prev
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return replaced, os.WriteFile(path, data, 0o644)
 }
 
 // statsContext reads the context fields spec names, each from the CI

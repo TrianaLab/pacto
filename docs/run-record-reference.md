@@ -22,8 +22,12 @@ A flag takes precedence over its environment variable. The repository is never
 defaulted, and these settings are never read from `pacto.yaml`. Credentials and
 insecure registries come from the same settings every other registry command
 uses (`PACTO_INSECURE_REGISTRIES` lists registries reached over plain HTTP).
-`--stats-file` refuses to overwrite a file that holds something other than a run
-record.
+An empty flag, such as `--stats-file=`, turns its environment variable off for
+that command. A file holds one record: `--stats-file` replaces the record a file
+already holds, with a warning, and writes an empty file like a missing one. It
+refuses to overwrite a file that holds something other than a run record.
+`PACTO_STATS_FILE` applies to every recording command in the job, so give each
+command its own file with `--stats-file` when a job runs more than one.
 
 Recording prints one of these lines on stderr:
 
@@ -31,6 +35,10 @@ Recording prints one of these lines on stderr:
 - `pacto: run record written to <path>`
 - `pacto: warning: run record not published: <reason>`
 - `pacto: warning: run record not written: <reason>`
+- `pacto: warning: replaced the run record of <kind> <service> in <path>`
+
+A `diff` or `impact` run whose bundle digest cannot be computed records nothing
+and says `run record not written: could not compute the bundle digest`.
 
 `pacto stats publish <file...>` publishes record files to `--registry` (or
 `PACTO_STATS_REGISTRY`). It tries every file, prints the kind, service and id
@@ -83,16 +91,16 @@ and `recordedAt`. The other keys appear only where the table says.
 | `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
-| `bundleDigest` | string | `publish`, when written | the digest of the published bundle |
+| `bundleDigest` | string | `publish`, when it did not fail | the digest of the published bundle |
 | `deployDigest` | string | `publish`, when it did not fail | the digest of the published deploy artifact |
 | `classification` | string | when computed | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` |
 | `gate` | object | `impact`, refused `publish` | the gate the run reached |
 | `gate.verdict` | string | with `gate` | `impact`: `clear`, `blocked` or `unverified`. `publish`: `refused` |
 | `gate.reason` | string | with `gate` | `impact`: a [gate code](#impact-gate-codes). `publish`: the first failed check (`version`, `sign`, `refs`, `sbom`, `revision`, `validation` or `publish`), else `conflict` or `unreadable` |
 | `consumers` | object | `impact` | consumer counts of the change |
-| `consumers.incompatible` | integer | with `consumers` | consumers that break on the change |
+| `consumers.incompatible` | integer | with `consumers` | consumers whose declared range or required guarantee rejects the new version, running or not |
 | `consumers.unknown` | integer | with `consumers` | consumers the evidence could not classify |
-| `consumers.compatible` | integer | with `consumers` | consumers that keep working |
+| `consumers.compatible` | integer | with `consumers` | consumers whose declared range accepts the new version; a `BREAKING` change can still break them |
 | `consumers.unclassified` | integer | with `consumers` | consumers with no recognised verdict |
 | `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target |
 | `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was |
@@ -106,9 +114,14 @@ and `recordedAt`. The other keys appear only where the table says.
 
 The four consumer counts `incompatible`, `unknown`, `compatible` and
 `unclassified` split the consumers with no overlap, so a reader never has to
-subtract one count from another. An `unknown` consumer is never counted as
-safe. `blocking` is a subset of `incompatible`. Read the counts together with
+subtract one count from another. The counts come from declared ranges and
+guarantees; none of them is observed runtime behaviour. An `unknown` consumer is
+never counted as safe. `blocking` is a subset of `incompatible`. Read the counts together with
 `completeness` and `asOf`: a count from a partial snapshot is a lower bound.
+
+A bundle digest is the digest of the content compared. With `--old-set`,
+`--new-set`, `--old-values` or `--new-values`, that content is the overridden
+bundle, so its digest names no published bundle.
 
 A record never holds a person's name, an email address, a token or any
 environment variable it does not name here.
@@ -160,6 +173,10 @@ delivery and evidence records never fall back. The fallback has two caveats:
 - the index grows with every record until the registry's manifest size limit,
   after which publishing warns. [Prune](#prune-records) old records to keep it
   small.
+
+Each publish replaces the index and leaves the previous one untagged instead of
+deleting it, because GHCR and `distribution`'s default configuration refuse a
+manifest delete. A registry that collects untagged manifests removes them.
 
 ## Record in CI
 
@@ -217,6 +234,10 @@ Pacto does not delete records. List a service's records with `oras` and delete
 the ones you no longer need:
 
 ```shell
-oras discover ghcr.io/acme/pacto-stats:pacto-stats-$(printf payments | shasum -a 256 | cut -d' ' -f1)
-oras manifest delete ghcr.io/acme/pacto-stats@sha256:<record digest>
+oras discover registry.example.com/acme/pacto-stats:pacto-stats-$(printf payments | shasum -a 256 | cut -d' ' -f1)
+oras manifest delete registry.example.com/acme/pacto-stats@sha256:<record digest>
 ```
+
+GHCR refuses a manifest delete through the registry API. Delete a record there
+as a package version, in the package settings on GitHub or with the
+[REST API for packages](https://docs.github.com/en/rest/packages/packages).

@@ -73,8 +73,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder
 		Args: impactArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var out *runrecord.Record
-			defer rec.save(cmd, &out)
 			var revs revisions
+			defer rec.save(cmd, &out, &revs)
 			format := v.GetString(outputFormatKey)
 			includeObserved, _ := cmd.Flags().GetBool("include-observed")
 			var traces []byte

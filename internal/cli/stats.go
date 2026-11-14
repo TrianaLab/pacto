@@ -26,7 +26,6 @@ func newStatsCommand(d deps) *cobra.Command {
 }
 
 func newStatsPublishCommand(d deps) *cobra.Command {
-	var repo string
 	cmd := &cobra.Command{
 		Use:   "publish <file...>",
 		Short: "Publish run record files to a stats registry",
@@ -35,9 +34,7 @@ func newStatsPublishCommand(d deps) *cobra.Command {
 			"The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if repo == "" {
-				repo = os.Getenv("PACTO_STATS_REGISTRY")
-			}
+			repo := flagOrEnv(cmd, "registry", "PACTO_STATS_REGISTRY")
 			if repo == "" {
 				return errNoStatsRegistry
 			}
@@ -56,7 +53,7 @@ func newStatsPublishCommand(d deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "registry", "", "stats repository to publish to (default $PACTO_STATS_REGISTRY)")
+	cmd.Flags().String("registry", "", "stats repository to publish to (default $PACTO_STATS_REGISTRY)")
 	return cmd
 }
 

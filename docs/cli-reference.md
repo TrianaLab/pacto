@@ -601,7 +601,7 @@ pacto diff <old> <new> [flags]
       --old-set stringArray      set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray   values file to merge into the old contract (can be repeated)
       --stats-context string     comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string        write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-file string        write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string    publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
 ```
 
@@ -1228,7 +1228,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string               write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
@@ -1692,7 +1692,7 @@ pacto publish [dir] [flags]
       --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
       --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
       --stats-context string       comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
-      --stats-file string          write the run record to this file for pacto stats publish; default $PACTO_STATS_FILE
+      --stats-file string          write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string      publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --values stringArray         values file to merge into the contract (can be repeated; last wins)
 ```

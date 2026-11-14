@@ -45,7 +45,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorde
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var out *runrecord.Record
-			defer rec.save(cmd, &out)
+			defer rec.save(cmd, &out, nil)
 			path, propose, ns, stage, err := publishArgs(cmd, args)
 			if err != nil {
 				return err
