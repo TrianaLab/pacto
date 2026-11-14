@@ -15,6 +15,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
@@ -744,6 +745,7 @@ func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
 	expect(t, !strings.Contains(stderr.String(), schemaOnlyLine), "no contract tools, no line: %s", stderr.String())
 	// Remote delivery serves per request and offers only pacto_schema too.
 	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
 	dcmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = dcmd.Flags().Set("delivery", "true")
