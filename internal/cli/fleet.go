@@ -67,7 +67,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	f.AddFlagSet(shared)
 }
 
@@ -167,8 +167,17 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 
 // warnPartial prints a completeness warning and each limitation to stderr for
 // text output, so a partial answer is never silently presented as complete.
+//
+// A complete answer prints nothing, except a note when freshness was not
+// checked: that limitation never makes an answer partial, yet a stale count of
+// zero must not read as "nothing is stale".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
+		for _, l := range m.Limitations {
+			if l.Code == fleet.LimitationFreshnessNotEvaluated {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+			}
+		}
 		return
 	}
 	w := cmd.ErrOrStderr()

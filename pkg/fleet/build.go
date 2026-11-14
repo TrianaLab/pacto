@@ -55,6 +55,11 @@ type BuildOptions struct {
 	// Concurrency bounds simultaneous source Collect calls. Defaults to
 	// min(8, len(sources)).
 	Concurrency int
+	// DiscloseUncheckedFreshness, when FreshnessWindow is zero, adds the
+	// LimitationFreshnessNotEvaluated snapshot limitation so every answer says
+	// evidence age was not checked. The delivery planner leaves it false because
+	// impact applies its own 24h rule.
+	DiscloseUncheckedFreshness bool
 }
 
 // Build composes an immutable [FleetSnapshot] from the given sources. It calls
@@ -145,6 +150,12 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	matchProvisioning(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
+	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
+		snap.Limitations = append(snap.Limitations, Limitation{
+			Code:    LimitationFreshnessNotEvaluated,
+			Message: "evidence age was not checked (--freshness 0), so no target is marked stale; stale counts read 0 because they were not computed",
+		})
+	}
 	sortSnapshot(snap)
 	snap.SnapshotID = computeSnapshotID(snap)
 	return snap, nil

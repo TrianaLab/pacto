@@ -73,6 +73,10 @@ func (o Outcome) Valid() bool {
 // Typed payloads carry observed FACTS only; identity is on SubjectRef (INV-1b migration).
 type CapabilityObservation struct {
 	Present bool `json:"present"`
+	// Healthy is what the capability's own check reported when it answered: false when a declared health
+	// endpoint answered 5xx or a declared readiness probe on it is failing; nil when not reported. It
+	// requires Present == true: an absent capability reports no health.
+	Healthy *bool `json:"healthy,omitempty"`
 }
 type WorkloadObservation struct {
 	Type string `json:"type"`
@@ -297,7 +301,10 @@ func (o Observation) checkKind() error {
 	var err error
 	switch o.Kind {
 	case CapabilityObserved:
-		_, err = decode[CapabilityObservation](o.Value)
+		var p CapabilityObservation
+		if p, err = decode[CapabilityObservation](o.Value); err == nil && p.Healthy != nil && !p.Present {
+			err = errors.New("an absent capability reports no health")
+		}
 	case WorkloadObserved:
 		_, err = decode[WorkloadObservation](o.Value)
 	case InterfaceObserved:
@@ -387,6 +394,14 @@ func mustMarshal(v any) json.RawMessage {
 func NewCapabilityObserved(subject SubjectRef, present bool, prov Provenance) Observation {
 	return Observation{Kind: CapabilityObserved, Subject: subject, Outcome: Observed,
 		Value: mustMarshal(CapabilityObservation{Present: present}), Provenance: prov}
+}
+
+// NewCapabilityFailing constructs an Observed capability observation for a capability that answered but
+// reports it is not healthy (a 5xx from its health endpoint, or a failing readiness probe on it).
+func NewCapabilityFailing(subject SubjectRef, prov Provenance) Observation {
+	unhealthy := false
+	return Observation{Kind: CapabilityObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(CapabilityObservation{Present: true, Healthy: &unhealthy}), Provenance: prov}
 }
 
 // NewWorkloadObserved constructs an Observed workload observation.
