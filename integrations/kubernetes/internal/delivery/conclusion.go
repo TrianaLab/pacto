@@ -107,6 +107,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 		return reconcile.Result{}, err
 	}
 	countConcluded(op)
+	if r.Stats != nil {
+		r.Stats(op)
+	}
 	event(r.Events, op, c.outcome != delivery.Succeeded && c.outcome != delivery.Cancelled, string(c.outcome), c.reason)
 	r.heldChecks.Delete(op.UID)
 	return reconcile.Result{RequeueAfter: immediately}, nil

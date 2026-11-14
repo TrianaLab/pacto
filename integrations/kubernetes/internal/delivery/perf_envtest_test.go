@@ -333,13 +333,6 @@ func perfParallel(t *testing.T, n int, f func(i int) error) {
 	}
 }
 
-func must(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // fluxCRDs are Flux's OCIRepository and Kustomization, as much of them as
 // the promoter reads.
 func fluxCRDs() []*apiextensionsv1.CustomResourceDefinition {
