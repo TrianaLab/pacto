@@ -54,6 +54,19 @@ questions. When the changes of an incident share a correlation id,
 `pacto_delivery_history`) lists exactly those, and `--cause` finds the
 changes a verdict or reason caused.
 
+To tie a change to an incident, write its id when you plan or propose it:
+`--correlation-id` in the CLI, `correlation_id` in
+`pacto_delivery_operation_plan` and `pacto_delivery_operation_propose`, or the
+"Ticket or incident id" field of the dashboard's propose panel. The automatic rollback,
+freeze or step-down the promoter raises after that change inherits the id, so
+the history of the incident lists them too. A rollback you ask for carries it
+the same way:
+
+```bash
+pacto delivery propose -n prod --stage payments --type rollback \
+  --undoes <operation> --correlation-id CHG-2041 --reason "error rate after 2.4.1"
+```
+
 ## Read the evidence
 
 Unknown is never healthy. Treat these as limits on what an answer proves:

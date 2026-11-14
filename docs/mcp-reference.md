@@ -221,7 +221,19 @@ to, as [plan, propose and approve](integrations/kubernetes/delivery-operations.m
 describes, and `pacto_delivery_get` repeats it while an operation is held.
 Propose with the plan's intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell. Over HTTP it
-needs [token exchange](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+needs [token exchange](integrations/kubernetes/delivery-agents.md#agents-over-the-network).
+
+- `on_behalf_of` on plan and propose: the person an agent acts for, asserted
+  and never verified. An agent must name one when it proposes, never itself,
+  a service account or the promoter, and that person may not approve the
+  change ([agents](integrations/kubernetes/delivery-agents.md#an-agent-names-the-person-it-acts-for)).
+  Planning needs none.
+- `correlation_id` on plan and propose: a ticket or incident id of at most 128
+  printable ASCII characters, kept with the change and its record. The
+  automatic rollback, freeze and step-down the promoter raises after the
+  change inherit it. It does not change the intent digest.
+- `cause_verdict` on plan and propose: a verdict you cite as the cause. The
+  intent digest binds it, so a changed cause makes the plan stale.
 
 `pacto_delivery_history` takes `since` and `until` (an RFC 3339 time or a
 duration such as `2h`), `cause`, `correlation_id` and, without a `stage`,

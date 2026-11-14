@@ -508,7 +508,12 @@ identity_scenario() {
 
   # The agent proposes F (payments 2.0.0, which breaks checkout) on prod.
   local from; from="$(kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')"
-  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f\",\"reason\":\"phase 4\"}}")"
+  # Naming nobody it acts for, it is refused before anything reaches the cluster.
+  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-nobody\",\"reason\":\"phase 4\"}}")"
+  grep -q "must name the person it acts for" <<<"$out" || fail "an agent proposed naming nobody: $out"
+  kubectl -n prod get operation idp-nobody >/dev/null 2>&1 && fail "an agent's propose naming nobody created an Operation"
+  pass "an agent that names nobody it acts for is refused"
+  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f\",\"reason\":\"phase 4\",\"on_behalf_of\":\"dana@example.com\"}}")"
   kubectl -n prod get operation idp-f >/dev/null 2>&1 || fail "the agent could not propose over HTTP: $out"
   [ "$(kubectl -n prod get operation idp-f -o jsonpath='{.spec.actor.user}')" = "$AGENT_USER" ] \
     || fail "the operation's actor is not the agent's own identity"
@@ -637,7 +642,7 @@ YAML
     || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-undo -o jsonpath='{.spec}')"
   wait_concluded prod idp-undo Succeeded/Verified
   runs prod payments "$from" || fail "prod is not back on the version before F"
-  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f2\",\"reason\":\"phase 4 again\"}}")"
+  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f2\",\"reason\":\"phase 4 again\",\"on_behalf_of\":\"dana@example.com\"}}")"
   eventually 30 held prod idp-f2 || fail "F was not held again: $out $(field prod idp-f2 phase) $(field prod idp-f2 message)"
   local again; again="$(login carol -fresh -session "$fresh")" || fail "carol's second fresh login failed"
   out="$(dash "$again" POST /api/delivery/operations/prod/idp-f2/decision '{"decision":"reject","note":"not this week"}' "$(csrf_of "$again")")"
@@ -653,7 +658,7 @@ YAML
   pass "carol rolled F back and rejected it again from the dashboard, each as herself"
 
   # --- approve from the CLI, as carol, with the command's own fresh login ---
-  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f3\",\"reason\":\"phase 4, from the CLI\"}}")"
+  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f3\",\"reason\":\"phase 4, from the CLI\",\"on_behalf_of\":\"dana@example.com\"}}")"
   eventually 30 held prod idp-f3 || fail "F was not held for the CLI: $out $(field prod idp-f3 phase) $(field prod idp-f3 message)"
   # The command runs in the node with a kubeconfig that holds no credentials
   # at all: the token it sends is the one the fresh login gives it.

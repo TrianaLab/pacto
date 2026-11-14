@@ -215,6 +215,9 @@ export function installScaleFixture(): void {
       // keys, digests and hrefs stay the engine's.
       for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        if (flags.__pactoLongPropose) {
+          for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
+        }
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
@@ -466,7 +469,26 @@ export function installScaleFixture(): void {
     q.set('service', short);
     return `${route}?${q}`;
   };
+  // A route that opens the propose panel sets these flags on the page: longPropose
+  // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
+  // asked of the engine under the short names again), stalePropose answers every
+  // propose PlanStale with the fresh plan and no field that explains it.
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+  const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
+  const engineBody = (path: string, body: string | null): string | null => {
+    if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
+    const b = JSON.parse(body) as Record<string, unknown>;
+    b.namespace = shortOf(b.namespace);
+    b.stage = shortOf(b.stage);
+    return JSON.stringify(b);
+  };
   const wrapped: Serve = async (method, path, body) => {
+    body = engineBody(path, body);
+    if (flags.__pactoStalePropose && method === 'POST' && path === '/api/delivery/operations' && body) {
+      const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
+      return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
+        detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
     const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
@@ -924,6 +946,25 @@ const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
 const PUBLISH_LOADED = 'li.pv-row';
 const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
 
+/**
+ * Opens the propose panel from the environments board as the default persona
+ * (pay-agent, an agent), with the Stage rows' names at their longest, and waits for
+ * the plan and the on-behalf-of field an agent is asked for.
+ */
+const openPropose = async (page: Page, stale = false) => {
+  await page.evaluate((s) => {
+    const w = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+    w.__pactoLongPropose = true;
+    w.__pactoStalePropose = s;
+  }, stale);
+  await page.goto('/#/delivery/environments');
+  await page.getByRole('button', { name: /^Promote payments in prod to / }).first().click({ timeout: 30_000 });
+  const panel = page.locator('[data-testid="propose-panel"]');
+  await expect(panel.locator('[data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByTestId('pp-on-behalf-of')).toBeVisible();
+  return panel;
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -1099,6 +1140,23 @@ export const ROUTES: Route[] = [
     open: async (page) => {
       await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
       await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'propose panel open, agent (on-behalf-of field)',
+    open: async (page) => {
+      await openPropose(page);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'propose panel, fresh plan banner',
+    open: async (page) => {
+      const panel = await openPropose(page, true);
+      await panel.getByTestId('pp-on-behalf-of').fill('dana@example.com');
+      await panel.getByRole('button', { name: /^Propose/ }).click();
+      await expect(panel.getByRole('alert')).toContainText('Something changed since the plan', { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
   {

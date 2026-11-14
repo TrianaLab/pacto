@@ -1645,3 +1645,13 @@ func TestHistoryTimelineFiltered(t *testing.T) {
 	a, k := total(all["timeline"].(map[string]any)), total(kept["timeline"].(map[string]any))
 	expect(t, a == 2 && k == 1, "every Stage: %v unfiltered, %v kept", a, k)
 }
+
+func TestDeliveryProposeCarriesCorrelationID(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person()}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", map[string]any{
+		"namespace": "prod", "stage": "payments", "to": dNext, "intentDigest": "sha256:i", "correlationID": "CHG-2041"})
+	expect(t, code == http.StatusCreated && len(f.proposed) == 1 && f.proposed[0].CorrelationID == "CHG-2041",
+		"propose carries the correlation id: %d %v %+v", code, out, f.proposed)
+}

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { session } from '../lib/session.svelte.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
   import { typeLabel, predictionLabel, shortDigest, sentence, timeLabel, outcomeTone } from '../lib/delivery.ts';
   import VerdictList from './VerdictList.svelte';
@@ -10,12 +11,23 @@
   // proposal carries the plan's intent digest, so anything that moved since is
   // refused with a fresh plan instead of acting on a stale one.
   // `preview` is a plan already made (the Why card's): shown, never proposed from here.
-  let { request, toVersion = '', miraURL = '', onClose = undefined, preview = null } = $props();
+  // `correlation` prefills the ticket or incident id and `onBehalfOf` the
+  // person an agent acts for; both are sent on propose only.
+  let { request, toVersion = '', miraURL = '', onClose = undefined, preview = null, correlation = '', onBehalfOf = '' } = $props();
+
+  // The bound fields a person types after the plan: when the server proves
+  // one of them alone explains a PlanStale, nothing else moved.
+  const TYPED = ['reason', 'on-behalf-of person', 'reason and on-behalf-of person'];
 
   // svelte-ignore state_referenced_locally
   let plan = $state(preview);
   let planError = $state(null);
   let reason = $state('');
+  // svelte-ignore state_referenced_locally
+  let correlationId = $state(correlation);
+  // svelte-ignore state_referenced_locally
+  let behalf = $state(onBehalfOf);
+  const agent = $derived(session.caller?.class === 'agent');
   let busy = $state(false);
   let refusal = $state(null);
   let moved = $state(false);
@@ -28,12 +40,35 @@
 
   onMount(() => { if (!preview) { headingEl?.focus(); loadPlan(); } });
 
+  function send(intentDigest) {
+    return api.deliveryPropose({
+      ...request, reason: reason || undefined, onBehalfOf: (agent && behalf.trim()) || undefined,
+      correlationID: correlationId.trim() || undefined, intentDigest,
+    });
+  }
+
   async function propose(e) {
     e.preventDefault();
     busy = true;
     refusal = null;
+    moved = false;
+    let retried = false;
     try {
-      const out = await api.deliveryPropose({ ...request, reason: reason || undefined, intentDigest: plan.intentDigest });
+      let out;
+      let digest = plan.intentDigest;
+      for (;;) {
+        try { out = await send(digest); break; } catch (err) {
+          // The plan is made with no reason and no on-behalf-of person, and the
+          // digest binds both. When the server says one of them alone explains
+          // the difference, the digest without them equals the one the person
+          // read, so nothing else moved: propose once more with the fresh
+          // plan's digest. Any other difference, or a second one, is a move.
+          if (retried || err?.code !== 'PlanStale' || !err.plan || !TYPED.includes(err.differs)) throw err;
+          retried = true;
+          plan = err.plan;
+          digest = err.plan.intentDigest;
+        }
+      }
       location.hash = deliveryChangeUrl(out.operation.metadata.namespace || request.namespace, out.operation.metadata.name);
     } catch (err) {
       if (err?.code === 'PlanStale' && err.plan) { plan = err.plan; moved = true; } else { refusal = err; }
@@ -50,7 +85,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section class="pp" aria-labelledby={preview ? undefined : 'pp-title'} onkeydown={onKeydown} data-testid="propose-panel" aria-label={preview ? 'The planned promote' : undefined}>
   <h3 id={preview ? undefined : 'pp-title'} class="t-subsection-title" tabindex="-1" bind:this={headingEl}>
-    {typeLabel(request.type)} {request.namespace}/{request.stage}{#if request.to}: {toVersion || shortDigest(request.to)}{/if}
+    {typeLabel(request.type)} <bdi title={request.namespace}>{request.namespace}</bdi>/<bdi title={request.stage}>{request.stage}</bdi>{#if request.to}: <bdi title={toVersion || request.to}>{toVersion || shortDigest(request.to)}</bdi>{/if}
   </h3>
   {#if planError}
     <RefusalNotice error={planError} />
@@ -92,6 +127,16 @@
         <span>Why (kept with the change)</span>
         <input class="input" type="text" bind:value={reason} maxlength="500" />
       </label>
+      {#if agent}
+        <label class="pp-field">
+          <span>Who asked you for this (on behalf of)</span>
+          <input class="input" type="text" bind:value={behalf} required autocomplete="off" data-testid="pp-on-behalf-of" />
+        </label>
+      {/if}
+      <label class="pp-field">
+        <span>Ticket or incident id (optional)</span>
+        <input class="input" type="text" bind:value={correlationId} maxlength="128" pattern="[ -~]*" autocomplete="off" data-testid="pp-correlation" />
+      </label>
       <div class="pp-btns">
         <button type="submit" class="btn btn-primary" disabled={busy}>{busy ? 'Proposing…' : `Propose ${typeLabel(request.type).toLowerCase()}`}</button>
         <button type="button" class="btn" onclick={() => onClose?.()}>Cancel</button>
@@ -105,6 +150,7 @@
 
 <style>
   .pp { border: 1px solid var(--c-accent-border); border-radius: var(--radius-md); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); background: var(--c-surface); }
+  .pp h3 { overflow-wrap: anywhere; }
   .pp h3:focus { outline: none; }
   .pp p { margin: 0; }
   .pp-moved { color: var(--c-warn); }
@@ -112,5 +158,6 @@
   .pp-unknown { color: var(--c-text-2); }
   .pp-form { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pp-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); color: var(--c-text-2); }
-  .pp-btns { display: flex; gap: var(--sp-2); }
+  .pp-btns { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  @media (pointer: coarse) { .pp-form .input, .pp-btns .btn { min-block-size: 44px; } }
 </style>

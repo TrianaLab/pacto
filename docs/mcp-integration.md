@@ -142,7 +142,7 @@ change.
   so every request carries a token from your company sign-in, and the server
   then refuses `--auth` and `--allow-writes`, which would lend one
   credential to every caller. See
-  [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+  [agents over the network](integrations/kubernetes/delivery-agents.md#agents-over-the-network).
 
 ## Which tools exist
 

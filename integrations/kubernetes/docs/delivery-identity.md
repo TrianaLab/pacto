@@ -1,10 +1,11 @@
-# Delivery reference: approvals and agents
+# Delivery reference: approvals
 
 !!! warning "Alpha"
     Delivery is new: its settings and commands may still change.
 
 People decide in the dashboard and agents reach Pacto over the network, each
-under their own Kubernetes identity. The dashboard and the MCP server pass the
+under their own Kubernetes identity
+([agents](delivery-agents.md)). The dashboard and the MCP server pass the
 caller's own token on, so the apiserver decides what the caller may do and its
 audit log names the person. There is no impersonation.
 
@@ -185,29 +186,6 @@ alone. The token is not stored. `--oidc-client-id` defaults to
 `PACTO_DELIVERY_OIDC_CLIENT_SECRET`. Without `--oidc-redirect-port` it picks a
 free port, which suits a provider that allows any loopback port (RFC 8252).
 
-## Agents over the network
-
-```bash
-PACTO_MCP_EXCHANGE_CLIENT_SECRET=... pacto mcp --delivery -t http --host 0.0.0.0 \
-  --auth-issuer https://idp.example.com --resource https://pacto-mcp.example.com/mcp \
-  --exchange-client-id pacto-mcp
-```
-
-Every request must carry a bearer token for the resource; the server publishes
-where to get one at `/.well-known/oauth-protected-resource`. It exchanges each
-caller's token at the identity provider (RFC 8693) for one the apiserver
-accepts and asks the apiserver who the caller is on every request. Everyone
-gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
-your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
-HTTP. With `--fleet` and `--auth-issuer`, the fleet tools answer
-[as the dashboard does](dashboard-access.md).
-
-Both servers log every refused token, sign-in and signed-in request as a
-warning with the issuer, audience or client, the reason and where it came from
-(`X-Request-Id` too, when a proxy sets it), never the token. With `--verbose`
-the MCP server also logs each caller's class and whether it got the write
-tools.
-
 ## Limits
 
 - An agent holding a person's credentials, session or refresh token is that
@@ -217,6 +195,10 @@ tools.
   browser could run the `pacto-approve` login itself and ride your identity
   provider's session, and it gets a login time only as old as your last real
   login there. An identity provider that ignores `prompt=login` widens this.
+- Run agents under their own identity. An agent that runs `pacto` with a
+  person's kubeconfig is that person: it can approve as them, and it needs no
+  `--on-behalf-of`. Set `delivery.promoter.authFreshness` so that an approval
+  needs a recent sign-in, which a kubeconfig login never carries.
 - A stolen dashboard session can take that person's actions until it ends. With
   a recent sign-in required, it approves only in the first two thirds of
   `delivery.promoter.authFreshness` after they signed in again.

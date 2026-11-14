@@ -65,6 +65,9 @@ type DeliveryError struct {
 	Detail string `json:"detail"`
 	// Plan is the fresh plan of a PlanStale refusal.
 	Plan *delivery.PlanAnswer `json:"plan,omitempty"`
+	// Differs is, on PlanStale, the bound field that alone explains the
+	// difference; empty when something else moved.
+	Differs string `json:"differs,omitempty" doc:"On PlanStale: the field that alone explains the difference (reason, on-behalf-of person, both, or cause); empty when something else moved"`
 }
 
 func (e *DeliveryError) Error() string { return e.Code + ": " + e.Detail }

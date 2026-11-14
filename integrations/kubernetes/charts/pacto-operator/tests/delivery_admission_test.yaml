@@ -35,6 +35,36 @@ tests:
           path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].expression'
           value: object.spec.actor.user == request.userInfo.username
 
+  - it: bounds the correlation id
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.correlationID is at most 128 printable ASCII characters")].message'
+      value: "spec.correlationID is at most 128 printable ASCII characters"
+    asserts:
+      - equal:
+          path: 'spec.validations[?(@.message == "spec.correlationID is at most 128 printable ASCII characters")].expression'
+          value: "!has(object.spec.correlationID) || (size(object.spec.correlationID) <= 128 && object.spec.correlationID.matches('^[ -~]*$'))"
+      - equal:
+          path: 'spec.validations[?(@.message == "spec.correlationID is at most 128 printable ASCII characters")].reason'
+          value: Invalid
+
+  - it: requires an agent to name the person it acts for
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentSelector:
+      path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].message'
+      value: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change"
+    asserts:
+      - equal:
+          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].expression'
+          value: "!variables.agent || variables.breakGlass || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user) > 0 && object.spec.onBehalfOf.user != request.userInfo.username && !object.spec.onBehalfOf.user.startsWith('system:serviceaccount:') && object.spec.onBehalfOf.user != 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery')"
+      - equal:
+          path: 'spec.validations[?(@.message == "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change")].reason'
+          value: Forbidden
+
   - it: lets only the promoter set witnessed
     capabilities:
       apiVersions:

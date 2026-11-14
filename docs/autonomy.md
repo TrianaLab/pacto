@@ -84,6 +84,8 @@ agent can too, except down to observe: once git stops setting the version
 (see [Leaving observe](#leaving-observe)), a Stage on observe has nothing moving it at
 all, and only a person may stop a service that way.
 
+### Agents ask through the same path
+
 An agent previews these changes with the MCP tool
 `pacto_delivery_operation_plan` and asks for them with
 `pacto_delivery_operation_propose` (see
@@ -91,7 +93,11 @@ An agent previews these changes with the MCP tool
 Its Operation goes through the same plan and
 [admission policies](integrations/kubernetes/delivery-security.md) as a
 person's, as [Agents take the same path](manifesto.md#agents-take-the-same-path)
-explains.
+explains. Its proposal names the person who asked for it (`on_behalf_of`),
+who may not approve it; the name is asserted, never verified
+([an agent names the person it acts for](integrations/kubernetes/delivery-agents.md#an-agent-names-the-person-it-acts-for)).
+Run agents under their own identity and set `delivery.promoter.authFreshness`,
+because an agent with a person's kubeconfig is that person.
 
 ## Step-down: one failure costs one level
 
