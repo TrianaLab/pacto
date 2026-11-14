@@ -34,7 +34,7 @@ use the Compose demo or the node agent on a Kubernetes cluster.
 
 ## The fleet
 
-Thirty-eight services are in the snapshot. Eleven carry the stories:
+Thirty-nine services are in the snapshot. Eleven carry the stories:
 
 | Service | Owner | Its part |
 |---------|-------|----------|
@@ -65,7 +65,7 @@ the service is deployed stays in its own files. The
 
 --8<-- "examples/demo/generated/_beat-01.md"
 
-Thirty-eight services, each with its owner, how many contract revisions it has
+Thirty-nine services, each with its owner, how many contract revisions it has
 published and how many deployed targets are running it. `NotEvaluated` means
 Pacto knows no deployment of the service yet, so it has nothing to evaluate.
 

@@ -40,10 +40,11 @@ pacto impact --unavailable offering:postgresql --local examples/demo/bundles
 Each consumer appears once, with the worst effect over the providers it
 reaches. A provider is never its own consumer. `providers` lists the providers
 the answer covers. In the dashboard answer the offering's own reference fills
-both `offering` and `service`, and each provider carries its owner. A regression belongs to one revision, so
-`--regressed` takes no offering. No visible provider raises
-`OFFERING_NOT_IN_FLEET`, and providers the viewer cannot see are counted in a
-`HIDDEN_PROVIDERS` limitation that makes the answer partial. The
+both `offering` and `service`, and each provider carries its owner. A
+regression belongs to one revision, so `--regressed` takes no offering. When
+no visible provider exists, the answer raises `OFFERING_NOT_IN_FLEET`.
+Providers the viewer cannot see are counted in a `HIDDEN_PROVIDERS`
+limitation that makes the answer partial. The
 `pacto_impact` MCP tool takes `offering` in place of `service`, the dashboard
 API takes `offeringKey` and the offering page links here with
 **What if it becomes unavailable?**.
@@ -61,11 +62,11 @@ target evidence is stale was last seen there more than 24 hours before `asOf`.
 ## Removal and regression evidence
 
 `--unavailable` and `--removed` list each consumer's `resources`: what it
-asked the service for, with the provisioning status per environment. When the service declares its
-lifecycle, such as deprecated or sunset, each consumer cites it as `lifecycle`
-evidence. Policy referrers join a
-removal as `unknown`, since their next revision fails validation. Golden paths
-that reference it are listed under `templates`, never as consumers.
+asked the service for, with the provisioning status per environment. When the
+service declares its lifecycle, such as deprecated or sunset, each consumer
+cites it as `lifecycle` evidence. Policy referrers join a removal as
+`unknown`, since their next revision fails validation. Golden paths that
+reference it are listed under `templates`, never as consumers.
 
 `--regressed` grades consumers like `--unavailable`. When the revision is an
 artifact digest (`sha256:...`), Pacto reads delivery's recorded failures of

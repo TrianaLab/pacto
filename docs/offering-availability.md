@@ -37,6 +37,9 @@ so `reporting` counts targets with fresh evidence, whatever their readiness.
 A managed provider outside the observed clusters has no target, so one
 consumer that cannot reach it among others that do reads `degraded`, never
 `unavailable`.
+When no target or report places a provider in any environment, one entry
+with an empty `environment` keeps the reason, and the CLI and the dashboard
+call it nowhere observed.
 
 ### How states roll up
 
@@ -79,15 +82,19 @@ that names no revision in the fleet is `unknown`, gives its `reason` and raises
 a `SUCCESSOR_UNRESOLVED` limitation, and no range is graded against it. Each
 consumer use carries `successorRange` against the resolved successor and
 `supportedRange` against `latestSupported`, the provider's newest readable
-revision that declares no lifecycle.
+revision that declares no lifecycle. The dashboard shows the latest supported
+verdict when the successor cannot be graded. With a range,
+`pacto fleet versions` and the offering page's range check name the successor
+of the newest revision the range reaches, so `^16.0.0` still asks about 16.x
+once 17.0.0 ships.
 
 ## Who else calls it
 
 `observedConsumers` lists the services seen calling a provider at runtime
 that declare no use of any provider of the offering, with provenance
 `observed`, `lastSeen` and `stale` once the call is more than 24 hours older
-than `asOf` or carries no time, at most 200 with the true `total`. A caller with no contract is listed by name with
-`uncontracted: true` and no time, so its last sighting is unknown. Observed
+than `asOf` or carries no time, at most 200 with the true `total`. A caller
+with no contract is listed by name with `uncontracted: true` and no time, so its last sighting is unknown. Observed
 callers are never counted in `consumers`. The offering page lists them under
 Also calling a provider.
 

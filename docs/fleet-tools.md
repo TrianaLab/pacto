@@ -122,9 +122,9 @@ pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""
 ```
 
 The second command needs a clone and a paste from the repository root; it opens
-on 37 services, a golden path and 4 operational targets. The third needs nothing on disk:
+on 38 services, a golden path and 4 operational targets. The third needs nothing on disk:
 `--root` follows the published contract's dependency declarations and pulls 12 of
-the demo's 38 services out of `ghcr.io`, and `--local ""` switches off the default
+the demo's 39 services out of `ghcr.io`, and `--local ""` switches off the default
 directory scan. A registry has no record of where anything runs, so every
 service reads `NotEvaluated` until you add the `--target-state` fixture.
 
