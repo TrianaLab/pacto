@@ -40,3 +40,65 @@ func (q *Query) hasHiddenProvider(key ServiceKey) bool {
 func hiddenProviderEdge(rel *Relationship, from ServiceKey) bool {
 	return rel.Hidden && rel.FromService == from && ConsumesEdge(*rel)
 }
+
+// consumptionNotReportedReason is why a resource's consumption is not-reported.
+const consumptionNotReportedReason = "no provider reports usage or cost for this resource to Pacto; ask Mira for live signals"
+
+// notReportedConsumption is the consumption of a resource no provider reports
+// usage or cost for: an explicit state, never zero.
+func notReportedConsumption() []ResourceConsumption {
+	return []ResourceConsumption{{State: "not-reported", Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
+}
+
+// revisionsOf is every revision of s.
+func (q *Query) revisionsOf(s *ServiceRecord) []*ContractRevision {
+	revs := make([]*ContractRevision, 0, len(s.Revisions))
+	for _, rk := range s.Revisions {
+		revs = append(revs, q.snap.Revisions[rk])
+	}
+	return revs
+}
+
+// attachProviderFacts sets each use's provider owner, as the offering page
+// derives it, and the provider's availability.
+func (q *Query) attachProviderFacts(uses []OfferingUse) {
+	for i := range uses {
+		p := q.snap.Services[ServiceKey(uses[i].Provider.Key)]
+		av := q.providerAvailability(p)
+		uses[i].ProviderOwner, uses[i].ProviderAvailability = serviceOwnership(p, q.revisionsOf(p)), &av
+	}
+}
+
+// attachRequested joins each configuration reference use with the request
+// values cfgs, the consumer's current revision, declares for that provider
+// under an entry the use's edges name. A dependency row requested nothing.
+// ponytail: cfgs is the bounded preview; a revision with more configurations
+// than it holds loses the tail, flagged by RequestedTruncated.
+func (q *Query) attachRequested(uses []OfferingUse, cfgs ConfigurationsPreview) {
+	for i := range uses {
+		u := &uses[i]
+		if u.Via != RelationshipConfigRef {
+			continue
+		}
+		entries := q.configRefEntries(ServiceKey(u.Consumer.Key), ServiceKey(u.Provider.Key))
+		for _, c := range cfgs.Items {
+			if res := c.Resolution; res != nil && res.Service != nil && res.Service.Key == u.Provider.Key && entries[c.Name] {
+				u.Requested = append(u.Requested, RequestedConfiguration{Entry: c.Name, Configuration: c.Configuration, Revision: res.Revision, Values: c.Values, Provenance: ProvenanceDeclared})
+			}
+		}
+		u.RequestedTruncated = cfgs.Truncated
+	}
+}
+
+// configRefEntries is the entry names of consumer's configuration references
+// to provider in the (possibly restricted) view.
+func (q *Query) configRefEntries(consumer, provider ServiceKey) map[string]bool {
+	entries := map[string]bool{}
+	for i := range q.snap.Relationships {
+		rel := &q.snap.Relationships[i]
+		if rel.Type == RelationshipConfigRef && rel.ToService == provider && offeringRelationship(rel, consumer) {
+			entries[rel.To] = true
+		}
+	}
+	return entries
+}

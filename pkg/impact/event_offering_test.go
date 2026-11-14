@@ -262,3 +262,21 @@ func TestImpactOfferingRemovedTemplatesAndPartial(t *testing.T) {
 		t.Errorf("templates %v, completeness %s, limitations %+v", res.Templates, res.Completeness, res.Limitations)
 	}
 }
+
+// TestImpactIgnoresConsumption: the resources an impact answer lists come
+// from UsesOf, which now carries a consumption state; the answer reads none
+// of it, so no consumption key or state reaches it.
+func TestImpactIgnoresConsumption(t *testing.T) {
+	snap := pgProvisioned(t, "production", "staging")
+	uses, _ := fleet.NewQuery(snap).UsesOf(fleet.NewServiceKeyDomain("", "postgresql"))
+	if !slices.ContainsFunc(uses, func(u fleet.OfferingUse) bool { return u.Consumption != nil }) {
+		t.Fatalf("no use carries consumption: %+v", uses)
+	}
+	b, err := json.Marshal(event(snap, EventRemoved, "postgresql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); strings.Contains(s, "consumption") || strings.Contains(s, "not-reported") {
+		t.Errorf("impact answer carries consumption: %s", s)
+	}
+}

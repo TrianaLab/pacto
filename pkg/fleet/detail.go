@@ -656,6 +656,46 @@ type OfferingUse struct {
 	// no provider has reported. A policy reference provisions nothing and
 	// carries none.
 	Provisioning []ProvisioningStatus `json:"provisioning,omitempty"`
+	// ProviderOwner is who owns the provider, as its offering page names it.
+	// Set only on the service page.
+	ProviderOwner *OwnershipInfo `json:"providerOwner,omitempty"`
+	// ProviderAvailability is whether the provider answers where it runs (see
+	// [Availability]). Set only on the service page.
+	ProviderAvailability *Availability `json:"providerAvailability,omitempty"`
+	// Requested is what the consumer's current revision declares for the
+	// provider's configuration, one entry per configuration reference. Set only
+	// on a configuration_reference row of the service page.
+	Requested []RequestedConfiguration `json:"requested,omitempty"`
+	// RequestedTruncated says Requested was joined from a truncated
+	// configurations preview, so an entry may be missing.
+	RequestedTruncated bool `json:"requestedTruncated,omitempty"`
+	// Consumption is what Pacto knows about the usage and cost of the resource
+	// this use asked for. A policy reference provisions nothing and carries none.
+	Consumption []ResourceConsumption `json:"consumption,omitempty"`
+}
+
+// RequestedConfiguration is one configuration a consumer declares for a
+// provider: the request values, as the contract states them.
+type RequestedConfiguration struct {
+	// Entry is the consumer's configuration entry name.
+	Entry string `json:"entry"`
+	// Configuration is the provider configuration the entry selects, when it
+	// names one.
+	Configuration string `json:"configuration,omitempty"`
+	// Revision is the provider revision the reference resolves to.
+	Revision *EntityRef `json:"revision,omitempty"`
+	// Values is the bounded flattening of the declared values.
+	Values     RuntimePreview `json:"values"`
+	Provenance string         `json:"provenance" enum:"declared"`
+}
+
+// ResourceConsumption is what Pacto knows about the usage and cost of one
+// resource. Today no provider reports either, so the state is not-reported.
+type ResourceConsumption struct {
+	Environment string `json:"environment,omitempty"`
+	State       string `json:"state" enum:"not-reported"`
+	Provenance  string `json:"provenance" enum:"observed"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 // OfferingUsesPreview is a bounded preview of offering uses. Range, Phases and
@@ -1022,6 +1062,8 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	current, cfgs, pols := q.currentRevisionContent(cur)
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
+	q.attachProviderFacts(consumed)
+	q.attachRequested(consumed, cfgs)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
@@ -1339,10 +1381,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 // offeringProvider projects one provider of an offering from the snapshot. Its
 // current revision is the newest readable one, the revision the snippet pins.
 func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
-	var all []*ContractRevision
-	for _, rk := range s.Revisions {
-		all = append(all, q.snap.Revisions[rk])
-	}
+	all := q.revisionsOf(s)
 	newest := newestReadable(all)
 	current, cfgs, pols := q.currentRevisionContent(newest)
 	p := OfferingProvider{
@@ -1432,6 +1471,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
+			uses[j].Consumption = notReportedConsumption()
 			lims = append(lims, conflicts...)
 		}
 	}

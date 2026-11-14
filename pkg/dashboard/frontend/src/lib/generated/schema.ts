@@ -2119,6 +2119,25 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        "Fleet.Availability": {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            /** @description The state per environment, bounded */
+            byEnvironment: components["schemas"]["Fleet.EnvironmentAvailability"][] | null;
+            /**
+             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
+        };
         "Fleet.BundleProvenance": {
             /** Format: date-time */
             checkedAt: string;
@@ -2424,6 +2443,43 @@ export interface components {
             targetsUnknown?: boolean;
             template?: boolean;
             version?: string;
+        };
+        "Fleet.EnvironmentAvailability": {
+            /** @description The environment label of the targets; empty for targets with no label */
+            environment: string;
+            /**
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @enum {string}
+             */
+            provenance: "observed" | "inferred" | "unknown";
+            /** @description On an offering: the providers whose state this is */
+            providers?: components["schemas"]["Fleet.EntityRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
+            /**
+             * Format: int64
+             * @description Provider targets with fresh evidence
+             */
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            /** @description Consumer targets that report they cannot reach it, bounded */
+            unreachable?: components["schemas"]["Fleet.EntityRef"][] | null;
         };
         "Fleet.EnvironmentResult": {
             /** @description Inferred: expires is at or before this answer's asOf. Nothing is deleted */
@@ -2977,6 +3033,14 @@ export interface components {
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
+        };
+        "Fleet.ResourceConsumption": {
+            environment?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            reason?: string;
+            /** @enum {string} */
+            state: "not-reported";
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -4447,12 +4511,17 @@ export interface components {
         ProductOfferingUse: {
             compatibility?: string;
             consumer: components["schemas"]["ProductRef"];
+            consumption?: components["schemas"]["Fleet.ResourceConsumption"][] | null;
             offering: string;
             provider: components["schemas"]["ProductRef"];
+            providerAvailability?: components["schemas"]["Fleet.Availability"];
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            providerOwner?: components["schemas"]["ProductOwnership"];
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            requested?: components["schemas"]["ProductRequestedConfiguration"][] | null;
+            requestedTruncated?: boolean;
             /** @enum {string} */
             successorRange?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
@@ -4661,6 +4730,14 @@ export interface components {
             /** Format: int64 */
             total?: number;
             truncated: boolean;
+        };
+        ProductRequestedConfiguration: {
+            configuration?: string;
+            entry: string;
+            /** @enum {string} */
+            provenance: "declared";
+            revision?: components["schemas"]["ProductRef"];
+            values: components["schemas"]["Fleet.RuntimePreview"];
         };
         ProductRevisionDetail: {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
