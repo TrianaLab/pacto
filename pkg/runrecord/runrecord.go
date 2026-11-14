@@ -42,6 +42,8 @@ const (
 	KindDiff    = "diff"
 	KindImpact  = "impact"
 	KindPublish = "publish"
+	// KindOperation is a delivery operation the promoter concluded.
+	KindOperation = "operation"
 )
 
 // Outcomes of a run.
@@ -65,11 +67,11 @@ const (
 // The legal values validate accepts, each listed once so a later kind is
 // added in one place.
 var (
-	kinds         = []string{KindDiff, KindImpact, KindPublish}
+	kinds         = []string{KindDiff, KindImpact, KindPublish, KindOperation}
 	outcomes      = []string{OutcomePassed, OutcomeFailed, OutcomeUnverified, OutcomePublished, OutcomeUnchanged, OutcomeRefused}
 	verdicts      = []string{VerdictClear, VerdictBlocked, VerdictUnverified, VerdictRefused}
 	completeness  = []string{"complete", "partial", "empty"}
-	idPattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	errIncomplete = errors.New("consumers, completeness and asOf must be set together")
 )
 
@@ -144,8 +146,61 @@ type Record struct {
 	Repository string `json:"repository,omitempty"`
 	// CIRunURL is the CI run's URL, only when asked for.
 	CIRunURL string `json:"ciRunUrl,omitempty"`
-	// Environment is the CI environment name, only when asked for.
+	// Environment is the CI environment name, only when asked for, or the
+	// environment an operation's Stage delivers to.
 	Environment string `json:"environment,omitempty"`
+
+	// The fields below are present only on operation records.
+
+	// Type is the last path segment of the operation type, such as promote.
+	Type string `json:"type,omitempty"`
+	// Verification qualifies the outcome, when the promoter set one.
+	Verification string `json:"verification,omitempty"`
+	// Reason is the outcome's machine code, when it is a plain code.
+	Reason string `json:"reason,omitempty"`
+	// ActorClass is the class of who raised the operation, never a name.
+	ActorClass string `json:"actorClass,omitempty"`
+	// HeldFor is how long the operation last waited on a person, as a Go
+	// duration, when it was held.
+	HeldFor string `json:"heldFor,omitempty"`
+	// ServiceDomain is the domain of the Stage's service, when it has one.
+	ServiceDomain string `json:"serviceDomain,omitempty"`
+	// Stage is the Stage the operation ran on.
+	Stage *StageRef `json:"stage,omitempty"`
+	// To is the digest a pointer operation moved to, when it names one.
+	To string `json:"to,omitempty"`
+	// From is the digest a pointer operation moved from, when it names one.
+	From string `json:"from,omitempty"`
+	// Contract is the contract digest a gate cited, when one did.
+	Contract string `json:"contract,omitempty"`
+	// Gates are the gate results, in the order the promoter wrote them.
+	Gates []GateResult `json:"gates,omitempty"`
+	// StartedAt is when the operation was admitted, RFC 3339, when it was.
+	StartedAt string `json:"startedAt,omitempty"`
+	// FinishedAt is when the operation concluded, RFC 3339.
+	FinishedAt string `json:"finishedAt,omitempty"`
+}
+
+// StageRef names the Stage an operation ran on.
+type StageRef struct {
+	// Namespace is the Stage's namespace.
+	Namespace string `json:"namespace"`
+	// Name is the Stage's name.
+	Name string `json:"name"`
+	// Cluster is the id of the cluster the Stage is on: its kube-system
+	// namespace UID.
+	Cluster string `json:"cluster"`
+}
+
+// GateResult is one gate's result on an operation, without its message or
+// citation.
+type GateResult struct {
+	// Gate is the gate id.
+	Gate string `json:"gate"`
+	// Phase is pre or verify.
+	Phase string `json:"phase"`
+	// Result is Pass, Fail or Unknown.
+	Result string `json:"result"`
 }
 
 // ID is the distinct-change key of a run:
@@ -190,7 +245,11 @@ func Parse(data []byte) (Record, error) {
 }
 
 func validate(r Record) error {
-	for _, check := range []func(Record) error{validateIdentity, validateEnums, validateCounts} {
+	checks := []func(Record) error{validateIdentity, validateEnums, validateCounts, validateNoOperationFields}
+	if r.Kind == KindOperation {
+		checks = []func(Record) error{validateIdentity, validateOperationEnums, validateStage, validateOperationValues, validateNoCIFields}
+	}
+	for _, check := range checks {
 		if err := check(r); err != nil {
 			return fmt.Errorf("invalid run record: %w", err)
 		}
@@ -202,7 +261,7 @@ func validateIdentity(r Record) error {
 	switch {
 	case r.Version != Version:
 		return fmt.Errorf("version %q is not %s", r.Version, Version)
-	case !idPattern.MatchString(r.ID):
+	case r.Kind != KindOperation && !digestPattern.MatchString(r.ID):
 		return fmt.Errorf("id %q is not sha256:<64 hex>", r.ID)
 	case r.Service == "":
 		return errors.New("service is empty")

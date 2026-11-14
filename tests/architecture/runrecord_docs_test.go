@@ -16,6 +16,8 @@ func TestRunRecordReferenceListsEveryField(t *testing.T) {
 		reflect.TypeFor[runrecord.Record](),
 		reflect.TypeFor[runrecord.Gate](),
 		reflect.TypeFor[runrecord.Consumers](),
+		reflect.TypeFor[runrecord.StageRef](),
+		reflect.TypeFor[runrecord.GateResult](),
 	} {
 		for f := range typ.Fields() {
 			key, _, _ := strings.Cut(f.Tag.Get("json"), ",")

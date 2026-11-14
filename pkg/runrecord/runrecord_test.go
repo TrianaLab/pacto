@@ -13,7 +13,7 @@ func TestIDIsDistinctChangeKey(t *testing.T) {
 	if base != ID(KindDiff, "payments", "a", "b") {
 		t.Fatal("same inputs gave different ids")
 	}
-	if !idPattern.MatchString(base) {
+	if !digestPattern.MatchString(base) {
 		t.Fatalf("id %q is malformed", base)
 	}
 	for _, other := range []string{
