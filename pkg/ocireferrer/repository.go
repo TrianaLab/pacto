@@ -60,8 +60,10 @@ func Open(path string, opts Options) (*remote.Repository, error) {
 		Cache:      auth.NewCache(),
 		Credential: credentialFunc(opts.Keychain),
 	}
-	// Never false: an unsupported endpoint must fail, not fall back. The only
-	// error is "already set", which a repository built one line ago cannot be.
+	// Never false: an unsupported endpoint must fail instead of falling back,
+	// except for callers that opt in with AllowTagFallback (run records only),
+	// which leave the capability for oras-go to detect. The only error is
+	// "already set", which a repository built one line ago cannot be.
 	if !opts.AllowTagFallback {
 		_ = repo.SetReferrersCapability(true)
 	}

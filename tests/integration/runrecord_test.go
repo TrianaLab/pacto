@@ -200,7 +200,10 @@ func TestRunRecordLeavesBundleDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _ = runCommand(t, reg, "diff", ref, writePayments(t, "2.0.0", "job"), "--stats-registry", repoPath)
+	out, err = runCommand(t, reg, "diff", ref, writePayments(t, "2.0.0", "job"), "--stats-registry", repoPath)
+	if err == nil {
+		t.Fatalf("a BREAKING diff succeeded:\n%s", out)
+	}
 	assertContains(t, out, "pacto: run record published to "+repoPath+"@sha256:")
 	checkDiffRecord(t, onlyRecord(t, repoPath, "payments"))
 
