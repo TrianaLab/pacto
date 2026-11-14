@@ -371,3 +371,13 @@ func TestGroupsWithOneLabelStayApart(t *testing.T) {
 		t.Fatalf("groups = %+v", g.Groups)
 	}
 }
+
+// Only the groups no value names sort last: a real value spelled with a
+// parenthesis sorts with the others.
+func TestGroupsSortOnlyUnnamedLast(t *testing.T) {
+	staging, beta := diffOf("a"), diffOf("b")
+	staging.Environment, beta.Environment = "staging", "(beta)"
+	if got := labels(aggBy(set(staging, beta, diffOf("c")), "environment", Scope{}).Groups); got != "(beta),staging,none" {
+		t.Fatalf("groups = %s", got)
+	}
+}

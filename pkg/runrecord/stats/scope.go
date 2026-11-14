@@ -205,7 +205,7 @@ func groups(entries, publishes []Entry, by string, sc Scope) []Group {
 	// Every comparison runs whatever order the map yields, so coverage
 	// never depends on it.
 	unnamed := func(g Group) int {
-		if strings.HasPrefix(g.Key, "(") {
+		if g.Key == keyUnknown || g.Key == keyUnowned || g.Key == keyNone {
 			return 1
 		}
 		return 0

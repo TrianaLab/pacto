@@ -336,9 +336,13 @@ func skippedLimitation(s Skipped, future int) *fleet.Limitation {
 	if future > 0 {
 		dated = fmt.Sprintf(" (%d dated in the future)", future)
 	}
+	records := "records"
+	if s.Total() == 1 {
+		records = "record"
+	}
 	return limitationIf(s.Total() > 0, LimitationSkipped, fmt.Sprintf(
-		"%d records could not be read: %d malformed%s, %d oversized, %d unreadable; they are left out of every number",
-		s.Total(), s.Malformed, dated, s.Oversized, s.Unreadable))
+		"%d %s could not be read: %d malformed%s, %d oversized, %d unreadable; they are left out of every number",
+		s.Total(), records, s.Malformed, dated, s.Oversized, s.Unreadable))
 }
 
 // truncatedLimitation names the service whose listing was cut only when the

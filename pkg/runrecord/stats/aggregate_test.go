@@ -199,6 +199,11 @@ func TestAggregateSkippedOrTruncatedIsPartial(t *testing.T) {
 		st.Limitations[0].Message != "3 records could not be read: 0 malformed, 1 oversized, 2 unreadable; they are left out of every number" {
 		t.Fatalf("skipped = %+v", st)
 	}
+	one := set(r)
+	one.Skipped = map[string]Skipped{"pacto-stats-a": {Malformed: 1}}
+	if st := agg(one); st.Limitations[0].Message != "1 record could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number" {
+		t.Fatalf("one skipped = %+v", st.Limitations)
+	}
 	truncated := set(r)
 	truncated.Truncated = "more than 3 run records"
 	st = agg(truncated)

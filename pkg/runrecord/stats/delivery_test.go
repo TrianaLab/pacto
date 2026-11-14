@@ -259,3 +259,11 @@ func TestLeadTimePercentiles(t *testing.T) {
 		t.Fatal("percentile")
 	}
 }
+
+// A promote naming neither to nor contract can join no publish: each one is
+// unjoined on its own, never merged into one first promotion per Stage.
+func TestLeadTimePromoteWithoutDigestIsUnjoined(t *testing.T) {
+	if lt := leadOf(t, published("orders", digest('d'), digest('b'), hoursAgo(5)), verifiedTo("", hoursAgo(2)), verifiedTo("", hoursAgo(1))); lt != (LeadTime{Unjoined: 2, Unknown: true}) {
+		t.Fatalf("lead time = %+v", lt)
+	}
+}
