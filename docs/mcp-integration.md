@@ -162,7 +162,7 @@ change.
 | `pacto_check` | every mode but `--root`, over stdio only | Read |
 | `pacto_schema` | every mode but `--root` | Read |
 | `pacto_capabilities` | every mode but `--root` | Read: what this server serves and who the caller is |
-| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_impact` | `--fleet` | Read |
+| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_impact`, `pacto_stats` | `--fleet` (`pacto_stats` over HTTP only with `--stats-read-registry`) | Read |
 | `pacto_catalog_revision`, plus two MCP resources (documents the agent reads): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
 | One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |
 | `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |

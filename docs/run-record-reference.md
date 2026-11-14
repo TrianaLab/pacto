@@ -3,8 +3,9 @@
 A run record is a small JSON document that `pacto diff`, `pacto impact` and
 `pacto publish` can leave behind in CI to count what Pacto catches. Records are
 unsigned statistics, never evidence: nothing in Pacto that validates, diffs,
-analyzes impact, publishes or delivers reads them, and the CLI never reads one
-back. Recording is opt-in and best effort. A problem with recording prints one
+analyzes impact, publishes or delivers reads them. Only `pacto stats` and the
+read-only MCP tool `pacto_stats` read them back, to
+[total them](#the-stats-answer). Recording is opt-in and best effort. A problem with recording prints one
 warning line on stderr, and the exit code and stdout stay the same as a run
 without recording. MCP tools never record. `pacto impact` event answers
 (`--unavailable`, `--removed` and `--regressed`) and `pacto publish --plan`
@@ -277,3 +278,79 @@ oras manifest delete registry.example.com/acme/pacto-stats@sha256:<record digest
 GHCR refuses a manifest delete through the registry API. Delete a record there
 as a package version, in the package settings on GitHub or with the
 [REST API for packages](https://docs.github.com/en/rest/packages/packages).
+
+## The stats answer
+
+`pacto stats` and the MCP tool `pacto_stats` total the records in a stats
+repository for a window and give the same answer, from one aggregation.
+
+| Flag | MCP argument | Default | What it does |
+| --- | --- | --- | --- |
+| `--registry` | `registry`, over stdio only | `PACTO_STATS_REGISTRY`; for MCP, `--stats-read-registry` first | the stats repository to read |
+| `--since` | `since` | `30d` | start of the window: a duration such as `30d` or `12h`, a date or an RFC 3339 time |
+| `--until` | `until` | now | end of the window, in the same forms |
+| `--by` | `by` | no groups | `service`, `owner`, `domain`, `repository` or `environment` |
+| `--service` | `service` | every service | totals one service |
+| `--kind`, repeatable | `kinds`, comma-separated | every kind | totals these kinds |
+
+```shell
+pacto stats --registry ghcr.io/acme/pacto-stats --since 7d --by environment
+```
+
+`--output-format json` prints the answer below. Text prints a table and, when
+the answer is not complete, its limitations on stderr. A missing or unreadable
+record is never a zero, and a window with no records prints one sentence
+instead of a table of zeros.
+
+| Field | Holds |
+| --- | --- |
+| `asOf` | when the answer was computed, UTC |
+| `window` | `since` (inclusive) and `until`, UTC |
+| `registry` | the stats repository read |
+| `provenance` | always `unsigned statistics` |
+| `recordsRead` | records read, in the window or out of it; skipped records are counted apart |
+| `runs` | records in the window; retries of one record `id` count once, and the newest `recordedAt` (then the larger manifest digest) speaks |
+| `distinctChanges` | distinct changes (`service`, `oldRevision`, `newRevision`) among `diff`, `impact` and `publish` records in the window |
+| `skipped` | `malformed` (not a valid record, attached to another service's anchor or dated more than 5 minutes in the future), `oversized` (manifest or layer over 64 KiB) and `unreadable` (listed but not served); left out of every number |
+| `truncated` | the bound that cut the read (1000 records, or 64 pages of one listing), empty when the read is whole. A read that takes over 30 seconds is an error |
+| `hidden` | `present`: whether records name services outside the caller's view; they are never counted |
+| `completeness` | `partial` when a record was skipped, the read was cut, records are outside the view, delivery was unavailable or the attribution is partial; `empty` when the window holds no records; else `complete` |
+| `limitations` | a `code` and a `message` for each reason the answer is incomplete |
+| `by` | what the groups are by |
+| `attribution` | with `--by owner` or `--by domain`: `provenance` (always `inferred`), `asOf` and `snapshotId` of the fleet snapshot owner and domain were resolved from, and `partial` when that snapshot is partial |
+| `totals` | the metrics over every record in the window; absent when there are none |
+| `groups` | `key`, `label` and `metrics` per group; a value no record names groups as `unknown`, `unowned` or `none` |
+
+### Metrics
+
+| Metric | Definition |
+| --- | --- |
+| `breakingCaught` | `distinct`: changes with a `diff` or `impact` record classified `BREAKING`; `runs`: the records behind them |
+| `gates` | `clear`, `blocked` and `unverified`: changes by the verdict of their newest `impact` or `publish` record that carries one; a refused publish counts nowhere |
+| `consumersProtected` | `count`: `consumers.blocking` summed over changes whose newest gate is `blocked`; `unknown`: `consumers.unknown` over the same changes. A change no impact run judged adds nothing |
+| `environments` | one entry per environment, alphabetical; names imply no promotion order |
+| `environments.environment` | the record's `environment`, else an operation record's Stage name |
+| `environments.source` | `context` (the record's `environment`) or `stage` (the Stage name) |
+| `environments.operations` | operation records of every type; a type not named below counts here and in no rate |
+| `environments.held` | promote operations whose `heldFor` is more than zero, of promote operations; a `heldFor` that does not parse is not held |
+| `environments.failed` | promote operations that ended `Failed` or `Errored`, of promote operations |
+| `environments.rolledBack` | `Succeeded` rollback operations, of `Succeeded` promote operations |
+| `environments.verificationFailed` | promote operations `Unverified`, of promote operations `Verified` or `Unverified` |
+| `environments.acceptedUnknown` | promote operations `AcceptedUnknown`, neither verified nor failed |
+| `environments.leadTime` | from a publish record's `recordedAt` to the first `Succeeded` and `Verified` promote per Stage whose `to` is its deploy digest (else whose `contract` is its bundle digest), within one service: `p50Seconds` and `p90Seconds` (nearest rank), `joined` and `unjoined`. A promotion whose `finishedAt` does not parse is unjoined. With nothing joined there is no percentile and `unknown` is `true` |
+| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and the rate is unknown, never 0 |
+
+| Limitation code | Meaning |
+| --- | --- |
+| `RUN_RECORDS_SKIPPED` | some records could not be read, and the message says how many are dated in the future |
+| `RUN_RECORDS_TRUNCATED` | a bound cut the read |
+| `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs |
+| `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
+| `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number |
+| `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
+| `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |
+
+The CLI and a stdio MCP server act as you and see every record. An HTTP MCP
+server serves `pacto_stats` only when started with `--stats-read-registry`,
+and a signed-in caller sees only services in their view and operation records
+only where their own identity may list operations.

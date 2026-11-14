@@ -1730,6 +1730,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
+| `pacto_stats` | `registry` (stdio only), `since` and `until` (`30d`, `12h`, a date or RFC 3339; default the last 30 days), `by` (`service`, `owner`, `domain`, `repository` or `environment`), `service` and `kinds` (comma-separated run-record kinds, for example `diff,impact`). It appears with `--fleet` over stdio, and over HTTP only when the server was started with `--stats-read-registry` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
