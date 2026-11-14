@@ -49,6 +49,12 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
     element: '#sec-environments',
   },
+  // The Offerings list: where requests for platform offerings stand, then who maintains
+  // each offering, its lifecycle, availability and failed requests.
+  { name: 'offerings-list', open: (p) => go(p, '/#/fleet/offerings', 'Platform offerings') },
+  // The postgresql offering: availability per environment from its two providers, then
+  // each provider's versions, the successor 16.1.0 names and its consumers.
+  { name: 'offering-postgresql', open: async (p) => { await go(p, '/#/fleet/offerings/postgresql', 'postgresql'); await expect(p.getByTestId('availability').first()).toBeVisible(); } },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
 ];

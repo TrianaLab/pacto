@@ -281,4 +281,122 @@ describe('offering page', () => {
     expect(text(target.querySelector('[data-testid="hidden-consumers"]'))).toBe('1 consumer you may not see');
     done();
   });
+  // #464: availability, successors, consumer status and undeclared callers.
+  it('shows the availability roll-up and each provider\'s, with its successor and latest supported version', async () => {
+    const av = (state: string) => ({ state, asOf: '2026-11-04T10:00:00Z', total: 1, byEnvironment: [{ environment: 'production', state, provenance: 'observed', reason: 'r', reporting: 1, targets: 1 }] });
+    const p = provider('postgresql');
+    const succRev = ref('revision', `${p.service.key}@sha256:17`, 'postgresql 17.0.0');
+    const { target, done } = await render(detail({
+      availability: av('available'), hiddenProviders: 1,
+      providers: preview([
+        { ...p, availability: av('degraded'), successor: { provenance: 'inferred', ref: 'oci://ghcr.io/acme/postgresql:17.0.0', revision: succRev }, latestSupported: p.currentRevision },
+        provider('legacy', { availability: av('unknown'), successor: { provenance: 'unknown', ref: 'oci://ghcr.io/acme/legacy:9.0.0', reason: 'no revision 9.0.0 of legacy in this snapshot' } }),
+      ]),
+    }));
+    const roll = target.querySelector('.offering-entity > section [data-testid="availability"], .offering-entity [data-testid="availability"]');
+    expect(roll?.querySelector('[data-state="available"]')).toBeTruthy();
+    expect(text(target.querySelector('[data-testid="hidden-providers"]'))).toBe('1 provider you may not see');
+    const [pg, legacy] = Array.from(target.querySelectorAll('[data-testid="offering-provider"]')) as HTMLElement[];
+    expect(pg.querySelector('[data-testid="availability-env"]')?.getAttribute('data-state')).toBe('degraded');
+    const succ = pg.querySelector('[data-testid="provider-successor"]') as HTMLElement;
+    expect(succ.querySelector('a')?.getAttribute('href')).toBe(succRev.href.replace(/^/, '#'));
+    expect(text(succ)).toContain('inferred');
+    expect(text(pg)).toContain('Latest supported');
+    const lsucc = legacy.querySelector('[data-testid="provider-successor"]') as HTMLElement;
+    expect(lsucc.querySelector('a')).toBeNull();
+    expect(text(lsucc)).toContain('oci://ghcr.io/acme/legacy:9.0.0');
+    expect(text(lsucc)).toContain('unknown: no revision 9.0.0 of legacy in this snapshot');
+    done();
+  });
+
+  it('shows each consumer\'s status and whether its range accepts the successor', async () => {
+    const pa = provider('postgresql').service;
+    const use = (consumer: string, successorRange?: string) => ({ offering: 'shared-config', consumer: ref('service', consumer, consumer, { status: 'NonCompliant' }), provider: { ...pa, status: 'Compliant' }, via: 'dependency', compatibility: '^16.0.0', successorRange });
+    const { target, done } = await render(detail({ consumers: preview([use('orders', 'satisfied'), use('billing', 'unsatisfied'), use('fraud', 'unknown'), use('cart')]) }));
+    const rows = Array.from(target.querySelectorAll('[data-testid="offering-consumer"]')) as HTMLElement[];
+    const links = rows[0].querySelectorAll('a.entity-link');
+    expect(text(links[0])).toContain('Not compliant');
+    expect(text(links[1])).toBe('postgresql');
+    const badge = (r: HTMLElement, label: string) => Array.from(r.querySelectorAll('.tag')).find((t) => t.textContent === label) as HTMLElement | undefined;
+    expect(badge(rows[0], 'accepts successor')?.classList.contains('tone-ok')).toBe(true);
+    expect(badge(rows[0], 'accepts successor')?.getAttribute('title')).toBe('Range ^16.0.0');
+    expect(badge(rows[1], 'excludes successor')?.classList.contains('tone-warn')).toBe(true);
+    expect(badge(rows[2], 'successor unknown')?.classList.contains('tone-neutral')).toBe(true);
+    expect(text(rows[3])).not.toContain('successor');
+    done();
+  });
+
+  it('lists undeclared callers apart, never links an uncontracted one and counts the hidden ones', async () => {
+    const pa = provider('postgresql').service;
+    const { target, done } = await render(detail({
+      observedConsumers: preview([
+        { consumer: ref('service', 'reports'), provider: pa, provenance: 'observed', lastSeen: '2026-11-04T09:00:00Z', stale: true, sources: ['otel'] },
+        { caller: 'batch-job', provider: pa, provenance: 'observed', uncontracted: true },
+      ], { total: 5, truncated: true }),
+      hiddenObservedConsumers: 2,
+    }));
+    const rows = Array.from(target.querySelectorAll('[data-testid="observed-consumer"]')) as HTMLElement[];
+    expect(rows.length).toBe(2);
+    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/services/reports');
+    expect(text(rows[0])).toContain('stale');
+    expect(text(rows[0])).toContain('last seen');
+    expect(text(rows[0])).not.toContain('last seen unknown');
+    expect(text(rows[1])).toContain('batch-job');
+    expect(text(rows[1])).toContain('uncontracted');
+    expect(text(rows[1])).toContain('last seen unknown');
+    expect(text(rows[1])).not.toContain('stale');
+    // The caller is text; only the provider on the arrow side is a link.
+    expect(Array.from(rows[1].querySelectorAll('a')).map(text)).toEqual(['postgresql']);
+    expect(text(target)).toContain('+3 more callers');
+    expect(text(target.querySelector('[data-testid="hidden-observed-consumers"]'))).toBe('2 callers you may not see');
+    expect(text(target)).not.toContain('No observation source saw an undeclared caller.');
+    done();
+  });
+
+  it('says no undeclared caller was seen only when none is visible or hidden', async () => {
+    const empty = await render(detail({ observedConsumers: preview([]), hiddenObservedConsumers: 0 }));
+    expect(text(empty.target)).toContain('No observation source saw an undeclared caller. A caller outside the observed sources is not seen.');
+    expect(empty.target.querySelector('[data-testid="hidden-observed-consumers"]')).toBeNull();
+    empty.done();
+    const hidden = await render(detail({ observedConsumers: preview([]), hiddenObservedConsumers: 1 }));
+    expect(text(hidden.target)).not.toContain('No observation source saw an undeclared caller.');
+    expect(hidden.target.querySelectorAll('[data-testid="hidden-observed-consumers"]').length).toBe(1);
+    expect(text(hidden.target.querySelector('[data-testid="hidden-observed-consumers"]'))).toBe('1 caller you may not see');
+    hidden.done();
+  });
+
+  it('says whether an entered range accepts the provider\'s successor', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const p = provider('postgresql');
+      const succRev = ref('revision', `${p.service.key}@sha256:17`, 'postgresql 17.0.0');
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([]), completeness: 'fleet', note: '', range: '^16.0.0',
+        successor: { provenance: 'inferred', ref: 'oci://ghcr.io/acme/postgresql:17.0.0', revision: succRev }, successorRange: 'unsatisfied' } }] });
+      const { target, done } = await render(detail({ providers: preview([p]) }));
+      const input = target.querySelector('input[type="text"]') as HTMLInputElement;
+      input.value = '^16.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      const line = target.querySelector('[data-testid="versions-successor"]') as HTMLElement;
+      expect(text(line)).toContain('Successor');
+      expect(line.querySelector('.tone-warn')?.textContent).toBe('excludes successor');
+      expect(line.querySelector('.tone-warn')?.getAttribute('title')).toBe('Range ^16.0.0');
+
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([]), completeness: 'fleet', note: '',
+        successor: { provenance: 'unknown', ref: 'oci://x/y:9', reason: 'no revision' } } }] });
+      input.value = '^9.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      const unk = target.querySelector('[data-testid="versions-successor"]') as HTMLElement;
+      expect(unk.querySelector('a')).toBeNull();
+      expect(text(unk)).toContain('oci://x/y:9');
+      expect(text(unk)).toContain('successor unknown');
+      expect(text(unk)).toContain('unknown: no revision');
+      done();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

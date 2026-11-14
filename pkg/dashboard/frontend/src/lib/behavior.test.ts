@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  guaranteeTerms, mismatchText, guaranteeBadge, sunsetPassed, lifecycleBadge, lifecycleText,
+  guaranteeTerms, mismatchText, guaranteeBadge, sunsetPassed, lifecycleBadge, lifecycleText, successorBadge,
   environmentBadge, stageBadge, locationText, lifetimeBadge, expiryText, ownerLabel,
 } from './behavior.ts';
 import { todayUTC } from './dateFormat.ts';
@@ -117,5 +117,15 @@ describe('environment declarations', () => {
     expect(ownerLabel({ dri: 'ana' })).toBe('Owner ana (declared)');
     expect(ownerLabel({ contacts: [{ type: 'email', value: 'a@b' }] })).toBe('Owner declared by contacts only');
     expect(ownerLabel(undefined)).toBe('No owner declared');
+  });
+});
+
+describe('successorBadge', () => {
+  it('names whether a range accepts the successor and never reads an unresolved one as accepted', () => {
+    expect(successorBadge('satisfied', '^16.0.0')).toEqual({ label: 'accepts successor', tone: 'ok', title: 'Range ^16.0.0' });
+    expect(successorBadge('unsatisfied', '^16.0.0')).toMatchObject({ label: 'excludes successor', tone: 'warn' });
+    expect(successorBadge('unknown')).toEqual({ label: 'successor unknown', tone: 'neutral', title: 'No range declared' });
+    expect(successorBadge('bogus')).toMatchObject({ label: 'successor unknown' });
+    expect(successorBadge(undefined)).toBeNull();
   });
 });

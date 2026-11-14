@@ -132,22 +132,36 @@ func providerDeprecations(snap *FleetSnapshot, rel Relationship) []InterfaceDepr
 }
 
 // providerServiceLifecycle is the service lifecycle of the provider revision a
-// resolved relationship reaches: the revision its lock pins, else the newest
-// readable revision of the provider. Nil when that revision declares none.
+// resolved relationship reaches (see [providerLifecycleRevision]). Nil when that
+// revision declares none.
 func providerServiceLifecycle(snap *FleetSnapshot, rel Relationship) *contract.InterfaceLifecycle {
-	rev := snap.Revisions[rel.ResolvedRevision]
-	if rev == nil {
-		var all []*ContractRevision
-		for _, rk := range snap.Services[rel.ToService].Revisions {
-			all = append(all, snap.Revisions[rk])
-		}
-		rev = newestReadable(all)
-	}
+	rev := providerLifecycleRevision(snap, rel)
 	if rev == nil || rev.Contract == nil || rev.Contract.Service.Lifecycle == nil {
 		return nil
 	}
 	l := *rev.Contract.Service.Lifecycle
 	return &l
+}
+
+// providerLifecycleRevision is the provider revision whose lifecycle a resolved
+// relationship sees: the revision its lock pins, else the newest readable
+// revision its range reaches, else the newest readable revision of the
+// provider. It follows the range because a successor shipped under the same
+// service (postgresql 17 after a deprecated 16) must not hide the deprecation
+// of the 16 a ^16 consumer actually runs against; an out-of-range consumer
+// still sees the provider's lifecycle.
+func providerLifecycleRevision(snap *FleetSnapshot, rel Relationship) *ContractRevision {
+	if rev := snap.Revisions[rel.ResolvedRevision]; rev != nil {
+		return rev
+	}
+	if rev := newestReadable(reachableRevisions(snap, rel)); rev != nil {
+		return rev
+	}
+	var all []*ContractRevision
+	for _, rk := range snap.Services[rel.ToService].Revisions {
+		all = append(all, snap.Revisions[rk])
+	}
+	return newestReadable(all)
 }
 
 // guaranteeRank orders guarantee statuses by how much they matter to a reader.

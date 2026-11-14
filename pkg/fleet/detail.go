@@ -642,6 +642,14 @@ type OfferingUse struct {
 	// ProviderLifecycle is the provider's service lifecycle as the newest
 	// consumer revision's relationship reaches it.
 	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
+	// SuccessorRange says whether Compatibility accepts the successor
+	// ProviderLifecycle declares; unknown when the successor does not resolve or
+	// the use has no single range. Set only with ProviderLifecycle.
+	SuccessorRange string `json:"successorRange,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// SupportedRange says whether Compatibility accepts the provider's newest
+	// revision that declares no lifecycle; absent when it has none. Set only
+	// with ProviderLifecycle.
+	SupportedRange string `json:"supportedRange,omitempty" enum:"satisfied,unsatisfied,unknown"`
 	// Provisioning is what providers report about the resource this use asked
 	// for, one status per environment (see [ProvisioningStatus]); Unknown when
 	// no provider has reported. A policy reference provisions nothing and
@@ -840,6 +848,15 @@ type OfferingProvider struct {
 	// OfferingProvenance says where this provider's membership in the offering
 	// comes from: declared by its contract or observed from its targets.
 	OfferingProvenance string `json:"offeringProvenance" enum:"declared,observed"`
+	// Availability is whether this provider answers, per environment, derived
+	// from its observed targets and its consumers' reports.
+	Availability Availability `json:"availability"`
+	// Successor is the successor Lifecycle declares and the revision it
+	// resolves to.
+	Successor *SuccessorInfo `json:"successor,omitempty"`
+	// LatestSupported is the newest readable revision that declares no
+	// lifecycle.
+	LatestSupported *EntityRef `json:"latestSupported,omitempty"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -863,6 +880,19 @@ type OfferingDetailData struct {
 	// that depend on or reference a provider of the offering. They are never
 	// named. Zero outside a restricted answer.
 	HiddenConsumers int `json:"hiddenConsumers"`
+	// Availability is the offering's availability: per environment, the best
+	// state of its providers, over every provider (not only those listed).
+	Availability Availability `json:"availability"`
+	// HiddenProviders counts the providers the caller's permissions hide. They
+	// are never named. Zero outside a restricted answer.
+	HiddenProviders int `json:"hiddenProviders,omitempty"`
+	// ObservedConsumers lists the services and uncontracted callers seen
+	// calling a provider at runtime that declare no use of any provider.
+	ObservedConsumers ObservedConsumersPreview `json:"observedConsumers"`
+	// HiddenObservedConsumers counts the observed callers the caller's
+	// permissions hide that HiddenConsumers does not already count. They are
+	// never named.
+	HiddenObservedConsumers int `json:"hiddenObservedConsumers"`
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -1269,9 +1299,10 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 // services that consume any of them. No offering has no page.
 func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	var providers []EntityRef
+	var records []*ServiceRecord
 	for _, s := range q.snap.Services {
 		if key != "" && s.Offering == key {
-			providers = append(providers, serviceEntityRef(s))
+			providers, records = append(providers, serviceEntityRef(s)), append(records, s)
 		}
 	}
 	if len(providers) == 0 {
@@ -1284,16 +1315,22 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
 	}
 	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
-	hidden := map[ServiceKey]bool{}
+	hidden, declared := map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	for _, ref := range providers {
 		maps.Copy(hidden, q.snap.hiddenConsumers[ServiceKey(ref.Key)])
 	}
+	for _, u := range uses {
+		declared[ServiceKey(u.Consumer.Key)] = true
+	}
 	return &EntityDetail{
-		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
+		Meta: q.productMetaWith(append(conflicts, successorLimitations(items)...)), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
+			Availability: q.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
+			ObservedConsumers: q.observedConsumers(records, declared), HiddenObservedConsumers: q.hiddenObservedConsumers(records),
 		},
+		Actions: []string{"impact"},
 	}, nil
 }
 
@@ -1311,12 +1348,18 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
+		Availability: q.providerAvailability(s),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
 			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
 			p.Lifecycle = rec.Contract.Service.Lifecycle
 		}
+	}
+	p.Successor = p.Versions.Successor
+	if sup := q.latestSupported(s); sup != nil {
+		ref := revisionEntityRef(sup)
+		p.LatestSupported = &ref
 	}
 	return p
 }
@@ -1333,6 +1376,7 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 // it unknown. With provisioning it joins what providers report and returns the
 // provisioning conflicts the rows raise.
 func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *ServiceRecord) bool, from ServiceKey, provisioning bool) ([]OfferingUse, []Limitation) {
+	offeringUsesInCalls.Add(1)
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string
@@ -1373,6 +1417,7 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 	var lims []Limitation
 	idx := q.provisioningIndex()
 	for j, k := range keys {
+		q.fillSuccessorRanges(&uses[j])
 		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)

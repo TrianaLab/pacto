@@ -4,7 +4,7 @@
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { shortDigest, formatCount, countOf } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
+  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, fleetOfferingsUrl, fleetEntityUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -43,6 +43,10 @@
   // revision pair; its state (mode=event, event, rev) lives in the URL like the pair does.
   let { params = {} } = $props();
   const serviceKey = $derived(params.svc || '');
+  // An offering event (#464) asks about every provider of a platform offering at once:
+  // there is no service, no revision pair and no regression, only the event.
+  const offeringKey = $derived(params.svc ? '' : params.offering || '');
+  const offeringRef = $derived({ kind: 'offering', key: offeringKey, label: offeringKey });
   // A legacy compare bookmark carried only a display name. It is resolved to a canonical
   // ServiceKey through the Product API (never guessed) and the URL is then canonicalized.
   const legacyName = $derived(params.name || '');
@@ -81,10 +85,12 @@
     { value: 'removed', label: 'is removed' },
     { value: 'regressed', label: 'regressed' },
   ];
-  let mode = $state(untrack(() => (params.event || params.mode === 'event' ? 'event' : 'compare')));
+  // An offering has many providers, so a regression (one revision) is not a question about it.
+  const eventKinds = untrack(() => (offeringKey ? EVENT_KINDS.filter((k) => k.value !== 'regressed') : EVENT_KINDS));
+  let mode = $state(untrack(() => (offeringKey || params.event || params.mode === 'event' ? 'event' : 'compare')));
   // A link may name an event this build does not know (a typo, a newer build): it is
   // never answered as another one, the form says so instead.
-  const unknownEvent = untrack(() => (params.event && !EVENT_KINDS.some((k) => k.value === params.event) ? params.event : ''));
+  const unknownEvent = untrack(() => (params.event && !eventKinds.some((k) => k.value === params.event) ? params.event : ''));
   let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
   const isEvent = $derived(mode === 'event');
@@ -271,6 +277,8 @@
     else if (legacyName) resolveLegacyName(legacyName);
   });
   onDestroy(() => { serviceSearchSeq++; });
+  // An offering event link is the whole question, so it answers on load like a service one.
+  onMount(() => { if (offeringKey && params.event && !unknownEvent) analyze(0); });
 
   onMount(async () => {
     // The include-observed control is a placebo unless an observation source exists;
@@ -281,7 +289,8 @@
   });
 
   async function analyze(offset = 0, paging = false, asked = false) {
-    if (!serviceKey || (isEvent ? eventKind === 'regressed' && !eventRev.trim() : !fromRevKey || !toRevKey)) return;
+    if (offeringKey) { if (!eventKind) return; }
+    else if (!serviceKey || (isEvent ? eventKind === 'regressed' && !eventRev.trim() : !fromRevKey || !toRevKey)) return;
     const gen = ++analyzeGen;
     if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
@@ -294,7 +303,7 @@
         : { fromRevisionKey: fromRevKey, toRevisionKey: toRevKey };
       const res = await api.fleetImpactByIdentity({
         snapshotId: snapshotId || undefined,
-        serviceKey,
+        ...(offeringKey ? { offeringKey } : { serviceKey }),
         ...question,
         includeObserved,
         limit: CONSUMER_PAGE,
@@ -320,7 +329,9 @@
     }
   }
 
-  const changesUrl = (o = '') => (isEvent
+  const changesUrl = (o = '') => (offeringKey
+    ? fleetChangesUrl('', { offering: offeringKey, event: eventKind, outcome: o })
+    : isEvent
     ? fleetChangesUrl(serviceKey, { event: eventKind, rev: eventKind === 'regressed' ? eventRev.trim() : '', outcome: o })
     : fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o }));
 
@@ -393,6 +404,7 @@
   // every other product page. The service crumb uses the canonical backend href.
   const trail = $derived.by(() => {
     const root = [{ label: 'Overview', href: fleetOverviewUrl() }];
+    if (offeringKey) return [...root, { label: 'Offerings', href: fleetOfferingsUrl() }, { label: offeringKey, href: fleetEntityUrl('offering', offeringKey) }, { label: 'Change analysis' }];
     if (!serviceKey) return [...root, { label: 'Change analysis' }];
     const svc = serviceDetail?.entity;
     return [
@@ -421,7 +433,8 @@
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
-  const canAnalyze = $derived(!!serviceKey && !analyzing && (isEvent ? eventKind !== 'regressed' || !!eventRev.trim() : !!fromRevKey && !!toRevKey));
+  const canAnalyze = $derived(!analyzing && (offeringKey ? true : !!serviceKey && (isEvent ? eventKind !== 'regressed' || !!eventRev.trim() : !!fromRevKey && !!toRevKey)));
+  const subjectNoun = $derived(offeringKey ? 'offering' : 'service');
   // A regression names a version or an artifact digest: the service's revisions are
   // offered, and any digest may be typed.
   const revisionChoices = $derived(revisions.flatMap((r) => [
@@ -447,10 +460,10 @@
 
 <PageHeader
   title="Change analysis"
-  subtitle={isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
+  subtitle={offeringKey ? 'Who a platform offering reaches if every provider becomes unavailable or is removed.' : isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
 />
 
-{#if !serviceKey}
+{#if !serviceKey && !offeringKey}
   <!-- No service in the route: search for one (product entities API, search-first so
        any service is discoverable), then navigate to /fleet/changes/:serviceKey. It
        wears the SHARED .disco-* discovery language (styles/components.css), the same
@@ -491,31 +504,33 @@
 
     <p class="disco-more" data-testid="changes-discovery-more">Or <a href={fleetServicesUrl()}>browse services</a> and use Compare revisions on one.</p>
   </section>
-{:else if loadingRevs}
+{:else if loadingRevs && !offeringKey}
   <EmptyState loading message="Loading service revisions…" />
-{:else if loadError}
+{:else if loadError && !offeringKey}
   <EmptyState error title="Couldn’t load this service" message={loadError instanceof ApiError ? loadError.message : String(loadError)} onRetry={() => loadRevisions(serviceKey)} />
 {:else}
   <!-- No page navigator: the answer sits under the pickers and every part behind it is a
        fold, so the page is one screen and going back to change a revision is no scroll. -->
   <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0, false, true); }}>
+    {#if !offeringKey}
     <fieldset class="ca-mode" data-testid="changes-mode">
       <legend class="visually-hidden">Question</legend>
       <label class="ca-mode-opt"><input type="radio" name="ca-mode" value="compare" checked={!isEvent} onchange={() => setMode('compare')} /> Compare two revisions</label>
       <label class="ca-mode-opt"><input type="radio" name="ca-mode" value="event" checked={isEvent} onchange={() => setMode('event')} /> What if this service…</label>
     </fieldset>
+    {/if}
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
            a screen starts reading like a form instead of a sentence. -->
-      {#if serviceDetail?.entity}<EntityLink ref={serviceDetail.entity} showStatus={false} />{:else}<code>{serviceKey}</code>{/if}
+      {#if offeringKey}<EntityLink ref={offeringRef} showStatus={false} />{:else if serviceDetail?.entity}<EntityLink ref={serviceDetail.entity} showStatus={false} />{:else}<code>{serviceKey}</code>{/if}
     </div>
     {#if isEvent}
     <div class="selectors">
       <div class="field">
-        <label for="impact-event">What if this service</label>
+        <label for="impact-event">What if this {subjectNoun}</label>
         <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; }}>
-          {#each EVENT_KINDS as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
+          {#each eventKinds as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
         </select>
       </div>
       {#if eventKind === 'regressed'}
@@ -579,7 +594,7 @@
   {#if analyzeError}
     <EmptyState error title={isEvent ? 'Couldn’t answer this question' : 'Couldn’t compare these revisions'} message={analyzeError} onRetry={() => analyze(consumerOffset)} />
   {:else if analyzing}
-    <EmptyState loading message={isEvent ? 'Walking what depends on this service…' : 'Comparing the two revisions…'} />
+    <EmptyState loading message={isEvent ? `Walking what depends on this ${subjectNoun}…` : 'Comparing the two revisions…'} />
   {:else if result}
     <!-- The answer, drawn and stated: the figure reads only the backend tallies and the
          ranked highlights, so paging the table below never changes it. Its card says what
@@ -652,7 +667,7 @@
         </summary>
         <div class="ca-fold-body">
         {#if !consumers.total}
-          <EmptyState title="No affected consumers" message={result.event ? 'Nothing in the operational graph depends on this service.' : 'Nothing in the operational graph uses this change.'} level={3} />
+          <EmptyState title="No affected consumers" message={result.event ? `Nothing in the operational graph depends on this ${subjectNoun}.` : 'Nothing in the operational graph uses this change.'} level={3} />
         {:else}
           <!-- Both rankings come from the backend tallies over EVERY consumer, so they do
                not change as the table pages. -->
@@ -818,7 +833,7 @@
          is genuinely missing. -->
     {#if isEvent}
       {#if unknownEvent}
-        <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the service and press Ask." />
+        <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the {subjectNoun} and press Ask." />
       {:else if eventKind === 'regressed' && !eventRev.trim()}
         <EmptyState identity title="Name the revision" message="A version, or an artifact digest to read delivery evidence." />
       {:else}

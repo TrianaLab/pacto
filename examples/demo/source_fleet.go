@@ -310,14 +310,38 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},
 		{Scope: "staging", Kind: "Deployment", Name: "search-indexer", Service: "search-indexer", Compliance: fleet.StatusUnknown,
 			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "search-indexer"}},
+		// The postgresql offering's two providers, the same facts
+		// fleet-targets.yaml carries. postgresql serves production with fresh
+		// evidence (available) and staging only with stale evidence (unknown);
+		// postgresql-ha runs in production only. ticketing-service 1.2.0 in
+		// staging reports it cannot reach postgresql-ha, so postgresql-ha reads
+		// unavailable there (inferred) while the offering reads unknown: an
+		// unknown provider may be available, so it outranks a confirmed outage.
+		{Scope: "prod", Kind: "StatefulSet", Name: "postgresql", Service: "postgresql", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql:16.1.0", Coverage: cov(2, 2), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "postgresql", fleet.TargetEnvironmentLabel: "production"})},
+		{Scope: "staging", Kind: "StatefulSet", Name: "postgresql", Service: "postgresql", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql:16.1.0", Coverage: cov(2, 2), EvidenceAt: at(stale), ReconciledAt: at(stale),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "postgresql", fleet.TargetEnvironmentLabel: "staging"}},
+		{Scope: "prod", Kind: "StatefulSet", Name: "postgresql-ha", Service: "postgresql-ha", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql-ha:1.0.0", Coverage: cov(2, 2), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "postgresql-ha", fleet.TargetEnvironmentLabel: "production"})},
+		{Scope: "staging", Kind: "Deployment", Name: "ticketing-service", Service: "ticketing-service", Compliance: fleet.StatusNonCompliant,
+			ResolvedRef: demoRegistry + "ticketing-service:1.2.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "ticketing-service", fleet.TargetEnvironmentLabel: "staging"},
+			Findings: []finding.Finding{
+				{Code: finding.CodeDependencyUnreachable, Severity: finding.SeverityError, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "dependency", Name: "postgresql-ha"}, Message: `dependency "postgresql-ha" is unreachable`},
+			}},
 	}
 }
 
-// demoProvisioning is what a platform adapter reports about the resources two
-// consumers asked for, the same two reports examples/demo/fleet-targets.yaml
-// carries: catalog-service 1.3.0's database is Ready in production, and the
-// adapter could not observe orders-service's postgresql, so that use reads
-// Unknown. Neither is signed, and the dashboard says so. They are dated off the
+// demoProvisioning is what a platform adapter reports about the resources
+// three consumers asked for, the same three reports
+// examples/demo/fleet-targets.yaml carries: catalog-service 1.3.0's database is
+// Ready in production, the adapter could not observe orders-service's
+// postgresql, so that use reads Unknown, and it could not provision
+// ticketing-service 1.2.0's postgresql-ha database in staging, so that request
+// reads Failed. None is signed, and the dashboard says so. They are dated off the
 // demo clock, so they stay current; the file's fixed date reads stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
@@ -327,6 +351,9 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
 		{Service: "orders-service", Digest: demoDigest(src, "orders-service", "1.2.1"), Kind: "dependency", Name: "postgresql",
 			Outcome: string(evidence.Insufficient), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "ticketing-service", Digest: demoDigest(src, "ticketing-service", "1.2.0"), Kind: "dependency", Name: "postgresql-ha",
+			Environment: "staging", Provider: "platform-db", ExternalRef: "databases/ticketing-staging", Phase: string(evidence.PhaseFailed),
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
 	}
 }
 
@@ -363,12 +390,16 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 // demoObservedEdges are embedded observed caller→provider edges Build folds into
 // the snapshot as domain-qualified observed relationships. audit-log is observed
 // calling payments-service WITHOUT declaring it — an observed-only (shadow)
-// dependency; orders-service→payments-service corroborates a declared dependency.
+// dependency; orders-service→payments-service corroborates a declared dependency;
+// reporting-api reads postgresql directly without declaring any use of the
+// offering, so the postgresql page lists it as an undeclared caller.
 // They surface in the Operational Graph's Observed layer and, when include-observed
 // is enabled, in impact.
 func demoObservedEdges() []fleet.ObservedEdge {
 	return []fleet.ObservedEdge{
 		{From: "audit-log", To: "payments-service", Count: 12},
 		{From: "orders-service", To: "payments-service", Count: 340},
+		// Seen 20 minutes before the demo loaded, so the page reads it as current.
+		{From: "reporting-api", To: "postgresql", Count: 57, FirstSeen: demoNow().Add(-6 * time.Hour), LastSeen: demoNow().Add(-20 * time.Minute)},
 	}
 }

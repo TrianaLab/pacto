@@ -36,6 +36,12 @@ type ProviderVersionsPreview struct {
 	Range            string            `json:"range,omitempty"`
 	Completeness     string            `json:"completeness" enum:"fleet"`
 	Note             string            `json:"note"`
+	// Successor is the successor the provider's newest readable revision
+	// declares and the revision it resolves to.
+	Successor *SuccessorInfo `json:"successor,omitempty"`
+	// SuccessorRange says whether Range accepts Successor; present only when
+	// both are, and unknown when the successor does not resolve.
+	SuccessorRange string `json:"successorRange,omitempty" enum:"satisfied,unsatisfied,unknown"`
 }
 
 // providerVersionsNote is ProviderVersionsPreview.Note.
@@ -78,9 +84,23 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 		}
 		items = append(items, v)
 	}
+	q.versionsSuccessor(&out, s, revs)
 	out.Items, out.Total, out.Truncated = boundSlice(items, MaxDetailPreview)
 	out.Count = len(out.Items)
 	return out
+}
+
+// versionsSuccessor sets out's successor from the newest readable of revs and,
+// when a range is given, whether the range accepts it.
+func (q *Query) versionsSuccessor(out *ProviderVersionsPreview, s *ServiceRecord, revs []*ContractRevision) {
+	out.Successor = q.resolveSuccessor(s, serviceLifecycle(newestReadable(revs)))
+	if out.Successor != nil && out.Range != "" {
+		var rev *ContractRevision
+		if out.Successor.Revision != nil {
+			rev = q.snap.Revisions[RevisionKey(out.Successor.Revision.Key)]
+		}
+		out.SuccessorRange = successorRange(out.Range, rev)
+	}
 }
 
 // OfferingProviderVersions is one provider's versions in an
