@@ -64,6 +64,8 @@ helm upgrade --install pacto-operator integrations/kubernetes/charts/pacto-opera
   --set delivery.image.tag=dev
 ```
 
+The repository of [delivery run records](delivery-run-records.md) must be private.
+
 ## Metrics and Events
 
 The promoter and the recorder serve Prometheus metrics over plain HTTP on
@@ -80,6 +82,7 @@ recorder's their own Service, ServiceMonitor and
 | `pacto_delivery_stage_frozen` | 1 while a Stage is frozen |
 | `pacto_delivery_stage_watched` | 0 while the newest re-check of the running version did not pass |
 | `pacto_delivery_records_pending` | concluded operations per stream that have no record yet (recorder) |
+| `pacto_delivery_stats_dropped_total` | [run records](delivery-run-records.md) not published, by `reason`: `queue-full`, `publish-failed` (logged with the operation), `no-stage` (the operation had no Stage, so no service to file it under) or `shutdown` (still queued when the promoter stopped) |
 
 The promoter emits a Kubernetes Event on an operation when it waits on a person
 (`Held`) and when it concludes (its outcome). It emits one on a Stage when it

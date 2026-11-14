@@ -538,11 +538,12 @@ delivery:
   stats:
     # -- A repository (`host/path`) the promoter publishes an unsigned run record of every concluded
     # operation to, attached to one anchor per service. Empty records none. Records are statistics for
-    # `pacto stats` and the dashboard Metrics page; nothing that decides reads them. Keep the repository
-    # private: pull access to it equals read access to the delivery history of every Stage in every
-    # cluster that records to it, so grant pull only to the identities that run `pacto stats` or the
-    # dashboard. A registry without the OCI Referrers API (GHCR) uses the run-record tag fallback, where
-    # concurrent writers to one service can lose a record without it being counted.
+    # `pacto stats` and the dashboard Metrics page; nothing that decides reads them.
+    # Keep the repository private: pull access to it equals read access to the delivery history of
+    # every Stage in every cluster that records to it, so grant pull only to the identities that run
+    # `pacto stats` or the dashboard. A registry without the OCI Referrers API (GHCR) uses the
+    # run-record tag fallback, where concurrent writers to one service can lose a record without it
+    # being counted.
     repository: ""
     registryCredentials:
       # -- A `kubernetes.io/dockerconfigjson` Secret in `delivery.namespace` with push access to
