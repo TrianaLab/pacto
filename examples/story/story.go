@@ -58,11 +58,13 @@ type Persona struct {
 	Groups []string
 }
 
-// The personas. pay-agent is an agent working for a developer; alice is on
-// team payments and is never asked; carol is on team orders and is asked;
+// The personas. pay-agent is an agent working for dana, a developer on a
+// team no change asks, so the person it names never has to decide; alice is
+// on team payments and is never asked; carol is on team orders and is asked;
 // promoter is the delivery controller itself.
 var (
 	PayAgent = Persona{Name: "pay-agent", User: "system:serviceaccount:agents:pay-agent"}
+	Dana     = Persona{Name: "dana", User: "dana@example.com", Groups: []string{"team-web"}}
 	Alice    = Persona{Name: "alice", User: "alice@example.com", Groups: []string{"team-payments"}}
 	Carol    = Persona{Name: "carol", User: "carol@example.com", Groups: []string{"team-orders"}}
 	Promoter = Persona{Name: "promoter", User: "system:serviceaccount:pacto-delivery:pacto-operator-delivery"}
@@ -516,6 +518,9 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 		// The story's Stages have been raised to autonomous, one approved
 		// level at a time, so each beat shows what the graph alone decides.
 		Status: delivery.StageStatus{Level: delivery.LevelAutonomous, Pointer: from.Digest, Frozen: b.Frozen},
+	}
+	if b.Actor.Class() == delivery.ClassAgent {
+		in.Spec.OnBehalfOf = &delivery.Principal{User: Dana.User} // an agent names the person it acts for
 	}
 	switch b.Type {
 	case "":

@@ -334,6 +334,9 @@
 
   // The controls the delivery steps point at.
   var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
+  // An agent names the person who asked it before it may propose.
+  var BEHALF = '[data-testid="propose-panel"] [data-testid="pp-on-behalf-of"]';
+  var REQUESTER = "dana@example.com";
   // Switch person sits in the person menu at the top right; it can be lit only
   // while that menu is open.
   var PERSON_MENU = '[data-testid="identity-trigger"]';
@@ -344,6 +347,12 @@
   // A plan is open for this Stage ("prod/payments"), as Promote opens it.
   function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
   function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
+  function behalfText() { var t = q(BEHALF); return t ? t.value.trim() : ""; }
+  // The field renders once the plan is in: a skip pressed while it loads waits for it.
+  function fillBehalf(tries) {
+    var t = q(BEHALF);
+    if (t) { setValue(t, REQUESTER); } else if ((tries || 0) < 50) { setTimeout(function () { fillBehalf((tries || 0) + 1); }, 200); }
+  }
   function shipped(version) { return row("prod", "payments").version === version; }
   function clickOn(sel) { var b = q(sel); if (b) { b.click(); } }
   // A decision on the held change as Carol: what a skipped approve or accept
@@ -423,6 +432,14 @@
     skip: function () { clickOn('[aria-label="Promote payments in prod to 3.0.0"]'); }
   }, {
     title: "A breaking change asks first",
+    text: "An agent names the person who asked it, so type dana@example.com in Who asked you for this.",
+    hash: "#/delivery/environments",
+    target: BEHALF,
+    wait: "Waiting for the person pay-agent acts for.",
+    gate: function () { return behalfText().length >= 3 || (!!fact().held && onChange()); },
+    skip: function () { fillBehalf(); }
+  }, {
+    title: "A breaking change asks first",
     text: "The plan asks only checkout and orders, the two callers that accept nothing past 2.x, so press Propose promote.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, '[data-testid="decision-safer"]'],
@@ -431,7 +448,7 @@
     gate: function () { return !!fact().held && onChange(); },
     skip: function () {
       digestOf("payments", "3.0.0").then(function (to) {
-        return propose({ namespace: "prod", stage: "payments", to: to });
+        return propose({ namespace: "prod", stage: "payments", to: to, onBehalfOf: REQUESTER });
       }).then(function (r) {
         if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
       });
@@ -446,6 +463,14 @@
     skip: function () { clickOn('[aria-label="Promote checkout in prod to 1.9.0"]'); }
   }, {
     title: "Update a caller first",
+    text: "Type dana@example.com again, the person pay-agent acts for.",
+    hash: "#/delivery/environments",
+    target: BEHALF,
+    wait: "Waiting for the person pay-agent acts for.",
+    gate: function () { return behalfText().length >= 3 || row("prod", "checkout").version === "1.9.0"; },
+    skip: function () { fillBehalf(); }
+  }, {
+    title: "Update a caller first",
     text: "Press Propose promote: checkout ships with nobody asked, and now only orders is asked about payments 3.0.0, because checkout 1.9 accepts it.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, ".page-hd-sub"],
@@ -453,7 +478,7 @@
     hold: true,
     gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
     skip: function () {
-      digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to }); });
+      digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to, onBehalfOf: REQUESTER }); });
     }
   }, {
     title: "Decide as team orders",

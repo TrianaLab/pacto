@@ -169,6 +169,33 @@ would undo an operation. `pacto delivery plan` also lists what the new
 version's records say happened on other Stages, so a version that failed in
 test shows when you plan it for prod.
 
+### Correlation ids and the person an agent acts for
+
+Records sign `correlationID` and `onBehalfOf` as the Operation's intent said
+them:
+
+- A plan or a proposal takes a correlation id from `--correlation-id`,
+  `correlation_id` or the dashboard's "Ticket or incident id" field. The
+  automatic rollback, freeze and step-down the promoter raises after a change
+  inherit its id.
+- The admission policy accepts a `spec.correlationID` of at most 128
+  printable ASCII characters, so every reader prints it as written.
+- `onBehalfOf` is asserted, never verified; an agent must set it when it
+  proposes ([agents](delivery-agents.md)).
+- The intent digest binds the cause a proposal cites, never the correlation
+  id: a new id never makes a reviewed plan stale.
+
+### Upgrade: cause in the intent digest
+
+- Proposals that cite a cause (`--cause-verdict`, `cause_verdict`) need the
+  CLI, the dashboard and the operator at the same release, in both
+  directions. Across releases the client and the promoter compute different
+  digests, and the promoter finishes the Operation `Rejected` with
+  `PlanStale`. Planning again with the same client gives the same digest, so
+  upgrade the side that is behind.
+- Proposals without a cause and Operations held before the upgrade are
+  unaffected.
+
 ## Verify records
 
 ```bash

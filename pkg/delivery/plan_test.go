@@ -1156,3 +1156,58 @@ func TestDescribeRangesNamesPolicyReferrers(t *testing.T) {
 		t.Fatalf("describeRanges = %q, want %q", got, want)
 	}
 }
+
+func TestIntentDigestIgnoresCorrelationID(t *testing.T) {
+	a := OperationSpec{Type: TypePromote, Stage: "prod", Params: Params{To: "sha256:1"}, Reason: "r"}
+	b := a
+	b.CorrelationID = "CHG-2041"
+	if IntentDigest(a, StageSpec{}) != IntentDigest(b, StageSpec{}) {
+		t.Fatal("the correlation id changed the intent digest")
+	}
+}
+
+func TestCheckCorrelationID(t *testing.T) {
+	for _, c := range []struct {
+		id string
+		ok bool
+	}{
+		{"", true},
+		{"CHG-2041", true},
+		{strings.Repeat("a", 128), true},
+		{strings.Repeat("a", 129), false},
+		{"a\nb", false},
+		{"a\u202eb", false},
+		{"a\x1b[31mb", false},
+		{"café", false},
+		{"a\x7fb", false},
+	} {
+		if err := CheckCorrelationID(c.id); (err == nil) != c.ok {
+			t.Errorf("CheckCorrelationID(%q) = %v, want ok=%v", c.id, err, c.ok)
+		}
+	}
+}
+
+func TestIntentDigestBindsCause(t *testing.T) {
+	a := OperationSpec{Type: TypeRollback, Stage: "prod", Params: Params{To: "sha256:1"}, Cause: &Cause{Verdict: &Verdict{Gate: "smoke", Phase: "verify", Result: "Fail"}}}
+	b := a
+	b.Cause = &Cause{Verdict: &Verdict{Gate: "latency", Phase: "verify", Result: "Fail"}}
+	none := a
+	none.Cause = nil
+	if IntentDigest(a, StageSpec{}) == IntentDigest(b, StageSpec{}) {
+		t.Fatal("a different cited gate kept the intent digest")
+	}
+	if IntentDigest(a, StageSpec{}) == IntentDigest(none, StageSpec{}) {
+		t.Fatal("citing a cause kept the cause-less intent digest")
+	}
+}
+
+// TestIntentDigestNoCauseUnchanged pins a cause-less digest computed before
+// the cause joined the digest: proposals without a cause are unaffected.
+func TestIntentDigestNoCauseUnchanged(t *testing.T) {
+	s := OperationSpec{Type: TypePromote, Stage: "prod", Facet: "pointer", Params: Params{To: "sha256:1"}, Reason: "ship",
+		OnBehalfOf: &Principal{User: "dana@example.com"}, CorrelationID: "CHG-2041"}
+	const want = "sha256:67431a6b147532ff87ea1a3fef97ad72667353492b95085a6e8864311f399532"
+	if got := IntentDigest(s, StageSpec{Service: ServiceRef{Name: "payments"}}); got != want {
+		t.Fatalf("cause-less digest %s, want %s", got, want)
+	}
+}

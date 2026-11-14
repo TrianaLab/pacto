@@ -17,7 +17,8 @@ and could remove these policies anyway, so refusing it guards nothing. */}}
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override, unfreeze,
 # freeze and acknowledge are limited to their raisers, and the record finalizer
-# is required.
+# is required. An agent names the person it acts for, and that person may not
+# approve the change.
 # The names the promoter raises its rollbacks, freezes, step-downs and
 # automatic promotes under are its own: taken first, they would keep a failure
 # out of the records a follower reads.
@@ -69,6 +70,19 @@ spec:
         (variables.groups.all(g, g in request.userInfo.groups) &&
         request.userInfo.groups.all(g, g in variables.groups))
       message: "spec.actor.groups must be the groups of the user creating the operation"
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.correlationID) ||
+        (size(object.spec.correlationID) <= 128 && object.spec.correlationID.matches('^[ -~]*$'))
+      message: "spec.correlationID is at most 128 printable ASCII characters"
+      reason: Invalid
+    - expression: >-
+        !variables.agent || variables.breakGlass || request.userInfo.username == '{{ $controller }}' ||
+        (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user) > 0 &&
+        object.spec.onBehalfOf.user != request.userInfo.username &&
+        !object.spec.onBehalfOf.user.startsWith('system:serviceaccount:') &&
+        object.spec.onBehalfOf.user != '{{ $controller }}')
+      message: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change"
       reason: Forbidden
     - expression: >-
         has(object.metadata.finalizers) &&

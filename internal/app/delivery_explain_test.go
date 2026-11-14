@@ -190,7 +190,7 @@ func TestOperationsAreSelectedByField(t *testing.T) {
 func TestDeliveryProposeCarriesTheCause(t *testing.T) {
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil)
 	cause := &delivery.Cause{Verdict: &delivery.Verdict{Gate: "health", Phase: "verify", Result: delivery.Fail, Citation: map[string]string{"input": "{}"}}}
-	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Name: "p", Cause: cause})
+	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Name: "p", Cause: cause, OnBehalfOf: "dana"})
 	if err != nil || op.Spec.Cause == nil || op.Spec.Cause.Verdict.Gate != "health" || op.Spec.Cause.Verdict.Citation["input"] != "{}" {
 		t.Fatalf("cause: %+v %v", op, err)
 	}

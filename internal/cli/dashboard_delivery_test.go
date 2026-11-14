@@ -183,6 +183,9 @@ func TestDashDeliveryAdapterActions(t *testing.T) {
 	expect(t, isRefusal(err, http.StatusServiceUnavailable), "a timeout says the cluster is unreachable: %v", err)
 	err = refusal(apierrors.NewForbidden(schema.GroupResource{Resource: "approvals"}, "", errors.New("spec.groups must be the groups of the user")))
 	expect(t, isRefusal(err, http.StatusForbidden) && err.(*dashboard.DeliveryError).Code == "Forbidden", "a VAP refusal keeps its status and message: %v", err)
+	err = refusal(&app.PrincipalError{Code: "NoPrincipal", Agent: "bot", Why: "name the person"})
+	expect(t, isRefusal(err, http.StatusForbidden) && err.(*dashboard.DeliveryError).Code == "NoPrincipal" && err.(*dashboard.DeliveryError).Detail == "name the person",
+		"an agent naming no person is a 403 with its code: %v", err)
 	var _ app.DeliveryRegistry = cliRegistry{}
 }
 
@@ -302,4 +305,15 @@ func TestDashDeliveryStageNamespaces(t *testing.T) {
 	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no config") }
 	_, err = api.StageNamespaces(ctx)
 	expect(t, err != nil, "a client that cannot be built is an error")
+}
+
+// TestRefusalCarriesDiffers: a PlanStale refusal tells the dashboard which
+// bound field alone explains the difference, so the panel can re-propose.
+func TestRefusalCarriesDiffers(t *testing.T) {
+	err := refusal(&app.PlanStaleError{Plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:new"}}, Differs: "reason"})
+	var d *dashboard.DeliveryError
+	expect(t, errors.As(err, &d) && d.Code == "PlanStale" && d.Differs == "reason" && d.Plan.IntentDigest == "sha256:new",
+		"a stale refusal names what differs: %v", err)
+	err = refusal(&app.PlanStaleError{})
+	expect(t, errors.As(err, &d) && d.Differs == "", "a real move names nothing: %v", err)
 }

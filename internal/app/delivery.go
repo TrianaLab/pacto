@@ -267,37 +267,47 @@ func (e *PlanStaleError) Error() string {
 		e.Plan.IntentDigest, e.Spec.Reason, behalf)
 }
 
+// PrincipalError is the client's own refusal of an agent proposal that names
+// no person it acts for, itself, a service account or the promoter: the
+// promoter would reject it, so it never reaches the cluster.
+type PrincipalError struct{ Code, Agent, Why string }
+
+func (e *PrincipalError) Error() string {
+	return fmt.Sprintf("refused: an agent (%s) proposed this change; %s\n  fix: pass the person who asked for it with --on-behalf-of (MCP on_behalf_of)", e.Agent, e.Why)
+}
+
 // Plan builds the operation a request describes and plans it, with what the
 // plan means for the caller.
 func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, delivery.OperationSpec, error) {
-	plan, spec, _, err := d.plan(ctx, req)
+	plan, spec, _, _, err := d.plan(ctx, req)
 	return plan, spec, err
 }
 
-// plan is Plan, plus the Stage it planned against.
-func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, delivery.OperationSpec, *delivery.StageObject, error) {
+// plan is Plan, plus the Stage it planned against and the caller it planned
+// as.
+func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, delivery.OperationSpec, *delivery.StageObject, Caller, error) {
 	stage, err := d.Stage(ctx, req.Namespace, req.Stage)
 	if err != nil {
-		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
 	caller, err := d.WhoAmI(ctx)
 	if err != nil {
-		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
 	spec, err := d.spec(ctx, req, stage, caller)
 	if err != nil {
-		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
 	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now())
 	if err != nil {
-		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, Caller{}, err
 	}
 	in.RequireOwnerTeam, in.Gates = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates()
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
 	}
-	return delivery.AnswerPlan(plan, caller.Class, stage.Spec), spec, stage, nil
+	return delivery.AnswerPlan(plan, caller.Class, stage.Spec), spec, stage, caller, nil
 }
 
 // Candidates lists the versions a Stage may be promoted to, newest first:
@@ -401,7 +411,10 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 	if !ok {
 		return delivery.OperationSpec{}, fmt.Errorf("unknown operation type %q; see `pacto delivery types`", typ)
 	}
-	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason,
+	if err := delivery.CheckCorrelationID(req.CorrelationID); err != nil {
+		return delivery.OperationSpec{}, err
+	}
+	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, CorrelationID: req.CorrelationID,
 		Actor: delivery.Actor{User: caller.User, Groups: caller.Groups}, Cause: req.Cause}
 	if req.OnBehalfOf != "" {
 		spec.OnBehalfOf = &delivery.Principal{User: req.OnBehalfOf}
@@ -529,9 +542,13 @@ func (d *Delivery) kustomizations(ctx context.Context) ([]delivery.Kustomization
 // plan predicted to be rejected is still proposed: the promoter's refusal is a
 // decision too, and it leaves a record.
 func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
-	plan, spec, stage, err := d.plan(ctx, req)
+	plan, spec, stage, caller, err := d.plan(ctx, req)
 	if err != nil {
 		return nil, plan, err
+	}
+	if r := delivery.AdmitPrincipal(spec, caller.Class, caller.Policy); r != "" {
+		code, why, _ := strings.Cut(r, ": ")
+		return nil, plan, &PrincipalError{Code: code, Agent: caller.User, Why: why}
 	}
 	if req.IntentDigest != "" && req.IntentDigest != plan.IntentDigest {
 		return nil, plan, &PlanStaleError{Plan: plan, Spec: spec, Differs: delivery.IntentDiffers(spec, stage.Spec, req.IntentDigest)}

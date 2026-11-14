@@ -192,10 +192,11 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 	controllerutil.AddFinalizer(rb, dv1.RecordFinalizer)
 	rb.Spec = delivery.OperationSpec{
 		Type: delivery.TypeRollback, Stage: stage.Name, Facet: delivery.FacetPointer,
-		Params: delivery.Params{From: failed.Spec.Params.To, To: failed.Status.Pointer.Before, Undoes: string(failed.UID)},
-		Reason: "automatic rollback: " + failed.Name + " failed (" + why + ")",
-		Actor:  delivery.Actor{User: policy.ControllerUser},
-		Cause:  &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
+		Params:        delivery.Params{From: failed.Spec.Params.To, To: failed.Status.Pointer.Before, Undoes: string(failed.UID)},
+		Reason:        "automatic rollback: " + failed.Name + " failed (" + why + ")",
+		Actor:         delivery.Actor{User: policy.ControllerUser},
+		Cause:         &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
+		CorrelationID: failed.Spec.CorrelationID,
 	}
 	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stage.Spec)
 	return createRaised(ctx, c, rb)
@@ -214,10 +215,11 @@ func raiseFreeze(ctx context.Context, c client.Client, policy delivery.ClassPoli
 	controllerutil.AddFinalizer(fz, dv1.RecordFinalizer)
 	fz.Spec = delivery.OperationSpec{
 		Type: delivery.TypeFreeze, Stage: stage.Name, Facet: delivery.FacetFreeze,
-		Params: delivery.Params{From: shipped.Spec.Params.To},
-		Reason: shipped.Name + " failed after release (" + why + ")",
-		Actor:  delivery.Actor{User: policy.ControllerUser},
-		Cause:  &delivery.Cause{Operation: string(shipped.UID), Verdict: cause},
+		Params:        delivery.Params{From: shipped.Spec.Params.To},
+		Reason:        shipped.Name + " failed after release (" + why + ")",
+		Actor:         delivery.Actor{User: policy.ControllerUser},
+		Cause:         &delivery.Cause{Operation: string(shipped.UID), Verdict: cause},
+		CorrelationID: shipped.Spec.CorrelationID,
 	}
 	fz.Spec.IntentDigest = delivery.IntentDigest(fz.Spec, stage.Spec)
 	return createRaised(ctx, c, fz)

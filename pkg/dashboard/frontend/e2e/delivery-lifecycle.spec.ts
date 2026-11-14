@@ -138,8 +138,10 @@ test.describe('delivery lifecycle in the demo', () => {
   });
 
   test('history filters by correlation id and cause, and a record reads in its panel', async ({ page }) => {
-    // The every-Stage view keeps each Stage: prod/payments shows the change B1's
-    // ticket names, and every other Stage says none of its changes match.
+    // The every-Stage view keeps each Stage: prod/payments counts the change B1's
+    // ticket names and the rollback and step-down its failed health check raised
+    // under the same ticket, and shows the newest of the three, the step-down;
+    // every other Stage says none of its changes match.
     await page.goto('/#/delivery/history');
     const filters = page.getByTestId('history-filters');
     const summary = page.getByTestId('history-summary');
@@ -147,16 +149,22 @@ test.describe('delivery lifecycle in the demo', () => {
     await filters.getByLabel('Correlation id').fill('CHG-2041');
     await filters.getByRole('button', { name: 'Filter' }).click();
     await expect(page).toHaveURL(/correlationID=CHG-2041/);
-    await expect(summary.locator('[data-stage="prod/payments"] a[href*="payments-promote-2"]')).toBeVisible({ timeout: T });
+    await expect(summary.locator('[data-stage="prod/payments"] a[href*="payments-autonomy-4"]')).toBeVisible({ timeout: T });
+    await expect(summary.locator('[data-stage="prod/payments"]')).toContainText('3 changes');
     await expect(summary.locator('[data-stage="test/payments"]')).toContainText('None matches the filter');
     await expect(summary.getByText('Rejected')).toHaveCount(0);
     await filters.getByRole('link', { name: 'Clear cause and correlation' }).click();
     await expect(page).not.toHaveURL(/correlationID=/);
     await expect(summary.getByText('Rejected').first()).toBeVisible({ timeout: T });
 
+    // One Stage, by correlation id: the promote, its rollback and its step-down.
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments&correlationID=CHG-2041');
+    const rows = page.locator('section.hv-stage tbody tr');
+    await expect(rows).toHaveCount(3, { timeout: T });
+    await expect(rows.locator('a[href*="payments-rollback-3"]')).toBeVisible();
+
     // One Stage, by cause: the failed health check's rollback and step-down.
     await page.goto('/#/delivery/history?namespace=prod&stage=payments');
-    const rows = page.locator('section.hv-stage tbody tr');
     await expect(rows.first()).toBeVisible({ timeout: T });
     await filters.getByLabel('Cause').fill('error ratio');
     await filters.getByRole('button', { name: 'Filter' }).click();

@@ -83,8 +83,11 @@ func TestPublishCommandPublish(t *testing.T) {
 	var got app.PublishOptions
 	done := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed manifests reg/deploy@" + cliB}, Digests: map[string]string{},
 		Deploy: "reg/deploy@" + cliB}
-	out, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
+	out, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
 	wantRun(t, out, err, false, "pushed manifests", "Deploy: reg/deploy@"+cliB, "Proposed "+cliB+" on prod/payments-prod")
+	// An agent's propose names the person it acts for.
+	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
+	wantRun(t, out, err, true, "must name the person it acts for", "--on-behalf-of")
 	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB}}
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "json")
 	wantRun(t, out, err, false, `"actions": []`)
@@ -116,7 +119,7 @@ func TestPublishCommandFailures(t *testing.T) {
 		})
 		return c, nil
 	}
-	out, err = runPublish(t, noCreate, "text", "--propose", "prod/payments-prod")
+	out, err = runPublish(t, noCreate, "text", "--propose", "prod/payments-prod", "--on-behalf-of", "dana")
 	wantRun(t, out, err, true, "published, but proposing it on prod/payments-prod failed")
 	// The propose waits for the Stage to record the version as published.
 	publishPoll = time.Millisecond
@@ -136,7 +139,7 @@ func TestPublishCommandFailures(t *testing.T) {
 		})
 		return c, err
 	}
-	out, err = runPublish(t, fromUpstream, "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms")
+	out, err = runPublish(t, fromUpstream, "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms", "--on-behalf-of", "dana")
 	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
 	// A refused publish never claims everything is published.
 	refusedRes := &publish.Result{Plan: publishPlan(false), Actions: []string{}, Digests: map[string]string{}, Refusal: "the refusal is kept, signed, in reg/pacto/payments"}

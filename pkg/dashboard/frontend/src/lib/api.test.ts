@@ -422,6 +422,14 @@ describe('delivery endpoints', () => {
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
   });
 
+  it('carries differs on a PlanStale answer', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', differs: 'reason', plan: { intentDigest: 'sha256:new' } }, 409));
+    const err = await api.deliveryOperation('prod', 'op1').catch((e) => e);
+    expect([err.code, err.differs, err.plan.intentDigest]).toEqual(['PlanStale', 'reason', 'sha256:new']);
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', plan: { intentDigest: 'sha256:new' } }, 409));
+    expect((await api.deliveryOperation('prod', 'op1').catch((e) => e)).differs).toBeFalsy();
+  });
+
   it('sends every 401 but the session read to the sign-in gate', async () => {
     const seen = vi.fn();
     window.addEventListener('pacto:unauthorized', seen);

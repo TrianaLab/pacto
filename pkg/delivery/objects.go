@@ -38,9 +38,13 @@ type Request struct {
 	From   string `json:"from,omitempty"`
 	Undoes string `json:"undoes,omitempty"`
 	// Record is the id of the upstream stand-in an acknowledge accepts.
-	Record     string `json:"record,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+	Record string `json:"record,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// CorrelationID ties the change to an incident or another change (a
+	// ticket id). It is kept with the change and its record and is not part
+	// of the intent digest, so setting it never stales a plan.
+	CorrelationID string `json:"correlationID,omitempty"`
+	OnBehalfOf    string `json:"onBehalfOf,omitempty"`
 	// Cause is why, when it is a verdict the caller cites: the promoter runs
 	// it again at admission and refuses a cause that does not hold.
 	Cause *Cause `json:"cause,omitempty"`

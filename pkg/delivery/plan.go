@@ -22,7 +22,12 @@ import (
 
 // IntentDigest is the hash of what was asked. Plans, approvals and records bind
 // to it. The Stage spec is folded in as the policy snapshot, so a plan made
-// against one policy cannot be admitted under another.
+// against one policy cannot be admitted under another. The cited cause is
+// bound, so a proposal cannot cite a cause the reviewed plan did not show; the
+// correlation id is not, so changing a ticket id never stales a reviewed plan.
+// A cause-less spec hashes as it did before the cause was bound, but a client
+// and a promoter of different releases disagree on a cause-citing digest, and
+// the promoter finishes such an operation Rejected PlanStale.
 func IntentDigest(spec OperationSpec, stage StageSpec) string {
 	b, _ := json.Marshal(struct {
 		Type                string     `json:"type"`
@@ -31,9 +36,29 @@ func IntentDigest(spec OperationSpec, stage StageSpec) string {
 		Params              Params     `json:"params"`
 		Reason              string     `json:"reason"`
 		OnBehalfOf          *Principal `json:"onBehalfOf"`
+		Cause               *Cause     `json:"cause,omitempty"`
 		StagePolicySnapshot StageSpec  `json:"stagePolicySnapshot"`
-	}{spec.Type, spec.Stage, spec.Facet, spec.Params, spec.Reason, spec.OnBehalfOf, stage})
+	}{spec.Type, spec.Stage, spec.Facet, spec.Params, spec.Reason, spec.OnBehalfOf, spec.Cause, stage})
 	return sha256Hex(b)
+}
+
+// MaxCorrelationID is the longest correlation id, in bytes.
+const MaxCorrelationID = 128
+
+// CheckCorrelationID refuses a correlation id longer than MaxCorrelationID or
+// holding anything other than printable ASCII. The id is printed raw by
+// explain and history and signed into records, so control characters,
+// bidirectional overrides and escape sequences are refused.
+func CheckCorrelationID(id string) error {
+	if len(id) > MaxCorrelationID {
+		return fmt.Errorf("the correlation id is %d bytes; at most %d printable ASCII characters are allowed", len(id), MaxCorrelationID)
+	}
+	for i := range len(id) {
+		if id[i] < 0x20 || id[i] > 0x7e {
+			return fmt.Errorf("the correlation id holds byte 0x%02x at %d; only printable ASCII characters (space to ~) are allowed", id[i], i)
+		}
+	}
+	return nil
 }
 
 func sha256Hex(b []byte) string {

@@ -1700,6 +1700,7 @@ export interface components {
         };
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
             from?: string;
             intentDigest?: string;
             name?: string;

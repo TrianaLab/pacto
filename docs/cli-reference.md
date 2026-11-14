@@ -445,9 +445,10 @@ pacto delivery plan [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for plan
-      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -468,11 +469,12 @@ pacto delivery propose [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
-      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -1685,6 +1687,7 @@ pacto publish [dir] [flags]
 
 ```
   -h, --help[=true|false]          help for publish
+      --on-behalf-of string        with --propose, the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
   -p, --path string                path to contract directory, the same as [dir] (default: current directory)
       --plan[=true|false]          show what is missing and what refuses it; change nothing
       --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
