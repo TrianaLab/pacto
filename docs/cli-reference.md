@@ -1679,6 +1679,7 @@ pacto mcp [bundle-ref] [flags]
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string              transport type: stdio or http (default "stdio")

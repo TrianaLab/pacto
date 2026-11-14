@@ -33,7 +33,7 @@ var (
 	// runRecordRegistryImporters may import pkg/runrecord/registry directly.
 	runRecordRegistryImporters = []string{modRoot + "internal/cli", modRoot + "internal/app"}
 	// runRecordReachers may reach either package transitively.
-	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs"}
+	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/mcp", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs"}
 )
 
 // operatorRunRecordEmitters may import pkg/runrecord/... from the operator

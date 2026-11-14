@@ -30,6 +30,30 @@ func statsRegistry(t *testing.T, fixtures ...string) string {
 // newStatsRegistry is statsRegistry; sealed false allows writes after setup.
 func newStatsRegistry(t *testing.T, seal bool, fixtures ...string) string {
 	t.Helper()
+	recs := make([]runrecord.Record, 0, len(fixtures))
+	for _, name := range fixtures {
+		recs = append(recs, fixtureRecord(t, name))
+	}
+	return statsRegistryOf(t, seal, recs...)
+}
+
+// fixtureRecord parses the named pkg/runrecord fixture.
+func fixtureRecord(t *testing.T, name string) runrecord.Record {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "pkg", "runrecord", "testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := runrecord.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// statsRegistryOf is newStatsRegistry over records.
+func statsRegistryOf(t *testing.T, seal bool, recs ...runrecord.Record) string {
+	t.Helper()
 	var sealed atomic.Bool
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,15 +69,7 @@ func newStatsRegistry(t *testing.T, seal bool, fixtures ...string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range fixtures {
-		data, err := os.ReadFile(filepath.Join("..", "..", "pkg", "runrecord", "testdata", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		r, err := runrecord.Parse(data)
-		if err != nil {
-			t.Fatal(err)
-		}
+	for _, r := range recs {
 		if _, err := registry.Publish(t.Context(), repo, r); err != nil {
 			t.Fatal(err)
 		}

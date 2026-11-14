@@ -31,6 +31,7 @@ func listTools(t *testing.T, server *mcpsdk.Server) map[string]*mcpsdk.Tool {
 var readOnlyPactoTools = map[string]bool{
 	"pacto_schema": true, "pacto_check": true, "pacto_skill": true, "pacto_impact": true,
 	"pacto_catalog_revision": true, "pacto_publish_plan": true, "pacto_capabilities": true,
+	"pacto_stats": true,
 }
 
 func wantReadOnly(name string) bool {

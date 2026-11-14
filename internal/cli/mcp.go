@@ -30,6 +30,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
@@ -144,6 +145,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
 	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there")
+	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
+		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
@@ -226,6 +229,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
+		Stats: mcpStatsProvider(cmd, svc, transport == "stdio"),
 	}}, nil
 }
 
@@ -492,12 +496,15 @@ func refuseUntrustedImpact(req pactomcp.ImpactRequest, trusted bool, snap *fleet
 	return req, err
 }
 
+// mcpNoDelivery says why an HTTP server reads no delivery for its callers.
+const mcpNoDelivery = "this server answers over HTTP and reads no delivery for its callers; " +
+	"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"
+
 // mcpRegression reads delivery about a regressed revision for a trusted
 // caller, with the kubeconfig the server runs under, which is the caller's.
 func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Event, trusted bool) *impact.Regression {
 	if !trusted {
-		return &impact.Regression{Unavailable: "this server answers over HTTP and reads no delivery for its callers; " +
-			"run pacto mcp --fleet over stdio beside the agent, under its own cluster credentials, to read delivery evidence"}
+		return &impact.Regression{Unavailable: mcpNoDelivery}
 	}
 	return readRegression(ctx, cmd, d, ev)
 }
@@ -582,4 +589,65 @@ func serveHTTP(ctx context.Context, handler http.Handler, listener net.Listener)
 	case err := <-errCh:
 		return err
 	}
+}
+
+// errNoStatsRegistryMCP is the D10 error of pacto_stats over stdio.
+var errNoStatsRegistryMCP = errors.New("no stats registry: pass registry, start pacto mcp with --stats-read-registry or set PACTO_STATS_REGISTRY")
+
+// errStatsRegistryOverHTTP: an HTTP caller cannot point the server's
+// credentials at another repository.
+var errStatsRegistryOverHTTP = errors.New("this server answers over HTTP: it reads only the stats repository it was started with")
+
+// mcpStatsProvider answers pacto_stats. A trusted (stdio) server always
+// serves it and reads the caller's registry argument, else
+// --stats-read-registry, else $PACTO_STATS_REGISTRY. An HTTP server serves it
+// only with --stats-read-registry and never reads the environment: a host
+// that exports it for CI recording must not serve that repository to remote
+// callers. A caller with a view is narrowed fail closed and reads no
+// delivery.
+func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactomcp.StatsProvider {
+	flag, _ := cmd.Flags().GetString("stats-read-registry")
+	if !trusted && flag == "" {
+		return nil
+	}
+	return func(ctx context.Context, _ *auth.TokenInfo, full, view *fleet.Query, req pactomcp.StatsRequest) (*stats.Stats, error) {
+		now := statsNow()
+		if req.Registry != "" && !trusted {
+			return nil, errStatsRegistryOverHTTP
+		}
+		repo := cmp.Or(req.Registry, flag)
+		if repo == "" {
+			repo = os.Getenv("PACTO_STATS_REGISTRY") // only a trusted server gets here without a flag
+		}
+		if repo == "" {
+			return nil, errNoStatsRegistryMCP
+		}
+		q, err := statsQuery(req.Since, req.Until, req.By, req.Service, []string{req.Kinds}, now)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := mcpStatsScope(full, view, req.Service)
+		if err != nil {
+			return nil, err
+		}
+		return svc.Stats(ctx, app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now})
+	}
+}
+
+// mcpStatsScope is what a caller sees: everything without a view; with one,
+// only the services the view places and no operation records. A service
+// filter the view cannot place is the error pacto_fleet_get gives for an
+// absent service, before any registry read.
+func mcpStatsScope(full, view *fleet.Query, service string) (stats.Scope, error) {
+	attribution := statsAttribution(full)
+	if view == nil {
+		return stats.Scope{Place: stats.FleetPlacement(full, nil), Snapshot: attribution}, nil
+	}
+	place := stats.FleetPlacement(full, view)
+	if service != "" {
+		if _, ok := place(service); !ok {
+			return stats.Scope{}, &fleet.NotFoundError{Kind: "service", ID: service}
+		}
+	}
+	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution}, nil
 }

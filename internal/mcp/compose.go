@@ -88,6 +88,9 @@ func instructionsFor(a Authoring, m Modes) string {
 	parts := []string{baseFor(a)}
 	if m.Fleet != nil {
 		parts = append(parts, fleetInstructions)
+		if m.Fleet.Opts.Stats != nil {
+			parts = append(parts, statsInstructions)
+		}
 	}
 	if m.Delivery != nil {
 		parts = append(parts, deliveryInstructions)
