@@ -147,14 +147,9 @@ func runPromoter(args []string) error {
 		}
 	}
 	gates := delivery.NewGates(cluster, configured)
-	var stats func(*dv1.Operation)
-	if *statsRepository != "" {
-		e := runstats.New(*statsRepository, runstats.Keychain(*statsDockerConfig, keychain), insecure, clusterID, version)
-		if err := mgr.Add(manager.RunnableFunc(e.Run)); err != nil {
-			return err
-		}
-		stats = e.Emit
-		ctrl.Log.Info("run records on", "repository", *statsRepository)
+	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, clusterID)
+	if err != nil {
+		return err
 	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
@@ -181,6 +176,27 @@ func runPromoter(args []string) error {
 	}
 	ctrl.Log.Info("starting the Pacto delivery promoter", "version", version, "controllerUser", user)
 	return mgr.Start(ctrl.SetupSignalHandler())
+}
+
+// addStats runs a run record emitter when repository is set and returns its
+// Emit, or nil. A bad repository or docker config fails startup.
+func addStats(mgr manager.Manager, repository, dockerConfig string, kc authn.Keychain, insecure []string,
+	clusterID string) (func(*dv1.Operation), error) {
+	if repository == "" {
+		return nil, nil
+	}
+	if err := runstats.CheckDockerConfig(dockerConfig); err != nil {
+		return nil, err
+	}
+	e, err := runstats.New(repository, runstats.Keychain(dockerConfig, kc), insecure, clusterID, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := mgr.Add(manager.RunnableFunc(e.Run)); err != nil {
+		return nil, err
+	}
+	ctrl.Log.Info("run records on", "repository", repository)
+	return e.Emit, nil
 }
 
 func runRecorder(args []string) error {

@@ -4,15 +4,16 @@
     Delivery is new: its settings and commands may still change.
 
 The promoter can publish a run record of every operation it concludes: its
-type, outcome, gate results, how long it waited on a person, the class of who
+type, outcome, gate results, how long it was held, the class of who
 asked, the Stage and the digests, never a name. Records are unsigned statistics
 for `pacto stats`. Turn delivery on first ([Install](delivery-setup.md#install)).
 Recording needs neither the recorder nor signing, and it works on GHCR.
 
 Publishing is best effort and never changes an outcome. A record that could not
 be published is counted in `pacto_delivery_stats_dropped_total`
-([metrics](delivery-setup.md#metrics-and-events)), and a promoter that stops
-between concluding an operation and queuing its record loses that record.
+([metrics](delivery-setup.md#metrics-and-events)). A promoter that stops
+between concluding an operation and queuing its record loses that record; one
+that stops with records queued logs `run records not published at shutdown`.
 
 The repository must be private: pull access to it equals read access to the
 delivery history of every Stage that records to it, so grant pull only to the
