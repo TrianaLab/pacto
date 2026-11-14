@@ -400,7 +400,13 @@ identity_mcp_composed() {
   frank_names() { frank_entities | jq -c '[.entities[] | select(.kind=="service") | .label] | sort' 2>/dev/null; }
   sees_open() { [ "$(frank_names)" = '["rbac-open-svc"]' ]; }
   # The server rebuilds its snapshot when a call arrives 30s after the last.
-  eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_entities | head -c 600)"
+  # On failure, the entities and sources, not the first bytes of meta.
+  frank_brief() {
+    local raw; raw="$(frank_entities)"
+    jq -c '{total, entities: [.entities[] | {kind, key, label, targets}], limitations: [.meta.limitations[]?.code],
+      sources: [.meta.sources[] | {id, kind, status, revisionCount, targetCount}]}' <<<"$raw" 2>/dev/null || head -c 3000 <<<"$raw"
+  }
+  eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_brief)"
   out="$(frank_entities)"
   jq -e '(.meta.limitations // []) | map(.code) | index("HIDDEN_BY_PERMISSIONS") != null' <<<"$out" >/dev/null \
     || fail "frank's fleet answer does not say services are hidden: ${out:0:600}"
