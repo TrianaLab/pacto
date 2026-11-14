@@ -129,7 +129,10 @@ func TestStatsToolSourceErrorIsToolError(t *testing.T) {
 // A signed-in caller's token reaches both the view and the provider.
 func TestStatsToolPassesSignedInCaller(t *testing.T) {
 	var viewedBy *auth.TokenInfo
-	view := func(_ context.Context, c *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) { viewedBy = c; return q, nil }
+	view := func(_ context.Context, c *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		viewedBy = c
+		return q, nil
+	}
 	p, calls := stubStats(&stats.Stats{}, nil)
 	alice := &auth.TokenInfo{UserID: "alice"}
 	req := &mcpsdk.CallToolRequest{Extra: &mcpsdk.RequestExtra{TokenInfo: alice}}
