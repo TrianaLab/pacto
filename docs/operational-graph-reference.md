@@ -266,7 +266,8 @@ Attention items fall into these categories, worst first:
 |----------|------|----------|
 | `non-compliant` | `NON_COMPLIANT` | error |
 | `invalid` | `INVALID_CONTRACT` | error |
-| `unknown` | `UNKNOWN` | warning |
+| `health` | `HEALTH_FAILING`, a target whose own health check is failing | warning |
+| `unknown` | the cause: `COLLECTION_FAILED`, `HEALTH_FAILING`, `EVIDENCE_STALE`, `OBSERVATION_UNSUPPORTED`, `EVIDENCE_INSUFFICIENT` or `EVIDENCE_MISSING`, else `UNKNOWN` | warning |
 | `stale` | `STALE_EVIDENCE` | warning |
 | `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
 | `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |

@@ -988,6 +988,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		// No flag selects provisioning alone: NeedsAttention and the empty
 		// query include it, so Status stays a projection of collectAttention.
 		categoryProvisioning: false,
+		// Nor does any flag select health alone, for the same reason.
+		categoryHealth: false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

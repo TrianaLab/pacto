@@ -39,10 +39,10 @@ describe('kindLabel', () => {
 describe('attentionCategoryLabel', () => {
   // The TS union in schema.ts is type-only, so the drift check reads the enum the
   // backend publishes: a new backend category fails here until it gets a chip.
-  it('lists exactly the backend attention categories', () => {
+  it('lists exactly the backend attention categories, in their order', () => {
     const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
     const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
-    expect(new Set(ATTENTION_CATEGORIES)).toEqual(new Set(backend));
+    expect([...ATTENTION_CATEGORIES]).toEqual(backend);
   });
 
   it('gives every backend category a plain-language name', () => {
@@ -51,6 +51,7 @@ describe('attentionCategoryLabel', () => {
       expect(attentionCategoryLabel(c)).toMatch(/^[A-Z]/);
     }
     expect(attentionCategoryLabel('non-compliant')).toBe('Not compliant');
+    expect(attentionCategoryLabel('health')).toBe('Health check failing');
     expect(attentionCategoryLabel('readiness')).toBe('Readiness gate');
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');

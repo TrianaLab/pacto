@@ -472,17 +472,20 @@ type OverviewSummary struct {
 	// visual from a lossy copy has to render the shortfall as an unnamed remainder —
 	// which is how a Warning or Reference target, correctly named on the targets list,
 	// became a grey "Unclassified" slice on the landing page.
-	CompliantTargets        int `json:"compliantTargets"`
-	NonCompliantTargets     int `json:"nonCompliantTargets"`
-	UnknownTargets          int `json:"unknownTargets"`
-	WarningTargets          int `json:"warningTargets"`
-	InvalidTargets          int `json:"invalidTargets"`
-	ReferenceTargets        int `json:"referenceTargets"`
-	NotEvaluatedTargets     int `json:"notEvaluatedTargets"`
-	OtherComplianceTargets  int `json:"otherComplianceTargets"`
-	StaleTargets            int `json:"staleTargets"`
-	UnresolvedRelationships int `json:"unresolvedRelationships"`
-	UnsatisfiedRanges       int `json:"unsatisfiedRanges"`
+	CompliantTargets       int `json:"compliantTargets"`
+	NonCompliantTargets    int `json:"nonCompliantTargets"`
+	UnknownTargets         int `json:"unknownTargets"`
+	WarningTargets         int `json:"warningTargets"`
+	InvalidTargets         int `json:"invalidTargets"`
+	ReferenceTargets       int `json:"referenceTargets"`
+	NotEvaluatedTargets    int `json:"notEvaluatedTargets"`
+	OtherComplianceTargets int `json:"otherComplianceTargets"`
+	StaleTargets           int `json:"staleTargets"`
+	// OperationalHealth partitions the complete target population, the same
+	// whole as Targets, by what each target's declared health check reports.
+	OperationalHealth       OperationalHealthTally `json:"operationalHealth"`
+	UnresolvedRelationships int                    `json:"unresolvedRelationships"`
+	UnsatisfiedRanges       int                    `json:"unsatisfiedRanges"`
 	// LifecycleConsumers counts distinct services that use a deprecated or
 	// past-sunset provider (the lifecycle attention items).
 	LifecycleConsumers        int `json:"lifecycleConsumers"`
@@ -727,6 +730,7 @@ func (q *Query) Overview() *Overview {
 	for _, t := range q.snap.Targets {
 		link.add(t)
 		comp.add(t.Compliance)
+		sum.OperationalHealth.add(q.targetHealth(t))
 		sum.Evidence.add(t)
 		if t.Stale {
 			sum.StaleTargets++
@@ -885,6 +889,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		// Each Severity below is the SAME grade the attention items in that category
 		// carry (see attentionItems), so a tile and the rows it opens agree.
 		{Label: "Operational targets not compliant", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant, Severity: severityError},
+		{Label: "Operational targets failing their health check", Count: sum.OperationalHealth.Unavailable, View: EntryPointAttention, Category: categoryHealth, Severity: severityWarning},
 		{Label: "Operational targets with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale, Severity: severityWarning},
 		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown, Severity: severityWarning},
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
@@ -926,7 +931,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,provisioning,readiness,unresolved,out-of-range,lifecycle,undeclared,golden-path,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -1080,7 +1085,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1117,6 +1122,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	for _, r := range q.snap.Revisions {
 		items = append(items, q.revisionAttention(r)...)
 	}
+	items = append(items, q.healthAttention()...)
 	items = append(items, q.unresolvedAttention()...)
 	items = append(items, q.lifecycleAttention()...)
 	items = append(items, q.provisioningAttention()...)
@@ -1199,10 +1205,11 @@ func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
 			Source: t.Source, NextStep: "Open the findings for this operational target",
 		})
 	case StatusUnknown:
+		code, reason := q.dominantUnknown(t)
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
-			Severity: severityWarning, Code: "UNKNOWN", Category: categoryUnknown,
-			Summary: "Compliance of this operational target is unknown", Reason: "compliance is unknown because evidence is insufficient",
+			Severity: severityWarning, Code: code, Category: categoryUnknown,
+			Summary: "Compliance of this operational target is unknown", Reason: reason,
 			Source: t.Source, NextStep: "Check the evidence source for this operational target",
 		})
 	}

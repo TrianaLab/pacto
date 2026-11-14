@@ -2391,6 +2391,7 @@ export interface components {
             /** Format: int64 */
             sources: number;
             targetCompliance: components["schemas"]["Fleet.ComplianceTally"];
+            targetHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             targets: number;
             /** Format: int64 */
@@ -2690,6 +2691,33 @@ export interface components {
             lastSeen?: string;
             source: string;
         };
+        "Fleet.OperationalHealthTally": {
+            /**
+             * Format: int64
+             * @description Targets whose declared health check was evaluated on fresh evidence with no health finding
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description Targets reported as degraded; no source reports degradation yet, so it reads 0
+             */
+            degraded: number;
+            /**
+             * Format: int64
+             * @description Targets whose contract revision declares no health capability
+             */
+            notObserved: number;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing (HEALTH_FAILING)
+             */
+            unavailable: number;
+            /**
+             * Format: int64
+             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved or quarantined target, or another finding on the health capability
+             */
+            unknown: number;
+        };
         "Fleet.OriginCount": {
             /** Format: int64 */
             nonCompliant: number;
@@ -2738,6 +2766,7 @@ export interface components {
             notEvaluatedTargets: number;
             /** Format: int64 */
             observedOnlyRelationships: number;
+            operationalHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             otherComplianceTargets: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
@@ -3976,7 +4005,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "provisioning" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;

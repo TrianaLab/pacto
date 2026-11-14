@@ -169,7 +169,7 @@ func TestFailedResourceLeavesServiceStatus(t *testing.T) {
 
 func TestAttentionCategoryOrderHasProvisioning(t *testing.T) {
 	cats := AttentionCategoriesList()
-	if i := slices.Index(cats, categoryProvisioning); i < 1 || cats[i-1] != categoryInvalid {
-		t.Errorf("provisioning is not right after invalid: %v", cats)
+	if i := slices.Index(cats, categoryProvisioning); i < 1 || cats[i-1] != categoryHealth {
+		t.Errorf("provisioning is not right after health: %v", cats)
 	}
 }

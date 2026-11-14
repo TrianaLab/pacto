@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
@@ -776,5 +778,38 @@ func TestRestrictCountsHiddenPolicyReferrers(t *testing.T) {
 	p := s.Services[NewServiceKey("policy")]
 	if p.HiddenDependents != 1 || p.HiddenPolicyReferrers != 1 {
 		t.Errorf("policy hidden dependents/referrers = %d/%d, want 1/1", p.HiddenDependents, p.HiddenPolicyReferrers)
+	}
+}
+
+// TestRestrictedOverviewHealth: a failing target in a hidden namespace is
+// neither counted in a visible bucket nor named.
+func TestRestrictedOverviewHealth(t *testing.T) {
+	k := SourceKindKubernetes
+	shop := probed("shop-ok", func(r *RawTarget) { r.Kind = k })
+	secret := probed("secret-down", func(r *RawTarget) {
+		r.Kind, r.Scope = k, "secret"
+		r.Compliance = StatusUnknown
+		r.Findings = []finding.Finding{healthFinding(finding.CodeHealthFailing, "down")}
+	})
+	q := healthFleet(t, time.Hour, shop, secret)
+	if q.Overview().Summary.OperationalHealth.Unavailable != 1 {
+		t.Fatal("unrestricted view must count the failing target")
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	ov := r.Overview()
+	if ov.Summary.OperationalHealth != (OperationalHealthTally{Available: 1}) {
+		t.Fatalf("restricted operationalHealth = %+v", ov.Summary.OperationalHealth)
+	}
+	l, _ := r.Attention(AttentionFilter{Category: categoryHealth})
+	if l.Total != 0 {
+		t.Fatalf("restricted health items = %+v", l.Items)
+	}
+	if !slices.ContainsFunc(ov.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("limitations = %+v, want HIDDEN_BY_PERMISSIONS", ov.Meta.Limitations)
+	}
+	for _, l := range ov.Meta.Limitations {
+		if strings.Contains(l.Message, "secret-down") {
+			t.Errorf("a limitation names the hidden target: %q", l.Message)
+		}
 	}
 }

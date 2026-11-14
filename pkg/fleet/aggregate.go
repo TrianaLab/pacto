@@ -314,6 +314,8 @@ type EntityAggregate struct {
 	// targets, so adding the two would count the same operational reality twice.
 	ServiceCompliance ComplianceTally `json:"serviceCompliance"`
 	TargetCompliance  ComplianceTally `json:"targetCompliance"`
+	// TargetHealth partitions Targets by what their declared health check reports.
+	TargetHealth OperationalHealthTally `json:"targetHealth"`
 	// Ownership partitions Services; Readiness partitions Revisions.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
@@ -592,6 +594,7 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 		case KindTarget:
 			agg.Targets++
 			agg.TargetCompliance.add(r.Status)
+			agg.TargetHealth.add(q.targetHealth(q.snap.Targets[TargetKey(r.Key)]))
 		case KindOwner:
 			agg.Owners++
 		case KindSource:
