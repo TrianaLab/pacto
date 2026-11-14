@@ -248,12 +248,14 @@ YAML
 }
 
 # mcp TOKEN METHOD PARAMS — one JSON-RPC call to the remote MCP server; prints
-# the JSON answer (the server is stateless: no initialize needed).
+# the JSON answer once (the server is stateless: no initialize needed). The `t`
+# ends the cycle after a stripped SSE data line, which now starts with `{` and
+# would otherwise print twice.
 mcp() {
   local auth=(); [ -n "$1" ] && auth=(-H "Authorization: Bearer $1")
   curl -s "${auth[@]}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
     -H 'Mcp-Protocol-Version: 2025-06-18' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n 's/^data: //p;/^{/p'
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n -e 's/^data: //p' -e t -e '/^{/p'
 }
 # tool TOKEN NAME ARGS — one tool call's text answer; a refusal prints as
 # "ERROR: <text>".
