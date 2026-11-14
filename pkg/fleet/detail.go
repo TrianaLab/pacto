@@ -382,6 +382,7 @@ type ServiceDetailData struct {
 	// with no contract, that the caller's permissions hide (see ServiceRecord),
 	// never named.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
+	HiddenProviders    int `json:"hiddenProviders,omitempty" doc:"At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 	// DependentsStatus tallies every visible dependent by its status, over the
 	// complete population, never the bounded Dependents preview. Hidden
@@ -1046,6 +1047,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,
+		HiddenProviders:    q.hiddenResourceProviders(s.Key),
 		HiddenDependents:   s.HiddenDependents,
 		DependentsStatus:   q.statusTally(view.Dependents),
 		ReferencedBy:       refPreview(q.referencingServices(s.Key)),
@@ -1364,10 +1366,19 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 	return p
 }
 
-// offeringUses is every service consuming an offering provider match accepts,
-// from one consumer when from is set, with provisioning (see offeringUsesIn).
+// offeringUses is every use of a provider match accepts, from one consumer
+// when from is set, with provisioning (see offeringUsesIn). A use of a
+// provider that declares no offering is a resource only when a provider
+// reported on it, so a plain service dependency never reads as one.
 func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
-	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Offering != "" && match(p) }, from, true)
+	uses, lims := q.offeringUsesIn(q.snap.Relationships, match, from, true)
+	return slices.DeleteFunc(uses, func(u OfferingUse) bool { return u.Offering == "" && !u.reported() }), lims
+}
+
+// reported reports whether a provider reported on u: any status besides the
+// seeded no-report one, a conflict with no source included.
+func (u OfferingUse) reported() bool {
+	return slices.ContainsFunc(u.Provisioning, func(st ProvisioningStatus) bool { return st.Reason != noProvisioningReport })
 }
 
 // offeringUsesIn is every use in rels of a provider match accepts, from one

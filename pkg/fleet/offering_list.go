@@ -62,7 +62,7 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 		f.targetsUnknown = f.targetsUnknown || !placementKnown || q.snap.targetsHidden[s.Key]
 		maps.Copy(f.hidden, q.snap.hiddenConsumers[s.Key])
 	}
-	uses, _ := q.offeringUses(func(*ServiceRecord) bool { return true }, "")
+	uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering != "" }, "")
 	for _, u := range uses {
 		f := by[u.Offering]
 		f.uses = append(f.uses, u)

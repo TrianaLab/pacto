@@ -4746,6 +4746,11 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            /**
+             * Format: int64
+             * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
+             */
+            hiddenProviders?: number;
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
