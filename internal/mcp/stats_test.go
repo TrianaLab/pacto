@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -122,5 +123,18 @@ func TestStatsToolSourceErrorIsToolError(t *testing.T) {
 	res := callToolOn(t, mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: src, Opts: FleetOptions{Stats: p}}}), "pacto_stats", map[string]any{})
 	if !res.IsError || resultText(t, res) != "no snapshot" || len(*calls) != 0 {
 		t.Fatalf("res = %+v", res)
+	}
+}
+
+// A signed-in caller's token reaches both the view and the provider.
+func TestStatsToolPassesSignedInCaller(t *testing.T) {
+	var viewedBy *auth.TokenInfo
+	view := func(_ context.Context, c *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) { viewedBy = c; return q, nil }
+	p, calls := stubStats(&stats.Stats{}, nil)
+	alice := &auth.TokenInfo{UserID: "alice"}
+	req := &mcpsdk.CallToolRequest{Extra: &mcpsdk.RequestExtra{TokenInfo: alice}}
+	res, _, err := statsHandler(staticFleet(buildFleetQuery(t)), view, p)(context.Background(), req, statsArgs{})
+	if err != nil || res.IsError || viewedBy != alice || len(*calls) != 1 || (*calls)[0].caller != alice {
+		t.Fatalf("res %+v err %v viewed by %+v calls %+v", res, err, viewedBy, *calls)
 	}
 }
