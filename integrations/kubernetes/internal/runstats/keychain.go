@@ -34,7 +34,8 @@ type dirKeychain struct {
 }
 
 // Resolve reads the file on every call, so a rotated Secret takes effect on
-// the next record. A missing, malformed or undecodable entry falls back.
+// the next record. A missing, malformed or undecodable entry falls back; a
+// listed host with no credentials is anonymous.
 func (k dirKeychain) Resolve(res authn.Resource) (authn.Authenticator, error) {
 	var cfg struct {
 		Auths map[string]json.RawMessage `json:"auths"`

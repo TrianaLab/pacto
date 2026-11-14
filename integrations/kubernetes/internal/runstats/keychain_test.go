@@ -106,3 +106,10 @@ func TestKeychainEmptyDirIsFallback(t *testing.T) {
 		t.Fatal("an empty dir must return the fallback itself")
 	}
 }
+
+func TestKeychainEmptyEntryIsAnonymous(t *testing.T) {
+	kc := Keychain(configDir(t, `{"auths":{"registry.example.com":{}}}`), fallbackKC{})
+	if got := resolve(t, kc, "registry.example.com"); got != (authn.AuthConfig{}) {
+		t.Fatalf("an entry with no credentials must be anonymous, got %+v", got)
+	}
+}
