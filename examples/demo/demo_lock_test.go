@@ -131,8 +131,8 @@ func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
 
 // TestDemoOfferingUnavailablePostgres: the offering answer lists every
 // consumer each provider's own answer lists, and nothing else; a provider is
-// never its own consumer. shared-config has two providers (and, today, no
-// consumer an availability event reads), so the union runs over the demo too.
+// never its own consumer. postgresql and shared-config each have two
+// providers, so the union runs over the demo twice.
 func TestDemoOfferingUnavailablePostgres(t *testing.T) {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
 	if err != nil {
@@ -145,7 +145,7 @@ func TestDemoOfferingUnavailablePostgres(t *testing.T) {
 		}
 		return out
 	}
-	for offering, providers := range map[string]int{"postgresql": 1, "shared-config": 2} {
+	for offering, providers := range map[string]int{"postgresql": 2, "shared-config": 2} {
 		res := impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Offering: offering}})
 		if len(res.Providers) != providers {
 			t.Fatalf("%s providers %v", offering, res.Providers)
@@ -182,8 +182,8 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
-	if len(snap.Provisioning) != 2 {
-		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	if len(snap.Provisioning) != 3 {
+		t.Errorf("provisioning records = %d, want all three reports kept", len(snap.Provisioning))
 	}
 }
 
@@ -364,21 +364,114 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 	}
 }
 
-// TestDemoOfferingRows: on the demo fleet, the only deprecated offering is
-// postgresql, and its row counts the services that consume it. The clock is
-// pinned before postgresql 16.1.0's sunset, so the answer never ages.
+// TestDemoOfferingRows: on the demo fleet, postgresql has two providers with
+// two owners, and its newest revision, 17.0.0, declares no lifecycle, so the
+// row reads supported and no offering is deprecated. The services whose range
+// stops at 16 still reach the deprecated 16.1.0, and each gets one lifecycle
+// item saying the successor is out of its range. The clock is pinned before
+// postgresql 16.1.0's sunset, so the answer never ages.
 func TestDemoOfferingRows(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
-		t.Errorf("deprecated offerings = %+v", l.Entities)
+	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+		t.Errorf("postgresql offering = %+v", l.Entities)
+	}
+	dep, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	if err != nil || dep.Total != 0 {
+		t.Errorf("deprecated offerings = %+v (%v)", dep, err)
+	}
+	items, err := q.Attention(fleet.AttentionFilter{Category: "lifecycle", Limit: fleet.MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]string{}
+	for _, it := range items.Items {
+		codes[it.Service] = it.Code
+	}
+	if codes["orders-service"] != "SUCCESSOR_OUT_OF_RANGE" || codes["ticketing-service"] != "" {
+		t.Errorf("lifecycle items = %v, want orders-service out of range and ticketing-service, which reaches 17.0.0, silent", codes)
+	}
+}
+
+// TestDemoOfferingSuccessorResolves: postgresql 16.1.0 names 17.0.0 as its
+// successor, and the demo ships it, so a ^16 consumer's use resolves the
+// successor (inferred, by name) and its range excludes it.
+func TestDemoOfferingSuccessorResolves(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range d.Offering.Consumers.Items {
+		if u.Consumer.Key == "orders-service" && u.Via == "dependency" {
+			if u.ProviderLifecycle == nil || u.SuccessorRange != fleet.RangeUnsatisfied {
+				t.Errorf("orders-service use = %+v", u)
+			}
+			for _, l := range d.Meta.Limitations {
+				if l.Code == fleet.LimitationSuccessorUnresolved {
+					t.Errorf("successor unresolved: %s", l.Message)
+				}
+			}
+			return
+		}
+	}
+	t.Error("orders-service does not consume postgresql")
+}
+
+// TestDemoOfferingTwoProviders: postgresql and postgresql-ha both provide the
+// postgresql offering, owned by two teams, and ticketing-service 1.2.0
+// consumes the second one.
+func TestDemoOfferingTwoProviders(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners := map[string]string{}
+	for _, p := range d.Offering.Providers.Items {
+		owners[p.Service.Key] = p.Ownership.Owner
+	}
+	if !reflect.DeepEqual(owners, map[string]string{"postgresql": "infra-data", "postgresql-ha": "platform-data"}) {
+		t.Errorf("providers = %v", owners)
+	}
+	for _, u := range d.Offering.Consumers.Items {
+		if u.Consumer.Key == "ticketing-service" && u.Provider.Key == "postgresql-ha" {
+			return
+		}
+	}
+	t.Error("ticketing-service does not consume postgresql-ha")
+}
+
+// TestDemoOfferingFailedRequest: the CLI demo's adapter could not provision
+// ticketing-service 1.2.0's postgresql-ha database, so the postgresql row
+// counts one failed request. The wide window reads the file's fixed-date
+// reports as current, as its header says.
+func TestDemoOfferingFailedRequest(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Failed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].FailedRequests != 1 {
+		t.Errorf("offerings with a failed request = %+v", l.Entities)
 	}
 }
 
