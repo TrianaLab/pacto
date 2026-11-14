@@ -1995,11 +1995,11 @@ pacto stats [flags]
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --service string             total only the run records of this service
+      --service string             total only the run records of this service: the contract's service.name
       --since string               start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
       --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-      --until string               end of the window: 30d, 12h, a date or RFC 3339 (default now)
+      --until string               end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
 
 ### `pacto stats publish`

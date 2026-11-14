@@ -25,6 +25,11 @@ const (
 	LimitationSkipped   = "RUN_RECORDS_SKIPPED"
 	LimitationTruncated = "RUN_RECORDS_TRUNCATED"
 	LimitationNoRecords = "NO_RUN_RECORDS"
+	// LimitationRepositoryMissing replaces LimitationNoRecords when the stats
+	// repository itself was not found.
+	LimitationRepositoryMissing = "RUN_RECORDS_REPOSITORY_NOT_FOUND"
+	// LimitationConsumersPartial says a consumer count is a lower bound.
+	LimitationConsumersPartial = "CONSUMERS_FROM_PARTIAL_SNAPSHOT"
 )
 
 // classificationBreaking is the diff classification that counts as caught.
@@ -69,6 +74,7 @@ type Distinct struct {
 type Protected struct {
 	Count   int `json:"count" doc:"Blocking consumers summed over changes whose newest gate is blocked"`
 	Unknown int `json:"unknown" doc:"Unknown consumers summed over the same changes"`
+	Partial int `json:"partial,omitempty" doc:"Changes among them judged on a partial fleet snapshot; with any, count is a lower bound"`
 }
 
 // Gates counts changes by their newest gate verdict.
@@ -109,11 +115,11 @@ type Stats struct {
 	Provenance      string             `json:"provenance" doc:"Always unsigned statistics: run records are never evidence"`
 	RecordsRead     int                `json:"recordsRead" doc:"Records read from the repository, in or out of the window; skipped records are counted apart"`
 	Runs            int                `json:"runs" doc:"Records in the window after retries of one record id count once"`
-	DistinctChanges int                `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff, impact and publish runs in the window"`
+	DistinctChanges int                `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only"`
 	Skipped         Skipped            `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
-	Truncated       string             `json:"truncated" doc:"The bound that cut the read; empty when the read is whole"`
+	Truncated       string             `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
 	Hidden          Hidden             `json:"hidden" doc:"Whether records outside the caller's view exist"`
-	Completeness    fleet.Completeness `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut or records are outside the caller's view; empty when the window holds no records"`
+	Completeness    fleet.Completeness `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
 	Limitations     []fleet.Limitation `json:"limitations" doc:"Why the answer is incomplete"`
 	By              string             `json:"by,omitempty" doc:"What the groups are by"`
 	Attribution     *Attribution       `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
@@ -133,17 +139,16 @@ func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	entries := dedupe(selectEntries(current, q))
 	st.Runs = len(entries)
 	if len(entries) > 0 {
-		publishes := publishesOf(current)
-		m, changes := metricsOf(entries, publishes)
+		m, changes := metricsOf(entries, current)
 		st.Totals, st.DistinctChanges = &m, changes
-		st.Groups = groups(entries, publishes, q.By, sc)
+		st.Groups = groups(entries, current, q.By, sc)
 	}
 	if a := sc.Snapshot; a != nil && (q.By == "owner" || q.By == "domain") {
 		attr := *a
 		attr.Provenance = "inferred"
 		st.Attribution = &attr
 	}
-	st.Limitations, st.Completeness = limitations(st, future, truncatedService(set.TruncatedAnchor, current), sc.NoDelivery)
+	st.Limitations, st.Completeness = limitations(st, set, sc, future, truncatedService(set.TruncatedAnchor, current))
 	if st.Totals != nil {
 		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
 	}
@@ -151,10 +156,11 @@ func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 }
 
 // metricsOf is the CI and delivery numbers of entries and their distinct
-// changes. publishes are the visible publish records lead times join.
-func metricsOf(entries, publishes []Entry) (Metrics, int) {
+// changes. history is every visible record, in the window or before it, that
+// lead times join against.
+func metricsOf(entries, history []Entry) (Metrics, int) {
 	m, changes := ciMetrics(entries)
-	m.Environments = environmentMetrics(entries, publishes)
+	m.Environments = environmentMetrics(entries, history)
 	return m, changes
 }
 
@@ -178,18 +184,6 @@ func recordTime(r runrecord.Record) time.Time {
 		return t
 	}
 	return r.RecordedAt
-}
-
-// publishesOf is every publish record, in the window or before it, so a
-// promotion in the window joins the publish that preceded it.
-func publishesOf(entries []Entry) []Entry {
-	var out []Entry
-	for _, e := range entries {
-		if e.Record.Kind == runrecord.KindPublish {
-			out = append(out, e)
-		}
-	}
-	return out
 }
 
 func selectEntries(entries []Entry, q Query) []Entry {
@@ -233,8 +227,11 @@ func dedupe(entries []Entry) []Entry {
 	return out
 }
 
+// isChangeKind is a kind whose revisions are bundle digests. A publish record
+// names versions, so it never shares a change key with the diff or impact of
+// the same change and is counted in runs only.
 func isChangeKind(kind string) bool {
-	return kind == runrecord.KindDiff || kind == runrecord.KindImpact || kind == runrecord.KindPublish
+	return kind == runrecord.KindDiff || kind == runrecord.KindImpact
 }
 
 // ciMetrics computes the CI numbers and counts the distinct changes.
@@ -260,7 +257,7 @@ func ciMetrics(entries []Entry) (Metrics, int) {
 func breakingRuns(recs []Entry) int {
 	n := 0
 	for _, e := range recs {
-		if e.Record.Kind != runrecord.KindPublish && e.Record.Classification == classificationBreaking {
+		if e.Record.Classification == classificationBreaking {
 			n++
 		}
 	}
@@ -278,8 +275,8 @@ func newestGate(recs []Entry) *Entry {
 	return best
 }
 
-// countGate counts a change's newest verdict. A refused verdict is a
-// publish the plan refused, which judges no consumer, so it counts nowhere.
+// countGate counts a change's newest verdict. A verdict the aggregation does
+// not name counts nowhere.
 func countGate(m *Metrics, e *Entry) {
 	if e == nil {
 		return
@@ -294,18 +291,22 @@ func countGate(m *Metrics, e *Entry) {
 		if c := e.Record.Consumers; c != nil {
 			m.ConsumersProtected.Count += c.Blocking
 			m.ConsumersProtected.Unknown += c.Unknown
+			if e.Record.Completeness != string(fleet.CompletenessComplete) {
+				m.ConsumersProtected.Partial++
+			}
 		}
 	}
 }
 
-func limitations(st *Stats, future int, truncatedBy, noDelivery string) ([]fleet.Limitation, fleet.Completeness) {
+func limitations(st *Stats, set RecordSet, sc Scope, future int, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
 	for _, l := range []*fleet.Limitation{
 		skippedLimitation(st.Skipped, future),
-		truncatedLimitation(st.Truncated, truncatedBy),
+		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
-		limitationIf(noDelivery != "", LimitationDeliveryUnavailable, noDelivery),
+		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),
+		limitationIf(st.Totals != nil && st.Totals.ConsumersProtected.Partial > 0, LimitationConsumersPartial, "some blocked changes were judged on a partial fleet snapshot, so consumersProtected is a lower bound"),
 	} {
 		if l != nil {
 			lims = append(lims, *l)
@@ -315,8 +316,13 @@ func limitations(st *Stats, future int, truncatedBy, noDelivery string) ([]fleet
 	if len(lims) > 0 {
 		c = fleet.CompletenessPartial
 	}
-	if st.Runs == 0 {
+	switch {
+	case st.Runs == 0 && set.RepositoryMissing:
+		lims = append(lims, fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"})
+	case st.Runs == 0:
 		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"})
+	}
+	if st.Runs == 0 {
 		if c == fleet.CompletenessComplete {
 			c = fleet.CompletenessEmpty
 		}
@@ -346,11 +352,20 @@ func skippedLimitation(s Skipped, future int) *fleet.Limitation {
 }
 
 // truncatedLimitation names the service whose listing was cut only when the
-// caller sees a record of it.
-func truncatedLimitation(bound, service string) *fleet.Limitation {
+// caller sees a record of it, and says how many services after the cut were
+// not read at all; a restricted caller is never given a count.
+func truncatedLimitation(bound, service string, unread int, restricted bool) *fleet.Limitation {
 	listing := ""
 	if service != "" {
 		listing = " while listing the records of " + service
+	}
+	switch {
+	case unread > 0 && restricted:
+		listing += "; services after it were not read at all"
+	case unread == 1:
+		listing += "; 1 service after it was not read at all"
+	case unread > 1:
+		listing += fmt.Sprintf("; %d services after it were not read at all", unread)
 	}
 	return limitationIf(bound != "", LimitationTruncated, "the read was cut at "+bound+listing+"; records past the bound are left out of every number")
 }

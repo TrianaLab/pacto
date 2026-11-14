@@ -23,6 +23,13 @@ var fleetNow = time.Date(2026, 11, 14, 11, 0, 0, 0, time.UTC)
 // run in vault. The bare name orders is ambiguous.
 func statsFleet(t *testing.T) *fleet.Query {
 	t.Helper()
+	return buildFleet(t, "shop")
+}
+
+// buildFleet is statsFleet with the shop orders service in ordersDomain; ""
+// puts it in the default domain, whose key is the bare name orders.
+func buildFleet(t *testing.T, ordersDomain string) *fleet.Query {
+	t.Helper()
 	rev := func(name, domain string, owner contract.Owner, business string) fleet.RawRevision {
 		c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: "1.0.0", Owner: owner, Domain: business}}
 		return fleet.RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:" + domain + name, Domain: domain}
@@ -32,13 +39,13 @@ func statsFleet(t *testing.T) *fleet.Query {
 	}
 	src := fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
 		Revisions: []fleet.RawRevision{
-			rev("orders", "shop", contract.Owner{Team: "checkout"}, "commerce"),
+			rev("orders", ordersDomain, contract.Owner{Team: "checkout"}, "commerce"),
 			rev("orders", "payments", contract.Owner{Team: "money"}, "finance"),
 			rev("billing", "", contract.Owner{DRI: "alice"}, ""),
 			rev("catalog", "", contract.Owner{}, "commerce"),
 		},
 		Targets: []fleet.RawTarget{
-			target("shop", "orders", "shop"), target("vault", "orders", "payments"), target("vault", "billing", ""),
+			target("shop", "orders", ordersDomain), target("vault", "orders", "payments"), target("vault", "billing", ""),
 			target("shop", "catalog", ""), target("shop", "ghost", ""),
 		},
 	})
@@ -198,6 +205,51 @@ func TestFleetPlacementResolvesEachNameOnce(t *testing.T) {
 	st := aggBy(set(recs...), "domain", Scope{Restricted: true, Place: place})
 	if calls["orders"] != 1 || calls["nobody"] != 1 || st.Runs != 50 {
 		t.Fatalf("calls = %v, runs %d", calls, st.Runs)
+	}
+}
+
+// Records carry only the bare service.name. A default-domain service's key is
+// that name, yet a hidden payments/orders shares it, so its records never
+// land on the visible service.
+func TestRestrictedBareNameSharedWithHiddenDomainIsHidden(t *testing.T) {
+	full := buildFleet(t, "")
+	sc := Scope{Restricted: true, Place: FleetPlacement(full, full.Restrict(shopOnly)), OperationVisible: shopOnly}
+	st := aggBy(set(breaking(diffOf("orders"))), "service", sc)
+	if st.Runs != 0 || !st.Hidden.Present {
+		t.Fatalf("answer = %+v", st)
+	}
+	if _, ok := FleetPlacement(full, nil)("orders"); ok {
+		t.Fatal("unrestricted placement of a shared bare name")
+	}
+	// An operation record names its service's domain, so it is placed
+	// exactly; one of the default domain shares the bare name and stays out.
+	vault := of("orders", verifiedTo(digest('e'), hoursAgo(1)))
+	vault.ServiceDomain, vault.Stage.Namespace = "payments", "vault"
+	sc.OperationVisible = func(string) bool { return true }
+	if st := aggBy(set(vault, of("orders", verifiedTo(digest('d'), hoursAgo(1)))), "owner", sc); st.Runs != 0 || !st.Hidden.Present {
+		t.Fatalf("operations = %+v", st)
+	}
+	shopKeyed := of("orders", verifiedTo(digest('d'), hoursAgo(1)))
+	shopKeyed.ServiceDomain = "shop"
+	if st := aggBy(set(shopKeyed), "owner", restrictedScope(t)); st.Runs != 1 || labels(st.Groups) != "checkout" {
+		t.Fatalf("keyed operation = %+v", st)
+	}
+}
+
+// A visible service whose every record was skipped keeps its skipped count:
+// they are its own unreadable records, never records outside the view.
+func TestRestrictedVisibleServiceOnlySkippedIsSkipped(t *testing.T) {
+	full := statsFleet(t)
+	view := full.Restrict(shopOnly)
+	sc := restrictedScope(t)
+	sc.Names = VisibleNames(view)
+	if want := []string{"catalog", "ghost", "orders"}; !reflect.DeepEqual(sc.Names, want) {
+		t.Fatalf("names = %v", sc.Names)
+	}
+	s := RecordSet{Skipped: map[string]Skipped{runrecord.AnchorTag("catalog"): {Malformed: 2}, runrecord.AnchorTag("orders"): {Unreadable: 1}}}
+	st := aggBy(s, "", sc)
+	if st.Skipped != (Skipped{Malformed: 2}) || !st.Hidden.Present || !hasLimitation(st, LimitationSkipped) {
+		t.Fatalf("answer = %+v", st)
 	}
 }
 

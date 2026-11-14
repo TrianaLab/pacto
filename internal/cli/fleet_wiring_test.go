@@ -887,6 +887,18 @@ func TestMCPDashboardURL(t *testing.T) {
 	}
 }
 
+// TestMCPStatsRegistryNeedsFleet: pacto_stats is a fleet tool, so the flag
+// that serves it is refused without --fleet instead of silently ignored.
+func TestMCPStatsRegistryNeedsFleet(t *testing.T) {
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "--stats-read-registry", "r.example/s"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); !errors.Is(err, errStatsRegistryNeedsFleet) {
+		t.Errorf("--stats-read-registry without --fleet: %v", err)
+	}
+}
+
 // TestDashboardFleetOptions_Mira proves --mira-source / PACTO_DASHBOARD_MIRA_SOURCES
 // adds Mira sources and names them in the startup banner.
 func TestDashboardFleetOptions_Mira(t *testing.T) {

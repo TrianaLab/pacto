@@ -161,9 +161,64 @@ func failReferrers(inner http.Handler) http.Handler {
 
 func TestServiceStatsRestrictedAnchorErrorIsGeneric(t *testing.T) {
 	s, path := statsService(t, failReferrers, diffRecord("payments"))
-	_, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true}, Now: statsClock})
-	if err == nil || err.Error() != "reading run records from "+path+" failed for one service" || strings.Contains(err.Error(), runrecord.AnchorTagPrefix) {
+	_, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Names: []string{"payments"}}, Now: statsClock})
+	if err == nil || err.Error() != "reading run records from "+path+" failed" || strings.Contains(err.Error(), runrecord.AnchorTagPrefix) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Any registry error can carry a request URL whose tag hashes a hidden
+// service, such as a tag list page that starts after one: a restricted
+// caller gets none of it, and only a deadline or cancel stays apparent.
+func TestServiceStatsRestrictedReadErrorIsGeneric(t *testing.T) {
+	tag := runrecord.AnchorTag("payments-api")
+	req := StatsRequest{Registry: "reg/stats", Scope: stats.Scope{Restricted: true}}
+	raw := errors.New(`GET "https://reg/v2/stats/tags/list?last=` + tag + `&n=100": response status code 500`)
+	if err := statsReadError(req, raw); err.Error() != "reading run records from reg/stats failed" {
+		t.Fatalf("err = %v", err)
+	}
+	for _, ctxErr := range []error{context.DeadlineExceeded, context.Canceled} {
+		if err := statsReadError(req, ctxErr); !errors.Is(err, ctxErr) {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	if err := statsReadError(StatsRequest{Registry: "reg/stats"}, raw); !errors.Is(err, raw) {
+		t.Fatalf("unrestricted err = %v", err)
+	}
+}
+
+// A restricted caller reads only the anchors of the services in its view: a
+// hidden service's records are never listed, so they cannot use the bounds.
+func TestServiceStatsRestrictedReadsOnlyViewAnchors(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	s, path := statsService(t, func(inner http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			paths = append(paths, r.URL.String())
+			mu.Unlock()
+			inner.ServeHTTP(w, r)
+		})
+	}, diffRecord("payments"), diffRecord("orders"))
+	mu.Lock()
+	paths = nil
+	mu.Unlock()
+	place := func(string) (stats.Placement, bool) { return stats.Placement{}, true }
+	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Place: place, Names: []string{"orders"}}, Now: statsClock})
+	if err != nil || st.Runs != 1 || st.Hidden.Present {
+		t.Fatalf("stats = %+v err = %v", st, err)
+	}
+	mu.Lock()
+	for _, p := range paths {
+		if strings.Contains(p, "/tags/list") || strings.Contains(p, runrecord.AnchorTag("payments")) {
+			t.Errorf("read a hidden anchor: %s", p)
+		}
+	}
+	paths = nil
+	mu.Unlock()
+	st, err = s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Place: place}, Now: statsClock})
+	if err != nil || st.Runs != 0 || len(paths) != 0 {
+		t.Fatalf("no names: stats = %+v err = %v paths %v", st, err, paths)
 	}
 }
 
@@ -198,7 +253,8 @@ func TestServiceStatsOperationAccess(t *testing.T) {
 		asked = namespaces
 		return func(ns string) bool { return ns == "prod-a" }, nil
 	}
-	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Place: func(string) (stats.Placement, bool) { return stats.Placement{}, true }}, Now: statsClock, OperationAccess: access})
+	names := []string{operationRecord(t, "x", "x").Service, "payments"}
+	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Names: names, Place: func(string) (stats.Placement, bool) { return stats.Placement{}, true }}, Now: statsClock, OperationAccess: access})
 	if err != nil {
 		t.Fatal(err)
 	}

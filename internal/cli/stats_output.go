@@ -23,7 +23,7 @@ func printStats(cmd *cobra.Command, st *stats.Stats, format string) error {
 		if st.Totals == nil {
 			// No records is a sentence, never a table of zeros.
 			for _, l := range st.Limitations {
-				if l.Code == stats.LimitationNoRecords {
+				if l.Code == stats.LimitationNoRecords || l.Code == stats.LimitationRepositoryMissing {
 					_, _ = fmt.Fprintln(w, l.Message)
 				}
 			}

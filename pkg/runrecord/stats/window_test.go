@@ -19,21 +19,22 @@ func TestParseWindow(t *testing.T) {
 		{name: "date", since: "2026-11-01", want: Window{Since: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), Until: now}},
 		{name: "rfc3339", since: "2026-11-01T10:00:00+02:00", until: "2026-11-02T00:00:00Z",
 			want: Window{Since: time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC), Until: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)}},
-		{name: "until before since", since: "1h", until: "2h", err: "--until must be after --since"},
-		{name: "until equals since", since: "2026-11-01", until: "2026-11-01", err: "--until must be after --since"},
-		{name: "zero days", since: "0d", err: "--since"},
-		{name: "negative days", until: "-3d", err: "--until"},
-		{name: "too many days", since: "99999999d", err: "--since"},
-		{name: "zero duration", since: "0s", err: "--since"},
-		{name: "negative duration", since: "-2h", err: "--since"},
-		{name: "garbage", since: "last week", err: "--since"},
-		{name: "garbage until", until: "soon", err: "--until"},
+		{name: "until before since", since: "1h", until: "2h", err: "until must be after since"},
+		{name: "until equals since", since: "2026-11-01", until: "2026-11-01", err: "until must be after since"},
+		{name: "zero days", since: "0d", err: "since "},
+		{name: "negative days", until: "-3d", err: "until "},
+		{name: "too many days", since: "99999999d", err: "since "},
+		{name: "zero duration", since: "0s", err: "since "},
+		{name: "negative duration", since: "-2h", err: "since "},
+		{name: "garbage", since: "last week", err: "since "},
+		{name: "garbage until", until: "soon", err: "until "},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := ParseWindow(c.since, c.until, now)
 			if c.err != "" {
-				if err == nil || !strings.Contains(err.Error(), c.err) {
+				// The CLI and MCP share these errors, so they name no flag.
+				if err == nil || !strings.HasPrefix(err.Error(), c.err) || strings.Contains(err.Error(), "--") {
 					t.Fatalf("err = %v, want %q", err, c.err)
 				}
 				return

@@ -187,8 +187,13 @@ func TestReadMissingServiceAnchorIsEmpty(t *testing.T) {
 
 func TestReadEmptyRepository(t *testing.T) {
 	set := mustRead(t, serveWith(t, testutil.ReferrersOptions{}, nil))
-	if len(set.Entries) != 0 || len(set.Skipped) != 0 {
+	if len(set.Entries) != 0 || len(set.Skipped) != 0 || !set.RepositoryMissing {
 		t.Fatalf("set = %+v", set)
+	}
+	repo := serveWith(t, testutil.ReferrersOptions{}, nil)
+	publish(t, repo, runOf("payments", "b"))
+	if set := mustRead(t, repo); set.RepositoryMissing {
+		t.Fatalf("published repository read as missing: %+v", set)
 	}
 }
 
@@ -314,8 +319,41 @@ func TestReadTruncatesAtMaxRecords(t *testing.T) {
 	}
 	// The bound spans services: a later anchor reads nothing more.
 	publish(t, repo, runOf("zeta", "a1"))
-	if set = mustRead(t, repo, runrecord.AnchorTag("payments"), runrecord.AnchorTag("zeta")); len(set.Entries) != 3 {
-		t.Fatalf("read %d entries past the bound", len(set.Entries))
+	if set = mustRead(t, repo, runrecord.AnchorTag("payments"), runrecord.AnchorTag("zeta")); len(set.Entries) != 3 || set.UnreadAnchors != 1 {
+		t.Fatalf("read %d entries past the bound, %d anchors unread", len(set.Entries), set.UnreadAnchors)
+	}
+}
+
+// A listing that names a referrer as a run record whose manifest is not one
+// is a malformed record, never another tool's referrer dropped in silence.
+func TestReadListedRunRecordThatIsNotOneIsMalformed(t *testing.T) {
+	const sigType = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	repo := serveWith(t, testutil.ReferrersOptions{}, func(inner http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.Contains(r.URL.Path, "/referrers/") {
+				inner.ServeHTTP(w, r)
+				return
+			}
+			rec := httptest.NewRecorder()
+			inner.ServeHTTP(rec, r)
+			for k, v := range rec.Header() {
+				if k != "Content-Length" {
+					w.Header()[k] = v
+				}
+			}
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(bytes.ReplaceAll(rec.Body.Bytes(), []byte(sigType), []byte(runrecord.ArtifactType)))
+		})
+	})
+	publish(t, repo, runOf("payments", "b"))
+	subject := Anchor("payments").ManifestDesc
+	sig := ocireferrer.Build(sigType, sigType, []byte(`{}`), &subject, nil)
+	if err := ocireferrer.Push(t.Context(), repo, sig); err != nil {
+		t.Fatal(err)
+	}
+	set := mustRead(t, repo, runrecord.AnchorTag("payments"))
+	if len(set.Entries) != 1 || set.Skipped[runrecord.AnchorTag("payments")] != (stats.Skipped{Malformed: 1}) {
+		t.Fatalf("set = %+v", set)
 	}
 }
 

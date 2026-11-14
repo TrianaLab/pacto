@@ -102,8 +102,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, deliveryMode, publishMode); err != nil {
 				return err
 			}
-			if !fleetMode && cmd.Flags().Changed("dashboard-url") {
-				return errDashboardURLNeedsFleet
+			if err := checkFleetOnlyFlags(cmd, fleetMode); err != nil {
+				return err
 			}
 			if publishMode && s.transport != "stdio" {
 				return errPublishOverHTTP
@@ -271,6 +271,23 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 
 // errDashboardURLNeedsFleet: only the fleet tools answer with entities to link.
 var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only the fleet tools link answers to a dashboard")
+
+// errStatsRegistryNeedsFleet: pacto_stats registers on the fleet server only.
+var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet: pacto_stats is a fleet tool")
+
+// checkFleetOnlyFlags refuses a flag only the fleet tools read when the
+// server has none, so it is never silently ignored.
+func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
+	switch {
+	case fleetMode:
+		return nil
+	case cmd.Flags().Changed("dashboard-url"):
+		return errDashboardURLNeedsFleet
+	case cmd.Flags().Changed("stats-read-registry"):
+		return errStatsRegistryNeedsFleet
+	}
+	return nil
+}
 
 // checkMCPMode rejects --root or --publish beside any other mode: each
 // selects a server of its own, so honouring one and dropping the rest would
@@ -630,6 +647,9 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		if err != nil {
 			return nil, err
 		}
+		if q.Service, err = statsService(q.Service, full); err != nil {
+			return nil, err
+		}
 		r := app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now}
 		// A signed-in caller's own exchanged client reviews the operation
 		// records; without one there is no delivery, never the server's.
@@ -656,5 +676,5 @@ func mcpStatsScope(full, view *fleet.Query, service string) (stats.Scope, error)
 			return stats.Scope{}, &fleet.NotFoundError{Kind: "service", ID: service}
 		}
 	}
-	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution}, nil
+	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution, Names: stats.VisibleNames(view)}, nil
 }

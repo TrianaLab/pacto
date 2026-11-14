@@ -64,9 +64,11 @@ type reader struct {
 
 // Read reads the run records attached to anchors, the anchor tags of the
 // services to read (runrecord.AnchorTag(service)), or to every anchor in repo
-// when anchors is empty. A missing anchor holds no records. A record that
-// cannot be counted is in Skipped, a bound that cut the read is in Truncated,
-// and a deadline or a failed listing is an error, never fewer records.
+// when anchors is empty. A missing anchor holds no records, and a missing
+// repository is RepositoryMissing. A record that cannot be counted is in
+// Skipped, a bound that cut the read is in Truncated with the anchors left
+// unread in UnreadAnchors, and a deadline or a failed listing is an error,
+// never fewer records.
 func Read(ctx context.Context, repo *remote.Repository, anchors []string) (stats.RecordSet, error) {
 	r := &reader{repo: repo}
 	if len(anchors) == 0 {
@@ -75,8 +77,9 @@ func Read(ctx context.Context, repo *remote.Repository, anchors []string) (stats
 			return stats.RecordSet{}, err
 		}
 	}
-	for _, tag := range anchors {
+	for i, tag := range anchors {
 		if r.listed >= MaxRecords && r.set.Truncated != "" {
+			r.set.UnreadAnchors = len(anchors) - i
 			break
 		}
 		if err := r.readAnchor(ctx, tag); err != nil {
@@ -101,7 +104,9 @@ func (r *reader) anchorTags(ctx context.Context) ([]string, error) {
 		}
 		return nil
 	})
-	if err = bounded(ctx, err); err != nil && !repositoryMissing(err) {
+	if err = bounded(ctx, err); repositoryMissing(err) {
+		r.set.RepositoryMissing = true
+	} else if err != nil {
 		return nil, err
 	}
 	slices.Sort(tags)
@@ -203,7 +208,8 @@ func anchorErr(ctx context.Context, tag string, err error) error {
 }
 
 // readRecord reads the run record referrer d of the anchor tagged wantTag. It
-// returns nil and no skip for another tool's referrer.
+// returns nil and no skip for another tool's referrer. A manifest the listing
+// names as a run record that does not parse as one is malformed.
 func readRecord(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, wantTag string) (*stats.Entry, string, error) {
 	// A listing that names another artifact type is another tool's referrer.
 	// A legacy registry names the config type, the empty JSON every run
@@ -220,6 +226,9 @@ func readRecord(ctx context.Context, repo *remote.Repository, d ocispec.Descript
 	}
 	var m ocispec.Manifest
 	if json.Unmarshal(raw, &m) != nil || m.ArtifactType != runrecord.ArtifactType {
+		if d.ArtifactType == runrecord.ArtifactType {
+			return nil, skipMalformed, nil
+		}
 		return nil, "", nil
 	}
 	if len(m.Layers) != 1 {

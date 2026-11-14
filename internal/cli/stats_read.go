@@ -48,6 +48,23 @@ func statsQuery(since, until, by, service string, kinds []string, now time.Time)
 	return stats.Query{Window: w, By: by, Service: service, Kinds: ks}, nil
 }
 
+// statsService is the service name run records carry for a service filter.
+// Records name the contract's service.name, so a fleet key (domain/name)
+// resolves through full to its name, and without a snapshot it is refused.
+func statsService(service string, full *fleet.Query) (string, error) {
+	if domain, _ := fleet.ParseServiceKey(fleet.ServiceKey(service)); domain == "" {
+		return service, nil
+	}
+	if full == nil {
+		return "", fmt.Errorf("service %q is a fleet key: give the contract's service.name", service)
+	}
+	sv, err := full.GetService(service)
+	if err != nil {
+		return "", err
+	}
+	return sv.Service.Name, nil
+}
+
 // statsAttribution names the fleet snapshot owner and domain come from.
 func statsAttribution(q *fleet.Query) *stats.Attribution {
 	m := q.ProductMeta()
@@ -73,14 +90,17 @@ func runStats(svc *app.Service, v *viper.Viper) func(*cobra.Command, []string) e
 			return err
 		}
 		var scope stats.Scope
+		var fq *fleet.Query
 		// Only owner and domain need the fleet: no cluster or registry read
 		// for the other groupings.
 		if by == "owner" || by == "domain" {
-			fq, err := buildQuery(cmd, svc)
-			if err != nil {
+			if fq, err = buildQuery(cmd, svc); err != nil {
 				return err
 			}
 			scope = stats.Scope{Place: stats.FleetPlacement(fq, nil), Snapshot: statsAttribution(fq)}
+		}
+		if q.Service, err = statsService(q.Service, fq); err != nil {
+			return err
 		}
 		st, err := svc.Stats(cmd.Context(), app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now})
 		if err != nil {

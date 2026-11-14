@@ -9,9 +9,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/registry"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -133,7 +136,7 @@ func TestStatsCommandJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := decodeStats(t, out)
-	if st.Provenance != "unsigned statistics" || st.RecordsRead != 3 || st.Runs != 3 || st.DistinctChanges != 2 ||
+	if st.Provenance != "unsigned statistics" || st.RecordsRead != 3 || st.Runs != 3 || st.DistinctChanges != 1 ||
 		!st.AsOf.Equal(statsTestClock) || len(st.Groups) != 1 || st.Totals.BreakingCaught.Distinct != 1 || st.Totals.Gates.Blocked != 1 {
 		t.Fatalf("stats = %s", out)
 	}
@@ -188,7 +191,8 @@ func TestStatsCommandNoRecordsPrintsSentence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "no run records in this window: recording may be off for these jobs, or the window holds none\n") ||
+	// Nothing was ever published, so the repository itself is not found.
+	if !strings.Contains(out, "the stats repository does not exist or holds no run records yet\n") ||
 		strings.Contains(out, "BREAKING CAUGHT") || !strings.Contains(stderr, "answer is empty") {
 		t.Fatalf("out = %q stderr = %q", out, stderr)
 	}
@@ -224,7 +228,7 @@ func TestStatsCommandRejectsBadKind(t *testing.T) {
 
 func TestStatsCommandRejectsBadWindow(t *testing.T) {
 	path := statsRegistry(t)
-	if _, _, err := statsCmd(t, "--registry", path, "--since", "yesterday"); err == nil || !strings.Contains(err.Error(), `--since "yesterday"`) {
+	if _, _, err := statsCmd(t, "--registry", path, "--since", "yesterday"); err == nil || !strings.Contains(err.Error(), `since "yesterday"`) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -267,5 +271,38 @@ func TestStatsRatioAndLeadText(t *testing.T) {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
+	}
+}
+
+// Records name the contract's service.name, so a fleet key resolves to it
+// and, with no snapshot to resolve it, is refused rather than read as an
+// anchor that holds nothing.
+func TestStatsServiceResolvesFleetKey(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "orders", Version: "1.0.0"}}
+	src := fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{Revisions: []fleet.RawRevision{
+		{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:shoporders", Domain: "shop"},
+	}})
+	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := fleet.NewQuery(snap)
+	for in, want := range map[string]string{"orders": "orders", "shop/orders": "orders", "": ""} {
+		if got, err := statsService(in, full); err != nil || got != want {
+			t.Fatalf("%q = %q, %v", in, got, err)
+		}
+	}
+	if _, err := statsService("payments/orders", full); err == nil {
+		t.Fatal("an unknown key resolved")
+	}
+	if got, err := statsService("orders", nil); err != nil || got != "orders" {
+		t.Fatalf("bare name without a snapshot = %q, %v", got, err)
+	}
+	if _, err := statsService("shop/orders", nil); err == nil || !strings.Contains(err.Error(), "service.name") {
+		t.Fatalf("key without a snapshot: %v", err)
+	}
+	statsRegistry(t)
+	if _, _, err := statsCmd(t, "--registry", "r.example/s", "--service", "shop/orders"); err == nil || !strings.Contains(err.Error(), "fleet key") {
+		t.Fatalf("CLI key without a snapshot: %v", err)
 	}
 }
