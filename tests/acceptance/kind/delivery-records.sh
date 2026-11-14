@@ -17,7 +17,9 @@
 #   - a record whose payload was changed, or one validly signed that breaks
 #     the chain, is refused by record verify, stops the recorder and freezes the
 #     Stage until the stream is repaired and a person unfreezes it;
-#   - nobody but the recorder can move the stream head.
+#   - nobody but the recorder can move the stream head;
+#   - every concluded operation under a Stage has exactly one unsigned run
+#     record from the promoter in the stats repository, naming no user.
 # The CLI runs on the host: HTTP_PROXY sends its plain-HTTP registry traffic to
 # the port-forward, so the in-cluster names the recorder wrote resolve.
 
@@ -288,6 +290,54 @@ operation	$OPF	.status.actorClass = (if .status.actorClass == "controller" then 
 EOF
   pass "admission refuses the recorder a write to a Stage's locks or conclusions, or to an operation's plan or actor class"
 
+}
+
+# stats_audit runs after records_audit: the promoter ran the whole run with
+# delivery.stats.repository set, so every operation it concluded under a Stage
+# left one unsigned run record, whose id is the operation's UID, attached to
+# its service's pacto-stats-<sha256(service)> anchor. An operation with no
+# Stage records nothing.
+stats_audit() {
+  records_init
+  section "every concluded operation has one run record in the stats repository"
+  local stats_local="127.0.0.1:${LOCAL_REG_PORT}/${STATS_REPO}" ops_json named pod metrics n
+  mkdir -p "$tmp/stats"
+  ops_json="$(kubectl get operations -A -o json | jq -c '[.items[] | select(.status.phase == "Concluded" and (.status.policy.service.name // "") != "")
+    | {uid: .metadata.uid, name: "\(.metadata.namespace)/\(.metadata.name)", service: .status.policy.service.name}]')"
+  n="$(jq length <<<"$ops_json")"
+  [ "$n" -gt 0 ] || fail "no concluded operation of the run names a service"
+  # stats_fetch — every run record under the anchor of each service of the
+  # run, one file per manifest; a record already fetched is not fetched again.
+  stats_fetch() {
+    local s tag m l
+    for s in $(jq -r '[.[].service] | unique | .[]' <<<"$ops_json"); do
+      tag="pacto-stats-$(printf %s "$s" | shasum -a 256 | cut -d' ' -f1)"
+      for m in $(oras discover --plain-http --format json "$stats_local:$tag" 2>/dev/null \
+        | jq -r '[.. | objects | select(.artifactType == "application/vnd.pacto.run.v1") | .digest] | unique | .[]'); do
+        [ -s "$tmp/stats/${m#sha256:}.json" ] && continue
+        l="$(oras manifest fetch --plain-http "$stats_local@$m" | jq -r '.layers[0].digest')" || return 1
+        oras blob fetch --plain-http --output "$tmp/stats/${m#sha256:}.json" "$stats_local@$l" >/dev/null || return 1
+      done
+    done
+  }
+  # stats_problems — the concluded operations with no run record or more than one.
+  stats_problems() {
+    jq -s -c --argjson ops "$ops_json" '(map(.id) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $c
+      | [$ops[] | select(($c[.uid] // 0) != 1) | "\(.name): \($c[.uid] // 0) records"]' "$tmp"/stats/*.json 2>/dev/null || echo '["no run record"]'
+  }
+  stats_complete() { stats_fetch && [ "$(stats_problems)" = "[]" ]; }
+  eventually 60 stats_complete || fail "concluded operations without exactly one run record: $(stats_problems)"
+  jq -s -e 'any(.[]; (.type == "rollback" or (.type == "promote" and .outcome == "Failed"))
+    and .stage.namespace != null and .environment != null and .actorClass != null and .to != null)' "$tmp"/stats/*.json >/dev/null \
+    || fail "no run record of a rollback or a failed promote names its Stage namespace, environment, actor class and target"
+  # The run's people and agents: no record names any of them.
+  named="$(grep -El '"(alice|carol|ops|agent-a|agent-b)"|serviceaccount:agents' "$tmp"/stats/*.json | wc -l | tr -d ' ')"
+  [ "$named" = 0 ] || fail "$named run records name a user of the run"
+  pod="$(kubectl -n "$DNS" get pods -l app.kubernetes.io/component=delivery-promoter -o jsonpath='{.items[0].metadata.name}')"
+  metrics="$(kubectl get --raw "/api/v1/namespaces/${DNS}/pods/${pod}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
+  ! grep -Eq '^pacto_delivery_stats_dropped_total\{reason="publish-failed"\} [1-9]' <<<"$metrics" \
+    || fail "the promoter failed to publish run records: $(grep '^pacto_delivery_stats_dropped_total' <<<"$metrics")"
+  pass "$n concluded operations, $n run records, none twice"
 }
 
 # forge_record STATEMENT OUT — sign a statement as the recorder does (DSSE in a
