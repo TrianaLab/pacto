@@ -3975,7 +3975,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "provisioning" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;

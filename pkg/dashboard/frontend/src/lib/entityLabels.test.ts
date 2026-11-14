@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   kindLabel, kindLabelPlural, linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
@@ -34,6 +37,14 @@ describe('kindLabel', () => {
 });
 
 describe('attentionCategoryLabel', () => {
+  // The TS union in schema.ts is type-only, so the drift check reads the enum the
+  // backend publishes: a new backend category fails here until it gets a chip.
+  it('lists exactly the backend attention categories', () => {
+    const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
+    const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
+    expect(new Set(ATTENTION_CATEGORIES)).toEqual(new Set(backend));
+  });
+
   it('gives every backend category a plain-language name', () => {
     for (const c of ATTENTION_CATEGORIES) {
       expect(attentionCategoryLabel(c)).not.toBe(c);
@@ -43,6 +54,7 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('readiness')).toBe('Readiness gate');
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
+    expect(attentionCategoryLabel('provisioning')).toBe('Resource provisioning');
     expect(ATTENTION_CATEGORIES).toContain('undeclared');
   });
 
