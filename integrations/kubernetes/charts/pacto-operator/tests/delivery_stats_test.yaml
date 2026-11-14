@@ -1,0 +1,147 @@
+suite: delivery run record tests
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/recorder.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: renders no stats flag by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes,d-pacto-operator-delivery-status
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: stats-registry
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: stats-registry
+          any: true
+
+  - it: passes the stats repository
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.stats.repository: ghcr.io/acme/pacto-stats
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-repository=ghcr.io/acme/pacto-stats
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-docker-config=/etc/pacto/stats-registry
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: stats-registry
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: stats-registry
+          any: true
+
+  - it: mounts the stats Secret read-only only when set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.stats.repository: ghcr.io/acme/pacto-stats
+      delivery.stats.registryCredentials.secretName: stats-push
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-docker-config=/etc/pacto/stats-registry
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: stats-registry
+            mountPath: /etc/pacto/stats-registry
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: stats-registry
+            secret:
+              secretName: stats-push
+              items:
+                - key: .dockerconfigjson
+                  path: config.json
+
+  - it: keeps the promoter's own registry Secret and DOCKER_CONFIG unchanged with stats on
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.registryCredentials.secretName: pull-only
+      delivery.stats.repository: ghcr.io/acme/pacto-stats
+      delivery.stats.registryCredentials.secretName: stats-push
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCKER_CONFIG
+            value: /etc/pacto/registry
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: registry
+            mountPath: /etc/pacto/registry
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: registry
+            secret:
+              secretName: pull-only
+              items:
+                - key: .dockerconfigjson
+                  path: config.json
+
+  - it: fails a stats Secret without a repository
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.stats.registryCredentials.secretName: stats-push
+    asserts:
+      - failedTemplate:
+          errorPattern: "delivery.stats.registryCredentials.secretName needs delivery.stats.repository"
+
+  - it: the recorder gets no stats flag or mount
+    template: templates/delivery/recorder.yaml
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+      delivery.stats.repository: ghcr.io/acme/pacto-stats
+      delivery.stats.registryCredentials.secretName: stats-push
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-repository=ghcr.io/acme/pacto-stats
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --stats-docker-config=/etc/pacto/stats-registry
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: stats-registry
+          any: true

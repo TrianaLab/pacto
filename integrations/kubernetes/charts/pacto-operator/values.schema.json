@@ -935,6 +935,25 @@
             }
           }
         },
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "pattern": "^$|^[A-Za-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$"
+            },
+            "registryCredentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secretName": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "gates": {
           "type": "object",
           "additionalProperties": false,
