@@ -29,12 +29,14 @@ const (
 // decides a gate, a compliance state or an admission is ever added.
 var (
 	// runRecordImporters may import pkg/runrecord directly.
-	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "examples/story"}
+	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "examples/story",
+		modRoot + "tests/acceptance/scenario"}
 	// runRecordRegistryImporters may import pkg/runrecord/registry directly.
 	runRecordRegistryImporters = []string{modRoot + "internal/cli", modRoot + "internal/app"}
 	// runRecordReachers may reach either package transitively.
 	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/mcp", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs",
-		modRoot + "examples/story", modRoot + "examples/demo", modRoot + "tests/acceptance/kind/storybeats"}
+		modRoot + "examples/story", modRoot + "examples/demo", modRoot + "tests/acceptance/kind/storybeats",
+		modRoot + "tests/acceptance/scenario", modRoot + "tests/acceptance/scenario/project", modRoot + "tests/acceptance/kind/productready"}
 )
 
 // operatorRunRecordEmitters may import pkg/runrecord/... from the operator

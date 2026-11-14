@@ -127,4 +127,54 @@ while IFS="$TAB" read -r subject payload sequence envelope_id extra; do
 	fi
 done <"$WORK/evidence"
 
+if [ -n "${PACTO_DEMO_STATS:-}" ]; then
+	echo "== record the demo's run records =="
+	: "${PACTO_DEMO_STATS_TIMES:?the timestamps of the run records}"
+	: "${PACTO_DEMO_STATS_BASE_EPOCH:?the time the run records are stamped at}"
+	: "${PACTO_DEMO_STATS_REPO:?the repository to publish run records to}"
+	# Run records are unsigned statistics, published once: the registry itself
+	# says whether they already are. A repository with no records answers 0; any
+	# other failure is a real one.
+	pacto stats --registry "$PACTO_DEMO_STATS_REPO" --since 90d --output-format json >"$WORK/stats-read" 2>&1 || {
+		cat "$WORK/stats-read" >&2
+		fail "could not read the run records in $PACTO_DEMO_STATS_REPO"
+	}
+	read_count=$(grep -oE '"recordsRead": *[0-9]+' "$WORK/stats-read" | grep -oE '[0-9]+$' || true)
+	[ -n "$read_count" ] || fail "pacto stats answered without a record count: $(cat "$WORK/stats-read")"
+	if [ "$read_count" -gt 0 ]; then
+		echo "  run records were already seeded ($read_count in $PACTO_DEMO_STATS_REPO)"
+	else
+		# The records were stamped at a fixed time when the artifact was built;
+		# move every timestamp by the same shift to seed time, so the window
+		# that ends now always holds the same records. Two
+		# passes through placeholders, so a shifted time that equals another
+		# record's original is never shifted twice.
+		offset=$(($(date -u +%s) - PACTO_DEMO_STATS_BASE_EPOCH))
+		: >"$WORK/stats.sed"
+		: >"$WORK/stats-new.sed"
+		n=0
+		while IFS="$TAB" read -r epoch ts extra; do
+			[ -n "$epoch" ] && [ -n "$ts" ] && [ -z "${extra:-}" ] || fail "malformed line in $PACTO_DEMO_STATS_TIMES"
+			n=$((n + 1))
+			new=$(date -u -d "@$((epoch + offset))" +%Y-%m-%dT%H:%M:%SZ) || fail "date cannot format @$((epoch + offset))"
+			printf 's/"%s"/"@%s@"/g\n' "$ts" "$n" >>"$WORK/stats.sed"
+			printf 's/"@%s@"/"%s"/g\n' "$n" "$new" >>"$WORK/stats-new.sed"
+		done <"$PACTO_DEMO_STATS_TIMES"
+		cat "$WORK/stats-new.sed" >>"$WORK/stats.sed"
+		sed -f "$WORK/stats.sed" "$PACTO_DEMO_STATS" >"$WORK/stats.jsonl"
+		mkdir "$WORK/stats"
+		n=0
+		while IFS= read -r line; do
+			n=$((n + 1))
+			printf '%s\n' "$line" >"$WORK/stats/$(printf '%04d' "$n").json"
+		done <"$WORK/stats.jsonl"
+		[ "$n" -gt 0 ] || fail "$PACTO_DEMO_STATS holds no run record"
+		out=$(pacto stats publish "$WORK"/stats/*.json --registry "$PACTO_DEMO_STATS_REPO" 2>&1) || {
+			printf '%s\n' "$out" >&2
+			fail "could not publish the run records to $PACTO_DEMO_STATS_REPO"
+		}
+		echo "  published $n run records (unsigned statistics) to $PACTO_DEMO_STATS_REPO"
+	fi
+fi
+
 echo "== the demo's fleet is published =="

@@ -3,13 +3,20 @@ package scenario
 import (
 	"fmt"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 // The references the projection is exercised with. Digest-qualified, because
@@ -886,5 +893,232 @@ func TestCompose_RefusesAWorkloadNamedLikeTheDemo(t *testing.T) {
 	})
 	if _, err := s.Compose(composeOpts); err == nil || !strings.Contains(err.Error(), "would replace the demo's own dashboard") {
 		t.Errorf("Compose = %v, want a refusal naming the clash", err)
+	}
+}
+
+// inlineConfig is the materialized content of one inline config.
+func inlineConfig(t *testing.T, f map[string]any, name string) string {
+	t.Helper()
+	configs, _ := f["configs"].(map[string]any)
+	c, ok := configs[name].(map[string]any)
+	if !ok {
+		t.Fatalf("the projection carries no config %q", name)
+	}
+	body, _ := c["content"].(string)
+	return strings.ReplaceAll(body, "$$", "$")
+}
+
+// The Compose demo's run records are generated from the scenario's own
+// revisions, CI records only: a breaking diff and a blocked impact included,
+// no operation (no delivery runs here) and no coverage. Every timestamp they
+// hold is listed once with its epoch, so the seed can shift it.
+func TestComposeStatsConfigIsGenerated(t *testing.T) {
+	files, err := OperationalGraph.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests, err := OperationalGraph.Digests(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, times, err := OperationalGraph.composeStats(digests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := composeFileOf(t, OperationalGraph)
+	if got := inlineConfig(t, f, "stats_records.jsonl"); got != records {
+		t.Errorf("the carried run records are not composeStats' output")
+	}
+	if got := inlineConfig(t, f, "stats_times.tsv"); got != times {
+		t.Errorf("the carried timestamps are not composeStats' output")
+	}
+	listed := map[string]bool{}
+	for line := range strings.Lines(times) {
+		epoch, ts, ok := strings.Cut(strings.TrimSuffix(line, "\n"), "\t")
+		n, err := strconv.ParseInt(epoch, 10, 64)
+		if !ok || err != nil || time.Unix(n, 0).UTC().Format(time.RFC3339) != ts {
+			t.Errorf("times.tsv line %q does not round-trip", line)
+		}
+		listed[ts] = true
+	}
+	var blocked, breaking int
+	for line := range strings.Lines(records) {
+		r, err := runrecord.Parse([]byte(strings.TrimSuffix(line, "\n")))
+		if err != nil {
+			t.Fatalf("%v: %s", err, line)
+		}
+		switch {
+		case r.Kind == runrecord.KindOperation || r.Kind == "coverage":
+			t.Errorf("the Compose demo carries a %s record: %s", r.Kind, line)
+		case r.Kind == runrecord.KindImpact && r.Gate != nil && r.Gate.Verdict == runrecord.VerdictBlocked:
+			blocked++
+		case r.Kind == runrecord.KindDiff && r.Classification == "BREAKING":
+			breaking++
+		}
+		for _, q := range statsTimestamp.FindAllString(line, -1) {
+			if !listed[strings.Trim(q, `"`)] {
+				t.Errorf("timestamp %s is not in times.tsv", q)
+			}
+		}
+		if !listed[r.RecordedAt.Format(time.RFC3339)] {
+			t.Errorf("recordedAt %s is not in times.tsv", r.RecordedAt)
+		}
+	}
+	if blocked == 0 || breaking == 0 {
+		t.Errorf("blocked impacts %d, breaking diffs %d; want at least one of each", blocked, breaking)
+	}
+	env, _ := composeSvc(t, f, "seed")["environment"].(map[string]any)
+	for k, want := range map[string]string{"PACTO_DEMO_STATS": ComposeStatsFile, "PACTO_DEMO_STATS_TIMES": ComposeStatsTimes,
+		"PACTO_DEMO_STATS_BASE_EPOCH": strconv.FormatInt(story.Now.Unix(), 10), "PACTO_DEMO_STATS_REPO": ComposeStatsRepo} {
+		if env[k] != want {
+			t.Errorf("seed %s = %v, want %s", k, env[k], want)
+		}
+	}
+}
+
+// seedStatsRun runs seed.sh's run-record section under sh against a stub
+// pacto: the read prints read and exits readExit, a publish copies its files
+// into the returned directory. It returns that directory, the stub's call log
+// and the script's error.
+func seedStatsRun(t *testing.T, read string, readExit int) (published, calls string, err error) {
+	t.Helper()
+	head, _, _ := strings.Cut(seedScript, "plan_kind() {")
+	start := strings.Index(seedScript, `if [ -n "${PACTO_DEMO_STATS:-}" ]; then`)
+	end := strings.Index(seedScript, `echo "== the demo's fleet is published =="`)
+	if start < 0 || end < start {
+		t.Fatal("seed.sh has no run-record section before its last line")
+	}
+	dir := t.TempDir()
+	published, bin, log := filepath.Join(dir, "published"), filepath.Join(dir, "bin"), filepath.Join(dir, "calls")
+	for _, d := range []string{published, bin} {
+		if err := os.Mkdir(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stub := `#!/bin/sh
+echo "$*" >>"$STUB_LOG"
+if [ "$2" = publish ]; then
+	shift 2
+	for a; do
+		case "$a" in --*) break ;; esac
+		cp "$a" "$STUB_OUT/"
+	done
+	exit 0
+fi
+printf '%s\n' "$STUB_READ"
+exit "$STUB_EXIT"
+`
+	if err := os.WriteFile(filepath.Join(bin, "pacto"), []byte(stub), 0o700); err != nil { //nolint:gosec // an executable stub
+		t.Fatal(err)
+	}
+	digests, err := OperationalGraph.Digests(materialized(t, OperationalGraph))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, times, err := OperationalGraph.composeStats(digests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recFile, timesFile := filepath.Join(dir, "records.jsonl"), filepath.Join(dir, "times.tsv")
+	for p, body := range map[string]string{recFile: records, timesFile: times} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := filepath.Join(dir, "home") // a fresh, empty state directory
+	if err := os.Mkdir(home, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", head+seedScript[start:end]) //nolint:gosec // the embedded seed script
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "HOME="+home,
+		"PACTO_DEMO_PLAN=/dev/null", "PACTO_DEMO_PUBLISH_TO=x", "PACTO_DEMO_EVIDENCE_URL=x", "PACTO_DEMO_KEYS=x",
+		"PACTO_DEMO_STATS="+recFile, "PACTO_DEMO_STATS_TIMES="+timesFile, "PACTO_DEMO_STATS_REPO="+ComposeStatsRepo,
+		"PACTO_DEMO_STATS_BASE_EPOCH="+strconv.FormatInt(story.Now.Unix(), 10),
+		"STUB_LOG="+log, "STUB_OUT="+published, "STUB_READ="+read, "STUB_EXIT="+strconv.Itoa(readExit))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("%w: %s", err, out)
+	}
+	c, _ := os.ReadFile(log) //nolint:gosec // a test temp file
+	return published, string(c), err
+}
+
+// The seed moves every timestamp by one shift, base to seed time: the newest
+// record lands at seed time and the window that ends now never empties.
+func TestSeedShiftsStatsToSeedTime(t *testing.T) {
+	if exec.Command("date", "-u", "-d", "@0", "+%s").Run() != nil {
+		t.Skip("this host's date does not accept -d @N (BSD date); GNU coreutils and busybox do")
+	}
+	published, calls, err := seedStatsRun(t, `{"recordsRead": 0}`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(calls, "stats publish") {
+		t.Fatalf("nothing was published: %s", calls)
+	}
+	digests, _ := OperationalGraph.Digests(materialized(t, OperationalGraph))
+	records, _, _ := OperationalGraph.composeStats(digests)
+	var want []runrecord.Record
+	for line := range strings.Lines(records) {
+		r, _ := runrecord.Parse([]byte(strings.TrimSuffix(line, "\n")))
+		want = append(want, r)
+	}
+	files, _ := filepath.Glob(filepath.Join(published, "*.json"))
+	if len(files) != len(want) {
+		t.Fatalf("published %d records, want %d", len(files), len(want))
+	}
+	shift := time.Since(story.Now)
+	var newest time.Time
+	for i, f := range files {
+		body, _ := os.ReadFile(f) //nolint:gosec // a test temp file
+		r, err := runrecord.Parse(body)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if d := r.RecordedAt.Sub(want[i].RecordedAt) - shift; d < -time.Minute || d > time.Minute {
+			t.Errorf("record %d moved by %v, want %v", i, r.RecordedAt.Sub(want[i].RecordedAt), shift)
+		}
+		if r.AsOf != nil && r.AsOf.Sub(*want[i].AsOf) != r.RecordedAt.Sub(want[i].RecordedAt) {
+			t.Errorf("record %d: asOf and recordedAt moved by different shifts", i)
+		}
+		if r.RecordedAt.After(newest) {
+			newest = r.RecordedAt
+		}
+	}
+	if d := time.Since(newest); d < -time.Minute || d > time.Minute {
+		t.Errorf("the newest record is %v from now, want within a minute", d)
+	}
+}
+
+// A registry that already holds run records gets none: a second up, or a fresh
+// state volume over a seeded registry, publishes nothing.
+func TestSeedSkipsStatsWhenSeeded(t *testing.T) {
+	for range 2 { // each run starts from a fresh, empty state directory
+		_, calls, err := seedStatsRun(t, `{"recordsRead": 3}`, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(calls, "publish") {
+			t.Errorf("the seed published into a seeded registry: %s", calls)
+		}
+	}
+}
+
+// A read that fails is never mistaken for an empty registry.
+func TestSeedStatsReadErrorFails(t *testing.T) {
+	_, calls, err := seedStatsRun(t, "Error: connection refused", 1)
+	if err == nil {
+		t.Error("the seed went on after a failed read")
+	}
+	if strings.Contains(calls, "publish") {
+		t.Errorf("the seed published after a failed read: %s", calls)
+	}
+}
+
+// Run records are published after the bundles they count.
+func TestSeedStatsAfterPush(t *testing.T) {
+	push, publish := strings.Index(seedScript, "pacto push"), strings.Index(seedScript, "pacto stats publish")
+	if push < 0 || publish < push {
+		t.Errorf("the seed's order is push=%d stats publish=%d; records come after the bundles", push, publish)
 	}
 }
