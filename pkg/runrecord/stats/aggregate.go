@@ -91,6 +91,7 @@ type Attribution struct {
 	Provenance string    `json:"provenance" doc:"Always inferred: resolved at read time from the current fleet snapshot"`
 	AsOf       time.Time `json:"asOf" doc:"Time of the fleet snapshot"`
 	SnapshotID string    `json:"snapshotId" doc:"Fleet snapshot the attribution was resolved from"`
+	Partial    bool      `json:"partial,omitempty" doc:"True when the fleet snapshot is partial: a service it misses groups as unknown"`
 }
 
 // Group is the numbers of one value of the by argument.
@@ -99,9 +100,6 @@ type Group struct {
 	Label   string  `json:"label" doc:"Group label"`
 	Metrics Metrics `json:"metrics" doc:"Numbers of the records in this group"`
 }
-
-// Scope narrows what a caller may see. Every record is visible for now.
-type Scope struct{}
 
 // Stats is one answer.
 type Stats struct {
@@ -123,27 +121,41 @@ type Stats struct {
 	Groups          []Group            `json:"groups,omitempty" doc:"Numbers per group"`
 }
 
-// Aggregate totals set for q at now. It does no I/O.
-func Aggregate(set RecordSet, q Query, _ Scope, now time.Time) *Stats {
+// Aggregate totals set for q at now, as sc lets the caller see it. It does
+// no I/O.
+func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st := &Stats{AsOf: now.UTC(), Window: q.Window, Provenance: Provenance, By: q.By, Truncated: set.Truncated}
-	current, future := notFuture(set.Entries, now)
-	for _, s := range set.Skipped {
-		st.Skipped = st.Skipped.Add(s)
-	}
+	visible, skipped, outside := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	current, future := notFuture(visible, now)
+	st.Skipped, st.Hidden.Present = skipped, outside
 	st.Skipped.Malformed += future
 	st.RecordsRead = len(current)
 	entries := dedupe(selectEntries(current, q))
 	st.Runs = len(entries)
 	if len(entries) > 0 {
-		m, changes := ciMetrics(entries)
-		m.Environments = environmentMetrics(entries, publishesOf(current))
+		publishes := publishesOf(current)
+		m, changes := metricsOf(entries, publishes)
 		st.Totals, st.DistinctChanges = &m, changes
+		st.Groups = groups(entries, publishes, q.By, sc)
 	}
-	st.Limitations, st.Completeness = limitations(st, future)
+	if a := sc.Snapshot; a != nil && (q.By == "owner" || q.By == "domain") {
+		attr := *a
+		attr.Provenance = "inferred"
+		st.Attribution = &attr
+	}
+	st.Limitations, st.Completeness = limitations(st, future, truncatedService(set.TruncatedAnchor, current), sc.NoDelivery)
 	if st.Totals != nil {
 		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
 	}
 	return st
+}
+
+// metricsOf is the CI and delivery numbers of entries and their distinct
+// changes. publishes are the visible publish records lead times join.
+func metricsOf(entries, publishes []Entry) (Metrics, int) {
+	m, changes := ciMetrics(entries)
+	m.Environments = environmentMetrics(entries, publishes)
+	return m, changes
 }
 
 // notFuture drops the entries dated past now plus MaxClockSkew and counts them.
@@ -286,21 +298,21 @@ func countGate(m *Metrics, e *Entry) {
 	}
 }
 
-func limitations(st *Stats, future int) ([]fleet.Limitation, fleet.Completeness) {
+func limitations(st *Stats, future int, truncatedBy, noDelivery string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
-	c := fleet.CompletenessComplete
-	if s := st.Skipped; s.Total() > 0 {
-		dated := ""
-		if future > 0 {
-			dated = fmt.Sprintf(" (%d dated in the future)", future)
+	for _, l := range []*fleet.Limitation{
+		skippedLimitation(st.Skipped, future),
+		truncatedLimitation(st.Truncated, truncatedBy),
+		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
+		limitationIf(noDelivery != "", LimitationDeliveryUnavailable, noDelivery),
+		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),
+	} {
+		if l != nil {
+			lims = append(lims, *l)
 		}
-		lims = append(lims, fleet.Limitation{Code: LimitationSkipped, Message: fmt.Sprintf(
-			"%d records could not be read: %d malformed%s, %d oversized, %d unreadable; they are left out of every number",
-			s.Total(), s.Malformed, dated, s.Oversized, s.Unreadable)})
-		c = fleet.CompletenessPartial
 	}
-	if st.Truncated != "" {
-		lims = append(lims, fleet.Limitation{Code: LimitationTruncated, Message: "the read was cut at " + st.Truncated + "; records past the bound are left out of every number"})
+	c := fleet.CompletenessComplete
+	if len(lims) > 0 {
 		c = fleet.CompletenessPartial
 	}
 	if st.Runs == 0 {
@@ -310,4 +322,31 @@ func limitations(st *Stats, future int) ([]fleet.Limitation, fleet.Completeness)
 		}
 	}
 	return lims, c
+}
+
+func limitationIf(cond bool, code, message string) *fleet.Limitation {
+	if !cond {
+		return nil
+	}
+	return &fleet.Limitation{Code: code, Message: message}
+}
+
+func skippedLimitation(s Skipped, future int) *fleet.Limitation {
+	dated := ""
+	if future > 0 {
+		dated = fmt.Sprintf(" (%d dated in the future)", future)
+	}
+	return limitationIf(s.Total() > 0, LimitationSkipped, fmt.Sprintf(
+		"%d records could not be read: %d malformed%s, %d oversized, %d unreadable; they are left out of every number",
+		s.Total(), s.Malformed, dated, s.Oversized, s.Unreadable))
+}
+
+// truncatedLimitation names the service whose listing was cut only when the
+// caller sees a record of it.
+func truncatedLimitation(bound, service string) *fleet.Limitation {
+	listing := ""
+	if service != "" {
+		listing = " while listing the records of " + service
+	}
+	return limitationIf(bound != "", LimitationTruncated, "the read was cut at "+bound+listing+"; records past the bound are left out of every number")
 }
