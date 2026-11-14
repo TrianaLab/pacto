@@ -33,10 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -97,6 +99,12 @@ func runPromoter(args []string) error {
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
 			"no approval counts and every Stage is not Ready. Required: with none set, the promoter admits nothing.")
+	statsRepository := fs.String("stats-repository", "",
+		"A repository (host/path) the promoter publishes an unsigned run record of every concluded operation to, "+
+			"best effort. Empty records none.")
+	statsDockerConfig := fs.String("stats-docker-config", "",
+		"A directory holding a config.json with push credentials for --stats-repository. "+
+			"Empty uses the promoter's own registry credentials.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -139,12 +147,22 @@ func runPromoter(args []string) error {
 		}
 	}
 	gates := delivery.NewGates(cluster, configured)
+	var stats func(*dv1.Operation)
+	if *statsRepository != "" {
+		e := runstats.New(*statsRepository, runstats.Keychain(*statsDockerConfig, keychain), insecure, clusterID, version)
+		if err := mgr.Add(manager.RunnableFunc(e.Run)); err != nil {
+			return err
+		}
+		stats = e.Emit
+		ctrl.Log.Info("run records on", "repository", *statsRepository)
+	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
 		Freshness:   *authFreshness,
 		RecordedTTL: *recordedTTL,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
+		Stats:             stats,
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
