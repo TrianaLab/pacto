@@ -205,7 +205,8 @@
 <style>
   .ov-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
-  .lv-search .input { flex: 1; }
+  /* The input yields its intrinsic width, so the button stays inside the form at its floor. */
+  .lv-search .input { flex: 1; min-width: 0; }
   .ov-failed { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   @media (pointer: coarse) { .ov-failed { min-height: 44px; } }
   .ov-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--c-text-2); }

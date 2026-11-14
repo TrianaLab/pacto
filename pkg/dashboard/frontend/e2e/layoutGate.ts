@@ -1086,6 +1086,7 @@ export const ROUTES: Route[] = [
       const input = page.locator('[data-testid="offering-provider"]').first().getByRole('textbox');
       await input.fill('^16.0.0');
       await expect(page.locator('[data-testid="versions-successor"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the fill scrolled the input into view; the gate reads from the top
     },
   },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
