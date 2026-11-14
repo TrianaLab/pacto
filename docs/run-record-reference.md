@@ -308,8 +308,8 @@ instead of a table of zeros.
 | `window` | `since` (inclusive) and `until`, UTC |
 | `registry` | the stats repository read |
 | `provenance` | always `unsigned statistics` |
-| `recordsRead` | records read, in the window or out of it; skipped records are counted apart |
-| `runs` | records in the window; retries of one record `id` count once, and the newest `recordedAt` (then the larger manifest digest) speaks |
+| `recordsRead` | records read, of any kind and in the window or out of it; skipped records are counted apart |
+| `runs` | records in the window; records that share an `id` (retries and reruns of one change) count once, and the newest `recordedAt` (then the larger manifest digest) speaks |
 | `distinctChanges` | distinct changes (`service`, `oldRevision`, `newRevision`) among `diff`, `impact` and `publish` records in the window |
 | `skipped` | `malformed` (not a valid record, attached to another service's anchor or dated more than 5 minutes in the future), `oversized` (manifest or layer over 64 KiB) and `unreadable` (listed but not served); left out of every number |
 | `truncated` | the bound that cut the read (1000 records, or 64 pages of one listing), empty when the read is whole. A read that takes over 30 seconds is an error |
@@ -325,7 +325,7 @@ instead of a table of zeros.
 
 | Metric | Definition |
 | --- | --- |
-| `breakingCaught` | `distinct`: changes with a `diff` or `impact` record classified `BREAKING`; `runs`: the records behind them |
+| `breakingCaught` | `distinct`: changes with a `diff` or `impact` record classified `BREAKING`; `runs`: the records behind them, at most one per kind, since reruns of one change share an `id` |
 | `gates` | `clear`, `blocked` and `unverified`: changes by the verdict of their newest `impact` or `publish` record that carries one; a refused publish counts nowhere |
 | `consumersProtected` | `count`: `consumers.blocking` summed over changes whose newest gate is `blocked`; `unknown`: `consumers.unknown` over the same changes. A change no impact run judged adds nothing |
 | `environments` | one entry per environment, alphabetical; names imply no promotion order |
@@ -334,11 +334,11 @@ instead of a table of zeros.
 | `environments.operations` | operation records of every type; a type not named below counts here and in no rate |
 | `environments.held` | promote operations whose `heldFor` is more than zero, of promote operations; a `heldFor` that does not parse is not held |
 | `environments.failed` | promote operations that ended `Failed` or `Errored`, of promote operations |
-| `environments.rolledBack` | `Succeeded` rollback operations, of `Succeeded` promote operations |
+| `environments.rolledBack` | `Succeeded` rollback operations, of `Succeeded` promote operations; the count can pass `of` when a rollback undoes a promotion from before the window |
 | `environments.verificationFailed` | promote operations `Unverified`, of promote operations `Verified` or `Unverified` |
 | `environments.acceptedUnknown` | promote operations `AcceptedUnknown`, neither verified nor failed |
-| `environments.leadTime` | from a publish record's `recordedAt` to the first `Succeeded` and `Verified` promote per Stage whose `to` is its deploy digest (else whose `contract` is its bundle digest), within one service: `p50Seconds` and `p90Seconds` (nearest rank), `joined` and `unjoined`. A promotion whose `finishedAt` does not parse is unjoined. With nothing joined there is no percentile and `unknown` is `true` |
-| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and the rate is unknown, never 0 |
+| `environments.leadTime` | from a publish record's `recordedAt` to the first `Succeeded` and `Verified` promote per Stage whose `to` is its deploy digest (else whose `contract` is its bundle digest), within one service. It holds the nearest-rank `p50Seconds` and `p90Seconds` and the `joined` and `unjoined` promotion counts. A promotion whose `finishedAt` does not parse is unjoined. With nothing joined there is no percentile and `unknown` is `true` |
+| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and no rate is given |
 
 | Limitation code | Meaning |
 | --- | --- |
