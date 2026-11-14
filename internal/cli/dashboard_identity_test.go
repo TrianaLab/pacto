@@ -50,9 +50,11 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if !identityFor(t, v, "localhost", nil).auth.Local() {
 		t.Fatal("localhost is loopback")
 	}
+	v.Set("dashboard.allow-anonymous", true)
 	if open := identityFor(t, v, "0.0.0.0", nil); open.auth.Local() || open.auth.Login() {
 		t.Fatal("a shared bind without OIDC identifies nobody")
 	}
+	v.Set("dashboard.allow-anonymous", false)
 	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
 	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
 	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
@@ -83,6 +85,34 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
 		t.Fatalf("splitList %v", got)
 	}
+}
+
+// A bind beyond loopback without sign-in shows the whole fleet to anyone who
+// reaches it, so it starts only when someone chose that.
+func TestOpenModeNeedsAllowAnonymous(t *testing.T) {
+	_, err := newDashboardIdentity(viper.New(), "0.0.0.0", nil, defaultDeps())
+	expect(t, errors.Is(err, errOpenNeedsAllowAnonymous), "an open bind without the flag refuses: %v", err)
+	expect(t, strings.Contains(err.Error(), "pass --allow-anonymous"), "the refusal says how to allow it: %v", err)
+}
+
+func TestAllowAnonymousServesOpen(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.allow-anonymous", true)
+	open := identityFor(t, v, "0.0.0.0", nil)
+	expect(t, !open.auth.Local() && !open.auth.SignsIn(), "the flag serves open mode: %+v", open.auth)
+}
+
+func TestLoopbackNeedsNoFlag(t *testing.T) {
+	expect(t, identityFor(t, viper.New(), "127.0.0.1", nil).auth.Local(), "loopback stays local without the flag")
+}
+
+func TestSignInIgnoresAllowAnonymous(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.allow-anonymous", true)
+	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
+	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
+	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
+	expect(t, identityFor(t, v, "0.0.0.0", nil).auth.Login(), "sign-in wins over the flag")
 }
 
 func TestDashboardTokenLoginIdentity(t *testing.T) {

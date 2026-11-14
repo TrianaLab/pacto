@@ -483,6 +483,22 @@ func TestHealth(t *testing.T) {
 		requireCoverage(t, p, 2, 2) // interface availability + health (Tier B)
 	})
 
+	t.Run("passive_tierB_readiness_not_ready_unknown_HEALTH_FAILING", func(t *testing.T) {
+		// A readiness probe declared on the health path with no ready endpoint is a failing health check:
+		// HEALTH_FAILING, compliance Unknown, never a collection failure or an absence.
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 0)
+		createDeployment(t, ns, "svc", deployOpts{readinessProbePort: port})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{probingDisabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "HEALTH_FAILING")
+		requireNoFinding(t, p, "COLLECTION_FAILED")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+	})
+
 	t.Run("direct_probe_2xx_body_not_persisted_canary", func(t *testing.T) {
 		// The prober reads a response body for the 2xx check; that body must never reach status (INV-5).
 		ns := newNamespace(t)
@@ -561,17 +577,31 @@ func TestHealth(t *testing.T) {
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 	})
 
-	t.Run("probe_5xx_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+	t.Run("probe_5xx_unknown_HEALTH_FAILING", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		startProbeServer(t, ns, "svc", port, status503) // serving but unhealthy -> present, not absent
+		startProbeServer(t, ns, "svc", port, status503) // serving but unhealthy -> present and failing, not absent
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "HEALTH_FAILING")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		requireNoFinding(t, p, "COLLECTION_FAILED")
+	})
+
+	t.Run("probe_501_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, status501) // does not serve GET -> neither healthy nor absent
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
-		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		requireNoFinding(t, p, "HEALTH_FAILING")
 	})
 
 	t.Run("probe_unreachable_no_readiness_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {

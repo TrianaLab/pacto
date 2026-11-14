@@ -8,8 +8,8 @@
 # It exercises: a compliant target, a non-compliant target (confirmed drift, one
 # finding of it recorded from the kernel by the node agent), an
 # unknown target (insufficient evidence) and stale targets (old evidence). Under
-# --freshness 24h, all three timestamped targets read as stale; fraud-service is
-# the oldest by design. The source itself is marked available; a second,
+# the default 24h freshness window, all three timestamped targets read as stale;
+# fraud-service is the oldest by design. The source itself is marked available; a second,
 # unreachable environment is modeled separately so partial completeness is visible.
 #
 # This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed

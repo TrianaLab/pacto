@@ -75,7 +75,7 @@ func TestImpactHandler_Error(t *testing.T) {
 	}
 }
 
-func TestNewFleetServer_WithImpact_RegistersImpactTool(t *testing.T) {
+func TestFleetMode_WithImpact_RegistersImpactTool(t *testing.T) {
 	session := connectFleetServer(t, buildFleetQuery(t), stubImpact(&impact.Result{}, nil, nil))
 	names := toolNames(t, session)
 	if !names["pacto_impact"] {
@@ -87,7 +87,7 @@ func TestNewFleetServer_WithImpact_RegistersImpactTool(t *testing.T) {
 	}
 }
 
-func TestNewFleetServer_NilImpact_NoImpactTool(t *testing.T) {
+func TestFleetMode_NilImpact_NoImpactTool(t *testing.T) {
 	session := connectFleetServer(t, buildFleetQuery(t), nil)
 	if toolNames(t, session)["pacto_impact"] {
 		t.Error("did not expect pacto_impact when the impact provider is nil")
@@ -138,7 +138,7 @@ func TestImpactEventHrefs(t *testing.T) {
 	provide := stubImpact(&impact.Result{Event: &impact.Event{Kind: impact.EventUnavailable, Service: "redis"}, Consumers: []impact.AffectedConsumer{
 		{Service: "web", Domain: "shop", Effect: impact.EffectBreaks}, {Service: "10.0.0.1", Uncontracted: true, Effect: impact.EffectUnknown},
 	}}, nil, nil)
-	linked := NewFleetServer("test", staticFleet(hrefFleet(t)), Authoring{}, FleetOptions{DashboardURL: "https://dash.example/", Impact: provide})
+	linked := mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(hrefFleet(t)), Opts: FleetOptions{DashboardURL: "https://dash.example/", Impact: provide}}})
 	text := resultText(t, callToolOn(t, linked, "pacto_impact", map[string]any{"event": "unavailable", "service": "redis"}))
 	if strings.Count(text, `"href"`) != 1 || !strings.Contains(text, `/fleet/services/shop%2Fweb"`) {
 		t.Fatalf("event hrefs:\n%s", text)

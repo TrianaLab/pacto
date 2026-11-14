@@ -22,6 +22,8 @@ type DiffOptions struct {
 	NewPath      string
 	OldOverrides override.Overrides
 	NewOverrides override.Overrides
+	// OnResolved is called once both revisions resolve; nil does nothing.
+	OnResolved func(old, new *contract.Bundle)
 }
 
 // DependencyDiff holds the diff result for a single dependency.
@@ -64,6 +66,9 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 	}
 	if err := s.verifyLockIfPresent(ctx, opts.NewPath, newBundle); err != nil {
 		return nil, err
+	}
+	if opts.OnResolved != nil {
+		opts.OnResolved(oldBundle, newBundle)
 	}
 
 	logging.LoggerFromContext(ctx).Debug("comparing contracts")

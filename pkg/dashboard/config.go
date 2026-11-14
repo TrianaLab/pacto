@@ -34,6 +34,7 @@ type DashboardConfig struct {
 	SessionIdleTimeout string `json:"PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,omitempty" doc:"A session without a request for this long ends, as a Go duration (default 1h)"`
 	SessionMaxAge      string `json:"PACTO_DASHBOARD_SESSION_MAX_AGE,omitempty" doc:"A session ends this long after sign-in, as a Go duration (default 12h)"`
 	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in by pasting a Kubernetes bearer token; a token session never decides"`
+	AllowAnonymous     bool   `json:"PACTO_DASHBOARD_ALLOW_ANONYMOUS,omitempty" doc:"Serve beyond loopback without sign-in; everyone who reaches the address reads the whole fleet"`
 	DeliveryNamespace  string `json:"PACTO_DASHBOARD_DELIVERY_NAMESPACE,omitempty" default:"pacto-delivery" doc:"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads"`
 	DeliveryTrust      string `json:"PACTO_DASHBOARD_DELIVERY_TRUST,omitempty" doc:"Trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config)"`
 	MiraURL            string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`

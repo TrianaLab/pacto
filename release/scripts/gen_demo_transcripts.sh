@@ -39,6 +39,8 @@ export XDG_CACHE_HOME="$WORK/cache"
 seed_demo_cache "$XDG_CACHE_HOME"
 export HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9
 unset NO_PROXY no_proxy
+# Run records are opt-in: an exported stats target would add warning lines to every beat.
+unset PACTO_STATS_REGISTRY PACTO_STATS_FILE
 
 mkdir -p "$OUT"
 # Drop transcripts from a previous beat numbering first. The tour snippet-includes

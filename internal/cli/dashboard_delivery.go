@@ -148,13 +148,18 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
 		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
-	read, out := act, dashDelivery{act: act, id: id, who: who}
+	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
-		c.Dynamic, read, out.shared = sc, &c, &sc
+		c.Dynamic, out.d, out.shared = sc, &c, &sc
 	}
-	out.d = read
 	return out, nil
+}
+
+// newDashDelivery is act as the dashboard routes call it, for the caller who
+// keys: their cached Stage namespaces ("" for the one local user).
+func newDashDelivery(id *dashboardIdentity, act *app.Delivery, who string) dashDelivery {
+	return dashDelivery{d: act, act: act, id: id, who: who}
 }
 
 // sharedReads starts the shared cache with the dashboard's own credentials
@@ -212,7 +217,8 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 type dashDelivery struct {
 	d, act *app.Delivery
 	id     *dashboardIdentity
-	// who keys the caller's cached answers: their token's hash, "" in local mode.
+	// who keys the caller's cached answers: their token's hash, "" in local
+	// mode and over MCP stdio, the reviewed identity's hash over remote MCP.
 	who string
 	// shared lists Stages and Operations in delivery's types; nil outside
 	// shared mode.

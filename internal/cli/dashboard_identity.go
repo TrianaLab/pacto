@@ -41,18 +41,22 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// errOpenNeedsAllowAnonymous stops a dashboard that would show the whole fleet
+// to everyone who reaches it, unless someone chose that.
+var errOpenNeedsAllowAnonymous = errors.New("serving beyond loopback without sign-in exposes the whole fleet; " +
+	"configure --oidc-issuer-url or --token-login, or pass --allow-anonymous")
+
 // newDashboardIdentity picks the mode: shared when an issuer or token sign-in
 // is configured (people sign in before the dashboard shows anything), local on
-// a loopback bind without either, and open (no delivery) anywhere else.
+// a loopback bind without either, and open (no delivery) anywhere else, only
+// with --allow-anonymous.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
 		return nil, err
 	}
-	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache(),
-		loginName: v.GetString("dashboard.oidc-display-name")}
+	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
+	id.loginName = v.GetString("dashboard.oidc-display-name")
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var review authn.TokenReview // nil: no cluster to ask who a token is
 	if cluster != nil {
@@ -84,10 +88,21 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
-	default:
+	case v.GetBool("dashboard.allow-anonymous"):
 		id.auth = authn.NewOpen()
+	default:
+		return nil, errOpenNeedsAllowAnonymous
 	}
 	return id, nil
+}
+
+// baseDashboardIdentity is an identity with everything delivery reads need
+// set; the dashboard adds its sign-in on top, the MCP delivery reads use it
+// as it is.
+func baseDashboardIdentity(cluster *rest.Config, d deps, trust *delivery.TrustConfig, policyNS string) *dashboardIdentity {
+	return &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
+		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: policyNS, reads: newReadCache()}
 }
 
 // options are the dashboard options this identity fills in.

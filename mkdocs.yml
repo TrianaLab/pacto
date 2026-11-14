@@ -233,8 +233,11 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - Platform offerings reference: platform-offerings.md
       - Golden paths reference: golden-paths-reference.md
-      - MCP reference: mcp-reference.md
+      - MCP reference:
+          - MCP reference: mcp-reference.md
+          - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
+      - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md

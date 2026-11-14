@@ -67,7 +67,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	f.AddFlagSet(shared)
 }
 
@@ -167,8 +167,17 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 
 // warnPartial prints a completeness warning and each limitation to stderr for
 // text output, so a partial answer is never silently presented as complete.
+//
+// A complete answer prints nothing, except a note when freshness was not
+// checked: that limitation never makes an answer partial, yet a stale count of
+// zero must not read as "nothing is stale".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
+		for _, l := range m.Limitations {
+			if l.Code == fleet.LimitationFreshnessNotEvaluated {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+			}
+		}
 		return
 	}
 	w := cmd.ErrOrStderr()
@@ -192,7 +201,11 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := q.Search(searchFilterFromCmd(cmd, optionalArg(args)))
+			f, err := searchFilterFromCmd(cmd, optionalArg(args))
+			if err != nil {
+				return err
+			}
+			res, err := q.Search(f)
 			if err != nil {
 				return err
 			}
@@ -234,7 +247,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
+func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, error) {
 	owner, _ := cmd.Flags().GetString("owner")
 	businessDomain, _ := cmd.Flags().GetString("business-domain")
 	offering, _ := cmd.Flags().GetString("offering")
@@ -251,26 +264,13 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	hasDep, _ := cmd.Flags().GetBool("has-dependency")
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	parsed, err := fleet.ParseLabels(labels)
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parseLabels(labels), Scope: scope, Status: status,
+		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parsed, Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
 		Limit: limit, Offset: offset,
-	}
-}
-
-func parseLabels(pairs []string) map[string]string {
-	if len(pairs) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for _, p := range pairs {
-		k, val, ok := strings.Cut(p, "=")
-		if ok {
-			out[k] = val
-		}
-	}
-	return out
+	}, err
 }
 
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {

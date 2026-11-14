@@ -100,13 +100,32 @@ func (e *evaluator) capabilities(caps []contract.Capability) {
 			e.unverified[fmt.Sprintf("capabilities[ref=%s]", key)] = true
 			continue
 		}
-		e.assert(evidence.CapabilityObserved, "capability", key, fmt.Sprintf("capabilities[type=%s]", key), true,
+		path := fmt.Sprintf("capabilities[type=%s]", key)
+		// A capability that answered but reports it is not healthy says nothing about the contract: the
+		// assertion counts as required and unevaluated, so compliance stays Unknown. The continue keeps
+		// assert from counting the same Observed payload a second time.
+		if obs := findObservation(e.ev.Observations, evidence.CapabilityObserved, key); healthFailing(obs) {
+			e.cov.Required++
+			e.findings = append(e.findings, unknownFinding(finding.CodeHealthFailing, "capability", key, path,
+				unknownMessage(finding.CodeHealthFailing, "capability", key), e.ref(obs)))
+			continue
+		}
+		e.assert(evidence.CapabilityObserved, "capability", key, path, true,
 			func(o evidence.Observation) (bool, finding.Code, string) {
 				p, _ := o.GetCapabilityObservation()
 				return !p.Present, finding.CodeCapabilityAbsent,
 					fmt.Sprintf("capability %q is absent at runtime", key)
 			})
 	}
+}
+
+// healthFailing reports whether obs is an Observed capability whose own check answered not healthy.
+func healthFailing(obs *evidence.Observation) bool {
+	if obs == nil || obs.Outcome != evidence.Observed {
+		return false
+	}
+	p, _ := obs.GetCapabilityObservation()
+	return p.Healthy != nil && !*p.Healthy
 }
 
 // Dependencies: required per dep.Required. Contradiction: !Reachable -> DEPENDENCY_UNREACHABLE. The
@@ -390,6 +409,8 @@ func unknownMessage(code finding.Code, subjectKind, name string) string {
 		return fmt.Sprintf("collection failed for %s %q", subjectKind, name)
 	case finding.CodeEvidenceStale:
 		return fmt.Sprintf("evidence for %s %q is stale", subjectKind, name)
+	case finding.CodeHealthFailing:
+		return fmt.Sprintf("%s %q answered but reports it is not healthy", subjectKind, name)
 	default: // CodeEvidenceInsufficient
 		return fmt.Sprintf("evidence for %s %q is insufficient to satisfy or contradict the contract", subjectKind, name)
 	}
