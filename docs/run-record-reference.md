@@ -142,6 +142,7 @@ never holds the keys below.
 | `verification` | string | when set | `Verified`, `AcceptedUnknown` or `Unverified` |
 | `reason` | string | when it is a plain code | the outcome's machine code, such as `PlanStale` |
 | `actorClass` | string | when set | `controller`, `agent`, `human` or `break-glass`, never a name |
+| `delegated` | boolean | when `true` | the operation named a person it acted for (`onBehalfOf`); the person is never recorded |
 | `heldFor` | string | when the operation was held | how long it last waited on a person, as a Go duration such as `14m0s` |
 | `serviceDomain` | string | when the Stage's service has one | the domain of the Stage's service |
 | `stage` | object | always | the Stage the operation ran on |
