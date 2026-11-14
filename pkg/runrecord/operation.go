@@ -51,7 +51,7 @@ func FromOperation(in OperationInput) (Record, bool) {
 		Outcome: string(st.Outcome), PactoVersion: in.PactoVersion,
 		RecordedAt: in.RecordedAt.UTC().Truncate(time.Second), Environment: p.Environment,
 		Type: path.Base(in.Spec.Type), Verification: string(st.Verification), Reason: reasonCode(st.Reason),
-		ActorClass: string(st.ActorClass), HeldFor: heldFor(st.Times), ServiceDomain: p.Service.Domain,
+		ActorClass: string(st.ActorClass), Delegated: in.Spec.OnBehalfOf != nil, HeldFor: heldFor(st.Times), ServiceDomain: p.Service.Domain,
 		Stage: &StageRef{Namespace: in.Namespace, Name: in.Spec.Stage, Cluster: in.ClusterID},
 		To:    pointerDigest(in.Spec, in.Spec.Params.To), From: pointerDigest(in.Spec, in.Spec.Params.From),
 		Contract: contractDigest(st), Gates: gateResultsOf(st.Verdicts),
@@ -202,7 +202,7 @@ func validateNoCIFields(r Record) error {
 func validateNoOperationFields(r Record) error {
 	return present([]field{
 		{"type", r.Type != ""}, {"verification", r.Verification != ""}, {"reason", r.Reason != ""},
-		{"actorClass", r.ActorClass != ""}, {"heldFor", r.HeldFor != ""}, {"serviceDomain", r.ServiceDomain != ""},
+		{"actorClass", r.ActorClass != ""}, {"delegated", r.Delegated}, {"heldFor", r.HeldFor != ""}, {"serviceDomain", r.ServiceDomain != ""},
 		{"stage", r.Stage != nil}, {"to", r.To != ""}, {"from", r.From != ""}, {"contract", r.Contract != ""},
 		{"gates", r.Gates != nil}, {"startedAt", r.StartedAt != ""}, {"finishedAt", r.FinishedAt != ""},
 	})

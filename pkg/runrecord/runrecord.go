@@ -160,6 +160,9 @@ type Record struct {
 	Reason string `json:"reason,omitempty"`
 	// ActorClass is the class of who raised the operation, never a name.
 	ActorClass string `json:"actorClass,omitempty"`
+	// Delegated is true when the operation named a person it acted for
+	// (onBehalfOf). The person is never recorded.
+	Delegated bool `json:"delegated,omitempty"`
 	// HeldFor is how long the operation last waited on a person, as a Go
 	// duration, when it was held.
 	HeldFor string `json:"heldFor,omitempty"`

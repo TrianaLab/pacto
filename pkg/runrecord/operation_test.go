@@ -81,6 +81,29 @@ func TestOperationRecordGolden(t *testing.T) {
 	}
 }
 
+func TestFromOperationDelegated(t *testing.T) {
+	in := goldenInput()
+	in.Spec.OnBehalfOf = &delivery.Principal{User: "alice"}
+	r, _ := mustBuild(t, in)
+	out, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("testdata/operation-delegated.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Delegated || !bytes.Equal(out, bytes.TrimSuffix(data, []byte("\n"))) {
+		t.Fatalf("a delegated operation does not reproduce the golden:\n%s", out)
+	}
+	if parsed, err := Parse(data); err != nil || !reflect.DeepEqual(parsed, r) {
+		t.Fatalf("the delegated golden does not round-trip: %v", err)
+	}
+	if _, plain := mustBuild(t, goldenInput()); strings.Contains(plain, `"delegated"`) {
+		t.Fatalf("an operation with no onBehalfOf records delegated: %s", plain)
+	}
+}
+
 func TestFromOperationNoStage(t *testing.T) {
 	in := goldenInput()
 	in.Status.Policy = nil
@@ -173,7 +196,10 @@ func TestOperationRecordCarriesNoIdentity(t *testing.T) {
 	in.Status.Verdicts[1].Citation = map[string]string{"by": "alice"}
 	in.Status.Reason = "RejectedByHuman"
 	forbidden := []string{"alice", "bob", "carol", "CHG-1", `no"`}
-	_, data := mustBuild(t, in)
+	r, data := mustBuild(t, in)
+	if !r.Delegated {
+		t.Fatalf("onBehalfOf is not recorded as delegated: %s", data)
+	}
 	for _, s := range forbidden {
 		if strings.Contains(data, s) {
 			t.Errorf("record holds %q: %s", s, data)
@@ -350,6 +376,7 @@ func TestParseCIRejectsOperationFields(t *testing.T) {
 		`"heldFor":"1m0s"`, `"serviceDomain":"acme"`, `"stage":{"namespace":"n","name":"s","cluster":"c"}`,
 		`"to":"` + digestTo + `"`, `"from":"` + digestOld + `"`, `"contract":"` + digestCon + `"`,
 		`"gates":[{"gate":"g","phase":"pre","result":"Pass"}]`, `"startedAt":"2026-11-13T09:00:00Z"`, `"finishedAt":"2026-11-13T09:00:00Z"`,
+		`"delegated":true`,
 	} {
 		field := strings.Trim(strings.SplitN(kv, ":", 2)[0], `"`)
 		mustReject(t, field, strings.Replace(g, `"kind"`, kv+`,"kind"`, 1), field)
