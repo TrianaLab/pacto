@@ -80,5 +80,22 @@ func TestOperationAccessIgnoresUnknownNamespaces(t *testing.T) {
 func TestOperationAccessErrorIsError(t *testing.T) {
 	a := &accessReviews{err: errors.New("apiserver down")}
 	visible, err := operationAccess(a.client(), namespacesFleet(t, "prod-a"))(context.Background(), []string{"prod-a"})
-	expect(t, visible == nil && err != nil && strings.Contains(err.Error(), "apiserver down"), "err = %v", err)
+	expect(t, visible == nil && errors.Is(err, errOperationReview) && !strings.Contains(err.Error(), "prod-a"), "err = %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = operationAccess(a.client(), namespacesFleet(t, "prod-a"))(ctx, []string{"prod-a"})
+	expect(t, errors.Is(err, context.Canceled), "a cancelled review is the context's error: %v", err)
+}
+
+// A fleet-only server reviews its caller with their own client for
+// pacto_stats and never hands them a delivery client, which would grant the
+// delivery tools to any code that reads it.
+func TestFleetOnlyReviewGivesNoDeliveryClient(t *testing.T) {
+	dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{"username": "alice"}}}}, nil
+	})
+	who, _, err := remoteCaller{}.review(context.Background(), dyn)
+	expect(t, err == nil && who.person.User == "alice", "review: %v", err)
+	expect(t, who.own != nil && who.own.Dynamic == dyn && who.delivery == nil, "reviewed = %+v", who)
 }

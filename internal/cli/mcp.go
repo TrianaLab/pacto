@@ -633,7 +633,7 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		r := app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now}
 		// A signed-in caller's own exchanged client reviews the operation
 		// records; without one there is no delivery, never the server's.
-		if act := reviewedFrom(ctx).delivery; scope.Restricted && act != nil {
+		if act := reviewedFrom(ctx).own; scope.Restricted && act != nil {
 			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
 		}
 		return svc.Stats(ctx, r)

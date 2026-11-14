@@ -128,9 +128,11 @@ type remoteCaller struct {
 
 // reviewed is who the apiserver said a request's caller is, their own
 // client (pacto_stats reviews operation access with it) and, with delivery,
-// whether they get the write tools.
+// their delivery client and whether they get the write tools. own is set
+// for every caller; delivery only when the server serves delivery.
 type reviewed struct {
 	person   authn.Person
+	own      *app.Delivery
 	delivery *app.Delivery
 	caller   delivery.Caller
 	writes   bool
@@ -160,7 +162,7 @@ func (rc remoteCaller) review(ctx context.Context, dyn dynamic.Interface) (revie
 		if err == nil && p.User == "" {
 			err = errNobodyReviewed
 		}
-		return reviewed{person: p, delivery: &app.Delivery{Dynamic: dyn}}, []any{"user", p.User, "writeTools", false}, err
+		return reviewed{person: p, own: &app.Delivery{Dynamic: dyn}}, []any{"user", p.User, "writeTools", false}, err
 	}
 	c := rc.delivery(dyn)
 	caller, err := c.WhoAmI(ctx)
@@ -168,7 +170,7 @@ func (rc remoteCaller) review(ctx context.Context, dyn dynamic.Interface) (revie
 		err = errNobodyReviewed
 	}
 	writes := caller.Class == delivery.ClassAgent
-	return reviewed{person: authn.Person{User: caller.User, Groups: caller.Groups}, delivery: c, caller: caller, writes: writes},
+	return reviewed{person: authn.Person{User: caller.User, Groups: caller.Groups}, own: c, delivery: c, caller: caller, writes: writes},
 		[]any{"user", caller.User, "class", caller.Class, "writeTools", writes}, err
 }
 
