@@ -111,6 +111,22 @@ docker compose -p pacto-demo exec dashboard sh -c \
    pacto init --plan --owner commerce /tmp/checkout'
 ```
 
+## Connect an agent
+
+[`pacto mcp`](../mcp-integration.md) serves the demo's fleet to an agent over
+stdio. Run it in the dashboard container, so it reads the registry and the
+Evidence Server at the addresses the dashboard reads them:
+
+```sh
+docker compose -p pacto-demo exec -T dashboard pacto mcp --fleet --local "" \
+  --oci oci://registry:5000/demo/checkout --oci oci://registry:5000/demo/orders \
+  --oci oci://registry:5000/demo/inventory --evidence-url http://evidence:8686
+```
+
+Give that command to your agent as a stdio MCP server. `--local ""` keeps the
+container's working directory out of the fleet. The agent's first call can be
+`pacto_capabilities`: it lists the modes, tools and caller this server serves.
+
 ## The live runtime check
 
 `inventory` is the live part. Its container is running and labelled with its

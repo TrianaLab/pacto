@@ -142,6 +142,9 @@ type AuthConfig struct {
 	SessionMaxAge      time.Duration
 	// TokenLogin lets people sign in by pasting a Kubernetes bearer token.
 	TokenLogin bool
+	// AllowAnonymous serves the dashboard without sign-in; everyone who
+	// reaches it reads what its ServiceAccount reads. Ignored with sign-in.
+	AllowAnonymous bool
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

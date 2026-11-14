@@ -98,6 +98,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryUndoCommand(v, d),
 		newDeliveryRecordCommand(v, d),
 	)
+	cmd.AddCommand(newDeliveryViewCommands(d)...)
 	return cmd
 }
 

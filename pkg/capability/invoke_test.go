@@ -244,3 +244,32 @@ func TestInvokeBadMethod(t *testing.T) {
 		t.Fatal("expected request-build error for invalid method")
 	}
 }
+
+func TestInvokeSetsUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = r.Header.Get("User-Agent") }))
+	defer srv.Close()
+	op := openapi.Operation{Method: "GET", Path: "/x"}
+	if _, err := Invoke(WithUserAgent(context.Background(), "pacto-mcp/1.2.3"), srv.Client(), op, &openapi.Doc{}, srv.URL, nil, nil); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if got != "pacto-mcp/1.2.3" {
+		t.Fatalf("User-Agent = %q", got)
+	}
+}
+
+func TestInvokeUserAgentWinsOverHeaderParam(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = r.Header.Get("User-Agent") }))
+	defer srv.Close()
+	doc := &openapi.Doc{SecuritySchemes: map[string]openapi.SecurityScheme{"ua": {Type: "apiKey", In: "header", Name: "User-Agent"}}}
+	op := openapi.Operation{Method: "GET", Path: "/x", Parameters: []openapi.Parameter{{Name: "User-Agent", In: "header"}},
+		Security: []openapi.SecurityRequirement{{"ua": {}}}}
+	args := map[string]any{"User-Agent": "spoofed"}
+	if _, err := Invoke(WithUserAgent(context.Background(), "pacto-mcp/1.2.3"), srv.Client(), op, doc, srv.URL, args, Credentials{"ua": "spoofed-key"}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if got != "pacto-mcp/1.2.3" {
+		t.Fatalf("User-Agent = %q, the bundle spoofed it", got)
+	}
+}

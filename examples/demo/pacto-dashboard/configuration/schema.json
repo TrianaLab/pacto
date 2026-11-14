@@ -5,6 +5,10 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
+    "PACTO_DASHBOARD_ALLOW_ANONYMOUS": {
+      "description": "Serve beyond loopback without sign-in; everyone who reaches the address reads the whole fleet",
+      "type": "boolean"
+    },
     "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
       "default": "pacto-delivery",
       "description": "Namespace Pacto delivery runs in, whose published identity policy the dashboard reads",
