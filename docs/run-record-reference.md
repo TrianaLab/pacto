@@ -80,7 +80,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | `version` | string | always | `pacto.trianalab.io/run-record/v1` |
 | `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it |
 | `kind` | string | always | `diff`, `impact` or `publish` |
-| `service` | string | always | the contract's `service.name` |
+| `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
 | `bundleDigest` | string | `publish`, when written | the digest of the published bundle |
@@ -96,7 +96,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | `consumers.unclassified` | integer | with `consumers` | consumers with no recognised verdict |
 | `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target |
 | `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was |
-| `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC |
+| `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC at full precision, equal to the `asOf` of the impact answer |
 | `outcome` | string | always | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
 | `pactoVersion` | string | always | the Pacto release that wrote the record, for example `4.6.0` or `dev`. It is distinct from the contract's `pactoVersion` |
 | `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second |
@@ -132,7 +132,9 @@ environment variable it does not name here.
 
 `--stats-context` takes a comma-separated list of names. A bare name reads its
 value from the CI environment, and `name=value` gives the value explicitly. A
-name that is not listed stays out of the record.
+name that is not listed stays out of the record. When a name appears twice, the
+last one wins. `--stats-context` has no environment variable, so pass it on each
+command. It has no effect unless `--stats-registry` or `--stats-file` is set.
 
 | Name | Record key | Value of a bare name |
 | --- | --- | --- |
@@ -142,7 +144,9 @@ name that is not listed stays out of the record.
 
 `run-url` keeps only an `http` or `https` URL with a host, and drops its query
 and fragment. A URL that carries credentials is left out. An unknown name, an
-empty value or a rejected URL is a warning, and the record is still written.
+item with no name, an empty value or a rejected URL is a warning, and the record
+is still written. A warning quotes only the name, never the value, because a
+value can hold a secret.
 
 ## Registries without native Referrers
 
