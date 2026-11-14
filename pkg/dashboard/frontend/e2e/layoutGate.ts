@@ -338,6 +338,36 @@ export function installScaleFixture(): void {
           fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined, revision: rev }));
         hist.total = 200; hist.count = 200; hist.truncated = false; hist.gaps = 3; hist.completeness = 'partial'; hist.completenessReason = 'reason-history';
       }
+      // Resources at scale (#468), on orders-service only so catalog-service stays the
+      // realistic case: 40 uses with long provider labels, long configuration keys and
+      // values, long external refs, three environments each (Failed, stale Unknown and
+      // unsigned Ready) and three providers the viewer may not see.
+      const used = svc?.consumedOfferings as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      if (svc && used && (used.items ?? []).length && (doc.entity as { key?: string } | undefined)?.key === 'orders-service') {
+        const base = (used.items ?? [])[0];
+        const pv = base.provider as Record<string, unknown>;
+        const phases = [
+          { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
+          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
+          { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
+        ];
+        used.items = Array.from({ length: 40 }, (_, i) => {
+          const key = `${pv.key}-r${i}`;
+          return {
+            ...base, offering: i % 3 === 2 ? '' : base.offering, via: i % 2 ? 'dependency' : 'configuration_reference',
+            provider: { ...pv, key, label: longName(`resource-provider-${i}`), href: `${pv.href}-r${i}` },
+            providerAvailability: { state: ['available', 'degraded', 'unavailable', 'unknown'][i % 4], byEnvironment: [], total: 0, asOf: '2026-11-10T08:00:00Z' },
+            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared',
+              revision: { kind: 'revision', key: `${key}@sha256:${'a'.repeat(64)}`, label: longName(`resource-provider-${i} 16.1.0`), href: `/fleet/revisions/${encodeURIComponent(`${key}@sha256:${'a'.repeat(64)}`)}` },
+              values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
+            provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
+              externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
+            consumption: [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }],
+          };
+        });
+        used.total = 120; used.count = 40; used.truncated = true;
+        svc.hiddenProviders = 3;
+      }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
         for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
@@ -1005,6 +1035,12 @@ const serviceEnvironments = (hash: string) => async (page: Page) => {
   await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
+/** Opens a service page and waits for its Resources section (#468). */
+const serviceResources = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-resources"]')).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
 const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -1137,6 +1173,25 @@ export const ROUTES: Route[] = [
   },
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
+  { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
+  { name: 'service page, resources at scale', open: serviceResources('#/fleet/services/orders-service') },
+  {
+    name: 'service page, resources empty',
+    open: async (page) => {
+      // postgresql provides an offering and consumes none.
+      await page.goto('/#/fleet/services/postgresql');
+      await expect(page.locator('#sec-resources').getByText('No resource you can see.', { exact: false })).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'service page, resource rail open',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/catalog-service')(page);
+      await page.locator('[data-testid="service-resources"] button[data-testid="provisioning-badge"]').first().click();
+      await expect(page.locator('[data-testid="offering-use-figure"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the rail into view; the gate reads from the top
+    },
+  },
   { name: 'service environments', hash: '#/fleet/services/storefront-web' },
   {
     name: 'service environments with Stage cells',
