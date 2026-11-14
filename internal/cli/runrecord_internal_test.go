@@ -450,12 +450,22 @@ func TestRunRecordNoPersonName(t *testing.T) {
 	t.Setenv("GITHUB_ACTOR", "alice")
 	t.Setenv("GITLAB_USER_EMAIL", "a@b")
 	t.Setenv("USER", "alice")
-	file := filepath.Join(t.TempDir(), "run.json")
-	old, new := diffDirs(t, false)
-	_, _, _ = runRoot(t, defaultDeps(), nil, "diff", old, new, "--stats-file", file)
-	data, err := os.ReadFile(file)
-	if err != nil || bytes.Contains(data, []byte("alice")) || bytes.Contains(data, []byte("@b")) {
-		t.Fatalf("%v: %s", err, data)
+	t.Setenv("GITHUB_REPOSITORY", "acme/payments")
+	oldDiff, newDiff := diffDirs(t, false)
+	oldImp, newImp := impactDirs(t, true)
+	root, _ := testutil.ImpactFleet(t, "^1.0.0")
+	for _, args := range [][]string{
+		{"diff", oldDiff, newDiff},
+		{"impact", oldImp, newImp, "--local", root},
+	} {
+		file := filepath.Join(t.TempDir(), "run.json")
+		args = append(args, "--stats-file", file, "--stats-context", "repository,run-url,environment=prod")
+		_, _, _ = runRoot(t, defaultDeps(), nil, args...)
+		data, err := os.ReadFile(file)
+		if err != nil || !bytes.Contains(data, []byte("acme/payments")) ||
+			bytes.Contains(data, []byte("alice")) || bytes.Contains(data, []byte("@b")) {
+			t.Fatalf("%s: %v: %s", args[0], err, data)
+		}
 	}
 }
 
@@ -568,6 +578,7 @@ func TestStatsContextExplicitValues(t *testing.T) {
 		ctxWant{"acme/x", "http://ci.example/r/1", "prod"}, 0)
 	checkContext(t, "repository=,environment=", ghEnv, ctxWant{}, 2)
 	checkContext(t, "actor,actor=alice", ghEnv, ctxWant{}, 2)
+	checkContext(t, "=alice,repository", ghEnv, ctxWant{repo: "acme/payments"}, 1)
 }
 
 func TestStatsContextRejectsUserinfo(t *testing.T) {

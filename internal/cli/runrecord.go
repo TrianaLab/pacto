@@ -240,10 +240,14 @@ func statsContext(spec string, getenv func(string) string) (repo, runURL, env st
 		if !explicit {
 			value = contextDefault(name, getenv)
 		}
+		if name == "" {
+			if explicit {
+				warnings = append(warnings, "a context item has no name; it was left out")
+			}
+			continue
+		}
 		var err error
 		switch name {
-		case "":
-			continue
 		case "repository":
 			repo = value
 		case "run-url":
