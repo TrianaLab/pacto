@@ -603,8 +603,8 @@ var errStatsRegistryOverHTTP = errors.New("this server answers over HTTP: it rea
 // --stats-read-registry, else $PACTO_STATS_REGISTRY. An HTTP server serves it
 // only with --stats-read-registry and never reads the environment: a host
 // that exports it for CI recording must not serve that repository to remote
-// callers. A caller with a view is narrowed fail closed and reads no
-// delivery.
+// callers. A caller with a view is narrowed fail closed and reads only the
+// operation records its own exchanged client may list.
 func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactomcp.StatsProvider {
 	flag, _ := cmd.Flags().GetString("stats-read-registry")
 	if !trusted && flag == "" {
@@ -630,12 +630,19 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		if err != nil {
 			return nil, err
 		}
-		return svc.Stats(ctx, app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now})
+		r := app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now}
+		// A signed-in caller's own exchanged client reviews the operation
+		// records; without one there is no delivery, never the server's.
+		if act := reviewedFrom(ctx).delivery; scope.Restricted && act != nil {
+			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
+		}
+		return svc.Stats(ctx, r)
 	}
 }
 
 // mcpStatsScope is what a caller sees: everything without a view; with one,
-// only the services the view places and no operation records. A service
+// only the services the view places and no operation records (the provider
+// adds those the caller's own review allows). A service
 // filter the view cannot place is the error pacto_fleet_get gives for an
 // absent service, before any registry read.
 func mcpStatsScope(full, view *fleet.Query, service string) (stats.Scope, error) {

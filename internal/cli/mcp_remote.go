@@ -126,8 +126,9 @@ type remoteCaller struct {
 	build  func(ctx context.Context) *mcpsdk.Server
 }
 
-// reviewed is who the apiserver said a request's caller is, and with
-// delivery their client and whether they get the write tools.
+// reviewed is who the apiserver said a request's caller is, their own
+// client (pacto_stats reviews operation access with it) and, with delivery,
+// whether they get the write tools.
 type reviewed struct {
 	person   authn.Person
 	delivery *app.Delivery
@@ -159,7 +160,7 @@ func (rc remoteCaller) review(ctx context.Context, dyn dynamic.Interface) (revie
 		if err == nil && p.User == "" {
 			err = errNobodyReviewed
 		}
-		return reviewed{person: p}, []any{"user", p.User, "writeTools", false}, err
+		return reviewed{person: p, delivery: &app.Delivery{Dynamic: dyn}}, []any{"user", p.User, "writeTools", false}, err
 	}
 	c := rc.delivery(dyn)
 	caller, err := c.WhoAmI(ctx)

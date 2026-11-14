@@ -6,14 +6,22 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
@@ -223,4 +231,88 @@ func TestStatsCLIAndMCPAgree(t *testing.T) {
 	c, m := decode(cli), decode(mcp)
 	expect(t, reflect.DeepEqual(c, m), "pacto stats and pacto_stats differ:\ncli: %s\nmcp: %s", cli, mcp)
 	expect(t, len(c["groups"].([]any)) > 1, "the fixture groups by more than one owner: %s", cli)
+}
+
+// signedInRemoteStats is a remote fleet server whose caller, alice, signs in
+// and reads the fleet of orders, deployed in prod-a and prod-b, and the
+// operation records of both namespaces. Her own SelfSubjectAccessReviews
+// allow listing operations in prod-a only; reviews records which token each
+// review came from.
+func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]string) {
+	t.Helper()
+	opA, opB := recordAs(t, "operation.golden.json", "orders"), recordAs(t, "operation.golden.json", "orders")
+	opA.ID, opA.Environment, opA.Stage = "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a", &runrecord.StageRef{Namespace: "prod-a", Name: "prod-a", Cluster: opA.Stage.Cluster}
+	opB.ID, opB.Environment, opB.Stage = "0f6c2a1e-5b7d-4c3a-9e2f-00000000000b", "prod-b", &runrecord.StageRef{Namespace: "prod-b", Name: "prod-b", Cluster: opB.Stage.Cluster}
+	path := statsRegistryOf(t, true, opA, opB)
+	var mu sync.Mutex
+	reviews = map[string][]string{}
+	d := defaultDeps()
+	d.clusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: "https://k", BearerToken: "process-token"}, nil
+	}
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{"username": "alice"}}}}, nil
+		})
+		dyn.PrependReactor("create", "subjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+		})
+		dyn.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			ns, _, _ := unstructured.NestedString(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes", "namespace")
+			mu.Lock()
+			reviews[c.BearerToken] = append(reviews[c.BearerToken], ns)
+			mu.Unlock()
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": c.BearerToken == "for-the-cluster" && ns == "prod-a"}}}, nil
+		})
+		return dyn, nil
+	}
+	root := t.TempDir()
+	writeCLIBundle(t, filepath.Join(root, "orders"), "orders", "1.0.0")
+	targets := filepath.Join(t.TempDir(), "targets.yaml")
+	mustWriteFile(t, targets, "schemaVersion: pacto.dev/fleet-targets/v1\ntargets:\n"+
+		"  - {scope: prod-a, kind: kubernetes, name: orders, service: orders}\n"+
+		"  - {scope: prod-b, kind: kubernetes, name: orders, service: orders}\n")
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", d)
+	cmd.SetContext(context.Background())
+	expect(t, cmd.ParseFlags([]string{"--fleet", "--local", root, "--target-state", targets, "-t", "http", "--auth-issuer", "https://idp",
+		"--stats-read-registry", path}) == nil, "flags")
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	expect(t, remoteCallerFor(cmd, svc, "v", nil, d, &s) == nil, "remote fleet")
+	return mcpHandler(s), reviews
+}
+
+// remoteStatsText calls pacto_stats over h as the signed-in caller and
+// returns the tool's text.
+func remoteStatsText(t *testing.T, h http.Handler) string {
+	t.Helper()
+	body := post(t, h, "good", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pacto_stats","arguments":{}}}`).Body.String()
+	_, data, _ := strings.Cut(body, "data: ") // one server-sent event
+	var res struct {
+		Result struct {
+			Content []struct{ Text string } `json:"content"`
+			IsError bool                    `json:"isError"`
+		} `json:"result"`
+	}
+	expect(t, json.Unmarshal([]byte(data), &res) == nil && len(res.Result.Content) == 1 && !res.Result.IsError, "pacto_stats: %s", body)
+	return res.Result.Content[0].Text
+}
+
+func TestMCPStatsSignedInOperationAccess(t *testing.T) {
+	h, _ := signedInRemoteStats(t)
+	text := remoteStatsText(t, h)
+	var st stats.Stats
+	expect(t, json.Unmarshal([]byte(text), &st) == nil, "decode: %s", text)
+	expect(t, st.Totals != nil && len(st.Totals.Environments) == 1 && st.Totals.Environments[0].Environment == "prod-a" &&
+		st.Totals.Environments[0].Operations == 1, "only prod-a operations count: %s", text)
+	expect(t, st.Hidden.Present && st.Completeness == fleet.CompletenessPartial, "the refused namespace is outside the view: %s", text)
+	expect(t, !strings.Contains(text, "prod-b") && !strings.Contains(text, stats.LimitationDeliveryUnavailable), "prod-b is named: %s", text)
+}
+
+func TestMCPStatsSignedInNeverUsesServerCredentials(t *testing.T) {
+	h, reviews := signedInRemoteStats(t)
+	remoteStatsText(t, h)
+	expect(t, len(reviews["process-token"]) == 0, "the server's own client was reviewed: %v", reviews["process-token"])
+	expect(t, len(reviews["for-the-cluster"]) == 2, "the caller's own client reviews each snapshot namespace once: %v", reviews)
 }
