@@ -232,6 +232,7 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
+      --allow-anonymous[=true|false]      serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
@@ -305,6 +306,29 @@ pacto delivery approve <operation> [flags]
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
 ```
 
+### `pacto delivery autonomy`
+
+How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a level moves through a proposed and approved operation.
+
+It runs the dashboard's own autonomy view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery autonomy [flags]
+```
+
+**Flags:**
+
+```
+      --blockers int        Where the page of blockers starts; limit and q apply to it too
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for autonomy
+      --level string        Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers (observe, advise, auto-nonbreaking, autonomous, none)
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the Stages of the service with exactly this name; it narrows byLevel too, never the blockers or promotionsWithoutPerson
+```
+
 ### `pacto delivery blame`
 
 Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said
@@ -319,6 +343,22 @@ pacto delivery blame [flags]
       --digest string       the version to blame (defaults to the one the Stage runs)
   -h, --help[=true|false]   help for blame
       --stage string        the Stage (required)
+```
+
+### `pacto delivery caller`
+
+The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+
+It runs the dashboard's own caller view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery caller [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for caller
 ```
 
 ### `pacto delivery cancel`
@@ -362,6 +402,31 @@ pacto delivery describe <type> [flags]
 
 ```
   -h, --help[=true|false]   help for describe
+```
+
+### `pacto delivery environments`
+
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+
+It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery environments [flags]
+```
+
+**Flags:**
+
+```
+      --domain string        With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+      --environment string   Keep only the services with a Stage in this environment, and only those Stages
+      --except stringArray   Leave out the Stages in these environments (repeat the parameter), and the services left with none: the figure's folded station lists every environment but the ones it draws
+  -h, --help[=true|false]    help for environments
+      --limit int            How many per page; 0 means the list's default
+      --offset int           Where the page starts. Past the end answers the last page
+      --q string             Keep only what contains this text, ignoring case
+      --service string       Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo
+      --state string         Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages (failed, frozen, autohold, waiting, unverified, empty, verified)
+      --tier string          Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages (dev, test, prod)
 ```
 
 ### `pacto delivery explain`
@@ -412,6 +477,31 @@ pacto delivery history [flags]
       --since string            only changes at or after this RFC 3339 time, or this long before now (2h)
       --stage string            the Stage (this or --all)
       --until string            only changes at or before this RFC 3339 time, or this long before now (30m)
+```
+
+### `pacto delivery inbox`
+
+Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+
+It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery inbox [flags]
+```
+
+**Flags:**
+
+```
+      --domain string        With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+      --environment string   Keep only what waits to enter this environment: items on Stages whose spec.environment is this
+      --errored int          Where the page of Errored changes starts
+      --except stringArray   Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment
+      --frozen int           Where the page of frozen Stages starts
+      --held int             Where the page of held changes starts
+  -h, --help[=true|false]    help for inbox
+      --limit int            How many of each section per page; 0 means 25
+      --q string             Keep only what names this text (namespace, Stage, service or change), ignoring case
+      --service string       Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out
 ```
 
 ### `pacto delivery lifecycle`
@@ -483,6 +573,28 @@ pacto delivery propose [flags]
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
+### `pacto delivery published`
+
+Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+
+It runs the dashboard's own published view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery published [flags]
+```
+
+**Flags:**
+
+```
+      --domain string       With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any
+  -h, --help[=true|false]   help for published
+      --limit int           How many per page; 0 means the list's default
+      --offset int          Where the page starts. Past the end answers the last page
+      --q string            Keep only what contains this text, ignoring case
+      --service string      Keep only the versions of the service with exactly this name; it narrows counts too
+      --signed string       yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version and a version whose signature Pacto cannot tell, and only those versions (yes, no, unknown)
+```
+
 ### `pacto delivery record`
 
 Work with the signed records of operations
@@ -526,6 +638,22 @@ pacto delivery record verify [flags]
       --all[=true|false]    verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help[=true|false]   help for verify
       --stage string        the Stage (this or --all)
+```
+
+### `pacto delivery refusals`
+
+Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+
+It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
+
+```
+pacto delivery refusals [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for refusals
 ```
 
 ### `pacto delivery status`
@@ -878,20 +1006,25 @@ pacto fleet attention [flags]
 **Flags:**
 
 ```
-      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
-      --category string          attention category
-  -h, --help[=true|false]        help for attention
-      --limit int                maximum results (0 = 200, capped at 500)
-      --offset int               result offset for paging
-      --owner string             free-text owner search over team, DRI and contacts
-      --owner-key string         exact owner key, such as team:platform or dri:alice
-      --service string           items of this service: its key, or a name only one domain uses
-      --severity string          attention severity (error, warning, info)
+      --business-domain string    exact business domain, (none) for none or (unknown) for unknown
+      --category string           attention category
+  -h, --help[=true|false]         help for attention
+      --key string                items about the entity with this exact key
+      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering)
+      --limit int                 maximum results (0 = 200, capped at 500)
+      --offset int                result offset for paging
+      --owner string              free-text owner search over team, DRI and contacts
+      --owner-key string          exact owner key, such as team:platform or dri:alice
+      --service string            items of this service: its key, or a name only one domain uses
+      --severity string           attention severity (error, warning, info)
+      --source string             items a fleet source reported, by source key
+      --stale-only[=true|false]   only the items about stale evidence
+      --status string             items about entities with this canonical compliance status
 ```
 
 ### `pacto fleet entities`
 
-Lists services, owners, business domains and platform offerings, paged. Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.
+Lists services, owners, business domains and platform offerings, paged, or the one --kind you name. A filter that applies to one kind only (--readiness, --scope, --source-kind, --source-health) lists that kind when --kind is empty. Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.
 
 ```
 pacto fleet entities [text] [flags]
@@ -901,12 +1034,14 @@ pacto fleet entities [text] [flags]
 
 ```
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
+      --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
+      --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
-      --kind string                      entity kind (service, owner, domain, offering; empty lists all four)
+      --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
@@ -914,7 +1049,12 @@ pacto fleet entities [text] [flags]
       --owner-key string                 exact owner key, such as team:platform or dri:alice
       --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
+      --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
+      --scope string                     targets in this scope, such as a namespace
+      --service string                   this service and its revisions and targets, by service key
       --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)
+      --source string                    entities read from this fleet source, by source key
+      --source-health string             sources by health (available, partial, stale, unavailable)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out
@@ -1470,13 +1610,17 @@ With --root, the server exposes a read-only contract catalog: the given roots pl
 
 With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
-With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
+With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views (caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
-Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping (--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; the API server does not confirm it, so the mapping must match its claimMappings.
+Over HTTP on loopback without --auth-issuer, the server prints a bearer at launch (pmcp_..., this launch only) and every request must carry it, so other local processes cannot call the server.
+
+Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools. With --fleet the server exchanges each caller's token the same way, asks the apiserver who the caller is (a SelfSubjectReview) and asks Kubernetes RBAC what that user may read.
 
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
 
-A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
+Over HTTP the only contract tool is pacto_schema: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio.
+
+A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. Call pacto_capabilities to learn what a server serves.
 
 ```
 pacto mcp [bundle-ref] [flags]
@@ -1516,12 +1660,12 @@ pacto mcp [bundle-ref] [flags]
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string         the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
-      --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
       --freshness duration            mark target evidence older than this as stale (0 disables)
   -h, --help[=true|false]             help for mcp
-      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1540,7 +1684,7 @@ pacto mcp [bundle-ref] [flags]
   -t, --transport string              transport type: stdio or http (default "stdio")
 ```
 
-The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools. See [Server modes](#server-modes) after this table:
+The **default** server exposes the four authoring tools below and `pacto_capabilities`, which reports what the server serves. A bundle reference and four flags add tools or select a different server. See [Server modes](#server-modes) after this table:
 
 | Tool | Description |
 |------|-------------|
@@ -1549,19 +1693,20 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
-These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs.
+These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs. Over HTTP the server serves only `pacto_schema` of the four.
 
 ### Server modes
 
-The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server. Passing more than one is an error:
+The default server exposes the authoring tools above. A bundle reference, `--fleet` and `--delivery` add their tools and combine in one server. `--root` and `--publish` each select a server of their own, and passing either with another mode is an error:
 
 | Invocation | Server |
 |------------|--------|
 | `pacto mcp` | Authoring tools. |
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
 | `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
-| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |
-| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |
+| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry, and `pacto_capabilities`. Stdio only. |
+| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and the dashboard's delivery views and, for an agent, ask for or cancel a change. There is no approve tool. |
+| `pacto mcp --fleet --delivery [<bundle-ref>]` | Authoring tools plus the tools of every mode named, in one session. |
 | `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. Catalog mode registers only catalog tools, and none of them writes to disk. |
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so every answer reflects startup state even if a registry tag moves. A root that fails to resolve stays visible with a classified reason, and the catalog reports itself as partial. The catalog reads only the named roots and their closure, never refreshes and persists nothing.
@@ -1572,17 +1717,18 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `limit`, `offset` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `label` (target labels as `key=value`), `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`, `golden_path_deployed`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
-| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entities` | `text`, `kind` (any entity kind; empty lists services, owners, domains and offerings, or the one kind a `readiness`, `scope`, `source_kind` or `source_health` filter applies to), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `phase`, `environment`, `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `has_non_compliant`, `capability`, `domain`, `service`, `source`, `scope`, `readiness`, `source_kind`, `source_health`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
-| `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
-| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
+| `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `kind`, `key`, `source`, `status`, `stale_only`, `limit`, `offset` |
+| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`), `max_nodes` and `max_edges` |
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
-| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
+| `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
+| `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 

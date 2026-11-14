@@ -27,6 +27,14 @@ Pacto Operator has been installed.
 4. Dashboard is enabled. Access it via:
 
    kubectl port-forward -n {{ .Release.Namespace }} svc/pacto-dashboard 3000:3000
+{{- $auth := .Values.dashboard.auth | default dict }}
+{{- if and (ne (toString $auth.allowAnonymous) "false") (not ($auth.oidc | default dict).issuerURL) (not ($auth.tokenLogin | default dict).enabled) }}
+
+   WARNING: the dashboard serves without sign-in. Everyone who reaches it reads
+   every service its ServiceAccount reads. Configure dashboard.auth.oidc or
+   dashboard.auth.tokenLogin, or set dashboard.auth.allowAnonymous=false to
+   keep it from starting without sign-in.
+{{- end }}
 {{- end }}
 {{- if .Values.delivery.enabled }}
 

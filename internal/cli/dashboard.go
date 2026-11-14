@@ -24,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -157,6 +158,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
+			if !identity.auth.Local() && !identity.auth.SignsIn() {
+				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
+			}
 			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
@@ -169,7 +173,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
 				Published:  managerPublished(mgr),
-				Impact:     impactProviderForFleet(svc),
+				Impact:     impactProviderForFleet(svc, identity.auth.Local()),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
@@ -210,6 +214,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
+	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
@@ -225,7 +230,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.
@@ -425,13 +430,41 @@ func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
 // snapshotId matches the Operational Graph the user is looking at and leaves
 // out what their permissions hide. The snapshot keeps its query indexes, which
 // impact traverses and a serialization clone would not.
-func impactProviderForFleet(svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+//
+// A shared or open dashboard (not trusted) resolves no local dir and no ref a
+// caller names: each ref must name a revision in the caller's view, and the
+// revision's pinned ResolvedRef is what gets read.
+func impactProviderForFleet(svc *app.Service, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		if !trusted {
+			var err error
+			if oldRef, newRef, err = pinSharedImpactRefs(snap, oldRef, newRef); err != nil {
+				return nil, err
+			}
+		}
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,
 		}, snap)
 	}
+}
+
+// pinSharedImpactRefs refuses a local ref, then pins each ref with
+// pinVisibleRef. A refusal is an *oci.InvalidRefError, so the route answers 422.
+func pinSharedImpactRefs(snap *fleet.FleetSnapshot, oldRef, newRef string) (string, string, error) {
+	refs := [2]string{oldRef, newRef}
+	for i, name := range [2]string{"old", "new"} {
+		ref := refs[i]
+		if graph.ParseDependencyRef(ref).IsLocal() {
+			return "", "", &oci.InvalidRefError{Ref: ref, Err: errors.New("this dashboard serves other people, so it reads no local folder: pass oci:// references")}
+		}
+		pinned, err := pinVisibleRef(snap, ref)
+		if err != nil {
+			return "", "", &oci.InvalidRefError{Ref: ref, Err: fmt.Errorf("%s %w", name, err)}
+		}
+		refs[i] = pinned
+	}
+	return refs[0], refs[1], nil
 }
 
 // observationSources resolves the dashboard's two ways of naming offline trace

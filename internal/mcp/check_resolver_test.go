@@ -26,7 +26,7 @@ type pullCounter struct {
 }
 
 // validator wires the stub registry behind the real `pacto validate` path, the
-// one the command layer hands NewServer.
+// one the command layer hands New.
 func (p *pullCounter) validator() Validator {
 	return app.NewService(&testutil.MockBundleStore{
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
@@ -100,11 +100,11 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 }
 
 // TestCheckTool_UsesTheWiredValidator proves the validator reaches the tool, not
-// just the function: NewServer's parameter is what closes the gap.
+// just the function: New's parameter is what closes the gap.
 func TestCheckTool_UsesTheWiredValidator(t *testing.T) {
 	dir := bundleWithPolicyRef(t)
 	r := &pullCounter{err: errors.New("registry unreachable")}
-	res := callToolOn(t, NewServer(Authoring{Validate: r.validator()}, "test"), "pacto_check", map[string]any{"path": dir})
+	res := callToolOn(t, mustNew("test", Authoring{Validate: r.validator()}, Modes{}), "pacto_check", map[string]any{"path": dir})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", resultText(t, res))
 	}

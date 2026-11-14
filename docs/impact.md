@@ -235,6 +235,12 @@ declares an observation source, because observed evidence needs a real source.
 ![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-light.png#only-light)
 ![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-dark.png#only-dark)
 
+### Which refs a shared dashboard reads
+
+A dashboard that serves other people, signed in or open, takes only `oci://`
+refs of revisions in your view and reads each one's digest-pinned ref, as
+`pacto_impact` does over HTTP. Only a local dashboard reads local folders.
+
 ## What's next
 
 - [Ask what happens if](impact-what-if.md): impact for a service that becomes

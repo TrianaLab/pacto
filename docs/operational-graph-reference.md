@@ -53,7 +53,7 @@ compliance evidence that a source carries.
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
-and cannot be combined with `--fleet`. Two are narrower: `impact` takes a single
+server of its own and takes no other mode. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
 
 ### Observed calls under a restricted view

@@ -17,10 +17,11 @@ const publishInstructions = "pacto_publish_plan shows what publishing a contract
 	"published as a minor. pacto_publish publishes it the same way `pacto publish` does in CI: never over an existing " +
 	"tag, signed, the deploy artifact last. Running it again changes nothing."
 
-// NewPublishServer builds a server with the authoring tools and the two
-// publish tools.
+// NewPublishServer builds a server with the authoring tools, the two publish
+// tools and pacto_capabilities. It serves stdio only.
 func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+publishInstructions, a)
+	server := newServer(version, baseFor(a)+"\n\n"+publishInstructions+"\n\n"+capabilitiesInstructions, a)
+	registerCapabilitiesTool(server, a, Modes{Transport: "stdio", publish: true})
 	schema := inputSchema(map[string]property{
 		"path":     {Type: "string", Description: "Contract directory (default: the server's working directory)"},
 		"revision": {Type: "string", Description: "Source revision to stamp (default: the git commit of path, whose checkout must have no uncommitted changes)"},
@@ -29,8 +30,9 @@ func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Serv
 		Path     string `json:"path"`
 		Revision string `json:"revision"`
 	}
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_publish_plan",
+		Annotations: readOnly(true),
 		Description: "Plan publishing the contract's version: what is missing, what conflicts and which checks refuse it. Writes nothing.",
 		InputSchema: schema,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a args) (*mcpsdk.CallToolResult, any, error) {
@@ -40,8 +42,9 @@ func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Serv
 		}
 		return resultOrError(res.Plan, nil)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_publish",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_publish",
+		Annotations: writes(false, true, true),
 		Description: "Publish the contract's version: build, push by digest, sign, attach SBOMs and tag, the deploy " +
 			"artifact last. Never overwrites a tag; a second call publishes nothing new.",
 		InputSchema: schema,

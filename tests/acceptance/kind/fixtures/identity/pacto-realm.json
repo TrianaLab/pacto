@@ -165,6 +165,22 @@
       "groups": [
         "/team-checkout"
       ]
+    },
+    {
+      "username": "frank",
+      "enabled": true,
+      "email": "frank@example.com",
+      "emailVerified": true,
+      "firstName": "Frank",
+      "lastName": "Viewer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "groups": []
     }
   ]
 }

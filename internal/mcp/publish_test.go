@@ -43,3 +43,13 @@ func TestPublishTools(t *testing.T) {
 		}
 	}
 }
+
+// The publish server reports itself through pacto_capabilities like every
+// composed server: the publish mode, writes and stdio.
+func TestPublishServerReportsCapabilities(t *testing.T) {
+	var got capabilitiesAnswer
+	decode(t, callToolOn(t, NewPublishServer("v", nil, Authoring{}), "pacto_capabilities", map[string]any{}), &got)
+	if len(got.Modes) != 1 || got.Modes[0] != "publish" || !got.Writes || got.Transport != "stdio" || len(got.Authoring) != 4 {
+		t.Errorf("capabilities = %+v", got)
+	}
+}

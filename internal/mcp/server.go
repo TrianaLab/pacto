@@ -12,17 +12,40 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-// baseInstructions describe the always-present contract-authoring tools.
-const baseInstructions = "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
+// contractIntro opens every server's instructions: what Pacto and a contract are.
+const contractIntro = "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 	"A contract (pacto.yaml) describes one cloud-native service: who owns it, what it offers, " +
 	"which services it calls and which of their versions it accepts, its configuration, workload and state. " +
-	"Delivery (a publish section, signing and Stages) is opt-in: a contract that only describes a service needs none of it. " +
+	"Delivery (a publish section, signing and Stages) is opt-in: a contract that only describes a service needs none of it. "
+
+// schemaSentence describes pacto_schema, the one contract tool every server offers.
+const schemaSentence = "Call pacto_schema for the full JSON Schema and for how to describe an AI agent as a service. "
+
+// stdioInstructions describe the four contract-authoring tools a stdio server offers.
+const stdioInstructions = contractIntro +
 	"Use pacto_create to write a new contract, or with pactify to read one from an existing service folder " +
 	"(add describe_only when you are asked to describe or document a service). " +
 	"Use pacto_edit to change a contract and pacto_check to validate it and get suggestions. " +
-	"Call pacto_schema for the full JSON Schema and for how to describe an AI agent as a service. " +
+	schemaSentence +
 	"To create a service from a golden path, pass from to pacto_create (over stdio only); " +
 	"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template."
+
+// remoteInstructions describe the contract tools an HTTP server offers: only
+// pacto_schema (see Authoring.Remote).
+const remoteInstructions = contractIntro + schemaSentence + remoteAuthoringSentence
+
+// remoteAuthoringSentence says where the file tools run when this server does
+// not offer them.
+const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offered from the contract tools; " +
+	"pacto_create, pacto_edit and pacto_check run beside the agent over stdio, from pacto mcp --transport stdio."
+
+// baseFor is the instructions for the contract tools a server registers.
+func baseFor(a Authoring) string {
+	if a.Remote {
+		return remoteInstructions
+	}
+	return stdioInstructions
+}
 
 // Validator runs the `pacto validate` path for the bundle in dir: lockfile
 // verification, recursive policies[].ref resolution relative to dir, and every
@@ -61,14 +84,15 @@ type FromRequest struct {
 // valid rather than told it is. A nil Init refuses pacto_create from: the
 // command layer leaves it nil over HTTP, where every caller would pull with this
 // process's registry credentials.
+//
+// Remote is set when the server answers over HTTP. Then only pacto_schema
+// registers: pacto_create, pacto_edit and pacto_check read and write this
+// process's folders, read its kubeconfig and follow refs with its registry
+// credentials, which every remote caller would borrow.
 type Authoring struct {
 	Validate Validator
 	Init     Initializer
-}
-
-// NewServer creates a new MCP server with all Pacto authoring tools registered.
-func NewServer(a Authoring, version string) *mcpsdk.Server {
-	return newServer(version, baseInstructions, a)
+	Remote   bool
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -91,17 +115,19 @@ func newServer(version, instructions string, a Authoring) *mcpsdk.Server {
 
 // registerTools adds all Pacto tools to the MCP server.
 //
-// Every tool goes through the generic mcpsdk.AddTool rather than the raw
-// Server.AddTool: the generic form validates the incoming arguments against the
+// Every tool goes through addTool, the generic mcpsdk.AddTool rather than the
+// raw Server.AddTool: the generic form validates the incoming arguments against the
 // tool's declared schema before the handler runs and unmarshals them into a
 // typed struct. The raw form does neither, so `{"max_depth":"3"}` used to decode
 // to nothing and be read as the 0 that means "unlimited" — the caller asked to
 // bound a traversal and got an unbounded one.
 func registerTools(server *mcpsdk.Server, a Authoring) {
-	mcpsdk.AddTool(server, createTool(), createHandler(a.Init))
-	mcpsdk.AddTool(server, editTool(), editHandler(a.Validate))
-	mcpsdk.AddTool(server, checkTool(), checkHandler(a.Validate))
-	mcpsdk.AddTool(server, schemaTool(), schemaHandler())
+	if !a.Remote {
+		addTool(server, createTool(), createHandler(a.Init))
+		addTool(server, editTool(), editHandler(a.Validate))
+		addTool(server, checkTool(), checkHandler(a.Validate))
+	}
+	addTool(server, schemaTool(), schemaHandler(a.Remote))
 }
 
 // jsonResult marshals v to JSON and returns it as a CallToolResult with text content.

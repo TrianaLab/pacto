@@ -270,6 +270,8 @@ dashboard:
     tokenLogin:
       # -- Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change
       enabled: false
+    # -- Serve the dashboard without sign-in. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. Ignored when sign-in is configured. With `false` and no sign-in the dashboard refuses to start
+    allowAnonymous: true
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the
   # signed-in person's token.

@@ -3,6 +3,7 @@ package fleet
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -599,6 +600,23 @@ func resolveViews(views []KnowledgeView) ([]KnowledgeView, error) {
 		}
 	}
 	return views, nil
+}
+
+// ParseViews reads a comma-separated list of knowledge views, as the CLI, MCP
+// and the dashboard take it. Blank parts are dropped, and an empty list means
+// expected and observed, so a neighbourhood shows the dependents only
+// observation has seen on every surface alike.
+func ParseViews(s string) []KnowledgeView {
+	var out []KnowledgeView
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, KnowledgeView(p))
+		}
+	}
+	if len(out) == 0 {
+		return []KnowledgeView{ViewExpected, ViewObserved}
+	}
+	return out
 }
 
 // adjacent returns a node's neighbor service keys in the given direction. Only

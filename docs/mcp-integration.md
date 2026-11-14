@@ -69,9 +69,11 @@ example `["mcp", "--delivery"]`.
 
 ## Pick what the agent may do
 
-How you start the server decides what the agent can reach. Pick one mode:
-`--root`, `--fleet`, a bundle, `--publish` and `--delivery` cannot be
-combined with each other.
+How you start the server decides what the agent can reach. A bundle,
+`--fleet` and `--delivery` combine in one server; `--root` and `--publish`
+each start a server of their own. The agent's first call can be
+`pacto_capabilities`, which lists what the server serves and who the caller
+is to it.
 
 | Start it with | The agent can | It can change |
 |---|---|---|
@@ -81,11 +83,12 @@ combined with each other.
 | `pacto mcp ./my-service --base-url https://...` | Everything the default does, plus call the service's own API, one tool per operation. The bundle is a folder or an `oci://` reference; `--base-url` is where the running service answers | Contract files; the live service only with `--allow-writes` |
 | `pacto mcp --publish` | Everything the default does, plus publish a version to your registry | Contract files and your registry |
 | `pacto mcp --delivery` | Everything the default does, plus read delivery state and, if the cluster counts it as an agent, ask for or cancel a change | Contract files and its own requests; it can never approve |
+| `pacto mcp --fleet --delivery` | Both in one session: answer questions about your fleet, read what the dashboard's delivery views show and ask for a change | Contract files and its own requests; it can never approve |
 
 If the agent must change nothing at all, use `--root`.
 
-**Files.** The contract tools write to the folder the agent names in each
-call, relative to the folder the server was started in. Pacto does not limit
+**Files.** The contract tools run over stdio only. They write to the folder
+the agent names in each call, relative to the folder the server was started in. Pacto does not limit
 which folder, so start the server in the project the agent should work on,
 as a user that can write only there. Claude Code and Cursor start
 it in your project; for Claude Desktop, have the agent pass full paths.
@@ -125,9 +128,9 @@ change.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.
-- **Tools carry no safety labels.** Pacto does not mark its tools as
-  read-only or destructive in MCP, so build allow-lists by name from the
-  table below.
+- **Tools carry safety hints.** Every tool says in MCP whether it is
+  read-only or destructive. Hints guide your client; `--allow-writes` and
+  the stdio-only rules decide what runs.
 - **Partial answers say so.** Fleet answers carry `asOf`, the time
   they describe, and `completeness`, `complete` or `partial`. When a source was unreachable the answer says `partial`,
   and "not found" then means "not known".
@@ -138,25 +141,35 @@ change.
   after the last rebuild attempt.
 - **Over the network, callers must sign in.** By default the server talks
   over standard input and output. With `-t http` it serves HTTP on this
-  machine only. Serving other machines needs `--auth-issuer` and `--resource`,
-  so every request carries a token from your company sign-in, and the server
-  then refuses `--auth` and `--allow-writes`, which would lend one
-  credential to every caller. See
+  machine only, and every request carries the bearer it prints at launch.
+  Serving other machines needs `--auth-issuer` and `--resource`, so every
+  request carries a token from your company sign-in, and the server then
+  refuses `--auth` and `--allow-writes`, which would lend one credential to
+  every caller. With `--fleet` or `--delivery` it exchanges each caller's
+  token (`--exchange-client-id`) and the API server names the caller, as the
+  dashboard does. See
   [agents over the network](integrations/kubernetes/delivery-agents.md#agents-over-the-network).
+- **Over HTTP the only contract tool is `pacto_schema`.** `pacto_create`,
+  `pacto_edit` and `pacto_check` read and write the server's folders, read
+  its kubeconfig and follow refs with its registry credentials, so they run
+  beside the agent with `pacto mcp` over stdio.
 
 ## Which tools exist
 
 | Tools | Mode | Read or write |
 |---|---|---|
-| `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
-| `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
-| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_impact` | `--fleet` | Read |
+| `pacto_create`, `pacto_edit` | every mode but `--root`, over stdio only | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
+| `pacto_check` | every mode but `--root`, over stdio only | Read |
+| `pacto_schema` | every mode but `--root` | Read |
+| `pacto_capabilities` | every mode but `--root` | Read: what this server serves and who the caller is |
+| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_impact` | `--fleet` | Read |
 | `pacto_catalog_revision`, plus two MCP resources (documents the agent reads): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
 | One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |
 | `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |
 | `pacto_publish_plan` | `--publish` | Read |
 | `pacto_publish` | `--publish` | Writes to your registry |
-| `pacto_delivery_operation_types`, `pacto_delivery_candidates`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_verify` | `--delivery` | Read |
+| `pacto_delivery_status`, `pacto_delivery_operation_types`, `pacto_delivery_candidates`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_get`, `pacto_delivery_record_verify`, `pacto_delivery_lifecycle` | `--delivery` | Read |
+| `pacto_delivery_caller`, `pacto_delivery_inbox`, `pacto_delivery_environments`, `pacto_delivery_autonomy`, `pacto_delivery_published`, `pacto_delivery_refusals` | `--delivery` | Read: what the dashboard's delivery views show, with the caller's identity |
 | `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
 
 Pacto skips any API operation named `pacto_*`, so the prefix always means a

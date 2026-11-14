@@ -80,6 +80,7 @@ func TestDashboardIdentityFactory(t *testing.T) {
 	v := viper.New()
 	cluster := &rest.Config{Host: "https://k"}
 	// Open mode refuses; shared mode needs a session and uses its token.
+	v.Set("dashboard.allow-anonymous", true)
 	_, err := identityFor(t, v, "0.0.0.0", cluster).delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, isRefusal(err, http.StatusForbidden), "open: %v", err)
 	v.Set("dashboard.oidc-issuer-url", "https://idp.example")

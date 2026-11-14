@@ -183,7 +183,9 @@ kc_token() { # -d ... — a Keycloak token-endpoint answer's access token
   curl -sf --cacert "$IDP_DIR/tls.crt" "$KC_ISSUER/protocol/openid-connect/token" "$@" | jq -r .access_token
 }
 kc_agent_token() { kc_token -u agent-bot:agent-secret -d grant_type=client_credentials; }
-kc_person_token() { kc_token -d grant_type=password -d client_id=mcp-client -d username=dave -d password=password -d scope=openid; }
+# kc_person_token [USER] — a person's token for the MCP server: dave (team-checkout,
+# an approver everywhere) by default; frank belongs to no group.
+kc_person_token() { kc_token -d grant_type=password -d client_id=mcp-client -d username="${1:-dave}" -d password=password -d scope=openid; }
 # kc_exchange TOKEN — what the MCP server does with a caller's token.
 kc_exchange() {
   kc_token -u pacto-mcp:mcp-secret -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange -d subject_token="$1" \
@@ -227,7 +229,9 @@ identity_login_stale() {
 }
 
 # kubeconfig_for TOKEN — the cluster as the node sees it, with TOKEN or with no
-# credentials at all (the dashboard and MCP servers add callers' tokens).
+# credentials at all. The dashboard and the MCP server hold the dashboard's
+# ServiceAccount token to read Pactos and review RBAC, and add callers' tokens
+# for everything a caller does.
 kubeconfig_for() {
   local f; f="$(mktemp "$IDP_DIR/kubeconfig.XXXX")"
   local user="{}"; [ -n "${1:-}" ] && user="{token: \"$1\"}"
@@ -251,6 +255,12 @@ mcp() {
     -H 'Mcp-Protocol-Version: 2025-06-18' \
     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n 's/^data: //p;/^{/p'
 }
+# tool TOKEN NAME ARGS — one tool call's text answer; a refusal prints as
+# "ERROR: <text>".
+tool() {
+  mcp "$1" tools/call "{\"name\":\"$2\",\"arguments\":$3}" |
+    jq -r 'if .error then "ERROR: \(.error.message)" elif .result.isError then "ERROR: \(.result.content[0].text)" else .result.content[0].text end'
+}
 
 # dash SESSION METHOD PATH [BODY] [CSRF] — a dashboard API call as the browser
 # would make it: the session cookie, the dashboard's own Origin and the CSRF
@@ -265,6 +275,11 @@ dash() {
 }
 csrf_of() { dash "$1" GET /api/session | cut -d' ' -f2- | jq -r .csrf; }
 login() { oidc dashboard -dashboard "$DASH_URL" -user "$1@example.com" -password password -jar "$IDP_DIR/jar-$1" "${@:2}"; }
+token_login() { # TOKEN — the session cookie a token sign-in sets, or the HTTP status
+  curl -s -D - -o /dev/null -X POST -H "Origin: $DASH_URL" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$1\"}" "$DASH_URL/auth/token" | tr -d '\r' |
+    sed -n -e 's/^HTTP\/[0-9.]* \(4[0-9][0-9]\).*/\1/p' -e 's/^[Ss]et-[Cc]ookie: __Host-pacto-session=\([^;]*\).*/\1/p'
+}
 
 audited() { # VERB RESOURCE USER — the apiserver's audit log saw USER do it
   docker exec "${CLUSTER}-control-plane" cat /var/log/kubernetes/audit/audit.log |
@@ -322,11 +337,6 @@ YAML
   kubectl -n rbac-open create serviceaccount rbac-viewer --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n rbac-open create rolebinding rbac-viewer --role=pacto-viewer --serviceaccount=rbac-open:rbac-viewer \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  token_login() { # TOKEN — the session cookie a token sign-in sets, or the HTTP status
-    curl -s -D - -o /dev/null -X POST -H "Origin: $DASH_URL" -H 'Content-Type: application/json' \
-      -d "{\"token\":\"$1\"}" "$DASH_URL/auth/token" | tr -d '\r' |
-      sed -n -e 's/^HTTP\/[0-9.]* \(4[0-9][0-9]\).*/\1/p' -e 's/^[Ss]et-[Cc]ookie: __Host-pacto-session=\([^;]*\).*/\1/p'
-  }
   out="$(token_login not-a-token)"
   [ "$out" = 401 ] || fail "a token the cluster refuses signed in: $out"
   local sa; sa="$(token_login "$(kubectl -n rbac-open create token rbac-viewer)")"
@@ -347,6 +357,62 @@ mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ];
 servers_up() {
   eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
   eventually 40 mcp_up || { docker logs pacto-e2e-mcp 2>&1 | tail; fail "the MCP server did not start"; }
+}
+
+# identity_mcp_composed AGENT_TOOLS PERSON_TOOLS: one remote server serves the
+# fleet and delivery, names each caller the way the apiserver does and narrows
+# both families by the caller's RBAC.
+identity_mcp_composed() {
+  local t
+  for t in "$1" "$2"; do
+    jq -e '[.result.tools[].name] as $n | ($n | index("pacto_capabilities") != null and index("pacto_fleet_entities") != null
+      and index("pacto_delivery_inbox") != null) and ([$n[] | select(. == "pacto_create" or . == "pacto_edit" or . == "pacto_check")] == [])' \
+      <<<"$t" >/dev/null || fail "the composed server's tools over HTTP: $t"
+    jq -e '[.result.tools[] | select(.annotations == null)] == []' <<<"$t" >/dev/null || fail "a tool has no annotations: $t"
+  done
+  pass "over HTTP one server lists fleet, delivery and capabilities, every tool annotated, and no contract file tool"
+
+  # The same person on every surface: the apiserver's name for dave's exchanged
+  # token is the caller MCP reports and the dashboard signs in with that token.
+  local tok user out
+  tok="$(kc_exchange "$(kc_person_token)")"
+  user="$(whoami_json "$tok" | jq -r .status.userInfo.username)"
+  [[ "$user" == "$KC_ISSUER#"* ]] || fail "the apiserver does not name dave's exchanged token: $user"
+  out="$(tool "$(kc_person_token)" pacto_capabilities '{}')"
+  jq -e --arg u "$user" '.modes == ["fleet","delivery"] and .caller.user == $u and .caller.callerSource == "reviewed"' <<<"$out" >/dev/null \
+    || fail "pacto_capabilities does not report both modes and the reviewed caller $user: $out"
+  out="$(tool "$(kc_person_token)" pacto_delivery_caller '{}')"
+  jq -e --arg u "$user" '.user == $u' <<<"$out" >/dev/null || fail "pacto_delivery_caller is not $user: $out"
+  local session; session="$(token_login "$tok")"
+  [ "${#session}" -gt 3 ] || fail "dave's exchanged token did not sign in to the dashboard: $session"
+  out="$(dash "$session" GET /api/delivery/caller)"
+  jq -e --arg u "$user" '.user == $u' <<<"${out#* }" >/dev/null || fail "the dashboard's caller for the same token is not $user: $out"
+  pass "MCP capabilities, the MCP delivery caller and the dashboard name dave's token as the apiserver does"
+
+  # RBAC hides a namespace. dave is an approver everywhere, so frank, in no
+  # group, reads Pactos in rbac-open only, through a RoleBinding of his own.
+  local frank
+  frank="$(whoami_json "$(kc_exchange "$(kc_person_token frank)")" | jq -r .status.userInfo.username)"
+  [[ "$frank" == "$KC_ISSUER#"* ]] || fail "the apiserver does not name frank's exchanged token: $frank"
+  kubectl -n rbac-open create rolebinding pacto-viewer-frank --role=pacto-viewer --user="$frank" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  frank_entities() { tool "$(kc_person_token frank)" pacto_fleet_entities '{"kind":"service","text":"rbac-"}'; }
+  frank_names() { frank_entities | jq -c '[.entities[] | select(.kind=="service") | .label] | sort' 2>/dev/null; }
+  sees_open() { [ "$(frank_names)" = '["rbac-open-svc"]' ]; }
+  # The server rebuilds its snapshot when a call arrives 30s after the last.
+  eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_entities | head -c 600)"
+  out="$(frank_entities)"
+  jq -e '(.meta.limitations // []) | map(.code) | index("HIDDEN_BY_PERMISSIONS") != null' <<<"$out" >/dev/null \
+    || fail "frank's fleet answer does not say services are hidden: ${out:0:600}"
+  ! grep -q rbac-closed-svc <<<"$out" || fail "frank's fleet answer names rbac-closed-svc: ${out:0:600}"
+  out="$(tool "$(kc_person_token frank)" pacto_delivery_inbox '{}')"
+  [[ "$out" != ERROR:* ]] || fail "frank's inbox was refused: ${out:0:600}"
+  ! grep -q rbac-closed <<<"$out" || fail "frank's inbox names rbac-closed: ${out:0:600}"
+  local closed; closed="$(kubectl -n rbac-closed get pacto rbac-closed-svc -o jsonpath='{.spec.contractRef.oci}')"
+  out="$(tool "$(kc_person_token frank)" pacto_impact "{\"old_ref\":\"$closed\",\"new_ref\":\"$closed\"}")"
+  [[ "$out" == ERROR:* ]] && grep -q "is not a revision in your fleet view" <<<"$out" \
+    || fail "frank's impact over a revision he cannot see was not refused: ${out:0:600}"
+  pass "frank's RBAC hides rbac-closed from his fleet answers, his inbox and his impact over MCP"
 }
 
 identity_scenario() {
@@ -424,6 +490,9 @@ identity_scenario() {
   pass "the operator-managed dashboard gets its sign-in from the chart, the secret by reference"
 
   # --- the servers, in the node's network namespace ---
+  # One MCP server serves the fleet and delivery: it reads Pactos and asks
+  # SubjectAccessReviews with the dashboard's ServiceAccount, and delivery runs
+  # with each caller's exchanged token.
   local dashkc mcpkc
   dashkc="$(kubeconfig_for "$(kubectl -n "$NS" create token pacto-dashboard --duration 2h)")"
   mcpkc="$(kubeconfig_for "")"
@@ -436,8 +505,8 @@ identity_scenario() {
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli --token-login
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
-    -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$mcpkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
-    "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
+    -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
+    "$DASH_IMG" mcp --fleet --k8s --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
     --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp
   servers_up
 
@@ -505,6 +574,7 @@ identity_scenario() {
   jq -e '[.result.tools[].name] | (index("pacto_delivery_get") != null) and (index("pacto_delivery_operation_propose") == null)' <<<"$person_tools" >/dev/null \
     || fail "a person's tools over HTTP: $person_tools"
   pass "over HTTP an agent gets propose and cancel, a person the read tools, nobody an approve tool"
+  identity_mcp_composed "$agent_tools" "$person_tools"
 
   # The agent proposes F (payments 2.0.0, which breaks checkout) on prod.
   local from; from="$(kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')"

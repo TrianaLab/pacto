@@ -130,7 +130,7 @@ func singleRevKey(t *testing.T, snap *fleet.FleetSnapshot) string {
 func serveImpact(t *testing.T, mgr *fleet.Manager, svc *app.Service, fleetOverride func(context.Context) (*fleet.Query, error)) string {
 	t.Helper()
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	provide := impactProviderForFleet(svc)
+	provide := impactProviderForFleet(svc, true)
 	if fleetOverride == nil {
 		fleetOverride = managerFleetProvider(mgr)
 	} else {
@@ -141,7 +141,7 @@ func serveImpact(t *testing.T, mgr *fleet.Manager, svc *app.Service, fleetOverri
 			if err != nil {
 				return nil, err
 			}
-			return impactProviderForFleet(svc)(ctx, snap, o, n, obs)
+			return impactProviderForFleet(svc, true)(ctx, snap, o, n, obs)
 		}
 	}
 	srv := dashboard.NewServer(dashboard.Options{UI: ui, Fleet: fleetOverride, Impact: provide})

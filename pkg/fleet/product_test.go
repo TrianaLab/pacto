@@ -452,6 +452,32 @@ func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
 	}
 }
 
+// ListKinds picks the one kind a filter applies to, so a source, revision or
+// target filter is never refused for the default product kinds.
+func TestListKinds(t *testing.T) {
+	cases := []struct {
+		kind string
+		f    EntityFilter
+		want []EntityKind
+	}{
+		{"target", EntityFilter{Readiness: "passing"}, []EntityKind{KindTarget}},
+		{"", EntityFilter{Template: TemplateOnly}, []EntityKind{KindService}},
+		{"", EntityFilter{Readiness: "passing"}, []EntityKind{KindRevision}},
+		{"", EntityFilter{Scope: "prod"}, []EntityKind{KindTarget}},
+		{"", EntityFilter{SourceKind: "oci"}, []EntityKind{KindSource}},
+		{"", EntityFilter{SourceHealth: "stale"}, []EntityKind{KindSource}},
+		{"", EntityFilter{Template: TemplateExclude}, []EntityKind{KindService, KindOwner, KindDomain, KindOffering}},
+		{"", EntityFilter{Service: "app"}, nil},
+		{"", EntityFilter{Domain: "shop"}, nil},
+		{"", EntityFilter{Source: "oci"}, nil},
+	}
+	for _, c := range cases {
+		if got := ListKinds(c.kind, c.f); !slices.Equal(got, c.want) {
+			t.Errorf("ListKinds(%q, %+v) = %v, want %v", c.kind, c.f, got, c.want)
+		}
+	}
+}
+
 // ServiceRef and OwnerRef are the exported forms of the package's own refs.
 func TestExportedRefs(t *testing.T) {
 	s := &ServiceRecord{Key: "shop/api", Name: "api", Domain: "shop", BusinessDomain: "payments"}
@@ -499,5 +525,23 @@ func TestTemplatesReferencing(t *testing.T) {
 	}}
 	if got := NewQuery(snap).TemplatesReferencing(p); !slices.Equal(got, []ServiceKey{"a-path", "b-path"}) {
 		t.Errorf("templates = %v", got)
+	}
+}
+
+func TestParseLabels(t *testing.T) {
+	if got, err := ParseLabels(nil); got != nil || err != nil {
+		t.Error("no pairs is no label filter")
+	}
+	got, err := ParseLabels([]string{"env=prod", "team=a=b", "env=prod"})
+	if err != nil || len(got) != 2 || got["env"] != "prod" || got["team"] != "a=b" {
+		t.Errorf("ParseLabels = %v, %v", got, err)
+	}
+	// A pair the filter cannot read is refused, never dropped: dropping it
+	// widens the answer past what the caller asked for.
+	for _, pairs := range [][]string{{"bare"}, {"env:prod"}, {"=prod"}, {"tier=prod", "tier=pci"}} {
+		var iq *InvalidQueryError
+		if got, err := ParseLabels(pairs); got != nil || !errors.As(err, &iq) || iq.Field != "label" {
+			t.Errorf("ParseLabels(%q) = %v, %v; want InvalidQueryError", pairs, got, err)
+		}
 	}
 }

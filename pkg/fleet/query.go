@@ -155,6 +155,27 @@ func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
 }
 
+// ParseLabels reads key=value pairs into SearchFilter.Labels. A pair with no
+// key or no =, or a key repeated with another value, is an InvalidQueryError:
+// dropping it would widen the answer past what the caller asked for.
+func ParseLabels(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, p := range pairs {
+		k, val, ok := strings.Cut(p, "=")
+		if !ok || k == "" {
+			return nil, &InvalidQueryError{Field: "label", Value: p, Reason: "want key=value"}
+		}
+		if prev, dup := out[k]; dup && prev != val {
+			return nil, &InvalidQueryError{Field: "label", Value: p, Reason: fmt.Sprintf("key %q already filters on %q", k, prev)}
+		}
+		out[k] = val
+	}
+	return out, nil
+}
+
 // SearchFilter constrains a service search. The zero value matches everything
 // (subject to the default result bound).
 //

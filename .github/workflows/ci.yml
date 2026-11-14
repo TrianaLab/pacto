@@ -143,6 +143,13 @@ jobs:
               - 'internal/cli/delivery*.go'
               - 'internal/cli/publish.go'
               - 'pkg/publish/**'
+              # The composed remote MCP server, the token exchange and review
+              # behind it and the dashboard's bind rule: the kind identity phase
+              # drives them as a person and an agent.
+              - 'internal/mcp/**'
+              - 'internal/cli/mcp*.go'
+              - 'internal/cli/dashboard_identity.go'
+              - 'internal/authn/**'
               # Every core package the operator and pacto-delivery images compile
               # in (the transitive import closure of integrations/kubernetes).
               # TestPathFiltersCoverTheOperatorImports derives this list from the

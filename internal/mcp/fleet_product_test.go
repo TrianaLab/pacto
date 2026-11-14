@@ -79,8 +79,18 @@ func TestFleetEntitiesToolPagingAndErrors(t *testing.T) {
 	if page.Total != 3 || !page.Truncated || entityKeys(page)[0] != "service/orders" {
 		t.Errorf("paged = %+v", page)
 	}
-	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision"}); !res.IsError {
-		t.Error("kind=revision is outside the enum")
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "planet"}); !res.IsError {
+		t.Error("kind=planet is outside the enum")
+	}
+	// Every kind the dashboard lists, and a filter of one kind with no kind.
+	var revs, sources fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision", "service": "orders"}), &revs)
+	if revs.Total == 0 || slices.ContainsFunc(revs.Entities, func(e fleet.EntityRef) bool { return e.Kind != fleet.KindRevision }) {
+		t.Errorf("kind=revision service=orders = %+v", revs.Entities)
+	}
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"source_health": "available"}), &sources)
+	if slices.ContainsFunc(sources.Entities, func(e fleet.EntityRef) bool { return e.Kind != fleet.KindSource }) {
+		t.Errorf("source_health = %+v, want sources only", sources.Entities)
 	}
 	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
@@ -123,6 +133,15 @@ func TestFleetAttentionTool(t *testing.T) {
 	if page.Total < 2 || !page.Truncated || page.NextOffset == nil || *page.NextOffset != 1 || page.Count != 1 {
 		t.Errorf("limit=1 = %+v", page)
 	}
+	var one fleet.AttentionList
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"kind": "service", "key": "lonely", "stale_only": false}), &one)
+	if one.Total == 0 || slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Entity.Key != "lonely" }) {
+		t.Errorf("kind=service key=lonely = %+v", one.Items)
+	}
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"stale_only": true}), &one)
+	if slices.ContainsFunc(one.Items, func(it fleet.AttentionItem) bool { return it.Code != "STALE_EVIDENCE" }) {
+		t.Errorf("stale_only = %+v", one.Items)
+	}
 	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "bogus"}); !res.IsError {
 		t.Error("an unknown category is rejected by the schema")
 	}
@@ -138,6 +157,11 @@ func TestFleetSearchOffset(t *testing.T) {
 	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"offset": 1}), &skipped)
 	if len(skipped.Services) != len(all.Services)-1 || skipped.Services[0].Key != all.Services[1].Key {
 		t.Errorf("offset 1 = %+v, all %+v", skipped.Services, all.Services)
+	}
+	var labelled fleet.SearchResult
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"label": []string{"no-such=label"}}), &labelled)
+	if labelled.Total != 0 {
+		t.Errorf("label no-such=label = %+v, want no service", labelled.Services)
 	}
 }
 

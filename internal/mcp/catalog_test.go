@@ -351,8 +351,8 @@ func TestCatalogModeCannotReachTheAuthoringTools(t *testing.T) {
 func TestAuthoringAndFleetServersExposeNoCatalogSurface(t *testing.T) {
 	t.Parallel()
 	for name, server := range map[string]*mcpsdk.Server{
-		"authoring": NewServer(Authoring{}, "v-test"),
-		"fleet":     NewFleetServer("v-test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{}),
+		"authoring": mustNew("v-test", Authoring{}, Modes{}),
+		"fleet":     mustNew("v-test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{}}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

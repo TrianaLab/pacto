@@ -28,7 +28,8 @@ type impactProvider func(ctx context.Context, snap *fleet.FleetSnapshot, req Imp
 
 func impactTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
-		Name: "pacto_impact",
+		Name:        "pacto_impact",
+		Annotations: readOnly(true),
 		Description: "Analyze which consumers a change affects, from an old to a new contract revision, " +
 			"projected onto the operational graph. Reports the semantic classification, breaking " +
 			"changes, affected consumers (with confidence and compatibility verdict), active targets " +
@@ -36,16 +37,17 @@ func impactTool() *mcpsdk.Tool {
 			"the same gate `pacto impact` exits on (1, 2, 0): unverified means Pacto could not show the change " +
 			"is safe, never that it is. On a BREAKING change a compatible consumer only matches by range; read " +
 			"its 'note'. 'consumerTallies' counts every consumer by outcome (incompatible includes a consumer that refuses a " +
-			"required guarantee) and ranks their owners; state counts from it rather than by counting the list. When no fleet source holds the changed service, the new revision is added to the snapshot " +
+			"required guarantee) and ranks their owners; state counts from it rather than by counting the list. Over stdio, when no fleet source holds the changed service, the new revision is added to the snapshot " +
 			"('newRevisionAdded'); on a server whose callers sign in it is not, and the answer says " +
-			"SERVICE_NOT_IN_FLEET with an unverified gate. Pass 'event' (unavailable, removed or regressed) with 'service' " +
+			"SERVICE_NOT_IN_FLEET with an unverified gate. Over HTTP, old_ref and new_ref must name revisions your fleet view holds, " +
+			"and the server reads each revision from where your fleet view says it lives. Pass 'event' (unavailable, removed or regressed) with 'service' " +
 			"(and 'revision' for regressed: an artifact digest reads delivery's recorded failures) instead of old_ref and new_ref " +
 			"to ask what happens if that service becomes unavailable, is removed or regressed; consumers carry 'effect' " +
 			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. " +
 			"Read-only: it lists review targets, never recommends or takes actions.",
 		InputSchema: inputSchema(map[string]property{
-			"old_ref":          {Type: "string", Description: "Old contract revision (local directory or oci:// ref)"},
-			"new_ref":          {Type: "string", Description: "New contract revision (local directory or oci:// ref)"},
+			"old_ref":          {Type: "string", Description: "Old contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
+			"new_ref":          {Type: "string", Description: "New contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},
 			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence; with old_ref and new_ref only, since an event always reads observed callers"},
 			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
 			"event":            {Type: "string", Description: "What happens to 'service' instead of a contract change", Enum: []string{impact.EventUnavailable, impact.EventRemoved, impact.EventRegressed}},

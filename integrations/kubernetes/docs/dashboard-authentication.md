@@ -93,8 +93,9 @@ terminate TLS in front of the dashboard. `pacto dashboard` takes the same
 settings as `--oidc-*`, `--session-*` and `--token-login` flags
 ([CLI reference](../../cli-reference.md)), with the client secret in
 `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. A remote `pacto mcp` with
-`--auth-issuer` takes the same claim mapping flags
-([who sees what](dashboard-access.md)).
+`--auth-issuer` asks the API server who each caller is, as the dashboard does,
+and takes the same claim mapping flags only to name a token it refuses in its
+log ([who sees what](dashboard-access.md)).
 
 ## Reach the issuer
 

@@ -18,6 +18,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -116,7 +118,7 @@ func TestMCPCommand_UnknownTransportBeforeBuild(t *testing.T) {
 }
 
 func TestRunMCPServer_UnknownTransport(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "bogus"}, &stderr)
@@ -273,7 +275,7 @@ func TestMCPCommand_RunE_HTTP(t *testing.T) {
 
 func TestRunMCPServer_HTTP(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	cancel()
@@ -291,7 +293,7 @@ func TestRunMCPServer_HTTP(t *testing.T) {
 func TestRunMCPServer_StdioMessage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	_ = runMCPServer(ctx, mcpServe{server: server, transport: "stdio"}, &stderr)
@@ -303,7 +305,7 @@ func TestRunMCPServer_StdioMessage(t *testing.T) {
 }
 
 func TestRunMCPServer_InvalidPort(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "http", port: -1}, &stderr)
@@ -313,7 +315,7 @@ func TestRunMCPServer_InvalidPort(t *testing.T) {
 }
 
 func TestServeHTTP_ContextCancel(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -359,7 +361,7 @@ func TestServeHTTP_ContextCancel(t *testing.T) {
 }
 
 func TestServeHTTP_ListenerClosed(t *testing.T) {
-	server := pactomcp.NewServer(pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, "test")
+	server := mustNewMCP("test", pactomcp.Authoring{Validate: app.NewService(nil, nil).ValidationReport}, pactomcp.Modes{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -514,6 +516,122 @@ func TestMCPImpactSignedInRefusesLocalRefs(t *testing.T) {
 	}
 }
 
+// viewSnapshot is a caller's view: orders is visible with a digest-pinned
+// ResolvedRef, and a local-source revision has a path for its ResolvedRef.
+func viewSnapshot() *fleet.FleetSnapshot {
+	return &fleet.FleetSnapshot{
+		GeneratedAt: time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC),
+		Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{
+			"orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {Service: "orders", RequestedRef: "oci://reg.example/orders:1", ResolvedRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {Service: "orders", RequestedRef: "oci://reg.example/orders:2", ResolvedRef: "oci://reg.example/orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			"local@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc":  {Service: "local", RequestedRef: "oci://reg.example/local:1", ResolvedRef: "/srv/local", Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		},
+	}
+}
+
+// pullRecorder is a service whose registry records every ref it is asked for
+// and serves none, so an impact call stops right after resolution starts.
+func pullRecorder() (*app.Service, *[]string) {
+	var pulled []string
+	store := &testutil.MockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+		pulled = append(pulled, ref)
+		return nil, errors.New("not served")
+	}}
+	return app.NewService(store, nil), &pulled
+}
+
+// httpImpact is the provider of an HTTP server whose callers sign in, over svc.
+func httpImpact(svc *app.Service, trusted bool) func(context.Context, *fleet.FleetSnapshot, pactomcp.ImpactRequest) (*impact.Result, error) {
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	return mcpImpactProvider(cmd, svc, defaultDeps(), false, trusted)
+}
+
+const outsideView = "is not a revision in your fleet view (asOf 2026-11-13T10:00:00Z); over HTTP, name a revision you can see, or run pacto impact locally"
+
+func TestMCPImpactHTTPRefusesRefOutsideView(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders:1", NewRef: "oci://reg.example/ledger:2"})
+	if err == nil || err.Error() != "new_ref "+outsideView {
+		t.Fatalf("hidden ref: %v", err)
+	}
+	if len(*pulled) != 0 {
+		t.Fatalf("a refused request resolved %v", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPAcceptsVisibleRevisionRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+		t.Fatalf("resolved %v, want the visible revision's ResolvedRef", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPAcceptsDigestRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	if _, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", NewRef: "oci://reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}); err == nil || strings.Contains(err.Error(), "fleet view") {
+		t.Fatalf("digest refs: %v", err)
+	}
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "orders@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+		t.Fatalf("resolved %v", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPDigestOnForeignHostResolvesPinnedRef(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://attacker.example/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", NewRef: "oci://reg.example/orders:2"})
+	if len(*pulled) != 1 || strings.Contains((*pulled)[0], "attacker.example") || !strings.Contains((*pulled)[0], "reg.example/orders@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+		t.Fatalf("resolved %v, want only the visible revision's own registry", *pulled)
+	}
+}
+
+func TestMCPImpactHTTPRefusesLocalSourceRevision(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, err := httpImpact(svc, false)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://reg.example/local:1", NewRef: "oci://reg.example/orders:2"})
+	if err == nil || !strings.HasPrefix(err.Error(), "old_ref "+outsideView) || !strings.Contains(err.Error(), "local filesystem path") || len(*pulled) != 0 {
+		t.Fatalf("local-source revision: %v (resolved %v)", err, *pulled)
+	}
+}
+
+// TestMCPImpactHTTPRefusesMutableRevisionRef: a visible revision whose
+// ResolvedRef is a mutable tag, or a digest that disagrees with the recorded
+// one, is refused: the server would resolve whatever the tag points at now.
+func TestMCPImpactHTTPRefusesMutableRevisionRef(t *testing.T) {
+	snap := viewSnapshot()
+	snap.Revisions[fleet.RevisionKey("tagged@sha256:"+strings.Repeat("d", 64))] = &fleet.ContractRevision{Service: "tagged", RequestedRef: "oci://reg.example/tagged:1",
+		ResolvedRef: "oci://reg.example/tagged:1", Digest: "sha256:" + strings.Repeat("d", 64)}
+	snap.Revisions[fleet.RevisionKey("skewed@sha256:"+strings.Repeat("e", 64))] = &fleet.ContractRevision{Service: "skewed", RequestedRef: "oci://reg.example/skewed:1",
+		ResolvedRef: "oci://reg.example/skewed@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("e", 64)}
+	for _, ref := range []string{"oci://reg.example/tagged:1", "oci://reg.example/skewed:1"} {
+		svc, pulled := pullRecorder()
+		_, err := httpImpact(svc, false)(context.Background(), snap, pactomcp.ImpactRequest{OldRef: ref, NewRef: "oci://reg.example/orders:2"})
+		if err == nil || !strings.Contains(err.Error(), "has no immutable ref") || len(*pulled) != 0 {
+			t.Errorf("%s: %v (resolved %v)", ref, err, *pulled)
+		}
+	}
+}
+
+// TestMCPImpactHTTPNoAuthRefusesUnknownRef: a loopback HTTP server without
+// --auth-issuer adds a missing revision, so a ref no source holds is refused
+// before anything is added.
+func TestMCPImpactHTTPNoAuthRefusesUnknownRef(t *testing.T) {
+	s := mcpImpactSession(t, map[string]string{"transport": "http"})
+	if text, failed := callImpact(t, s, map[string]any{"old_ref": "oci://x/a:1", "new_ref": "oci://x/a:2"}); !failed || !strings.Contains(text, "old_ref is not a revision in your fleet view") {
+		t.Fatalf("unknown ref over HTTP:\n%s", text)
+	}
+}
+
+// TestMCPImpactStdioRefsUnchanged: a stdio server resolves the caller's refs
+// as given, in the view or not.
+func TestMCPImpactStdioRefsUnchanged(t *testing.T) {
+	svc, pulled := pullRecorder()
+	_, _ = httpImpact(svc, true)(context.Background(), viewSnapshot(), pactomcp.ImpactRequest{OldRef: "oci://other.example/x:1", NewRef: "oci://other.example/x:2"})
+	if len(*pulled) != 1 || !strings.Contains((*pulled)[0], "other.example/x:1") {
+		t.Fatalf("stdio resolved %v, want the caller's ref", *pulled)
+	}
+}
+
 func TestMCPImpactSignedInNoDelivery(t *testing.T) {
 	d := defaultDeps()
 	d.newDynamic = func() (dynamic.Interface, error) {
@@ -540,4 +658,104 @@ func TestMCPImpactStdioReadsDelivery(t *testing.T) {
 	if err != nil || len(res.Limitations) == 0 || !strings.Contains(res.Limitations[len(res.Limitations)-1].Message+res.Limitations[0].Message, "no cluster to read delivery from") {
 		t.Fatalf("stdio regressed = %+v %v", res, err)
 	}
+}
+
+var fileTools = []string{"pacto_create", "pacto_edit", "pacto_check"}
+
+// builtTools builds the server the flags select and lists its tool names.
+func builtTools(t *testing.T, args []string, flags map[string]string) map[string]bool {
+	t.Helper()
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	for k, v := range flags {
+		if err := cmd.Flags().Set(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := buildMCPServer(cmd, svc, "v", args, defaultDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return toolSet(t, server)
+}
+
+// authoringServers are the fleet, bundle and default servers for one transport.
+func authoringServers(t *testing.T, transport string) map[string]map[string]bool {
+	t.Helper()
+	local := t.TempDir()
+	return map[string]map[string]bool{
+		"default": builtTools(t, nil, map[string]string{"transport": transport}),
+		"fleet":   builtTools(t, nil, map[string]string{"transport": transport, "fleet": "true", "local": local}),
+		"bundle":  builtTools(t, []string{writeCapabilityBundle(t)}, map[string]string{"transport": transport, "base-url": "http://example.com"}),
+	}
+}
+
+func TestHTTPServersRegisterOnlySchemaFromAuthoring(t *testing.T) {
+	for name, tools := range authoringServers(t, "http") {
+		for _, ft := range fileTools {
+			expect(t, !tools[ft], "%s over HTTP registers %s", name, ft)
+		}
+		expect(t, tools["pacto_schema"], "%s over HTTP lacks pacto_schema", name)
+	}
+	// The per-request remote delivery server, for an agent and for a person.
+	w := newRemoteWorld(t)
+	for _, user := range []string{w.user, "https://idp#carol"} {
+		w.user = user
+		body := post(t, w.h, "good", listTools).Body.String()
+		expect(t, strings.Contains(body, `"pacto_schema"`) && strings.Contains(body, "pacto_delivery_get"), "remote delivery tools for %s: %s", user, body)
+		for _, ft := range fileTools {
+			expect(t, !strings.Contains(body, `"name":"`+ft+`"`), "remote delivery for %s registers %s", user, ft)
+		}
+	}
+}
+
+func TestStdioServersKeepEveryAuthoringTool(t *testing.T) {
+	for name, tools := range authoringServers(t, "stdio") {
+		for _, ft := range append(fileTools, "pacto_schema") {
+			expect(t, tools[ft], "%s over stdio lacks %s", name, ft)
+		}
+	}
+}
+
+const schemaOnlyLine = "contract tools: pacto_schema only over HTTP"
+
+func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
+	run := func(args ...string) string {
+		root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+		ctx, cancel := context.WithCancel(context.Background())
+		root.SetArgs(append([]string{"mcp", "--port", "0"}, args...))
+		var stderr bytes.Buffer
+		root.SetErr(&stderr)
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+		}()
+		_ = root.ExecuteContext(ctx)
+		return stderr.String()
+	}
+	expect(t, strings.Contains(run("-t", "http"), schemaOnlyLine), "HTTP startup must say pacto_schema only")
+	expect(t, !strings.Contains(run(), schemaOnlyLine), "stdio startup offers every contract tool")
+	// The catalog server registers no contract tools, so it says nothing about them.
+	var stderr bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runMCPServer(ctx, mcpServe{transport: "http", port: 0}, &stderr)
+	expect(t, !strings.Contains(stderr.String(), schemaOnlyLine), "no contract tools, no line: %s", stderr.String())
+	// Remote delivery serves per request and offers only pacto_schema too.
+	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
+	dcmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	_ = dcmd.Flags().Set("delivery", "true")
+	expect(t, remoteCallerFor(dcmd, app.NewService(nil, nil), "v", nil, d, &s) == nil && s.remoteAuthoring,
+		"remote delivery must report schema-only authoring")
+}
+
+// mustNewMCP is pactomcp.New for modes that cannot fail to register.
+func mustNewMCP(version string, a pactomcp.Authoring, m pactomcp.Modes) *mcpsdk.Server {
+	s, err := pactomcp.New(version, a, m)
+	if err != nil {
+		panic(err)
+	}
+	return s
 }

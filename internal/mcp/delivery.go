@@ -67,14 +67,14 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
 	"service for you, and order.unknown says what it could not see." + checkedPass + noApprove
 
-// NewDeliveryServer builds a server with the authoring tools and the delivery
-// tools. writes registers propose and cancel; the command layer passes true
-// only when the caller is not a human identity, so a person's credentials in an
-// agent's hands propose nothing through this server.
-func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+deliveryInstructions, a)
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_operation_types",
+// registerDelivery adds the delivery tools. writes registers propose and
+// cancel; the command layer passes true only when the caller is not a human
+// identity, so a person's credentials in an agent's hands propose nothing
+// through this server.
+func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_operation_types",
+		Annotations: readOnly(true),
 		Description: "List the operation types you may propose, with their facet and who may raise them, or with type set " +
 			"describe that one: what it checks, when a person is needed, how it is undone and its digest. Read-only." + noApprove,
 		InputSchema: inputSchema(map[string]property{"type": {Type: "string", Description: "Type id to describe, e.g. delivery.pacto.trianalab.io/promote; empty lists them all"}}, nil),
@@ -95,8 +95,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		}{t, t.Digest()})
 		return r, nil, err
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_operation_plan",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_operation_plan",
+		Annotations: readOnly(true),
 		Description: "Plan an operation without doing it: the intent digest, the running version, the predicted " +
 			"verdicts of every gate, whether a person must decide, the one question they would be asked and, when a consumer " +
 			"running there does not accept the new version, the order: which consumer must move first and the verified " +
@@ -112,8 +113,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		p, err := api.Plan(ctx, req)
 		return resultOrError(p, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_get",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_get",
+		Annotations: readOnly(true),
 		Description: "Read an operation: phase, outcome, verdicts and the question a person is asked while it is held. While it " +
 			"is held, next says what happens if nobody decides by the approval deadline. Read-only." + checkedPass + noApprove,
 		InputSchema: nameSchema(),
@@ -124,8 +126,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		}
 		return resultOrError(delivery.AnswerOperation(op), nil)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_candidates",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_candidates",
+		Annotations: readOnly(true),
 		Description: "List the versions a Stage may be promoted to, newest first: every version its candidate source offers " +
 			"that pacto publish published, with its digest, the version its contract declares and the digest the Stage runs " +
 			"now. Pass one of them as to when you plan; note says why the list is empty. Read-only." + noApprove,
@@ -134,8 +137,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		c, err := api.Candidates(ctx, a.Namespace, a.Stage)
 		return resultOrError(c, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_explain",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_explain",
+		Annotations: readOnly(true),
 		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
 			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now, " +
 			"its last re-check and what must move first when the plan found one. Read-only." + checkedPass + noApprove,
@@ -144,8 +148,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		e, err := api.Explain(ctx, a.Namespace, a.Name)
 		return resultOrError(e, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_history",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_history",
+		Annotations: readOnly(true),
 		Description: "List what happened on a Stage. With the recorder installed it is read from the Stage's signed records in the " +
 			"registry (source records), plus the operations not recorded yet; otherwise from the operations still in the cluster " +
 			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
@@ -161,8 +166,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 		return historyTool(ctx, api, a)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_blame",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_blame",
+		Annotations: readOnly(true),
 		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
 			"Stage to it, who asked, on whose behalf (asserted), why, who approved and what every gate said, from the records. " +
 			"No change with completeness partial means unknown, never nobody. Read-only." + noApprove,
@@ -171,8 +177,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		b, err := api.Blame(ctx, a.Namespace, a.Stage, a.Digest)
 		return resultOrError(b, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_undo_plan",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_undo_plan",
+		Annotations: readOnly(true),
 		Description: "Plan how to undo an operation and propose nothing: a rollback bound to it when it is the change the Stage " +
 			"runs now, a promote back to the version it replaced when something changed since (every gate runs), or nothing " +
 			"when it moved nothing. To act, review the plan and propose it yourself with its intent digest. Read-only." + noApprove,
@@ -189,8 +196,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		u, err := api.Undo(ctx, a.Namespace, a.Name, a.Stage)
 		return resultOrError(u, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_record_verify",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_record_verify",
+		Annotations: readOnly(true),
 		Description: "Verify every signed record of a Stage's stream against the trust config this server was started with and " +
 			"check the chain from seq 1 to the head the Stage names: ok, the records, problems and what did not verify, plus the " +
 			"eval runners' own signatures on the verdicts each record keeps (who ran each exam, checked against the runner keys of the trust config), and the " +
@@ -204,8 +212,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		v, err := api.VerifyRecords(ctx, a.Namespace, a.Stage)
 		return resultOrError(v, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_record_get",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_record_get",
+		Annotations: readOnly(true),
 		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
 			"approved, every verdict with its citation and how to run it again, and whether its signature was checked against " +
 			"the trust config. Read-only." + noApprove,
@@ -222,8 +231,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 		r, err := api.Record(ctx, a.Namespace, a.Stage, a.Record)
 		return resultOrError(r, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_lifecycle",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_lifecycle",
+		Annotations: readOnly(true),
 		Description: "Follow one version of a service through delivery, by artifact digest, contract version or contract digest: " +
 			"whether pacto publish published it (Flux verified its signature) and, on each Stage you can see, when it arrived, was " +
 			"verified, re-checked, rolled back or left, each from its signed record or the Operation's unsigned status. asOf and " +
@@ -252,7 +262,6 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 	if writes {
 		registerDeliveryWrites(server, api)
 	}
-	return server
 }
 
 // noProposeNote ends a status answer on a server that registered no write
@@ -260,8 +269,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring
 const noProposeNote = "; this MCP server registers no propose tool for your identity; a person proposes from the CLI or the dashboard"
 
 func registerDeliveryStatus(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_status",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_status",
+		Annotations: readOnly(true),
 		Description: "Where each Stage of one service stands, as you can see it: the version and contract each runs, whether it is " +
 			"verified and still watched after release (the newest re-check with its verdicts and citations), its Ready condition with " +
 			"what fixes it, its candidate, frozen or auto-hold, changes waiting for a person, its level, and offers: each action " +
@@ -291,8 +301,9 @@ func registerDeliveryStatus(server *mcpsdk.Server, api DeliveryAPI, writes bool)
 }
 
 func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_operation_propose",
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_operation_propose",
+		Annotations: writes(false, false, true),
 		Description: "Propose an operation. Pass the intent_digest from your plan with the same to, reason and on_behalf_of: " +
 			"the digest binds them and the Stage's state, so if one differs or anything moved since, it fails with PlanStale, " +
 			"says which parameter differs when it can tell, and returns the fresh plan instead of proposing something you did " +
@@ -318,8 +329,9 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 			Plan      delivery.PlanAnswer       `json:"plan"`
 		}{op, plan}, err)
 	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_cancel",
+		Annotations: writes(false, false, true),
 		Description: "Cancel an operation that has not moved the pointer yet. Once it has, cancel is refused: propose a rollback." + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {

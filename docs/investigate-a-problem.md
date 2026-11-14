@@ -10,21 +10,20 @@ says what to cite.
 
 ## Set up
 
-Run three MCP servers side by side and give your agent all three:
+Run one Pacto server for fleet and delivery questions beside Mira's own, and
+give your agent both:
 
 ```bash
-# Fleet questions, with Mira's service map as observed calls
+# Fleet questions, with Mira's service map as observed calls, and delivery
+# questions over the cluster your kubeconfig points at
 pacto mcp --fleet --k8s --mira-source http://mira:4318 \
-  --dashboard-url https://pacto.example.com
-
-# Delivery questions, over the cluster your kubeconfig points at
-pacto mcp --delivery
+  --dashboard-url https://pacto.example.com --delivery
 
 # Mira's own tools, served by Mira at POST /mcp
 #   http://mira:4318/mcp
 ```
 
-The servers stay separate because each has its own authorization model. Fleet
+Each family keeps its own authorization in the one Pacto server. Fleet
 answers can be restricted to what a caller may read. Delivery reads run as the
 caller against the cluster. Mira has no authentication. Pacto reads only
 Mira's service map, and only from the URL the operator passes with

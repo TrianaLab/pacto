@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -39,7 +40,7 @@ func httpIface(name, path string) contract.Interface {
 func connectCaps(t *testing.T, bundle *contract.Bundle, opts CapabilityOptions, stderr io.Writer) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewServer(Authoring{}, "test")
+	server := mustNew("test", Authoring{}, Modes{})
 	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
 		t.Fatalf("RegisterCapabilities: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestRegisterCapabilities_SkipsNonHTTP(t *testing.T) {
 
 func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{}, httpIface("http", "missing.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error for missing openapi file")
 	}
@@ -184,13 +185,13 @@ func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 
 func TestRegisterCapabilities_NoBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{}, io.Discard)
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle, CapabilityOptions{}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when no base URL and no servers")
 	}
 }
 
-func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
+func TestBundleMode_InstructionsReachClient(t *testing.T) {
 	fsys := fstest.MapFS{
 		"o.json":      {Data: []byte(capSpec)},
 		"skills/x.md": {Data: []byte("x")},
@@ -202,9 +203,9 @@ func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
 		},
 		FS: fsys,
 	}
-	server, err := NewCapabilityServer(bundle, CapabilityOptions{BaseURL: "http://x"}, "test", io.Discard)
+	server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard}})
 	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	ctx := context.Background()
@@ -243,18 +244,18 @@ func TestCapabilityInstructions_AllowWrites(t *testing.T) {
 	}
 }
 
-func TestNewCapabilityServer_Error(t *testing.T) {
+func TestBundleMode_Error(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
 	// creds without base URL → RegisterCapabilities error propagates
-	_, err := NewCapabilityServer(bundle, CapabilityOptions{Creds: map[string]string{"k": "v"}}, "t", io.Discard)
+	_, err := New("t", Authoring{}, Modes{Bundle: &BundleMode{Bundle: bundle, Opts: CapabilityOptions{Creds: map[string]string{"k": "v"}}, Stderr: io.Discard}})
 	if err == nil {
-		t.Fatal("expected error from NewCapabilityServer")
+		t.Fatal("expected error from New with a bundle mode")
 	}
 }
 
 func TestRegisterCapabilities_CredsRequireBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle,
+	err := RegisterCapabilities(mustNew("t", Authoring{}, Modes{}), bundle,
 		CapabilityOptions{Creds: map[string]string{"apiKey": "secret"}}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error: --auth without --base-url must be refused")
@@ -538,21 +539,138 @@ func TestNormalizeDraft4Bounds(t *testing.T) {
 	}
 }
 
-// TestReservedToolNames_CoversEveryPactoTool keeps the reserved set honest: it is
-// read back from a fully-loaded server, so a tool added to Pacto without being
-// reserved becomes shadowable and this test says so.
-func TestReservedToolNames_CoversEveryPactoTool(t *testing.T) {
+// shadowSpec declares operations named like Pacto tools, one of which no Pacto
+// tool uses yet, beside one ordinary operation.
+const shadowSpec = `{"openapi":"3.1.0","paths":{
+  "/a":{"get":{"operationId":"pacto_delivery_get"}},
+  "/b":{"get":{"operationId":"pacto_publish"}},
+  "/c":{"get":{"operationId":"pacto_future_tool"}},
+  "/d":{"get":{"operationId":"lookup"}},
+  "/e":{"post":{"operationId":"createRefund"}}}}`
+
+func shadowBundle() *contract.Bundle {
+	return capBundle(fstest.MapFS{"shadow.json": &fstest.MapFile{Data: []byte(shadowSpec)}}, httpIface("shadow", "shadow.json"))
+}
+
+// TestPactoPrefixReservedOnEveryServer builds every server variant twice, once
+// bare and once with a bundle that declares pacto_ names: with the bundle, a
+// pacto_ tool is one the bare variant registers and every other tool is a
+// generated operation of the fixture.
+func TestPactoPrefixReservedOnEveryServer(t *testing.T) {
+	variants := serverVariants(t)
+	generated := map[string]bool{"createRefund": true, "lookup": true}
+	opts := CapabilityOptions{BaseURL: "http://x", AllowWrites: true}
+	for name, build := range variants {
+		t.Run(name, func(t *testing.T) {
+			pacto := toolNames(t, catalogSession(t, build()))
+			server := build()
+			if err := RegisterCapabilities(server, shadowBundle(), opts, io.Discard); err != nil {
+				t.Fatalf("RegisterCapabilities: %v", err)
+			}
+			assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
+		})
+	}
+	t.Run("capability", func(t *testing.T) {
+		pacto := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, Modes{})))
+		server, err := New("test", Authoring{}, Modes{Bundle: &BundleMode{Bundle: shadowBundle(), Opts: opts, Stderr: io.Discard}})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, server)), pacto, generated)
+	})
+	t.Run("composed", func(t *testing.T) {
+		bare := composedModes(t, true)
+		bare.Bundle = nil
+		pacto := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, bare)))
+		m := composedModes(t, true)
+		m.Bundle.Opts = opts
+		assertOnlyPactoOrGenerated(t, toolNames(t, catalogSession(t, mustNew("test", Authoring{}, m))), pacto, generated)
+	})
+}
+
+// serverVariants builds every server variant Pacto serves, bare.
+func serverVariants(t *testing.T) map[string]func() *mcpsdk.Server {
+	t.Helper()
 	cat, _ := platformCatalog(t)
-	server := NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
-	registerCatalogSurface(server, cat)
-	bundle := capBundle(fstest.MapFS{"openapi.json": &fstest.MapFile{Data: []byte(capSpec)}},
-		httpIface("api", "openapi.json"))
-	if err := RegisterCapabilities(server, bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard); err != nil {
+	return map[string]func() *mcpsdk.Server{
+		"authoring": func() *mcpsdk.Server { return mustNew("test", Authoring{}, Modes{}) },
+		"fleet": func() *mcpsdk.Server {
+			return mustNew("test", Authoring{}, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}})
+		},
+		"catalog": func() *mcpsdk.Server { return NewCatalogServer("test", cat) },
+		"delivery-read": func() *mcpsdk.Server {
+			return mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
+		},
+		"delivery-writes": func() *mcpsdk.Server {
+			return mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})
+		},
+		"publish": func() *mcpsdk.Server { return NewPublishServer("test", nil, Authoring{}) },
+		"fleet+delivery": func() *mcpsdk.Server {
+			m := composedModes(t, true)
+			m.Bundle = nil
+			return mustNew("test", Authoring{}, m)
+		},
+		"fleet+delivery-remote": func() *mcpsdk.Server {
+			m := composedModes(t, false)
+			m.Bundle = nil
+			return mustNew("test", Authoring{Remote: true}, m)
+		},
+	}
+}
+
+func assertOnlyPactoOrGenerated(t *testing.T, got, pacto, generated map[string]bool) {
+	t.Helper()
+	for name := range got {
+		if strings.HasPrefix(name, "pacto_") && !pacto[name] && name != "pacto_skill" {
+			t.Errorf("tool %q starts with pacto_ but Pacto did not register it: bundle content took the name", name)
+		}
+		if !strings.HasPrefix(name, "pacto_") && !generated[name] {
+			t.Errorf("tool %q is neither a Pacto tool nor a fixture operation", name)
+		}
+	}
+	for name := range generated {
+		if !got[name] {
+			t.Errorf("fixture operation %q was not registered", name)
+		}
+	}
+}
+
+// TestBundleCannotShadowDeliveryTool: a delivery tool name, a Pacto tool of
+// another server and a name no Pacto tool uses yet are all skipped, each with
+// one stderr line.
+func TestBundleCannotShadowDeliveryTool(t *testing.T) {
+	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
+	before := toolNames(t, catalogSession(t, mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})))
+	bundle := shadowBundle()
+	var stderr strings.Builder
+	if err := RegisterCapabilities(server, bundle, CapabilityOptions{BaseURL: "http://x"}, &stderr); err != nil {
 		t.Fatalf("RegisterCapabilities: %v", err)
 	}
-	for name := range toolNames(t, catalogSession(t, server)) {
-		if strings.HasPrefix(name, "pacto_") && !reservedToolNames[name] {
-			t.Errorf("tool %q is registered by Pacto but not reserved: bundle content can shadow it", name)
+	got := toolNames(t, catalogSession(t, server))
+	for _, name := range []string{"pacto_delivery_get", "pacto_publish", "pacto_future_tool"} {
+		if got[name] && !before[name] {
+			t.Errorf("bundle operation %q was registered", name)
 		}
+		line := fmt.Sprintf("pacto mcp: skipped operation %q in interface \"shadow\" (names starting with pacto_ belong to Pacto)\n", name)
+		if n := strings.Count(stderr.String(), line); n != 1 {
+			t.Errorf("want one skip line for %q, got %d in %q", name, n, stderr.String())
+		}
+	}
+	if !got["lookup"] {
+		t.Error("the ordinary operation was not registered")
+	}
+}
+
+func TestGeneratedCallCarriesPactoUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = r.Header.Get("User-Agent") }))
+	defer srv.Close()
+	bundle := capBundle(fstest.MapFS{"interfaces/openapi.json": {Data: []byte(capSpec)}}, httpIface("http", "interfaces/openapi.json"))
+	session := connectCaps(t, bundle, CapabilityOptions{BaseURL: srv.URL, HTTPClient: srv.Client(), Version: "test"}, io.Discard)
+	if _, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "ping"}); err != nil {
+		t.Fatalf("CallTool ping: %v", err)
+	}
+	if got != "pacto-mcp/test" {
+		t.Fatalf("User-Agent = %q", got)
 	}
 }
