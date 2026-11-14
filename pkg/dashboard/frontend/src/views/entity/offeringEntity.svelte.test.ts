@@ -311,8 +311,8 @@ describe('offering page', () => {
 
   it('shows each consumer\'s status and whether its range accepts the successor', async () => {
     const pa = provider('postgresql').service;
-    const use = (consumer: string, successorRange?: string) => ({ offering: 'shared-config', consumer: ref('service', consumer, consumer, { status: 'NonCompliant' }), provider: { ...pa, status: 'Compliant' }, via: 'dependency', compatibility: '^16.0.0', successorRange });
-    const { target, done } = await render(detail({ consumers: preview([use('orders', 'satisfied'), use('billing', 'unsatisfied'), use('fraud', 'unknown'), use('cart')]) }));
+    const use = (consumer: string, successorRange?: string, supportedRange?: string) => ({ offering: 'shared-config', consumer: ref('service', consumer, consumer, { status: 'NonCompliant' }), provider: { ...pa, status: 'Compliant' }, via: 'dependency', compatibility: '^16.0.0', successorRange, supportedRange });
+    const { target, done } = await render(detail({ consumers: preview([use('orders', 'satisfied', 'satisfied'), use('billing', 'unsatisfied', 'unsatisfied'), use('fraud', 'unknown', 'unsatisfied'), use('cart')]) }));
     const rows = Array.from(target.querySelectorAll('[data-testid="offering-consumer"]')) as HTMLElement[];
     const links = rows[0].querySelectorAll('a.entity-link');
     expect(text(links[0])).toContain('Not compliant');
@@ -322,6 +322,9 @@ describe('offering page', () => {
     expect(badge(rows[0], 'accepts successor')?.getAttribute('title')).toBe('Range ^16.0.0');
     expect(badge(rows[1], 'excludes successor')?.classList.contains('tone-warn')).toBe(true);
     expect(badge(rows[2], 'successor unknown')?.classList.contains('tone-neutral')).toBe(true);
+    // An ungraded successor falls back to the latest supported revision; a graded one needs no fallback.
+    expect(badge(rows[2], 'excludes latest supported')?.classList.contains('tone-warn')).toBe(true);
+    expect(text(rows[0]) + text(rows[1])).not.toContain('latest supported');
     expect(text(rows[3])).not.toContain('successor');
     done();
   });

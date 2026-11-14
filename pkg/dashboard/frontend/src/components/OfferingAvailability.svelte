@@ -17,13 +17,16 @@
   const HELP = 'Whether the offering answers where it runs, from its targets and from what its consumers report. Separate from the resources consumers asked for, below.';
   const rows = $derived(availability?.byEnvironment ?? []);
   const total = $derived(availability?.total ?? rows.length);
+  // The entry with no environment, no target and no report keeps the reason when nothing
+  // places the offering anywhere; unlabelled targets form the other unnamed group.
+  const envLabel = (e) => e.environment || (!e.targets && !(e.unreachable ?? []).length ? 'nowhere observed' : 'no environment label');
 </script>
 
 {#snippet list()}
   <ul class="oa-list" data-testid="availability">
     {#each rows as e, i (`${e.environment}:${i}`)}
       <li class="oa-row" data-testid="availability-env" data-state={e.state}>
-        <bdi class="oa-env" title={e.environment || 'no environment label'}>{e.environment || 'no environment label'}</bdi>
+        <bdi class="oa-env" title={envLabel(e)}>{envLabel(e)}</bdi>
         <span class="oa-badges">
           <IdentityBadge label={e.state} tone={STATE_TONE[e.state] ?? 'neutral'} />
           <IdentityBadge label={e.provenance} tone={PROV_TONE[e.provenance] ?? 'neutral'} />
@@ -31,7 +34,8 @@
         </span>
         <span class="oa-detail">
           <span class="oa-reason">{e.reason}{#if e.partial && !e.reason?.includes(PARTIAL)}; {PARTIAL}{/if}</span>
-          <span class="oa-meta">{formatCount(e.reporting ?? 0)} of {countOf(e.targets ?? 0, 'target')} reporting{#if e.evidenceAt}, evidence {formatRelative(e.evidenceAt)}{/if}</span>
+          <!-- An available reason already says how many targets report and how old the evidence is. -->
+          {#if e.state !== 'available'}<span class="oa-meta">{formatCount(e.reporting ?? 0)} of {countOf(e.targets ?? 0, 'target')} reporting{#if e.evidenceAt}, evidence {formatRelative(e.evidenceAt)}{/if}</span>{/if}
           {#if (e.unreachable ?? []).length}
             <span class="oa-links"><span class="oa-meta">Cannot reach it:</span>{#each e.unreachable as u (u.key)}<EntityLink ref={u} showStatus={false} showKind={false} />{/each}</span>
           {/if}

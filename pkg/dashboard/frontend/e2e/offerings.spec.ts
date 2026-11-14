@@ -191,6 +191,8 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(provider.locator('.ov')).toContainText('Latest compatible', { timeout: T });
     await expect(provider.locator('.ov-chips li').filter({ hasText: '16.1.0' })).toContainText(/(^|[^n])satisfied/);
     await expect(provider.locator('.ov-chips li').filter({ hasText: '17.0.0' })).toContainText('unsatisfied');
+    // ^16 reaches the deprecated 16.1.0, so the answer names its successor 17.0.0 and says the range excludes it.
+    await expect(provider.getByTestId('versions-successor')).toContainText('excludes successor');
     await provider.getByLabel('Versions satisfying').fill('not a range');
     await expect(provider.getByRole('alert')).toContainText('not a semver range', { timeout: T });
     expect(await noSideScroll(page)).toBe(true);

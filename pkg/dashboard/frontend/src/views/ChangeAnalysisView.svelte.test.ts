@@ -692,6 +692,10 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     const provs = Array.from(target.querySelectorAll('[data-testid="impact-providers"] a')).map((a) => a.getAttribute('href'));
     expect(provs).toEqual(['#/fleet/services/domain-a%2Fpostgresql', '#/fleet/services/domain-b%2Fpostgresql-ha']);
     expect(target.textContent).toContain('What happens if postgresql becomes unavailable?');
+    // The figure names its subject from impact.service, the offering's own ref (Decision 11).
+    const subject = target.querySelector('[data-testid="impact-figure"] .stack-name');
+    expect(subject?.textContent).toBe('postgresql');
+    expect(subject?.getAttribute('href')).toBe('#/fleet/offerings/postgresql');
     await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes?offering=postgresql&event=unavailable'));
     unmount(component); document.body.removeChild(target);
   });

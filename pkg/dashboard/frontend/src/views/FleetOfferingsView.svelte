@@ -191,7 +191,7 @@
                 {#if failedN}<a href={fleetServicesUrl({ consumes: ref.key, phase: 'failed' })}>{formatCount(failedN)}</a>{:else}<span data-nofilter>{hidden ? '0 seen' : '0'}</span>{/if}{#if hidden}<span class="visually-hidden">, {hiddenNote(ref)}</span>{/if}
               </td>
               <td class="num" data-label="Observed targets">
-                {#if ref.targetsUnknown}<span class="t-meta" title="You may not see every target of these providers">unknown</span><span class="visually-hidden">: you may not see every target of these providers</span>{:else}<span data-nofilter>{formatCount(ref.targets ?? 0)}</span>{/if}
+                {#if ref.targetsUnknown}<span class="t-meta" title="You may not see every target of these providers, or a target source is incomplete">unknown</span><span class="visually-hidden">: you may not see every target of these providers, or a target source is incomplete</span>{:else}<span data-nofilter>{formatCount(ref.targets ?? 0)}</span>{/if}
               </td>
             </tr>
           {/each}

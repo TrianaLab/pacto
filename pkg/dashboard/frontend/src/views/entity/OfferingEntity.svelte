@@ -123,6 +123,8 @@
     <ul class="oe-uses">
       {#each consumers.items ?? [] as u, ui (`${u.consumer?.key}:${u.provider?.key}:${u.via}:${ui}`)}
         {@const sb = successorBadge(u.successorRange, u.compatibility)}
+        <!-- The latest supported revision is the fallback when the successor itself cannot be graded. -->
+        {@const lb = u.successorRange === 'satisfied' || u.successorRange === 'unsatisfied' ? null : successorBadge(u.supportedRange, u.compatibility, 'latest supported')}
         <li data-testid="offering-consumer">
           <EntityLink ref={u.consumer} showKind={false} />
           <span class="oe-arrow" aria-hidden="true">→</span><span class="visually-hidden">consumes from</span>
@@ -132,6 +134,7 @@
           {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
           <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
           {#if sb}<IdentityBadge label={sb.label} tone={sb.tone} title={sb.title} describe />{/if}
+          {#if lb}<IdentityBadge label={lb.label} tone={lb.tone} title={lb.title} describe />{/if}
           <ProvisioningBadges statuses={u.provisioning ?? []} selected={picked?.row === ui ? picked.i : -1}
             onselect={(i) => { picked = i < 0 ? null : { row: ui, i }; }} />
         </li>
