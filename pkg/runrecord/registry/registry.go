@@ -21,9 +21,16 @@ import (
 // the shared keychain and insecure-host list. A registry without the native
 // Referrers API (GHCR, released distribution) indexes records under the OCI
 // referrers tag instead: two concurrent records of one service there can drop
-// one, which statistics tolerate and evidence would not.
+// one, which statistics tolerate and evidence would not. The replaced index is
+// left untagged rather than deleted: GHCR and distribution's default refuse a
+// manifest DELETE, and a refused delete would fail a record already published.
 func Open(path string, kc authn.Keychain, insecure []string) (*remote.Repository, error) {
-	return ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure, AllowTagFallback: true})
+	repo, err := ocireferrer.Open(path, ocireferrer.Options{Keychain: kc, Insecure: insecure, AllowTagFallback: true})
+	if err != nil {
+		return nil, err
+	}
+	repo.SkipReferrersGC = true
+	return repo, nil
 }
 
 // Anchor is the anchor every record of service is attached to.

@@ -232,3 +232,36 @@ func TestBundleDigestPinned(t *testing.T) {
 		t.Fatalf("BundleDigest = %s %v, want %s", got, err, want)
 	}
 }
+
+// A registry without the Referrers API that also refuses manifest DELETE, as
+// GHCR and distribution's default do, still takes every record.
+func TestPublishTagFallbackWithoutDelete(t *testing.T) {
+	h := testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, http.StatusMethodNotAllowed)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	path := strings.TrimPrefix(srv.URL, "http://") + "/acme/pacto-stats"
+	ctx := t.Context()
+	second := record()
+	second.NewRevision = "c"
+	second.ID = runrecord.ID(second.Kind, second.Service, second.OldRevision, second.NewRevision)
+	for _, r := range []runrecord.Record{record(), second} {
+		repo, _ := Open(path, nil, nil)
+		if _, err := Publish(ctx, repo, r); err != nil {
+			t.Fatalf("publish %s: %v", r.NewRevision, err)
+		}
+	}
+	fresh, _ := Open(path, nil, nil)
+	var listed []ocispec.Descriptor
+	if err := fresh.Referrers(ctx, Anchor("payments").ManifestDesc, "", func(p []ocispec.Descriptor) error { listed = append(listed, p...); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("referrers = %+v", listed)
+	}
+}
