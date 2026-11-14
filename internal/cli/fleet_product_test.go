@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
@@ -285,7 +286,9 @@ func TestFleetEntityServiceText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entity service: %v", err)
 	}
-	if !strings.Contains(out, "Offerings used:\n  app -> postgresql (postgresql) via dependency, range satisfied\n    provisioning production: Ready (unsigned)\n") ||
+	if !strings.Contains(out, "Resources:\n  postgresql (offering postgresql) via dependency, range satisfied\n    owner infra-data, availability unknown\n    production  Ready  rds db-1  unsigned  asOf ") ||
+		!strings.Contains(out, "    usage: not reported by any provider; for live signals ask Mira (query_metric)\n") ||
+		!strings.Contains(out, "  "+fleet.ResourceActionsNote+"\n") ||
 		!strings.Contains(out, "Run with --output-format json for the full detail") {
 		t.Errorf("service text:\n%s", out)
 	}

@@ -1,5 +1,10 @@
 package fleet
 
+// ResourceActionsNote is the one sentence every surface prints under a
+// service's resources: Pacto changes no resource, and the provider's schema
+// checks a request where Pacto resolves it.
+const ResourceActionsNote = "Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it."
+
 // hiddenResourceProviders counts the distinct providers the viewer may not
 // see that consumer uses and that a visible report of consumer names: its
 // declared, hidden dependency or configuration reference edges joined to its

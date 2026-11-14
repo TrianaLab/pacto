@@ -185,7 +185,8 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
 		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
 		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +
-		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them. " +
+		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+		"resource's utilization and cost too, unless a resource carries reported consumption. " +
 		"A Mira read with no spans is unknown, never healthy."
 	if !strings.HasPrefix(fleetInstructions, "Pacto also exposes READ-ONLY fleet tools over the operational graph: ") || !strings.HasSuffix(fleetInstructions, appended) {
 		t.Errorf("fleetInstructions must keep their text and end with the neighbourhood sentences:\n%s", fleetInstructions)

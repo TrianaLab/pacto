@@ -826,3 +826,28 @@ func TestFleetEntityToolNamesEnvironmentFields(t *testing.T) {
 		}
 	}
 }
+
+// The entity tool names the resource fields of a service's uses, says the
+// hidden count is a lower bound and that a resource's phase is no health.
+func TestFleetEntityToolDescribesResources(t *testing.T) {
+	d := fleetEntityTool().Description
+	for _, want := range []string{"'providerOwner'", "'providerAvailability'", "'requested'", "configuration_reference row", "'consumption'", "not-reported", "'hiddenProviders'", "at least", "never the service's health", "Resize or delete runs in the provider's tools"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("description lacks %s", want)
+		}
+	}
+}
+
+// The attention and status tools name the provisioning category and its codes.
+func TestFleetAttentionToolDescribesProvisioning(t *testing.T) {
+	for _, d := range []string{fleetAttentionTool().Description, fleetStatusTool().Description} {
+		for _, want := range []string{"provisioning", "PROVISIONING_FAILED", "PROVISIONING_STALE"} {
+			if !strings.Contains(d, want) {
+				t.Errorf("description lacks %s:\n%s", want, d)
+			}
+		}
+	}
+	if !strings.Contains(fleetInstructions, "unless a resource carries reported consumption") {
+		t.Error("instructions lack the consumption clause in the Mira sentence")
+	}
+}

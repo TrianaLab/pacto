@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -364,7 +366,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOfferingText(w, res.Offering)
 		}
 		if res.Service != nil {
-			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
+			printResources(w, res.Service)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
@@ -643,17 +645,7 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	}
 	_, _ = fmt.Fprintln(w, title)
 	for _, u := range uses.Items {
-		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via)
-		if u.RangeStatus != "" {
-			_, _ = fmt.Fprintf(w, ", range %s", u.RangeStatus)
-		}
-		if l := lifecycleText(u.ProviderLifecycle); l != "" {
-			_, _ = fmt.Fprintf(w, ", provider %s", l)
-		}
-		if u.SuccessorRange != "" {
-			_, _ = fmt.Fprintf(w, ", successor range %s", u.SuccessorRange)
-		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s%s\n", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via, useNotes(u))
 		for _, st := range u.Provisioning {
 			where := strings.TrimSpace(st.Environment + " " + st.Entry)
 			if where != "" {
@@ -662,6 +654,12 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", where, provisioningText(st))
 		}
 	}
+	printUsesTallies(w, uses)
+}
+
+// printUsesTallies renders what the bounded preview left out and the tallies
+// over every use.
+func printUsesTallies(w io.Writer, uses fleet.OfferingUsesPreview) {
 	if uses.Truncated {
 		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
 	}
@@ -671,6 +669,145 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 		_, _ = fmt.Fprintf(w, "  provisioning requests: %s\n", phaseText(p))
 		_, _ = fmt.Fprintf(w, "  consumers by phase: %s\n", phaseText(uses.PhaseConsumers))
 	}
+}
+
+// printResources renders the resources a service consumes, one per use: the
+// provider and its owner and availability, what the service requested
+// (declared), what each environment reports (observed, with the adapter,
+// signature and time) and what Pacto knows about consumption. Uses whose
+// provider the caller may not see are counted, never named.
+func printResources(w io.Writer, d *fleet.ServiceDetailData) {
+	uses := d.ConsumedOfferings
+	if uses.Total == 0 && d.HiddenProviders == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Resources:")
+	for _, u := range uses.Items {
+		printResource(w, u)
+	}
+	if uses.Total > 0 {
+		printUsesTallies(w, uses)
+	}
+	if d.HiddenProviders > 0 {
+		_, _ = fmt.Fprintf(w, "  at least %d resources from providers you may not see\n", d.HiddenProviders)
+	}
+	_, _ = fmt.Fprintln(w, "  "+fleet.ResourceActionsNote)
+}
+
+// printResource renders one use row of the Resources block.
+func printResource(w io.Writer, u fleet.OfferingUse) {
+	offering := "no offering"
+	if u.Offering != "" {
+		offering = "offering " + u.Offering
+	}
+	_, _ = fmt.Fprintf(w, "  %s (%s) via %s%s\n", u.Provider.Label, offering, u.Via, useNotes(u))
+	owner, availability := "unknown", "unknown"
+	if u.ProviderOwner != nil && u.ProviderOwner.Owner != "" {
+		owner = u.ProviderOwner.Owner
+	}
+	if u.ProviderAvailability != nil && u.ProviderAvailability.State != "" {
+		availability = string(u.ProviderAvailability.State)
+	}
+	_, _ = fmt.Fprintf(w, "    owner %s, availability %s\n", owner, availability)
+	for _, r := range u.Requested {
+		_, _ = fmt.Fprintln(w, requestedText(r))
+	}
+	if u.RequestedTruncated {
+		_, _ = fmt.Fprintln(w, "    requested values may be missing: the configurations list was cut")
+	}
+	for _, st := range u.Provisioning {
+		_, _ = fmt.Fprintln(w, resourceStatusText(st))
+	}
+	for _, c := range u.Consumption {
+		_, _ = fmt.Fprintln(w, consumptionText(c))
+	}
+}
+
+// useNotes is the range, provider lifecycle and successor range of a use, as
+// the offering pages print them.
+func useNotes(u fleet.OfferingUse) string {
+	var s string
+	if u.RangeStatus != "" {
+		s += ", range " + u.RangeStatus
+	}
+	if l := lifecycleText(u.ProviderLifecycle); l != "" {
+		s += ", provider " + l
+	}
+	if u.SuccessorRange != "" {
+		s += ", successor range " + u.SuccessorRange
+	}
+	return s
+}
+
+// requestedText renders one declared request: its values, the provider
+// revision it resolves to and the provider configuration it selects.
+func requestedText(r fleet.RequestedConfiguration) string {
+	values := make([]string, 0, len(r.Values.Items))
+	for _, f := range r.Values.Items {
+		values = append(values, f.Key+"="+f.Value)
+	}
+	s := "    requested (" + r.Provenance + "): " + cmp.Or(strings.Join(values, " "), "none")
+	if r.Revision != nil {
+		s += ", provider " + revisionText(r.Revision)
+	}
+	if r.Configuration != "" {
+		s += ", configuration " + r.Configuration
+	}
+	return s
+}
+
+// revisionText names a revision as service@version, or by its label when it
+// has no version.
+func revisionText(r *fleet.EntityRef) string {
+	if r.ParentService != "" && r.Version != "" {
+		return r.ParentService + "@" + r.Version
+	}
+	return r.Label
+}
+
+// resourceStatusText renders one provisioning status with its provenance: the
+// environment and entry, the phase (and the phase a stale or foreign report
+// said), the adapter and external reference, signed or unsigned, asOf and,
+// when set, why.
+func resourceStatusText(st fleet.ProvisioningStatus) string {
+	phase := st.Phase
+	if st.ReportedPhase != "" && st.ReportedPhase != st.Phase {
+		phase += " (reported " + st.ReportedPhase + ")"
+	}
+	parts := []string{"    " + orDash(strings.TrimSpace(st.Environment+" "+st.Entry)), phase}
+	if adapter := strings.TrimSpace(st.Provider + " " + st.ExternalRef); adapter != "" {
+		parts = append(parts, adapter)
+	}
+	if st.Source != "" && st.Verified {
+		parts = append(parts, "signed")
+	} else if st.Source != "" {
+		parts = append(parts, "unsigned")
+	}
+	if st.AsOf != nil {
+		parts = append(parts, "asOf "+st.AsOf.UTC().Format(time.RFC3339))
+	}
+	s := strings.Join(parts, "  ")
+	if st.Reason != "" {
+		s += ": " + st.Reason
+	}
+	return s
+}
+
+// consumptionText renders what Pacto knows about a resource's consumption in
+// one environment.
+func consumptionText(c fleet.ResourceConsumption) string {
+	where := ""
+	if c.Environment != "" {
+		where = " " + c.Environment
+	}
+	if c.State == "not-reported" {
+		return "    usage" + where + ": not reported by any provider; for live signals ask Mira (query_metric)"
+	}
+	s := "    usage" + where + ": " + c.State
+	if c.Reason != "" {
+		s += ": " + c.Reason
+	}
+	return s
 }
 
 // printRevisionPlace renders where a revision stands in its service, how many
