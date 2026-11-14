@@ -13,7 +13,7 @@ import (
 // rename after the release forces a major bump.
 func TestAlphaPackagesSayTheyAreExperimental(t *testing.T) {
 	root := repoRoot(t)
-	for _, pkg := range []string{"delivery", "publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer"} {
+	for _, pkg := range []string{"delivery", "publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer", "runrecord", "runrecord/registry"} {
 		files, err := filepath.Glob(filepath.Join(root, "pkg", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)

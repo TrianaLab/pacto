@@ -286,10 +286,11 @@ func raiseStepDown(ctx context.Context, c client.Client, policy delivery.ClassPo
 	controllerutil.AddFinalizer(op, dv1.RecordFinalizer)
 	op.Spec = delivery.OperationSpec{
 		Type: delivery.TypeAutonomy, Stage: stage.Name, Facet: delivery.FacetLevel,
-		Params: delivery.Params{From: string(from), To: string(to)},
-		Reason: "automatic step-down: " + failed.Name + ", which shipped with no person on " + string(from) + ", failed (" + why + ")",
-		Actor:  delivery.Actor{User: policy.ControllerUser},
-		Cause:  &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
+		Params:        delivery.Params{From: string(from), To: string(to)},
+		Reason:        "automatic step-down: " + failed.Name + ", which shipped with no person on " + string(from) + ", failed (" + why + ")",
+		Actor:         delivery.Actor{User: policy.ControllerUser},
+		Cause:         &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
+		CorrelationID: failed.Spec.CorrelationID,
 	}
 	op.Spec.IntentDigest = delivery.IntentDigest(op.Spec, stage.Spec)
 	return createRaised(ctx, c, op)

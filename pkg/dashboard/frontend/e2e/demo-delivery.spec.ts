@@ -18,12 +18,19 @@ async function ready(page: Page, hash: string) {
   await expect(page.getByTestId('demo-delivery-start')).toBeVisible({ timeout: T });
 }
 
+/** An agent names the person who asked it: fill the field when the panel asks. */
+async function nameRequester(page: Page, onBehalfOf = 'dana@example.com') {
+  const field = page.getByTestId('propose-panel').getByTestId('pp-on-behalf-of');
+  if (await field.isVisible()) await field.fill(onBehalfOf);
+}
+
 /** Propose a promote from the Stages board, as the current person. */
-async function promote(page: Page, service: string, version: string) {
+async function promote(page: Page, service: string, version: string, onBehalfOf?: string) {
   await page.goto('/#/delivery/environments');
   await page.getByRole('button', { name: `Promote ${service} in prod to ${version}` }).click({ timeout: T });
   const panel = page.getByTestId('propose-panel');
   await expect(panel.getByTestId('plan-prediction')).toBeVisible({ timeout: T });
+  await nameRequester(page, onBehalfOf);
   await panel.getByRole('button', { name: /^Propose/ }).click();
   await expect(page).toHaveURL(/#\/delivery\/changes\/prod\//, { timeout: T });
 }
@@ -130,6 +137,21 @@ test.describe('Browser demo: the delivery story', () => {
     expect(board!.y).toBeGreaterThanOrEqual(s!.y + s!.height);
     await page.goto('/#/fleet');
     await expect(strip).not.toContainText('Simulated delivery');
+  });
+
+  test('a typed reason proposes without a staleness warning', async ({ page }) => {
+    test.setTimeout(120_000);
+    await ready(page, '#/delivery/environments');
+    await switchTo(page, 'alice');
+    await page.goto('/#/delivery/environments');
+    await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click({ timeout: T });
+    const panel = page.getByTestId('propose-panel');
+    await expect(panel.getByTestId('plan-prediction')).toBeVisible({ timeout: T });
+    await expect(panel.getByTestId('pp-on-behalf-of')).toHaveCount(0);
+    await panel.getByLabel('Why (kept with the change)').fill('CHG-2041: checkout needs the new payments client');
+    await panel.getByRole('button', { name: /^Propose/ }).click();
+    await expect(page).toHaveURL(/#\/delivery\/changes\/prod\//, { timeout: T });
+    await expect(page.getByText('Something changed since the plan')).toHaveCount(0);
   });
 
   test('a breaking change asks only the affected teams, and only a person on them decides', async ({ page }) => {
@@ -247,12 +269,16 @@ test.describe('Browser demo: the delivery story', () => {
     };
     await step('press Promote on payments 3.0.0', '[aria-label="Promote payments in prod to 3.0.0"]');
     await page.getByRole('button', { name: 'Promote payments in prod to 3.0.0' }).click();
+    await step('type dana@example.com in Who asked you', '[data-testid="pp-on-behalf-of"]');
+    await nameRequester(page);
     await step('so press Propose promote', '[data-testid="propose-panel"] button[type=submit]');
     await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
     await step('press Promote on checkout 1.9.0', '[aria-label="Promote checkout in prod to 1.9.0"]');
     await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click();
+    await step('Type dana@example.com again', '[data-testid="pp-on-behalf-of"]');
+    await nameRequester(page);
     await step('Press Propose promote: checkout ships', '[data-testid="propose-panel"] button[type=submit]');
     await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
     await expect(next).toBeVisible({ timeout: T });

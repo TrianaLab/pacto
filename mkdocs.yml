@@ -233,15 +233,19 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - Platform offerings reference: platform-offerings.md
       - Golden paths reference: golden-paths-reference.md
-      - MCP reference: mcp-reference.md
+      - MCP reference:
+          - MCP reference: mcp-reference.md
+          - MCP publish and delivery tools: mcp-delivery-tools.md
       - Publish reference: publishing.md
+      - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
           - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
           - Dashboard container: dashboard-docker.md
       - Delivery reference:
-          - Approvals and agents: integrations/kubernetes/delivery-identity.md
+          - Approvals: integrations/kubernetes/delivery-identity.md
+          - Agents: integrations/kubernetes/delivery-agents.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md

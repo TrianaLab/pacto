@@ -201,7 +201,11 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := q.Search(searchFilterFromCmd(cmd, optionalArg(args)))
+			f, err := searchFilterFromCmd(cmd, optionalArg(args))
+			if err != nil {
+				return err
+			}
+			res, err := q.Search(f)
 			if err != nil {
 				return err
 			}
@@ -243,7 +247,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
+func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, error) {
 	owner, _ := cmd.Flags().GetString("owner")
 	businessDomain, _ := cmd.Flags().GetString("business-domain")
 	offering, _ := cmd.Flags().GetString("offering")
@@ -260,26 +264,13 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	hasDep, _ := cmd.Flags().GetBool("has-dependency")
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
+	parsed, err := fleet.ParseLabels(labels)
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parseLabels(labels), Scope: scope, Status: status,
+		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parsed, Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
 		Limit: limit, Offset: offset,
-	}
-}
-
-func parseLabels(pairs []string) map[string]string {
-	if len(pairs) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for _, p := range pairs {
-		k, val, ok := strings.Cut(p, "=")
-		if ok {
-			out[k] = val
-		}
-	}
-	return out
+	}, err
 }
 
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {

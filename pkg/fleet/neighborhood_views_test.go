@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -410,5 +411,18 @@ func TestNeighborhood_BoundsRejectAndCap(t *testing.T) {
 	}
 	if capped.Depth != MaxNeighborhoodDepth || capped.MaxNodes != MaxNeighborhoodNodes || capped.MaxEdges != MaxNeighborhoodEdges {
 		t.Errorf("excessive bounds not capped: depth=%d maxNodes=%d maxEdges=%d", capped.Depth, capped.MaxNodes, capped.MaxEdges)
+	}
+}
+
+func TestParseViews(t *testing.T) {
+	for in, want := range map[string][]KnowledgeView{
+		"":                       {ViewExpected, ViewObserved},
+		" , ":                    {ViewExpected, ViewObserved},
+		"differences":            {ViewDifferences},
+		" expected , observed ,": {ViewExpected, ViewObserved},
+	} {
+		if got := ParseViews(in); !slices.Equal(got, want) {
+			t.Errorf("ParseViews(%q) = %v, want %v", in, got, want)
+		}
 	}
 }

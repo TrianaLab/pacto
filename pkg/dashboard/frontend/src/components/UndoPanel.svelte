@@ -8,7 +8,7 @@
   // How to undo one change, as a plan nobody has proposed: a rollback bound to
   // it while the environment still runs it, else a promote back to the version
   // it replaced, through every check. Pacto never proposes it on its own.
-  let { namespace, stage, name, miraURL = '', onClose } = $props();
+  let { namespace, stage, name, miraURL = '', onClose, correlation = '', onBehalfOf = '' } = $props();
 
   let undo = $state(null);
   let error = $state(null);
@@ -41,7 +41,7 @@
       <p class="t-body-2">Nothing has been proposed. Plan it here, or run:</p>
       <pre class="hp-cmd"><code>{undo.command}</code></pre>
       {#if planning}
-        <ProposePanel {request} toVersion={undo.versions?.[request.to] ?? ''} {miraURL} onClose={() => { planning = false; }} />
+        <ProposePanel {request} {correlation} {onBehalfOf} toVersion={undo.versions?.[request.to] ?? ''} {miraURL} onClose={() => { planning = false; }} />
       {:else}
         <div><button type="button" class="btn btn-primary btn-sm" onclick={() => { planning = true; }}>Plan this {typeLabel(request.type).toLowerCase()}</button></div>
       {/if}

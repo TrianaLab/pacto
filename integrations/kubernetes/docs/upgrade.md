@@ -160,6 +160,18 @@ the replacement. Before `helm upgrade`:
 A promoter started without `--admission-policies` admits no operation and
 counts no approval.
 
+## The dashboard serves without sign-in only when allowed
+
+A dashboard bound beyond loopback with neither OIDC sign-in nor token login now
+refuses to start unless anonymous access is allowed. The chart value
+`dashboard.auth.allowAnonymous` allows it and defaults to `true`, so a default
+install keeps serving everyone who reaches it, with a warning in the install
+notes. Set it to `false` to make an install without sign-in refuse to start.
+An upgrade that reuses the values of a release without the key keeps the
+dashboard serving anonymously: the chart passes the flag unless the value is
+`false`. A dashboard you run yourself needs `--allow-anonymous` or
+`PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`.
+
 ## Rolling back
 
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns

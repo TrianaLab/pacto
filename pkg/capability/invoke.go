@@ -34,6 +34,19 @@ type Result struct {
 	Body       string
 }
 
+type userAgentKey struct{}
+
+// WithUserAgent returns ctx asking Invoke to send ua as the User-Agent, so the
+// service can tell a call made through Pacto from any other.
+func WithUserAgent(ctx context.Context, ua string) context.Context {
+	return context.WithValue(ctx, userAgentKey{}, ua)
+}
+
+func userAgentFrom(ctx context.Context) string {
+	ua, _ := ctx.Value(userAgentKey{}).(string)
+	return ua
+}
+
 // Invoke executes an OpenAPI operation against a live service. Non-2xx responses
 // are returned as a normal Result (so the agent sees the status/body); only
 // transport-level failures return a Go error.
@@ -55,6 +68,11 @@ func Invoke(ctx context.Context, client *http.Client, op openapi.Operation, doc 
 	}
 	applyHeaderParams(req, op, args)
 	applyAuth(req, op, doc, creds)
+	// Last, so neither a header parameter nor a header API key can spoof who
+	// is calling.
+	if ua := userAgentFrom(ctx); ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

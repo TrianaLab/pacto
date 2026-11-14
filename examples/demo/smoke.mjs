@@ -226,10 +226,12 @@ const sess = json(call("GET", "/api/session"));
 check("session: signed in as pay-agent", sess.signedIn === true && sess.user === "system:serviceaccount:agents:pay-agent", JSON.stringify(sess));
 const rows = json(call("GET", "/api/delivery/environments")).environments || [];
 const cand = (svc) => (rows.find((r) => r.environment === "prod" && r.service === svc) || {}).candidate;
-const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") })));
+const noPrincipal = call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") }));
+check("pay-agent must name the person it acts for", noPrincipal.status === 403 && json(noPrincipal).code === "NoPrincipal", noPrincipal.status);
+const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments"), onBehalfOf: "dana@example.com" })));
 check("payments 3.0.0 is held for checkout and orders",
   held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
-call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout") }));
+call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout"), onBehalfOf: "dana@example.com" }));
 const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
 let question = "";
 for (let i = 0; i < 40 && !/Asked of: orders$/.test(question); i++) {

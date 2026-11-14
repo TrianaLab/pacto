@@ -15,12 +15,13 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
 // errPlanNotReady fails `pacto publish --plan` when publishing would be refused.
 var errPlanNotReady = errors.New("publishing this version would be refused")
 
-func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+func newPublishCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "publish [dir]",
 		Short: "Publish what the contract declares, as the version it states",
@@ -43,6 +44,8 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
   pacto publish --propose test/payments`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var out *runrecord.Record
+			defer rec.save(cmd, &out, nil)
 			path, propose, ns, stage, err := publishArgs(cmd, args)
 			if err != nil {
 				return err
@@ -62,6 +65,9 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 				return err
 			}
 			failed := err != nil // refused or failed: say nothing about what is published
+			if !plan {
+				out = publishRecord(res, err)
+			}
 			if err == nil && plan && !res.Plan.Ready {
 				err = errPlanNotReady
 			}
@@ -79,8 +85,10 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 	cmd.Flags().Bool("plan", false, "show what is missing and what refuses it; change nothing")
 	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)")
 	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)")
+	cmd.Flags().String("on-behalf-of", "", "with --propose, the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
+	addStatsFlags(cmd)
 	return cmd
 }
 
@@ -119,8 +127,9 @@ func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish
 	if err := waitPublished(cmd, c, ns, stage, digest, timeout); err != nil {
 		return fmt.Errorf("published, but not proposed on %s/%s: %w", ns, stage, err)
 	}
+	behalf, _ := cmd.Flags().GetString("on-behalf-of")
 	op, _, err := c.Propose(cmd.Context(), delivery.Request{Namespace: ns, Stage: stage, To: digest,
-		Reason: "pacto publish " + res.Plan.Service + " " + res.Plan.Version})
+		Reason: "pacto publish " + res.Plan.Service + " " + res.Plan.Version, OnBehalfOf: behalf})
 	if err != nil {
 		return fmt.Errorf("published, but proposing it on %s/%s failed: %w", ns, stage, err)
 	}

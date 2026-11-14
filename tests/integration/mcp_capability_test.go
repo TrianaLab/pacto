@@ -51,10 +51,9 @@ interfaces:
 		t.Fatalf("ResolveBundle: %v", err)
 	}
 
-	server, err := pactomcp.NewCapabilityServer(bundle,
-		pactomcp.CapabilityOptions{BaseURL: srv.URL}, "test-e2e", os.Stderr)
+	server, err := pactomcp.New("test-e2e", pactomcp.Authoring{}, pactomcp.Modes{Bundle: &pactomcp.BundleMode{Bundle: bundle, Opts: pactomcp.CapabilityOptions{BaseURL: srv.URL}, Stderr: os.Stderr}})
 	if err != nil {
-		t.Fatalf("NewCapabilityServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	ctx := context.Background()

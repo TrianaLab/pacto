@@ -145,7 +145,9 @@ each resource keeps its own latest report.
 
 Give the adapter its own key. A key may report `ResourceProvisioned` only when
 its trust entry lists it, so a team's runtime key cannot mark its own
-database Ready:
+database Ready. `allowedProviderRepos` scopes the key to the provider
+repositories the adapter serves, so it cannot mark another team's resource
+Ready:
 
 ```yaml
 apiVersion: pacto.dev/evidence-trust/v1
@@ -155,6 +157,7 @@ keys:
     publicKeyFile: platform-adapter__adapter-2026.pub
     allowedObservationKinds: [ResourceProvisioned]
     allowedContractRepos: [ghcr.io/acme]
+    allowedProviderRepos: [ghcr.io/acme/platform/postgresql]
 ```
 
 The Evidence Server stores each report on the consumer revision it is about,
