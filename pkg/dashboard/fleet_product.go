@@ -326,16 +326,8 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 		Templates:     productview.RefPreview(p.Templates),
 		ChangedOwner:  productview.RefPtr(p.ChangedOwner),
 		Offering:      productview.RefPtr(p.Offering),
-		Providers:     refsOrNil(p.Providers),
+		Providers:     productview.Refs(p.Providers), // omitempty drops the empty list of a service answer
 	}
-}
-
-// refsOrNil keeps an absent list absent, so a service answer has no providers.
-func refsOrNil(es []fleet.EntityRef) []ProductRef {
-	if len(es) == 0 {
-		return nil
-	}
-	return productview.Refs(es)
 }
 
 // impactRequest is the POST-impact body: canonical revision keys, the snapshot the
