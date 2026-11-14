@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -219,9 +220,9 @@ func TestLifecycleAttentionSuccessorOutOfRange(t *testing.T) {
 		Entity: it.Entity, Service: "app16", Label: "app16 uses pg", Severity: severityError,
 		Code: CodeSuccessorOutOfRange, Category: categoryLifecycle, Summary: "Its range excludes the provider's successor",
 		Reason:   "app16 accepts pg ^16.0.0, which excludes its successor 17.0.0",
-		NextStep: "Widen the range in app16's contract to accept 17.0.0",
+		NextStep: "Widen the range in app16's contract to accept 17.0.0", NextAction: editContract(),
 	}
-	if *it != want {
+	if !reflect.DeepEqual(*it, want) {
 		t.Errorf("item = %+v\nwant %+v", *it, want)
 	}
 	sunset := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-06-30", Successor: "oci://ghcr.io/acme/pg:17.0.0"}

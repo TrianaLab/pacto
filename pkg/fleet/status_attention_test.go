@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"testing/fstest"
@@ -160,10 +161,10 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 	want := []AttentionItem{
 		{Entity: q.serviceRef("a"), Service: "a", Label: "a calls c", Severity: severityWarning, Code: "DEPENDENCY_UNDECLARED", Category: categoryUndeclared,
 			Summary: "Runtime call with no declared dependency", Reason: "observed calls from a to c, and no contract revision of a declares c",
-			NextStep: "Declare c in a's contract, or find out why a calls it"},
+			NextStep: "Declare c in a's contract, or find out why a calls it", NextAction: editContract()},
 		{Entity: q.serviceRef("d"), Service: "d", Label: "d calls b", Severity: severityWarning, Code: "DEPENDENCY_UNDECLARED", Category: categoryUndeclared,
 			Summary: "Runtime call with no declared dependency", Reason: "observed calls from d to b, and no contract revision of d declares b",
-			NextStep: "Declare b in d's contract, or find out why d calls it"},
+			NextStep: "Declare b in d's contract, or find out why d calls it", NextAction: editContract()},
 		{Entity: q.serviceRef("b"), Service: "b", Label: "k8s:secret/Deployment/x calls b", Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
 			Summary: "Caller with no contract", Reason: "k8s:secret/Deployment/x calls b and no contract describes k8s:secret/Deployment/x",
 			NextStep: "Give k8s:secret/Deployment/x a contract, or find out why it calls b"},
@@ -172,7 +173,7 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 			NextStep: "Make pay's name match one contracted service"},
 	}
 	for _, w := range want {
-		if got := byLabel[w.Label]; fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", w) {
+		if got := byLabel[w.Label]; !reflect.DeepEqual(got, w) {
 			t.Errorf("item %q:\n got %+v\nwant %+v", w.Label, got, w)
 		}
 	}
