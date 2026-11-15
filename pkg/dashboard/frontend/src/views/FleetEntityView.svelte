@@ -111,7 +111,8 @@
         out.push({ label: 'Compare revisions', href: fleetChangesUrl(svcKey, opts) });
         // The other question the same workspace answers (#471): what depends on it.
         out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl(svcKey, { event: 'unavailable' }) });
-      } else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
+      } else if (a === 'impact' && e.kind === 'offering') out.push({ label: 'What if it becomes unavailable?', href: fleetChangesUrl('', { offering: e.key, event: 'unavailable' }) });
+      else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
     }
     return out;
   });

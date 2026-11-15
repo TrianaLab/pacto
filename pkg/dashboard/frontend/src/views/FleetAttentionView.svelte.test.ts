@@ -170,7 +170,7 @@ describe('FleetAttentionView — triage filters (I)', () => {
   it('names the undeclared category in the filter chip and tones its bar', async () => {
     attentionFn.mockImplementation(() => Promise.resolve({
       ...page(0), total: 1, count: 1, truncated: false, nextOffset: undefined,
-      categories: [{ category: 'undeclared', count: 1 }, { category: 'out-of-range', count: 0 }],
+      categories: [{ category: 'undeclared', count: 1 }, { category: 'out-of-range', count: 0 }, { category: 'lifecycle', count: 0 }],
       items: [{
         entity: { kind: 'service', key: 'a', label: 'a', href: '/fleet/services/a' },
         severity: 'warning', category: 'undeclared', code: 'DEPENDENCY_UNDECLARED', label: 'a calls c', summary: 'Runtime call with no declared dependency',
@@ -184,6 +184,7 @@ describe('FleetAttentionView — triage filters (I)', () => {
     const row = (label: string) => rows.find((r) => r.textContent?.includes(label)) as HTMLElement;
     expect(row('Undeclared dependency').className).toContain('tone-warn'); // its observed-only calls are warnings
     expect(row('Version out of range').className).toContain('tone-warn');
+    expect(row('Deprecated provider').className).toContain('tone-warn');
     unmount(component); document.body.removeChild(target);
   });
 

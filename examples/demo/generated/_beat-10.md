@@ -5,7 +5,7 @@ pacto fleet reconcile --local examples/demo/bundles --traces examples/demo/trace
 ```
 
 ```console
-Reconciliation: 1 matched, 51 declared-not-observed, 1 observed-not-declared
+Reconciliation: 1 matched, 52 declared-not-observed, 1 observed-not-declared
   [declared-not-observed] analytics-pipeline -> event-bus (count=0)
   [declared-not-observed] analytics-pipeline -> postgresql (count=0)
   [declared-not-observed] api-gateway -> auth-service (count=0)
@@ -58,5 +58,6 @@ Reconciliation: 1 matched, 51 declared-not-observed, 1 observed-not-declared
   [declared-not-observed] ticketing-service -> auth-service (count=0)
   [declared-not-observed] ticketing-service -> fulfillment-service (count=0)
   [declared-not-observed] ticketing-service -> postgresql (count=0)
+  [declared-not-observed] ticketing-service -> postgresql-ha (count=0)
   [declared-not-observed] warehouse-scanner -> inventory-service (count=0)
 ```

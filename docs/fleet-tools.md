@@ -55,6 +55,26 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 - the MCP tools take `template` and `created_from`, and the dashboard lists
   golden paths on its Golden paths page.
 
+[Platform offerings](platform-offerings.md) answer the same questions on
+every surface:
+
+- `pacto fleet entities --kind offering --lifecycle deprecated` (or `sunset`)
+  lists offerings by the worst provider version in use, so the demo lists
+  postgresql, and services by their newest revision; `--failed` keeps
+  offerings with a failed provisioning request. The
+  `pacto_fleet_entities` tool takes `lifecycle` and `failed`, and the
+  dashboard API takes the same query parameters;
+- `pacto fleet entity offering <slug>` and `pacto_fleet_entity` add each
+  provider's [availability](offering-availability.md#is-an-offering-available),
+  `successor` and `latestSupported`, the offering's availability roll-up and
+  its `observedConsumers`;
+- `pacto fleet versions <offering>` and `pacto_fleet_versions` add each
+  provider's `successor` and, with a range, whether the range accepts it in
+  `successorRange`;
+- `pacto fleet status --lifecycle` and the `lifecycle` argument of
+  `pacto_fleet_status` report services that use a deprecated or past-sunset
+  provider.
+
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
 1 of 1 service(s):
@@ -159,9 +179,9 @@ pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""
 ```
 
 The second command needs a clone and a paste from the repository root; it opens
-on 37 services, a golden path and 4 operational targets. The third needs nothing on disk:
+on 38 services, a golden path and 4 operational targets. The third needs nothing on disk:
 `--root` follows the published contract's dependency declarations and pulls 12 of
-the demo's 38 services out of `ghcr.io`, and `--local ""` switches off the default
+the demo's 39 services out of `ghcr.io`, and `--local ""` switches off the default
 directory scan. A registry has no record of where anything runs, so every
 service reads `NotEvaluated` until you add the `--target-state` fixture.
 

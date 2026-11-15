@@ -13,33 +13,60 @@ import (
 )
 
 // fleetImpactEvent answers what happens if b.ServiceKey becomes unavailable,
-// is removed or regressed, over the viewer's snapshot. A service the viewer
-// may not see answers exactly as one that does not exist.
+// is removed or regressed, or b.OfferingKey (every provider of it) becomes
+// unavailable or is removed, over the viewer's snapshot. A service or an
+// offering the viewer may not see answers exactly as one that does not exist.
 func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactRequest) (*fleetImpactPostOutput, error) {
-	switch {
-	case b.ServiceKey == "":
-		return nil, huma.Error422UnprocessableEntity("serviceKey", errors.New("an event request needs serviceKey"))
-	case b.FromRevisionKey != "" || b.ToRevisionKey != "":
-		return nil, huma.Error422UnprocessableEntity("event", errors.New("an event is asked of one service: send serviceKey without fromRevisionKey and toRevisionKey"))
-	case b.Event == impact.EventRegressed && b.Revision == "":
-		return nil, huma.Error422UnprocessableEntity("revision", errors.New("event regressed needs the revision that regressed"))
-	case b.Event != impact.EventRegressed && b.Revision != "":
-		return nil, huma.Error422UnprocessableEntity("revision", errors.New("revision is read only with event regressed"))
+	if err := eventRequestErr(b); err != nil {
+		return nil, err
 	}
 	// Read only: neither the lookup nor BuildProductOutcome keeps or changes
 	// it, so no clone of a fleet-sized snapshot per request.
 	snap := q.SnapshotForSerialization()
 	key := fleet.ServiceKey(b.ServiceKey)
-	if snap.Services[key] == nil {
+	switch {
+	case b.OfferingKey != "" && !providesOffering(snap, b.OfferingKey):
+		return nil, huma.Error404NotFound("no offering with this offeringKey")
+	case b.OfferingKey == "" && snap.Services[key] == nil:
 		return nil, huma.Error404NotFound("no service with this serviceKey")
 	}
-	ev := impact.Event{Kind: b.Event, Service: b.ServiceKey, Revision: b.Revision}
+	ev := impact.Event{Kind: b.Event, Service: b.ServiceKey, Offering: b.OfferingKey, Revision: b.Revision}
 	var reg *impact.Regression
 	if ev.Kind == impact.EventRegressed {
 		reg = s.regressionEvidence(ctx, key, ev.Revision)
 	}
 	res := impact.Analyze(ctx, nil, nil, nil, nil, snap, impact.Options{Event: &ev, IncludeObserved: b.IncludeObserved, Regression: reg})
 	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, key, nil, nil, res, b.Limit, b.Offset, b.Outcome))}, nil
+}
+
+// eventRequestErr refuses an event request that does not name exactly one
+// subject, or that pairs a field with the wrong event.
+func eventRequestErr(b impactRequest) error {
+	switch {
+	case (b.ServiceKey == "") == (b.OfferingKey == ""):
+		return huma.Error422UnprocessableEntity("serviceKey", errors.New("an event request needs exactly one of serviceKey and offeringKey"))
+	case b.FromRevisionKey != "" || b.ToRevisionKey != "":
+		return huma.Error422UnprocessableEntity("event", errors.New("an event is asked of one service or offering: send it without fromRevisionKey and toRevisionKey"))
+	case b.OfferingKey != "" && b.Event == impact.EventRegressed:
+		return huma.Error422UnprocessableEntity("offeringKey", errors.New("event regressed names one service: a regression belongs to one revision"))
+	case b.Event == impact.EventRegressed && b.Revision == "":
+		return huma.Error422UnprocessableEntity("revision", errors.New("event regressed needs the revision that regressed"))
+	case b.Event != impact.EventRegressed && b.Revision != "":
+		return huma.Error422UnprocessableEntity("revision", errors.New("revision is read only with event regressed"))
+	}
+	return nil
+}
+
+// providesOffering reports whether a service of snap provides offering. The
+// snapshot is the viewer's, so an offering whose every provider is hidden is
+// provided by none and answers as a missing one.
+func providesOffering(snap *fleet.FleetSnapshot, offering string) bool {
+	for _, svc := range snap.Services {
+		if svc.Offering == offering {
+			return true
+		}
+	}
+	return false
 }
 
 // regressionEvidence reads what delivery recorded against digest on the

@@ -42,6 +42,7 @@ func TestClosedSetFlagsComplete(t *testing.T) {
 		// --compliance shares the same vocabulary (validated by ValidStatus).
 		{"fleet search --compliance", []string{"fleet", "search", "--compliance", ""}, []string{"Compliant", "Invalid", "NonCompliant", "NotEvaluated", "Reference", "Unknown", "Warning"}},
 		{"fleet search --workload", []string{"fleet", "search", "--workload", ""}, []string{"service", "job", "scheduled"}},
+		{"fleet entities --sort", []string{"fleet", "entities", "--sort", ""}, []string{"name", "health", "services", "nonCompliant", "rate", "created", "failed", "consumers"}},
 		{"fleet graph --direction", []string{"fleet", "graph", "--direction", ""}, []string{"dependencies", "dependents"}},
 		{"doc --ui", []string{"doc", "--ui", ""}, []string{"swagger"}},
 		{"mcp --transport", []string{"mcp", "--transport", ""}, []string{"stdio", "http"}},

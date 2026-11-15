@@ -109,6 +109,9 @@ func parityQueries(revision string) []parityQuery {
 		{"app with no kind", []string{"fleet", "entities", "--service", "app"}, "pacto_fleet_entities", map[string]any{"service": "app"}, "/api/fleet/entities?service=app"},
 		{"stale attention", []string{"fleet", "attention", "--stale-only"}, "pacto_fleet_attention", map[string]any{"stale_only": true}, "/api/fleet/attention?staleOnly=true"},
 		{"neighborhood bounded", []string{"fleet", "neighborhood", "app", "--max-edges", "1", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "max_edges": 1, "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&maxEdges=1&views=expected,observed"},
+		{"offerings failed first", []string{"fleet", "entities", "--kind", "offering", "--sort", "failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "sort": "failed"}, "/api/fleet/entities?kinds=offering&sort=failed"},
+		{"offerings with a failed request", []string{"fleet", "entities", "--kind", "offering", "--failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "failed": true}, "/api/fleet/entities?kinds=offering&failed=true"},
+		{"deprecated offerings", []string{"fleet", "entities", "--kind", "offering", "--lifecycle", "deprecated"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "lifecycle": "deprecated"}, "/api/fleet/entities?kinds=offering&lifecycle=deprecated"},
 		{"versions postgresql", []string{"fleet", "versions", "postgresql"}, "pacto_fleet_versions", map[string]any{"offering": "postgresql"}, "/api/fleet/versions?offering=postgresql"},
 	}
 }

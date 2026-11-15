@@ -110,6 +110,13 @@ type EntityFilter struct {
 	// SourceKind keeps the SOURCES of this exact kind (oci, kubernetes, ...), the
 	// list a per-kind source tally ([SourceCounts.AvailableByKind]) opens.
 	SourceKind string
+	// Lifecycle keeps the entities whose provider lifecycle is deprecated or
+	// sunset: OFFERING rows by the worst provider version in use (see
+	// [EntityRef.Lifecycle]), SERVICE rows by their newest revision.
+	Lifecycle string
+	// Failed keeps the OFFERING rows with at least one failed provisioning
+	// request.
+	Failed bool
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
 	// order (target-2 before target-10), SortHealth least healthy first, then by
 	// name. Paging walks the sorted answer, so every page agrees with the order.
@@ -134,6 +141,12 @@ const (
 	// services first ([EntityRef.NonCompliant] of its rate base), then the most
 	// non-compliant, then by name.
 	SortRate = "rate"
+	// SortFailed puts the offerings with the most consumers with a failed
+	// provisioning request first, then by name.
+	SortFailed = "failed"
+	// SortConsumers puts the offerings with the most declared consumers first,
+	// then by name.
+	SortConsumers = "consumers"
 )
 
 // Template filter values (see [EntityFilter.Template] and [SearchFilter.Template]).
@@ -194,7 +207,7 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		return nil, err
 	}
 	want := kindSet(f.Kinds)
-	refs := q.candidateRefs(want)
+	refs, offerings := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
 	var derived []Limitation
 	if f.Phase != "" {
@@ -222,13 +235,17 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	return &EntityList{
 		Meta: q.productMetaWith(derived), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
-		Aggregate: q.aggregate(filtered),
+		Aggregate: q.aggregate(filtered, offerings),
 	}, nil
 }
 
 // sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
 // stably over the kind-then-key order it arrives in.
 func sortEntityList(filtered []EntityRef, order string) {
+	if count, ok := countOrders[order]; ok {
+		sortByCount(filtered, count)
+		return
+	}
 	switch order {
 	case SortName:
 		sort.SliceStable(filtered, func(i, j int) bool { return naturalLess(filtered[i].Label, filtered[j].Label) })
@@ -237,13 +254,6 @@ func sortEntityList(filtered []EntityRef, order string) {
 			a, b := healthRank(filtered[i].Status), healthRank(filtered[j].Status)
 			if a != b {
 				return a < b
-			}
-			return naturalLess(filtered[i].Label, filtered[j].Label)
-		})
-	case SortServices:
-		sort.SliceStable(filtered, func(i, j int) bool {
-			if a, b := filtered[i].Services, filtered[j].Services; a != b {
-				return a > b
 			}
 			return naturalLess(filtered[i].Label, filtered[j].Label)
 		})
@@ -282,6 +292,23 @@ func sortEntityList(filtered []EntityRef, order string) {
 			return naturalLess(a.Label, b.Label)
 		})
 	}
+}
+
+// countOrders are the sort orders by one count, highest first, then by name.
+var countOrders = map[string]func(EntityRef) int{
+	SortServices:  func(r EntityRef) int { return r.Services },
+	SortFailed:    func(r EntityRef) int { return r.FailedRequests },
+	SortConsumers: func(r EntityRef) int { return r.Consumers },
+}
+
+// sortByCount orders refs by count, highest first, then by name.
+func sortByCount(refs []EntityRef, count func(EntityRef) int) {
+	sort.SliceStable(refs, func(i, j int) bool {
+		if a, b := count(refs[i]), count(refs[j]); a != b {
+			return a > b
+		}
+		return naturalLess(refs[i].Label, refs[j].Label)
+	})
 }
 
 // RateBase is the denominator of an owner or domain row's non-compliant rate: the
@@ -383,7 +410,7 @@ func validateEntityFilter(f EntityFilter) error {
 		return err
 	}
 	if err := validateFields([]fieldCheck{
-		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created)", validSort},
+		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created, failed, consumers)", validSort},
 		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
@@ -393,8 +420,12 @@ func validateEntityFilter(f EntityFilter) error {
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
 		{"createdFrom", f.CreatedFrom, "not a service key, (none) or (unresolved)", validCreatedFrom},
 		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
+		{"lifecycle", f.Lifecycle, "not a lifecycle filter (deprecated, sunset)", validLifecycleFilter},
 	}); err != nil {
 		return err
+	}
+	if f.Failed && !kindSet(f.Kinds)[KindOffering] {
+		return &InvalidQueryError{Field: "failed", Value: "true", Reason: "failed keeps offerings; ask kind offering"}
 	}
 	if f.Phase != "" && f.Consumes == "" {
 		return &InvalidQueryError{Field: "phase", Value: f.Phase, Reason: "needs consumes: a phase narrows the consumers of one offering"}
@@ -419,7 +450,7 @@ func boolValue(b bool) string {
 }
 
 func validSort(s string) bool {
-	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated
+	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated || s == SortFailed || s == SortConsumers
 }
 
 // validSourceHealth reports whether s is a known source-health value.
@@ -475,6 +506,7 @@ func validateFilterCombos(f EntityFilter) error {
 		// and assessed per REVISION. Each applies to exactly one kind.
 		{"ownership", f.Ownership, []EntityKind{KindService}},
 		{"readiness", f.Readiness, []EntityKind{KindRevision}},
+		{"lifecycle", f.Lifecycle, []EntityKind{KindService, KindOffering}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -498,8 +530,9 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 }
 
 // candidateRefs collects one reference per entity of every requested kind.
-func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
+func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string]*offeringFacts) {
 	var refs []EntityRef
+	var offerings map[string]*offeringFacts
 	if want[KindService] {
 		created := q.createdCounts()
 		for _, s := range q.snap.Services {
@@ -528,9 +561,11 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 		refs = append(refs, q.domainListRefs()...)
 	}
 	if want[KindOffering] {
-		refs = append(refs, q.offeringListRefs()...)
+		var rows []EntityRef
+		rows, offerings = q.offeringListRefs()
+		refs = append(refs, rows...)
 	}
-	return refs
+	return refs, offerings
 }
 
 // domainListRefs is one row per declared business domain, with the number of
@@ -559,9 +594,11 @@ func (q *Query) domainListRefs() []EntityRef {
 }
 
 // offeringListRefs is one row per platform offering, with the number of
-// services that provide it and the targets they run on.
-func (q *Query) offeringListRefs() []EntityRef {
+// services that provide it, the targets they run on and the facts
+// offeringFactsByName gathers, which it returns too for the aggregate.
+func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 	by := map[string]*EntityRef{}
+	facts := q.offeringFactsByName()
 	for _, s := range q.snap.Services {
 		if s.Offering == "" {
 			continue
@@ -578,10 +615,12 @@ func (q *Query) offeringListRefs() []EntityRef {
 		ref.Targets += len(s.Targets)
 	}
 	refs := make([]EntityRef, 0, len(by))
-	for _, ref := range by {
+	x := q.newAvailIndex()
+	for name, ref := range by {
+		q.applyOfferingFacts(ref, facts[name], x)
 		refs = append(refs, *ref)
 	}
-	return refs
+	return refs, facts
 }
 
 // serviceListRef is a service row with its target count and owner summary,
@@ -592,12 +631,7 @@ func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef 
 	if s.Template {
 		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
 	}
-	switch n, key := q.ownershipState(s); {
-	case n == 1 && key != "":
-		ref.Owner = ownerEntityRef(key).Label
-	case n > 1:
-		ref.Owner = fmt.Sprintf("%d owners claim it", n)
-	}
+	ref.Owner = ownerLabel(q.ownershipState(s))
 	return ref
 }
 
@@ -699,7 +733,27 @@ func (q *Query) matchOrganization(r EntityRef, f EntityFilter, x crossKind) bool
 	return (!f.HasNonCompliant || (r.Kind == KindOwner || r.Kind == KindDomain) && r.NonCompliant > 0) &&
 		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain, x)) &&
 		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
-		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
+		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability))) &&
+		q.matchLifecycleFacts(r, f)
+}
+
+// matchLifecycleFacts applies the lifecycle and failed filters.
+func (q *Query) matchLifecycleFacts(r EntityRef, f EntityFilter) bool {
+	return (f.Lifecycle == "" || q.entityLifecycle(r) == f.Lifecycle) &&
+		(!f.Failed || r.Kind == KindOffering && r.FailedRequests > 0)
+}
+
+// entityLifecycle is an offering row's worst provider lifecycle and a
+// service's own; every other kind has none.
+func (q *Query) entityLifecycle(r EntityRef) string {
+	switch r.Kind {
+	case KindOffering:
+		return r.Lifecycle
+	case KindService:
+		return q.serviceLifecycleState(q.snap.Services[ServiceKey(r.Key)])
+	default:
+		return ""
+	}
 }
 
 // offeringConsumers is the services with a declared use of a provider of the

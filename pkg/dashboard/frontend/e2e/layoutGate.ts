@@ -80,7 +80,18 @@ export function installScaleFixture(): void {
     doc.truncated = offset + count < total;
     if (doc.truncated) doc.nextOffset = offset + count;
   };
-  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50 };
+  const LIST_TOTAL: Record<string, number> = { service: 5000, owner: 300, domain: 300, source: 50, offering: 2400 };
+  // The Offerings figure at fleet scale (B3): requests in the thousands across 2,400
+  // offerings, the three with most failed consumers named (the backend's bound) and 37
+  // more, so the failed list holds 40 offerings.
+  const FAILED_OFFERINGS: [string, number][] = [[longName('load-offering-a'), 412], [longName('load-offering-b'), 97], [longName('load-offering-c'), 31]];
+  const FAILED_BEYOND = 37;
+  const offeringAgg = (ag: Record<string, unknown>, offerings: number) => Object.assign(ag, {
+    matched: offerings, offeringCount: offerings,
+    offeringPhases: { requested: 1840, provisioning: 2210, ready: 18400, failed: 1290, deleting: 120, unknown: 3300 },
+    offeringPhaseConsumers: { requested: 900, provisioning: 1100, ready: 7200, failed: 640, deleting: 60, unknown: 1500 },
+    failedByOffering: FAILED_OFFERINGS.map(([type, services]) => ({ type, services })), failedOfferingsBeyond: FAILED_BEYOND,
+  });
   const NC_OWNERS: [string, number, number][] = [['team:load-owner-a', 40, 297], ['team:load-owner-b', 31, 60], ['team:load-owner-c', 22, 30], ['team:load-owner-d', 12, 400]];
   const NC_DOMAINS: [string, number, number][] = [[longName('load-domain-a'), 45, 310], [longName('load-domain-b'), 30, 90], [longName('load-domain-c'), 25, 40], [longName('load-domain-d'), 15, 700]];
   const NC_LISTS = new Map<string, number>([...NC_OWNERS, ...NC_DOMAINS].map(([k, n]) => [k, n] as [string, number])
@@ -98,7 +109,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -113,6 +124,36 @@ export function installScaleFixture(): void {
         } else if (ag) {
           ag.matched = total;
         }
+      }
+    }
+    // Offering rows at their longest: long owners, every availability with how Pacto
+    // knows it, consumers you may not see and target counts that cannot be known.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering') {
+      const AV: [string, string][] = [['unavailable', 'inferred'], ['degraded', 'observed'], ['available', 'observed'], ['unknown', 'unknown']];
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => {
+        r.owner = i % 3 === 1 ? '2 owners claim it' : longName(String(r.owner || 'platform-owner'));
+        [r.availability, r.availabilityProvenance] = AV[i % AV.length];
+        r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
+        r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
+        if (i % 2) { r.hiddenConsumers = 1234; r.hiddenProviders = 12; r.targetsUnknown = true; r.targets = 0; }
+      });
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
+      if (q.get('failed') && !q.get('lifecycle') && !q.get('text')) {
+        const n = FAILED_OFFERINGS.length + FAILED_BEYOND;
+        // The figure's failed offerings are made up, so the engine lists none of them:
+        // stand-ins fill the page and the total is what the Failed station lists.
+        const ents = doc.entities as Record<string, unknown>[];
+        if (!ents.length) {
+          const lim = Math.min(n, Number(q.get('limit') || 25));
+          doc.entities = Array.from({ length: lim }, (_, i) => ({ kind: 'offering', key: `load-failed-${i}`, label: longName(`load-failed-${i}`), offering: `load-failed-${i}`,
+            owner: longName(`owner-${i}`), services: 1, consumers: 900 + i, failedRequests: 20 + i, lifecycle: 'deprecated', availability: 'degraded', availabilityProvenance: 'inferred', href: `/fleet/offerings/load-failed-${i}` }));
+          doc.count = lim;
+        }
+        page(doc, n);
+        if (ag) offeringAgg(ag, n);
+      } else if (ag && !narrowed && Number(q.get('limit') || 25) > 1) {
+        offeringAgg(ag, LIST_TOTAL.offering);
       }
     }
     // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
@@ -185,6 +226,50 @@ export function installScaleFixture(): void {
           ...base, service: { ...svc, key: `${svc.key}-p${i}`, label: `${svc.label}-provider-${i}`, href: `${svc.href}-p${i}` },
         }));
         prov.total = 25; prov.count = prov.items.length; prov.truncated = true;
+      }
+      // Availability at its longest (#464): long environment names, five unreachable
+      // reporters with long keys, a partial environment and a long successor ref.
+      const unreachable = Array.from({ length: 5 }, (_, u) => {
+        const key = `domain-load/${longName(`unreachable-${u}`)}`;
+        return { kind: 'service', key, label: longName(`unreachable-${u}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+      });
+      const states = ['available', 'degraded', 'unavailable', 'unknown'];
+      const avail = (seed: string) => ({
+        state: 'degraded', asOf: '2026-11-10T08:00:00Z', total: 6,
+        byEnvironment: states.map((state, e) => ({
+          environment: longName(`${seed}-production-${e}`), state, provenance: ['observed', 'inferred', 'inferred', 'unknown'][e],
+          reason: longName(`${e} of 4 targets reporting; ${unreachable[0].label} cannot reach it`), reporting: e, targets: 4,
+          evidenceAt: '2026-11-10T07:00:00Z', partial: e === 1, unreachable: e ? unreachable : undefined,
+          providers: (prov?.items ?? []).slice(0, 3).map((p) => p.service),
+        })),
+      });
+      if (off) {
+        off.availability = avail('offering') as unknown as Record<string, unknown>;
+        (off as Record<string, unknown>).hiddenProviders = 2;
+      }
+      for (const [i, p] of (prov?.items ?? []).entries()) {
+        p.availability = avail(`provider-${i}`);
+        p.successor = { provenance: i % 2 ? 'unknown' : 'inferred', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: i % 2 ? longName('no revision 17.0.0 in this snapshot') : undefined };
+      }
+      const pv = (prov?.items ?? [])[0]?.service as Record<string, unknown> | undefined;
+      if (off && pv) {
+        off.observedConsumers = {
+          items: Array.from({ length: 30 }, (_, o) => o % 3 === 2
+            ? { caller: longName(`uncontracted-caller-${o}`), provider: pv, provenance: 'observed', uncontracted: true }
+            : { consumer: { kind: 'service', key: `domain-load/observed-${o}`, label: longName(`observed-caller-${o}`), href: `/fleet/services/${encodeURIComponent(`domain-load/observed-${o}`)}` },
+              provider: pv, provenance: 'observed', lastSeen: '2026-11-08T08:00:00Z', stale: o % 2 === 0, sources: [longName('mira-observation-source')] }),
+          total: 412, count: 30, truncated: true,
+        };
+        (off as Record<string, unknown>).hiddenObservedConsumers = 7;
+      }
+    }
+    // A checked range's answer carries the provider's successor at its longest ref.
+    if (route === '/api/fleet/versions') {
+      for (const pr of (doc.providers as { versions?: Record<string, unknown> }[] | undefined) ?? []) {
+        if (pr.versions && pr.versions.range) {
+          pr.versions.successor = { provenance: 'unknown', ref: `oci://ghcr.io/${longName('successor-registry-namespace')}/${longName('successor')}:17.0.0`, reason: longName('no revision 17.0.0 in this snapshot') };
+          pr.versions.successorRange = 'unknown';
+        }
       }
     }
     // The inbox figure at fleet scale: 60 environments with long names, a declared chain
@@ -392,6 +477,13 @@ export function installScaleFixture(): void {
         };
       };
       const all = names.map(consumer);
+      // An offering event names every provider it asked about: 25, the bound.
+      if (req.offeringKey) {
+        doc.providers = Array.from({ length: 25 }, (_, i) => {
+          const key = `domain-load/${longName(`provider-${i}`)}`;
+          return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
+        });
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
       // empty and the gate under them, the shape a complete snapshot gives it.
       const leaf = !!event && !cs.total;
@@ -984,8 +1076,11 @@ export const ROUTES: Route[] = [
   { name: 'owners', list: true, hash: '#/fleet/owners' },
   { name: 'domains', list: true, hash: '#/fleet/domains' },
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
+  { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
+  { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
   { name: 'change analysis idle', hash: '#/fleet/changes/payments-service' },
@@ -1022,7 +1117,19 @@ export const ROUTES: Route[] = [
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
-  { name: 'offering entity unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
+  { name: 'offering entity postgresql unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
+  { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  {
+    // The successor range line is component state, never in the URL: type the range.
+    name: 'offering entity postgresql range',
+    open: async (page) => {
+      await page.goto('/#/fleet/offerings/postgresql');
+      const input = page.locator('[data-testid="offering-provider"]').first().getByRole('textbox');
+      await input.fill('^16.0.0');
+      await expect(page.locator('[data-testid="versions-successor"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the fill scrolled the input into view; the gate reads from the top
+    },
+  },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
   { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
