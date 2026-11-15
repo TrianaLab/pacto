@@ -286,12 +286,16 @@ check("payments-service 2.1.0 is an owner change and no OWNER_CONFLICT names it"
   payChanges.some((e) => e.kind === "owner" && e.change === "changed" && e.revision?.version === "2.1.0")
     && ownerConflicts.length > 0 && !ownerConflicts.some((m) => /payments-service/.test(m)), ownerConflicts.join("; "));
 // A change's time comes only from delivery records, read when asked (reached):
-// the story payments service reached its Stages by signed records.
+// the story payments service reached its Stages by signed records. test/payments
+// records a gap (seq 6), so its earliest move read may not be its first: the
+// answer is partial and names that Stage, never "read".
 const storyPayments = "/api/fleet/entities/service?key=registry.example%252Fstory%2Fpayments";
 const reached = json(call("GET", storyPayments + "&reached=true")).service?.changes || {};
 const unread = json(call("GET", storyPayments)).service?.changes || {};
-check("story payments changes carry reached times from records",
-  reached.times === "read" && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)), `times=${reached.times}`);
+check("story payments changes carry reached times from records, partial over the test/payments gap",
+  reached.times === "partial" && (reached.timesUnreadable || []).some((u) => /^test\/payments: earlier moves may be missing/.test(u))
+    && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)),
+  `times=${reached.times} unreadable=${JSON.stringify(reached.timesUnreadable)}`);
 // The tour step says "2.3.0 reached prod and 3.0.0 reached test": keep it true.
 const reachedOn = (v, ns) => (reached.items || []).some((e) => e.revision?.version === v && (e.reached || []).some((r) => r.namespace === ns && !!r.record));
 check("story payments 2.3.0 reached prod and 3.0.0 reached test, as the tour says",
