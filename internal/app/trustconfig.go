@@ -145,10 +145,21 @@ func validateObservationKinds(kinds []string) error {
 	return nil
 }
 
+// registryWithPort reports whether p, a prefix with no "/", is a registry host
+// and port (localhost:5001, registry.example.com:5000) rather than a tagged
+// repository (postgresql:16): the host is localhost or holds a ".", as a
+// registry does in an OCI reference.
+func registryWithPort(p string) bool {
+	host, port, _ := strings.Cut(p, ":")
+	digits := port != "" && strings.Trim(port, "0123456789") == ""
+	return digits && (host == "localhost" || strings.Contains(host, "."))
+}
+
 // validateProviderScope checks a key's allowedProviderRepos: each entry is a
 // bare, lowercase registry/repo path with no empty segment and no tag (a tagged
 // prefix could never match, because the declared ref's tag is dropped before
-// matching; a registry port before the first "/" stays valid), and a scope
+// matching; a registry port before the first "/", or a bare registry host and
+// port, stays valid), and a scope
 // requires a provider-scoped kind to be granted, so it can never silently grant
 // nothing.
 func validateProviderScope(k trustConfigKey) error {
@@ -156,7 +167,7 @@ func validateProviderScope(k trustConfigKey) error {
 		if err := validateContractRepoPrefix("allowedProviderRepos", p); err != nil {
 			return err
 		}
-		if i := strings.LastIndex(p, "/"); strings.Contains(p[i+1:], ":") {
+		if i := strings.LastIndex(p, "/"); strings.Contains(p[i+1:], ":") && (i >= 0 || !registryWithPort(p)) {
 			return fmt.Errorf("allowedProviderRepos entry %q must not carry a tag", p)
 		}
 		// A repository is lowercase and has no empty path segment, so an

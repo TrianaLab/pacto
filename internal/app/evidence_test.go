@@ -294,6 +294,7 @@ keys:
     allowedProviderRepos:
       - ghcr.io/acme/platform/postgresql
       - localhost:5001/acme/platform/postgresql
+      - localhost:5001
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +318,8 @@ keys:
 	if !e.KindAllowed(evidence.ResourceProvisioned) || e.KindAllowed(evidence.WorkloadObserved) {
 		t.Errorf("allowedObservationKinds = %v, want only ResourceProvisioned granted", e.AllowedObservationKinds)
 	}
-	// A registry port before the first "/" is no tag.
-	if len(e.ProviderRepos) != 2 || e.ProviderRepos[1] != "localhost:5001/acme/platform/postgresql" {
+	// A registry port before the first "/", or a bare registry and port, is no tag.
+	if len(e.ProviderRepos) != 3 || e.ProviderRepos[1] != "localhost:5001/acme/platform/postgresql" || e.ProviderRepos[2] != "localhost:5001" {
 		t.Errorf("providerRepos = %v", e.ProviderRepos)
 	}
 }
@@ -388,7 +389,8 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 		"provider repo whitespace": scoped("ghcr.io/acme/platform postgresql"),
 		"empty provider repo":      scoped(""),
 		// A tagged prefix could never match: the declared ref's tag is dropped first.
-		"tagged provider repo": scoped("ghcr.io/acme/platform/postgresql:16"),
+		"tagged provider repo":      scoped("ghcr.io/acme/platform/postgresql:16"),
+		"tagged bare provider repo": scoped("postgresql:16"),
 		// So could an uppercase prefix or one with an empty segment.
 		"trailing slash provider repo": scoped("ghcr.io/acme/platform/"),
 		"doubled slash provider repo":  scoped("ghcr.io//acme/platform"),
