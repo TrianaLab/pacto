@@ -135,9 +135,11 @@ echo "   foreign revision refused (fail-closed)"
 echo "== the operator chart installs delivery from the delivery image at its appVersion =="
 # One chart ships both: with delivery.enabled its default promoter image has to be
 # the delivery image the same release publishes.
-helm template d "$CHART" --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
-  --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
-  | grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" \
+# Rendered first, then matched: piped into `grep -q`, which stops at the first
+# match, helm dies of SIGPIPE on the long render and pipefail fails the check.
+rendered="$(helm template d "$CHART" --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+  --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)"
+grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" <<<"$rendered" \
   || { echo "operator chart delivery image is not ghcr.io/trianalab/pacto/delivery:$DV"; exit 1; }
 echo "   delivery image is ghcr.io/trianalab/pacto/delivery at the chart appVersion"
 
