@@ -2189,6 +2189,11 @@ export interface components {
             other: number;
             /** Format: int64 */
             reference: number;
+            /**
+             * Format: int64
+             * @description Of compliant, how many rest on stale evidence; a subset, never subtracted from compliant
+             */
+            staleCompliant: number;
             /** Format: int64 */
             unknown: number;
             /** Format: int64 */
@@ -2896,6 +2901,11 @@ export interface components {
             services: number;
             /** Format: int64 */
             servicesNeedingAttention: number;
+            /**
+             * Format: int64
+             * @description Of the compliant targets, how many rest on stale evidence; a subset, never subtracted
+             */
+            staleCompliantTargets: number;
             /** Format: int64 */
             staleSources: number;
             /** Format: int64 */

@@ -40,6 +40,10 @@ type ComplianceTally struct {
 	Reference    int `json:"reference"`
 	NotEvaluated int `json:"notEvaluated"`
 	Other        int `json:"other"`
+	// StaleCompliant is, of Compliant, how many rest on stale evidence. It is a
+	// subset, never subtracted from Compliant, so the buckets above still sum to
+	// Total.
+	StaleCompliant int `json:"staleCompliant" doc:"Of compliant, how many rest on stale evidence; a subset, never subtracted from compliant"`
 }
 
 func (c *ComplianceTally) add(status string) {
@@ -61,6 +65,13 @@ func (c *ComplianceTally) add(status string) {
 	default:
 		c.Other++
 	}
+}
+
+// addStale buckets status like add and, when it is Compliant on stale evidence,
+// counts it into StaleCompliant: the one place that subset is counted.
+func (c *ComplianceTally) addStale(status string, stale bool) {
+	c.add(status)
+	c.StaleCompliant += b2i(stale && status == StatusCompliant)
 }
 
 // Total is the population the tally covers.
@@ -600,7 +611,7 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
-			agg.ServiceCompliance.add(s.Status)
+			agg.ServiceCompliance.addStale(s.Status, q.restsOnStale(s))
 			nc := s.Status == StatusNonCompliant
 			agg.tallyDomain(byDomain, s, nc)
 			for _, c := range q.serviceCapabilities(s) {
@@ -620,7 +631,7 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 			agg.Readiness.add(q.snap.Revisions[RevisionKey(r.Key)].Readiness)
 		case KindTarget:
 			agg.Targets++
-			agg.TargetCompliance.add(r.Status)
+			agg.TargetCompliance.addStale(r.Status, q.snap.Targets[TargetKey(r.Key)].Stale)
 			agg.TargetHealth.add(q.targetHealth(q.snap.Targets[TargetKey(r.Key)]))
 		case KindOwner:
 			agg.Owners++
@@ -889,6 +900,15 @@ type OwnerSummary struct {
 	UndeclaredDependencies int            `json:"undeclaredDependencies" doc:"Observed calls of the services that no contract declares"`
 }
 
+// restsOnStale reports whether any target of the service that is not
+// quarantined rests on stale evidence.
+func (q *Query) restsOnStale(s *ServiceRecord) bool {
+	return slices.ContainsFunc(s.Targets, func(k TargetKey) bool {
+		t := q.snap.Targets[k]
+		return t.Stale && !t.Quarantined
+	})
+}
+
 // addService tallies one service of the estate into every service-scoped
 // dimension: whether it runs nowhere, what its contract leaves out and its
 // unresolved and undeclared dependencies, by the service page's own rules.
@@ -905,7 +925,7 @@ func (o *OwnerSummary) addService(q *Query, s *ServiceRecord) {
 // addTarget tallies one target into every target-scoped dimension at once, so a
 // caller cannot update three of the four and ship a summary whose bars disagree.
 func (o *OwnerSummary) addTarget(q *Query, t *TargetRecord) {
-	o.Compliance.add(t.Compliance)
+	o.Compliance.addStale(t.Compliance, t.Stale)
 	o.Health.add(q.targetHealth(t))
 	o.Links.add(t)
 	o.Evidence.add(t)
@@ -920,7 +940,7 @@ func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionK
 	sum := ServiceSummary{Targets: len(view.Targets), Revisions: len(view.Revisions)}
 	inUse := map[RevisionKey]bool{}
 	for _, t := range view.Targets {
-		sum.Compliance.add(t.Compliance)
+		sum.Compliance.addStale(t.Compliance, t.Stale)
 		sum.Links.add(t)
 		sum.Evidence.add(t)
 		for _, f := range t.Findings {

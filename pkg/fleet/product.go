@@ -489,6 +489,9 @@ type OverviewSummary struct {
 	NotEvaluatedTargets    int `json:"notEvaluatedTargets"`
 	OtherComplianceTargets int `json:"otherComplianceTargets"`
 	StaleTargets           int `json:"staleTargets"`
+	// StaleCompliantTargets is, of CompliantTargets, how many rest on stale
+	// evidence: a subset, never subtracted from it.
+	StaleCompliantTargets int `json:"staleCompliantTargets" doc:"Of the compliant targets, how many rest on stale evidence; a subset, never subtracted"`
 	// OperationalHealth partitions the complete target population, the same
 	// whole as Targets, by what each target's declared health check reports.
 	OperationalHealth       OperationalHealthTally `json:"operationalHealth"`
@@ -756,7 +759,7 @@ func (q *Query) Overview() *Overview {
 	var comp ComplianceTally
 	for _, t := range q.snap.Targets {
 		link.add(t)
-		comp.add(t.Compliance)
+		comp.addStale(t.Compliance, t.Stale)
 		sum.OperationalHealth.add(q.targetHealth(t))
 		sum.Coverage.add(t)
 		sum.Evidence.add(t)
@@ -776,6 +779,7 @@ func (q *Query) Overview() *Overview {
 	sum.UnknownTargets, sum.WarningTargets = comp.Unknown, comp.Warning
 	sum.InvalidTargets, sum.ReferenceTargets = comp.Invalid, comp.Reference
 	sum.NotEvaluatedTargets, sum.OtherComplianceTargets = comp.NotEvaluated, comp.Other
+	sum.StaleCompliantTargets = comp.StaleCompliant
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 	q.tallyScopes(sum)

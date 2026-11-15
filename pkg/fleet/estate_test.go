@@ -344,3 +344,66 @@ func TestOverviewJSONKeepsFields(t *testing.T) {
 		}
 	}
 }
+
+// staleFleet: pay runs a Compliant target with fresh evidence and one with
+// stale evidence; orders runs a Compliant target with stale evidence.
+func staleFleet(t *testing.T) *Query {
+	t.Helper()
+	old := ptrTime(fixedNow().Add(-2 * time.Hour))
+	stale := func(name, suffix string) RawTarget {
+		rt := withStatus(name, suffix, StatusCompliant)
+		rt.EvidenceAt = old
+		return rt
+	}
+	return estateFleet(t, time.Hour, []RawRevision{knowRev("pay", nil), knowRev("orders", nil)},
+		[]RawTarget{withStatus("pay", "fresh", StatusCompliant), stale("pay", "old"), stale("orders", "old")})
+}
+
+func TestComplianceStaleCompliantIsSubset(t *testing.T) {
+	var c ComplianceTally
+	c.addStale(StatusCompliant, true)
+	c.addStale(StatusCompliant, false)
+	c.addStale(StatusUnknown, true)
+	if c != (ComplianceTally{Compliant: 2, Unknown: 1, StaleCompliant: 1}) {
+		t.Fatalf("tally = %+v", c)
+	}
+	sum := staleFleet(t).Overview().Summary
+	if sum.CompliantTargets != 3 || sum.StaleCompliantTargets != 2 || sum.StaleCompliantTargets > sum.CompliantTargets {
+		t.Fatalf("compliant %d, stale compliant %d", sum.CompliantTargets, sum.StaleCompliantTargets)
+	}
+}
+
+func TestServiceStaleCompliant(t *testing.T) {
+	q := staleFleet(t)
+	sv, err := q.GetService(string(NewServiceKeyDomain("", "pay")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, _ := q.serviceSummary(sv)
+	if sum.Compliance.Compliant != 2 || sum.Compliance.StaleCompliant != 1 {
+		t.Fatalf("pay compliance = %+v", sum.Compliance)
+	}
+}
+
+func TestOwnerSummaryStaleCompliant(t *testing.T) {
+	q := staleFleet(t)
+	for name, sum := range map[string]OwnerSummary{"owner": ownerSummary(t, q, ownerTeam), "domain": domainSummary(t, q, "payments")} {
+		if sum.Compliance.Compliant != 3 || sum.Compliance.StaleCompliant != 2 {
+			t.Errorf("%s compliance = %+v", name, sum.Compliance)
+		}
+	}
+}
+
+func TestEntityAggregateStaleCompliant(t *testing.T) {
+	q := staleFleet(t)
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService, KindTarget}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := l.Aggregate.ServiceCompliance; c.Compliant != 2 || c.StaleCompliant != 2 {
+		t.Errorf("service compliance = %+v, want both services resting on stale evidence", c)
+	}
+	if c := l.Aggregate.TargetCompliance; c.Compliant != 3 || c.StaleCompliant != 2 {
+		t.Errorf("target compliance = %+v", c)
+	}
+}
