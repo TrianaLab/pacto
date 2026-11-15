@@ -29,7 +29,7 @@ const (
 // decides a gate, a compliance state or an admission is ever added.
 var (
 	// runRecordImporters may import pkg/runrecord directly.
-	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "pkg/dashboard", modRoot + "examples/story",
+	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "pkg/dashboard", modRoot + "examples/story", modRoot + "examples/demo",
 		modRoot + "tests/acceptance/scenario"}
 	// runRecordRegistryImporters may import pkg/runrecord/registry directly.
 	runRecordRegistryImporters = []string{modRoot + "internal/cli", modRoot + "internal/app"}
