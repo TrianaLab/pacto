@@ -641,7 +641,9 @@ operator_synced_agent() {
   local pod
   pod="$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=pacto-operator \
     --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')"
-  kubectl -n "$NS" logs "$pod" 2>/dev/null | grep -q 'Node agent resources reconciled successfully'
+  # Not `grep -q`: it exits at the first match while kubectl is still writing a
+  # long log, kubectl dies of SIGPIPE, and pipefail turns the match into a miss.
+  kubectl -n "$NS" logs "$pod" 2>/dev/null | grep 'Node agent resources reconciled successfully' >/dev/null
 }
 eventually 40 operator_synced_agent || miss "the restarted operator never applied the node agent"
 CAPS="$(kubectl -n "$AGENT_NS" get ds pacto-node-agent -o jsonpath='{.spec.template.spec.containers[0].securityContext.capabilities.add}')"
