@@ -167,7 +167,7 @@ func (a OfferingAdapter) Line() string {
 // With no adapter it says the status is Unknown, never that there is none, and
 // with hiddenConsumers above 0 it speaks only for the requests the viewer sees.
 func (p OfferingAdaptersPreview) Lines(hiddenConsumers int) []string {
-	lines := make([]string, 0, len(p.Items)+3)
+	lines := make([]string, 0, len(p.Items))
 	for _, a := range p.Items {
 		lines = append(lines, a.Line())
 	}
