@@ -316,7 +316,7 @@ func TestProgressOfApproveOnlyForOwner(t *testing.T) {
 		c.User = user
 		return ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Plan: progPlan(PredictHeld, nil)})
 	}
-	for _, p := range []Progress{ask("alice", "acme:team-ledger"), ask("bob", "acme:team-payments"), ask("dana", "acme:team-payments")} {
+	for _, p := range []Progress{ask("alice", "acme:team-ledger"), ask("bob", "acme:team-payments"), ask("dana", "acme:team-payments"), ask(" Dana", "acme:team-payments")} {
 		if anyCommand(p, "approve") || reasonOf(p, "Held").Fix != "a person of team-payments decides it" {
 			t.Errorf("not an owner, the asker or the person it is on behalf of: %+v", reasonOf(p, "Held"))
 		}

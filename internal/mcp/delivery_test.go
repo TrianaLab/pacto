@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"strings"
@@ -572,8 +573,29 @@ func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
 		t.Fatalf("propose request %+v", api.req)
 	}
 	for name, schema := range map[string]map[string]any{"plan": requestSchema(), "propose": requestSchema("intent_digest", "name")} {
-		if _, ok := schema["properties"].(map[string]any)["correlation_id"]; !ok {
+		props := schema["properties"].(map[string]any)
+		if _, ok := props["correlation_id"]; !ok {
 			t.Errorf("the %s schema lacks correlation_id", name)
+		}
+		// The own-change rule compares on_behalf_of with the approver's username.
+		if b, _ := json.Marshal(props["on_behalf_of"]); !strings.Contains(string(b), "Kubernetes username") {
+			t.Errorf("the %s on_behalf_of says nothing of the cluster username: %s", name, b)
+		}
+	}
+}
+
+// TestDeliveryInstructionsNamePrincipalAndCorrelation: an agent learns before
+// it proposes that it must name a person and how to tie a change to an
+// incident.
+func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
+	for _, want := range []string{
+		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the promoter",
+		"that person may not approve the change, and planning needs no person",
+		"Pass correlation_id on plan and propose",
+		"it never changes the intent digest",
+	} {
+		if !strings.Contains(deliveryInstructions, want) {
+			t.Errorf("deliveryInstructions lack %q", want)
 		}
 	}
 }

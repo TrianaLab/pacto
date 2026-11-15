@@ -109,6 +109,18 @@ names the provider version, the selected configuration and the values for each
 environment. An adapter in your platform reads it and provisions the resource.
 Pacto itself provisions nothing and keeps no provider-specific code.
 
+The request takes three steps: edit the contract, publish it and promote it.
+`pacto_edit` with `add_configuration_refs` returns them before anything else
+runs:
+
+- `impact`: who the edit affects, read from the session's fleet snapshot, with
+  `completeness` and `asOf`. Without a snapshot it is absent, and the first
+  step says who the edit affects is not known.
+- `chain`: each remaining step with its tool and its CLI command (`pacto impact`,
+  `pacto publish --plan`, `pacto publish`, `pacto delivery plan`). A step this
+  session does not serve leaves `tool` empty.
+- `executor`: who acts on the published revision, here the provider's adapter.
+
 ## Write an adapter
 
 An adapter is any program that turns a published consumer contract into a
@@ -223,7 +235,8 @@ See [Configuration and policy](contract-reference/configuration-and-policy.md#wh
 To change a request, edit its values and publish the consumer contract again;
 `pacto_edit` sets environment values with `set_environment_values`. To retire
 it, remove the configuration reference with `remove_configuration_refs` and
-publish.
+publish. Both edits return the same `impact`, `chain` and `executor`, also
+with `dry_run`.
 
 When the platform team ships a new provider version, `pacto impact` and
 `pacto_impact` list every consumer by dependency and by configuration

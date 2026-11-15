@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -88,6 +89,31 @@ func TestPublishCommandPublish(t *testing.T) {
 	// An agent's propose names the person it acts for.
 	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
 	wantRun(t, out, err, true, "must name the person it acts for", "--on-behalf-of")
+	// The promote carries the correlation id; a bad one or one without --propose is refused before publishing.
+	var created string
+	ticketed := publishDeps(done, nil, &got)
+	inner := ticketed.newDynamic
+	ticketed.newDynamic = func() (dynamic.Interface, error) {
+		c, err := inner()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "operations", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			raw, _ := json.Marshal(a.(k8stesting.CreateAction).GetObject())
+			created = string(raw)
+			return false, nil, nil
+		})
+		return c, err
+	}
+	out, err = runPublish(t, ticketed, "text", "--propose", "prod/payments-prod", "--on-behalf-of", "dana", "--correlation-id", "CHG-2041")
+	wantRun(t, out, err, false, "Proposed "+cliB)
+	if !strings.Contains(created, `"correlationID":"CHG-2041"`) {
+		t.Fatalf("the promote lacks the correlation id: %s", created)
+	}
+	for _, args := range [][]string{{"--correlation-id", "CHG-2041"}, {"--propose", "prod/payments-prod", "--correlation-id", "bad\x1b"}} {
+		got = app.PublishOptions{Revision: "not published"}
+		_, err = runPublish(t, publishDeps(done, nil, &got), "text", args...)
+		if err == nil || got.Revision != "not published" {
+			t.Fatalf("%q: err %v, published %+v", args, err, got)
+		}
+	}
 	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB}}
 	out, err = runPublish(t, publishDeps(nothing, nil, &got), "json")
 	wantRun(t, out, err, false, `"actions": []`)
@@ -193,5 +219,20 @@ func TestMCPPublishMode(t *testing.T) {
 	over.SetErr(&strings.Builder{})
 	if err := over.Execute(); !errors.Is(err, errPublishOverHTTP) {
 		t.Fatalf("publish over HTTP must be refused: %v", err)
+	}
+}
+
+// Every --on-behalf-of says the name is the person's cluster username: the
+// own-change rule compares it with the approver's, so a Git login never matches.
+func TestOnBehalfOfHelpNamesTheClusterUsername(t *testing.T) {
+	root := newRootCommand(app.NewService(nil, nil), VersionInfo{}, defaultDeps())
+	for _, path := range [][]string{{"publish"}, {"delivery", "propose"}, {"delivery", "plan"}} {
+		cmd, _, err := root.Find(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if usage := cmd.Flags().Lookup("on-behalf-of").Usage; !strings.Contains(usage, "Kubernetes username") || !strings.Contains(usage, "OIDC prefix") {
+			t.Errorf("%v --on-behalf-of: %q", path, usage)
+		}
 	}
 }

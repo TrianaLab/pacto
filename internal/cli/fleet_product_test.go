@@ -98,8 +98,13 @@ func TestFleetAttention(t *testing.T) {
 		t.Fatalf("attention: %v", err)
 	}
 	if !regexp.MustCompile(`(?m)^\d+ of \d+ attention item\(s\):$`).MatchString(out) ||
-		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\)$`).MatchString(out) {
+		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\) \(action: edit-contract via pacto_edit\)$`).MatchString(out) {
 		t.Errorf("attention --category unowned:\n%s", out)
+	}
+	// Unknown compliance is never a contract edit: its line names no action.
+	uout, _, err := execFleet(t, append(append([]string{}, base...), "--category", "unknown")...)
+	if err != nil || !strings.Contains(uout, "[warning] unknown ") || strings.Contains(uout, "(action:") {
+		t.Errorf("attention --category unknown = %v:\n%s", err, uout)
 	}
 
 	for _, f := range [][]string{

@@ -55,6 +55,18 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
   // The postgresql offering: availability per environment from its two providers, then
   // each provider's versions, the successor 16.1.0 names and its consumers.
   { name: 'offering-postgresql', open: async (p) => { await go(p, '/#/fleet/offerings/postgresql', 'postgresql'); await expect(p.getByTestId('availability').first()).toBeVisible(); } },
+  // The delivery section of payments' target page in prod, opened under ticket CHG-2041:
+  // the Plan offers, and the promote plan the first one opens with the ticket filled in.
+  {
+    name: 'act-from-investigation',
+    open: async (p) => {
+      await go(p, '/#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=CHG-2041', 'payments');
+      await p.getByRole('button', { name: /^Plan promote/ }).click();
+      await expect(p.getByTestId('pp-correlation')).toHaveValue('CHG-2041');
+      await expect(p.getByTestId('plan-prediction')).toBeVisible();
+    },
+    element: '[data-testid="target-delivery"]',
+  },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
 ];

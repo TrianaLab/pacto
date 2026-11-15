@@ -260,6 +260,10 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	for _, want := range []string{`"completeness": "partial"`, `"SOURCE_UNAVAILABLE"`, `"unknown": 1`} {
 		expect(t, strings.Contains(services, want), "the fixture lacks %s: %s", want, services)
 	}
+	// AttentionItem.nextAction is compared above with the rest of the answer:
+	// the fixture must hold one for the comparison to mean anything.
+	attention := cliJSON(t, flags, "fleet", "attention")
+	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
 }
 
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
@@ -312,6 +316,10 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 		sameOnSurfaces(t, q.name+" for alice", map[string]string{"mcp": m, "dashboard": dashBody})
 		expect(t, !strings.Contains(m, "lonely") && !strings.Contains(dashBody, "lonely"), "%s names the hidden service: %s", q.name, m)
 	}
+	// The view narrows nextAction with its item: alice still reads the actions
+	// of what she sees, and lonely's unowned action is gone with lonely.
+	attention, _ := callText(t, session, "pacto_fleet_attention", map[string]any{})
+	expect(t, strings.Contains(attention, `"edit-contract"`) && !strings.Contains(attention, "UNOWNED_SERVICE"), "alice's attention: %s", attention)
 	services, _ := callText(t, session, "pacto_fleet_entities", map[string]any{"kind": "service"})
 	expect(t, strings.Contains(services, fleet.LimitationHiddenByPermissions), "the view says it hid something: %s", services)
 

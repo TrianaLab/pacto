@@ -764,7 +764,11 @@ func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format st
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d attention item(s):\n", res.Count, res.Total)
 		for _, it := range res.Items {
-			_, _ = fmt.Fprintf(w, "  [%s] %s %s: %s (next: %s)\n", it.Severity, it.Category, it.Label, it.Summary, orDash(it.NextStep))
+			action := ""
+			if a := it.NextAction; a != nil {
+				action = fmt.Sprintf(" (action: %s via %s)", a.Verb, a.Tool)
+			}
+			_, _ = fmt.Fprintf(w, "  [%s] %s %s: %s (next: %s)%s\n", it.Severity, it.Category, it.Label, it.Summary, orDash(it.NextStep), action)
 		}
 		warnProductPartial(cmd, res.Meta)
 		return nil

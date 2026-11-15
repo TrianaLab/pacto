@@ -465,7 +465,7 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		"--traces", demoTraces)
 	defer func() { _ = session.Close() }()
 
-	// pacto_fleet_search returns all 39 services, the golden path included
+	// pacto_fleet_search returns all 39 services, the golden path and the second provider included
 	searchRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "pacto_fleet_search",
 		Arguments: map[string]any{},

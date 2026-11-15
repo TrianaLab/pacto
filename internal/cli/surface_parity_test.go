@@ -110,6 +110,7 @@ func fleetRows() []surfaceRow {
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
+			{"fleet status --lifecycle", "pacto_fleet_status.lifecycle", "", whyStatusRoute},
 			{"", "", "GET /api/fleet/overview", "the CLI has no overview command and MCP has no overview tool yet (#460 adds pacto_fleet_overview)"},
 			{"fleet snapshot", "", "GET /api/fleet/snapshot", "MCP serves the snapshot only through the fleet tools' answers"},
 			{"fleet reconcile --traces", "", "", "reconcile compares one local trace file with the local contracts; it reads no fleet source"},
@@ -149,6 +150,7 @@ func impactRows() []surfaceRow {
 			{"impact --removed", "", "", "pacto_impact.event and the dashboard's body.event take removed as a value"},
 			{"impact --regressed", "", "", "pacto_impact.event and the dashboard's body.event take regressed as a value"},
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
+			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as the event flag's value, offering:<name>"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
 		},

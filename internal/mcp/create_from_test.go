@@ -150,7 +150,7 @@ func TestEditTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugins := []contract.TemplatePlugin{{Name: "dockerfile", Description: "A Dockerfile", Options: map[string]string{"go": "1.27"}}}
-	r, err := Edit(context.Background(), nil, EditInput{Path: dir, Template: &TemplateInput{Plugins: plugins}})
+	r, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Template: &TemplateInput{Plugins: plugins}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,14 +159,14 @@ func TestEditTemplate(t *testing.T) {
 		t.Fatalf("set: %+v %+v", c.PactoVersion, c.Service.Template)
 	}
 	// No plugins writes template: {}.
-	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, Template: &TemplateInput{}}); err != nil {
+	if _, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Template: &TemplateInput{}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if !strings.Contains(string(raw), "template: {}") {
 		t.Errorf("empty template:\n%s", raw)
 	}
-	r, err = Edit(context.Background(), nil, EditInput{Path: dir, Template: &TemplateInput{Clear: true}})
+	r, err = Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Template: &TemplateInput{Clear: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

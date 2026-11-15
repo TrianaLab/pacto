@@ -78,10 +78,10 @@ spec:
       reason: Invalid
     - expression: >-
         !variables.agent || variables.breakGlass || request.userInfo.username == '{{ $controller }}' ||
-        (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user) > 0 &&
-        object.spec.onBehalfOf.user != request.userInfo.username &&
-        !object.spec.onBehalfOf.user.startsWith('system:serviceaccount:') &&
-        object.spec.onBehalfOf.user != '{{ $controller }}')
+        (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user.trim()) > 0 &&
+        object.spec.onBehalfOf.user.trim().lowerAscii() != request.userInfo.username.trim().lowerAscii() &&
+        !object.spec.onBehalfOf.user.trim().startsWith('system:serviceaccount:') &&
+        object.spec.onBehalfOf.user.trim().lowerAscii() != '{{ $controller }}'.lowerAscii())
       message: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change"
       reason: Forbidden
     - expression: >-

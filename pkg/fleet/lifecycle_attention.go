@@ -104,6 +104,7 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 		it.Reason = fmt.Sprintf("%s accepts %s %s, which excludes its successor %s", consumer.Name, provider.Name, rel.Compatibility, succ.Version)
 	}
 	it.NextStep = fmt.Sprintf("Widen the range in %s's contract to accept %s", consumer.Name, succ.Version)
+	it.NextAction = editContract()
 }
 
 // lifecycleTally counts the distinct real services with a lifecycle item and

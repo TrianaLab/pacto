@@ -6,7 +6,8 @@
 A delivery plan or proposal can carry a correlation id, such as a ticket or
 incident id: `pacto delivery plan|propose --correlation-id`, `correlation_id`
 on `pacto_delivery_operation_plan` and `pacto_delivery_operation_propose`, and
-`correlationID` in the dashboard's plan and propose bodies. The id is at most
+`correlationID` in the dashboard's plan and propose bodies, and `pacto publish
+--propose --correlation-id`. The id is at most
 128 printable ASCII characters, checked by the client and by the operation
 admission policy. The automatic rollback, freeze and step-down the promoter
 raises after a change inherit its id, so `pacto delivery history
@@ -21,7 +22,8 @@ Operation `Rejected` with `PlanStale`. Proposals without a cause are
 unaffected.
 
 An agent must name the person it acts for (`onBehalfOf`, `--on-behalf-of`,
-`on_behalf_of`) when it proposes a change, never itself, a service account or
+`on_behalf_of`), as the Kubernetes username the cluster authenticates them as,
+when it proposes a change, never itself, a service account or
 the promoter. The client, the promoter and the operation admission policy
 refuse an agent's proposal without one, with the reasons `NoPrincipal`,
 `SelfPrincipal` and `NotAPerson`; planning needs none, and changes the
@@ -36,3 +38,14 @@ The dashboard's propose panel proposes the plan it shows when a reason or an
 on-behalf-of person is typed, with no false "Something changed" warning. Its delivery
 errors carry `differs`, the field that made a plan stale. The propose panel
 asks an agent who it acts for and takes a ticket or incident id.
+
+Fleet attention items whose fix is a contract edit carry `nextAction`
+(`{"verb": "edit-contract", "tool": "pacto_edit"}`), inferred from the item's
+code beside `nextStep`; it grants nothing, and unknown, stale, unresolved or
+non-compliant items carry none. `pacto_edit` returns `impact` (who the edit
+affects, from the session's fleet snapshot), `chain` (publish and promote,
+each with its tool and CLI command) and `executor` (who acts on the published
+revision), also on a dry run; `pacto_create` returns `chain`. The dashboard's
+target, revision and Change analysis pages offer **Plan…** for the operations
+the caller may take there, and a `correlationID` in the page URL fills the
+propose panel's ticket field.

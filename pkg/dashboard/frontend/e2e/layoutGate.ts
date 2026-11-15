@@ -552,14 +552,20 @@ export function installScaleFixture(): void {
 
   // A service page asks delivery for its service by the page's (lengthened) label: ask
   // the engine for the name it knows, and the rows come back under the long name.
+  // Under longPropose a panel also asks by a Stage's lengthened namespace and stage (the
+  // undo panel's GET): those go back to the engine's names too.
   const engineName = (path: string): string => {
     const [route, query = ''] = path.split('?');
+    if (!route.startsWith('/api/delivery/')) return path;
     const q = new URLSearchParams(query);
-    const asked = q.get('service');
-    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
-    if (!short) return path;
-    q.set('service', short);
-    return `${route}?${q}`;
+    const keys = flags.__pactoLongPropose ? ['service', 'namespace', 'stage'] : ['service'];
+    let moved = false;
+    for (const k of keys) {
+      const asked = q.get(k);
+      const short = asked ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+      if (short) { q.set(k, short); moved = true; }
+    }
+    return moved ? `${route}?${q}` : path;
   };
   // A route that opens the propose panel sets these flags on the page: longPropose
   // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
@@ -1057,6 +1063,32 @@ const openPropose = async (page: Page, stale = false) => {
   return panel;
 };
 
+// The story's payments service and its 3.0.0 revision (examples/story): prod offers the
+// promote of 3.0.0's artifact, and test runs that artifact with an undo on offer.
+const STORY_PAYMENTS = 'registry.example%252Fstory%2Fpayments';
+const PAYMENTS_300 = 'sha256:a16380137bcba704971cd4258237e24fb8822d93f66bd3f280bd829005665323';
+const PAYMENTS_300_ARTIFACT = 'sha256:d08642a39559182a2b9bc69a8f7ad32e87fa058ebd250087dbc071bf3df809a4';
+const PLAN = /^Plan /;
+
+/**
+ * Opens an investigation page with the Stage rows' names at their longest (the panels
+ * ask the engine under the short names again) and waits for its first "Plan" offer, so
+ * a page that renders none fails instead of passing.
+ */
+const planOffer = async (page: Page, hash: string, before?: (page: Page) => Promise<void>) => {
+  await page.evaluate(() => { (window as unknown as { __pactoLongPropose?: boolean }).__pactoLongPropose = true; });
+  await page.goto(`/${hash}`);
+  if (before) await before(page);
+  const offer = page.getByRole('button', { name: PLAN }).first();
+  await expect(offer).toBeVisible({ timeout: 30_000 });
+  return offer;
+};
+const comparePayments = async (page: Page) => { await page.getByRole('button', { name: 'Compare revisions' }).click({ timeout: 30_000 }); };
+const planOpened = async (page: Page) => {
+  await expect(page.locator('[data-testid="propose-panel"] [data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -1265,6 +1297,25 @@ export const ROUTES: Route[] = [
       await panel.getByRole('button', { name: /^Propose/ }).click();
       await expect(panel.getByRole('alert')).toContainText('Something changed since the plan', { timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  { name: 'target page with Plan offers', open: async (page) => { await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout'); } },
+  { name: 'revision page with a promote offer', open: async (page) => { await planOffer(page, `#/fleet/revisions/${STORY_PAYMENTS}@${PAYMENTS_300}`); } },
+  { name: 'change analysis answered with Plan promote', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments); } },
+  { name: 'change analysis regressed with Plan undo', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}?event=regressed&rev=${PAYMENTS_300_ARTIFACT}`); } },
+  {
+    name: 'target page, Plan undo panel open',
+    open: async (page) => {
+      await (await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout')).click();
+      await page.getByRole('button', { name: /^Plan this / }).click({ timeout: 30_000 });
+      await planOpened(page);
+    },
+  },
+  {
+    name: 'change analysis answered, Plan promote panel open',
+    open: async (page) => {
+      await (await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments)).click();
+      await planOpened(page);
     },
   },
   {
