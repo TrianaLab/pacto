@@ -5,7 +5,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
 ```
 
 ```console
-38 of 38 service(s):
+39 of 39 service(s):
   analytics-pipeline           NotEvaluated owner=data-platform  domain=-            offering=-            revs=2 targets=0
   api-gateway                  NotEvaluated owner=platform-foundations domain=-            offering=-            revs=3 targets=0
   audit-log                    Compliant    owner=platform-foundations-security domain=-            offering=-            revs=1 targets=1
@@ -31,7 +31,8 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   platform-app-config          NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
   platform-http-policy         NotEvaluated owner=platform-foundations domain=-            offering=shared-policy revs=2 targets=0
   platform-worker-config       NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
-  postgresql                   NotEvaluated owner=infra-data     domain=-            offering=postgresql   revs=3 targets=0
+  postgresql                   Compliant    owner=infra-data     domain=-            offering=postgresql   revs=4 targets=2
+  postgresql-ha                Compliant    owner=platform-data  domain=-            offering=postgresql   revs=1 targets=1
   pricing-service              NotEvaluated owner=catalog-team   domain=-            offering=-            revs=2 targets=0
   recommendations              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   redis                        NotEvaluated owner=infra-data     domain=-            offering=redis        revs=2 targets=0
@@ -42,6 +43,6 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=6 targets=2
   stripe-api                   NotEvaluated owner=external/stripe domain=-            offering=-            revs=1 targets=0
   support-assistant            NotEvaluated owner=support-team   domain=-            offering=-            revs=1 targets=0
-  ticketing-service            NotEvaluated owner=support-team   domain=-            offering=-            revs=2 targets=0
+  ticketing-service            NonCompliant owner=support-team   domain=-            offering=-            revs=3 targets=1
   warehouse-scanner            NotEvaluated owner=logistics-team domain=-            offering=-            revs=1 targets=0
 ```

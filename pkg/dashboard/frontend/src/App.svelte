@@ -513,7 +513,7 @@
     />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
-      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
+      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
     {/key}
   {:else if route.view === 'fleet-attention'}
     <FleetAttentionView
@@ -534,7 +534,7 @@
     <LazyView load={loadGraphView} params={route.params} {refreshTick} />
   {:else if route.view === 'changes'}
     {#key JSON.stringify(route.params)}
-      <LazyView load={loadChangeAnalysisView} params={route.params} />
+      <LazyView load={loadChangeAnalysisView} params={route.params} {deliveryState} />
     {/key}
   {:else if route.view.startsWith('delivery-')}
     <!-- Delivery: only where the cluster serves the delivery API and the dashboard

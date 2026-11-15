@@ -947,7 +947,23 @@ type AttentionItem struct {
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
 	NextStep string `json:"nextStep,omitempty"`
+	// NextAction is NextStep as an operation an existing tool makes, set in the
+	// same statement. It is inferred from the item's code: a suggestion that
+	// grants nothing.
+	NextAction *NextAction `json:"nextAction,omitempty" doc:"NextStep as an operation an existing tool makes. Pacto infers it from the item's code; it grants nothing, and the edit decides"`
 }
+
+// NextAction names the operation that fixes an attention item: a verb and the
+// tool that performs it. Only contract edits are named; the caller's own
+// permissions still decide whether the edit happens.
+type NextAction struct {
+	Verb        string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
+	Tool        string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
+	Environment string `json:"environment,omitempty" doc:"The environment the operation acts in; empty for a contract edit"`
+}
+
+// editContract is the action of every item whose next step is a contract edit.
+func editContract() *NextAction { return &NextAction{Verb: "edit-contract", Tool: "pacto_edit"} }
 
 // Attention categories (stable, used for filtering and for overview entry points).
 const (
@@ -1156,7 +1172,7 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 	for _, rel := range q.observedOnly("") {
 		from, to := q.snap.Services[rel.FromService].Name, q.snap.Services[rel.ToService].Name
 		out = append(out, AttentionItem{
-			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to,
+			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to, NextAction: editContract(),
 			Severity: severityWarning, Code: string(finding.CodeDependencyUndeclared), Category: categoryUndeclared,
 			Summary:  "Runtime call with no declared dependency",
 			Reason:   "observed calls from " + from + " to " + to + ", and no contract revision of " + from + " declares " + to,
@@ -1194,7 +1210,7 @@ func (q *Query) unownedAttention() []AttentionItem {
 			continue
 		}
 		out = append(out, AttentionItem{
-			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
+			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name, NextAction: editContract(),
 			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
 			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
 			NextStep: "Declare service.owner in the contract",
@@ -1240,7 +1256,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 	if r.validated && !r.Valid {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
-			Severity: severityError, Code: "INVALID_CONTRACT", Category: categoryInvalid,
+			Severity: severityError, Code: "INVALID_CONTRACT", Category: categoryInvalid, NextAction: editContract(),
 			Summary: "Revision contract is invalid", Reason: "the contract is structurally invalid",
 			Source: r.Source, NextStep: "Open the revision and fix the contract",
 		})
@@ -1248,7 +1264,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 	if r.Readiness == nil {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
-			Severity: severityInfo, Code: "MISSING_READINESS", Category: categoryReadiness,
+			Severity: severityInfo, Code: "MISSING_READINESS", Category: categoryReadiness, NextAction: editContract(),
 			Summary: "Revision has no readiness assessment", Reason: "the revision declares no readiness assessment",
 			Source: r.Source, NextStep: "Add a readiness assessment",
 		})
@@ -1285,6 +1301,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 			item.Summary = "Dependency version is outside the accepted range"
 			item.Reason = svc.Name + " accepts " + rel.To + " " + rel.Compatibility + ", but the fleet holds " + rel.To + " " + strings.Join(versions, ", ")
 			item.NextStep = "Ship a version of " + rel.To + " inside the range, or widen the range in " + svc.Name + "'s contract"
+			item.NextAction = editContract()
 		default:
 			continue
 		}

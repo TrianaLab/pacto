@@ -138,7 +138,7 @@ func (q *Query) deployedTemplateAttention() []AttentionItem {
 		}
 		out = append(out, AttentionItem{
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
-			Severity: severityWarning, Code: "GOLDEN_PATH_DEPLOYED", Category: categoryGoldenPath,
+			Severity: severityWarning, Code: "GOLDEN_PATH_DEPLOYED", Category: categoryGoldenPath, NextAction: editContract(),
 			Summary:  "Running service declares service.template",
 			Reason:   s.Name + " declares service.template but runs in " + targets + "; it is treated as a service",
 			NextStep: "Remove service.template from the contract of " + s.Name + ", or stop running the golden path",

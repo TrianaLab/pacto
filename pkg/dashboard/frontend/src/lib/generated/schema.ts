@@ -2782,6 +2782,20 @@ export interface components {
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
         };
+        "Fleet.NextAction": {
+            /** @description The environment the operation acts in; empty for a contract edit */
+            environment?: string;
+            /**
+             * @description The MCP tool that performs the operation
+             * @enum {string}
+             */
+            tool: "pacto_edit";
+            /**
+             * @description The operation: edit-contract changes the contract of the item's service
+             * @enum {string}
+             */
+            verb: "edit-contract";
+        };
         "Fleet.OCIReferrer": {
             artifactType: string;
             /** Format: date-time */
@@ -4164,6 +4178,8 @@ export interface components {
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
+            /** @description NextStep as an operation an existing tool makes. Pacto infers it from the item's code; it grants nothing, and the edit decides */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             nextStep?: string;
             reason: string;
             service?: string;

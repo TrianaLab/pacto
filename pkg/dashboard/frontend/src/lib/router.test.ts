@@ -307,6 +307,12 @@ describe('parseHash — fleet product IA', () => {
     expect(parseHash('#/fleet/sources/k8s')).toEqual({ view: 'fleet-entity', params: { kind: 'source', key: 'k8s' } });
   });
 
+  it('reads correlationID on a fleet entity route', () => {
+    expect(parseHash('#/fleet/targets/x?correlationID=CHG-1')).toEqual({ view: 'fleet-entity', params: { kind: 'target', key: 'x', correlationID: 'CHG-1' } });
+    expect(parseHash('#/fleet/changes/svc?correlationID=CHG-1').params.correlationID).toBe('CHG-1');
+    expect(fleetChangesUrl('svc', { new: 'b', correlationID: 'CHG-1' })).toBe('#/fleet/changes/svc?new=b&correlationID=CHG-1');
+  });
+
   it('round-trips slash- and percent-bearing canonical keys through escape/decode', () => {
     for (const key of ['domain-a/payments', 'prod/k8s/app', 'oci://ghcr.io/acme/pay@sha256:ab', 'weird%2Fkey', 'a b/c%d']) {
       const url = fleetEntityUrl('service', key);

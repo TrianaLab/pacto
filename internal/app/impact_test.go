@@ -555,3 +555,38 @@ func TestImpactEventOfferingSkipsServiceLookup(t *testing.T) {
 		t.Fatalf("offering event = %+v %v", res, err)
 	}
 }
+
+// TestService_ImpactOnSnapshot_Domain: a local edit of a service a registry
+// source keys under its domain finds that service's consumers when the caller
+// names the domain, and adds no default-domain copy with none.
+func TestService_ImpactOnSnapshot_Domain(t *testing.T) {
+	ctx := context.Background()
+	oldDir, newDir, webDir := t.TempDir(), t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	writeImpactConsumer(t, webDir, "webapp", "orders", "^1.0.0")
+	svc := NewService(nil, nil)
+	var revs []fleet.RawRevision
+	for _, dir := range []string{oldDir, webDir} {
+		b, err := svc.resolveBundleWithOverrides(ctx, dir, ImpactOptions{}.OldOverrides)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revs = append(revs, fleet.RawRevision{Bundle: b, Domain: "ghcr.io/acme", Digest: "sha256:" + b.Contract.Service.Name})
+	}
+	snap, err := fleet.Build(ctx, fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: revs}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.ImpactOnSnapshot(ctx, ImpactOptions{OldPath: oldDir, NewPath: newDir, Domain: "ghcr.io/acme"}, snap, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NewRevisionAdded || len(res.Consumers) != 1 || res.Consumers[0].Service != "webapp" {
+		t.Fatalf("added %v, consumers %+v", res.NewRevisionAdded, res.Consumers)
+	}
+	// Without the domain the local path keys a default-domain copy no one depends on.
+	if copied, err := svc.ImpactOnSnapshot(ctx, ImpactOptions{OldPath: oldDir, NewPath: newDir}, snap, true); err != nil || !copied.NewRevisionAdded || len(copied.Consumers) != 0 {
+		t.Fatalf("err %v, without a domain %+v", err, copied)
+	}
+}

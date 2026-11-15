@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { session, me, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
-    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
+    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, samePerson } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -253,7 +253,7 @@
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
       <SignInLink hash={location.hash} class="btn btn-sm btn-primary">Sign in</SignInLink>
-    {:else if me().user && (me().user === op.spec?.actor?.user || me().user === op.spec?.onBehalfOf?.user)}
+    {:else if samePerson(me().user, op.spec?.actor?.user) || samePerson(me().user, op.spec?.onBehalfOf?.user)}
       <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}
       <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({me().user}), and agents may not decide.</p>

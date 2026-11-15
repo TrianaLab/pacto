@@ -20,14 +20,16 @@
 # resources consumers request. catalog-service 1.3.0 requests its database by
 # configuration reference, and the adapter last reported it Ready in production.
 # orders-service depends on postgresql, and the adapter could not observe that
-# resource (outcome Insufficient), so its status is Unknown. Each entry names the
-# consumer revision by its content digest, the digest `pacto fleet --local` gives
-# its bundle directory. File entries are unsigned, and every surface says so.
-# Both reports carry the same fixed date as the targets, so they read the same
-# on every run: older than the provisioning window (24h), catalog-service's
-# database reads Unknown with reportedPhase Ready, which is the freshness rule at
-# work. A wider --freshness, such as 100000h, shows it Ready. The in-browser demo
-# dates the same reports 30 minutes before it loads, so it shows them current.
+# resource (outcome Insufficient), so its status is Unknown. The adapter could
+# not provision ticketing-service 1.2.0's postgresql-ha database in staging, so
+# that request reads Failed. Each entry names the consumer revision by its
+# content digest, the digest `pacto fleet --local` gives its bundle directory.
+# File entries are unsigned, and every surface says so. All three reports carry
+# the same fixed date as the targets, so they read the same on every run:
+# older than the provisioning window (24h), catalog-service's database reads
+# Unknown with reportedPhase Ready, which is the freshness rule at work. A
+# wider --freshness, such as 100000h, shows it Ready. The in-browser demo dates
+# the same reports 30 minutes before it loads, so it shows them current.
 schemaVersion: pacto.dev/fleet-targets/v2
 targets:
   - scope: production-eu
@@ -157,6 +159,60 @@ targets:
         subjectName: health
         message: capability "health" answered but reports it is not healthy
 
+  # The postgresql offering has two providers. postgresql runs 16.1.0 in
+  # production and in staging, where its evidence is the oldest of the
+  # offering's; postgresql-ha runs in production only. ticketing-service 1.2.0
+  # in staging reports it cannot reach postgresql-ha, so with no postgresql-ha
+  # target there, the consumer report is what says it is unavailable (inferred).
+  # Availability reads only fresh evidence, so under a short freshness window
+  # every one of these reads unknown; the in-browser demo dates them current.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: data/postgresql
+    service: postgresql
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
+
+  - scope: staging
+    kind: kubernetes-workload
+    name: data/postgresql
+    service: postgresql
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-20T08:00:00Z
+    labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
+
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: data/postgresql-ha
+    service: postgresql-ha
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql-ha:1.0.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
+
+  - scope: staging
+    kind: kubernetes-workload
+    name: support/ticketing-service
+    service: ticketing-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/ticketing-service:1.2.0
+    compliance: NonCompliant
+    coverage: { evaluated: 4, required: 4 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
+    findings:
+      - code: DEPENDENCY_UNREACHABLE
+        severity: error
+        category: RuntimeDrift
+        subjectKind: dependency
+        subjectName: postgresql-ha
+        message: dependency "postgresql-ha" is unreachable
+
 provisioning:
   - service: catalog-service
     digest: sha256:32b570087a9cd70b16772e9cb5d3cbc1a6aea6fc31b1c021d9d848c10424b518
@@ -173,6 +229,19 @@ provisioning:
     kind: dependency
     name: postgresql
     outcome: Insufficient
+    producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
+
+  # The platform adapter could not provision ticketing-service 1.2.0's
+  # postgresql-ha database in staging: the offering's one failed request.
+  - service: ticketing-service
+    digest: sha256:501814592279d10aa10c96b6556407372f241818e18cd94c9bf471f5a63aed38
+    kind: dependency
+    name: postgresql-ha
+    environment: staging
+    provider: platform-db
+    externalRef: databases/ticketing-staging
+    phase: Failed
     producer: platform-adapter
     observedAt: 2026-07-29T09:40:00Z
 
