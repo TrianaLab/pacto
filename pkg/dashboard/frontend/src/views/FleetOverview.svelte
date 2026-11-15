@@ -494,9 +494,12 @@
   .ov-scopes td { font-variant-numeric: tabular-nums; }
   .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
   .ov-scopes .ov-warn { font-weight: 600; }
-  /* Two header rows: the whole head sticks, so the unit row never slides under the group row. */
-  .ov-domains thead { position: sticky; top: var(--navbar-h); z-index: 2; }
-  .ov-domains thead th { position: static; }
+  /* Two header rows: the whole head sticks, so the unit row never slides under the group
+     row. Only while it is a table: as cards (dtable-xl, components.css) the head is hidden. */
+  @container dtable-xl (width > calc(80ch + 23rem)) {
+    .ov-domains thead { position: sticky; top: var(--navbar-h); z-index: 2; }
+    .ov-domains thead th { position: static; }
+  }
   .ov-domains thead th[scope='colgroup'] { text-align: center; }
   .ov-caption { margin: 0; color: var(--c-text-2); }
   .ov-caption a { color: var(--c-accent); text-decoration: underline; }
