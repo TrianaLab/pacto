@@ -53,7 +53,7 @@ func statsTool() *mcpsdk.Tool {
 			"until":    {Type: "string", Description: "End of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)"},
 			"by":       {Type: "string", Description: "Group the numbers by", Enum: stats.GroupBy},
 			"service":  {Type: "string", Description: "Total only the run records of this service: the contract's service.name, or a fleet service key the snapshot resolves to it"},
-			"kinds":    {Type: "string", Description: "Comma-separated run-record kinds, for example diff,impact"},
+			"kinds":    {Type: "string", Description: "Comma-separated run-record kinds: diff, impact, publish, operation or coverage"},
 		}, nil),
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -868,7 +869,14 @@ func TestFleetAttentionToolDescribesProvisioning(t *testing.T) {
 // TestFleetStatusToolNeverRecords pins that pacto_fleet_status has no
 // run-record path: only pacto fleet status, with its own flag, writes coverage.
 func TestFleetStatusToolNeverRecords(t *testing.T) {
-	for _, f := range []string{"fleet.go", "server.go", "tools.go"} {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob: %v", err)
+	}
+	for _, f := range files {
+		if f == "stats.go" || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
