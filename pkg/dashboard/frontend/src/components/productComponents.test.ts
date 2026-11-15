@@ -282,6 +282,18 @@ describe('OperationalSummary', () => {
     expect(entry.className).toContain('tone-ok');
   });
 
+  // The subtitle counts the items the lead tile's services hold, read from the lead
+  // entry point; an engine without itemCount falls back to the attention total.
+  it('says how many items the lead tile services hold', () => {
+    const props = summaryProps();
+    props.entryPoints = props.entryPoints.map((ep) => (ep.category ? ep : { ...ep, itemCount: 1 }));
+    comp = mount(OperationalSummary, { target, props });
+    expect(target.querySelector('.tile-lead .tile-sub')?.textContent).toBe('1 attention item');
+    unmount(comp); comp = null;
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
+    expect(target.querySelector('.tile-lead .tile-sub')?.textContent).toBe('6 attention items');
+  });
+
   // A grade a newer engine spells differently must not quietly become a footnote: only
   // the grades this build can read AS milder than an error are allowed to be compacted.
   it('promotes an entry point whose grade this build does not recognise', () => {
