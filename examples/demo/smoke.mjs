@@ -292,6 +292,11 @@ const reached = json(call("GET", storyPayments + "&reached=true")).service?.chan
 const unread = json(call("GET", storyPayments)).service?.changes || {};
 check("story payments changes carry reached times from records",
   reached.times === "read" && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)), `times=${reached.times}`);
+// The tour step says "2.3.0 reached prod and 3.0.0 reached test": keep it true.
+const reachedOn = (v, ns) => (reached.items || []).some((e) => e.revision?.version === v && (e.reached || []).some((r) => r.namespace === ns && !!r.record));
+check("story payments 2.3.0 reached prod and 3.0.0 reached test, as the tour says",
+  reachedOn("2.3.0", "prod") && reachedOn("3.0.0", "test"),
+  JSON.stringify((reached.items || []).map((e) => [e.revision?.version, (e.reached || []).map((r) => r.namespace + "/" + r.stage)])));
 check("without reached no delivery is read and the changes are the same",
   unread.times === "not-read" && unread.total === reached.total && !(unread.items || []).some((e) => e.reached), `times=${unread.times} total=${unread.total}/${reached.total}`);
 // What each Stage ran at a past time comes only from signed records (at): the

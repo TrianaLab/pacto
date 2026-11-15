@@ -51,7 +51,7 @@ func tourSteps(t *testing.T, name string) []tourStep {
 	body = body[:strings.Index(body, "\n  }];")]
 	titleRe := regexp.MustCompile(`title: "([^"]+)"`)
 	textRe := regexp.MustCompile(`text: (?:NOTICE \+ )?"([^"]+)"`)
-	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+),$`)
+	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+?),?$`)
 	var out []tourStep
 	for _, chunk := range strings.Split(body, "\n  }, {\n") {
 		// A step that waits on the system (observe) asks the reader for nothing.
