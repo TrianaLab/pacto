@@ -277,6 +277,9 @@ Controller arguments derived from values
 - --dashboard-mira-url={{ . }}
 {{- end }}
 {{- end }}
+{{- with (($.Values.dashboard.stats | default dict).registry) }}
+- --dashboard-stats-registry={{ . }}
+{{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}
 {{- $backing := "" }}

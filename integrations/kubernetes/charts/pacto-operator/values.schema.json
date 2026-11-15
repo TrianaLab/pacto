@@ -543,6 +543,13 @@
             "miraURL": { "type": "string" }
           }
         },
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string" }
+          }
+        },
         "observation": {
           "type": "object",
           "additionalProperties": false,

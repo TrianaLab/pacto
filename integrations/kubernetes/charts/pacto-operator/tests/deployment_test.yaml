@@ -637,3 +637,32 @@ tests:
           content:
             name: PACTO_INSECURE_REGISTRIES
             value: "pacto-registry.pacto-system.svc.cluster.local:5000,other.svc:5000"
+
+  - it: should point the dashboard at a stats repository with delivery left at its defaults
+    set:
+      dashboard.enabled: true
+      dashboard.stats.registry: ghcr.io/acme/pacto-stats
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-stats-registry=ghcr.io/acme/pacto-stats
+
+  - it: should pass the stats repository beside the delivery settings
+    set:
+      dashboard.enabled: true
+      dashboard.stats.registry: ghcr.io/acme/pacto-stats
+      dashboard.delivery.miraURL: http://mira:4318
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-stats-registry=ghcr.io/acme/pacto-stats
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mira-url=http://mira:4318
+
+  - it: should name no stats repository by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].args[?(@ =~ /^--dashboard-stats-registry=/)]
