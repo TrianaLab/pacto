@@ -165,3 +165,15 @@ func TestFleetStatusCoverageFilePublishes(t *testing.T) {
 		t.Fatalf("err %v, calls %+v, out %s, stderr %s", err, calls, out, stderr)
 	}
 }
+
+// A snapshot narrowed to one namespace is no fleet-wide coverage.
+func TestFleetStatusCoverageRefusesNamespace(t *testing.T) {
+	statsOff(t)
+	root, ev := testutil.ImpactFleet(t, "^1.0.0")
+	var calls []statsCall
+	_, stderr, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil,
+		"fleet", "status", "--local", root, "--target-state", ev, "--namespace", "team-a", "--stats-registry", "reg.example/acme/stats")
+	if err != nil || len(calls) != 0 || !strings.Contains(stderr, "coverage run record not written") {
+		t.Fatalf("err %v, calls %d, stderr %s", err, len(calls), stderr)
+	}
+}

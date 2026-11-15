@@ -174,7 +174,9 @@ actor, approver, note, message, citation or correlation id.
   ignores `PACTO_STATS_REGISTRY` and `PACTO_STATS_FILE`;
 - best effort, like the other commands: a failure prints a warning and leaves
   the exit code unchanged;
-- fleet-wide: its `service` is always `_fleet`, a name no contract can declare;
+- fleet-wide: its `service` is always `_fleet`, a name no contract can declare.
+  A run with `--namespace` writes none, and every scheduled run should read
+  the same sources, since readers take the newest record whatever read it;
 - with an `id` over `coverage`, `_fleet`, an empty old revision and the
   snapshot's `snapshotAsOf`, so one snapshot recorded twice counts once;
 - with no `outcome`, CI-only key, `environment` or operation key;
