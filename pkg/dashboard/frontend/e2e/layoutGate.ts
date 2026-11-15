@@ -205,10 +205,25 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
-      scaleTally(s.ownership as Record<string, number>, 5000);
+      s.ownership = { consistent: 3120, conflicting: 640, unowned: 1060, unknown: 180 };
       s.degradedSources = 2; s.staleSources = 2; s.unavailableSources = 2;
+      // The health and knowledge bands and the domain table at fleet scale: every
+      // count four digits, every gap kind present and long domain names.
+      Object.assign(s, {
+        targets: 9000, compliantTargets: 6100, staleCompliantTargets: 1240, nonCompliantTargets: 1200, unknownTargets: 1700,
+        warningTargets: 0, invalidTargets: 0, referenceTargets: 0, notEvaluatedTargets: 0, otherComplianceTargets: 0,
+        exactTargetLinks: 7000, inferredTargetLinks: 1200, ambiguousTargetLinks: 500, unresolvedTargetLinks: 300,
+        evidence: { withEvidence: 8100, withoutEvidence: 900, stale: 1500 },
+      });
+      s.operationalHealth = { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 };
+      s.knowledge = { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+        gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } };
+      s.coverage = { evaluated: 81200, required: 96400, reporting: 7900, notReporting: 1100 };
+      const row = { targets: 2100, nonCompliant: 1300, failingHealth: 1100, unknown: 1400, stale: 1250, notDeployed: 1020, withGaps: 1900, unowned: 1080, ownerUnknown: 1010 };
+      s.byDomain = [...NC_DOMAINS.map(([domain], i) => ({ ...row, domain, services: 1200 - i * 100 })),
+        { ...row, domain: '', domainUnknown: true, services: 1400 }, { ...row, domain: '', services: 1100 }];
       const at = doc.attention as Record<string, unknown>;
-      if (at) at.total = 2400;
+      if (at) { at.total = 2400; at.actionable = 1900; }
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);

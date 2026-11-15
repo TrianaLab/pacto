@@ -316,10 +316,13 @@ func stringsPreview(ss []string) StringsPreview {
 
 // AttentionPreview is a bounded preview of attention items.
 type AttentionPreview struct {
-	Total     int             `json:"total"`
-	Count     int             `json:"count"`
-	Truncated bool            `json:"truncated"`
-	Items     []AttentionItem `json:"items"`
+	Total     int  `json:"total"`
+	Count     int  `json:"count"`
+	Truncated bool `json:"truncated"`
+	// Actionable counts the matched items above info severity: what the
+	// navigation badge shows, so documentation gaps never inflate it.
+	Actionable int             `json:"actionable"`
+	Items      []AttentionItem `json:"items"`
 }
 
 // attentionPreviewFromList builds a bounded attention preview from an ALREADY
@@ -330,7 +333,7 @@ type AttentionPreview struct {
 // and Truncated so the preview reports the true total.
 func attentionPreviewFromList(l *AttentionList) AttentionPreview {
 	it, _, capTrunc := boundSlice(l.Items, MaxDetailPreview)
-	return AttentionPreview{Total: l.Total, Count: len(it), Truncated: l.Truncated || capTrunc, Items: it}
+	return AttentionPreview{Total: l.Total, Count: len(it), Truncated: l.Truncated || capTrunc, Actionable: l.Total - l.Severities.Infos, Items: it}
 }
 
 // ReadinessCheck is the product-shaped view of one derived readiness check. It

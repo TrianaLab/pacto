@@ -155,7 +155,7 @@ describe('FleetOverview — domain breakdown', () => {
         services: 5, revisions: 5, targets: 4, servicesNeedingAttention: 0,
         byScope: [{ scope: 'prod', targets: 4, nonCompliant: 1, unknown: 0, stale: 0 }, { scope: 'dev', targets: 0, nonCompliant: 0, unknown: 0, stale: 0 }], scopes: 2,
         byDomain: [
-          { domain: 'commerce', services: 3, targets: 4, nonCompliant: 1, unknown: 0, stale: 0, unowned: 1 },
+          { domain: 'commerce', services: 3, targets: 4, nonCompliant: 1, failingHealth: 2, unknown: 0, stale: 0, notDeployed: 1, withGaps: 2, unowned: 1, ownerUnknown: 1 },
           { domain: '', domainUnknown: true, services: 1, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 0 },
           { domain: '', services: 2, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 2 },
         ],
@@ -167,8 +167,29 @@ describe('FleetOverview — domain breakdown', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-by-domain"]')).toBeTruthy());
     expect(target.querySelector('[data-testid="overview-by-scope"] thead th')?.textContent).toBe('Scope');
     const table = target.querySelector('[data-testid="overview-by-domain"]') as HTMLElement;
-    expect(Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent))
-      .toEqual(['Domain', 'Services', 'Targets', 'Not compliant', 'Unknown', 'Stale', 'No owner']);
+    // Columns grouped by unit: target counts under Targets, service counts under Services.
+    const [groups, units] = Array.from(table.querySelectorAll('thead tr'));
+    expect(Array.from(groups.querySelectorAll('th')).map((th) => [th.textContent, th.getAttribute('scope'), th.getAttribute('colspan')]))
+      .toEqual([['Domain', 'col', null], ['Services', 'col', null], ['Targets', 'colgroup', '5'], ['Services', 'colgroup', '4']]);
+    expect(Array.from(units.querySelectorAll('th')).map((th) => th.textContent))
+      .toEqual(['Targets', 'Not compliant', 'Failing', 'Unknown', 'Stale', 'Runs nowhere', 'Gaps', 'No owner', 'Owner unknown']);
+    expect(table.querySelector('colgroup')?.innerHTML).not.toMatch(/width: \d+%/);
+    expect(table.closest('.data-scroll')?.classList.contains('cq-cards-xl')).toBe(true);
+    // The narrow form reads each cell's group and unit from its data-label.
+    expect(Array.from(table.querySelectorAll('tbody tr:first-child td')).map((td) => td.getAttribute('data-label'))).toEqual([
+      'Services', 'Targets: all', 'Targets: not compliant', 'Targets: failing', 'Targets: unknown', 'Targets: stale',
+      'Services: runs nowhere', 'Services: gaps', 'Services: no owner', 'Services: owner unknown',
+    ]);
+    // A non-zero count opens the list it counts, scoped to the domain.
+    const cellLinks = Array.from(table.querySelectorAll('tbody tr:first-child td a')).map((a) => a.getAttribute('href'));
+    expect(cellLinks).toEqual([
+      '#/fleet/services?businessDomain=commerce',
+      '#/fleet/attention?category=non-compliant&businessDomain=commerce',
+      '#/fleet/attention?category=health&businessDomain=commerce',
+      '#/fleet/services?gap=not-deployed&businessDomain=commerce',
+      '#/fleet/services?ownership=unowned&businessDomain=commerce',
+      '#/fleet/services?ownership=unknown&businessDomain=commerce',
+    ]);
     const rows = table.querySelectorAll('tbody tr');
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/domains/commerce');
     const unknown = rows[1] as HTMLElement;

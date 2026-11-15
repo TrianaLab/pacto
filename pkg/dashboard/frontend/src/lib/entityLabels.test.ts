@@ -8,7 +8,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy,
+  collectorLabel, seenBy, splitEntryPoints,
 } from './entityLabels.ts';
 import { statusLabel } from './format.ts';
 
@@ -236,5 +236,20 @@ describe('GAP_WORDS', () => {
     const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
     const gap = spec.paths['/api/fleet/entities'].get.parameters.find((p: { name: string }) => p.name === 'gap');
     expect(Object.keys(GAP_WORDS)).toEqual(gap.schema.enum);
+  });
+});
+
+describe('splitEntryPoints', () => {
+  it('leads with a failing health check whatever its grade, and keeps knowledge gaps secondary', () => {
+    const eps = [
+      { view: 'attention', severity: 'warning' },
+      { view: 'attention', category: 'non-compliant', severity: 'error' },
+      { view: 'attention', category: 'health', severity: 'warning' },
+      { view: 'attention', category: 'stale', severity: 'warning' },
+      { view: 'attention', category: 'knowledge', severity: 'info' },
+    ];
+    const { lead, secondary } = splitEntryPoints(eps);
+    expect(lead.map((e) => e.category)).toEqual(['non-compliant', 'health']);
+    expect(secondary.map((e) => e.category)).toEqual(['stale', 'knowledge']);
   });
 });

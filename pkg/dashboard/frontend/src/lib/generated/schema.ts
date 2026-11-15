@@ -4186,6 +4186,8 @@ export interface components {
         };
         ProductAttentionPreview: {
             /** Format: int64 */
+            actionable: number;
+            /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttentionItem"][] | null;
             /** Format: int64 */

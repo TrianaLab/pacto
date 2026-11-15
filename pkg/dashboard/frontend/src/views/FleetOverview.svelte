@@ -3,14 +3,14 @@
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
+  import { splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN, NO_DOMAIN, GAP_WORDS } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
-  import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs } from '../lib/distributions.ts';
+  import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs, healthSegments, knowledgeSegments, KNOWLEDGE_GAPS } from '../lib/distributions.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
   import { loadTrustFigure, loadKnowsExplainer } from '../lib/lazyFigures.ts';
-  import { joinAnd, problemPhrase } from '../lib/answers.ts';
+  import { joinAnd, problemPhrase, healthCaption, knowledgeCaption } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -105,7 +105,10 @@
   const invalidGoldenPaths = $derived(s.invalidGoldenPaths || 0);
   const isEmptyFleet = $derived(!!overview && totalServices === 0 && goldenPaths === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
-  const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));
+  // A failing or unknown health check withholds it too, whatever the attention count.
+  const health = $derived(s.operationalHealth ?? {});
+  const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal, health));
+  const healthUnknown = $derived(health.unknown || 0);
   // "All clear" is a claim about the attention BACKLOG. "Every operational target is
   // compliant" is a separate, universally-quantified claim about the target
   // population, and the two do not coincide: attention fires on non-compliant,
@@ -152,6 +155,7 @@
       reference: s.referenceTargets,
       notEvaluated: s.notEvaluatedTargets,
       other: s.otherComplianceTargets,
+      staleCompliant: s.staleCompliantTargets,
     },
     links: {
       exact: s.exactTargetLinks,
@@ -178,9 +182,27 @@
     expired: fleetEntityListUrl('revision', { readiness: 'expired' }),
     notDeclared: fleetEntityListUrl('revision', { readiness: 'not-declared' }),
   }));
+
+  // Operational health: each target's own health check, over every target. Failing is
+  // an observed problem with its own triage list; unknown is a gap in what Pacto sees.
+  const healthSegs = $derived(healthSegments(health, { unavailable: fleetAttentionUrl({ category: 'health' }) }));
+  // Knowledge: what the contracts leave out, over every service that is no golden path.
+  // `knowledge` above is the snapshot's source completeness, a different question.
+  const contractKnowledge = $derived(s.knowledge ?? {});
+  const knowledgeSegs = $derived(knowledgeSegments(contractKnowledge, { unknown: fleetServicesUrl({ gap: 'unknown' }) }));
+  // One row per gap kind a service has; a kind no service has is not listed.
+  const gapRows = $derived(KNOWLEDGE_GAPS.map((g) => ({ ...g, label: GAP_WORDS[g.value], count: contractKnowledge.gaps?.[g.field] || 0 })).filter((g) => g.count > 0));
+  const coverage = $derived(s.coverage ?? {});
+  // A domain row's filter value: its slug, or the No domain and Domain unknown groups.
+  const domainFilter = (dt) => dt.domain || (dt.domainUnknown ? UNKNOWN_DOMAIN : NO_DOMAIN);
 </script>
 
 <div class="product-page">
+  <!-- A count that opens the list it counts, when there is anything in it. -->
+  {#snippet cnt(v, href)}
+    {#if v > 0}<a href={href}>{formatCount(v)}</a>{:else}{formatCount(v || 0)}{/if}
+  {/snippet}
+
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
   <PageHeader glyph="snapshot" title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} backdrop={pageState.kind === 'ready'} />
 
@@ -208,7 +230,11 @@
         {/if}
       </p>
     {:else}
-      <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
+      {#if attentionTotal === 0 && healthUnknown > 0}
+        <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found.</strong> Pacto cannot tell the health of {formatCount(healthUnknown)} operational {healthUnknown === 1 ? 'target' : 'targets'}.</p>
+      {:else}
+        <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
+      {/if}
     {/if}
     <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone={knowledge.level === 'unavailable' ? 'warn' : ''} />
   </div>
@@ -271,29 +297,39 @@
           <div class="ov-title"><h2 id="ov-domains" class="t-section-title">Domains</h2><HelpTip label="domains" text="The business domain each service declares in its contract. Services that declare none are under No domain, and those whose domain Pacto cannot tell under Domain unknown." /></div>
           <a class="ov-viewall" href={fleetDomainsUrl()}>See every domain</a>
         </div>
-        <div class="data-scroll">
-          <table class="data-table ov-scopes" data-testid="overview-by-domain">
+        <div class="data-scroll cq-cards cq-cards-xl">
+          <table class="data-table ov-scopes ov-domains" data-testid="overview-by-domain">
             <caption class="visually-hidden">Services by domain, the most broken first</caption>
-            <colgroup><col style="width: 22%" /><col /><col /><col /><col /><col /><col /></colgroup>
-            <thead><tr><th scope="col">Domain</th><th scope="col">Services</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">No owner</th></tr></thead>
+            <!-- Every column has a floor (its words and the cell padding), so none collapses beside the
+                 others; below the floors' sum (80ch + 23rem) the table turns into cards (components.css, dtable-xl). -->
+            <colgroup><col style="width: max(8rem, 12%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /></colgroup>
+            <thead>
+              <tr><th scope="col" rowspan="2">Domain</th><th scope="col" rowspan="2">Services</th><th scope="colgroup" colspan="5">Targets</th><th scope="colgroup" colspan="4">Services</th></tr>
+              <tr><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Failing</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">Runs nowhere</th><th scope="col">Gaps</th><th scope="col">No owner</th><th scope="col">Owner unknown</th></tr>
+            </thead>
             <tbody>
               {#each domains as dt (dt.domainUnknown ? UNKNOWN_DOMAIN : dt.domain)}
+                {@const bd = domainFilter(dt)}
                 <tr class:ov-none-row={!dt.domain}>
                   <th scope="row">
                     {#if dt.domain}
-                      <a class="cell-clip" href={fleetEntityUrl('domain', dt.domain)} title={dt.domain}>{dt.domain}</a>
+                      <a class="cell-clip" href={fleetEntityUrl('domain', dt.domain)} title={dt.domain}><bdi>{dt.domain}</bdi></a>
                     {:else if dt.domainUnknown}
                       <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: UNKNOWN_DOMAIN })} title="Services whose domain Pacto cannot tell">{businessDomainLabel(UNKNOWN_DOMAIN)}</a>
                     {:else}
-                      <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: '(none)' })} title="Services with no declared domain">No domain</a>
+                      <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: NO_DOMAIN })} title="Services with no declared domain">No domain</a>
                     {/if}
                   </th>
-                  <td data-label="Services">{formatCount(dt.services)}</td>
-                  <td data-label="Targets">{formatCount(dt.targets)}</td>
-                  <td data-label="Not compliant" class:ov-bad={dt.nonCompliant > 0}>{formatCount(dt.nonCompliant)}</td>
-                  <td data-label="Unknown">{formatCount(dt.unknown)}</td>
-                  <td data-label="Stale">{formatCount(dt.stale)}</td>
-                  <td data-label="No owner">{formatCount(dt.unowned)}</td>
+                  <td data-label="Services">{@render cnt(dt.services, fleetServicesUrl({ businessDomain: bd }))}</td>
+                  <td data-label="Targets: all">{formatCount(dt.targets)}</td>
+                  <td data-label="Targets: not compliant" class:ov-bad={dt.nonCompliant > 0}>{@render cnt(dt.nonCompliant, fleetAttentionUrl({ category: 'non-compliant', businessDomain: bd }))}</td>
+                  <td data-label="Targets: failing" class:ov-warn={dt.failingHealth > 0}>{@render cnt(dt.failingHealth, fleetAttentionUrl({ category: 'health', businessDomain: bd }))}</td>
+                  <td data-label="Targets: unknown">{@render cnt(dt.unknown, fleetAttentionUrl({ category: 'unknown', businessDomain: bd }))}</td>
+                  <td data-label="Targets: stale">{@render cnt(dt.stale, fleetAttentionUrl({ category: 'stale', businessDomain: bd }))}</td>
+                  <td data-label="Services: runs nowhere">{@render cnt(dt.notDeployed, fleetServicesUrl({ gap: 'not-deployed', businessDomain: bd }))}</td>
+                  <td data-label="Services: gaps">{formatCount(dt.withGaps || 0)}</td>
+                  <td data-label="Services: no owner">{@render cnt(dt.unowned, fleetServicesUrl({ ownership: 'unowned', businessDomain: bd }))}</td>
+                  <td data-label="Services: owner unknown">{@render cnt(dt.ownerUnknown, fleetServicesUrl({ ownership: 'unknown', businessDomain: bd }))}</td>
                 </tr>
               {/each}
             </tbody>
@@ -309,6 +345,20 @@
         <span class="ov-tally t-body-2">{formatCount(totalTargets)} operational {totalTargets === 1 ? 'target' : 'targets'}</span>
       </div>
       <PostureBars summary={posture} {attentionUrl} />
+    </section>
+
+    <section class="band" id="sec-health" data-toc="Operational health" aria-labelledby="ov-health">
+      <div class="ov-head">
+        <div class="ov-title"><h2 id="ov-health" class="t-section-title">Operational health</h2><HelpTip label="operational health" text="A target's own health check, answered on its own. Failing is an observed problem; unknown means Pacto cannot tell. Neither changes compliance." /></div>
+      </div>
+      <DistributionBar
+        title="Health checks"
+        scopeNote={`All ${formatCount(totalTargets)} operational ${totalTargets === 1 ? 'target' : 'targets'}.`}
+        segments={healthSegs}
+        total={totalTargets}
+        emptyLabel="Nothing running has been observed yet, so there is no health picture."
+      />
+      {#if healthCaption(health)}<p class="ov-caption t-body-2" data-testid="health-caption">{healthCaption(health)}</p>{/if}
     </section>
 
     <section class="band" id="sec-org" data-toc="Ownership and readiness" aria-labelledby="ov-org">
@@ -344,6 +394,32 @@
           emptyLabel="No contract revisions are tracked yet, so there is no readiness picture."
         />
       </div>
+    </section>
+
+    <section class="band" id="sec-knowledge" data-toc="Knowledge" aria-labelledby="ov-knowledge">
+      <div class="ov-head">
+        <div class="ov-title"><h2 id="ov-knowledge" class="t-section-title">Knowledge</h2><HelpTip label="knowledge" text="What the contracts leave out: a summary, a domain, an interface document, a readiness assessment or a place to run. Unknown means Pacto could not read enough to tell." /></div>
+      </div>
+      <DistributionBar
+        title="How much the contracts say"
+        scopeNote={`All ${formatCount(contractKnowledge.services ?? totalServices)} ${(contractKnowledge.services ?? totalServices) === 1 ? 'service' : 'services'}, golden paths apart.`}
+        segments={knowledgeSegs}
+        total={contractKnowledge.services ?? totalServices}
+        emptyLabel="No services are tracked yet, so there is no knowledge picture."
+      />
+      {#if knowledgeCaption(contractKnowledge)}<p class="ov-caption t-body-2" data-testid="knowledge-caption">{knowledgeCaption(contractKnowledge)}</p>{/if}
+      {#if gapRows.length}
+        <ul class="ov-gaps" data-testid="knowledge-gaps" aria-label="Services per knowledge gap">
+          {#each gapRows as g (g.value)}
+            <li><a href={fleetServicesUrl({ gap: g.value })}><span class="ov-gap-label">{g.label}</span><span class="ov-gap-count" data-nofilter>{formatCount(g.count)}</span></a></li>
+          {/each}
+        </ul>
+      {/if}
+      {#if coverage.reporting || coverage.notReporting}
+        <p class="ov-caption t-body-2" data-testid="coverage-sentence">
+          {formatCount(coverage.evaluated || 0)} of {formatCount(coverage.required || 0)} required assertions evaluated on {formatCount(coverage.reporting || 0)} {coverage.reporting === 1 ? 'target' : 'targets'}{#if coverage.notReporting}; <a href={fleetEntityListUrl('target')}>{formatCount(coverage.notReporting)} {coverage.notReporting === 1 ? 'reports' : 'report'} no coverage</a>{/if}.
+        </p>
+      {/if}
     </section>
 
     <!-- Data sources are SECONDARY but not a footnote: every count above this point is
@@ -417,6 +493,17 @@
   .ov-viewall:hover { text-decoration: underline; }
   .ov-scopes td { font-variant-numeric: tabular-nums; }
   .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
+  .ov-scopes .ov-warn { font-weight: 600; }
+  /* Two header rows: the whole head sticks, so the unit row never slides under the group row. */
+  .ov-domains thead { position: sticky; top: var(--navbar-h); z-index: 2; }
+  .ov-domains thead th { position: static; }
+  .ov-domains thead th[scope='colgroup'] { text-align: center; }
+  .ov-caption { margin: 0; color: var(--c-text-2); }
+  .ov-caption a { color: var(--c-accent); text-decoration: underline; }
+  .ov-gaps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-1) var(--sp-4); }
+  .ov-gaps a { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); color: var(--c-text); text-decoration: none; border: 1px solid var(--c-border); }
+  .ov-gaps a:hover, .ov-gaps a:focus-visible { border-color: var(--c-accent); }
+  .ov-gap-count { font-variant-numeric: tabular-nums; font-weight: 600; }
   .ov-scopes a { color: var(--c-accent); }
   /* No domain is a neutral fact: muted, never the accent or an ok tone. */
   .ov-scopes a.ov-none { color: var(--c-text-2); font-style: italic; }

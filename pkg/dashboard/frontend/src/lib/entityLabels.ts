@@ -236,11 +236,15 @@ export function severityTone(s: string | undefined): Tone {
 
 /** Entry points worth a tile or a chip on the overview: drops the uncategorised
  *  attention one (the lead tile's own number).
- *  Errors and any grade this build cannot read lead; warning and info follow. */
+ *  Errors, any grade this build cannot read and failing health checks lead; the
+ *  other warning and info entries follow. */
 export function splitEntryPoints<T extends { view?: string; category?: string; severity?: string }>(eps: T[] = []): { lead: T[]; secondary: T[] } {
   const shown = eps.filter((ep) => !(ep.view === 'attention' && !ep.category));
   const milder = (ep: T) => ep.severity === 'warning' || ep.severity === 'info';
-  return { lead: shown.filter((ep) => !milder(ep)), secondary: shown.filter(milder) };
+  // A failing health check is an observed problem, so it leads whatever its grade:
+  // under "Not broken, worth a look" it would read as not broken.
+  const leads = (ep: T) => !milder(ep) || ep.category === 'health';
+  return { lead: shown.filter(leads), secondary: shown.filter((ep) => !leads(ep)) };
 }
 
 // ── source health ────────────────────────────────────────────────────────────

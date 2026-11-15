@@ -37,6 +37,8 @@
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
     'Incomplete sources': 'incomplete sources',
     'Services with no declared owner': 'services with no owner',
+    'Operational targets failing their health check': 'failing health checks',
+    'Gaps in what the contracts say': 'knowledge gaps',
   };
   const shortLabel = (label) => SHORT[label] ?? label;
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }

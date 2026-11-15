@@ -42,6 +42,8 @@
     nonCompliant: href('non-compliant'),
     unknown: href('unknown'),
     invalid: href('invalid'),
+    // Compliant on stale evidence: the stale list names those targets.
+    staleCompliant: href('stale'),
   }));
   // Revision-match buckets have no destination: attention `unresolved` lists unresolved
   // DEPENDENCIES, and no list filters targets by revision-match state.

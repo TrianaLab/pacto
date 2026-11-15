@@ -250,6 +250,21 @@ describe('OperationalSummary', () => {
     expect(sec[2].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=incomplete');
   });
 
+  it('leads with failing health checks and keeps knowledge gaps a secondary chip', () => {
+    const p = summaryProps();
+    p.entryPoints.push(
+      { label: 'Operational targets failing their health check', count: 2, view: 'attention', category: 'health', severity: 'warning', href: '/fleet/attention?category=health' },
+      { label: 'Gaps in what the contracts say', count: 9, view: 'attention', category: 'knowledge', severity: 'info', href: '/fleet/attention?category=knowledge' },
+    );
+    comp = mount(OperationalSummary, { target, props: p });
+    const health = Array.from(target.querySelectorAll('.tile-grid a.tile')).find((t) => t.textContent?.includes('health check')) as HTMLAnchorElement;
+    expect(health.getAttribute('href')).toBe('#/fleet/attention?category=health');
+    const chip = Array.from(target.querySelectorAll('.op-secondary a.op-sec')).find((a) => a.textContent?.includes('knowledge gaps')) as HTMLElement;
+    expect(chip.querySelector('.op-sec-label')?.textContent).toBe('knowledge gaps');
+    expect(chip.querySelector('.op-sec-label')?.getAttribute('title')).toBe('Gaps in what the contracts say');
+    expect(target.querySelector('.op-secondary')?.textContent).not.toContain('health');
+  });
+
   it('sends every entry to the backend href it arrived with', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
