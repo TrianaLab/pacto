@@ -337,7 +337,9 @@ func TestAttackHiddenProviderCostWithheld(t *testing.T) {
 	mail := func(r *RawUsage) {
 		r.Service, r.Digest, r.Kind, r.Name, r.Provider, r.ExternalRef = "notifier", testDigest(acme, "notifier", "1.0.0"), "dependency", "email-provider", "ses", "arn:hidden-sender"
 	}
-	db := func(r *RawUsage) { r.Service, r.Digest, r.Name = "notifier", testDigest(acme, "notifier", "1.0.0"), "db" }
+	db := func(r *RawUsage) {
+		r.Service, r.Digest, r.Name = "notifier", testDigest(acme, "notifier", "1.0.0"), "db"
+	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("oci", "oci", base),
 		NewMemorySource("evidence-0", "evidence-http", &Collection{
 			Provisioning: []RawProvisioning{mailReport(failed, func(r *RawProvisioning) { r.ExternalRef = "arn:hidden-sender" })},
