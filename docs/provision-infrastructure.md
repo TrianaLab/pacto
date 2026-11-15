@@ -215,9 +215,10 @@ appears once a provider reports on it. Each row carries:
 
 The CLI prints the same facts in its Resources block. A provider adapter
 reports usage and cost with [usage reports](provider-reports.md#usage-reports).
-A figure reads `reported` only from one signed, fresh report about the
-service's current revision that no other report contradicts; anything else
-reads `unknown`, and its figures stay apart under `reported`. For live
+Only one signed, fresh report about the newest revision that uses the
+resource (`revision`) reads `reported`. Any other reads `unknown`: an
+untrusted report's figures sit under `reported`, disagreeing producers under
+`conflict`. For live
 utilization, ask [Mira](investigate-a-problem.md): with Mira configured, the
 dashboard links the service to it, and the MCP instructions point at Mira's
 `query_metric`.

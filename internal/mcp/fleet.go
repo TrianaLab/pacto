@@ -533,10 +533,12 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
 			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
 			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
-			"configuration_reference row only) and 'consumption' per environment: 'reported' carries 'figures' (metrics " +
-			"and a cost exactly as one signed, fresh provider report about the current revision gave them, with producer and asOf); " +
-			"'unknown' carries a 'reason' and, when a report exists but is unsigned, stale, about another revision or contradicted " +
-			"('conflict' names the producers), its raw numbers in 'reported', never to be quoted as current usage; " +
+			"configuration_reference row only, with the 'consumerRevision' that declares them) and 'consumption' per environment " +
+			"('entry' names the consumer entry when a use has more than one): 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about 'revision', the newest consumer revision that uses the " +
+			"resource, gave them, with producer and asOf); 'unknown' carries a 'reason' and, when a report exists but is unsigned, " +
+			"stale or about another revision, its raw numbers in 'reported', never to be quoted as current usage; when current " +
+			"reports disagree, 'conflict' names the producers and no figures are given; " +
 			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
 			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
