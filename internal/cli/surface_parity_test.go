@@ -77,7 +77,9 @@ const (
 	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
 	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
 	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
-	whyNoStatsRoute  = "the dashboard has no stats route yet; pacto stats and pacto_stats total the same run records"
+	whyStatsWindow   = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
+	whyStatsPage     = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
+	whyStatsRecords  = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
 )
 
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
@@ -281,11 +283,15 @@ func authoringRows() []surfaceRow {
 
 func statsRows() []surfaceRow {
 	return slices.Concat(
-		alike("stats", "pacto_stats", "", whyNoStatsRoute, "by", "service", "since", "until"),
 		[]surfaceRow{
-			{"stats --kind", "pacto_stats.kinds", "", whyNoStatsRoute + "; the CLI repeats --kind, MCP takes comma-separated kinds"},
-			{"stats --registry", "pacto_stats.registry", "", whyNoStatsRoute + "; pacto_stats honours it over stdio only"},
+			{"stats --since", "pacto_stats.since", "GET /api/stats?window", "the Metrics page takes a closed 7d, 30d or 90d window that ends now"},
+			{"stats --until", "pacto_stats.until", "", whyStatsWindow},
+			{"stats --kind", "pacto_stats.kinds", "", whyStatsPage + "; the CLI repeats --kind, MCP takes comma-separated kinds"},
+			{"stats --registry", "pacto_stats.registry", "", whyStatsPage + "; pacto_stats honours it over stdio only"},
 		},
+		alike("stats", "pacto_stats", "", whyStatsPage, "by", "service"),
+		alike("", "", "GET /api/stats", whyDashboardPage, "services-offset", "services-limit"),
+		alike("", "", "GET /api/stats/records", whyStatsRecords, "window", "metric", "environment", "offset", "limit"),
 	)
 }
 
@@ -387,7 +393,7 @@ type openAPIOp struct {
 
 // httpNames are "<METHOD> <path>?<param>" for every query and path parameter
 // and "<METHOD> <path> body.<property>" for every request-body property of
-// every dashboard operation under /api/fleet/ and /api/delivery/, or the
+// every dashboard operation under /api/fleet/, /api/delivery/ and /api/stats, or the
 // operation when it takes none, plus GET /api/capabilities.
 func httpNames(t *testing.T) map[string]bool {
 	t.Helper()
@@ -404,7 +410,7 @@ func httpNames(t *testing.T) map[string]bool {
 	expect(t, json.Unmarshal(raw, &doc) == nil, "openapi json")
 	out := map[string]bool{"GET /api/capabilities": true}
 	for path, ops := range doc.Paths {
-		if !strings.HasPrefix(path, "/api/fleet/") && !strings.HasPrefix(path, "/api/delivery/") {
+		if !strings.HasPrefix(path, "/api/fleet/") && !strings.HasPrefix(path, "/api/delivery/") && !strings.HasPrefix(path, "/api/stats") {
 			continue
 		}
 		for method, op := range ops {
