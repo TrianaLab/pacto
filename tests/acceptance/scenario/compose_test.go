@@ -909,7 +909,7 @@ func inlineConfig(t *testing.T, f map[string]any, name string) string {
 }
 
 // The Compose demo's run records are generated from the scenario's own
-// revisions, CI records only: a breaking diff and a blocked impact included,
+// revisions, CI records only: a breaking diff and an unverified impact included,
 // no operation (no delivery runs here) and no coverage. Every timestamp they
 // hold is listed once with its epoch, so the seed can shift it.
 func TestComposeStatsConfigIsGenerated(t *testing.T) {
@@ -941,7 +941,7 @@ func TestComposeStatsConfigIsGenerated(t *testing.T) {
 		}
 		listed[ts] = true
 	}
-	var blocked, breaking int
+	var unverified, breaking int
 	for line := range strings.Lines(records) {
 		r, err := runrecord.Parse([]byte(strings.TrimSuffix(line, "\n")))
 		if err != nil {
@@ -950,8 +950,14 @@ func TestComposeStatsConfigIsGenerated(t *testing.T) {
 		switch {
 		case r.Kind == runrecord.KindOperation || r.Kind == "coverage":
 			t.Errorf("the Compose demo carries a %s record: %s", r.Kind, line)
-		case r.Kind == runrecord.KindImpact && r.Gate != nil && r.Gate.Verdict == runrecord.VerdictBlocked:
-			blocked++
+		case r.Kind == runrecord.KindImpact:
+			// orders, checkout's one consumer, accepts 1.1.0, so pacto impact
+			// answers unverified, never blocked.
+			if r.Gate == nil || r.Gate.Verdict != runrecord.VerdictUnverified || r.Gate.Reason != "CONSUMERS_UNCHECKED" ||
+				*r.Consumers != (runrecord.Consumers{Compatible: 1}) {
+				t.Errorf("the checkout impact is not what pacto impact answers (unverified, orders compatible): %s", line)
+			}
+			unverified++
 		case r.Kind == runrecord.KindDiff && r.Classification == "BREAKING":
 			breaking++
 		}
@@ -964,8 +970,8 @@ func TestComposeStatsConfigIsGenerated(t *testing.T) {
 			t.Errorf("recordedAt %s is not in times.tsv", r.RecordedAt)
 		}
 	}
-	if blocked == 0 || breaking == 0 {
-		t.Errorf("blocked impacts %d, breaking diffs %d; want at least one of each", blocked, breaking)
+	if unverified == 0 || breaking == 0 {
+		t.Errorf("unverified impacts %d, breaking diffs %d; want at least one of each", unverified, breaking)
 	}
 	env, _ := composeSvc(t, f, "seed")["environment"].(map[string]any)
 	for k, want := range map[string]string{"PACTO_DEMO_STATS": ComposeStatsFile, "PACTO_DEMO_STATS_TIMES": ComposeStatsTimes,
@@ -1093,14 +1099,29 @@ func TestSeedShiftsStatsToSeedTime(t *testing.T) {
 // A registry that already holds run records gets none: a second up, or a fresh
 // state volume over a seeded registry, publishes nothing.
 func TestSeedSkipsStatsWhenSeeded(t *testing.T) {
+	digests, _ := OperationalGraph.Digests(materialized(t, OperationalGraph))
+	records, _, _ := OperationalGraph.composeStats(digests)
+	all := fmt.Sprintf(`{"recordsRead": %d}`, strings.Count(records, "\n"))
 	for range 2 { // each run starts from a fresh, empty state directory
-		_, calls, err := seedStatsRun(t, `{"recordsRead": 3}`, 0)
+		_, calls, err := seedStatsRun(t, all, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(calls, "publish") {
 			t.Errorf("the seed published into a seeded registry: %s", calls)
 		}
+	}
+}
+
+// A registry holding only some of the records (a publish that stopped
+// partway) fails loudly: publishing again would duplicate the rest.
+func TestSeedStatsPartialFails(t *testing.T) {
+	_, calls, err := seedStatsRun(t, `{"recordsRead": 3}`, 0)
+	if err == nil || !strings.Contains(err.Error(), "stopped partway") {
+		t.Errorf("the seed accepted a partially seeded registry: %v", err)
+	}
+	if strings.Contains(calls, "publish") {
+		t.Errorf("the seed published into a partially seeded registry: %s", calls)
 	}
 }
 

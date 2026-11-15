@@ -883,8 +883,10 @@ type composeVolumes struct {
 
 // composeStatsEvents is the Compose demo's own small run record schedule over
 // the scenario's real revisions: checkout 1.0.0 to 1.1.0 caught as breaking
-// (run twice, one distinct change), the impact blocked by orders, the one
-// service that consumes checkout (run twice), and a publish for every revision
+// (run twice, one distinct change), its impact unverified (run twice): orders,
+// the one service that consumes checkout, declares ^1.0.0, which accepts 1.1.0,
+// so the breaking change is not checked against it, which is what pacto impact
+// answers for these two revisions, and a publish for every revision
 // the seed pushes, the newest at seed time. The stack runs no delivery, so
 // there is no operation record.
 func composeStatsEvents() []story.StatsEvent {
@@ -894,7 +896,7 @@ func composeStatsEvents() []story.StatsEvent {
 	}
 	impact := func(days int) story.StatsEvent {
 		return story.StatsEvent{At: d(days), Kind: runrecord.KindImpact, Service: "checkout", From: 0, To: 1, Classification: "BREAKING",
-			Verdict: runrecord.VerdictBlocked, Reason: "CONSUMERS_INCOMPATIBLE", Blocking: 1}
+			Verdict: runrecord.VerdictUnverified, Reason: "CONSUMERS_UNCHECKED", Compatible: 1}
 	}
 	publish := func(days int, service string, from, to int) story.StatsEvent {
 		return story.StatsEvent{At: d(days), Kind: runrecord.KindPublish, Service: service, From: from, To: to, Classification: "NON_BREAKING"}

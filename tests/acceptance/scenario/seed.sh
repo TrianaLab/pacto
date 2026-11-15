@@ -141,7 +141,12 @@ if [ -n "${PACTO_DEMO_STATS:-}" ]; then
 	}
 	read_count=$(grep -oE '"recordsRead": *[0-9]+' "$WORK/stats-read" | grep -oE '[0-9]+$' || true)
 	[ -n "$read_count" ] || fail "pacto stats answered without a record count: $(cat "$WORK/stats-read")"
-	if [ "$read_count" -gt 0 ]; then
+	# Records are stamped at seed time, so publishing again would duplicate the
+	# ones already there: a partial seed cannot be repaired, only reset.
+	expected=$(grep -c . "$PACTO_DEMO_STATS" || true)
+	if [ "$read_count" -gt 0 ] && [ "$read_count" -lt "$expected" ]; then
+		fail "$PACTO_DEMO_STATS_REPO holds $read_count of the demo's $expected run records: an earlier seed stopped partway; reset the registry volume (docker compose down -v) and start again"
+	elif [ "$read_count" -gt 0 ]; then
 		echo "  run records were already seeded ($read_count in $PACTO_DEMO_STATS_REPO)"
 	else
 		# The records were stamped at a fixed time when the artifact was built;
