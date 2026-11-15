@@ -133,6 +133,14 @@ describe('product endpoint serialization + schema validation', () => {
     await api.fleetEntityDetail('target', 'prod/k8s/app');
     expect(urlFor().pathname).toBe('/api/fleet/entities/target');
     expect(urlFor().searchParams.get('key')).toBe('prod/k8s/app');
+    expect(urlFor().searchParams.has('reached')).toBe(false);
+  });
+
+  it('fleetEntityDetail asks for reached times only when told to', async () => {
+    mockFetch.mockResolvedValue(productResponse({ entity: { kind: 'service' }, service: {} }));
+    await api.fleetEntityDetail('service', 'web', { reached: true });
+    expect(urlFor().searchParams.get('reached')).toBe('true');
+    expect(urlFor().searchParams.get('key')).toBe('web');
   });
 
   it('fleetNeighborhood serializes kind, key, direction, views and bounds', async () => {

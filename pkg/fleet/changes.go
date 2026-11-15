@@ -125,6 +125,14 @@ func newestFirst[T any](groups [][]T) []T {
 	return items
 }
 
+// historyPartialReason never names what the view dropped.
+const historyPartialReason = "this view or a source holds only some of the service's revisions"
+
+// versionsHeldReason is why a history that compares versions is partial: no
+// source lists every version of a service, so versions between two held
+// ones may be missing.
+const versionsHeldReason = "the sources hold only some versions; a change is placed between the versions held"
+
 // historyCompleteness is partial when the view or a source holds only some
 // revisions, or when more than one revision was compared.
 func historyCompleteness(partial bool, groups int) (string, string) {

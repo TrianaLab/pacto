@@ -117,7 +117,7 @@ test('the History table at 1900px beside the expanded sidebar keeps every column
 // A service with 200 environments (the scale fixture's storefront-web): the rows cap
 // themselves behind one Show all, and the differences, history and the asOf and
 // completeness line #452 asks for stay visible instead of hiding behind a fade.
-test('the Environments section at 200 environments keeps its differences, history and footer visible', async ({ page }) => {
+test('the Environments section at 200 environments keeps its differences, changes link and footer visible', async ({ page }) => {
   await page.addInitScript(installScaleFixture);
   await page.setViewportSize({ width: 1440, height: 900 });
   await appReady(page);
@@ -128,7 +128,7 @@ test('the Environments section at 200 environments keeps its differences, histor
   await expect(section.locator('.ps-clipped')).toHaveCount(0);
   await expect(section.getByTestId('preview-show-all')).toHaveCount(0);
   await expect(section.getByRole('button', { name: /^Show all [\d,]+ environments$/ })).toHaveCount(1);
-  for (const id of ['environment-differences', 'environment-history', 'environments-footer']) {
+  for (const id of ['environment-differences', 'environment-changes-link', 'environments-footer']) {
     const el = section.getByTestId(id);
     await el.scrollIntoViewIfNeeded();
     await expect(el).toBeInViewport();

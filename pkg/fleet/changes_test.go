@@ -144,35 +144,58 @@ func TestChangesLifecycleDeprecated(t *testing.T) {
 	})
 }
 
-// TestChangesEnvironmentMatchesHistory: the environment events are the ones
-// environmentHistory gives on the same revisions.
-func TestChangesEnvironmentMatchesHistory(t *testing.T) {
-	ownedEnv := env("preview", "p.yaml")
-	ownedEnv.Owner = &contract.Owner{Team: "previews"}
-	ownedEnv.Lifetime = contract.EnvironmentTemporary
-	envs := [][]contract.Environment{
-		{env("staging", "s.yaml"), env("preview", "p.yaml")},
-		{env("staging", "s2.yaml"), ownedEnv, env("prod", "prod.yaml")},
-		{ownedEnv, env("prod", "prod.yaml")},
-	}
-	versions := []string{"v1.0.0", "v1.1.0", "v1.2.0"}
-	hq, revs := historyQuery(versions, envs)
-	var want []string
-	for _, e := range hq.environmentHistory(revs, false).Items {
-		prev := "-"
-		if e.Previous != nil {
-			prev = e.Previous.Version
-		}
-		want = append(want, strings.Join([]string{e.Revision.Version, "environment", e.Environment, e.Change, strings.Join(e.Fields, ","), "->", prev}, " "))
-	}
+func env(name, file string) contract.Environment { return contract.Environment{Name: name, File: file} }
+
+// envChanges is a query over "svc" whose revision i (version versions[i])
+// declares envs[i].
+func envChanges(versions []string, envs [][]contract.Environment) ChangeHistoryPreview {
 	cs := make([]*contract.Contract, len(envs))
 	for i, e := range envs {
 		cs[i] = &contract.Contract{Environments: e}
 	}
-	got := svcChanges(changesQuery(versions, cs))
-	checkChanges(t, changeText(got), want)
+	return svcChanges(changesQuery(versions, cs))
+}
+
+// TestChangesEnvironment: an environment added, removed or with a declared
+// field changed is one event per environment, sorted by name; the oldest
+// revision held reads present.
+func TestChangesEnvironment(t *testing.T) {
+	ownedEnv := env("preview", "p.yaml")
+	ownedEnv.Owner = &contract.Owner{Team: "previews"}
+	ownedEnv.Lifetime = contract.EnvironmentTemporary
+	got := envChanges([]string{"v1.0.0", "v1.1.0", "v1.2.0"}, [][]contract.Environment{
+		{env("staging", "s.yaml"), env("preview", "p.yaml")},
+		{env("staging", "s2.yaml"), ownedEnv, env("prod", "prod.yaml")},
+		{ownedEnv, env("prod", "prod.yaml")},
+	})
+	checkChanges(t, changeText(got), []string{
+		"v1.2.0 environment staging removed  -> v1.1.0",
+		"v1.1.0 environment preview changed lifetime,owner -> v1.0.0",
+		"v1.1.0 environment prod added  -> v1.0.0",
+		"v1.1.0 environment staging changed file -> v1.0.0",
+		"v1.0.0 environment preview present  -> -",
+		"v1.0.0 environment staging present  -> -",
+	})
 	if got.Completeness != "partial" || got.CompletenessReason != versionsHeldReason {
 		t.Errorf("completeness: %+v", got)
+	}
+}
+
+// TestChangesHotfixInVersionOrder: a hotfix published after a newer minor
+// sits between its neighbours, because the order is the version order.
+func TestChangesHotfixInVersionOrder(t *testing.T) {
+	got := envChanges([]string{"v1.2.0", "v1.1.1", "v1.1.0"}, [][]contract.Environment{
+		{env("a", "a.yaml"), env("c", "c.yaml")}, {env("a", "a.yaml"), env("b", "b.yaml")}, {env("a", "a.yaml")},
+	})
+	checkChanges(t, changeText(got), []string{
+		"v1.2.0 environment b removed  -> v1.1.1",
+		"v1.2.0 environment c added  -> v1.1.1",
+		"v1.1.1 environment b added  -> v1.1.0",
+		"v1.1.0 environment a present  -> -",
+	})
+	f, _ := reflect.TypeFor[ChangeHistoryPreview]().FieldByName("Items")
+	if !strings.Contains(f.Tag.Get("doc"), "version order, not a timeline") {
+		t.Errorf("items doc = %q", f.Tag.Get("doc"))
 	}
 }
 
@@ -367,3 +390,19 @@ func TestChangesProvenanceDeclared(t *testing.T) {
 }
 
 func diffChange(path string) diff.Change { return diff.Change{Path: path, Type: diff.Modified} }
+
+// TestServiceDetailJSONKeys: the service detail's JSON keys are the released
+// ones plus changes, which replaced an unreleased environment-only field.
+func TestServiceDetailJSONKeys(t *testing.T) {
+	want := []string{"domain", "ownership", "ownerRevision", "lifecycle", "capabilities", "sources", "unresolvedDependencies",
+		"consumedOfferings", "inferredOfferings", "currentRevision", "policies", "configurations", "summary", "revisions",
+		"activeRevisions", "signatures", "deployments", "placement", "dependencies", "dependents", "changes",
+		"hiddenDependencies", "hiddenProviders", "hiddenDependents", "dependentsStatus", "referencedBy", "relationships",
+		"findings", "evidence", "limitations", "template", "origin", "creation"}
+	ty := reflect.TypeFor[ServiceDetailData]()
+	got := make([]string, ty.NumField())
+	for i := range got {
+		got[i], _, _ = strings.Cut(ty.Field(i).Tag.Get("json"), ",")
+	}
+	checkChanges(t, got, want)
+}

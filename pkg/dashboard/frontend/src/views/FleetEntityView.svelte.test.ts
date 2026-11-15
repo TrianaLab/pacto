@@ -400,6 +400,8 @@ describe('FleetEntityView — rich service page (D)', () => {
     expect(text).toMatch(/Showing 2 of 5/);      // truncation is explicit, not hidden
     expect(text).toContain('Ownership conflict'); // conflicting revision owners surfaced
     expect(text).toContain('contract drift');     // attributed finding
+    // The page's shared detail fetch never asks for reached times (a caller-scoped delivery read).
+    expect(detailFn.mock.calls[0]).toEqual(['service', 'domain-a/payments']);
     // a revision row links via the canonical href
     const link = Array.from(target.querySelectorAll('a.entity-link')).find((a) => a.getAttribute('href')?.includes('/fleet/revisions/')) as HTMLAnchorElement;
     expect(link).toBeTruthy();

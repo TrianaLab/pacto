@@ -117,6 +117,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     // selectors are populated from the product entity-detail preview (never the snapshot)
     expect(detailFn).toHaveBeenCalledWith('service', 'domain-a/payments');
+    expect(detailFn.mock.calls.every((c) => c.length === 2)).toBe(true); // never reached
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
     // canonical ServiceKey + canonical RevisionKeys + snapshot id for mismatch rejection

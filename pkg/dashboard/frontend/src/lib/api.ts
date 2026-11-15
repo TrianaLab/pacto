@@ -108,7 +108,8 @@ export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 export type ProductPlacementPreview = components['schemas']['ProductPlacementPreview'];
 export type EnvironmentOwner = components['schemas']['ProductEnvironmentOwner'];
 export type EnvironmentDifference = components['schemas']['Validation.EnvironmentDifference'];
-export type EnvironmentHistory = components['schemas']['ProductEnvironmentHistoryPreview'];
+export type ChangeHistory = components['schemas']['ProductChangeHistoryPreview'];
+export type ChangeEvent = components['schemas']['ProductChangeEvent'];
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
 /** One canonical entity reference as the backend emits it, href and all. */
@@ -444,8 +445,11 @@ export const api = {
       params: { query: { ...rest, kinds: kinds?.length ? kinds : undefined } },
     }));
   },
-  fleetEntityDetail: async (kind: EntityKind, key: string): Promise<NarrowedEntityDetail> => {
-    const raw = await productGet(client.GET('/api/fleet/entities/{kind}', { params: { path: { kind }, query: { key } } }));
+  // reached: also read, as the caller, when each change of a service reached a Stage
+  // (a delivery read the shared fleet answer never waits for).
+  fleetEntityDetail: async (kind: EntityKind, key: string, opts: { reached?: boolean } = {}): Promise<NarrowedEntityDetail> => {
+    const query = opts.reached ? { key, reached: true } : { key };
+    const raw = await productGet(client.GET('/api/fleet/entities/{kind}', { params: { path: { kind }, query } }));
     return narrowEntityDetail(raw);
   },
   fleetNeighborhood: (params: FleetNeighborhoodInput): Promise<ProductNeighborhood> => {

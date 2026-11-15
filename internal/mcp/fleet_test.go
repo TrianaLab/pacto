@@ -837,9 +837,6 @@ func TestFleetEntityDescriptionNamesChanges(t *testing.T) {
 			t.Errorf("description lacks %s", want)
 		}
 	}
-	if strings.Contains(d, "environmentHistory") {
-		t.Error("description still names environmentHistory")
-	}
 }
 
 // The entity tool names the resource fields of a service's uses, says the

@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, serviceChangesUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -798,5 +798,34 @@ describe('offerings list routes', () => {
     for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
       expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&text=a`).params).toEqual({ text: 'a' });
     }
+  });
+});
+
+describe('serviceChangesUrl', () => {
+  it('round-trips each Changes param through the service route', () => {
+    const cases: [Parameters<typeof serviceChangesUrl>[1], Record<string, string>][] = [
+      [{ changesKind: 'owner' }, { changesKind: 'owner' }],
+      [{ changesOffset: 25 }, { changesOffset: '25' }],
+      [{ changesLimit: 50 }, { changesLimit: '50' }],
+      [{ section: 'changes' }, { section: 'changes' }],
+    ];
+    for (const [opts, want] of cases) {
+      const url = serviceChangesUrl('storefront-web', opts);
+      expect(url.split('#').length).toBe(2); // never a second # inside the hash
+      expect(parseHash(url)).toEqual({ view: 'fleet-entity', params: { kind: 'service', key: 'storefront-web', ...want } });
+    }
+    expect(serviceChangesUrl('storefront-web')).toBe('#/fleet/services/storefront-web');
+  });
+
+  it('keeps a key with encoded special characters', () => {
+    const key = 'registry.example%2Fstory/payments';
+    const url = serviceChangesUrl(key, { changesKind: 'environment', section: 'changes' });
+    expect(url).toBe('#/fleet/services/registry.example%252Fstory%2Fpayments?changesKind=environment&section=changes');
+    expect(parseHash(url).params).toEqual({ kind: 'service', key, changesKind: 'environment', section: 'changes' });
+  });
+
+  it('drops unknown params and keeps Changes params off other entity kinds', () => {
+    expect(parseHash('#/fleet/services/web?changesKind=owner&bogus=1').params).toEqual({ kind: 'service', key: 'web', changesKind: 'owner' });
+    expect(parseHash('#/fleet/targets/x?changesKind=owner&section=changes').params).toEqual({ kind: 'target', key: 'x' });
   });
 });

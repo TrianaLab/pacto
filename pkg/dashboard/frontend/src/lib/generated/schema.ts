@@ -4602,40 +4602,6 @@ export interface components {
             targetsHidden?: boolean;
             unreachable?: components["schemas"]["ProductRef"][] | null;
         };
-        ProductEnvironmentEvent: {
-            /**
-             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
-             * @enum {string}
-             */
-            change: "present" | "added" | "removed" | "changed";
-            environment: string;
-            /** @description changed: which declared fields changed (file, lifetime, expires, owner) */
-            fields?: string[] | null;
-            /** @description The revision it was compared with */
-            previous?: components["schemas"]["ProductRef"];
-            /** @description The revision that made the change */
-            revision: components["schemas"]["ProductRef"];
-        };
-        ProductEnvironmentHistoryPreview: {
-            /**
-             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
-             * @enum {string}
-             */
-            completeness: "complete" | "partial";
-            completenessReason?: string;
-            /** Format: int64 */
-            count: number;
-            /**
-             * Format: int64
-             * @description Revisions whose contract could not be read; no change is reported across them
-             */
-            gaps: number;
-            /** @description Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's */
-            items: components["schemas"]["ProductEnvironmentEvent"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         ProductEnvironmentOwner: {
             owner?: string;
             /** @enum {string} */
@@ -5246,8 +5212,6 @@ export interface components {
             dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
-            /** @description How the service's declared environments changed across its revisions (declared) */
-            environmentHistory: components["schemas"]["ProductEnvironmentHistoryPreview"];
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */

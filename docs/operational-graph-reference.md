@@ -224,9 +224,10 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 | Differences | `differences`: each value the declared environments disagree on, by configuration and path, with `differencesTotal`, or `differencesError` saying why they are unknown. `pacto explain --environments` computes the same list |
 | Restricted | Only targets, revisions and provisioning your view may see count; on a partial answer the CLI heading reads "Environments (targets Pacto can see)" |
 
-| `environmentHistory` | Detail |
+| `changes` | Detail |
 |---|---|
-| Items | The revisions the answer holds, each compared with the previous one held in version order, newest first: each environment `added`, `removed` or `changed` with its changed fields, and `present` for the oldest revision held. `revision` is the first held revision that shows the change and `previous` the one it was compared with. Not a timeline: no item carries a time |
+| Items | Every declared change across the revisions the answer holds, newest first in version order: the owner, domain, offering, a dependency, the lifecycle, an environment (`kind`), or a validation finding that appeared or resolved. `revision` is the first held revision that shows the change and `previous` the one it was compared with; `provenance` is `declared` and `source` is `contract` or `validation` |
+| Times | A change carries a time only in `reached`, read from delivery records as you when asked (`reached`); `times` says whether they were read: `not-read`, `read`, `partial` or `hidden` |
 | Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
 | Completeness | `partial` when your view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held |
 
