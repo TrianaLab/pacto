@@ -915,6 +915,10 @@ type FleetSnapshot struct {
 	// unresolved references of the services the view hides, so counts of
 	// unresolved uses stay honest. Never serialized and never named.
 	hiddenUnresolvedRefs []hiddenUnresolvedRef
+	// hiddenProviderMatch holds, in a restricted snapshot, the repositories
+	// and names of each offering's hidden providers, so a visible consumer's
+	// unresolved reference to one still counts. Never serialized and never named.
+	hiddenProviderMatch map[string]providerMatch
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency or a resolved configuration reference on it (see

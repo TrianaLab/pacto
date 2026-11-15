@@ -117,6 +117,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
+	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)
 	restrictReports(&out, s)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
@@ -416,6 +417,22 @@ func hiddenProviders(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord,
 		}
 	}
 	return counts
+}
+
+// hiddenProviderMatch is, per offering counted in hidden, what its hidden
+// providers in s may be named by.
+func hiddenProviderMatch(s *FleetSnapshot, hidden map[string]int, hiddenSvc map[ServiceKey]bool) map[string]providerMatch {
+	keys := map[string][]ServiceKey{}
+	for k := range hiddenSvc {
+		if o := s.Services[k].Offering; hidden[o] > 0 {
+			keys[o] = append(keys[o], k)
+		}
+	}
+	out := make(map[string]providerMatch, len(keys))
+	for o, ks := range keys {
+		out[o] = providerMatchOf(s, ks)
+	}
+	return out
 }
 
 // restrictRelationships sets out.Relationships to rels without the hidden

@@ -490,6 +490,11 @@ func TestPrintOfferingAdapters(t *testing.T) {
 	if out := buf.String(); !strings.Contains(out, "Adapters (observed):\n  No adapter has reported. Provisioning status is Unknown.\n") || strings.Contains(out, "Unresolved uses") {
 		t.Errorf("empty adapters text:\n%s", out)
 	}
+	buf.Reset()
+	printOfferingText(&buf, &fleet.OfferingDetailData{HiddenConsumers: 1})
+	if out := buf.String(); !strings.Contains(out, "  "+fleet.NoAdapterVisible+"\n") {
+		t.Errorf("empty adapters text with hidden consumers:\n%s", out)
+	}
 }
 
 // TestOverviewPrinterEdges: a bucket with targets is named, a named domain

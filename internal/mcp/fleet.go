@@ -553,10 +553,12 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
 			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
 			"comes from an unsigned target-state file. An offering answer carries 'adapters': the adapter slug, producer " +
-			"and signature of every current report on its requests (observed; the slug is free text the adapter picks and may " +
+			"and signature of every current report on its requests, or of the newest report where none is current (observed; " +
+			"its 'phases' count a request Unknown unless its own current report says the phase the badge shows; the slug is free text the adapter picks and may " +
 			"be empty; the provider is the service that declares the offering), with 'conflicting' requests whose adapters " +
 			"disagree and 'unattributed' requests nobody reported on, and 'unresolvedUses' (inferred), declared references " +
-			"that may name a provider but did not resolve, each consumer counted once, hidden consumers included; when it " +
+			"that may name a provider but did not resolve, each consumer counted once per reference type and repository, " +
+			"hidden consumers and providers included; when it " +
 			"is above 0 the answer is partial. 'phases.readyUnsigned' counts Ready statuses that are not signed; " +
 			"'phaseConsumers.readyUnsigned' counts consumers whose every Ready status is unsigned; only a signed Ready is " +
 			"positive. A golden path's service answer carries 'template': the " +

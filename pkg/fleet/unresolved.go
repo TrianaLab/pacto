@@ -50,10 +50,19 @@ func appendHiddenUnresolved(hidden []hiddenUnresolvedRef, rel Relationship) []hi
 // name several providers counts once. The references of services a restricted
 // view hides are counted, never named.
 func UnresolvedRefCount(snap *FleetSnapshot, providers []ServiceKey, relTypes ...string) int {
-	repos, names, want := map[string]bool{}, map[string]bool{}, map[ServiceKey]bool{}
+	return countUnresolved(snap, providerMatchOf(snap, providers), relTypes)
+}
+
+// providerMatch is what an unresolved reference may name a provider by: the
+// repositories its revisions came from and its name.
+type providerMatch struct{ repos, names map[string]bool }
+
+// providerMatchOf is the providerMatch of providers in snap.
+func providerMatchOf(snap *FleetSnapshot, providers []ServiceKey) providerMatch {
+	m, want := providerMatch{repos: map[string]bool{}, names: map[string]bool{}}, map[ServiceKey]bool{}
 	for _, p := range providers {
 		_, name := ParseServiceKey(p)
-		names[name], want[p] = true, true
+		m.names[name], want[p] = true, true
 	}
 	for _, rev := range snap.Revisions {
 		if !want[rev.ServiceKey] {
@@ -61,10 +70,17 @@ func UnresolvedRefCount(snap *FleetSnapshot, providers []ServiceKey, relTypes ..
 		}
 		for _, ref := range []string{rev.RequestedRef, rev.ResolvedRef} {
 			if r := repository(ref); r != "" {
-				repos[r] = true
+				m.repos[r] = true
 			}
 		}
 	}
+	return m
+}
+
+// countUnresolved counts the unresolved declared references of relTypes that
+// match m (see [UnresolvedRefCount]).
+func countUnresolved(snap *FleetSnapshot, m providerMatch, relTypes []string) int {
+	repos, names := m.repos, m.names
 	type use struct {
 		visible     ServiceKey
 		hidden      uint64

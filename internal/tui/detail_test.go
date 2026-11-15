@@ -787,6 +787,9 @@ func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
 	if out := render(&fleet.OfferingDetailData{}); !strings.Contains(out, "No adapter has reported. Provisioning status is Unknown.") || strings.Contains(out, "unresolved uses") {
 		t.Errorf("empty adapters:\n%s", out)
 	}
+	if out := render(&fleet.OfferingDetailData{HiddenConsumers: 1}); !strings.Contains(out, fleet.NoAdapterVisible) {
+		t.Errorf("empty adapters with hidden consumers:\n%s", out)
+	}
 	out = render(&fleet.OfferingDetailData{Adapters: fleet.OfferingAdaptersPreview{Total: 1, Count: 1, Items: []fleet.OfferingAdapter{{Provider: "evil\x1b[31m", Environments: []string{"default"}}}}})
 	if !strings.Contains(out, "evil^[[31m") {
 		t.Errorf("an adapter slug with an escape is not neutralized:\n%q", out)

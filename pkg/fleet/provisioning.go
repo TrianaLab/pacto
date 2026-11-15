@@ -55,17 +55,21 @@ type ProvisioningStatus struct {
 
 // provisioningReporter is one (source, producer) report a status was read
 // from, as the offering's adapters name it.
+// Outcome and Phase are what its own report said; Current is false for the
+// newest report of a slot with no current report.
 type provisioningReporter struct {
 	Provider, Producer, Source, SourceKind string
-	Verified                               bool
+	Outcome, Phase                         string
+	Verified, Current                      bool
 	ObservedAt                             time.Time
 }
 
 // reportersOf is the reporters behind recs.
-func reportersOf(recs []*ProvisioningRecord) []provisioningReporter {
+func reportersOf(recs []*ProvisioningRecord, current bool) []provisioningReporter {
 	out := make([]provisioningReporter, len(recs))
 	for i, r := range recs {
-		out[i] = provisioningReporter{Provider: r.Provider, Producer: r.Producer, Source: r.Source, SourceKind: r.SourceKind, Verified: r.Verified, ObservedAt: r.ObservedAt}
+		out[i] = provisioningReporter{Provider: r.Provider, Producer: r.Producer, Source: r.Source, SourceKind: r.SourceKind,
+			Outcome: r.Outcome, Phase: r.Phase, Verified: r.Verified, Current: current, ObservedAt: r.ObservedAt}
 	}
 	return out
 }
@@ -97,7 +101,7 @@ func ingestProvisioning(snap *FleetSnapshot, src Source, raws []RawProvisioning,
 }
 
 // validProvisioning applies the ResourceProvisioned rules to a raw record: a
-// named consumer revision with a complete digest and entry, a producer with no control character, a known outcome, the payload (all but the
+// named consumer revision with a complete digest and entry, a producer with only printable characters, a known outcome, the payload (all but the
 // environment) only for an Observed outcome, and an observedAt no more than MaxProvisioningClockSkew
 // after the time it was accepted (now for a record with no accept time).
 func validProvisioning(raw RawProvisioning, now time.Time) bool {
@@ -107,7 +111,9 @@ func validProvisioning(raw RawProvisioning, now time.Time) bool {
 	}
 	// The producer of an unsigned file is free text every surface prints as the
 	// adapter's name, so a control character a terminal would run drops the record.
-	if strings.ContainsFunc(raw.Producer, unicode.IsControl) {
+	// Format characters (zero-width, bidi overrides) are refused too, as
+	// externalRef's are: they would make two producers read the same.
+	if strings.ContainsFunc(raw.Producer, func(r rune) bool { return !unicode.IsPrint(r) }) {
 		return false
 	}
 	if aheadOfAccept(raw.ObservedAt, raw.AcceptedAt, now) {
@@ -384,9 +390,9 @@ func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs 
 	currentReports := slices.DeleteFunc(slices.Clone(latest), func(r *ProvisioningRecord) bool {
 		return q.staleReport(r) || (current != nil && revs[r.Digest].Key != current.Key)
 	})
-	st.reporters = reportersOf(latest)
+	st.reporters = reportersOf(latest, false)
 	if len(currentReports) > 0 {
-		st.reporters = reportersOf(currentReports)
+		st.reporters = reportersOf(currentReports, true)
 	}
 	phases := map[string]bool{}
 	for _, r := range currentReports {

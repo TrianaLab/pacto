@@ -453,7 +453,7 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 // line goes through safeText.
 func renderOfferingAdapters(b *strings.Builder, o *fleet.OfferingDetailData) {
 	section(b, fmt.Sprintf("Adapters (%d)", o.Adapters.Total))
-	for _, l := range o.Adapters.Lines() {
+	for _, l := range o.Adapters.Lines(o.HiddenConsumers) {
 		b.WriteString("  " + safeText(l) + "\n")
 	}
 	if u := o.UnresolvedUses; u.Count > 0 {

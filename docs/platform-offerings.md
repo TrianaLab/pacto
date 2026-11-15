@@ -107,8 +107,8 @@ path out. See the [golden paths reference](golden-paths-reference.md).
 `unresolvedUses` counts declared dependency, configuration and policy
 references that may name a provider but did not resolve, so the consumer list
 leaves them out. The match is `inferred`. Each consumer counts once per
-reference, hidden consumers included. Above 0 the answer carries
-`OFFERING_USES_UNRESOLVED` and is `partial`.
+reference type and repository, hidden services included. Above 0 the answer
+carries `OFFERING_USES_UNRESOLVED` and is `partial`.
 
 ## Consume snippet
 
@@ -187,14 +187,14 @@ most 10000 reports (`PROVISIONING_TRUNCATED`).
 ### Adapters
 
 An offering's `adapters` lists up to 10 programs that report on its requests,
-by slug, producer and signature. Adapters are `observed`; a restricted view
-reads only the reports of consumers it can see.
+by slug, producer and signature, from current reports, else the newest.
+Adapters are `observed`, from visible consumers' reports only.
 
 | Field | Meaning |
 |---|---|
 | `provider` | The adapter slug the reports carry, free text the adapter picks. A report with no slug reads "unnamed adapter" |
 | `producer`, `verified` | The producer that sent the reports and whether they were signed |
-| `environments`, `phases` | The environments its reports cover and the phase of each request, as the badges show it |
+| `environments`, `phases` | The environments its reports cover and the phase of each request, as the badge shows it if its own current report agrees, else `Unknown` |
 | `disagrees` | Requests where its report disagrees with another adapter's, so the status is `Unknown` |
 | `lastReportedAt` | When its newest report was observed |
 | `total`, `count`, `truncated` | Every adapter that reports, how many `items` lists and whether the list stops short of `total` |

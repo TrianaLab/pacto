@@ -2153,7 +2153,9 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			r.Outcome, r.Provider, r.ExternalRef, r.Phase, r.Environment = "Failed", "", "", "", "Not A Slug"
 		}),
 		report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = future, nil }),
-		report(func(r *RawProvisioning) { r.Producer = "adapter\x1b]52;c;evil\x07" }), // a terminal would run it
+		report(func(r *RawProvisioning) { r.Producer = "adapter\x1b]52;c;evil\x07" }),  // a terminal would run it
+		report(func(r *RawProvisioning) { r.Producer = "security-adapter\u200b" }),     // reads as another producer
+		report(func(r *RawProvisioning) { r.Producer = "evil\u202eretpada-ytiruces" }), // a bidi override reorders it
 		skewed,
 	}
 	snap := provisioningSnap(t, 0, ordersFleet(), append(bad, report()))
@@ -2166,7 +2168,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			invalid = append(invalid, l)
 		}
 	}
-	if len(invalid) != 1 || invalid[0].Message != "11 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
+	if len(invalid) != 1 || invalid[0].Message != "13 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
 		t.Errorf("limitations = %+v", invalid)
 	}
 }

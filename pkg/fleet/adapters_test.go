@@ -14,8 +14,14 @@ func reporter(slug, producer string, verified bool, at time.Time) provisioningRe
 	return provisioningReporter{Provider: slug, Producer: producer, Verified: verified, ObservedAt: at, Source: "s", SourceKind: "evidence-http"}
 }
 
-// reportedStatus is a status in env with phase, read from reps.
+// reportedStatus is a status in env with phase, read from reps: current
+// Observed reports of phase unless a reporter says otherwise.
 func reportedStatus(env, phase string, reps ...provisioningReporter) ProvisioningStatus {
+	for i := range reps {
+		if reps[i].Outcome == "" {
+			reps[i].Outcome, reps[i].Phase, reps[i].Current = "Observed", phase, true
+		}
+	}
 	st := ProvisioningStatus{Environment: env, Phase: phase, Provenance: ProvenanceObserved, reporters: reps}
 	if len(reps) > 0 {
 		at := reps[0].ObservedAt
@@ -169,6 +175,53 @@ func TestOfferingAdaptersEmptySlug(t *testing.T) {
 	}
 }
 
+// A signed adapter whose own report failed is never credited the Ready a newer
+// unsigned file reported on the same request.
+func TestOfferingAdaptersCreditsOnlyItsOwnPhase(t *testing.T) {
+	got := postgresAdapters(t,
+		[]RawProvisioning{report(func(r *RawProvisioning) {
+			r.Outcome, r.Phase, r.Provider, r.ExternalRef, r.Producer = "Failed", "", "", "", "security-adapter"
+			r.ObservedAt, r.AcceptedAt = fixedNow().Add(-2*time.Minute), nil
+		})},
+		[]RawProvisioning{report(func(r *RawProvisioning) {
+			r.Producer, r.Verified, r.ObservedAt, r.AcceptedAt = "file", false, fixedNow().Add(-time.Minute), nil
+		})})
+	l := adapterLines(got)
+	if len(l) != 2 || !strings.HasPrefix(l[0], "/security-adapter verified=true envs=[production] ready=0 unsigned=0 unknown=1") ||
+		!strings.HasPrefix(l[1], "aws/file verified=false envs=[production] ready=1 unsigned=1 unknown=0") {
+		t.Errorf("adapters %q", l)
+	}
+}
+
+// A slot with no current report lists its newest reporter with Unknown, never
+// the phase its stale report said.
+func TestOfferingAdaptersStaleReporterIsUnknown(t *testing.T) {
+	got := postgresAdapters(t, []RawProvisioning{report(func(r *RawProvisioning) {
+		r.ObservedAt, r.AcceptedAt = fixedNow().Add(-30*24*time.Hour), nil
+	})})
+	l := adapterLines(got)
+	if len(l) != 1 || !strings.HasPrefix(l[0], "aws/adapter verified=true envs=[production] ready=0 unsigned=0 unknown=1 failed=0 disagrees=0") {
+		t.Errorf("adapters %q", l)
+	}
+}
+
+// An adapter that took no part in a disagreement is not counted as disagreeing.
+func TestOfferingAdaptersDisagreesOnlyWithAPhase(t *testing.T) {
+	at := fixedNow()
+	st := reportedStatus("production", StatusUnknown, reporter("a", "x", true, at), reporter("b", "y", true, at), reporter("c", "z", true, at))
+	st.Conflict = []string{"Failed", "Ready"}
+	st.reporters[0].Phase, st.reporters[1].Phase = "Ready", "Failed"
+	st.reporters[2].Outcome, st.reporters[2].Phase = "Insufficient", ""
+	got := offeringAdapters([]OfferingUse{{Provisioning: []ProvisioningStatus{st}}})
+	var dis []int
+	for _, a := range got.Items {
+		dis = append(dis, a.Disagrees)
+	}
+	if !slices.Equal(dis, []int{1, 1, 0}) || got.Conflicting != 1 {
+		t.Errorf("disagrees %v (%+v)", dis, got)
+	}
+}
+
 func TestOfferingAdaptersLines(t *testing.T) {
 	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.FixedZone("x", 3600))
 	p := OfferingAdaptersPreview{Total: 3, Count: 2, Truncated: true, Conflicting: 1, Unattributed: 2, Items: []OfferingAdapter{
@@ -180,10 +233,14 @@ func TestOfferingAdaptersLines(t *testing.T) {
 		"unnamed adapter, unsigned target-state file: default, staging; 1 ready (1 unsigned), 1 unknown, disagrees on 1",
 		"1 more", "1 requests where adapters disagree, so their status is Unknown", "2 requests no adapter reports on",
 	}
-	if got := p.Lines(); !slices.Equal(got, want) {
+	if got := p.Lines(0); !slices.Equal(got, want) {
 		t.Errorf("lines =\n%q\nwant\n%q", got, want)
 	}
-	if got := (OfferingAdaptersPreview{}).Lines(); !slices.Equal(got, []string{"No adapter has reported. Provisioning status is Unknown."}) {
+	if got := (OfferingAdaptersPreview{}).Lines(0); !slices.Equal(got, []string{"No adapter has reported. Provisioning status is Unknown."}) {
 		t.Errorf("empty = %q", got)
+	}
+	// A view that hides consumers speaks only for the requests it shows.
+	if got := (OfferingAdaptersPreview{}).Lines(1); !slices.Equal(got, []string{NoAdapterVisible}) {
+		t.Errorf("empty with hidden consumers = %q", got)
 	}
 }

@@ -1007,14 +1007,15 @@ type OfferingDetailData struct {
 	// of the offering but did not resolve.
 	UnresolvedUses UnresolvedUses `json:"unresolvedUses"`
 	// Adapters names the adapters whose current reports speak for the
-	// offering's requests, from the same statuses Consumers shows.
+	// offering's requests, or whose newest report does where none is current,
+	// from the same statuses Consumers shows.
 	Adapters OfferingAdaptersPreview `json:"adapters"`
 }
 
 // UnresolvedUses counts consumers' declared references that may name a
 // provider of an offering but did not resolve (see [UnresolvedRefCount]).
 type UnresolvedUses struct {
-	Count      int    `json:"count" doc:"Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference. Hidden consumers are counted, never named"`
+	Count      int    `json:"count" doc:"Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference type and repository. Hidden consumers and providers are counted, never named"`
 	Reason     string `json:"reason,omitempty" doc:"Why such a reference does not resolve"`
 	Provenance string `json:"provenance" enum:"inferred" doc:"The match is inferred from the reference's repository or name"`
 }
@@ -1022,6 +1023,9 @@ type UnresolvedUses struct {
 // LimitationOfferingUsesUnresolved marks an offering answer whose consumers
 // may omit uses: declared references that may name a provider did not resolve.
 const LimitationOfferingUsesUnresolved = "OFFERING_USES_UNRESOLVED"
+
+// unresolvedUsesReason is every way a declared reference fails to resolve.
+const unresolvedUsesReason = "the reference is not digest-pinned or locked, is ambiguous, has a conflicting lock, resolves to a bundle this snapshot does not hold or matches no fleet service, so Pacto cannot tell which provider revision it asks for"
 
 // offeringUnresolvedUses counts the unresolved declared references that may
 // name one of providers of offering, with the limitation that makes the
@@ -1031,13 +1035,19 @@ func (q *Query) offeringUnresolvedUses(offering string, providers []EntityRef) (
 	for i, p := range providers {
 		keys[i] = ServiceKey(p.Key)
 	}
-	u := UnresolvedUses{Count: UnresolvedRefCount(q.snap, keys, RelationshipDependency, RelationshipConfigRef, RelationshipPolicyRef), Provenance: ProvenanceInferred}
+	// A restricted view still matches the hidden providers, so the count never
+	// drops because the viewer cannot see one; only the count leaves.
+	m := providerMatchOf(q.snap, keys)
+	h := q.snap.hiddenProviderMatch[offering]
+	maps.Copy(m.repos, h.repos)
+	maps.Copy(m.names, h.names)
+	u := UnresolvedUses{Count: countUnresolved(q.snap, m, []string{RelationshipDependency, RelationshipConfigRef, RelationshipPolicyRef}), Provenance: ProvenanceInferred}
 	if u.Count == 0 {
 		return u, nil
 	}
-	u.Reason = "the reference is not digest-pinned or locked, or names a provider this snapshot does not hold, so Pacto cannot tell which provider revision it asks for"
+	u.Reason = unresolvedUsesReason
 	return u, []Limitation{{Code: LimitationOfferingUsesUnresolved, Message: strconv.Itoa(u.Count) + " declared references may name a provider of " + offering +
-		" but are not digest-pinned or locked, so Pacto cannot tell which revision they use"}}
+		" but did not resolve: " + unresolvedUsesReason}}
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one

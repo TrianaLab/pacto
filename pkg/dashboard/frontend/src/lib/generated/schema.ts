@@ -2846,7 +2846,7 @@ export interface components {
              * @description When its newest report was observed
              */
             lastReportedAt?: string;
-            /** @description The effective phase of each request it reports on, as the badges show it (Unknown where reporters disagree) */
+            /** @description The phase of each request it reports on, as the badge shows it when its own current, observed report says that phase; otherwise Unknown (reporters disagree, its report failed or is not current) */
             phases: components["schemas"]["Fleet.PhaseTally"];
             /** @description The producer that sent the reports */
             producer?: string;
@@ -3669,7 +3669,7 @@ export interface components {
         "Fleet.UnresolvedUses": {
             /**
              * Format: int64
-             * @description Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference. Hidden consumers are counted, never named
+             * @description Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference type and repository. Hidden consumers and providers are counted, never named
              */
             count: number;
             /**

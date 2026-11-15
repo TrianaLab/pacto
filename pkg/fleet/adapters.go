@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // OfferingAdapter is one program that reports provisioning for an offering's
@@ -19,7 +21,7 @@ type OfferingAdapter struct {
 	Producer       string     `json:"producer,omitempty" doc:"The producer that sent the reports"`
 	Verified       bool       `json:"verified" doc:"True when the reports were accepted through signed envelopes; false for the unsigned target-state file"`
 	Environments   []string   `json:"environments" doc:"The environments its reports cover; default when a request names none"`
-	Phases         PhaseTally `json:"phases" doc:"The effective phase of each request it reports on, as the badges show it (Unknown where reporters disagree)"`
+	Phases         PhaseTally `json:"phases" doc:"The phase of each request it reports on, as the badge shows it when its own current, observed report says that phase; otherwise Unknown (reporters disagree, its report failed or is not current)"`
 	Disagrees      int        `json:"disagrees" doc:"Requests where its report disagrees with another adapter's, so the status is Unknown"`
 	LastReportedAt *time.Time `json:"lastReportedAt,omitempty" doc:"When its newest report was observed"`
 	Provenance     string     `json:"provenance" enum:"observed" doc:"Adapters are observed from the reports"`
@@ -37,6 +39,9 @@ type OfferingAdaptersPreview struct {
 	Conflicting  int               `json:"conflicting" doc:"Requests whose adapters disagree, so their status is Unknown; their adapters are listed"`
 	Unattributed int               `json:"unattributed" doc:"Requests no adapter reports on; their status is Unknown"`
 }
+
+// NoAdapterVisible is the empty adapters line of a view that hides consumers.
+const NoAdapterVisible = "No adapter has reported on the requests you can see. Provisioning status is Unknown."
 
 // MaxOfferingAdapters bounds OfferingAdaptersPreview.Items.
 const MaxOfferingAdapters = 10
@@ -76,7 +81,7 @@ func offeringAdapters(uses []OfferingUse) OfferingAdaptersPreview {
 				if !seen[k] {
 					seen[k] = true
 					envs[k][cmp.Or(st.Environment, "default")] = true
-					a.countSlot(st)
+					a.countSlot(st, r)
 				}
 			}
 		}
@@ -92,11 +97,19 @@ func offeringAdapters(uses []OfferingUse) OfferingAdaptersPreview {
 	return out
 }
 
-// countSlot adds one status it reports on: its effective phase, Ready apart
-// when this adapter's reports are unsigned, and a disagreement.
-func (a *OfferingAdapter) countSlot(st ProvisioningStatus) {
-	a.Phases.addStatus(ProvisioningStatus{Phase: st.Phase, Verified: a.Verified})
-	if len(st.Conflict) > 0 {
+// countSlot adds one status r, this adapter's report, speaks for: the
+// effective phase only when r is a current Observed report of that phase,
+// otherwise Unknown, so no adapter is credited a phase it did not report (Ready
+// apart when its reports are unsigned); and a disagreement only when r's own
+// phase is one of the conflicting ones.
+func (a *OfferingAdapter) countSlot(st ProvisioningStatus, r provisioningReporter) {
+	observed := r.Current && r.Outcome == string(evidence.Observed)
+	phase := StatusUnknown
+	if observed && len(st.Conflict) == 0 && r.Phase == st.Phase {
+		phase = st.Phase
+	}
+	a.Phases.addStatus(ProvisioningStatus{Phase: phase, Verified: a.Verified})
+	if observed && slices.Contains(st.Conflict, r.Phase) {
 		a.Disagrees++
 	}
 }
@@ -151,8 +164,9 @@ func (a OfferingAdapter) Line() string {
 
 // Lines renders the preview: one line per adapter, what the bound left out,
 // the requests whose adapters disagree and the requests nobody reports on.
-// With no adapter it says the status is Unknown, never that there is none.
-func (p OfferingAdaptersPreview) Lines() []string {
+// With no adapter it says the status is Unknown, never that there is none, and
+// with hiddenConsumers above 0 it speaks only for the requests the viewer sees.
+func (p OfferingAdaptersPreview) Lines(hiddenConsumers int) []string {
 	lines := make([]string, 0, len(p.Items)+3)
 	for _, a := range p.Items {
 		lines = append(lines, a.Line())
@@ -160,7 +174,11 @@ func (p OfferingAdaptersPreview) Lines() []string {
 	if p.Truncated {
 		lines = append(lines, fmt.Sprintf("%d more", p.Total-p.Count))
 	}
-	if len(p.Items) == 0 {
+	switch {
+	case len(p.Items) > 0:
+	case hiddenConsumers > 0:
+		lines = append(lines, NoAdapterVisible)
+	default:
 		lines = append(lines, "No adapter has reported. Provisioning status is Unknown.")
 	}
 	if p.Conflicting > 0 {

@@ -526,7 +526,7 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 // did not resolve (inferred).
 func printOfferingAdapters(w io.Writer, o *fleet.OfferingDetailData) {
 	_, _ = fmt.Fprintln(w, "Adapters (observed):")
-	for _, l := range o.Adapters.Lines() {
+	for _, l := range o.Adapters.Lines(o.HiddenConsumers) {
 		_, _ = fmt.Fprintln(w, "  "+l)
 	}
 	if u := o.UnresolvedUses; u.Count > 0 {

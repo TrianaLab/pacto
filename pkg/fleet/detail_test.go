@@ -904,6 +904,7 @@ func TestOfferingUnresolvedUses(t *testing.T) {
 	if d.Meta.Completeness != CompletenessPartial || !hasLimitation(d.Meta.Limitations, LimitationOfferingUsesUnresolved) {
 		t.Errorf("meta = %s %+v", d.Meta.Completeness, d.Meta.Limitations)
 	}
+	checkUnresolvedMessage(t, d.Meta.Limitations)
 	d, err = q.EntityDetail(KindOffering, "cache")
 	if err != nil {
 		t.Fatal(err)
@@ -913,6 +914,18 @@ func TestOfferingUnresolvedUses(t *testing.T) {
 	}
 	if d.Meta.Completeness != q.snap.Completeness || hasLimitation(d.Meta.Limitations, LimitationOfferingUsesUnresolved) {
 		t.Errorf("cache meta = %s %+v", d.Meta.Completeness, d.Meta.Limitations)
+	}
+}
+
+// checkUnresolvedMessage asserts the limitation names every way a reference
+// fails to resolve, never only a missing pin: a pinned reference whose bundle
+// is absent counts too.
+func checkUnresolvedMessage(t *testing.T, lims []Limitation) {
+	t.Helper()
+	for _, l := range lims {
+		if l.Code == LimitationOfferingUsesUnresolved && (!strings.Contains(l.Message, "did not resolve") || !strings.Contains(l.Message, "bundle this snapshot does not hold") || strings.Contains(l.Message, "are not digest-pinned")) {
+			t.Errorf("limitation message = %q", l.Message)
+		}
 	}
 }
 
@@ -933,6 +946,38 @@ func TestOfferingUnresolvedUsesCountsHiddenConsumers(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "secret-") {
 		t.Errorf("a hidden consumer is named: %s", raw)
+	}
+}
+
+// A restricted view still counts a visible consumer's unresolved reference to
+// a hidden provider of the offering, and names that provider nowhere.
+func TestOfferingUnresolvedUsesCountsHiddenProviders(t *testing.T) {
+	orders := svc24("orders", "1.0.0", "")
+	orders.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://ghcr.io/acme/secret-pa:1.0.0"}}
+	tgt := func(ns, name string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
+	}
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc24("secret-pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", orders, nil)},
+		Targets:   []RawTarget{tgt("shop", "pa"), tgt("hush", "secret-pa"), tgt("shop", "orders")},
+	})
+	for name, view := range map[string]*Query{"full": q, "restricted": q.Restrict(func(ns string) bool { return ns == "shop" })} {
+		d, err := view.EntityDetail(KindOffering, "db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u := d.Offering.UnresolvedUses; u.Count != 1 || !hasLimitation(d.Meta.Limitations, LimitationOfferingUsesUnresolved) {
+			t.Errorf("%s: unresolved uses = %+v, limitations %+v", name, u, d.Meta.Limitations)
+		}
+		if name == "restricted" {
+			raw, err := json.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Offering.HiddenProviders != 1 || strings.Contains(strings.ReplaceAll(string(raw), "acme/secret-pa:1.0.0", ""), "secret-pa") {
+				t.Errorf("hidden providers %d; a hidden provider is named: %s", d.Offering.HiddenProviders, raw)
+			}
+		}
 	}
 }
 
