@@ -1,7 +1,8 @@
 # Run record reference
 
 A run record is a small JSON document that `pacto diff`, `pacto impact` and
-`pacto publish` can leave behind in CI to count what Pacto catches. Records are
+`pacto publish` can leave behind in CI to count what Pacto catches. [Measure what Pacto does](measure-what-pacto-does.md)
+shows how to turn recording on and read the totals. Records are
 unsigned statistics, never evidence: nothing in Pacto that validates, diffs,
 analyzes impact, publishes or delivers reads them. Only `pacto stats`, the
 read-only MCP tool `pacto_stats` and the dashboard's Metrics page read them
@@ -87,34 +88,34 @@ tags in a shared repository. Publishing the same record again changes nothing.
 Every record has `version`, `id`, `kind`, `service`, `pactoVersion` and
 `recordedAt`, and every record other than a coverage record has `outcome`. The other keys appear only where the table says.
 
-| Key | Type | Present | Holds |
-| --- | --- | --- | --- |
-| `version` | string | always | `pacto.trianalab.io/run-record/v1` |
-| `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it. On an `operation` record, the operation's Kubernetes UID |
-| `kind` | string | always | `diff`, `impact` or `publish`, `operation` for an [operation record](#operation-records) or `coverage` for a [coverage record](#coverage-records) |
-| `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
-| `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
-| `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
-| `bundleDigest` | string | `publish`, when it did not fail | the digest of the published bundle |
-| `deployDigest` | string | `publish`, when it did not fail | the digest of the published deploy artifact |
-| `classification` | string | when computed | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` |
-| `gate` | object | `impact`, refused `publish` | the gate the run reached |
-| `gate.verdict` | string | with `gate` | `impact`: `clear`, `blocked` or `unverified`. `publish`: `refused` |
-| `gate.reason` | string | with `gate` | `impact`: a [gate code](#impact-gate-codes). `publish`: the first failed check (`version`, `sign`, `refs`, `sbom`, `revision`, `validation` or `publish`), else `conflict` or `unreadable` |
-| `consumers` | object | `impact` | consumer counts of the change |
-| `consumers.incompatible` | integer | with `consumers` | consumers whose declared range or required guarantee rejects the new version, running or not |
-| `consumers.unknown` | integer | with `consumers` | consumers the evidence could not classify |
-| `consumers.compatible` | integer | with `consumers` | consumers whose declared range accepts the new version; a `BREAKING` change can still break them |
-| `consumers.unclassified` | integer | with `consumers` | consumers with no recognised verdict |
-| `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target |
-| `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was |
-| `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC at full precision, equal to the `asOf` of the impact answer |
-| `outcome` | string | except on a coverage record | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
-| `pactoVersion` | string | always | the Pacto release that wrote the record, for example `4.6.0` or `dev`. It is distinct from the contract's `pactoVersion` |
-| `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second |
-| `repository` | string | when named | see [context fields](#context-fields) |
-| `ciRunUrl` | string | when named | see [context fields](#context-fields) |
-| `environment` | string | when named | see [context fields](#context-fields); on an operation record, the environment its Stage delivers to |
+| Key | Type | Present | Holds | Personal data |
+| --- | --- | --- | --- | --- |
+| `version` | string | always | `pacto.trianalab.io/run-record/v1` | none |
+| `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it. On an `operation` record, the operation's Kubernetes UID | none |
+| `kind` | string | always | `diff`, `impact` or `publish`, `operation` for an [operation record](#operation-records) or `coverage` for a [coverage record](#coverage-records) | none |
+| `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name | none |
+| `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one | none |
+| `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published | none |
+| `bundleDigest` | string | `publish`, when it did not fail | the digest of the published bundle | none |
+| `deployDigest` | string | `publish`, when it did not fail | the digest of the published deploy artifact | none |
+| `classification` | string | when computed | `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING` | none |
+| `gate` | object | `impact`, refused `publish` | the gate the run reached | none |
+| `gate.verdict` | string | with `gate` | `impact`: `clear`, `blocked` or `unverified`. `publish`: `refused` | none |
+| `gate.reason` | string | with `gate` | `impact`: a [gate code](#impact-gate-codes). `publish`: the first failed check (`version`, `sign`, `refs`, `sbom`, `revision`, `validation` or `publish`), else `conflict` or `unreadable` | none |
+| `consumers` | object | `impact` | consumer counts of the change | none |
+| `consumers.incompatible` | integer | with `consumers` | consumers whose declared range or required guarantee rejects the new version, running or not | none |
+| `consumers.unknown` | integer | with `consumers` | consumers the evidence could not classify | none |
+| `consumers.compatible` | integer | with `consumers` | consumers whose declared range accepts the new version; a `BREAKING` change can still break them | none |
+| `consumers.unclassified` | integer | with `consumers` | consumers with no recognised verdict | none |
+| `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target | none |
+| `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was | none |
+| `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC at full precision, equal to the `asOf` of the impact answer | none |
+| `outcome` | string | except on a coverage record | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` | none |
+| `pactoVersion` | string | always | the Pacto release that wrote the record, for example `4.6.0` or `dev`. It is distinct from the contract's `pactoVersion` | none |
+| `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second | none |
+| `repository` | string | when named | see [context fields](#context-fields) | only when listed in `--stats-context` |
+| `ciRunUrl` | string | when named | see [context fields](#context-fields) | only when listed in `--stats-context` |
+| `environment` | string | when named | see [context fields](#context-fields); on an operation record, the environment its Stage delivers to | only when listed in `--stats-context`; on an operation record, its Stage's environment |
 
 The four consumer counts `incompatible`, `unknown`, `compatible` and
 `unclassified` split the consumers with no overlap, so a reader never has to
@@ -140,28 +141,28 @@ twice is two referrers with one `id`, which readers count once. Its `outcome` is
 (`oldRevision` through `asOf`, `repository` and `ciRunUrl`), and a CI record
 never holds the keys below.
 
-| Key | Type | Present | Holds |
-| --- | --- | --- | --- |
-| `type` | string | always | the last segment of the operation type, such as `promote` or `rollback` |
-| `verification` | string | when set | `Verified`, `AcceptedUnknown` or `Unverified` |
-| `reason` | string | when it is a plain code | the outcome's machine code, such as `PlanStale` |
-| `actorClass` | string | when set | `controller`, `agent`, `human` or `break-glass`, never a name |
-| `delegated` | boolean | when `true` | the operation named a person it acted for (`onBehalfOf` with a `user`); the person is never recorded |
-| `heldFor` | string | when the operation was held | the time from its last hold until it applied or, when it never applied, concluded, as a Go duration such as `14m0s`; it includes the waits after a person answered, on the Stage lock, a freeze and the apply |
-| `serviceDomain` | string | when the Stage's service has one | the domain of the Stage's service |
-| `stage` | object | always | the Stage the operation ran on |
-| `stage.namespace` | string | always | the Stage's namespace |
-| `stage.name` | string | always | the Stage's name |
-| `stage.cluster` | string | always | the cluster's id: its `kube-system` namespace UID |
-| `to` | string | pointer operations, when a digest | the digest the operation moves to |
-| `from` | string | pointer operations, when a digest | the digest the operation moves from |
-| `contract` | string | when a gate cited one | the contract digest a gate cited |
-| `gates` | array | when gates ran | one entry per gate result, in order |
-| `gates.gate` | string | with `gates` | the gate id |
-| `gates.phase` | string | with `gates` | `pre` or `verify` |
-| `gates.result` | string | with `gates` | `Pass`, `Fail` or `Unknown` |
-| `startedAt` | string | when admitted | when the operation was admitted, RFC 3339 |
-| `finishedAt` | string | always | when the operation concluded, RFC 3339 |
+| Key | Type | Present | Holds | Personal data |
+| --- | --- | --- | --- | --- |
+| `type` | string | always | the last segment of the operation type, such as `promote` or `rollback` | none |
+| `verification` | string | when set | `Verified`, `AcceptedUnknown` or `Unverified` | none |
+| `reason` | string | when it is a plain code | the outcome's machine code, such as `PlanStale` | none |
+| `actorClass` | string | when set | `controller`, `agent`, `human` or `break-glass`, never a name | the class, never a name |
+| `delegated` | boolean | when `true` | the operation named a person it acted for (`onBehalfOf` with a `user`); the person is never recorded | whether a person was named, never who |
+| `heldFor` | string | when the operation was held | the time from its last hold until it applied or, when it never applied, concluded, as a Go duration such as `14m0s`; it includes the waits after a person answered, on the Stage lock, a freeze and the apply | none |
+| `serviceDomain` | string | when the Stage's service has one | the domain of the Stage's service | none |
+| `stage` | object | always | the Stage the operation ran on | none |
+| `stage.namespace` | string | always | the Stage's namespace | none |
+| `stage.name` | string | always | the Stage's name | none |
+| `stage.cluster` | string | always | the cluster's id: its `kube-system` namespace UID | none |
+| `to` | string | pointer operations, when a digest | the digest the operation moves to | none |
+| `from` | string | pointer operations, when a digest | the digest the operation moves from | none |
+| `contract` | string | when a gate cited one | the contract digest a gate cited | none |
+| `gates` | array | when gates ran | one entry per gate result, in order | none |
+| `gates.gate` | string | with `gates` | the gate id | none |
+| `gates.phase` | string | with `gates` | `pre` or `verify` | none |
+| `gates.result` | string | with `gates` | `Pass`, `Fail` or `Unknown` | none |
+| `startedAt` | string | when admitted | when the operation was admitted, RFC 3339 | none |
+| `finishedAt` | string | always | when the operation concluded, RFC 3339 | none |
 
 `service` is the service the Stage declares. An operation record holds no
 actor, approver, note, message, citation or correlation id.
@@ -182,24 +183,24 @@ actor, approver, note, message, citation or correlation id.
   never sum them;
 - hidden from a reader that may see only part of the fleet.
 
-| Key | Type | Present | Holds |
-| --- | --- | --- | --- |
-| `coverage` | object | always | the snapshot's coverage counters |
-| `coverage.services` | integer | always | services that are no golden path |
-| `coverage.uncontracted` | integer | always | callers the fleet observed with no contract |
-| `coverage.knowledge` | object | when the snapshot carried a knowledge tally | absent means unknown, never 0 |
-| `coverage.knowledge.services` | integer | with `knowledge` | services the tally partitions: `described` + `withGaps` + `unknown` |
-| `coverage.knowledge.described` | integer | with `knowledge` | services whose contract and interface documents leave nothing out |
-| `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap |
-| `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge |
-| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here. The observed services are `knowledge.services` minus `knowledge.unknown` minus `knowledge.notDeployed`, with unknown services shown beside them |
-| `coverage.links` | object | always | operational targets by how they link to a contract |
-| `coverage.links.exact` | integer | always | targets linked exactly |
-| `coverage.links.inferred` | integer | always | targets linked by inference |
-| `coverage.links.ambiguous` | integer | always | targets that match more than one contract |
-| `coverage.links.unresolved` | integer | always | targets that match no contract |
-| `coverage.snapshotAsOf` | string | always | the snapshot's time, RFC 3339 in UTC; never after `recordedAt` |
-| `coverage.completeness` | string | always | `complete` or `partial`; an empty snapshot is recorded as `partial` |
+| Key | Type | Present | Holds | Personal data |
+| --- | --- | --- | --- | --- |
+| `coverage` | object | always | the snapshot's coverage counters | none |
+| `coverage.services` | integer | always | services that are no golden path | none |
+| `coverage.uncontracted` | integer | always | callers the fleet observed with no contract | none |
+| `coverage.knowledge` | object | when the snapshot carried a knowledge tally | absent means unknown, never 0 | none |
+| `coverage.knowledge.services` | integer | with `knowledge` | services the tally partitions: `described` + `withGaps` + `unknown` | none |
+| `coverage.knowledge.described` | integer | with `knowledge` | services whose contract and interface documents leave nothing out | none |
+| `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap | none |
+| `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge | none |
+| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here. The observed services are `knowledge.services` minus `knowledge.unknown` minus `knowledge.notDeployed`, with unknown services shown beside them | none |
+| `coverage.links` | object | always | operational targets by how they link to a contract | none |
+| `coverage.links.exact` | integer | always | targets linked exactly | none |
+| `coverage.links.inferred` | integer | always | targets linked by inference | none |
+| `coverage.links.ambiguous` | integer | always | targets that match more than one contract | none |
+| `coverage.links.unresolved` | integer | always | targets that match no contract | none |
+| `coverage.snapshotAsOf` | string | always | the snapshot's time, RFC 3339 in UTC; never after `recordedAt` | none |
+| `coverage.completeness` | string | always | `complete` or `partial`; an empty snapshot is recorded as `partial` | none |
 
 ### Impact gate codes
 

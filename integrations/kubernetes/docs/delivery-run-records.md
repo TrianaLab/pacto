@@ -5,8 +5,8 @@
 
 The promoter can publish a run record of every operation it concludes: its
 type, outcome, gate results, how long it was held, the class of who
-asked, the Stage and the digests, never a name. Records are unsigned statistics
-for `pacto stats`. Turn delivery on first ([Install](delivery-setup.md#install)).
+asked, the Stage and the digests, never a name. Records are
+[unsigned statistics](../../measure-what-pacto-does.md) for `pacto stats`. Turn delivery on first ([Install](delivery-setup.md#install)).
 Recording needs neither the recorder nor signing, and it works on GHCR.
 
 Publishing is best effort and never changes an outcome. A record that could not
