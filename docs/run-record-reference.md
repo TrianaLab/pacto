@@ -364,6 +364,7 @@ instead of a table of zeros.
 
 | Metric | Definition |
 | --- | --- |
+| `changes` | distinct changes among the `diff` and `impact` records; at zero no CI run was recorded, so `breakingCaught`, `consumersProtected` and `gates` measured nothing |
 | `breakingCaught` | `distinct`: changes with a `diff` or `impact` record classified `BREAKING`; `runs`: the records behind them, at most one per kind, since reruns of one change share an `id` |
 | `gates` | `clear`, `blocked` and `unverified`: changes by the verdict of their newest `impact` record that carries one |
 | `consumersProtected` | `count`: `consumers.blocking` summed over changes whose newest gate is `blocked`; `unknown`: `consumers.unknown` over the same changes; `partial`: how many of them were judged on a partial fleet snapshot, which makes `count` a lower bound. A change no impact run judged adds nothing |
@@ -377,19 +378,19 @@ instead of a table of zeros.
 | `environments.verificationFailed` | promote operations `Unverified`, of promote operations `Verified` or `Unverified` |
 | `environments.acceptedUnknown` | promote operations `AcceptedUnknown`, neither verified nor failed |
 | `environments.leadTime` | from the earliest publish record's `recordedAt` to the first `Succeeded` and `Verified` promote per Stage whose `to` is its deploy digest (else whose `contract` is its bundle digest), within one service. A publish rerun never moves the start, and a digest first promoted to a Stage before the window adds no lead time. It holds the nearest-rank `p50Seconds` and `p90Seconds` and the `joined` and `unjoined` promotion counts. A promotion whose `finishedAt` does not parse is unjoined. With nothing joined there is no percentile and `unknown` is `true` |
-| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and no rate is given |
+| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and no rate is given, though `count` still says how many records matched |
 
 | Limitation code | Meaning |
 | --- | --- |
 | `RUN_RECORDS_SKIPPED` | some records could not be read, and the message says how many are dated in the future |
 | `RUN_RECORDS_TRUNCATED` | a bound cut the read; the message says how many services after the cut were not read at all |
-| `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs |
+| `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs. When another limitation explains the zero, the message says only that no record you can count is in the window |
 | `RUN_RECORDS_REPOSITORY_NOT_FOUND` | in place of `NO_RUN_RECORDS`: the stats repository does not exist or nothing was published to it yet |
 | `NO_CI_OR_DELIVERY_RUN_RECORDS` | in place of `NO_RUN_RECORDS`: the window holds coverage records and no other record, so the answer has a coverage level and no totals |
 | `CONSUMERS_FROM_PARTIAL_SNAPSHOT` | some blocked changes were judged on a partial fleet snapshot, so `consumersProtected` is a lower bound |
 | `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
-| `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number |
-| `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist and are hidden from a reader who may see only part of the fleet |
+| `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number, or your view holds no service, so no record is read for you |
+| `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist, or could not be checked, and are hidden from a reader who may see only part of the fleet |
 | `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
 | `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |
 

@@ -51,12 +51,12 @@ type Query struct {
 type Ratio struct {
 	Count   int  `json:"count" doc:"Records that match"`
 	Of      int  `json:"of" doc:"Records the rate is taken over"`
-	Unknown bool `json:"unknown,omitempty" doc:"True when of is 0: there is nothing to take the rate over"`
+	Unknown bool `json:"unknown,omitempty" doc:"True when of is 0: there is nothing to take the rate over, though count still says how many records matched, such as a rollback with no succeeded promote in the window"`
 }
 
 func ratio(count, of int) Ratio {
 	if of == 0 {
-		return Ratio{Unknown: true}
+		return Ratio{Count: count, Unknown: true}
 	}
 	return Ratio{Count: count, Of: of}
 }
@@ -89,6 +89,7 @@ type Gates struct {
 
 // Metrics are the numbers of one group or of every record.
 type Metrics struct {
+	Changes            int                  `json:"changes" doc:"Distinct changes among the diff and impact runs; 0 means no CI run was recorded, so breakingCaught, consumersProtected and gates measured nothing and are unknown, never 0"`
 	BreakingCaught     Distinct             `json:"breakingCaught" doc:"Changes a diff or impact run classified BREAKING"`
 	ConsumersProtected Protected            `json:"consumersProtected" doc:"Consumers held back by changes whose newest gate is blocked; changes no impact run judged add nothing"`
 	Gates              Gates                `json:"gates" doc:"Changes by their newest gate verdict"`
@@ -270,7 +271,8 @@ func ciMetrics(entries []Entry) (Metrics, int) {
 		}
 		countGate(&m, newestGate(recs))
 	}
-	return m, len(changes)
+	m.Changes = len(changes)
+	return m, m.Changes
 }
 
 // changesOf groups the diff and impact entries by change (service, old
@@ -350,13 +352,20 @@ func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy 
 	if len(lims) > 0 {
 		c = fleet.CompletenessPartial
 	}
+	// When another limitation already explains the zero (records skipped,
+	// cut off or outside the caller's view), recording is never blamed.
+	explained := c == fleet.CompletenessPartial
 	switch {
+	case st.Runs == 0 && st.Coverage != nil && explained:
+		lims = append(lims, fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run record you can count"})
 	case st.Runs == 0 && st.Coverage != nil:
 		// The window holds coverage, so it is not empty: only the CI and
 		// delivery numbers are missing.
 		lims = append(lims, fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run records: recording may be off for those jobs"})
 	case st.Runs == 0 && set.RepositoryMissing:
 		lims = append(lims, fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"})
+	case st.Runs == 0 && explained:
+		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run record you can count in this window"})
 	case st.Runs == 0:
 		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"})
 	}

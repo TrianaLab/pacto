@@ -341,6 +341,9 @@ func statsBuckets(w stats.Window) []StatsBucket {
 // says so.
 func (s *Server) orderEnvironments(ctx context.Context, envs []stats.EnvironmentMetrics) (out []StatsEnvironment, mode, why string) {
 	out = []StatsEnvironment{}
+	if len(envs) == 0 {
+		return out, "stages", "" // nothing to order, so no Stage to read
+	}
 	order, upstream, cycle, unordered, why := s.stageOrder(ctx)
 	rank := map[string]int{}
 	for i, env := range order {
@@ -375,7 +378,7 @@ func (s *Server) orderEnvironments(ctx context.Context, envs []stats.Environment
 	switch {
 	case why != "":
 		return out, "name", why
-	case held == 0 && len(envs) > 0:
+	case held == 0:
 		return out, "name", "no Stage you can read delivers to these environments, so they are listed by name"
 	case held < len(envs):
 		return out, "stages", "some environments have no Stage you can read, so they follow the others by name"

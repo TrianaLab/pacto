@@ -574,6 +574,11 @@ func TestStatsEnvironmentsByNameWithoutDelivery(t *testing.T) {
 	if b.EnvironmentOrder != "stages" || len(b.Environments) != 0 {
 		t.Fatalf("empty answer = %s %v", b.EnvironmentOrder, b.Environments)
 	}
+	// Nor without delivery: no operation record, no limitation about their order.
+	b, _ = getStatsBody(t, statsServer(t, Options{Stats: fixedSet(recordSet(ciRec(runrecord.KindDiff, "orders", sha('a'), sha('b'), ago(3))))}), "")
+	if b.EnvironmentOrder != "stages" || hasLimitation(b.Limitations, LimitationEnvironmentOrderUnknown) {
+		t.Fatalf("no operations, no delivery = %s %v", b.EnvironmentOrder, b.Limitations)
+	}
 }
 
 func TestStatsDeliveryReadFailureFallsBackToName(t *testing.T) {

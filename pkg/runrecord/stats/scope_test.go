@@ -384,7 +384,7 @@ func TestRestrictedHiddenIsPartial(t *testing.T) {
 func TestRestrictedHiddenLeftOutOfEveryMetric(t *testing.T) {
 	hidden := breaking(gated(of("billing", rec(runrecord.KindImpact, "sha256:new", hoursAgo(2))), runrecord.VerdictBlocked, 3, 2))
 	st := aggBy(set(hidden, diffOf("shop/orders")), "owner", restrictedScope(t))
-	if st.DistinctChanges != 1 || !reflect.DeepEqual(*st.Totals, Metrics{}) || len(st.Groups) != 1 || !reflect.DeepEqual(st.Groups[0].Metrics, Metrics{}) {
+	if st.DistinctChanges != 1 || !reflect.DeepEqual(*st.Totals, Metrics{Changes: 1}) || len(st.Groups) != 1 || !reflect.DeepEqual(st.Groups[0].Metrics, Metrics{Changes: 1}) {
 		t.Fatalf("answer = %+v", st)
 	}
 }

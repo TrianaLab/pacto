@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +180,24 @@ func TestRestrictedCoverageAnchorWithheld(t *testing.T) {
 	}
 	if open := Aggregate(s, Query{Window: aggWindow}, Scope{}, aggNow); slices.Contains(limitationCodes(open.Limitations), LimitationCoverageOutsideView) {
 		t.Fatal("an unrestricted caller is told coverage is withheld")
+	}
+}
+
+// A zero another limitation explains never blames recording.
+func TestNoRecordsNeverBlamesRecordingWhenExplained(t *testing.T) {
+	cut := set(coverageAt(10, hoursAgo(5)))
+	cut.Truncated = "more than 1000 run records"
+	skipped := set()
+	skipped.Skipped = map[string]Skipped{runrecord.AnchorTag("billing"): {Malformed: 2}}
+	for name, s := range map[string]RecordSet{"truncated": cut, "skipped": skipped} {
+		st := Aggregate(s, Query{Window: aggWindow}, Scope{}, aggNow)
+		for _, l := range st.Limitations {
+			if strings.Contains(l.Message, "recording may be off") {
+				t.Errorf("%s: %s", name, l.Message)
+			}
+		}
+		if st.Completeness != fleet.CompletenessPartial {
+			t.Errorf("%s: completeness %s", name, st.Completeness)
+		}
 	}
 }

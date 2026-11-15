@@ -74,8 +74,13 @@ func TestEnvironmentRatesPerEnvironment(t *testing.T) {
 func TestEnvironmentWithoutPromotesIsUnknown(t *testing.T) {
 	e := onlyEnv(t, op(opRollback, delivery.Succeeded, delivery.Verified, hoursAgo(1)))
 	unknown := Ratio{Unknown: true}
-	if e.Held != unknown || e.Failed != unknown || e.RolledBack != unknown || e.VerificationFailed != unknown || !e.LeadTime.Unknown {
+	// The rollback stays counted: unknown says there is no rate, never that
+	// nothing rolled back.
+	if e.Held != unknown || e.Failed != unknown || e.RolledBack != (Ratio{Count: 1, Unknown: true}) || e.VerificationFailed != unknown || !e.LeadTime.Unknown {
 		t.Fatalf("environment = %+v", e)
+	}
+	if got := len(behind(t, set(op(opRollback, delivery.Succeeded, delivery.Verified, hoursAgo(1))), Scope{}, "rolledBack", e.Environment)); got != e.RolledBack.Count {
+		t.Fatalf("Behind lists %d rollbacks, the environment counts %d", got, e.RolledBack.Count)
 	}
 }
 
@@ -281,5 +286,16 @@ func TestLeadTimePercentiles(t *testing.T) {
 func TestLeadTimePromoteWithoutDigestIsUnjoined(t *testing.T) {
 	if lt := leadOf(t, published("orders", digest('d'), digest('b'), hoursAgo(5)), verifiedTo("", hoursAgo(2)), verifiedTo("", hoursAgo(1))); lt != (LeadTime{Unjoined: 2, Unknown: true}) {
 		t.Fatalf("lead time = %+v", lt)
+	}
+}
+
+// A window of delivery records alone measured no CI number: changes says so.
+func TestOperationsOnlyCountNoChanges(t *testing.T) {
+	st := Aggregate(set(promote(delivery.Succeeded, delivery.Verified, hoursAgo(1))), Query{Window: aggWindow}, Scope{}, aggNow)
+	if st.Totals == nil || st.Totals.Changes != 0 || len(st.Totals.Environments) != 1 {
+		t.Fatalf("totals = %+v", st.Totals)
+	}
+	if ci := Aggregate(set(diffOf("billing")), Query{Window: aggWindow}, Scope{}, aggNow); ci.Totals.Changes != 1 {
+		t.Fatalf("a diff run is a change: %+v", ci.Totals)
 	}
 }

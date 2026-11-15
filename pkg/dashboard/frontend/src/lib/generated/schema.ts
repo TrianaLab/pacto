@@ -5987,6 +5987,11 @@ export interface components {
         "Stats.Metrics": {
             /** @description Changes a diff or impact run classified BREAKING */
             breakingCaught: components["schemas"]["Stats.Distinct"];
+            /**
+             * Format: int64
+             * @description Distinct changes among the diff and impact runs; 0 means no CI run was recorded, so breakingCaught, consumersProtected and gates measured nothing and are unknown, never 0
+             */
+            changes: number;
             /** @description Consumers held back by changes whose newest gate is blocked; changes no impact run judged add nothing */
             consumersProtected: components["schemas"]["Stats.Protected"];
             /** @description Delivery numbers per environment, alphabetical */
@@ -6022,7 +6027,7 @@ export interface components {
              * @description Records the rate is taken over
              */
             of: number;
-            /** @description True when of is 0: there is nothing to take the rate over */
+            /** @description True when of is 0: there is nothing to take the rate over, though count still says how many records matched, such as a rollback with no succeeded promote in the window */
             unknown?: boolean;
         };
         "Stats.Skipped": {

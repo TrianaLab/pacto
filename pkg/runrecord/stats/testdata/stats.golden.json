@@ -27,6 +27,7 @@
   ],
   "by": "service",
   "totals": {
+    "changes": 1,
     "breakingCaught": {
       "distinct": 1,
       "runs": 2
@@ -95,6 +96,7 @@
       "key": "orders",
       "label": "orders",
       "metrics": {
+        "changes": 1,
         "breakingCaught": {
           "distinct": 1,
           "runs": 2
