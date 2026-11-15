@@ -62,7 +62,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. A target's health is " +
 	"'failing' when its own health check reports it is not healthy (finding HEALTH_FAILING) and 'unknown' when " +
 	"Pacto cannot tell; neither changes compliance. Knowledge gaps are what the contracts leave out (no summary, " +
-	"no domain, no interface document, no readiness assessment, runs nowhere). Unknown is never a pass: report it " +
+	"no domain, no interface document, no readiness assessment, runs nowhere, unverified extension capability). Unknown is never a pass: report it " +
 	"as unknown."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
@@ -474,7 +474,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"source":            {Type: "string", Description: "Entities read from this fleet source, by source key"},
 			"scope":             {Type: "string", Description: "Targets in this scope, such as a namespace"},
 			"readiness":         {Type: "string", Description: "Revisions by declared readiness", Enum: []string{"passing", "below-threshold", "expired", "not-declared"}},
-			"source_health":     {Type: "string", Description: "Sources by health", Enum: []string{"available", "partial", "stale", "unavailable"}},
+			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
 			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle, or services whose own lifecycle, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},

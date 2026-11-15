@@ -1050,14 +1050,14 @@ pacto fleet entities [text] [flags]
       --offset int                       result offset for paging
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
-      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown: no readable contract, unidentified: no single canonical owner)
+      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace
       --service string                   this service and its revisions and targets, by service key
       --sort string                      order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)
       --source string                    entities read from this fleet source, by source key
-      --source-health string             sources by health (available, partial, stale, unavailable)
+      --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out

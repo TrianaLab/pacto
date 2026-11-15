@@ -106,6 +106,7 @@ func parityQueries(revision string) []parityQuery {
 		// MCP walk expected and observed: every surface names its views here.
 		{"neighborhood app", []string{"fleet", "neighborhood", "app", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&views=expected,observed"},
 		{"sources unavailable", []string{"fleet", "entities", "--source-health", "unavailable"}, "pacto_fleet_entities", map[string]any{"source_health": "unavailable"}, "/api/fleet/entities?kinds=source&sourceHealth=unavailable"},
+		{"sources incomplete", []string{"fleet", "entities", "--source-health", "incomplete"}, "pacto_fleet_entities", map[string]any{"source_health": "incomplete"}, "/api/fleet/entities?kinds=source&sourceHealth=incomplete"},
 		{"revisions of app", []string{"fleet", "entities", "--kind", "revision", "--service", "app"}, "pacto_fleet_entities", map[string]any{"kind": "revision", "service": "app"}, "/api/fleet/entities?kinds=revision&service=app"},
 		{"app with no kind", []string{"fleet", "entities", "--service", "app"}, "pacto_fleet_entities", map[string]any{"service": "app"}, "/api/fleet/entities?service=app"},
 		{"stale attention", []string{"fleet", "attention", "--stale-only"}, "pacto_fleet_attention", map[string]any{"stale_only": true}, "/api/fleet/attention?staleOnly=true"},
