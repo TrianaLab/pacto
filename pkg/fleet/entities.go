@@ -152,6 +152,9 @@ const (
 	// SortConsumers puts the offerings with the most declared consumers first,
 	// then by name.
 	SortConsumers = "consumers"
+	// SortGaps puts the owners and domains with the most services that leave
+	// knowledge out first, then by name.
+	SortGaps = "gaps"
 )
 
 // Template filter values (see [EntityFilter.Template] and [SearchFilter.Template]).
@@ -255,13 +258,7 @@ func sortEntityList(filtered []EntityRef, order string) {
 	case SortName:
 		sort.SliceStable(filtered, func(i, j int) bool { return naturalLess(filtered[i].Label, filtered[j].Label) })
 	case SortHealth:
-		sort.SliceStable(filtered, func(i, j int) bool {
-			a, b := healthRank(filtered[i].Status), healthRank(filtered[j].Status)
-			if a != b {
-				return a < b
-			}
-			return naturalLess(filtered[i].Label, filtered[j].Label)
-		})
+		sort.SliceStable(filtered, func(i, j int) bool { return healthLess(filtered[i], filtered[j]) })
 	case SortNonCompliant:
 		sort.SliceStable(filtered, func(i, j int) bool {
 			a, b := filtered[i], filtered[j]
@@ -299,11 +296,34 @@ func sortEntityList(filtered []EntityRef, order string) {
 	}
 }
 
+// healthLess orders refs least healthy first: by status, then an owner or
+// domain row by its estate counts (non-compliant, failing health, unknown,
+// stale, with gaps), then by name.
+func healthLess(a, b EntityRef) bool {
+	if ra, rb := healthRank(a.Status), healthRank(b.Status); ra != rb {
+		return ra < rb
+	}
+	if c := slices.Compare(estateRank(b), estateRank(a)); c != 0 {
+		return c < 0
+	}
+	return naturalLess(a.Label, b.Label)
+}
+
+// estateRank is what [healthLess] compares owner and domain rows by, most
+// telling first; other kinds carry no estate.
+func estateRank(r EntityRef) []int {
+	if r.Kind != KindOwner && r.Kind != KindDomain {
+		return nil
+	}
+	return []int{r.NonCompliant, r.FailingHealth, r.Unknown, r.Stale, r.WithGaps}
+}
+
 // countOrders are the sort orders by one count, highest first, then by name.
 var countOrders = map[string]func(EntityRef) int{
 	SortServices:  func(r EntityRef) int { return r.Services },
 	SortFailed:    func(r EntityRef) int { return r.FailedRequests },
 	SortConsumers: func(r EntityRef) int { return r.Consumers },
+	SortGaps:      func(r EntityRef) int { return r.WithGaps },
 }
 
 // sortByCount orders refs by count, highest first, then by name.
@@ -418,7 +438,7 @@ func validateEntityFilter(f EntityFilter) error {
 		return err
 	}
 	if err := validateFields([]fieldCheck{
-		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created, failed, consumers)", validSort},
+		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created, failed, consumers, gaps)", validSort},
 		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
@@ -459,7 +479,7 @@ func boolValue(b bool) string {
 }
 
 func validSort(s string) bool {
-	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated || s == SortFailed || s == SortConsumers
+	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated || s == SortFailed || s == SortConsumers || s == SortGaps
 }
 
 // validSourceHealth reports whether s is a known source-health value.
@@ -594,7 +614,7 @@ func (q *Query) domainListRefs() []EntityRef {
 		}
 		ref.Services++
 		ref.Targets += len(s.Targets)
-		ref.NonCompliant += b2i(s.Status == StatusNonCompliant)
+		q.addEstate(ref, s)
 	}
 	refs := make([]EntityRef, 0, len(by))
 	for _, ref := range by {
@@ -651,34 +671,51 @@ func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef 
 
 // ownerListRefs is one row per owner with the number of services it claims.
 func (q *Query) ownerListRefs() []EntityRef {
-	var refs []EntityRef
+	owners := q.owners()
+	refs := make([]EntityRef, len(owners))
+	rows := make(map[string]*EntityRef, len(owners))
+	for i, o := range owners {
+		refs[i] = ownerEntityRef(o)
+		rows[o] = &refs[i]
+	}
 	// The same rule as the owner page: a service is an owner's when any of its
 	// revisions names them.
-	// Its non-compliant count is the rank figure's: only the services it owns
+	// Its estate counts are the rank figure's: only the services it owns
 	// outright, the ones no other owner disputes, so a row and the figure lane
 	// that links to it count the same services.
-	claimed, owned, nonCompliant := map[string]int{}, map[string]int{}, map[string]int{}
 	for _, s := range q.snap.Services {
 		if s.Template {
 			continue // a golden path is no service of its owner's estate
 		}
 		claims := q.ownerClaimsOf(s)
 		for _, k := range claims.keys {
-			claimed[k]++
+			if r := rows[k]; r != nil {
+				r.Services++
+			}
 		}
-		if k := claims.soleKey(); claims.len() == 1 && k != "" {
-			owned[k]++
-			nonCompliant[k] += b2i(s.Status == StatusNonCompliant)
+		if r := rows[claims.soleKey()]; claims.len() == 1 && r != nil {
+			r.Owned++
+			q.addEstate(r, s)
 		}
-	}
-	for _, o := range q.owners() {
-		ref := ownerEntityRef(o)
-		ref.Services = claimed[o]
-		ref.Owned = owned[o]
-		ref.NonCompliant = nonCompliant[o]
-		refs = append(refs, ref)
 	}
 	return refs
+}
+
+// addEstate counts one service into an owner or domain list row: whether it is
+// non-compliant or unknown, runs a target on stale evidence or one failing its
+// health check, and leaves knowledge out.
+func (q *Query) addEstate(r *EntityRef, s *ServiceRecord) {
+	var stale, failing bool
+	for _, tk := range s.Targets {
+		t := q.snap.Targets[tk]
+		stale = stale || t.Stale
+		failing = failing || failingHealth(t)
+	}
+	r.NonCompliant += b2i(s.Status == StatusNonCompliant)
+	r.Unknown += b2i(s.Status == StatusUnknown)
+	r.Stale += b2i(stale)
+	r.FailingHealth += b2i(failing)
+	r.WithGaps += b2i(q.withGaps(s))
 }
 
 // owners returns the distinct canonical owner KEYS across BOTH services and

@@ -852,3 +852,30 @@ func TestRestrictedKnowledgeAndOwnership(t *testing.T) {
 		t.Errorf("restricted knowledge %v/%q, unrestricted %v/%q", g2, c2, g1, c1)
 	}
 }
+
+func TestRestrictedEstateCounts(t *testing.T) {
+	k := SourceKindKubernetes
+	pay, secret := ok("pay"), failing("secret")
+	pay.Kind, secret.Kind, secret.Scope = k, k, "secret"
+	q := estateFleet(t, 0, []RawRevision{knowRev("pay", nil), knowRev("secret", withHealth("payments"))}, []RawTarget{pay, secret})
+	if row := domainRow(t, q, "payments"); row.FailingHealth != 1 || row.Services != 2 {
+		t.Fatalf("unrestricted payments = %+v", row)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	if row := domainRow(t, r, "payments"); row != (DomainTally{Domain: "payments", Services: 1, Targets: 1}) {
+		t.Errorf("restricted payments = %+v", row)
+	}
+	sum := domainSummary(t, r, "payments")
+	if sum.Services != 1 || sum.Health != (OperationalHealthTally{NotObserved: 1}) || sum.NotDeployed != 0 || sum.Knowledge.Services != 1 {
+		t.Errorf("restricted domain summary = %+v", sum)
+	}
+	for _, row := range rowsOf(t, r, KindDomain, SortHealth) {
+		if row.Key == "payments" && (row.Services != 1 || row.FailingHealth != 0 || row.Unknown != 0) {
+			t.Errorf("restricted domain row = %+v", row)
+		}
+	}
+	raw, _ := json.Marshal(r.Overview())
+	if strings.Contains(string(raw), "secret-app") {
+		t.Error("the restricted overview names the hidden target")
+	}
+}

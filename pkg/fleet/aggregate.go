@@ -878,12 +878,35 @@ type OwnerSummary struct {
 	Links            LinkTally       `json:"links"`
 	Evidence         EvidenceWindow  `json:"evidence"`
 	Findings         SeverityTally   `json:"findings"`
+	// Health partitions the targets by what their health check reports.
+	Health OperationalHealthTally `json:"health"`
+	// NotDeployed, Knowledge, UnresolvedDependencies and UndeclaredDependencies
+	// are over the estate's services; Readiness is over its revisions.
+	NotDeployed            int            `json:"notDeployed" doc:"Services that run nowhere, counted only when Pacto can see every target of the service"`
+	Knowledge              KnowledgeTally `json:"knowledge"`
+	Readiness              ReadinessTally `json:"readiness"`
+	UnresolvedDependencies int            `json:"unresolvedDependencies" doc:"Distinct declared dependencies of the services that resolve to no known service"`
+	UndeclaredDependencies int            `json:"undeclaredDependencies" doc:"Observed calls of the services that no contract declares"`
+}
+
+// addService tallies one service of the estate into every service-scoped
+// dimension: whether it runs nowhere, what its contract leaves out and its
+// unresolved and undeclared dependencies, by the service page's own rules.
+func (o *OwnerSummary) addService(q *Query, s *ServiceRecord) {
+	runsNowhere, _ := q.notDeployed(s)
+	o.NotDeployed += b2i(runsNowhere)
+	o.Knowledge.add(q.serviceKnowledge(s))
+	var deps ServiceSummary
+	q.tallyServiceEdges(&deps, s.Key)
+	o.UnresolvedDependencies += deps.UnresolvedDeclared
+	o.UndeclaredDependencies += deps.ObservedNotDeclared
 }
 
 // addTarget tallies one target into every target-scoped dimension at once, so a
 // caller cannot update three of the four and ship a summary whose bars disagree.
-func (o *OwnerSummary) addTarget(t *TargetRecord) {
+func (o *OwnerSummary) addTarget(q *Query, t *TargetRecord) {
 	o.Compliance.add(t.Compliance)
+	o.Health.add(q.targetHealth(t))
 	o.Links.add(t)
 	o.Evidence.add(t)
 	for _, f := range t.Findings {

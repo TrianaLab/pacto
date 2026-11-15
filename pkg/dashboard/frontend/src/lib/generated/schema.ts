@@ -2324,8 +2324,23 @@ export interface components {
         "Fleet.DomainTally": {
             domain: string;
             domainUnknown?: boolean;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing
+             */
+            failingHealth: number;
             /** Format: int64 */
             nonCompliant: number;
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no owner claim whose contract Pacto cannot read
+             */
+            ownerUnknown: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -2334,8 +2349,16 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unknown: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services that declare no owner; an owner Pacto cannot read is ownerUnknown
+             */
             unowned: number;
+            /**
+             * Format: int64
+             * @description Services with at least one knowledge gap
+             */
+            withGaps: number;
         };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
@@ -2414,6 +2437,8 @@ export interface components {
             explanation?: string;
             /** Format: int64 */
             failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
             /** Format: int64 */
@@ -2439,13 +2464,19 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
             targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
         };
         "Fleet.EnvironmentAvailability": {
             /** @description The environment label of the targets; empty for targets with no label */
@@ -2907,15 +2938,33 @@ export interface components {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             findings: components["schemas"]["Fleet.SeverityTally"];
+            health: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             invalidRevisions: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             links: components["schemas"]["Fleet.LinkTally"];
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
             targets: number;
+            /**
+             * Format: int64
+             * @description Observed calls of the services that no contract declares
+             */
+            undeclaredDependencies: number;
+            /**
+             * Format: int64
+             * @description Distinct declared dependencies of the services that resolve to no known service
+             */
+            unresolvedDependencies: number;
         };
         "Fleet.OwnershipTally": {
             /** Format: int64 */
@@ -4796,6 +4845,8 @@ export interface components {
             explanation?: string;
             /** Format: int64 */
             failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
             /** Format: int64 */
@@ -4822,13 +4873,19 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
             targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
         };
         ProductRefPreview: {
             /** Format: int64 */
@@ -7236,8 +7293,8 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

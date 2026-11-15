@@ -178,6 +178,14 @@ type EntityRef struct {
 	// that names an owner names this one alone. It is the denominator of the
 	// owner's non-compliant rate (see [EntityRef.RateBase]).
 	Owned int `json:"owned,omitempty"`
+	// Unknown, Stale, FailingHealth and WithGaps count, like NonCompliant, the
+	// services of an OWNER or DOMAIN list row (owned outright for an owner) whose
+	// compliance is unknown, that run a target on stale evidence, that run a
+	// target failing its health check and that leave knowledge out.
+	Unknown       int `json:"unknown,omitempty"`
+	Stale         int `json:"stale,omitempty"`
+	FailingHealth int `json:"failingHealth,omitempty"`
+	WithGaps      int `json:"withGaps,omitempty"`
 	// Lifecycle, Availability, AvailabilityProvenance, Consumers,
 	// HiddenConsumers, FailedRequests and TargetsUnknown are set only on
 	// OFFERING list answers.
@@ -536,18 +544,23 @@ type OverviewSummary struct {
 }
 
 // DomainTally counts the services of one business domain, the targets they run
-// on, how many of those targets are broken, unknown or stale, and how many of the
-// services no source knows an owner for. An empty Domain is the No domain row, or
-// the Unknown domain row when DomainUnknown is set.
+// on, how many of those targets are broken, failing their health check, unknown
+// or stale, and how many of the services declare no owner, have an owner Pacto
+// cannot read, run nowhere or leave knowledge out. An empty Domain is the No
+// domain row, or the Unknown domain row when DomainUnknown is set.
 type DomainTally struct {
 	Domain        string `json:"domain"`
 	DomainUnknown bool   `json:"domainUnknown,omitempty"`
 	Services      int    `json:"services"`
 	Targets       int    `json:"targets"`
 	NonCompliant  int    `json:"nonCompliant"`
+	FailingHealth int    `json:"failingHealth" doc:"Targets whose health check answered and reports it is failing"`
 	Unknown       int    `json:"unknown"`
 	Stale         int    `json:"stale"`
-	Unowned       int    `json:"unowned"`
+	Unowned       int    `json:"unowned" doc:"Services that declare no owner; an owner Pacto cannot read is ownerUnknown"`
+	OwnerUnknown  int    `json:"ownerUnknown" doc:"Services with no owner claim whose contract Pacto cannot read"`
+	NotDeployed   int    `json:"notDeployed" doc:"Services that run nowhere, counted only when Pacto can see every target of the service"`
+	WithGaps      int    `json:"withGaps" doc:"Services with at least one knowledge gap"`
 }
 
 // tallyDomains fills ByDomain and Domains from every service that is not a
@@ -569,13 +582,17 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 			by[k] = dt
 		}
 		dt.Services++
-		if b, _ := q.ownershipBucket(s); b == OwnershipUnowned {
-			dt.Unowned++
-		}
+		b, _ := q.ownershipBucket(s)
+		dt.Unowned += b2i(b == OwnershipUnowned)
+		dt.OwnerUnknown += b2i(b == OwnershipUnknown)
+		runsNowhere, _ := q.notDeployed(s)
+		dt.NotDeployed += b2i(runsNowhere)
+		dt.WithGaps += b2i(q.withGaps(s))
 		for _, tk := range s.Targets {
 			t := q.snap.Targets[tk]
 			dt.Targets++
 			dt.NonCompliant += b2i(t.Compliance == StatusNonCompliant)
+			dt.FailingHealth += b2i(failingHealth(t))
 			dt.Unknown += b2i(t.Compliance == StatusUnknown)
 			dt.Stale += b2i(t.Stale)
 		}
@@ -593,8 +610,9 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 		named = append(named, *dt)
 	}
 	slices.SortFunc(named, func(a, b DomainTally) int {
-		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown),
-			cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(a.Domain, b.Domain))
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.FailingHealth, a.FailingHealth),
+			cmp.Compare(b.Unknown, a.Unknown), cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(b.WithGaps, a.WithGaps),
+			cmp.Compare(a.Domain, b.Domain))
 	})
 	sum.ByDomain, sum.Domains, _ = boundSlice(named, overviewScopeLimit-len(tail))
 	sum.ByDomain = append(sum.ByDomain, tail...)

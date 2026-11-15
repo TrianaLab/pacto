@@ -301,9 +301,9 @@ func TestOverview_ByDomainCoversEveryService(t *testing.T) {
 	// commerce, then ghost (domain and owner unknown, never unowned), then web
 	// (No domain).
 	want := []DomainTally{
-		{Domain: "commerce", Services: 2, Targets: 2, NonCompliant: 1, Unowned: 1},
-		{DomainUnknown: true, Services: 1, Targets: 1},
-		{Services: 1},
+		{Domain: "commerce", Services: 2, Targets: 2, NonCompliant: 1, Unowned: 1, WithGaps: 2},
+		{DomainUnknown: true, Services: 1, Targets: 1, OwnerUnknown: 1},
+		{Services: 1, NotDeployed: 1, WithGaps: 1},
 	}
 	if !slices.Equal(s.ByDomain, want) || s.Domains != 1 {
 		t.Errorf("byDomain = %+v, domains = %d, want %+v", s.ByDomain, s.Domains, want)
@@ -567,7 +567,7 @@ func TestBuild_BusinessDomainUnknownVersusNone(t *testing.T) {
 		t.Errorf("search (unknown) = %+v, %v", res, err)
 	}
 	ov := q.Overview().Summary
-	if want := []DomainTally{{DomainUnknown: true, Services: 1, Targets: 1, Unknown: 1}, {Services: 2, Targets: 1, Unknown: 1, Unowned: 2}}; !slices.Equal(ov.ByDomain, want) || ov.Domains != 0 {
+	if want := []DomainTally{{DomainUnknown: true, Services: 1, Targets: 1, Unknown: 1, OwnerUnknown: 1}, {Services: 2, Targets: 1, Unknown: 1, Unowned: 2, NotDeployed: 1, WithGaps: 1}}; !slices.Equal(ov.ByDomain, want) || ov.Domains != 0 {
 		t.Errorf("byDomain = %+v, want the unknown row, then No domain: %+v", ov.ByDomain, want)
 	}
 }

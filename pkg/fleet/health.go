@@ -56,6 +56,13 @@ func healthFindings(t *TargetRecord) (failing *finding.Finding, named bool) {
 	return nil, named
 }
 
+// failingHealth reports whether the target's health check answered and reports
+// it is failing, the one state [Query.targetHealth] reads as unavailable.
+func failingHealth(t *TargetRecord) bool {
+	f, _ := healthFindings(t)
+	return f != nil
+}
+
 // declaresHealth reports whether the target's linked revision resolves and
 // declares the health capability, and whether it resolves at all.
 func (q *Query) declaresHealth(t *TargetRecord) (declared, resolved bool) {

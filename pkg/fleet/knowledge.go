@@ -178,6 +178,12 @@ func (q *Query) serviceKnowledge(s *ServiceRecord) (gaps []string, cause string)
 	return gaps, ""
 }
 
+// withGaps reports whether Pacto can judge the service and finds a gap.
+func (q *Query) withGaps(s *ServiceRecord) bool {
+	gaps, cause := q.serviceKnowledge(s)
+	return cause == "" && len(gaps) > 0
+}
+
 // matchGap reports whether a SERVICE reference that is no golden path has the
 // gap kind, or for GapUnknown an unknown knowledge state.
 func (q *Query) matchGap(r EntityRef, want string) bool {
