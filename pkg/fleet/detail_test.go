@@ -863,3 +863,73 @@ func TestTargetEnvironmentMarksExpired(t *testing.T) {
 		}
 	}
 }
+
+// unresolvedUsesFleet is offering db (provider pa) with one consumer whose
+// configuration reference is only tagged and one whose policy reference names
+// no tag or digest: neither resolves. pinned's reference is digest-pinned.
+func unresolvedUsesFleet(t *testing.T) *Query {
+	t.Helper()
+	cfg := svc24("secret-orders", "1.0.0", "")
+	cfg.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://ghcr.io/acme/pa:1.0.0"}}
+	pol := svc24("secret-guard", "1.0.0", "")
+	pol.Policies = []contract.Policy{{Name: "guard", Ref: "oci://ghcr.io/acme/pa"}}
+	pinned := svc24("pinned", "1.0.0", "")
+	pinned.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://ghcr.io/acme/pb@" + testDigest("ghcr.io/acme", "pb", "1.0.0")}}
+	tgt := func(ns, name string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
+	}
+	return buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{
+			ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc24("pb", "1.0.0", "cache"), nil),
+			ociRev("ghcr.io/acme", cfg, nil), ociRev("ghcr.io/acme", pol, nil), ociRev("ghcr.io/acme", pinned, nil),
+		},
+		Targets: []RawTarget{tgt("shop", "pa"), tgt("shop", "pb"), tgt("hush", "secret-orders"), tgt("hush", "secret-guard"), tgt("shop", "pinned")},
+	})
+}
+
+// Declared uses that may name a provider but do not resolve are counted,
+// inferred, and make the answer partial; an offering with none is unchanged.
+func TestOfferingUnresolvedUses(t *testing.T) {
+	q := unresolvedUsesFleet(t)
+	d, err := q.EntityDetail(KindOffering, "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := d.Offering.UnresolvedUses
+	if u.Count != 2 || u.Reason == "" || u.Provenance != ProvenanceInferred {
+		t.Errorf("unresolved uses = %+v", u)
+	}
+	if d.Meta.Completeness != CompletenessPartial || !hasLimitation(d.Meta.Limitations, LimitationOfferingUsesUnresolved) {
+		t.Errorf("meta = %s %+v", d.Meta.Completeness, d.Meta.Limitations)
+	}
+	d, err = q.EntityDetail(KindOffering, "cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := d.Offering.UnresolvedUses; u.Count != 0 || u.Reason != "" || u.Provenance != ProvenanceInferred {
+		t.Errorf("cache unresolved uses = %+v", u)
+	}
+	if d.Meta.Completeness != q.snap.Completeness || hasLimitation(d.Meta.Limitations, LimitationOfferingUsesUnresolved) {
+		t.Errorf("cache meta = %s %+v", d.Meta.Completeness, d.Meta.Limitations)
+	}
+}
+
+// A restricted view counts the hidden referrers' unresolved uses and names
+// them nowhere.
+func TestOfferingUnresolvedUsesCountsHiddenConsumers(t *testing.T) {
+	r := unresolvedUsesFleet(t).Restrict(func(ns string) bool { return ns == "shop" })
+	d, err := r.EntityDetail(KindOffering, "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := d.Offering.UnresolvedUses.Count; n != 2 {
+		t.Errorf("restricted count = %d, want 2", n)
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "secret-") {
+		t.Errorf("a hidden consumer is named: %s", raw)
+	}
+}

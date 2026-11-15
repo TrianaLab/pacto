@@ -3406,6 +3406,20 @@ export interface components {
             sources: string[] | null;
             toService: string;
         };
+        "Fleet.UnresolvedUses": {
+            /**
+             * Format: int64
+             * @description Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference. Hidden consumers are counted, never named
+             */
+            count: number;
+            /**
+             * @description The match is inferred from the reference's repository or name
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description Why such a reference does not resolve */
+            reason?: string;
+        };
         "Fleet.UsageFigures": {
             cost?: components["schemas"]["Evidence.UsageCost"];
             metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
@@ -4532,6 +4546,7 @@ export interface components {
             hiddenProviders?: number;
             observedConsumers: components["schemas"]["ProductObservedConsumersPreview"];
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
+            unresolvedUses: components["schemas"]["Fleet.UnresolvedUses"];
         };
         ProductOfferingProvider: {
             availability: components["schemas"]["ProductAvailability"];

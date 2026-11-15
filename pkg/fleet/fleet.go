@@ -904,6 +904,10 @@ type FleetSnapshot struct {
 	// hiddenProviders counts, in a restricted snapshot, the hidden providers
 	// of each offering that keeps a visible provider. Only counted.
 	hiddenProviders map[string]int
+	// hiddenUnresolvedRefs holds, in a restricted snapshot, the declared,
+	// unresolved references of the services the view hides, so counts of
+	// unresolved uses stay honest. Never serialized and never named.
+	hiddenUnresolvedRefs []hiddenUnresolvedRef
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency or a resolved configuration reference on it (see

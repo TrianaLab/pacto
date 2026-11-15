@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"path"
 	"slices"
 	"strings"
 
@@ -121,43 +120,4 @@ func (m providerByRef) ResolveBundle(_ context.Context, ref string) (*contract.B
 		return b, nil
 	}
 	return nil, errors.New("impact checks one revision and does not follow " + ref)
-}
-
-// unresolvedRefConsumers counts the declared references of relType
-// (configuration or policy) the snapshot could not resolve that may name changed: by the repository of one of
-// its revisions, or, as dependencies resolve, by a last path segment that is its
-// name (with or without -pacto), which also covers a fleet read from
-// directories and a relative ref. They may consume or check against it, at a
-// revision Pacto cannot tell.
-func unresolvedRefConsumers(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, relType string) int {
-	_, name := fleet.ParseServiceKey(changed)
-	repos := map[string]bool{}
-	for _, rev := range snap.Revisions {
-		if rev.ServiceKey != changed {
-			continue
-		}
-		for _, ref := range []string{rev.RequestedRef, rev.ResolvedRef} {
-			if r := repository(ref); r != "" {
-				repos[r] = true
-			}
-		}
-	}
-	n := 0
-	for _, r := range snap.Relationships {
-		if r.Type != relType || r.Provenance != fleet.ProvenanceDeclared || r.Resolved {
-			continue
-		}
-		repo := repository(r.RequestedRef)
-		last := strings.TrimSuffix(path.Base(strings.TrimRight(repo, "/")), "-pacto")
-		if repos[repo] || last == name {
-			n++
-		}
-	}
-	return n
-}
-
-// repository is the repository a ref names, without scheme, tag or digest.
-func repository(ref string) string {
-	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
-	return repo
 }

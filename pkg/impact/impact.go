@@ -793,7 +793,7 @@ func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed ...f
 // they may consume or check against it, at a revision Pacto cannot tell.
 func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, withPolicy bool) {
 	note := func(code, relType, what, verb string) {
-		n := unresolvedRefConsumers(snap, changed, relType)
+		n := fleet.UnresolvedRefCount(snap, []fleet.ServiceKey{changed}, relType)
 		if n == 0 {
 			return
 		}

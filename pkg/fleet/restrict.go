@@ -409,6 +409,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 		m[at][other] = true
 	}
 	out.Relationships = make([]Relationship, 0, len(rels))
+	out.hiddenUnresolvedRefs = slices.Clip(out.hiddenUnresolvedRefs) // never appends into the source snapshot's list
 	for _, rel := range rels {
 		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
 		switch {
@@ -423,6 +424,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 				count(consumers, rel.ToService, rel.FromService)
 			}
 			countPolicyReferrer(referrers, rel)
+			out.hiddenUnresolvedRefs = appendHiddenUnresolved(out.hiddenUnresolvedRefs, rel)
 			continue
 		case to:
 			if rel.Provenance == ProvenanceObserved {
