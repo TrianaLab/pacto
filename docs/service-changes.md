@@ -30,7 +30,8 @@ read is counted, and no change is reported across it.
 The **Reached** column says when the revision first reached each Stage you may
 read, from that Stage's delivery records, read with your identity:
 
-- A move a verified record signed shows its time.
+- A move a verified record signed shows its time, and its Stage links to
+  that Stage's Delivery history, where the record opens.
 - A move read from an Operation's status reads **from status, not signed**.
 - A record whose signature was not checked reads **recorded, signature not
   checked**.
