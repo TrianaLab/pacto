@@ -46,6 +46,8 @@ The server accepts a provisioning report only when:
   `allowedSubjects` globs scope which consumers it reports for;
 - each observation names a configuration reference or a dependency the
   consumer declares, in an environment it declares;
+- when its key sets `allowedProviderRepos`, that configuration reference or
+  dependency names a provider repository under one of them;
 - it is dated no more than five minutes after the server accepted it.
 
 The server evaluates no compliance findings for a provisioning report and
