@@ -4,6 +4,7 @@ import {
   assertPageHierarchy, assertRoleCoherence, type RoleSample,
 } from './typographyChecks';
 import { DOC_ORIGIN } from './ports';
+import { installScaleFixture } from './layoutGate';
 
 /**
  * Desktop typography acceptance in real Chromium, from COMPUTED styles.
@@ -45,10 +46,13 @@ test.describe('typography hierarchy on desktop', () => {
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
       // The plain demo has no stats repository: the explainer.
       ['Metrics', '#/metrics'],
+      // Last: the scale fixture answers for a stats repository from here on.
+      ['Metrics (recorded)', '#/metrics'],
     ];
 
     const all: RoleSample[] = [];
     for (const [label, hash] of routes) {
+      if (label === 'Metrics (recorded)') await page.addInitScript(installScaleFixture);
       await boot(page, hash);
       if (label === 'Change analysis') await runAnalysis(page);
       const s = await sampleRoles(page, label);

@@ -805,10 +805,10 @@ describe('metrics route', () => {
   it('parses #/metrics and round-trips its window, metric, environment and both page offsets', () => {
     expect(parseHash('#/metrics')).toEqual({ view: 'metrics', params: {} });
     expect(metricsUrl()).toBe('#/metrics');
-    const url = metricsUrl({ window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', servicesOffset: '100' });
-    expect(url).toBe('#/metrics?window=7d&metric=leadTime&environment=prod&offset=25&servicesOffset=100');
+    const url = metricsUrl({ window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', limit: '50', servicesOffset: '100', servicesLimit: '100' });
+    expect(url).toBe('#/metrics?window=7d&metric=leadTime&environment=prod&offset=25&limit=50&servicesOffset=100&servicesLimit=100');
     expect(parseHash(url)).toEqual({
-      view: 'metrics', params: { window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', servicesOffset: '100' },
+      view: 'metrics', params: { window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', limit: '50', servicesOffset: '100', servicesLimit: '100' },
     });
     expect(parseHash('#/metrics?other=1').params).toEqual({});
   });
