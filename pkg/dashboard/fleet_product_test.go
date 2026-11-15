@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -177,6 +178,27 @@ func TestFleetEntitiesGapParam(t *testing.T) {
 		t.Errorf("ownership=unknown = %d, aggregate %+v", all.Total, all.Aggregate.Ownership)
 	}
 	expectStatus(t, base+"/api/fleet/entities?gap=bogus", http.StatusUnprocessableEntity)
+}
+
+// TestFleetEntitiesSourceHealthIncomplete: sourceHealth=incomplete reaches the
+// query over the wire and lists every partial, stale or unavailable source.
+func TestFleetEntitiesSourceHealthIncomplete(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{}),
+		fleet.NewMemorySource("old", "oci", &fleet.Collection{State: &fleet.SourceState{Status: fleet.SourceStale}}),
+		fleet.NewFailingSource("down", "oci", errors.New("unreachable")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	var list fleet.EntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=source&sourceHealth=incomplete", http.StatusOK, &list)
+	if list.Total != 2 {
+		t.Errorf("incomplete sources = %+v", list.Entities)
+	}
+	expectStatus(t, base+"/api/fleet/entities?sourceHealth=broken", http.StatusUnprocessableEntity)
 }
 
 // TestProductNeighborhood_CombinedProvenanceOverWire proves the combined

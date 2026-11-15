@@ -438,6 +438,17 @@ describe('FleetSourcesView (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // The overview's "Incomplete sources" tile opens this list with sourceHealth=incomplete.
+  it('names the incomplete filter Incomplete in its chip and its select', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'source', key: 'kubernetes', label: 'kubernetes', href: '/fleet/sources/kubernetes' }], { total: 1 }));
+    const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'incomplete' });
+    await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ sourceHealth: 'incomplete' }));
+    expect(target.textContent).toContain('Incomplete');
+    expect((target.querySelector('select') as HTMLSelectElement).value).toBe('incomplete');
+    unmount(component); document.body.removeChild(target);
+  });
+
   // SECTION 10: the search + health filter + paged list is the accepted base and is
   // NOT redesigned here. The one thing it could not answer is how many sources are in
   // each state before you go looking, which is exactly the question that decides

@@ -250,6 +250,8 @@ export function sourceHealthLabel(status: string | undefined): string {
     case 'partial': return 'Partial';
     case 'stale': return 'Stale';
     case 'unavailable': return 'Unavailable';
+    // A filter value, never a status: partial, stale or unavailable.
+    case 'incomplete': return 'Incomplete';
     default: return status || 'Unknown';
   }
 }

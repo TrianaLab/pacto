@@ -682,8 +682,8 @@ const (
 	EntryPointAttention EntryPointView = "attention"
 	// EntryPointServices: the services list.
 	EntryPointServices EntryPointView = "services"
-	// EntryPointOverview: the overview page.
-	EntryPointOverview EntryPointView = "overview"
+	// EntryPointSources: the sources list, filtered by source health in Category.
+	EntryPointSources EntryPointView = "sources"
 )
 
 // EntryPoint is a suggested navigational starting point described route-neutrally
@@ -911,7 +911,7 @@ func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
 		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
-		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
+		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointSources, Category: SourceHealthIncomplete, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
 	for _, ep := range candidates {

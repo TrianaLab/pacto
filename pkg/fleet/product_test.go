@@ -208,8 +208,8 @@ func TestOverview_EntryPointSeverityMatchesItsItems(t *testing.T) {
 			t.Errorf("entry point %q carries no severity", ep.Label)
 			continue
 		}
-		if ep.Category == "" {
-			continue // uncategorised doorways span every grade
+		if ep.Category == "" || ep.View != EntryPointAttention {
+			continue // uncategorised doorways span every grade; sources carry no items
 		}
 		page, err := q.Attention(AttentionFilter{Category: ep.Category, Limit: 1000})
 		if err != nil {

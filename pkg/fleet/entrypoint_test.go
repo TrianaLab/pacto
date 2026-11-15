@@ -1,6 +1,9 @@
 package fleet
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // attentionServices walks every page of the unfiltered attention list and
 // returns the distinct population services it names.
@@ -66,5 +69,44 @@ func TestLeadTileItemCount(t *testing.T) {
 		if ep.Label != "Services needing attention" && ep.ItemCount != 0 {
 			t.Errorf("only the lead tile carries itemCount, got %+v", ep)
 		}
+	}
+}
+
+func TestSourceHealthIncompleteFilter(t *testing.T) {
+	q := productFleet(t) // local available; stale-oci, partial-oci and down incomplete
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceHealth: SourceHealthIncomplete})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range l.Entities {
+		got[r.Key] = r.Status
+	}
+	if len(got) != 3 || got["stale-oci"] != "stale" || got["partial-oci"] != "partial" || got["down"] != "unavailable" {
+		t.Errorf("incomplete sources = %v", got)
+	}
+	// A value outside the five is still rejected, and incomplete matches no other kind.
+	if _, err := q.Entities(EntityFilter{SourceHealth: "broken"}); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Errorf("bogus source health: %v", err)
+	}
+	if svc, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource, KindService}, SourceHealth: SourceHealthIncomplete}); svc != nil && svc.Total != 3 {
+		t.Errorf("incomplete matched non-sources: %d", svc.Total)
+	}
+}
+
+func TestIncompleteSourcesTileMatchesSourceList(t *testing.T) {
+	q := productFleet(t)
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, SourceHealth: SourceHealthIncomplete})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tile *EntryPoint
+	for _, ep := range q.Overview().EntryPoints {
+		if ep.Label == "Incomplete sources" {
+			tile = &ep
+		}
+	}
+	if tile == nil || tile.Count != l.Total || tile.View != EntryPointSources || tile.Category != SourceHealthIncomplete {
+		t.Fatalf("tile = %+v, list total %d", tile, l.Total)
 	}
 }

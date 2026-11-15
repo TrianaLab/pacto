@@ -98,7 +98,7 @@ type EntityFilter struct {
 	// observed behaviour, and a revision can pass one and fail the other.
 	Readiness string
 	// SourceHealth filters source entities by their health (available, partial,
-	// stale, unavailable) - kept distinct from compliance Status so the two are
+	// stale, unavailable, or incomplete for any of the last three) - kept distinct from compliance Status so the two are
 	// never validated against one enum.
 	SourceHealth string
 	Source       string
@@ -441,7 +441,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"sort", f.Sort, "not a sort order (name, health, services, nonCompliant, rate, created, failed, consumers, gaps)", validSort},
 		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
-		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
+		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable, incomplete)", validSourceHealthFilter},
 		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned, unidentified, unknown)", validOwnershipFilter},
 		{"gap", f.Gap, "not a knowledge gap (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability, unknown)", validGap},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
@@ -480,6 +480,15 @@ func boolValue(b bool) string {
 
 func validSort(s string) bool {
 	return s == SortName || s == SortHealth || s == SortServices || s == SortNonCompliant || s == SortRate || s == SortCreated || s == SortFailed || s == SortConsumers || s == SortGaps
+}
+
+// SourceHealthIncomplete is the [EntityFilter.SourceHealth] value matching every
+// source that is partial, stale or unavailable: the "Incomplete sources" tile.
+const SourceHealthIncomplete = "incomplete"
+
+// validSourceHealthFilter reports whether s is a source-health filter value.
+func validSourceHealthFilter(s string) bool {
+	return s == SourceHealthIncomplete || validSourceHealth(s)
 }
 
 // validSourceHealth reports whether s is a known source-health value.
@@ -976,8 +985,17 @@ func environmentDrops(r EntityRef, f EntityFilter) bool {
 // matchSourceFields checks the source-only filters: health and kind. Any other
 // kind never matches a set one.
 func matchSourceFields(r EntityRef, f EntityFilter) bool {
-	return (f.SourceHealth == "" || r.Kind == KindSource && r.Status == f.SourceHealth) &&
+	return (f.SourceHealth == "" || r.Kind == KindSource && sourceHealthMatches(r.Status, f.SourceHealth)) &&
 		(f.SourceKind == "" || r.Kind == KindSource && r.Secondary == f.SourceKind)
+}
+
+// sourceHealthMatches reports whether a source's status matches the filter:
+// incomplete matches any status other than available.
+func sourceHealthMatches(status, filter string) bool {
+	if filter == SourceHealthIncomplete {
+		return validSourceHealth(status) && status != string(SourceAvailable)
+	}
+	return status == filter
 }
 
 // matchBusinessDomain keeps a reference by the business domain of the service it

@@ -110,6 +110,7 @@ describe('knowledge + source-health labels/tones', () => {
   it('labels source health', () => {
     expect(sourceHealthLabel('available')).toBe('Available');
     expect(sourceHealthLabel('stale')).toBe('Stale');
+    expect(sourceHealthLabel('incomplete')).toBe('Incomplete');
     expect(sourceHealthTone('available')).toBe('ok');
     expect(sourceHealthTone('unavailable')).toBe('err');
     expect(sourceHealthTone('partial')).toBe('neutral');

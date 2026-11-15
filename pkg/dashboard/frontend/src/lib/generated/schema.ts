@@ -7288,8 +7288,8 @@ export interface operations {
                 gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";
                 /** @description Declared-readiness filter for contract revision entities */
                 readiness?: "passing" | "below-threshold" | "expired" | "not-declared";
-                /** @description Source-health filter for source entities */
-                sourceHealth?: "available" | "partial" | "stale" | "unavailable";
+                /** @description Source-health filter for source entities; incomplete matches partial, stale and unavailable */
+                sourceHealth?: "available" | "partial" | "stale" | "unavailable" | "incomplete";
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
