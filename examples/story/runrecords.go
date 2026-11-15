@@ -272,12 +272,19 @@ var coverageGrowth = [13]int{40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100
 // 13 weeks, oldest first, the newest newest unchanged. Every older point
 // scales newest's known counters down along coverageGrowth, keeps the
 // knowledge tally adding up and is partial; a nil tally stays nil (unknown).
+// A newest snapshot outside the last week (zero, stale or after now) is
+// stamped now, so the newest point stays the newest by snapshot time, keeps
+// its own id and never follows its recordedAt.
 func CoverageRecords(now time.Time, newest runrecord.Coverage) []runrecord.Record {
 	out := make([]runrecord.Record, 0, len(coverageGrowth))
 	last := len(coverageGrowth) - 1
 	for i, pct := range coverageGrowth[:last] {
 		at := now.Add(-time.Duration(last-i) * 7 * day).UTC().Truncate(time.Second)
 		out = append(out, runrecord.CoverageRecord(scaleCoverage(newest, pct, at), "dev", at))
+	}
+	now = now.UTC().Truncate(time.Second)
+	if a := newest.SnapshotAsOf; !a.After(now.Add(-7*day)) || a.After(now) {
+		newest.SnapshotAsOf = now
 	}
 	return append(out, runrecord.CoverageRecord(newest, "dev", now))
 }

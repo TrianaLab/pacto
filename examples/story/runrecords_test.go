@@ -316,6 +316,36 @@ func TestRunRecordsCoverageWeekly(t *testing.T) {
 	}
 }
 
+// TestCoverageRecordsStampAnOutOfWeekSnapshotNow: a newest snapshot that is
+// zero, older than the last weekly point or after now is stamped now, so the
+// newest record stays the newest by snapshot time (what the totals read as the
+// current value), keeps a distinct id and stays valid.
+func TestCoverageRecordsStampAnOutOfWeekSnapshotNow(t *testing.T) {
+	now := Now.Add(400 * day)
+	for name, asOf := range map[string]time.Time{
+		"zero": {}, "stale": now.Add(-30 * day), "on a weekly point": now.Add(-7 * day), "future": now.Add(time.Hour),
+	} {
+		t.Run(name, func(t *testing.T) {
+			recs := CoverageRecords(now, runrecord.Coverage{Services: 9, SnapshotAsOf: asOf, Completeness: "complete",
+				Knowledge: &runrecord.CoverageKnowledge{Services: 9, Described: 5, WithGaps: 3, Unknown: 1}})
+			ids := map[string]bool{}
+			for i, r := range recs {
+				checkCoveragePoint(t, now, i, r)
+				ids[r.ID] = true
+				if i < 12 && !r.Coverage.SnapshotAsOf.Before(recs[12].Coverage.SnapshotAsOf) {
+					t.Errorf("record %d snapshot %s is not before the newest %s", i, r.Coverage.SnapshotAsOf, recs[12].Coverage.SnapshotAsOf)
+				}
+			}
+			if len(ids) != 13 {
+				t.Errorf("got %d distinct ids, want 13", len(ids))
+			}
+			if got := recs[12].Coverage; !got.SnapshotAsOf.Equal(now) || got.Services != 9 {
+				t.Errorf("newest = %+v, want 9 services snapshotted at %s", *got, now)
+			}
+		})
+	}
+}
+
 // checkCoveragePoint checks weekly coverage point i: valid, fleet-wide, a
 // week apart, its tally adding up and every older point partial.
 func checkCoveragePoint(t *testing.T, now time.Time, i int, r runrecord.Record) {
