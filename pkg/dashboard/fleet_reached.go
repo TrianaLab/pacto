@@ -43,11 +43,9 @@ func (s *Server) attachReached(ctx context.Context, q *fleet.Query, svc fleet.Se
 	hs, on, unreadable := readHistories(ctx, api, stages)
 	unreadable = append(slices.Clone(l.Unreadable), unreadable...)
 	read := describedAll(ctx, api, nil, on...)
+	// A partial listing always names what it did not read (l.Unreadable).
 	byContract, doubts := delivery.Arrivals(hs, delivery.ContractOf(read))
 	times, reason, unreadable := fleet.ReachedTimes(unreadable, doubts)
-	if times == fleet.TimesRead && l.Completeness == "partial" {
-		times, reason = fleet.TimesPartial, "some namespaces' Stages were not listed"
-	}
 	q.AttachReached(h, byContract, times, reason, unreadable)
 }
 
