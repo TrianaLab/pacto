@@ -129,7 +129,7 @@ func (c ResourceConsumption) Text() string {
 // figuresText renders a provider's usage figures as it reported them: each
 // metric with its unit, then the cost over its period. Nothing is summed.
 func figuresText(f *UsageFigures) string {
-	parts := make([]string, 0, len(f.Metrics)+1)
+	var parts []string
 	for _, m := range f.Metrics {
 		parts = append(parts, strings.TrimSpace(m.Name+" "+strconv.FormatFloat(m.Value, 'f', -1, 64)+" "+m.Unit))
 	}
