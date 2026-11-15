@@ -23,5 +23,8 @@ Unresolved requirements:
 Created services:
   gift-cards
 Create a service: pacto init <name> --from examples/demo/bundles/http-service/v1.0.0 --owner <team>
+Changes, version order (1 of 1):
+  http-service 1.0.0  owner team:platform declared since at least http-service 1.0.0  time not recorded
+Declared, read from contract revisions; a time is shown only from a signed delivery record.
 Run with --output-format json for the full detail
 ```

@@ -385,7 +385,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
 			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
-			printEnvironmentHistory(w, res.Service.EnvironmentHistory)
+			printChanges(w, res.Service.Changes)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -866,9 +866,12 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 	_, _ = fmt.Fprintln(w, fleet.StagesHint(service))
 }
 
-// printEnvironmentHistory prints how a service's declared environments
-// changed across its revisions, or nothing when there is nothing to say.
-func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
+// changesFooter says where a change comes from and when it has a time.
+const changesFooter = "Declared, read from contract revisions; a time is shown only from a signed delivery record."
+
+// printChanges prints every declared change across a service's revisions, or
+// nothing when there is nothing to say.
+func printChanges(w io.Writer, h fleet.ChangeHistoryPreview) {
 	if h.Total == 0 && h.Gaps == 0 {
 		return
 	}
@@ -876,6 +879,7 @@ func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
 	for _, l := range h.Lines() {
 		_, _ = fmt.Fprintln(w, l)
 	}
+	_, _ = fmt.Fprintln(w, changesFooter)
 }
 
 // provisioningText renders one provisioning status: its phase, (unsigned) for

@@ -554,8 +554,10 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"environment declared by its current revision, observed on its targets or both, with 'declaration' (lifetime, " +
 			"expires and an inferred 'expired'), 'owner' with provenance declared, inferred or unknown, 'provisioning' with " +
 			"'provisioningTracked', 'targetsComplete' and the 'differences' between the environments' values; and " +
-			"'environmentHistory', the environment changes between the versions held in version order (no time is " +
-			"recorded, so it is never a timeline), with 'gaps' and 'completeness'. An offering carries 'availability' and each provider its own: per " +
+			"'changes', every declared change across the versions held (owner, domain, offering, dependency, lifecycle, " +
+			"environment, plus finding changes from validation), in version order, each with 'provenance', 'source', " +
+			"'revision' and 'previous'; 'gaps' and 'completeness'. A change has a time only from a signed delivery " +
+			"record ('reached'), never from when Pacto read it. An offering carries 'availability' and each provider its own: per " +
 			"environment a 'state' (available, degraded, unavailable or unknown) derived from observed targets and consumer reports, never " +
 			"from compliance, with 'provenance', 'reason' and 'partial' when the viewer may not see every consumer or provider; " +
 			"'hiddenProviders' counts the providers you may not see. 'observedConsumers' lists callers seen at runtime with no declaration. " +

@@ -70,3 +70,23 @@ func TestFleetAttentionNotesFreshnessOff(t *testing.T) {
 		t.Errorf("the default window checks freshness, so no note (err %v):\n%s", err, stderr)
 	}
 }
+
+// TestFleetEntityServiceChangesText: the demo payments-service prints its
+// changes in version order, the sequential owner handover at 2.1.0 among
+// them, every line untimed, and no environment history section.
+func TestFleetEntityServiceChangesText(t *testing.T) {
+	out, _, err := execFleet(t, "fleet", "entity", "service", "payments-service", "--local", demoBundles)
+	if err != nil {
+		t.Fatalf("entity: %v", err)
+	}
+	want := "Changes, version order (5 of 5, partial: the sources hold only some versions; a change is placed between the versions held):\n" +
+		"  payments-service 2.1.2  domain added: payments, compared with payments-service 2.1.1  time not recorded\n" +
+		"  payments-service 2.1.0  owner changed (team, dri, contacts): team:team/payments -> team:payments-team, compared with payments-service 2.0.1  time not recorded\n" +
+		"  payments-service 2.0.1  dependency fraud-service changed (required): required=false -> required=true, compared with payments-service 1.2.1  time not recorded\n" +
+		"  payments-service 1.2.1  dependency fraud-service added: oci://ghcr.io/trianalab/pacto/fraud-service ^1.0.0, compared with payments-service 1.1.0  time not recorded\n" +
+		"  payments-service 1.0.0  owner team:team/payments declared since at least payments-service 1.0.0  time not recorded\n" +
+		"Declared, read from contract revisions; a time is shown only from a signed delivery record.\n"
+	if !strings.Contains(out, want) || strings.Contains(out, "Environment history") {
+		t.Errorf("payments-service:\n%s\nwant the block:\n%s", out, want)
+	}
+}
