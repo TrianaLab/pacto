@@ -469,6 +469,7 @@ pacto delivery history [flags]
 
 ```
       --all[=true|false]        walk every Stage in the namespace given with -n, or in every namespace you can list
+      --at string               what each Stage ran at this RFC 3339 time, or this long before now, from its signed records; with --stage or --all
       --cause string            only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too
       --correlation-id string   only changes with exactly this correlation id; it narrows the timeline too
       --domain string           with --service, its registry domain; a Stage that names none matches any

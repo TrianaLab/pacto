@@ -33,6 +33,9 @@ type DeliveryAPI interface {
 	// namespace the caller can list for "".
 	// HistoryAll keeps only the Stages of service of when it names one.
 	HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.HistoriesAnswer, error)
+	// HistoryAt says which artifact each Stage ran at t: Stage stage, else
+	// every Stage the walk reads, of service of when it names one.
+	HistoryAt(ctx context.Context, namespace string, of delivery.ServiceRef, stage string, t time.Time) (*delivery.AtAnswer, error)
 	VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error)
 	// Status says where each Stage of one service stands, as the caller can
 	// see it, in promotion order.
@@ -171,7 +174,12 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 			"unsigned. A line from a record carries impact, the pacto.impact verdict that record holds: it is signed only when " +
 			"the history is verified, and a line read from an Operation's status has none. revisions maps each artifact digest " +
 			"named to its fleet revision key, derived from the contract's digest and name and not checked against a fleet; an " +
-			"artifact that could not be read, or whose contract names another service than the Stage, has none. Read-only." + noApprove,
+			"artifact that could not be read, or whose contract names another service than the Stage, has none. Pass at (the " +
+			"same forms as since) to ask which revision each Stage ran at that time instead: each Stage says state known (a " +
+			"signed record names it and nothing after it is missing or unsigned), partial (a record names it, but a later move may " +
+			"be missing, is not signed or the signatures were not checked) or unknown (no record before that time, or the Stage " +
+			"could not be read), with the version, owner, business domain and derived revision key its contract declares; the " +
+			"answer is complete only when every Stage is known and every namespace was read. Read-only." + noApprove,
 		InputSchema: historySchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 		return historyTool(ctx, api, a)
@@ -446,6 +454,7 @@ type historyArgs struct {
 	Domain        string `json:"domain"`
 	Cause         string `json:"cause"`
 	CorrelationID string `json:"correlation_id"`
+	At            string `json:"at"`
 }
 
 // historySchema is the audit schema plus a time window and, for a walk, a
@@ -461,6 +470,8 @@ func historySchema() map[string]any {
 		"correlation_id": {Type: "string", Description: "Only changes with exactly this correlation id; it narrows the timeline too"},
 		"service":        {Type: "string", Description: "Without a stage: only the Stages of this service"},
 		"domain":         {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
+		"at": {Type: "string", Description: "RFC 3339 time, or a duration before now such as 2h: answer which revision each Stage ran at " +
+			"that time instead of listing changes; it takes no since, until, cause or correlation_id"},
 	}, nil)
 }
 
@@ -468,6 +479,9 @@ func historySchema() map[string]any {
 // of every Stage, with only the changes in the window a asks for.
 func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 	now := time.Now()
+	if a.At != "" {
+		return historyAtTool(ctx, api, a, now)
+	}
 	since, err := when("since", a.Since, now)
 	if err != nil {
 		return errorResult(err), nil, nil
@@ -507,6 +521,27 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 		h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 	}
 	return resultOrError(h, err)
+}
+
+// historyAtTool answers pacto_delivery_history with at: which artifact each
+// Stage ran at that time, from its signed records. The change filters narrow
+// a list of changes, which this answer does not hold, so they are refused.
+func historyAtTool(ctx context.Context, api DeliveryAPI, a historyArgs, now time.Time) (*mcpsdk.CallToolResult, any, error) {
+	if a.Since != "" || a.Until != "" || a.Cause != "" || a.CorrelationID != "" {
+		return errorResult(errors.New("at says what each Stage ran at one time; it takes no since, until, cause or correlation_id")), nil, nil
+	}
+	t, err := when("at", a.At, now)
+	switch {
+	case err != nil:
+	case a.Domain != "" && a.Service == "":
+		err = errors.New("domain needs service")
+	case a.Stage != "" && a.Service != "":
+		err = errors.New("service filters the walk; leave stage empty")
+	}
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	return resultOrError(api.HistoryAt(ctx, a.Namespace, delivery.ServiceRef{Name: a.Service, Domain: a.Domain}, a.Stage, t))
 }
 
 // when reads the tool argument name: an RFC 3339 time or a duration before

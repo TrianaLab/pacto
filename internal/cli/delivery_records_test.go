@@ -237,3 +237,31 @@ func TestRecordGetText(t *testing.T) {
 		t.Errorf("prints a line with nothing in it:\n%s", w.String())
 	}
 }
+
+func TestHistoryAtText(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	trust := writeTrust(t, pub)
+	d := recordDeps(t, key)
+	stage := []string{"-n", "prod", "--stage", "payments-prod", "--trust", trust}
+	checkDeliveryRuns(t, d, []deliveryRun{
+		{"text", append([]string{"history", "--at", "1s"}, stage...), false, []string{"STAGE", "REVISION (DERIVED)", "prod/payments-prod",
+			"known", "(from signed records; complete for 1 of 1 Stages)", "complete: 1 Stages read, 1 of them known"}},
+		{"text", append([]string{"history", "--at", "2000-01-01T00:00:00Z"}, stage...), false, []string{"As of 2000-01-01T00:00:00Z",
+			"prod/payments-prod is unknown: no record before this time", "complete for 0 of 1 Stages", "partial"}},
+		{"json", []string{"history", "--all", "--at", "1s", "--service", "payments", "--trust", trust}, false, []string{`"stages"`, `"state": "known"`}},
+		{"text", append([]string{"history", "--at", "soon"}, stage...), true, []string{"--at takes an RFC 3339 time"}},
+		{"text", []string{"history", "--stage", "missing", "-n", "prod", "--at", "1s"}, true, nil},
+		{"text", []string{"history", "--stage", "payments-prod", "--at", "1s", "--service", "payments"}, true, []string{"--service and --domain need --all"}},
+	})
+}
+
+func TestHistoryAtRefusesWindow(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	d := recordDeps(t, key)
+	var runs []deliveryRun
+	for _, f := range []string{"since", "until", "cause", "correlation-id"} {
+		runs = append(runs, deliveryRun{"text", []string{"history", "-n", "prod", "--stage", "payments-prod", "--at", "1h", "--" + f, "1h"}, true,
+			[]string{"it takes no --" + f}})
+	}
+	checkDeliveryRuns(t, d, runs)
+}

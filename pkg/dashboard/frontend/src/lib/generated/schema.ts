@@ -113,7 +113,7 @@ export interface paths {
         };
         /**
          * What happened
-         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read.
+         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read. With at, it also says which revision each Stage on the page ran at that time, from its signed records: known, partial or unknown, and partial as a whole when a namespace was not read or other pages remain.
          */
         get: operations["delivery-history"];
         put?: never;
@@ -1325,6 +1325,23 @@ export interface components {
             name: string;
             note?: string;
         };
+        "Delivery.AtAnswer": {
+            /** @description When the records were read */
+            asOf: string;
+            /** @description The time asked about, RFC 3339 */
+            at: string;
+            /**
+             * @description complete only when every Stage is known, every namespace was read and no other page of Stages remains
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description How many Stages were read and what was not */
+            note: string;
+            /** @description Each Stage read, with what it ran at the time */
+            stages: components["schemas"]["Delivery.StageAt"][] | null;
+            /** @description The namespaces or Stages that could not be read, and why */
+            unreadable?: string[] | null;
+        };
         "Delivery.AutonomyPolicy": {
             /** Format: int64 */
             proposeAfter?: number;
@@ -1720,6 +1737,41 @@ export interface components {
         "Delivery.ServiceRef": {
             domain?: string;
             name: string;
+        };
+        "Delivery.StageAt": {
+            /** @description The business domain the artifact's contract declares */
+            businessDomain?: string;
+            /** @description The artifact digest the Stage ran, from the newest recorded move at or before the time */
+            digest?: string;
+            /** @description The registry domain the Stage names for its service, empty for the default */
+            domain?: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The owner the artifact's contract declares */
+            owner?: string;
+            /** @description The key of that owner */
+            ownerKey?: string;
+            /** @description Why the state is not known */
+            reason?: string;
+            /** @description The record of that move */
+            record?: string;
+            /** @description The fleet revision key of the artifact. On the CLI and MCP it is derived from the contract's digest and name, not checked against a fleet; on the dashboard it is the revision this dashboard's fleet holds */
+            revision?: string;
+            /** @description The service the Stage delivers */
+            service?: string;
+            /** @description When that move reached the Stage */
+            since?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /**
+             * @description known: a signed record names what ran and nothing after it is missing or unsigned; partial: a record names it but a later move may be missing, is not signed or the signatures were not checked; unknown: no record before this time, or the Stage could not be read
+             * @enum {string}
+             */
+            state: "known" | "partial" | "unknown";
+            /** @description The version the artifact's contract declares, when it could be read */
+            version?: string;
         };
         "Delivery.StageNow": {
             autoHold?: boolean;
@@ -3672,6 +3724,8 @@ export interface components {
         };
         HistoryOutputBody: {
             asOf: string;
+            /** @description With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess */
+            at?: components["schemas"]["Delivery.AtAnswer"];
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
@@ -6253,6 +6307,8 @@ export interface operations {
                 cause?: string;
                 /** @description Keep only changes with exactly this correlation id. It narrows the timeline too */
                 correlationID?: string;
+                /** @description RFC 3339 time, or a duration before now such as 2h: also say which revision each Stage on this page ran at that time, from its signed records (see at in the answer); the histories keep only changes at or before it. It takes no since, until, timed, cause or correlationID */
+                at?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

@@ -287,6 +287,28 @@ check("story payments changes carry reached times from records",
   reached.times === "read" && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)), `times=${reached.times}`);
 check("without reached no delivery is read and the changes are the same",
   unread.times === "not-read" && unread.total === reached.total && !(unread.items || []).some((e) => e.reached), `times=${unread.times} total=${unread.total}/${reached.total}`);
+// What each Stage ran at a past time comes only from signed records (at): the
+// Stage that moved after T still ran its older revision at T, and a Stage with
+// no record before T is unknown.
+const storyQ = "service=payments&domain=registry.example%2Fstory";
+const storyMoves = (json(call("GET", `/api/delivery/history?${storyQ}`)).histories || []).map((s) => {
+  const one = json(call("GET", `/api/delivery/history?namespace=${s.namespace}&stage=${s.stage.name}`)).histories[0];
+  const moves = one.entries.filter((e) => e.pointer?.after && e.outcome === "Succeeded" && e.record && (e.applied || e.finished))
+    .map((e) => ({ at: Date.parse(e.applied || e.finished), to: e.pointer.after })).sort((a, b) => a.at - b.at);
+  return { key: `${s.namespace}/${s.stage.name}`, verified: !!one.verified, complete: one.completeness === "complete", moves };
+});
+const moved = storyMoves.find((s) => s.moves.length >= 2);
+const atT = moved && new Date((moved.moves[0].at + moved.moves[1].at) / 2).toISOString().replace(/\.\d+Z$/, "Z");
+const atAnswer = moved ? json(call("GET", `/api/delivery/history?${storyQ}&at=${atT}`)).at || {} : {};
+const atOf = (key) => (atAnswer.stages || []).find((s) => `${s.namespace}/${s.stage}` === key) || {};
+const movedAt = moved ? atOf(moved.key) : {};
+check("at T the Stage that moved after T still ran its older revision",
+  !!moved && movedAt.digest === moved.moves[0].to && movedAt.state === (moved.verified && moved.complete ? "known" : "partial")
+    && (moved.verified || /signature not checked/.test(movedAt.reason || "")), `${moved?.key} at ${atT}: ${movedAt.state} ${movedAt.reason || ""}`);
+const notYet = storyMoves.filter((s) => moved && !s.moves.some((m) => m.at <= Date.parse(atT)));
+check("at T a Stage with no record before T is unknown",
+  notYet.length > 0 && notYet.every((s) => atOf(s.key).state === "unknown" && !atOf(s.key).digest), notYet.map((s) => `${s.key}=${atOf(s.key).state}`).join(","));
+check("an at answer with an unknown Stage is partial", atAnswer.completeness === "partial", atAnswer.completeness);
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

@@ -192,7 +192,7 @@ func deliveryRows() []surfaceRow {
 			{"delivery describe <type>", "pacto_delivery_operation_types.type", "", "the dashboard's propose panel lists the types it offers"},
 		},
 		alike("delivery status", "pacto_delivery_status", "", "the dashboard shows a service's Stages on the environments board (GET /api/delivery/environments?service)", "domain", "service"),
-		alike("delivery history", "pacto_delivery_history", "GET /api/delivery/history", "", "cause", "domain", "service", "since", "stage", "until"),
+		alike("delivery history", "pacto_delivery_history", "GET /api/delivery/history", "", "at", "cause", "domain", "service", "since", "stage", "until"),
 		alike("", "", "GET /api/delivery/history", whyDashboardPage, "limit", "offset", "q", "timed"),
 		alike("delivery blame", "pacto_delivery_blame", "GET /api/delivery/blame", "", "digest", "stage"),
 		alike("delivery candidates", "pacto_delivery_candidates", "", "the dashboard lists candidates in its propose panel through plan", "stage"),

@@ -164,7 +164,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Summary: "What happened",
 		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +
 			"recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own " +
-			"completeness, problems and what could not be read."}), s.deliveryHistory)
+			"completeness, problems and what could not be read. With at, it also says which revision each Stage on the page ran at that " +
+			"time, from its signed records: known, partial or unknown, and partial as a whole when a namespace was not read or other " +
+			"pages remain."}), s.deliveryHistory)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-blame", Method: http.MethodGet, Path: "/api/delivery/blame",
 		Summary: "Who put this version here",
 		Description: "The newest change that moved a Stage to a digest (by default the one it runs): who asked, for whom, who approved and what " +

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -97,6 +98,15 @@ func (s *stubDelivery) HistoryAll(_ context.Context, ns string, of delivery.Serv
 	s.of = of
 	return &delivery.HistoriesAnswer{HistoryWalk: &delivery.Histories{Completeness: "partial", Note: "ns=" + ns,
 		Histories: []delivery.StageHistory{{History: delivery.History{Entries: stubEntries()}}}}}, nil
+}
+
+func (s *stubDelivery) HistoryAt(_ context.Context, ns string, of delivery.ServiceRef, stage string, t time.Time) (*delivery.AtAnswer, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	s.of = of
+	return &delivery.AtAnswer{At: t.UTC().Format(time.RFC3339), Completeness: "partial",
+		Stages: []delivery.StageAt{{Namespace: ns, Stage: stage, State: delivery.AtUnknown}}}, nil
 }
 
 func (s *stubDelivery) VerifyAll(_ context.Context, ns string) (*delivery.StreamVerifications, error) {
@@ -624,5 +634,38 @@ func TestDeliveryHistoryDescribesImpactAndRevisions(t *testing.T) {
 	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s"}), &b)
 	if b.Revision != "payments@sha256:c" {
 		t.Fatalf("blame revision = %q", b.Revision)
+	}
+}
+
+func TestDeliveryHistoryAtArg(t *testing.T) {
+	api := &stubDelivery{}
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api}})
+	var a delivery.AtAnswer
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s", "at": "2026-11-05T10:00:00Z"}), &a)
+	if a.At != "2026-11-05T10:00:00Z" || len(a.Stages) != 1 || a.Stages[0].Stage != "s" || a.Stages[0].State != "unknown" {
+		t.Fatalf("at answers per Stage: %+v", a)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"at": "1h", "service": "payments", "domain": "ghcr.io/a"}), &a)
+	if api.of != (delivery.ServiceRef{Name: "payments", Domain: "ghcr.io/a"}) {
+		t.Fatalf("the walk keeps the service: %+v", api.of)
+	}
+	for _, c := range []struct {
+		want string
+		args map[string]any
+	}{
+		{"it takes no since", map[string]any{"at": "1h", "since": "2h"}},
+		{"it takes no since", map[string]any{"at": "1h", "cause": "x"}},
+		{"at takes an RFC 3339 time", map[string]any{"at": "soon"}},
+		{"domain needs service", map[string]any{"at": "1h", "domain": "d"}},
+		{"service filters the walk", map[string]any{"at": "1h", "stage": "s", "service": "p"}},
+	} {
+		want, args := c.want, c.args
+		if res := callToolOn(t, server, "pacto_delivery_history", args); !res.IsError || !strings.Contains(resultText(t, res), want) {
+			t.Errorf("%v: %s", args, resultText(t, res))
+		}
+	}
+	api.err = errors.New("down")
+	if res := callToolOn(t, server, "pacto_delivery_history", map[string]any{"at": "1h"}); !res.IsError {
+		t.Fatal("an error is surfaced")
 	}
 }

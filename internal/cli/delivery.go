@@ -615,6 +615,9 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cmd.Flags().Changed("at") {
+				return historyAt(cmd, v, c, ns, stage, all)
+			}
 			since, until, of, err := historyFilters(cmd, all, c.Now())
 			if err != nil {
 				return err
@@ -666,7 +669,63 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("domain", "", "with --service, its registry domain; a Stage that names none matches any")
 	cmd.Flags().String("cause", "", "only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too")
 	cmd.Flags().String("correlation-id", "", "only changes with exactly this correlation id; it narrows the timeline too")
+	cmd.Flags().String("at", "", "what each Stage ran at this RFC 3339 time, or this long before now, from its signed records; with --stage or --all")
 	return cmd
+}
+
+// historyAt answers history --at: which artifact each Stage ran at that
+// time, from its signed records. The change filters narrow a list of
+// changes, which --at does not print, so they are refused with it.
+func historyAt(cmd *cobra.Command, v *viper.Viper, c *app.Delivery, ns, stage string, all bool) error {
+	for _, f := range []string{"since", "until", "cause", "correlation-id"} {
+		if cmd.Flags().Changed(f) {
+			return fmt.Errorf("--at says what each Stage ran at one time; it takes no --%s", f)
+		}
+	}
+	t, err := whenFlag(cmd, "at", c.Now())
+	if err != nil {
+		return err
+	}
+	_, _, of, err := historyFilters(cmd, all, c.Now())
+	if err != nil {
+		return err
+	}
+	a, err := c.HistoryAt(cmd.Context(), ns, of, stage, t)
+	if err != nil {
+		return err
+	}
+	return formatResult(cmd, v.GetString(outputFormatKey), a, func() error {
+		printAt(cmd.OutOrStdout(), a)
+		return nil
+	}, nil)
+}
+
+// printAt prints what each Stage ran at a time as a table, then why each
+// Stage not known is not.
+func printAt(out io.Writer, a *delivery.AtAnswer) {
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "STAGE\tSERVICE\tVERSION\tREVISION (DERIVED)\tOWNER\tDOMAIN\tSINCE\tSTATE")
+	known, derived := 0, false
+	for _, s := range a.Stages {
+		_, _ = fmt.Fprintf(w, "%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Namespace, s.Stage, cmp.Or(s.Service, "-"), cmp.Or(s.Version, "-"),
+			cmp.Or(s.Revision, "-"), cmp.Or(s.Owner, "-"), cmp.Or(s.BusinessDomain, "-"), cmp.Or(s.Since, "-"), s.State)
+		if s.State == delivery.AtKnown {
+			known++
+		}
+		derived = derived || s.Revision != ""
+	}
+	_ = w.Flush()
+	for _, s := range a.Stages {
+		if s.Reason != "" {
+			_, _ = fmt.Fprintf(out, "%s/%s is %s: %s\n", s.Namespace, s.Stage, s.State, s.Reason)
+		}
+	}
+	if derived {
+		_, _ = fmt.Fprintln(out, "revisions are derived from each artifact's contract digest and name, not checked against a fleet")
+	}
+	printAnswerNotes(out, nil, a.Unreadable)
+	_, _ = fmt.Fprintf(out, "As of %s (from signed records; complete for %d of %d Stages); read %s, %s: %s\n",
+		a.At, known, len(a.Stages), a.AsOf, a.Completeness, a.Note)
 }
 
 // entryFilter reads --cause and --correlation-id.

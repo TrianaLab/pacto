@@ -21,8 +21,8 @@ func Arrivals(hs []StageHistory, contractOf func(digest string) string) map[stri
 		earliest := map[string]fleet.ChangeReach{}
 		at := map[string]time.Time{}
 		for _, e := range h.Entries {
-			t, ok := arrivalTime(e)
-			if !ok {
+			t, timed, ok := moveTime(e)
+			if !ok || !timed {
 				continue
 			}
 			c := contractOf(e.Pointer.After)
@@ -43,20 +43,10 @@ func Arrivals(hs []StageHistory, contractOf func(digest string) string) map[stri
 	return out
 }
 
-// arrivalTime is when e moved its Stage, when it is a succeeded move with a
-// readable time.
-func arrivalTime(e HistoryEntry) (time.Time, bool) {
-	if e.Pointer == nil || e.Pointer.After == "" || e.Outcome != Succeeded {
-		return time.Time{}, false
-	}
-	t, err := time.Parse(time.RFC3339, cmp.Or(e.Applied, e.Finished))
-	return t, err == nil
-}
-
 // reachOf is e's move as a reach of h's Stage.
 func reachOf(h StageHistory, e HistoryEntry) fleet.ChangeReach {
 	r := fleet.ChangeReach{Namespace: h.Namespace, Stage: h.Stage.Name, Environment: h.Stage.Environment, At: cmp.Or(e.Applied, e.Finished)}
-	if e.Record == "" || e.Kind != RecordOperation {
+	if !recordMove(e) {
 		r.FromStatus = true
 		return r
 	}

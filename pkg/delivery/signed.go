@@ -5,5 +5,5 @@ package delivery
 // signature: an unverified history, a line read from an Operation's status
 // and an unrecordable record are never signed moves.
 func SignedMove(h History, e HistoryEntry) bool {
-	return e.Record != "" && e.Kind == RecordOperation && h.Verified
+	return recordMove(e) && h.Verified
 }
