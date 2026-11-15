@@ -142,6 +142,13 @@ external references of provisioned resources and the usage and cost of every
 consumer's resources, so keep the Service behind the same network and auth
 boundary as the dashboard.
 
+A `pacto fleet` or dashboard reads every provisioning and usage record that
+endpoint lists as signed, because the server checked each signature before it
+stored the record; the reader re-checks none. Point `--evidence-url` only at
+your own Evidence Server over a path you trust, such as TLS to its host or the
+port-forward above. Anyone who can answer on that URL can make a forged phase
+or cost read as signed.
+
 ## Provisioning reports
 
 A provider adapter reports the state of a resource a consumer's contract asked
@@ -182,8 +189,8 @@ provider repositories it serves. A report is in scope when the consumer's
 declared configuration or dependency ref names a repository under one of the
 prefixes, so the PostgreSQL adapter above can never mark a Redis cache Ready.
 The server refuses a report outside the scope with HTTP 403 and the code
-`provider_not_allowed`, and logs a startup warning for every provisioning key
-with no scope. Reports accepted before a key is narrowed stay until a newer
+`provider_not_allowed`, and logs a startup warning for every provisioning or
+usage key with no scope. Reports accepted before a key is narrowed stay until a newer
 report replaces them or they pass the provisioning window. The field needs Pacto core 4.5.0 or later; older servers
 refuse the config. The unsigned target-state file has no keys, so the scope
 cannot protect it.

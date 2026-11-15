@@ -381,7 +381,7 @@ See the [platform offerings reference](platform-offerings.md).
 | `providerAvailability` | Whether the provider answers where it runs; separate from the resource's phase |
 | `requested` | On the `configuration_reference` row only: each entry, configuration, provider `revision` and `values` the current revision declares, with `provenance: declared`; `requestedTruncated` when the configuration preview was cut |
 | `consumption` | On every use that provisions: one entry, `state: not-reported`, `provenance: observed` and a `reason`. A policy reference carries none |
-| `hiddenProviders` | On the service detail: at least this many resources come from providers you may not see, counted from the service's own contract and reports and never named |
+| `hiddenProviders` | On the service detail: at least this many resources come from providers you may not see, counted from the service's own contract and reports and never named; omitted at zero |
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.

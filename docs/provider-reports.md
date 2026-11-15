@@ -67,7 +67,7 @@ Decoding rejects any key beyond these five:
 | `externalRef` | Optional. The resource's handle at the provider, with the provisioning report's rules. |
 | `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
 | `metrics` | Up to 16 of `{name, value, unit}`: a lowercase slug, a number from 0 to 10^18 and an optional unit of at most 16 printable bytes. |
-| `cost` | Optional. `{amount, currency, period}`: a decimal string such as `212.40`, an ISO 4217 code and an ISO 8601 period from `P1D` to `P1Y`. |
+| `cost` | Optional. `{amount, currency, period}`: a decimal string such as `212.40`, an ISO 4217 code and an ISO 8601 period of one unit (`D`, `W`, `M` or `Y`) from `P1D` to `P1Y`, so `P30D` or `P1M` but never `P1M15D`. |
 
 A report carries at least one metric or a cost. `pacto evidence usage` writes
 the EvidenceSet:

@@ -105,7 +105,7 @@ declared, observed or inferred.
 |---|---|
 | Declared | Whether the environment's values pass, its lifetime (**Lifetime not declared** when absent, never persistent), its expiry, or **Expired (inferred, as of ...)** once `expires` has passed, and its owner: declared, **service owner, inferred** or **Owner unknown**. An environment only targets report reads **Not declared by** the current revision |
 | Observed | The targets you can see labelled with the environment, linked to that target list, with **(incomplete)** and the reason when you may not see every target, and the revisions they run |
-| Provisioning | The phases of the resources in the Resources section there, including those whose provider declares no offering, **Unknown until a provider reports**, or why provisioning is not tracked there. A provider you may not see makes the cell Unknown |
+| Provisioning | The phases of the resources in the Resources section there (including those whose provider declares no offering), **Unknown until a provider reports** or why provisioning is not tracked there. A provider you may not see makes the cell Unknown |
 | Stage | On a dashboard that serves delivery, the Stages whose `spec.environment` equals the name exactly, with their state. **Stages unknown: partial listing** when Pacto could not list every Stage. A Stage environment that matches no row is listed as **Stage only** |
 
 Below the rows:

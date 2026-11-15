@@ -96,6 +96,7 @@ func TestUsageBounds(t *testing.T) {
 		{"amount too large", UsageObservation{Provider: "acme-db", Cost: cost(strings.Repeat("9", 16), "USD", "P30D")}, false},
 		{"bad period", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "30 days")}, false},
 		{"period P2Y", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "P2Y")}, false},
+		{"period P1M15D", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "P1M15D")}, false},
 		{"period P0D", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "P0D")}, false},
 		{"period P366D", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "P366D")}, false},
 		{"period P13M", UsageObservation{Provider: "acme-db", Cost: cost("1", "USD", "P13M")}, false},
