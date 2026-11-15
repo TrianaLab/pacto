@@ -208,7 +208,7 @@ func (r *runRecorder) saveFlagsOnly(cmd *cobra.Command, rec *runrecord.Record) {
 	reg, file := flagTargets(cmd)
 	out := *rec
 	if out.ID == "" {
-		out.ID = runrecord.ID(out.Kind, out.Service, out.OldRevision, out.NewRevision)
+		out.ID = runrecord.ExpectedID(out)
 	}
 	r.write(cmd, out, reg, file)
 }

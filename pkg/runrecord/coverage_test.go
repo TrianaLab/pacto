@@ -130,3 +130,18 @@ func TestCoverageNilKnowledgeIsUnknown(t *testing.T) {
 		t.Fatalf("a missing tally came back as %+v (%v)", back.Coverage, err)
 	}
 }
+
+func TestExpectedID(t *testing.T) {
+	asOf := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	cov := CoverageRecord(Coverage{SnapshotAsOf: asOf, Completeness: "complete"}, "dev", asOf)
+	if cov.ID != ID(KindCoverage, CoverageService, "", asOf.Format(time.RFC3339)) || ExpectedID(cov) != cov.ID {
+		t.Fatalf("coverage id %s", cov.ID)
+	}
+	diff := Record{Kind: KindDiff, Service: "svc", OldRevision: "a", NewRevision: "b"}
+	if ExpectedID(diff) != ID(KindDiff, "svc", "a", "b") {
+		t.Fatal("a run's id is ID(kind, service, old, new)")
+	}
+	if bare := (Record{Kind: KindCoverage, Service: CoverageService}); ExpectedID(bare) != ID(KindCoverage, CoverageService, "", "") {
+		t.Fatal("a coverage record with no body falls back to the run id")
+	}
+}

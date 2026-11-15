@@ -62,12 +62,22 @@ var coverageCompleteness = []string{"complete", "partial"}
 // CoverageRecord is the coverage record of c. Its id is a function of the
 // snapshot, so recording one snapshot twice counts once.
 func CoverageRecord(c Coverage, pactoVersion string, now time.Time) Record {
-	asOf := c.SnapshotAsOf.UTC().Format(time.RFC3339)
-	return Record{
-		Version: Version, ID: ID(KindCoverage, CoverageService, "", asOf),
-		Kind: KindCoverage, Service: CoverageService, Coverage: &c,
+	r := Record{
+		Version: Version, Kind: KindCoverage, Service: CoverageService, Coverage: &c,
 		PactoVersion: pactoVersion, RecordedAt: now.UTC().Truncate(time.Second),
 	}
+	r.ID = ExpectedID(r)
+	return r
+}
+
+// ExpectedID is the id r must carry: a coverage record's is a function of its
+// snapshot, every other kind's is ID(kind, service, old, new). An operation
+// record's id is a Kubernetes UID, which this never matches.
+func ExpectedID(r Record) string {
+	if r.Kind == KindCoverage && r.Coverage != nil {
+		return ID(KindCoverage, CoverageService, "", r.Coverage.SnapshotAsOf.UTC().Format(time.RFC3339))
+	}
+	return ID(r.Kind, r.Service, r.OldRevision, r.NewRevision)
 }
 
 // validateCoverage checks a coverage record's body and that it carries

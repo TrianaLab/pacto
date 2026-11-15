@@ -149,3 +149,19 @@ func TestSaveFlagsOnlyComputesMissingID(t *testing.T) {
 		t.Fatalf("calls %+v", calls)
 	}
 }
+
+// The file pacto fleet status --stats-file writes is one pacto stats publish
+// accepts in another job.
+func TestFleetStatusCoverageFilePublishes(t *testing.T) {
+	statsOff(t)
+	root, ev := testutil.ImpactFleet(t, "^1.0.0")
+	file := filepath.Join(t.TempDir(), "coverage.json")
+	if _, stderr, err := runRoot(t, defaultDeps(), nil, "fleet", "status", "--local", root, "--target-state", ev, "--stats-file", file); err != nil {
+		t.Fatalf("%v: %s", err, stderr)
+	}
+	var calls []statsCall
+	out, stderr, err := runRoot(t, recDeps(defaultDeps(), &calls, nil), nil, "stats", "publish", "--registry", "reg.example/acme/stats", file)
+	if err != nil || len(calls) != 1 || calls[0].rec.Kind != runrecord.KindCoverage || !strings.Contains(out, "published") {
+		t.Fatalf("err %v, calls %+v, out %s, stderr %s", err, calls, out, stderr)
+	}
+}
