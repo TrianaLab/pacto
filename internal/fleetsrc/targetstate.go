@@ -97,7 +97,17 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 	for _, p := range doc.Provisioning {
 		col.Provisioning = append(col.Provisioning, p.toRaw())
 	}
-	for i, u := range doc.Usage {
+	s.collectUsage(col, doc.Usage)
+	if doc.State != nil {
+		col.State = doc.State.toState()
+	}
+	return col, nil
+}
+
+// collectUsage adds each usage report to col, or a limitation for one it
+// cannot carry.
+func (s *TargetStateFileSource) collectUsage(col *fleet.Collection, usage []usageFixture) {
+	for i, u := range usage {
 		raw, reason := u.toRaw()
 		if reason != "" {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
@@ -108,10 +118,6 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 		}
 		col.Usage = append(col.Usage, raw)
 	}
-	if doc.State != nil {
-		col.State = doc.State.toState()
-	}
-	return col, nil
 }
 
 // decodeTargetStateStrict decodes with KnownFields so unknown fields are
