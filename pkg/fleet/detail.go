@@ -381,6 +381,8 @@ type ServiceDetailData struct {
 	Dependents   RefPreview                `json:"dependents"`
 	// EnvironmentHistory reads the restricted revisions only.
 	EnvironmentHistory EnvironmentHistoryPreview `json:"environmentHistory" doc:"How the service's declared environments changed across its revisions (declared)"`
+	// Changes reads the restricted revisions only.
+	Changes ChangeHistoryPreview `json:"changes" doc:"Every declared change across the service's revisions, in version order (declared; times only from signed delivery records)"`
 	// HiddenDependencies and HiddenDependents count the services, or callers
 	// with no contract, that the caller's permissions hide (see ServiceRecord),
 	// never named.
@@ -1089,6 +1091,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Deployments:        refPreview(targetRefs(view.Targets)),
 		Placement:          q.placement(s.Key, view.Targets, cur, ownership, consumed),
 		EnvironmentHistory: q.serviceEnvironmentHistory(s),
+		Changes:            q.serviceChanges(s),
 		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
 		HiddenDependencies: s.HiddenDependencies,

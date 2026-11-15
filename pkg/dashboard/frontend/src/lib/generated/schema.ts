@@ -4257,6 +4257,60 @@ export interface components {
              */
             total: number;
         };
+        ProductChangeEvent: {
+            /**
+             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
+             * @enum {string}
+             */
+            change: "present" | "added" | "removed" | "changed";
+            /** @description changed: which declared fields changed */
+            fields?: string[] | null;
+            /** @description The value before the change, as the previous revision declares it */
+            from?: string;
+            /**
+             * @description What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding
+             * @enum {string}
+             */
+            kind: "owner" | "domain" | "offering" | "dependency" | "lifecycle" | "environment" | "finding";
+            /** @description The revision it was compared with: the change happened after it, at or before revision */
+            previous?: components["schemas"]["ProductRef"];
+            /**
+             * @description declared: read from immutable contract revisions
+             * @enum {string}
+             */
+            provenance: "declared";
+            /** @description The first revision this answer holds that shows the change */
+            revision: components["schemas"]["ProductRef"];
+            /**
+             * @description contract: an edit the contract declares; validation: a result of Pacto's own check of the revision
+             * @enum {string}
+             */
+            source: "contract" | "validation";
+            /** @description The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle */
+            subject?: string;
+            /** @description The value after the change, as the revision declares it */
+            to?: string;
+        };
+        ProductChangeHistoryPreview: {
+            /**
+             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            completenessReason?: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Revisions whose contract could not be read; no change is reported across them
+             */
+            gaps: number;
+            /** @description Newest first, in version order, not a timeline */
+            items: components["schemas"]["ProductChangeEvent"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductConfigurationSummary: {
             configuration?: string;
             content?: components["schemas"]["Fleet.SchemaContent"];
@@ -5021,6 +5075,8 @@ export interface components {
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
+            /** @description Every declared change across the service's revisions, in version order (declared; times only from signed delivery records) */
+            changes: components["schemas"]["ProductChangeHistoryPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;

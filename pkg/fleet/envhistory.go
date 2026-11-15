@@ -44,8 +44,7 @@ const versionsHeldReason = "the sources hold only some versions; a change is pla
 // q, partial when the view dropped some of them or a source is not fully
 // available.
 func (q *Query) serviceEnvironmentHistory(s *ServiceRecord) EnvironmentHistoryPreview {
-	partial := q.snap.revisionsHidden[s.Key] || slices.ContainsFunc(q.snap.Sources, func(src SourceState) bool { return src.Status != SourceAvailable })
-	return q.environmentHistory(serviceRevisions(q.snap, s), partial)
+	return q.environmentHistory(serviceRevisions(q.snap, s), q.revisionsPartial(s))
 }
 
 // environmentHistory compares the environments each revision of revs
@@ -54,43 +53,14 @@ func (q *Query) serviceEnvironmentHistory(s *ServiceRecord) EnvironmentHistoryPr
 // present, never added: older revisions may not be in the answer. An unread
 // revision counts in Gaps and breaks the comparison across it.
 func (q *Query) environmentHistory(revs []*ContractRevision, partial bool) EnvironmentHistoryPreview {
-	recs := make([]*ContractRevision, 0, len(revs))
-	for _, r := range revs {
-		recs = append(recs, q.snap.Revisions[r.Key])
-	}
-	slices.SortFunc(recs, func(a, b *ContractRevision) int {
-		if lessRevisionChrono(a, b) {
-			return -1
-		}
-		return 1
-	})
 	var groups [][]EnvironmentEvent
-	h := EnvironmentHistoryPreview{Completeness: string(CompletenessComplete)}
-	var prev *ContractRevision
-	first := true
-	for _, r := range recs {
-		if r.Contract == nil {
-			h.Gaps++
-			prev = nil
-			continue
-		}
-		if prev != nil || first {
-			groups = append(groups, revisionEnvironmentEvents(prev, r))
-		}
-		prev, first = r, false
-	}
-	var items []EnvironmentEvent
-	for i := len(groups) - 1; i >= 0; i-- {
-		items = append(items, groups[i]...)
-	}
-	h.Items, h.Total, h.Truncated = boundSlice(items, MaxDetailPreview)
+	h := EnvironmentHistoryPreview{}
+	h.Gaps = walkRevisionPairs(q.revisionRecords(revs), func(prev, r *ContractRevision) {
+		groups = append(groups, revisionEnvironmentEvents(prev, r))
+	})
+	h.Items, h.Total, h.Truncated = boundSlice(newestFirst(groups), MaxDetailPreview)
 	h.Count = len(h.Items)
-	switch {
-	case partial:
-		h.Completeness, h.CompletenessReason = string(CompletenessPartial), historyPartialReason
-	case len(groups) > 1:
-		h.Completeness, h.CompletenessReason = string(CompletenessPartial), versionsHeldReason
-	}
+	h.Completeness, h.CompletenessReason = historyCompleteness(partial, len(groups))
 	return h
 }
 
