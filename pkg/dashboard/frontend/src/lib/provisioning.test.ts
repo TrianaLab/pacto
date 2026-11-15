@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { phaseBadgeLabel, phaseGlyph, phaseTone, phaseLabel, provisioningTitle, type ProvisioningStatus } from './provisioning.ts';
+import { adapterLine, phaseBadgeLabel, phaseGlyph, phaseTone, phaseLabel, provisioningTitle, readyTone, type OfferingAdapter, type ProvisioningStatus } from './provisioning.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const st = (extra: Partial<ProvisioningStatus>): ProvisioningStatus => ({ phase: 'Unknown', provenance: 'observed', verified: false, ...extra });
@@ -79,5 +79,28 @@ describe('provisioningTitle', () => {
     expect(t[4]).toMatch(/^As of: /);
     expect(t[5]).toBe('Consumer revision: orders 1.3.0');
     expect(provisioningTitle(st({}))).toBe('Unknown: no provider has reported');
+  });
+});
+
+describe('readyTone', () => {
+  it.each([
+    [3, 0, 'ok'], [3, 2, 'ok'], [3, 3, 'info'], [1, undefined, 'ok'],
+  ])('ready %s with %s unsigned is %s: ok only when some Ready is signed', (ready, unsigned, tone) => expect(readyTone(ready, unsigned)).toBe(tone));
+});
+
+describe('adapterLine', () => {
+  const a = (extra: Partial<OfferingAdapter>): OfferingAdapter => ({
+    provider: 'scanner', producer: 'security-adapter', verified: true, environments: ['production'], disagrees: 0, provenance: 'observed',
+    phases: { requested: 0, provisioning: 0, ready: 1, readyUnsigned: 0, failed: 0, deleting: 0, unknown: 0 }, ...extra,
+  });
+  it('names a signed adapter, its environments and when it last reported', () => {
+    expect(adapterLine(a({ lastReportedAt: '2026-11-06T09:00:00Z' }), NOW)).toBe('scanner by security-adapter, signed: production; last reported 3 hours ago');
+  });
+  it('names an unsigned adapter, its disagreements and no time when it has none', () => {
+    expect(adapterLine(a({ verified: false, environments: ['default', 'staging'], disagrees: 2 }), NOW))
+      .toBe('scanner by security-adapter, unsigned target-state file: default, staging; disagrees on 2');
+  });
+  it('words an empty slug as unnamed adapter, never an empty string', () => {
+    expect(adapterLine(a({ provider: '', producer: undefined, environments: null }), NOW)).toBe('unnamed adapter, signed');
   });
 });

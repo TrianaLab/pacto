@@ -7,6 +7,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -748,7 +749,8 @@ type OfferingUsesPreview struct {
 	Phases PhaseTally `json:"phases"`
 	// PhaseConsumers counts the distinct consumers with at least one status in
 	// each phase: the total of the list a phase filter returns. A consumer
-	// with statuses in two phases counts in both.
+	// with statuses in two phases counts in both. Its ReadyUnsigned counts
+	// the consumers in Ready none of whose Ready statuses is signed.
 	PhaseConsumers PhaseTally `json:"phaseConsumers"`
 	// Failed names up to MaxFailedConsumers of the distinct consumers with a
 	// Failed status, by key; its Total counts them all.
@@ -773,6 +775,10 @@ type PhaseTally struct {
 	Failed       int `json:"failed"`
 	Deleting     int `json:"deleting"`
 	Unknown      int `json:"unknown"`
+	// ReadyUnsigned is the part of Ready reported through an unsigned file;
+	// in PhaseConsumers, the consumers in Ready whose every Ready status is
+	// unsigned.
+	ReadyUnsigned int `json:"readyUnsigned" doc:"Ready statuses reported through an unsigned file, a subset of Ready; only a signed Ready reads positive. In phaseConsumers, the consumers whose every Ready status is unsigned"`
 }
 
 // MaxFailedConsumers bounds OfferingUsesPreview.Failed.
@@ -795,7 +801,7 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 			out.Range.None++
 		}
 		for _, st := range u.Provisioning {
-			out.Phases.add(st.Phase)
+			out.Phases.addStatus(st)
 			if id := phaseBucket(st.Phase) + "\x00" + u.Consumer.Key; !inPhase[id] {
 				inPhase[id] = true
 				out.PhaseConsumers.add(st.Phase)
@@ -805,6 +811,7 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 			}
 		}
 	}
+	out.PhaseConsumers.ReadyUnsigned = readyUnsignedConsumers(uses)
 	refs := make([]EntityRef, 0, len(failed))
 	for _, k := range slices.Sorted(maps.Keys(failed)) {
 		refs = append(refs, failed[k])
@@ -812,6 +819,35 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	shown, n, more := boundSlice(refs, MaxFailedConsumers)
 	out.Failed = RefPreview{Total: n, Count: len(shown), Truncated: more, Items: shown}
 	return out
+}
+
+// readyUnsignedConsumers counts the distinct consumers of uses with a Ready
+// status none of whose Ready statuses is signed.
+func readyUnsignedConsumers(uses []OfferingUse) int {
+	signed := map[string]bool{}
+	for _, u := range uses {
+		for _, st := range u.Provisioning {
+			if phaseBucket(st.Phase) == PhaseBucketReady {
+				signed[u.Consumer.Key] = signed[u.Consumer.Key] || st.Verified
+			}
+		}
+	}
+	n := 0
+	for _, s := range signed {
+		if !s {
+			n++
+		}
+	}
+	return n
+}
+
+// addStatus counts st by phase, and apart in ReadyUnsigned when it is a Ready
+// that is not signed.
+func (t *PhaseTally) addStatus(st ProvisioningStatus) {
+	t.add(st.Phase)
+	if phaseBucket(st.Phase) == PhaseBucketReady && !st.Verified {
+		t.ReadyUnsigned++
+	}
 }
 
 func (t *PhaseTally) add(phase string) {
@@ -967,6 +1003,51 @@ type OfferingDetailData struct {
 	// permissions hide that HiddenConsumers does not already count. They are
 	// never named.
 	HiddenObservedConsumers int `json:"hiddenObservedConsumers"`
+	// UnresolvedUses counts the declared references that may name a provider
+	// of the offering but did not resolve.
+	UnresolvedUses UnresolvedUses `json:"unresolvedUses"`
+	// Adapters names the adapters whose current reports speak for the
+	// offering's requests, or whose newest report does where none is current,
+	// from the same statuses Consumers shows.
+	Adapters OfferingAdaptersPreview `json:"adapters"`
+}
+
+// UnresolvedUses counts consumers' declared references that may name a
+// provider of an offering but did not resolve (see [UnresolvedRefCount]).
+type UnresolvedUses struct {
+	Count      int    `json:"count" doc:"Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference type and repository. Hidden consumers and providers are counted, never named"`
+	Reason     string `json:"reason,omitempty" doc:"Why such a reference does not resolve"`
+	Provenance string `json:"provenance" enum:"inferred" doc:"The match is inferred from the reference's repository or name"`
+}
+
+// LimitationOfferingUsesUnresolved marks an offering answer whose consumers
+// may omit uses: declared references that may name a provider did not resolve.
+const LimitationOfferingUsesUnresolved = "OFFERING_USES_UNRESOLVED"
+
+// unresolvedUsesReason is every way a declared reference fails to resolve.
+const unresolvedUsesReason = "the reference is not digest-pinned or locked, is ambiguous, has a conflicting lock, resolves to a bundle this snapshot does not hold or matches no fleet service, so Pacto cannot tell which provider revision it asks for"
+
+// offeringUnresolvedUses counts the unresolved declared references that may
+// name one of providers of offering, with the limitation that makes the
+// answer partial when there is any.
+func (q *Query) offeringUnresolvedUses(offering string, providers []EntityRef) (UnresolvedUses, []Limitation) {
+	keys := make([]ServiceKey, len(providers))
+	for i, p := range providers {
+		keys[i] = ServiceKey(p.Key)
+	}
+	// A restricted view still matches the hidden providers, so the count never
+	// drops because the viewer cannot see one; only the count leaves.
+	m := providerMatchOf(q.snap, keys)
+	h := q.snap.hiddenProviderMatch[offering]
+	maps.Copy(m.repos, h.repos)
+	maps.Copy(m.names, h.names)
+	u := UnresolvedUses{Count: countUnresolved(q.snap, m, []string{RelationshipDependency, RelationshipConfigRef, RelationshipPolicyRef}), Provenance: ProvenanceInferred}
+	if u.Count == 0 {
+		return u, nil
+	}
+	u.Reason = unresolvedUsesReason
+	return u, []Limitation{{Code: LimitationOfferingUsesUnresolved, Message: strconv.Itoa(u.Count) + " declared references may name a provider of " + offering +
+		" but did not resolve: " + unresolvedUsesReason}}
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -1405,13 +1486,19 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	for _, u := range uses {
 		declared[ServiceKey(u.Consumer.Key)] = true
 	}
+	unresolved, unresolvedLims := q.offeringUnresolvedUses(key, providers)
+	meta := q.productMetaWith(slices.Concat(conflicts, successorLimitations(items), unresolvedLims))
+	if unresolved.Count > 0 {
+		meta.Completeness = CompletenessPartial
+	}
 	return &EntityDetail{
-		Meta: q.productMetaWith(append(conflicts, successorLimitations(items)...)), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
+		Meta: meta, Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
 			Availability: x.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
 			ObservedConsumers: q.observedConsumers(records, declared), HiddenObservedConsumers: q.hiddenObservedConsumers(records),
+			UnresolvedUses: unresolved, Adapters: offeringAdapters(uses),
 		},
 		Actions: []string{"impact"},
 	}, nil

@@ -164,6 +164,16 @@ describe('ServiceEnvironments', () => {
     expect([...cell(t, 'staging', 'provisioning')!.querySelectorAll('.tag')].map(text)).toEqual(['Ready 1', 'Failed 1']);
   });
 
+  it('ReadyUnsignedNeverOk', () => {
+    const t = render({ placement: placement([group('production', { provisioning: tally({ ready: 2, readyUnsigned: 2 }) }), group('staging', { provisioning: tally({ ready: 3, readyUnsigned: 1 }) })]) });
+    const prod = cell(t, 'production', 'provisioning')!.querySelector('.tag')!;
+    expect(text(prod)).toBe('Ready 2 (2 unsigned)');
+    expect(prod.classList.contains('tone-info')).toBe(true);
+    const stg = cell(t, 'staging', 'provisioning')!.querySelector('.tag')!;
+    expect(text(stg)).toBe('Ready 3 (1 unsigned)');
+    expect(stg.classList.contains('tone-ok')).toBe(true);
+  });
+
   it('StageOnlyEnvironmentListed', () => {
     const t = render({ placement: placement([group('staging')]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')] });
     const r = row(t, 'prod');

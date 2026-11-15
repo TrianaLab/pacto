@@ -1003,10 +1003,32 @@ func TestUnresolvedConfigRefConsumersByName(t *testing.T) {
 			t.Errorf("%s: gate %s (%s), limitations %+v", ref, res.Gate, res.GateReason, res.Limitations)
 		}
 	}
-	if n := unresolvedRefConsumers(&fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
-		Type: fleet.RelationshipConfigRef, Provenance: fleet.ProvenanceDeclared, RequestedRef: "oci://x/redis:7",
-	}}}, fleet.NewServiceKey("postgresql"), fleet.RelationshipConfigRef); n != 0 {
-		t.Errorf("a ref to another name counted %d", n)
+}
+
+// A restricted snapshot still counts the unresolved reference of a referrer
+// the view hides, and the answer never names it.
+func TestUnresolvedRefsCountHiddenReferrers(t *testing.T) {
+	consumer := refConsumer("secret-orders", "", map[string]any{"size": "medium"}, false)
+	col := &fleet.Collection{Revisions: []fleet.RawRevision{{
+		Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},
+		Digest: "sha256:pg", RequestedRef: "oci://x/postgresql:16.1.0",
+	}, consumer}, Targets: []fleet.RawTarget{
+		{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "postgresql", Service: "postgresql", Digest: "sha256:pg"},
+		{Scope: "hush", Kind: fleet.SourceKindKubernetes, Name: "secret-orders", Service: "secret-orders", Digest: "sha256:secret-orders"},
+	}}
+	full, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
+	res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
+		pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
+	l := limitation(res, "CONFIG_REF_CONSUMERS_UNRESOLVED")
+	if l == nil || !strings.HasPrefix(l.Message, "1 configuration references") || res.Completeness != fleet.CompletenessPartial {
+		t.Errorf("limitations %+v, completeness %s", res.Limitations, res.Completeness)
+	}
+	if b, _ := json.Marshal(res); strings.Contains(string(b), "secret-orders") {
+		t.Errorf("the hidden referrer leaks: %s", b)
 	}
 }
 

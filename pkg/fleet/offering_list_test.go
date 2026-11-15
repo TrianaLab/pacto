@@ -324,7 +324,7 @@ func offeringAggregate(t *testing.T, q *Query, f EntityFilter) EntityAggregate {
 
 // plusTally is a + b, field by field.
 func plusTally(a, b PhaseTally) PhaseTally {
-	return PhaseTally{a.Requested + b.Requested, a.Provisioning + b.Provisioning, a.Ready + b.Ready, a.Failed + b.Failed, a.Deleting + b.Deleting, a.Unknown + b.Unknown}
+	return PhaseTally{a.Requested + b.Requested, a.Provisioning + b.Provisioning, a.Ready + b.Ready, a.Failed + b.Failed, a.Deleting + b.Deleting, a.Unknown + b.Unknown, a.ReadyUnsigned + b.ReadyUnsigned}
 }
 
 // assertOfferingTallyMatchesDetail pins B3: the fleet tally is the sum of the

@@ -117,6 +117,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
+	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)
 	restrictReports(&out, s)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
@@ -418,6 +419,22 @@ func hiddenProviders(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord,
 	return counts
 }
 
+// hiddenProviderMatch is, per offering counted in hidden, what its hidden
+// providers in s may be named by.
+func hiddenProviderMatch(s *FleetSnapshot, hidden map[string]int, hiddenSvc map[ServiceKey]bool) map[string]providerMatch {
+	keys := map[string][]ServiceKey{}
+	for k := range hiddenSvc {
+		if o := s.Services[k].Offering; hidden[o] > 0 {
+			keys[o] = append(keys[o], k)
+		}
+	}
+	out := make(map[string]providerMatch, len(keys))
+	for o, ks := range keys {
+		out[o] = providerMatchOf(s, ks)
+	}
+	return out
+}
+
 // restrictRelationships sets out.Relationships to rels without the hidden
 // services, and returns, per visible service, the hidden services it depends
 // on, that depend on it and that consume it (see [ConsumesEdge]; observed
@@ -435,6 +452,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 		m[at][other] = true
 	}
 	out.Relationships = make([]Relationship, 0, len(rels))
+	out.hiddenUnresolvedRefs = slices.Clip(out.hiddenUnresolvedRefs) // never appends into the source snapshot's list
 	for _, rel := range rels {
 		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
 		switch {
@@ -449,6 +467,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 				count(consumers, rel.ToService, rel.FromService)
 			}
 			countPolicyReferrer(referrers, rel)
+			out.hiddenUnresolvedRefs = appendHiddenUnresolved(out.hiddenUnresolvedRefs, rel)
 			continue
 		case to:
 			if rel.Provenance == ProvenanceObserved {

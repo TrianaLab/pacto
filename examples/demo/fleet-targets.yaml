@@ -257,6 +257,19 @@ provisioning:
     phase: Failed
     producer: platform-adapter
     observedAt: 2026-07-29T09:40:00Z
+  # The security team's scanner adapter scanned warehouse-scanner 1.1.0 in
+  # production. The file carries no signature, so the scanner's signed report
+  # on returns-service 1.2.0 lives only in the in-browser demo.
+  - service: warehouse-scanner
+    digest: sha256:25bf940d0fa74169a1f4de56adaed920da512ece5524cf0f66fab0900e1ca023
+    kind: configuration
+    name: security
+    environment: production
+    provider: scanner
+    externalRef: scans/warehouse-scanner
+    phase: Ready
+    producer: security-adapter
+    observedAt: 2026-07-29T09:40:00Z
 
 # The usage list (schema v2) is what the platform adapter reports about the usage
 # and cost of catalog-service 1.3.0's database in production. The file is

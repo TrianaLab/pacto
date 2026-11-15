@@ -7,6 +7,7 @@ import type { components } from './generated/schema.ts';
 import { formatDateTime, formatRelative } from './dateFormat.ts';
 
 export type ProvisioningStatus = components['schemas']['ProductProvisioningStatus'];
+export type OfferingAdapter = components['schemas']['Fleet.OfferingAdapter'];
 
 /**
  * The badge tone of a provisioning phase: only a signed Ready is ok and only Failed is an
@@ -19,6 +20,26 @@ export function phaseTone(phase: string | undefined, verified = true): 'ok' | 'e
     case 'Requested': case 'Provisioning': case 'Deleting': return 'info';
     default: return 'neutral';
   }
+}
+
+/** The tone of a Ready tally: ok only when some Ready is signed (`ready > readyUnsigned`), else info. */
+export function readyTone(ready: number, readyUnsigned = 0): 'ok' | 'info' {
+  return ready > readyUnsigned ? 'ok' : 'info';
+}
+
+/**
+ * One line that says who an adapter is and what it reports on, worded as the CLI's
+ * adapter line: an empty slug reads "unnamed adapter", as OfferingAdapter.DisplayName() does, and
+ * an empty producer is left out, as OfferingAdapter.Line() does.
+ */
+export function adapterLine(a: OfferingAdapter, now: number = Date.now()): string {
+  const head = `${a.provider || 'unnamed adapter'}${a.producer ? ` by ${a.producer}` : ''}, ${a.verified ? 'signed' : 'unsigned target-state file'}`;
+  const envs = a.environments ?? [];
+  const tail = [
+    a.disagrees > 0 ? `disagrees on ${a.disagrees}` : '',
+    a.lastReportedAt ? `last reported ${formatRelative(a.lastReportedAt, now)}` : '',
+  ].filter(Boolean);
+  return [envs.length ? `${head}: ${envs.join(', ')}` : head, ...tail].join('; ');
 }
 
 /** The glyph of a provisioning phase (S6): drawn as geometry beside its badge. The check is for a signed Ready only. */

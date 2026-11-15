@@ -122,6 +122,67 @@ See [Provision infrastructure through contracts](provision-infrastructure.md).
 
 ---
 
+## Add your own capability
+
+Any platform team can offer its own capability, such as an image scanner, a
+database service or an environment manager, as an ordinary provider contract.
+The demo's `security-scanning` offering, provided by `platform-security`, is
+the example:
+
+1. Choose a `service.offering` slug. The slug is open: any lowercase name
+   works, such as `security-scanning`.
+2. Publish the provider contract with a configuration schema that consumers
+   fill in. `platform-security` declares a `scan` configuration with `level`
+   and `failOn`.
+3. Write an adapter that reads each consumer contract, does the work and
+   reports what it provisioned as `ResourceProvisioned` evidence with
+   `pacto evidence provisioned`.
+4. Give the adapter its own signing key and scope it to your provider
+   repositories with `allowedProviderRepos`, so it can never mark another
+   team's resource Ready. See
+   [Trust store and trust config](evidence.md#trust-store-and-trust-config).
+
+To govern the slugs your organization uses, publish a policy whose schema
+restricts `service.offering` and reference it from every provider contract:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "service": {
+      "type": "object",
+      "properties": {
+        "offering": { "enum": ["postgresql", "security-scanning"] }
+      }
+    }
+  }
+}
+```
+
+```yaml
+policies:
+  - name: offerings
+    ref: oci://ghcr.io/acme/platform-offerings-policy:1.0.0
+```
+
+### What Pacto shows for your capability
+
+The offering page and `pacto fleet entity offering <slug>` list your
+providers, their consumers and the [adapters](platform-offerings.md#adapters)
+that reported on their requests. A request reads Unknown until a current
+report arrives. A report from an unsigned target-state file reads
+"Ready (unsigned)" and never counts as positive. `unresolvedUses` counts the
+declared references that may name your provider but did not resolve.
+
+Delivery appliers and operation types are built in. Extension capabilities
+(`capabilities[].type: extension`) stay unverified, so report a scanner's
+verdict as provisioning or runtime evidence. Pacto skips a generated MCP tool
+of a provider bundle whose name starts with `pacto_`; see
+[Bundle capabilities](mcp-reference.md#bundle-capabilities).
+
+---
+
 ## Golden paths
 
 Publish a golden path for each kind of service your teams start often: a

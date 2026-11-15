@@ -199,3 +199,26 @@ func TestPlacementLines(t *testing.T) {
 		t.Errorf("nothing to list: %q", got)
 	}
 }
+
+func TestPlacementProvisioningReadyUnsigned(t *testing.T) {
+	got := provisioningByEnvironment([]OfferingUse{{Provisioning: []ProvisioningStatus{
+		{Environment: "production", Phase: "Ready", Verified: true},
+		{Environment: "production", Phase: "Ready"},
+		{Environment: "staging", Phase: "Ready"},
+		{Phase: "Ready"},
+	}}})
+	if p, s := got["production"], got["staging"]; p.Ready != 2 || p.ReadyUnsigned != 1 || s.Ready != 1 || s.ReadyUnsigned != 1 || len(got) != 2 {
+		t.Errorf("tally = %+v", got)
+	}
+}
+
+func TestPlacementLineReadyUnsigned(t *testing.T) {
+	e := EnvironmentPlacement{ProvisioningTracked: true, Provisioning: PhaseTally{Ready: 3, ReadyUnsigned: 2}}
+	if got := e.provisioningText(); got != "provisioning 3 ready (2 unsigned) of 3" {
+		t.Errorf("unsigned = %q", got)
+	}
+	e.Provisioning.ReadyUnsigned = 0
+	if got := e.provisioningText(); got != "provisioning 3 ready of 3" {
+		t.Errorf("signed = %q", got)
+	}
+}

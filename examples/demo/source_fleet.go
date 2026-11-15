@@ -356,17 +356,20 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 	}
 }
 
-// demoProvisioning is what provider adapters report about the resources four
-// consumers asked for, the same four reports examples/demo/fleet-targets.yaml
-// carries: catalog-service 1.3.0's database is Ready in production, the
+// demoProvisioning is what provider adapters report about the resources six
+// consumers asked for. examples/demo/fleet-targets.yaml carries five of the six
+// reports: catalog-service 1.3.0's database is Ready in production, the
 // adapter could not observe orders-service's postgresql, so that use reads
 // Unknown, the mail adapter failed to provision notification-worker 1.0.0's
 // email-provider, a provider that declares no offering, so the resource reads
-// Failed and raises PROVISIONING_FAILED, and the platform adapter could not
+// Failed and raises PROVISIONING_FAILED, the platform adapter could not
 // provision ticketing-service 1.2.0's postgresql-ha database in staging, so
-// that request reads Failed. None is signed, and the dashboard says so. They
-// are dated off the demo clock, so they stay current; the file's fixed date
-// reads stale instead.
+// that request reads Failed, and the security team's scanner adapter reports
+// warehouse-scanner 1.1.0's security scan Ready. The sixth, the scanner's
+// report on returns-service 1.2.0, is the only signed one, so it cannot live
+// in the unsigned file; the dashboard says which reports are signed. They are
+// dated off the demo clock, so they stay current; the file's fixed date reads
+// stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
 	return []fleet.RawProvisioning{
@@ -381,6 +384,12 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
 			Provider: "mail-adapter", ExternalRef: "senders/notifications", Phase: string(evidence.PhaseFailed),
 			Outcome: string(evidence.Observed), Producer: "mail-adapter", ObservedAt: at},
+		{Service: "returns-service", Digest: demoDigest(src, "returns-service", "1.2.0"), Kind: "configuration", Name: "security",
+			Environment: "production", Provider: "scanner", ExternalRef: "scans/returns-service", Phase: string(evidence.PhaseReady),
+			Outcome: string(evidence.Observed), Producer: "security-adapter", ProducerKeyID: "security-adapter-2026", ObservedAt: at, Verified: true},
+		{Service: "warehouse-scanner", Digest: demoDigest(src, "warehouse-scanner", "1.1.0"), Kind: "configuration", Name: "security",
+			Environment: "production", Provider: "scanner", ExternalRef: "scans/warehouse-scanner", Phase: string(evidence.PhaseReady),
+			Outcome: string(evidence.Observed), Producer: "security-adapter", ObservedAt: at},
 	}
 }
 

@@ -1,13 +1,11 @@
 # Platform offerings reference
 
 This page describes how [the operational graph](operational-graph.md) groups
-services by platform offering: providers and their versions, consumers, the
-consume snippet, provisioning status and what a restricted viewer sees.
+services by platform offering.
 [Offering availability and lifecycle](offering-availability.md) covers whether
-an offering serves, deprecated providers and their successors, observed
-callers and offering impact. The
-[operational graph reference](operational-graph-reference.md) covers sources
-and queries.
+an offering serves, deprecated providers, observed callers and offering
+impact, and the [operational graph reference](operational-graph-reference.md)
+covers sources and queries.
 
 ## Providers
 
@@ -104,6 +102,14 @@ them as requirements with the same entries a consumer's `consumedOfferings`
 carries, and the `consumes` filter and the offering's consumer list leave the
 path out. See the [golden paths reference](golden-paths-reference.md).
 
+### Unresolved uses
+
+`unresolvedUses` counts declared dependency, configuration and policy
+references that may name a provider but did not resolve, so the consumer list
+leaves them out. The match is `inferred`. Each consumer counts once per
+reference type and repository, hidden services included. Above 0 the answer
+carries `OFFERING_USES_UNRESOLVED` and is `partial`.
+
 ## Consume snippet
 
 Each provider carries a consume snippet to add to a contract, built from its
@@ -149,14 +155,14 @@ other versions. An OCI-sourced fleet lists what the registry holds, and
 A provider adapter reports the state of a resource a consumer asked for as
 [`ResourceProvisioned`](provider-reports.md#provisioning-reports) evidence: a signed
 EvidenceSet through an Evidence Server, or an unsigned report in a v2
-target-state file. Each report names the consumer revision by digest, the
-configuration reference or dependency that asked and the environment. Pacto
-joins reports onto the offering's uses at query time, one status per
-environment, with the provider, external reference, producer, signing key,
+target-state file. Pacto joins reports onto the offering's uses at query
+time, one status per environment, with the provider, external reference, producer, signing key,
 source, report time and `verified`, true only for signed reports. Every
 environment the consumer's current revision declares has a status. A use whose
 consumer points more than one configuration or dependency at the provider has
 one status per entry, named in `entry`.
+Only a signed `Ready` is positive: badges and tallies show any other `Ready`
+as "Ready (unsigned)" in the info tone, and `phases.readyUnsigned` counts them.
 
 A status reads a phase only from a current report. It reads `Unknown`, with a
 reason and the phase the newest report gave in `reportedPhase`, when:
@@ -178,6 +184,24 @@ revision in the snapshot, or a use that revision does not resolve, are dropped
 and counted in one `PROVISIONING_UNMATCHED` limitation, and a snapshot keeps at
 most 10000 reports (`PROVISIONING_TRUNCATED`).
 
+### Adapters
+
+An offering's `adapters` lists up to 10 programs that report on its requests,
+by slug, producer and signature, from current reports, else the newest.
+Adapters are `observed`, from visible consumers' reports only.
+
+| Field | Meaning |
+|---|---|
+| `provider` | The adapter slug the reports carry, free text the adapter picks. A report with no slug reads "unnamed adapter" |
+| `producer`, `verified` | The producer that sent the reports and whether they were signed |
+| `environments`, `phases` | The environments its reports cover and the phase of each request, as the badge shows it if its own current report agrees, else `Unknown` |
+| `disagrees` | Requests where its report disagrees with another adapter's, so the status is `Unknown` |
+| `lastReportedAt` | When its newest report was observed |
+| `total`, `count`, `truncated` | Every adapter that reports, how many `items` lists and whether the list stops short of `total` |
+| `items` | The adapters, signed first, then by slug (an empty slug last) and producer |
+| `conflicting` | Requests whose adapters disagree; each of those adapters is listed |
+| `unattributed` | Requests no adapter reported on |
+
 ## Offerings under a restricted view
 
 A viewer restricted to some namespaces sees a provider that has no Kubernetes
@@ -188,7 +212,7 @@ with a target in a namespace the viewer cannot read omits `inUse` too. With a
 Kubernetes source unavailable or partial, the absence of a target proves
 nothing, so the provider stays hidden.
 
-Consumers follow their own visibility. A consumer the viewer cannot see is
+A consumer the viewer cannot see is
 never named: the offering counts them in `hiddenConsumers`, and its
 provisioning statuses, external references and namespace stay hidden. A
 `PROVISIONING_CONFLICT` reflects only the reports the viewer can see, and

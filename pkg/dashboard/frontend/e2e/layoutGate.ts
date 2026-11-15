@@ -302,6 +302,25 @@ export function installScaleFixture(): void {
         };
         (off as Record<string, unknown>).hiddenObservedConsumers = 7;
       }
+      // Adapters at scale (#463), guarded like the providers: an offering with no
+      // adapter keeps its real empty state. One item has no slug ("unnamed adapter").
+      if ((off?.adapters as { items?: unknown[] } | undefined)?.items?.length) {
+        off.adapters = {
+          total: 40, count: 10, truncated: true, unattributed: 3200, conflicting: 400,
+          items: Array.from({ length: 10 }, (_, i) => ({
+            provider: i === 9 ? '' : longName(`scanner-${i}`), producer: longName(`security-adapter-${i}`), verified: i % 2 === 0,
+            environments: Array.from({ length: 12 }, (_, e) => longName(`prod-${e}`)),
+            phases: { requested: 1200, provisioning: 30, ready: 2400, readyUnsigned: i % 2 === 0 ? 0 : 2400, failed: 7, deleting: 2, unknown: 900 },
+            lastReportedAt: '2026-11-13T09:00:00Z', provenance: 'observed', disagrees: i === 3 ? 400 : 0,
+          })),
+        };
+      }
+      if (((off?.unresolvedUses as { count?: number } | undefined)?.count ?? 0) > 0) {
+        off.unresolvedUses = { count: 4000, reason: longName('the reference is not digest-pinned or locked'), provenance: 'inferred' };
+      }
+      // The unsigned share of every Ready tally, so the stations read it at scale.
+      const cons = off?.consumers as { phases?: Record<string, number>; phaseConsumers?: Record<string, number> } | undefined;
+      for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
     }
     // A checked range's answer carries the provider's successor at its longest ref.
     if (route === '/api/fleet/versions') {
@@ -1247,6 +1266,8 @@ export const ROUTES: Route[] = [
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
   { name: 'offering entity postgresql unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
+  { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
+  { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
   {
     // The successor range line is component state, never in the URL: type the range.

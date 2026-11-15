@@ -36,13 +36,13 @@ test.describe('WASM demo — platform offerings', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 
-  test('the demo lists its five offerings and postgresql and shared-config have two providers', async ({ page }) => {
+  test('the demo lists its six offerings and postgresql and shared-config have two providers', async ({ page }) => {
     await page.goto('/#/fleet/offerings');
     const list = page.getByTestId('offering-list');
     await expect(list).toBeVisible({ timeout: T });
     const rows = list.locator('tbody tr');
-    await expect(rows).toHaveCount(5);
-    for (const name of ['messaging', 'postgresql', 'redis', 'shared-config', 'shared-policy']) {
+    await expect(rows).toHaveCount(6);
+    for (const name of ['messaging', 'postgresql', 'redis', 'security-scanning', 'shared-config', 'shared-policy']) {
       await expect(list.locator(`a.entity-link[href$="/fleet/offerings/${name}"]`)).toBeVisible();
     }
     await expect(rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/shared-config"]') })).toContainText('2 providers');
@@ -58,7 +58,7 @@ test.describe('WASM demo — platform offerings', () => {
     const fig = page.getByTestId('offerings-figure');
     await expect(fig).toBeVisible({ timeout: T });
     await expect(fig).toContainText('Are the requests for platform offerings ready?');
-    await expect(fig).toContainText(/across 5 offerings/);
+    await expect(fig).toContainText(/across 6 offerings/);
     // The Failed station and the offering it names both open the failed-request list.
     await expect(fig.locator('a[data-lists="1"]')).toHaveAttribute('href', /[?&]failed=1/);
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();
@@ -226,5 +226,88 @@ test.describe('WASM demo — platform offerings', () => {
     const snippet = page.getByTestId('offering-provider').getByTestId('consume').locator('pre.consume-snippet');
     await expect(snippet).toContainText('policies:', { timeout: T });
     await expect(snippet).toContainText('name: platform-http-policy');
+  });
+  // Adapters (#463): who reports on an offering's requests, observed from their reports.
+  const titledValues = (page: Page, sel: string) => page.locator(sel).evaluateAll((els) =>
+    els.every((e) => e.getAttribute('title') === e.textContent));
+
+  test('the postgresql page names the adapters that report on its requests', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/postgresql');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const items = page.getByTestId('offering-adapter');
+    await expect(items.first()).toBeVisible({ timeout: T });
+    const db = items.filter({ hasText: 'platform-db' });
+    await expect(db).toContainText('by platform-adapter');
+    await expect(db.locator('.tag', { hasText: /^unsigned$/ })).toBeVisible();
+    await expect(db.locator('.tag.tone-ok')).toHaveCount(0);
+    await expect(items.filter({ hasText: 'unnamed adapter' })).toHaveCount(1);
+    expect(await titledValues(page, '[data-testid="offering-adapter"] bdi.oe-name, [data-testid="offering-adapter"] bdi.oe-env')).toBe(true);
+    expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'postgresql adapters');
+  });
+
+  test('security-scanning shows two adapters rows, one signed and one unsigned', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/security-scanning');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await expect(page.getByTestId('offering-provider')).toHaveCount(1, { timeout: T });
+    await expect(page.getByTestId('offering-provider')).toContainText('platform-security');
+    // The scanner signed its report on returns-service, so that badge alone reads a green Ready.
+    const badge = (name: string) => page.getByTestId('offering-consumer').filter({ hasText: name }).getByTestId('provisioning-badge');
+    await expect(badge('returns-service').locator('.tag')).toHaveText('production: Ready');
+    await expect(badge('returns-service').locator('svg.pb-ok')).toHaveCount(1);
+    await expect(badge('warehouse-scanner').locator('.tag')).toHaveText('production: Ready (unsigned)');
+    await expect(badge('warehouse-scanner').locator('svg.pb-info')).toHaveCount(1);
+    await expect(badge('warehouse-scanner').locator('svg.pb-ok')).toHaveCount(0);
+    const items = page.getByTestId('offering-adapter');
+    await expect(items).toHaveCount(2);
+    for (const item of [items.nth(0), items.nth(1)]) {
+      await expect(item).toContainText('scanner');
+      await expect(item).toContainText('by security-adapter');
+    }
+    // Signed adapters come first.
+    await expect(items.nth(0).locator('.tag', { hasText: /^signed$/ })).toBeVisible();
+    await expect(items.nth(1).locator('.tag', { hasText: /^unsigned$/ })).toBeVisible();
+    await expect(items.nth(1).locator('.tag.tone-ok')).toHaveCount(0);
+    expect(await titledValues(page, '[data-testid="offering-adapter"] bdi.oe-name, [data-testid="offering-adapter"] bdi.oe-env')).toBe(true);
+    expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'security-scanning adapters');
+  });
+
+  test('the messaging page says provisioning is unknown when no adapter has reported', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/messaging');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await expect(page.getByText('No adapter has reported. Provisioning status is Unknown.')).toBeVisible({ timeout: T });
+    await expect(page.getByTestId('offering-adapter')).toHaveCount(0);
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
+  test('the shared-config page counts the declared uses that did not resolve', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/shared-config');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const note = page.getByTestId('unresolved-uses');
+    await expect(note).toContainText(/\d+ declared uses? may name a provider of this offering but did not resolve/, { timeout: T });
+    await expect(note.locator('.tag', { hasText: 'inferred' })).toBeVisible();
+    expect(await titledValues(page, '[data-testid="offering-provider"] bdi.oe-ref, [data-testid="offering-adapter"] bdi.oe-name')).toBe(true);
+    expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'shared-config unresolved uses');
+  });
+
+  test('an unsigned Ready never reads positive in the offering figures', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // Every postgresql Ready is unsigned: the Ready station is info, draws no check and says so.
+    await page.goto('/#/fleet/offerings/postgresql');
+    const fig = page.getByTestId('offering-figure');
+    const ready = fig.locator('.ph-ready');
+    await expect(ready.locator('.nd')).toHaveClass(/\bt-info\b/, { timeout: T });
+    await expect(ready.locator('.nd')).not.toHaveClass(/\bt-ok\b/);
+    await expect(ready).toContainText('unsigned');
+    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(\d+ unsigned\)/);
+    // The list adds security-scanning's signed Ready, so its Ready station reads ok.
+    await page.goto('/#/fleet/offerings');
+    await expect(page.getByTestId('offerings-figure').locator('.ph-ready .nd')).toHaveClass(/\bt-ok\b/, { timeout: T });
   });
 });

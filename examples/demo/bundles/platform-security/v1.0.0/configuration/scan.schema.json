@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Security scan request",
+  "description": "How deeply a consuming service asks to be scanned and which severity blocks its release.",
+  "type": "object",
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": ["baseline", "full"],
+      "description": "baseline scans the image; full also scans the dependencies it ships."
+    },
+    "failOn": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "The lowest severity that blocks a release."
+    }
+  },
+  "required": ["level", "failOn"],
+  "additionalProperties": false
+}

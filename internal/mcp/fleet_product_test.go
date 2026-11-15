@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -118,6 +119,18 @@ func TestFleetEntityTool(t *testing.T) {
 	}
 	if d := detail("offering", "payments-api"); d.Offering == nil {
 		t.Errorf("offering detail = %+v", d)
+	}
+	var raw struct {
+		Offering map[string]json.RawMessage `json:"offering"`
+	}
+	decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "offering", "key": "payments-api"}), &raw)
+	if raw.Offering["adapters"] == nil || raw.Offering["unresolvedUses"] == nil || !strings.Contains(string(raw.Offering["consumers"]), `"readyUnsigned"`) {
+		t.Errorf("offering answer lacks adapters, unresolvedUses or readyUnsigned: %v", raw.Offering)
+	}
+	for _, want := range []string{"'adapters'", "'unresolvedUses'", "'phases.readyUnsigned'", "'phaseConsumers.readyUnsigned'", "'conflicting'", "'unattributed'"} {
+		if !strings.Contains(fleetEntityTool().Description, want) {
+			t.Errorf("description does not name %s", want)
+		}
 	}
 	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
 		t.Error("an unknown kind is rejected by the schema")

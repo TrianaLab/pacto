@@ -21,35 +21,107 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestDemoLockPinsTheLocalProvider holds catalog-service 1.3.0's committed lock
-// to the postgresql bundle beside it: the fleet resolves the configuration
-// reference through the lock's contentHash, so an edit to postgresql 16.1.0 that
-// skips the lock would silently unresolve the demo's only provisioning request.
+// TestDemoLockPinsTheLocalProvider holds each locked consumer's committed lock
+// to the provider bundle beside it: the fleet resolves the configuration
+// reference through the lock's contentHash, so an edit to the provider that
+// skips the lock would silently unresolve the consumer's request. The lock
+// holds the full closure, as `pacto lock` writes it: catalog-service also
+// depends on postgresql, so that dependency pins the reference's revision;
+// the security-scanning consumers keep their own dependency pinned beside it.
 func TestDemoLockPinsTheLocalProvider(t *testing.T) {
-	l, err := lock.ReadFS(os.DirFS(filepath.Join("bundles", "catalog-service", "v1.3.0")))
-	if err != nil || l == nil {
-		t.Fatalf("read catalog-service 1.3.0 pacto.lock: %v", err)
-	}
-	if l.LockVersion < lock.RootOccurrenceLockVersion {
-		t.Errorf("lockVersion %d cannot attribute a root reference", l.LockVersion)
-	}
-	want := hashBundle(t, filepath.Join("bundles", "postgresql", "v16.1.0"))
-	for _, r := range l.References {
-		if r.From == "" && r.Kind == "config" && r.Name == "database" {
-			if r.ContentHash != want {
-				t.Errorf("contentHash %s, want %s (lock.HashFS of postgresql 16.1.0): update the lock", r.ContentHash, want)
+	for _, tc := range []struct {
+		dir, refName, providerDir string
+		wantDependency            bool
+		existingDep               string
+	}{
+		{filepath.Join("catalog-service", "v1.3.0"), "database", filepath.Join("postgresql", "v16.1.0"), true, ""},
+		{filepath.Join("returns-service", "v1.2.0"), "security", filepath.Join("platform-security", "v1.0.0"), false, "shipping-rates"},
+		{filepath.Join("warehouse-scanner", "v1.1.0"), "security", filepath.Join("platform-security", "v1.0.0"), false, "inventory-service"},
+	} {
+		t.Run(tc.dir, func(t *testing.T) {
+			l, err := lock.ReadFS(os.DirFS(filepath.Join("bundles", tc.dir)))
+			if err != nil || l == nil {
+				t.Fatalf("read %s pacto.lock: %v", tc.dir, err)
 			}
-			// The lock holds the full closure, as `pacto lock` writes it: the
-			// postgresql dependency resolves to the same published revision, so a
-			// live `pacto validate` reads the lock as current, not stale.
-			dep, ok := l.Dependency("postgresql")
-			if !ok || dep.Digest != r.Digest || dep.Version != r.Version {
-				t.Errorf("dependency entry %+v (found %v) must pin the reference's revision %s %s", dep, ok, r.Version, r.Digest)
+			if l.LockVersion < lock.RootOccurrenceLockVersion {
+				t.Errorf("lockVersion %d cannot attribute a root reference", l.LockVersion)
 			}
-			return
+			i := slices.IndexFunc(l.References, func(r lock.Reference) bool {
+				return r.From == "" && r.Kind == "config" && r.Name == tc.refName
+			})
+			if i < 0 {
+				t.Fatalf("the lock has no root entry for the %s configuration reference", tc.refName)
+			}
+			r := l.References[i]
+			if want := hashBundle(t, filepath.Join("bundles", tc.providerDir)); r.ContentHash != want {
+				t.Errorf("contentHash %s, want %s (lock.HashFS of %s): update the lock", r.ContentHash, want, tc.providerDir)
+			}
+			if tc.wantDependency {
+				dep, ok := l.Dependency(filepath.Dir(tc.providerDir))
+				if !ok || dep.Digest != r.Digest || dep.Version != r.Version {
+					t.Errorf("dependency entry %+v (found %v) must pin the reference's revision %s %s", dep, ok, r.Version, r.Digest)
+				}
+				return
+			}
+			if dep, ok := l.Dependency(tc.existingDep); !ok || dep.Digest == "" {
+				t.Errorf("dependency entry %s = %+v (found %v), want it pinned to a digest", tc.existingDep, dep, ok)
+			}
+		})
+	}
+}
+
+// TestDemoSecurityScanningOffering: platform-security provides the
+// security-scanning offering, returns-service 1.2.0 and warehouse-scanner 1.1.0
+// request a scan through a resolved configuration reference, the scanner
+// adapter's unsigned target-state report is the one adapter row.
+func TestDemoSecurityScanningOffering(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindOffering, "security-scanning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := d.Offering
+	if len(o.Providers.Items) != 1 || o.Providers.Items[0].Service.Key != "platform-security" {
+		t.Errorf("providers = %+v", o.Providers.Items)
+	}
+	consumers := map[string]bool{}
+	for _, u := range o.Consumers.Items {
+		consumers[u.Consumer.Key] = true
+		if u.Via != fleet.RelationshipConfigRef || u.Provider.Key != "platform-security" {
+			t.Errorf("%s use = %+v", u.Consumer.Key, u)
 		}
 	}
-	t.Fatal("the lock has no root entry for the database configuration reference")
+	if !reflect.DeepEqual(consumers, map[string]bool{"returns-service": true, "warehouse-scanner": true}) {
+		t.Errorf("consumers = %v", consumers)
+	}
+	if o.Adapters.Total != 1 || o.Adapters.Items[0].Provider != "scanner" || o.Adapters.Items[0].Producer != "security-adapter" || o.Adapters.Items[0].Verified {
+		t.Errorf("adapters = %+v", o.Adapters)
+	}
+}
+
+// TestDemoSecurityScanningImpact: impact of platform-security lists
+// returns-service and warehouse-scanner, its configuration-reference
+// consumers, as its only direct consumers.
+func TestDemoSecurityScanningImpact(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC, newFS := readBundle(t, filepath.Join("bundles", "platform-security", "v1.0.0"))
+	res := impact.Analyze(context.Background(), newC, newC, newFS, newFS, snap, impact.Options{})
+	refs := map[string]bool{}
+	for _, c := range res.Consumers {
+		if c.Direct {
+			refs[c.Service] = true
+		}
+	}
+	if !refs["returns-service"] || !refs["warehouse-scanner"] || len(refs) != 2 {
+		t.Errorf("impact consumers = %v", refs)
+	}
 }
 
 // TestDemoConfigRefEdgeResolves builds the fleet `pacto fleet --local
@@ -607,7 +679,7 @@ func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
 	var phases, consumers fleet.PhaseTally
 	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
 		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
-			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown}
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown, ReadyUnsigned: a.ReadyUnsigned + b.ReadyUnsigned}
 	}
 	for _, r := range l.Entities {
 		d, err := q.EntityDetail(fleet.KindOffering, r.Key)

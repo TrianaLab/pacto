@@ -444,6 +444,21 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 	if o.HiddenObservedConsumers > 0 {
 		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("Observed callers you may not see: %d", o.HiddenObservedConsumers)) + "\n")
 	}
+	renderOfferingAdapters(b, o)
+}
+
+// renderOfferingAdapters draws who reports on the offering's requests and the
+// declared uses that may name one of its providers but did not resolve. Every
+// slug, producer, environment and reason is adapter-chosen free text, so each
+// line goes through safeText.
+func renderOfferingAdapters(b *strings.Builder, o *fleet.OfferingDetailData) {
+	section(b, fmt.Sprintf("Adapters (%d)", o.Adapters.Total))
+	for _, l := range o.Adapters.Lines(o.HiddenConsumers) {
+		b.WriteString("  " + safeText(l) + "\n")
+	}
+	if u := o.UnresolvedUses; u.Count > 0 {
+		field(b, "unresolved uses", fmt.Sprintf("%d may name a provider of this offering (inferred): %s", u.Count, u.Reason))
+	}
 }
 
 // renderOfferingProvider draws one provider: owner, versions, lifecycle,

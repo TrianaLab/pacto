@@ -2833,6 +2833,59 @@ export interface components {
             lastSeen?: string;
             source: string;
         };
+        "Fleet.OfferingAdapter": {
+            /**
+             * Format: int64
+             * @description Requests where its report disagrees with another adapter's, so the status is Unknown
+             */
+            disagrees: number;
+            /** @description The environments its reports cover; default when a request names none */
+            environments: string[] | null;
+            /**
+             * Format: date-time
+             * @description When its newest report was observed
+             */
+            lastReportedAt?: string;
+            /** @description The phase of each request it reports on, as the badge shows it when its own current, observed report says that phase; otherwise Unknown (reporters disagree, its report failed or is not current) */
+            phases: components["schemas"]["Fleet.PhaseTally"];
+            /** @description The producer that sent the reports */
+            producer?: string;
+            /**
+             * @description Adapters are observed from the reports
+             * @enum {string}
+             */
+            provenance: "observed";
+            /** @description The adapter slug the reports carry; free text the adapter chooses. Empty when the reports name none: surfaces render it as unnamed adapter */
+            provider: string;
+            /** @description True when the reports were accepted through signed envelopes; false for the unsigned target-state file */
+            verified: boolean;
+        };
+        "Fleet.OfferingAdaptersPreview": {
+            /**
+             * Format: int64
+             * @description Requests whose adapters disagree, so their status is Unknown; their adapters are listed
+             */
+            conflicting: number;
+            /**
+             * Format: int64
+             * @description The adapters listed in items
+             */
+            count: number;
+            /** @description Signed adapters first, then by slug (an empty slug last) and producer */
+            items: components["schemas"]["Fleet.OfferingAdapter"][] | null;
+            /**
+             * Format: int64
+             * @description Every adapter that reports on the offering's requests
+             */
+            total: number;
+            /** @description True when items lists fewer than total */
+            truncated: boolean;
+            /**
+             * Format: int64
+             * @description Requests no adapter reports on; their status is Unknown
+             */
+            unattributed: number;
+        };
         "Fleet.OperationalHealthTally": {
             /**
              * Format: int64
@@ -3044,6 +3097,11 @@ export interface components {
             provisioning: number;
             /** Format: int64 */
             ready: number;
+            /**
+             * Format: int64
+             * @description Ready statuses reported through an unsigned file, a subset of Ready; only a signed Ready reads positive. In phaseConsumers, the consumers whose every Ready status is unsigned
+             */
+            readyUnsigned: number;
             /** Format: int64 */
             requested: number;
             /** Format: int64 */
@@ -3607,6 +3665,20 @@ export interface components {
             caller: string;
             sources: string[] | null;
             toService: string;
+        };
+        "Fleet.UnresolvedUses": {
+            /**
+             * Format: int64
+             * @description Consumers' declared dependency, configuration or policy references that may name a provider of this offering but did not resolve, each consumer counted once per reference type and repository. Hidden consumers and providers are counted, never named
+             */
+            count: number;
+            /**
+             * @description The match is inferred from the reference's repository or name
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description Why such a reference does not resolve */
+            reason?: string;
         };
         "Fleet.UsageFigures": {
             cost?: components["schemas"]["Evidence.UsageCost"];
@@ -4732,6 +4804,7 @@ export interface components {
             truncated: boolean;
         };
         ProductOfferingDetail: {
+            adapters: components["schemas"]["Fleet.OfferingAdaptersPreview"];
             availability: components["schemas"]["ProductAvailability"];
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
             /** Format: int64 */
@@ -4742,6 +4815,7 @@ export interface components {
             hiddenProviders?: number;
             observedConsumers: components["schemas"]["ProductObservedConsumersPreview"];
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
+            unresolvedUses: components["schemas"]["Fleet.UnresolvedUses"];
         };
         ProductOfferingProvider: {
             availability: components["schemas"]["ProductAvailability"];

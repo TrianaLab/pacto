@@ -248,4 +248,5 @@ func (t *PhaseTally) plus(o PhaseTally) {
 	t.Failed += o.Failed
 	t.Deleting += o.Deleting
 	t.Unknown += o.Unknown
+	t.ReadyUnsigned += o.ReadyUnsigned
 }

@@ -1,0 +1,36 @@
+lockVersion: 3
+pacto:
+    version: 4.4.2
+root:
+    name: warehouse-scanner
+    version: 1.1.0
+dependencies:
+    - name: event-bus
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto/event-bus
+      constraint: ^3.6.0
+      version: 3.7.1
+      digest: sha256:ff675b74246c2e6ecd3c6f4b09799e8ba3a2f87b528f555e65fc46d1a4ecaf5c
+    - name: inventory-service
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto/inventory-service
+      constraint: ^2.0.0
+      version: 2.1.0
+      digest: sha256:0da3770cbe27268b2c74ad869c0c96de63978630305855f2b853f5f2649a0582
+      dependsOn:
+        - event-bus
+        - postgresql
+    - name: postgresql
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto/postgresql
+      constraint: ^16.0.0
+      version: 16.1.0
+      digest: sha256:b2586dfe62501774a0cfd8e4949f31f0e9128c56cefb1f0cbc402d0802034832
+references:
+    - kind: config
+      name: security
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto/platform-security:1.0.0
+      version: 1.0.0
+      digest: sha256:e19b967e1a52942704cc3f94e0eedbe132a297941c9713f80b92ea4433b9fa74
+      contentHash: sha256:9f766441a48fc03d45ca1ef05c47c0c99040cdf54b82be322277820a596cd33e

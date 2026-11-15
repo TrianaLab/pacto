@@ -5,7 +5,7 @@
   import Glyph from './figure/Glyph.svelte';
   import EnvMark from './figure/EnvMark.svelte';
   import { environmentBadge, lifetimeBadge, expiryText, ownerLabel } from '../lib/behavior.ts';
-  import { PHASE_WORDS, phaseTone } from '../lib/provisioning.ts';
+  import { PHASE_WORDS, phaseTone, readyTone } from '../lib/provisioning.ts';
   import { timeLabel, andList } from '../lib/delivery.ts';
   import { fleetEntityListUrl, deliveryHistoryUrl, hashForHref } from '../lib/router.ts';
   import { cap } from '../lib/cap.svelte.ts';
@@ -124,7 +124,10 @@
             <span class="sv-line t-meta">Unknown until a provider reports</span>
           {:else}
             <span class="sv-line">
-              {#each BUCKETS.filter((k) => g.provisioning[k]) as k (k)}<IdentityBadge label={`${PHASE_WORDS[k]} ${g.provisioning[k]}`} tone={phaseTone(phaseOf(k))} />{/each}
+              {#each BUCKETS.filter((k) => g.provisioning[k]) as k (k)}
+                {@const unsigned = k === 'ready' ? (g.provisioning.readyUnsigned ?? 0) : 0}
+                <IdentityBadge label={`${PHASE_WORDS[k]} ${g.provisioning[k]}${unsigned ? ` (${unsigned} unsigned)` : ''}`} tone={k === 'ready' ? readyTone(g.provisioning.ready, unsigned) : phaseTone(phaseOf(k))} />
+              {/each}
             </span>
           {/if}
         </div>

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -46,6 +47,31 @@ type ProvisioningStatus struct {
 	Stale         bool       `json:"stale,omitempty"`
 	Conflict      []string   `json:"conflict,omitempty"`
 	Reason        string     `json:"reason,omitempty"`
+	// reporters are the reports the status was read from: every current
+	// reporter, or the newest report per reporter when none is current. The
+	// offering's adapters are grouped from them; never serialized.
+	reporters []provisioningReporter
+}
+
+// provisioningReporter is one (source, producer) report a status was read
+// from, as the offering's adapters name it.
+// Outcome and Phase are what its own report said; Current is false for the
+// newest report of a slot with no current report.
+type provisioningReporter struct {
+	Provider, Producer, Source, SourceKind string
+	Outcome, Phase                         string
+	Verified, Current                      bool
+	ObservedAt                             time.Time
+}
+
+// reportersOf is the reporters behind recs.
+func reportersOf(recs []*ProvisioningRecord, current bool) []provisioningReporter {
+	out := make([]provisioningReporter, len(recs))
+	for i, r := range recs {
+		out[i] = provisioningReporter{Provider: r.Provider, Producer: r.Producer, Source: r.Source, SourceKind: r.SourceKind,
+			Outcome: r.Outcome, Phase: r.Phase, Verified: r.Verified, Current: current, ObservedAt: r.ObservedAt}
+	}
+	return out
 }
 
 // ingestProvisioning validates one source's provisioning reports into the
@@ -75,12 +101,19 @@ func ingestProvisioning(snap *FleetSnapshot, src Source, raws []RawProvisioning,
 }
 
 // validProvisioning applies the ResourceProvisioned rules to a raw record: a
-// named consumer revision with a complete digest and entry, a known outcome, the payload (all but the
+// named consumer revision with a complete digest and entry, a producer with only printable characters, a known outcome, the payload (all but the
 // environment) only for an Observed outcome, and an observedAt no more than MaxProvisioningClockSkew
 // after the time it was accepted (now for a record with no accept time).
 func validProvisioning(raw RawProvisioning, now time.Time) bool {
 	if raw.Service == "" || !contract.ValidOCIDigest(raw.Digest) || raw.Name == "" || raw.ObservedAt.IsZero() ||
 		(raw.Kind != provisioningConfiguration && raw.Kind != provisioningDependency) || !evidence.Outcome(raw.Outcome).Valid() {
+		return false
+	}
+	// The producer of an unsigned file is free text every surface prints as the
+	// adapter's name, so a control character a terminal would run drops the record.
+	// Format characters (zero-width, bidi overrides) are refused too, as
+	// externalRef's are: they would make two producers read the same.
+	if strings.ContainsFunc(raw.Producer, func(r rune) bool { return !unicode.IsPrint(r) }) {
 		return false
 	}
 	if aheadOfAccept(raw.ObservedAt, raw.AcceptedAt, now) {
@@ -357,6 +390,10 @@ func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs 
 	currentReports := slices.DeleteFunc(slices.Clone(latest), func(r *ProvisioningRecord) bool {
 		return q.staleReport(r) || (current != nil && revs[r.Digest].Key != current.Key)
 	})
+	st.reporters = reportersOf(latest, false)
+	if len(currentReports) > 0 {
+		st.reporters = reportersOf(currentReports, true)
+	}
 	phases := map[string]bool{}
 	for _, r := range currentReports {
 		if r.Outcome == string(evidence.Observed) {

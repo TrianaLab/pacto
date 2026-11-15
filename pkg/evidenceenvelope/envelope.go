@@ -137,9 +137,10 @@ func Sign(e Envelope, key ed25519.PrivateKey) (Envelope, error) {
 // authorized to claim. Binding the producer id to the key is what stops one
 // trusted key from impersonating another producer; the optional allowlists scope
 // which subjects it may report, which contract repos its evidence may reference
-// and which provider repos its provisioning and usage reports may be about. Rotation is adding a new entry and removing the old one, so a
-// producer's identity survives a key change without any key being able to assume
-// another producer's identity.
+// and which provider repos its provisioning and usage reports may be about.
+// Rotation is adding a new entry and removing the old one, so a producer's
+// identity survives a key change without any key being able to assume another
+// producer's identity.
 type TrustEntry struct {
 	// PublicKey verifies the signature.
 	PublicKey ed25519.PublicKey
