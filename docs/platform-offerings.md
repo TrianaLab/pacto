@@ -197,6 +197,8 @@ reads only the reports of consumers it can see.
 | `environments`, `phases` | The environments its reports cover and the phase of each request, as the badges show it |
 | `disagrees` | Requests where its report disagrees with another adapter's, so the status is `Unknown` |
 | `lastReportedAt` | When its newest report was observed |
+| `total`, `count`, `truncated` | Every adapter that reports, how many `items` lists and whether the list stops short of `total` |
+| `items` | The adapters, signed first, then by slug (an empty slug last) and producer |
 | `conflicting` | Requests whose adapters disagree; each of those adapters is listed |
 | `unattributed` | Requests no adapter reported on |
 
