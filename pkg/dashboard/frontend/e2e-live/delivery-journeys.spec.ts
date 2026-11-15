@@ -134,3 +134,24 @@ test('History: the payments prod steps read back from signed records that verify
   await expect(prod.getByRole('row').filter({ has: page.locator('td[data-label="Record"] button') }).first()).toBeVisible();
   await axe(page, 'history');
 });
+
+// The Metrics page totals the run records (unsigned statistics) the demo wrote:
+// the story's publishes, the promoter's operations and the history seeded for
+// the services the cluster runs. carol may list Pactos, Stages and Operations
+// in every namespace (the demo's approver ClusterRole, like alice and
+// pay-agent), so nothing she reads is counted as outside her view.
+test('Metrics: a signed-in reader sees the story\'s records', async ({ page }) => {
+  await signIn(page, 'carol', '/#/metrics');
+  const content = page.getByTestId('metrics-content');
+  await expect(content).toBeVisible({ timeout: T });
+  await expect(content.getByTestId('stats-strip').first()).toContainText(/[1-9][\d,]* records? read/);
+  await expect(page.getByTestId('metrics-hidden')).toHaveCount(0);
+  await expect(page.getByTestId('metrics-service-row').filter({ hasText: 'payments' }).first()).toBeVisible();
+  // Environments follow the promotion path: test feeds prod.
+  const rows = page.getByTestId('metrics-env-row');
+  await expect(rows.first()).toBeVisible();
+  const envs = (await rows.locator('th a bdi').allInnerTexts()).map((s) => s.trim());
+  expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeGreaterThanOrEqual(0);
+  expect(envs.indexOf('test'), `environments ${envs.join(', ')}`).toBeLessThan(envs.indexOf('prod'));
+  await axe(page, 'metrics');
+});
