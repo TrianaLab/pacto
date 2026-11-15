@@ -438,3 +438,16 @@ func TestEntitiesAggregateMatchesOverviewOwnership(t *testing.T) {
 		t.Fatalf("aggregate %+v / %+v, overview %+v / %+v", l.Aggregate.Ownership, l.Aggregate.Knowledge, ov.Ownership, ov.Knowledge)
 	}
 }
+
+// Every gap kind is a filter value, and unknown comes last.
+func TestGapFilterValues(t *testing.T) {
+	got := GapFilterValues()
+	if want := append(slices.Clone(gapKinds), GapUnknown); !slices.Equal(got, want) {
+		t.Errorf("GapFilterValues() = %v, want %v", got, want)
+	}
+	for _, v := range got {
+		if !validGap(v) {
+			t.Errorf("%q is a filter value the filter rejects", v)
+		}
+	}
+}

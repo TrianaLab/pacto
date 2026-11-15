@@ -305,7 +305,7 @@ operator read from the running contract (`status.contract.owner`). A service
 counts as `unowned`, in the ownership tally and in attention, only when no
 revision declares an owner and no source reports one. A service with no owner
 claim whose contract Pacto cannot read counts as `unknown` instead: the
-dashboard labels it Owner unknown and never No owner declared.
+dashboard labels it Owner unknown and never No declared owner.
 
 ## Business domains
 

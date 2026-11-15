@@ -161,7 +161,7 @@ A service whose contract or interface document Pacto cannot read, whose
 summaries conflict or whose placement Pacto cannot see is Unknown, and its
 attention item names the cause.
 
-Ownership keeps two cases apart. **No owner declared** means Pacto read the
+Ownership keeps two cases apart. **No declared owner** means Pacto read the
 contracts and none declares an owner. **Owner unknown** means Pacto cannot read
 the contract, so it cannot tell whether an owner is declared.
 
@@ -212,13 +212,16 @@ flowchart LR
   gathers one service's owner, contract, dependencies, targets, delivery and
   signatures.
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
-  `entities`, `entity` and `attention` for owners, domains, offerings and
-  what needs attention, `neighborhood` for the services around one service
-  and `reconcile` and `snapshot`. Scriptable, deterministic output.
+  `overview` for the organization in one answer, `entities`, `entity` and
+  `attention` for owners, domains, offerings and what needs attention,
+  `neighborhood` for the services around one service, `versions` for an
+  offering's versions and `reconcile` and `snapshot`. Scriptable,
+  deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
-  `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention` and
-  `pacto_fleet_neighborhood`, plus
+  `pacto_fleet_overview`, `pacto_fleet_entities`, `pacto_fleet_entity`,
+  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`
+  and `pacto_fleet_revision_document`, plus
   [`pacto_impact`](impact.md), give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.

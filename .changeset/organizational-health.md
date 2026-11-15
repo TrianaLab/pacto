@@ -9,8 +9,9 @@ endpoint does not contradict the contract. The operator reports it when the
 declared health endpoint answers with a 5xx other than 501, or when the
 readiness probe on the declared health path keeps every pod out of Ready;
 `pacto run` and `pacto agent` report it on a 5xx other than 501. A 501 or a
-405 stays `EVIDENCE_INSUFFICIENT`, and `COLLECTION_FAILED` now means only that
-a collector query errored. The Evidence Server re-evaluates the same evidence
+405 stays `EVIDENCE_INSUFFICIENT`, as do a workload scaled to zero and
+endpoints the operator cannot map to the health port. `COLLECTION_FAILED` now
+means only that a collector query errored, an EndpointSlice read included. The Evidence Server re-evaluates the same evidence
 and reaches the same finding. The `CapabilityObserved` evidence payload gains
 the optional `healthy` key, which only a present capability may carry. Strict
 decoders reject unknown keys, so upgrade the Evidence Server with or before the
@@ -42,7 +43,8 @@ that declares no owner: `ownership.unknown` and the filter value
 `ownership=unknown` are new, labelled Owner unknown. Each business domain row
 gains `failingHealth`, `ownerUnknown`, `notDeployed` and `withGaps`; owner and
 domain pages gain operational health, knowledge, readiness, services that run
-nowhere and unresolved and undeclared dependencies; owner and domain list rows
+nowhere, services whose placement is unknown and unresolved and undeclared
+dependencies; owner and domain list rows
 gain `unknown`, `stale`, `failingHealth` and `withGaps` counts, and
 `sort=health` ranks them by those counts. New filters and sorts: `gap`
 (`--gap`), `sort=gaps` and `sourceHealth=incomplete`, which the new
@@ -56,7 +58,6 @@ attention" tile and `servicesNeedingAttention` count every service with at
 least one attention item, and the tile's `itemCount` carries the item total;
 an `unknown` attention item names its cause in `code` (for example
 `EVIDENCE_STALE` or `EVIDENCE_MISSING`) and keeps `UNKNOWN` only when no
-cause is known; the CLI and
-MCP mark targets stale after 24 hours by default; and the evidence payload
-gains `healthy`. The dashboard's sidebar badge counts only attention items
-above `info`.
+cause is known; the CLI and MCP mark targets stale after 24 hours by default;
+and the evidence payload gains `healthy`. The dashboard's sidebar badge counts
+only attention items above `info`.
