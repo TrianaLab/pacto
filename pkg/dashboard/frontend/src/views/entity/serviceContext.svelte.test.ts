@@ -486,7 +486,7 @@ describe('service page: platform offerings', () => {
     expect(tags[0].classList.contains('tone-err')).toBe(true);
     expect(text(f)).toContain('Unknown: last reported Ready, stale');
     expect(text(f)).toContain('Deprecated');
-    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 1, 1 failed');
+    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 1, 1 failed request');
     done();
   });
 

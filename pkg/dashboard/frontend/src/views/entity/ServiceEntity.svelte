@@ -221,7 +221,7 @@
     {/if}
     <div class="se-fact" data-testid="service-resources-fact">
       <span class="se-k">Resources</span>
-      <button type="button" class="se-jump" onclick={() => scrollToSection('sec-resources')}>{formatCount(used.total ?? 0)}{(used.phases?.failed ?? 0) > 0 ? `, ${formatCount(used.phases.failed)} failed` : ''}</button>
+      <button type="button" class="se-jump" onclick={() => scrollToSection('sec-resources')}>{formatCount(used.total ?? 0)}{(used.phases?.failed ?? 0) > 0 ? `, ${formatCount(used.phases.failed)} failed ${used.phases.failed === 1 ? 'request' : 'requests'}` : ''}</button>
     </div>
     <div class="se-fact" data-testid="service-capabilities">
       <span class="se-k">Declared capabilities</span>
