@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/internal/testutil"
@@ -101,7 +102,11 @@ func TestMCPFleetView(t *testing.T) {
 	view := mcpFleetView(cmd, d)
 	// Even a snapshot with no namespace asks whether the caller reads the whole
 	// cluster: that decides the services known only from a registry.
-	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); err == nil {
+	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); !errors.Is(err, errNobodyReviewed) {
+		t.Fatalf("a request nobody reviewed gets no view: %v", err)
+	}
+	alice := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
+	if _, err := view(alice, nil, fleet.NewQuery(&fleet.FleetSnapshot{})); err == nil {
 		t.Fatal("a snapshot with no namespace still needs the cluster-wide answer")
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
@@ -110,7 +115,7 @@ func TestMCPFleetView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := view(context.Background(), nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+	if _, err := view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
 		t.Fatalf("no cluster to ask: %v", err)
 	}
 }
@@ -139,7 +144,7 @@ func TestImpactProviderForFleet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provide := impactProviderForFleet(svc)
+	provide := impactProviderForFleet(svc, true)
 
 	if _, err := provide(context.Background(), snap, "/nonexistent/old", "/nonexistent/new", false); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
@@ -879,6 +884,18 @@ func TestMCPDashboardURL(t *testing.T) {
 	root.SetErr(io.Discard)
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--dashboard-url") || !strings.Contains(err.Error(), "--fleet") {
 		t.Errorf("--dashboard-url without --fleet: %v", err)
+	}
+}
+
+// TestMCPStatsRegistryNeedsFleet: pacto_stats is a fleet tool, so the flag
+// that serves it is refused without --fleet instead of silently ignored.
+func TestMCPStatsRegistryNeedsFleet(t *testing.T) {
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "--stats-read-registry", "r.example/s"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); !errors.Is(err, errStatsRegistryNeedsFleet) {
+		t.Errorf("--stats-read-registry without --fleet: %v", err)
 	}
 }
 

@@ -96,6 +96,18 @@ func TestServiceUsesSkipUnreportedPlainDependency(t *testing.T) {
 	}
 }
 
+// A usage-only report on a provider with no offering keeps its row: the
+// signed figures never vanish with no trace.
+func TestServiceUsesKeepUsageOnlyNonOfferingProvider(t *testing.T) {
+	mail := usageReport(func(r *RawUsage) {
+		r.Service, r.Digest, r.Kind, r.Name = "notifier", testDigest(acme, "notifier", "1.0.0"), "dependency", "email-provider"
+	})
+	u := mailUse(notifierDetail(t, NewQuery(usageSnap(t, 0, mailFleet(notifier("1.0.0", false, "production")), []RawUsage{mail}))))
+	if u == nil || len(u.Consumption) != 1 || u.Consumption[0].State != consumptionReported {
+		t.Errorf("usage-only use = %+v", u)
+	}
+}
+
 func TestServiceUsesStaleReportKeepsNonOffering(t *testing.T) {
 	old := fixedNow().Add(-3 * time.Hour)
 	q := NewQuery(provisioningSnap(t, 2*time.Hour, mailFleet(notifier("1.0.0", false, "production")),

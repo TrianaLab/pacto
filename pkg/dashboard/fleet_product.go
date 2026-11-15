@@ -27,7 +27,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-overview", Method: http.MethodGet, Path: "/api/fleet/overview",
 		Summary: "Operational overview", Tags: []string{"Fleet"},
-		Description: "A product-oriented summary: what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.",
+		Description: "A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.",
 	}, s.fleetOverview)
 
 	huma.Register(api, huma.Operation{
@@ -99,18 +99,19 @@ type fleetEntitiesInput struct {
 	Phase           string   `query:"phase" enum:"requested,provisioning,ready,failed,deleting,unknown" doc:"With consumes: keeps the consumers with a provisioning status of that offering in this phase (unknown: no phase a provider reported can be trusted)"`
 	Scope           string   `query:"scope"`
 	Status          string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
-	Ownership       string   `query:"ownership" enum:"consistent,conflicting,unowned,unidentified" doc:"Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone)"`
+	Ownership       string   `query:"ownership" enum:"consistent,conflicting,unowned,unidentified,unknown" doc:"Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read"`
+	Gap             string   `query:"gap" enum:"no-summary,no-domain,no-interface-docs,no-readiness,not-deployed,unverified-capability,unknown" doc:"Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge"`
 	Readiness       string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
-	SourceHealth    string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
+	SourceHealth    string   `query:"sourceHealth" enum:"available,partial,stale,unavailable,incomplete" doc:"Source-health filter for source entities; incomplete matches partial, stale and unavailable"`
 	Source          string   `query:"source"`
 	Service         string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
 	Template        string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
 	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
 	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
 	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
-	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision"`
+	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision"`
 	Failed          bool     `query:"failed" doc:"Keeps the offerings with at least one failed provisioning request (offering entities)"`
-	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers" doc:"Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key"`
+	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers,gaps" doc:"Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key"`
 	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset          int      `query:"offset" minimum:"0"`
 }
@@ -131,7 +132,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
 		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed,
-		Ownership: in.Ownership, Readiness: in.Readiness,
+		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
@@ -326,16 +327,8 @@ func toProductImpact(p *impact.Product) *ProductImpact {
 		Templates:     productview.RefPreview(p.Templates),
 		ChangedOwner:  productview.RefPtr(p.ChangedOwner),
 		Offering:      productview.RefPtr(p.Offering),
-		Providers:     refsOrNil(p.Providers),
+		Providers:     productview.Refs(p.Providers), // omitempty drops the empty list of a service answer
 	}
-}
-
-// refsOrNil keeps an absent list absent, so a service answer has no providers.
-func refsOrNil(es []fleet.EntityRef) []ProductRef {
-	if len(es) == 0 {
-		return nil
-	}
-	return productview.Refs(es)
 }
 
 // impactRequest is the POST-impact body: canonical revision keys, the snapshot the

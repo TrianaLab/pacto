@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,7 @@ const (
 	repo       = "reg.example/apps/payments"
 	promoterSA = "system:serviceaccount:pacto-delivery:promoter"
 	bot        = "system:serviceaccount:agents:bot"
+	requester  = "dana@example.com"
 )
 
 var (
@@ -324,6 +326,10 @@ func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Oper
 		CreationTimestamp: metav1.NewTime(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))},
 		Spec: delivery.OperationSpec{Type: typ, Stage: "payments-prod", Facet: facet, Params: delivery.Params{From: from, To: to},
 			Actor: delivery.Actor{User: actor, Groups: groups}}}
+	// An agent names the person it acts for, someone no test approves as.
+	if actor != promoterSA && (strings.HasPrefix(actor, "system:serviceaccount:") || slices.Contains(groups, "pacto:agents")) {
+		o.Spec.OnBehalfOf = &delivery.Principal{User: requester}
+	}
 	controllerutil.AddFinalizer(o, dv1.RecordFinalizer)
 	o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, stageObj("").Spec)
 	return o

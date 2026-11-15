@@ -168,7 +168,7 @@ func TestOfferingTextEdges(t *testing.T) {
 		Consumers:       fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"}, Offering: "pg", Via: "dependency", ProviderLifecycle: versions.Items[0].Lifecycle}}},
 		HiddenConsumers: 3,
 	})
-	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "3 consumers you may not see\n"} {
+	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "Consumers you may not see: 3\n"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
 		}
@@ -489,5 +489,20 @@ func TestPrintOfferingAdapters(t *testing.T) {
 	printOfferingText(&buf, &fleet.OfferingDetailData{})
 	if out := buf.String(); !strings.Contains(out, "Adapters (observed):\n  No adapter has reported. Provisioning status is Unknown.\n") || strings.Contains(out, "Unresolved uses") {
 		t.Errorf("empty adapters text:\n%s", out)
+	}
+}
+
+// TestOverviewPrinterEdges: a bucket with targets is named, a named domain
+// prints its name and an overview with no domain prints no table.
+func TestOverviewPrinterEdges(t *testing.T) {
+	if got := countSuffix(2, "warning"); got != " · warning 2" {
+		t.Errorf("countSuffix = %q", got)
+	}
+	if got := domainLabel(fleet.DomainTally{Domain: "shop"}); got != "shop" {
+		t.Errorf("domainLabel = %q", got)
+	}
+	var buf bytes.Buffer
+	if printOverviewDomains(&buf, nil); buf.Len() != 0 {
+		t.Errorf("no domain prints a table: %q", buf.String())
 	}
 }

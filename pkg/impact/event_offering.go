@@ -61,7 +61,7 @@ func analyzeOfferingEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	res.Consumers = rows
 	res.collectOwnersAndTargets(snap, providers...)
 	res.ChangedOwnerKey = ""
-	res.noteUnlistedOffering(snap, q, providers)
+	res.noteUnlistedOffering(q, providers)
 	res.noteStaleConsumers()
 	res.Limitations = dedupeLimitations(res.Limitations)
 	return res
@@ -135,15 +135,16 @@ func mergeResources(e *AffectedConsumer, c AffectedConsumer) {
 }
 
 // noteUnlistedOffering is [Result.noteUnlisted] over every provider: hidden
-// dependents counted once however many providers they call.
-func (r *Result) noteUnlistedOffering(snap *fleet.FleetSnapshot, q *fleet.Query, providers []fleet.ServiceKey) {
+// dependents and, on a removal, hidden policy referrers counted once however
+// many providers they call or reference.
+func (r *Result) noteUnlistedOffering(q *fleet.Query, providers []fleet.ServiceKey) {
 	r.Hidden = q.HiddenDependentsOf(providers)
 	if r.Event.Kind != EventRemoved {
 		return
 	}
+	r.Hidden += q.HiddenReferrersOf(providers)
 	seen := map[string]bool{}
 	for _, p := range providers {
-		r.Hidden += snap.Services[p].HiddenPolicyReferrers
 		for _, k := range q.TemplatesReferencing(p) {
 			if !seen[string(k)] {
 				seen[string(k)] = true

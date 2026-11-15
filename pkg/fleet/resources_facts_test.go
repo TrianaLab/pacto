@@ -75,7 +75,7 @@ func TestUseCarriesProviderOwner(t *testing.T) {
 
 func TestUseCarriesProviderAvailability(t *testing.T) {
 	q := catalogQuery(t)
-	want := q.providerAvailability(q.snap.Services[NewServiceKeyDomain(acme, "postgresql")])
+	want := q.newAvailIndex().providerAvailability(q.snap.Services[NewServiceKeyDomain(acme, "postgresql")])
 	if got := catalogUses(t, q)["postgresql/dependency"].ProviderAvailability; got == nil || got.State != want.State || len(got.ByEnvironment) != len(want.ByEnvironment) {
 		t.Errorf("availability = %+v, want %+v", got, want)
 	}
@@ -163,6 +163,10 @@ func TestRequestedFollowsTheProvisionedRevision(t *testing.T) {
 	u := catalogUses(t, q)["postgresql/configuration_reference"]
 	if len(u.Requested) != 1 || !slices.Equal(factsOf(u.Requested[0].Values), []string{"size=medium", "storageGi=50"}) {
 		t.Errorf("requested = %+v", u.Requested)
+	}
+	// The values name the revision that declares them, not the running one.
+	if cr := u.Requested[0].ConsumerRevision; cr == nil || cr.Version != "1.0.0" {
+		t.Errorf("consumer revision = %+v, want catalog 1.0.0", cr)
 	}
 	pg := EntityRef{Kind: KindService, Key: string(NewServiceKeyDomain(acme, "postgresql"))}
 	rows := []OfferingUse{{Consumer: EntityRef{Key: catalogKey}, Provider: pg, Via: RelationshipConfigRef}}

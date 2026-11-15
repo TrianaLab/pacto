@@ -198,3 +198,67 @@ func TestTeamsWaiting(t *testing.T) {
 		t.Fatalf("every team answered: %v", got)
 	}
 }
+
+// TestAdmitPrincipal: an agent names a person other than itself, never a
+// service account or the promoter; nobody else needs a principal.
+func TestAdmitPrincipal(t *testing.T) {
+	policy := ClassPolicy{ControllerUser: "system:serviceaccount:d:promoter"}
+	as := func(on *Principal) OperationSpec { return OperationSpec{Actor: Actor{User: "bot"}, OnBehalfOf: on} }
+	for _, c := range []struct {
+		name  string
+		spec  OperationSpec
+		class ActorClass
+		want  string
+	}{
+		{"agent no principal", as(nil), ClassAgent, "NoPrincipal:"},
+		{"agent empty user", as(&Principal{}), ClassAgent, "NoPrincipal:"},
+		{"agent self", as(&Principal{User: "bot"}), ClassAgent, "SelfPrincipal:"},
+		{"agent names a service account", as(&Principal{User: "system:serviceaccount:a:b"}), ClassAgent, "NotAPerson:"},
+		{"agent names the controller", as(&Principal{User: policy.ControllerUser}), ClassAgent, "NotAPerson:"},
+		{"agent with person", as(&Principal{User: "dana"}), ClassAgent, ""},
+		{"agent blank user", as(&Principal{User: "  "}), ClassAgent, "NoPrincipal:"},
+		{"agent self in another case", as(&Principal{User: " BOT"}), ClassAgent, "SelfPrincipal:"},
+		{"agent padded service account", as(&Principal{User: " system:serviceaccount:a:b"}), ClassAgent, "NotAPerson:"},
+		{"human none", as(nil), ClassHuman, ""},
+		{"controller none", as(nil), ClassController, ""},
+		{"break-glass none", as(nil), ClassBreakGlass, ""},
+	} {
+		if got := AdmitPrincipal(c.spec, c.class, policy); !strings.HasPrefix(got, c.want) || (c.want == "") != (got == "") {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestApproverMayRefusesAgentOpWithoutPrincipal: an agent operation admitted
+// before principals were required has nobody who may approve it.
+func TestApproverMayRefusesAgentOpWithoutPrincipal(t *testing.T) {
+	at := time.Unix(1_000_000, 0)
+	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}}
+	st := OperationStatus{Phase: PhaseHeld, ActorClass: ClassAgent}
+	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "alice"}
+	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "NoPrincipal" || !strings.Contains(why, "onBehalfOf") {
+		t.Errorf("got %q %q", code, why)
+	}
+	st.ActorClass = ClassHuman
+	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "" {
+		t.Errorf("a person's change needs no principal: %q %q", code, why)
+	}
+}
+
+// TestNamedPersonMayNotApproveUnderAnotherSpelling: the asserted name is
+// text, so a change in case or padding does not let the named person decide.
+func TestNamedPersonMayNotApproveUnderAnotherSpelling(t *testing.T) {
+	at := time.Unix(1_000_000, 0)
+	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}, OnBehalfOf: &Principal{User: " Dana@Example.com"}}
+	st := OperationStatus{Phase: PhaseHeld, ActorClass: ClassAgent}
+	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "dana@example.com"}
+	if code, _ := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "OwnChange" {
+		t.Errorf("got %q, want OwnChange", code)
+	}
+}
+
+func TestSamePersonNeverMatchesNobody(t *testing.T) {
+	if samePerson("", "") || samePerson(" ", "") || !samePerson("Dana ", "dana") {
+		t.Error("an empty name matches no one; case and padding do not count")
+	}
+}

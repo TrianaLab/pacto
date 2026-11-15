@@ -56,7 +56,7 @@
       {@render station(st('failed'))}
       {#if m.failed.length}
         <div class="ph-chips station">
-          {#each m.failed as c (c.name)}<a class="badge chip t-err" href={fleetEntityUrl('offering', c.name)} title="{c.name}: {countOf(c.n, 'consumer')} with a failed request"><bdi class:fit={elidable(c.name)}>{c.name}</bdi></a>{/each}
+          {#each m.failed as c (c.name)}<a class="badge chip t-err" href={fleetEntityUrl('offering', c.name)}><bdi class:fit={elidable(c.name)} title={c.name}>{c.name}</bdi><span class="visually-hidden">: {countOf(c.n, 'consumer')} with a failed request</span></a>{/each}
           {#if m.moreFailed > 0}<a href={failedHref} aria-label="{formatCount(m.moreFailed)} more {m.moreFailed === 1 ? 'offering' : 'offerings'} with a failed request">{formatCount(m.moreFailed)} more</a>{/if}
         </div>
       {/if}

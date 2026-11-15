@@ -127,5 +127,7 @@ describe('successorBadge', () => {
     expect(successorBadge('unknown')).toEqual({ label: 'successor unknown', tone: 'neutral', title: 'No range declared' });
     expect(successorBadge('bogus')).toMatchObject({ label: 'successor unknown' });
     expect(successorBadge(undefined)).toBeNull();
+    expect(successorBadge('unsatisfied', '^16.0.0', 'latest supported')).toMatchObject({ label: 'excludes latest supported', tone: 'warn' });
+    expect(successorBadge('unknown', '', 'latest supported')).toMatchObject({ label: 'latest supported unknown' });
   });
 });

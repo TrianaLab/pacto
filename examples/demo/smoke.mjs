@@ -162,6 +162,25 @@ check("evidence freshness partitions the population (fresh / stale / never obser
   ovs.evidence && ovs.evidence.withEvidence + ovs.evidence.withoutEvidence === ovs.targets
     && ovs.evidence.stale > 0 && ovs.evidence.withoutEvidence > 0,
   ovs.evidence && `${ovs.evidence.withEvidence}+${ovs.evidence.withoutEvidence} of ${ovs.targets}, ${ovs.evidence.stale} stale`);
+const oh = ovs.operationalHealth || {};
+check("operational health shows failing apart from unknown", oh.unavailable > 0 && oh.unknown > 0,
+  `failing=${oh.unavailable} unknown=${oh.unknown}`);
+check("operational health partitions the targets",
+  oh.available + oh.degraded + oh.unavailable + oh.unknown + oh.notObserved === ovs.targets, JSON.stringify(oh));
+const k = ovs.knowledge || { gaps: {} };
+check("knowledge gaps are a partition", k.described + k.withGaps + k.unknown === k.services && k.gaps.noSummary > 0,
+  `${k.described}+${k.withGaps}+${k.unknown} of ${k.services}, noSummary=${k.gaps.noSummary}`);
+// Every page of the attention list, so the lead tile is checked against the
+// whole list it opens rather than its first page.
+const allAttention = [];
+for (let off = 0; off != null;) {
+  const p = json(call("GET", `/api/fleet/attention?limit=200&offset=${off}`));
+  allAttention.push(...(p.items || []));
+  off = p.nextOffset;
+}
+const attnServices = new Set(allAttention.map((i) => i.service).filter(Boolean));
+check("the lead tile counts the services in its list", attnServices.size === ovs.servicesNeedingAttention,
+  `${attnServices.size} distinct services in ${allAttention.length} items, tile ${ovs.servicesNeedingAttention}`);
 check("source health shows available, partial and unavailable",
   ovs.degradedSources > 0 && ovs.unavailableSources > 0, `degraded=${ovs.degradedSources} unavailable=${ovs.unavailableSources}`);
 
@@ -226,10 +245,12 @@ const sess = json(call("GET", "/api/session"));
 check("session: signed in as pay-agent", sess.signedIn === true && sess.user === "system:serviceaccount:agents:pay-agent", JSON.stringify(sess));
 const rows = json(call("GET", "/api/delivery/environments")).environments || [];
 const cand = (svc) => (rows.find((r) => r.environment === "prod" && r.service === svc) || {}).candidate;
-const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") })));
+const noPrincipal = call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") }));
+check("pay-agent must name the person it acts for", noPrincipal.status === 403 && json(noPrincipal).code === "NoPrincipal", noPrincipal.status);
+const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments"), onBehalfOf: "dana@example.com" })));
 check("payments 3.0.0 is held for checkout and orders",
   held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
-call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout") }));
+call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout"), onBehalfOf: "dana@example.com" }));
 const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
 let question = "";
 for (let i = 0; i < 40 && !/Asked of: orders$/.test(question); i++) {

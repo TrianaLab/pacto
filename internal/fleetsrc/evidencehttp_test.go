@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -359,5 +360,40 @@ func TestEvidenceHTTPReadsV4Usage(t *testing.T) {
 		Producer: "platform-adapter", ProducerKeyID: "adapter-key", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
 	if got := col.Usage; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
+// A usage metric with no value is dropped with a counted limitation, never
+// read as a signed, measured zero.
+func TestEvidenceHTTPDropsValuelessUsageMetric(t *testing.T) {
+	at := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionUsage,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Usage: []evidenceingest.UsageDTO{
+			{Service: "orders", Kind: "configuration", Name: "db", Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 1, Unit: "Gi"}}, Outcome: "Observed", EvidenceAt: at, AcceptedAt: at},
+			{Service: "orders", Kind: "configuration", Name: "replica", Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 2, Unit: "Gi"}}, Outcome: "Observed", EvidenceAt: at, AcceptedAt: at},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Strip the replica's value, as a non-conforming server would send it.
+	body := strings.Replace(string(payload), `"value":2,`, ``, 1)
+	if body == string(payload) {
+		t.Fatalf("fixture did not drop the value: %s", payload)
+	}
+	srv := serveJSON(t, body)
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Usage) != 1 || col.Usage[0].Name != "db" {
+		t.Errorf("usage = %+v, want the db record only", col.Usage)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
+		t.Errorf("limitations = %+v, want one invalid-record limitation", col.Limitations)
 	}
 }

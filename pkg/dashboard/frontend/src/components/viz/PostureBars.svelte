@@ -18,7 +18,7 @@
   //
   // `summary` MUST be a backend aggregate over a COMPLETE population (OverviewSummary,
   // ServiceSummary, OwnerSummary) — never counted from the bounded previews beside it.
-  // `attentionUrl(category)` scopes the drill-down to the population being drawn: a
+  // `attentionUrl(category, extra)` scopes the drill-down to the population being drawn: a
   // service page must not send the user to the fleet-wide backlog. Omit it and the
   // buckets render as plain text rather than as links that lie about their scope.
   let {
@@ -33,7 +33,7 @@
 
   const targets = $derived(summary.targets || 0);
   const ev = $derived(summary.evidence ?? {});
-  const href = (category) => (attentionUrl ? attentionUrl(category) : undefined);
+  const href = (category, extra) => (attentionUrl ? attentionUrl(category, extra) : undefined);
 
   // Every bucket with a triage destination gets one, so a proportion is a way IN
   // rather than a picture. Compliant and Exact have none by design: there is no "list
@@ -42,6 +42,9 @@
     nonCompliant: href('non-compliant'),
     unknown: href('unknown'),
     invalid: href('invalid'),
+    // Compliant on stale evidence: the stale list narrowed to compliant targets,
+    // so the list holds exactly what the segment counts.
+    staleCompliant: href('stale', { status: 'Compliant' }),
   }));
   // Revision-match buckets have no destination: attention `unresolved` lists unresolved
   // DEPENDENCIES, and no list filters targets by revision-match state.

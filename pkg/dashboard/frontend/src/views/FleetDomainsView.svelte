@@ -98,7 +98,7 @@
     ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerKey } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: key === 'nc' ? false : '' }); }
-  const ncHref = (ref) => fleetServicesUrl({ businessDomain: ref.key, status: 'NonCompliant' });
+  const statusHref = (ref, status) => fleetServicesUrl({ businessDomain: ref.key, status });
   const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 </script>
 
@@ -147,7 +147,7 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="domains" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <GroupTable kind="domain" entities={list.entities} {order} {sortHref} {ncHref} testid="domain-list" />
+    <GroupTable kind="domain" entities={list.entities} {order} {sortHref} {statusHref} testid="domain-list" />
     <Pager page={list} href={pageHref} label="Domain pages" noun="domains" testid="domain" />
   {/if}
 

@@ -109,6 +109,18 @@ names the provider version, the selected configuration and the values for each
 environment. An adapter in your platform reads it and provisions the resource.
 Pacto itself provisions nothing and keeps no provider-specific code.
 
+The request takes three steps: edit the contract, publish it and promote it.
+`pacto_edit` with `add_configuration_refs` returns them before anything else
+runs:
+
+- `impact`: who the edit affects, read from the session's fleet snapshot, with
+  `completeness` and `asOf`. Without a snapshot it is absent, and the first
+  step says who the edit affects is not known.
+- `chain`: each remaining step with its tool and its CLI command (`pacto impact`,
+  `pacto publish --plan`, `pacto publish`, `pacto delivery plan`). A step this
+  session does not serve leaves `tool` empty.
+- `executor`: who acts on the published revision, here the provider's adapter.
+
 ## Write an adapter
 
 An adapter is any program that turns a published consumer contract into a
@@ -215,9 +227,10 @@ appears once a provider reports on it. Each row carries:
 
 The CLI prints the same facts in its Resources block. A provider adapter
 reports usage and cost with [usage reports](provider-reports.md#usage-reports).
-A figure reads `reported` only from one signed, fresh report about the
-service's current revision that no other report contradicts; anything else
-reads `unknown`, and its figures stay apart under `reported`. For live
+Only one signed, fresh report about the newest revision that uses the
+resource (`revision`) reads `reported`. Any other reads `unknown`: an
+untrusted report's figures sit under `reported`, disagreeing producers under
+`conflict`. For live
 utilization, ask [Mira](investigate-a-problem.md): with Mira configured, the
 dashboard links the service to it, and the MCP instructions point at Mira's
 `query_metric`.
@@ -261,7 +274,8 @@ See [Configuration and policy](contract-reference/configuration-and-policy.md#wh
 To change a request, edit its values and publish the consumer contract again;
 `pacto_edit` sets environment values with `set_environment_values`. To retire
 it, remove the configuration reference with `remove_configuration_refs` and
-publish.
+publish. Both edits return the same `impact`, `chain` and `executor`, also
+with `dry_run`.
 
 Resize or delete runs in the provider's tools. pacto_edit refuses a request
 the provider's schema rejects, and pacto validate and push fail on it.

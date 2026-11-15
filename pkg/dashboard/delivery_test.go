@@ -484,6 +484,14 @@ func TestInbox(t *testing.T) {
 	f.caller.Class = delivery.ClassBreakGlass
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, names(inbox["held"]) == "anyone:accept-unknown", "break-glass sees what only it can resolve: %v", inbox["held"])
+	// ...unless an agent named break-glass as the person it acts for, under any spelling.
+	for i := range f.ops {
+		if f.ops[i].Metadata.Name == "anyone" {
+			f.ops[i].Spec.OnBehalfOf = &delivery.Principal{User: " " + strings.ToUpper(f.caller.User)}
+		}
+	}
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 0, "the named person is not asked: %v", inbox["held"])
 }
 
 func TestEnvironments(t *testing.T) {
@@ -1644,4 +1652,14 @@ func TestHistoryTimelineFiltered(t *testing.T) {
 	_, kept := call(t, http.MethodGet, base+"/api/delivery/history?correlationID=INC-1"+window, nil)
 	a, k := total(all["timeline"].(map[string]any)), total(kept["timeline"].(map[string]any))
 	expect(t, a == 2 && k == 1, "every Stage: %v unfiltered, %v kept", a, k)
+}
+
+func TestDeliveryProposeCarriesCorrelationID(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person()}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	code, out := call(t, http.MethodPost, base+"/api/delivery/operations", map[string]any{
+		"namespace": "prod", "stage": "payments", "to": dNext, "intentDigest": "sha256:i", "correlationID": "CHG-2041"})
+	expect(t, code == http.StatusCreated && len(f.proposed) == 1 && f.proposed[0].CorrelationID == "CHG-2041",
+		"propose carries the correlation id: %d %v %+v", code, out, f.proposed)
 }

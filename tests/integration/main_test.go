@@ -43,6 +43,11 @@ func TestMain(m *testing.M) {
 	// exercised directly (TestUpdateCommand), unaffected by this.
 	os.Setenv("PACTO_NO_UPDATE_CHECK", "1")
 
+	// Keep a developer's exported stats settings out of every test: only the
+	// run record tests turn recording on, through flags.
+	os.Unsetenv("PACTO_STATS_REGISTRY")
+	os.Unsetenv("PACTO_STATS_FILE")
+
 	// Pin the Go build cache to wherever the toolchain already keeps it, BEFORE
 	// the redirect below. On Linux GOCACHE defaults to $XDG_CACHE_HOME/go-build,
 	// so redirecting one silently redirects the other, and the tests that shell

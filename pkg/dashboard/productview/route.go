@@ -55,7 +55,9 @@ func EntryPoint(view fleet.EntryPointView, category string) string {
 		return Root + "/attention?category=" + url.QueryEscape(category)
 	case fleet.EntryPointServices:
 		return Root + "/services"
-	default: // overview
+	case fleet.EntryPointSources:
+		return Root + "/sources?sourceHealth=" + url.QueryEscape(category)
+	default:
 		return Root
 	}
 }

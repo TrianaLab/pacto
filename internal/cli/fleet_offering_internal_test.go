@@ -40,13 +40,13 @@ func TestFleetEntitiesOfferingColumns(t *testing.T) {
 		Availability: fleet.AvailabilityUnavailable, AvailabilityProvenance: "inferred", Consumers: 3, HiddenConsumers: 2, FailedRequests: 1, Targets: 4,
 	}}}
 	got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") })
-	wantLines(t, got, "owners 2 owners claim it  lifecycle deprecated  availability unavailable (inferred)  consumers 3 (+2 you may not see)  failed 1  observed targets 4\n")
+	wantLines(t, got, "owners 2 owners claim it  lifecycle deprecated  availability unavailable (inferred)  consumers 3 (+2 you may not see)  failed consumers 1  observed targets 4\n")
 }
 
 func TestFleetEntitiesOfferingTargetsUnknownText(t *testing.T) {
 	res := &fleet.EntityList{Count: 1, Total: 1, Entities: []fleet.EntityRef{{Kind: fleet.KindOffering, Key: "pg", Label: "pg", TargetsUnknown: true}}}
 	got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") })
-	wantLines(t, got, "owners -  lifecycle -  availability - (-)  consumers 0  failed 0  observed targets unknown\n")
+	wantLines(t, got, "owners -  lifecycle -  availability - (-)  consumers 0  failed consumers 0  observed targets unknown\n")
 	if strings.Contains(got, "observed targets 0") {
 		t.Errorf("a withheld target count reads 0:\n%s", got)
 	}
@@ -59,9 +59,9 @@ func TestFleetEntitiesPhaseLine(t *testing.T) {
 	}}
 	got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") })
 	wantLines(t, got, "Requests by phase: 1 requested, 2 provisioning, 3 ready, 4 failed, 5 deleting, 6 not reported\n",
-		"Most failed: a 3, b 1, and 2 more offerings\n")
+		"Most consumers with a failed request: a 3, b 1, and 2 more offerings\n")
 	res.Aggregate.FailedByOffering, res.Aggregate.FailedOfferingsBeyond = nil, 0
-	if got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") }); strings.Contains(got, "Most failed") {
+	if got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") }); strings.Contains(got, "Most consumers with a failed request") {
 		t.Errorf("no failed offering still ranks:\n%s", got)
 	}
 	res.Aggregate.OfferingPhases = fleet.PhaseTally{}
@@ -94,14 +94,14 @@ func TestFleetEntityOfferingSuccessorText(t *testing.T) {
 			{Service: fleet.EntityRef{Label: "ha"}, Successor: &fleet.SuccessorInfo{Ref: "oci://x/ha:2", Reason: "no revision matches it"}},
 		}},
 		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"},
-			Offering: "pg", Via: "dependency", RangeStatus: fleet.RangeSatisfied, SuccessorRange: fleet.RangeUnsatisfied}}},
+			Offering: "pg", Via: "dependency", RangeStatus: fleet.RangeSatisfied, SuccessorRange: fleet.RangeUnsatisfied, SupportedRange: fleet.RangeSatisfied}}},
 	}
 	var buf bytes.Buffer
 	printOfferingText(&buf, o)
 	wantLines(t, buf.String(),
 		"    successor: oci://x/pg:17.0.0 (pg 17.0.0)\n    latest supported: pg 16.0.1\n",
 		"    successor: oci://x/ha:2 (unknown: no revision matches it)\n",
-		"  app -> pg (pg) via dependency, range satisfied, successor range unsatisfied\n")
+		"  app -> pg (pg) via dependency, range satisfied, successor range unsatisfied, latest supported range satisfied\n")
 }
 
 func TestFleetEntityObservedConsumersText(t *testing.T) {
@@ -144,4 +144,12 @@ func TestImpactUnavailableOfferingText(t *testing.T) {
 	res.Providers = nil
 	got = textOf(t, func(cmd *cobra.Command) error { return printImpactResult(cmd, res, "text") })
 	wantLines(t, got, "Event: offering postgresql unavailable  asOf")
+}
+
+// TestFleetEntitiesOfferingHiddenProvidersText: a restricted row says how many
+// providers it leaves out, never naming them.
+func TestFleetEntitiesOfferingHiddenProvidersText(t *testing.T) {
+	res := &fleet.EntityList{Count: 1, Total: 1, Entities: []fleet.EntityRef{{Kind: fleet.KindOffering, Key: "pg", Label: "pg", Lifecycle: "unknown", HiddenProviders: 2}}}
+	got := textOf(t, func(cmd *cobra.Command) error { return printFleetEntities(cmd, res, "text") })
+	wantLines(t, got, "observed targets 0  +2 providers you may not see\n")
 }

@@ -357,6 +357,28 @@ func TestApprovedButRecheckChanged(t *testing.T) {
 	wantOutcome(t, e.drive("p1"), delivery.Rejected, "GateFailed")
 }
 
+// TestApprovedButRecheckFailsKeepsTheFailingGate: an approved promote whose
+// re-check fails concludes with the failing verdict, so its run record counts
+// the gate that refused it.
+func TestApprovedButRecheckFailsKeepsTheFailingGate(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dC, bot))
+	e.create(pactoObj("checkout", "checkout", c3, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "required": true, "compatibility": "^1.0.0"}))
+	o := e.drive("p1")
+	for _, v := range o.Status.Verdicts {
+		if v.Result == delivery.Fail {
+			t.Fatalf("a held promote has no failing verdict: %+v", o.Status.Verdicts)
+		}
+	}
+	e.approve(o, "ok", "alice", delivery.Approve)
+	e.reg.bundles[contractRef(c3)].Contract.Service.Name = "orders"
+	o = e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "GateFailed")
+	if !slices.ContainsFunc(o.Status.Verdicts, func(v delivery.Verdict) bool { return v.Result == delivery.Fail }) {
+		t.Fatalf("the re-check's failing verdict is missing: %+v", o.Status.Verdicts)
+	}
+}
+
 // TestTwoAgentsOneWins is acceptance item 6: two promotes raised at once; the
 // older is superseded, and a promote that loses the pointer CAS is refused.
 func TestTwoAgentsOneWins(t *testing.T) {
@@ -1635,5 +1657,116 @@ func TestARefusalNeedsTheAPIServer(t *testing.T) {
 	stage.Status.Pointer = dC
 	if _, err := planner.plan(context.Background(), e.getOp("p1"), stage); !errors.Is(err, errTest) {
 		t.Fatalf("a failed uncached read is retried, got %v", err)
+	}
+}
+
+// correlated is a failed promote tied to an incident.
+func correlated() *dv1.Operation {
+	o := opObj("p1", delivery.TypePromote, dA, dB, bot)
+	o.Spec.CorrelationID = "CHG-2041"
+	return o
+}
+
+// TestRaiseRollbackInheritsCorrelation: the automatic rollback keeps the
+// correlation id of the promote that failed, so one incident's changes stay
+// together.
+func TestRaiseRollbackInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	if _, err := raiseRollback(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "verify failed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-rollback").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("rollback correlation: %q", got)
+	}
+}
+
+// TestRaiseFreezeInheritsCorrelation: the freeze a failed re-check raises
+// keeps the correlation id of the operation that shipped the version.
+func TestRaiseFreezeInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	if _, err := raiseFreeze(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "health failed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-freeze").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("freeze correlation: %q", got)
+	}
+}
+
+// TestStepDownInheritsCorrelation: the automatic step-down keeps the
+// correlation id of the promote that failed.
+func TestStepDownInheritsCorrelation(t *testing.T) {
+	e := newEnv(t, stageObj(dB))
+	fail := &delivery.Verdict{Gate: "health", Result: delivery.Fail}
+	if _, err := raiseStepDown(context.Background(), e.c, e.op.Policy, correlated(), e.getStage(), "health failed", fail); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getOp("p1-stepdown").Spec.CorrelationID; got != "CHG-2041" {
+		t.Fatalf("step-down correlation: %q", got)
+	}
+}
+
+// TestAutoPromoteHasNoCorrelation: an automatic promote has no causing
+// operation, so it carries no correlation id.
+func TestAutoPromoteHasNoCorrelation(t *testing.T) {
+	s := stageObj(dA)
+	s.Status.Level, s.Status.Candidate = delivery.LevelAutoNonBreaking, dB
+	e := newEnv(t, s)
+	if err := e.st.autoPromote(context.Background(), s); err != nil || len(e.ops()) != 1 || e.ops()[0].Spec.CorrelationID != "" {
+		t.Fatalf("auto-promote: %v %+v", err, e.ops())
+	}
+}
+
+// TestCauseDigestSkewIsFinalPlanStale: an operation citing a cause whose
+// intent digest was computed without it, as a client older than the promoter
+// computes it, is a final PlanStale refusal that still takes a seq and keeps
+// the record finalizer, so the refusal reaches the records.
+func TestCauseDigestSkewIsFinalPlanStale(t *testing.T) {
+	o := opObj("skew", delivery.TypePromote, dA, dB, bot)
+	o.Spec.Cause = &delivery.Cause{Verdict: &delivery.Verdict{Gate: "smoke", Phase: "verify", Result: delivery.Fail}}
+	e := baseEnv(t, o)
+	got := e.drive("skew")
+	wantOutcome(t, got, delivery.Rejected, "PlanStale")
+	if !strings.Contains(got.Status.Message, "plan again") || got.Status.Seq == 0 || !controllerutil.ContainsFinalizer(got, dv1.RecordFinalizer) {
+		t.Fatalf("want a final PlanStale owed a record: %+v finalizers %v", got.Status, got.Finalizers)
+	}
+}
+
+// TestAdmissionRefusesAgentWithoutPrincipal: an agent's operation that names
+// no person, itself or a service account is a final refusal that takes a seq
+// and keeps the record finalizer, so the refusal reaches the records.
+func TestAdmissionRefusesAgentWithoutPrincipal(t *testing.T) {
+	named := func(name, user string) *dv1.Operation {
+		o := opObj(name, delivery.TypePromote, dA, dB, bot)
+		o.Spec.OnBehalfOf = &delivery.Principal{User: user}
+		if user == "" {
+			o.Spec.OnBehalfOf = nil
+		}
+		o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, stageObj("").Spec)
+		return o
+	}
+	e := baseEnv(t, nil)
+	e.op.Records = true
+	e.create(named("none", ""), named("self", bot), named("sa", promoterSA))
+	for name, reason := range map[string]string{"none": "NoPrincipal", "self": "SelfPrincipal", "sa": "NotAPerson"} {
+		o := e.drive(name)
+		wantOutcome(t, o, delivery.Rejected, reason)
+		if o.Status.Seq == 0 || !controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
+			t.Fatalf("%s: seq %d finalizers %v", name, o.Status.Seq, o.Finalizers)
+		}
+	}
+}
+
+// TestPromoterRaisedNeedsNoPrincipal: the promoter names nobody on the
+// rollback it raises, and admission lets it through.
+func TestPromoterRaisedNeedsNoPrincipal(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	e.drive("p1")
+	rb := e.drive("p1-rollback")
+	if rb.Spec.OnBehalfOf != nil || rb.Status.ActorClass != delivery.ClassController || rb.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("automatic rollback: %+v %+v", rb.Spec.OnBehalfOf, rb.Status)
 	}
 }

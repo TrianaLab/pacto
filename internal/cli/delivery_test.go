@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -399,8 +400,9 @@ func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
 }
 
 func TestDeliveryCommandWriteVerbs(t *testing.T) {
-	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB}
+	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--on-behalf-of", "dana"}
 	checkDeliveryRuns(t, approveDeps("system:serviceaccount:agents:bot", nil), []deliveryRun{
+		{"text", propose[:7], true, []string{"must name the person it acts for", "--on-behalf-of"}},
 		{"text", append(propose, "--name", "p1", "--type", "promote"), false, []string{"proposed prod/p1"}},
 		{"json", append(propose, "--name", "p2"), false, []string{`"operation"`}},
 		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},
@@ -550,7 +552,7 @@ func TestMCPDeliveryMode(t *testing.T) {
 	if _, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, broken); err == nil {
 		t.Fatal("whoami failure must fail")
 	}
-	if err := checkMCPMode(false, false, true, true, false); err == nil || !strings.Contains(err.Error(), "--delivery") {
+	if err := checkMCPMode(false, false, false, true, true); err == nil || !strings.Contains(err.Error(), "--delivery") {
 		t.Fatalf("modes: %v", err)
 	}
 	c, _, _ := deliveryClient(cmd, deliveryDeps("alice", nil))
@@ -610,5 +612,15 @@ func TestPrintPlanLabelsEvidenceGates(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Fatalf("want %q in\n%s", want, b.String())
 		}
+	}
+}
+
+func TestRequestFromCorrelationID(t *testing.T) {
+	cmd := &cobra.Command{}
+	addRequestFlags(cmd)
+	_ = cmd.Flags().Set("correlation-id", "CHG-2041")
+	req, err := requestFrom(cmd, "prod")
+	if err != nil || req.CorrelationID != "CHG-2041" {
+		t.Fatalf("request %+v, err %v", req, err)
 	}
 }

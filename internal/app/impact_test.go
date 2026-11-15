@@ -493,6 +493,28 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 	}
 }
 
+func TestImpactOnResolvedSeesBothBundles(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	var versions []string
+	opts := ImpactOptions{OldPath: oldDir, NewPath: newDir, Fleet: FleetOptions{LocalRoots: []string{t.TempDir()}},
+		OnResolved: func(o, n *contract.Bundle) {
+			versions = append(versions, o.Contract.Service.Version, n.Contract.Service.Version)
+		}}
+	if _, err := NewService(nil, nil).Impact(context.Background(), opts); err != nil || !slices.Equal(versions, []string{"1.0.0", "2.0.0"}) {
+		t.Fatalf("err %v, versions %v", err, versions)
+	}
+	// The snapshot paths never call it.
+	snap, err := NewService(nil, nil).Fleet(context.Background(), opts.Fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(nil, nil).ImpactWithSnapshot(context.Background(), opts, snap); err != nil || len(versions) != 2 {
+		t.Fatalf("err %v, versions %v", err, versions)
+	}
+}
+
 // TestParseEventFlagOffering: offering:<name> names an offering for
 // unavailable and removed; an empty or versioned name and a regressed
 // offering are refused.
@@ -531,5 +553,40 @@ func TestImpactEventOfferingSkipsServiceLookup(t *testing.T) {
 	res, err := NewService(nil, nil).ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Offering: "ghost"}}, snap)
 	if err != nil || res.Event.Offering != "ghost" || res.Event.Service != "" {
 		t.Fatalf("offering event = %+v %v", res, err)
+	}
+}
+
+// TestService_ImpactOnSnapshot_Domain: a local edit of a service a registry
+// source keys under its domain finds that service's consumers when the caller
+// names the domain, and adds no default-domain copy with none.
+func TestService_ImpactOnSnapshot_Domain(t *testing.T) {
+	ctx := context.Background()
+	oldDir, newDir, webDir := t.TempDir(), t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	writeImpactConsumer(t, webDir, "webapp", "orders", "^1.0.0")
+	svc := NewService(nil, nil)
+	var revs []fleet.RawRevision
+	for _, dir := range []string{oldDir, webDir} {
+		b, err := svc.resolveBundleWithOverrides(ctx, dir, ImpactOptions{}.OldOverrides)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revs = append(revs, fleet.RawRevision{Bundle: b, Domain: "ghcr.io/acme", Digest: "sha256:" + b.Contract.Service.Name})
+	}
+	snap, err := fleet.Build(ctx, fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: revs}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.ImpactOnSnapshot(ctx, ImpactOptions{OldPath: oldDir, NewPath: newDir, Domain: "ghcr.io/acme"}, snap, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NewRevisionAdded || len(res.Consumers) != 1 || res.Consumers[0].Service != "webapp" {
+		t.Fatalf("added %v, consumers %+v", res.NewRevisionAdded, res.Consumers)
+	}
+	// Without the domain the local path keys a default-domain copy no one depends on.
+	if copied, err := svc.ImpactOnSnapshot(ctx, ImpactOptions{OldPath: oldDir, NewPath: newDir}, snap, true); err != nil || !copied.NewRevisionAdded || len(copied.Consumers) != 0 {
+		t.Fatalf("err %v, without a domain %+v", err, copied)
 	}
 }

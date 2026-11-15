@@ -18,6 +18,8 @@
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import ImpactFigure from '../components/figure/ImpactFigure.svelte';
+  import StageOffers from '../components/StageOffers.svelte';
+  import { stageRowsOf, artifactOf, promotes, undoes } from '../lib/delivery.ts';
   import { changeSegments, verdictSegments, confidenceSegments, outcomeSegments } from '../lib/distributions.ts';
   import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
@@ -41,7 +43,9 @@
   // it becomes unavailable, is removed or regressed. That event mode answers in the same
   // ProductImpact shape from the same POST, with `event` and `serviceKey` instead of the
   // revision pair; its state (mode=event, event, rev) lives in the URL like the pair does.
-  let { params = {} } = $props();
+  // `deliveryState` is whether this dashboard serves delivery: only 'enabled' asks which
+  // operations the answer's Stages offer the caller.
+  let { params = {}, deliveryState = 'unknown' } = $props();
   const serviceKey = $derived(params.svc || '');
   // An offering event (#464) asks about every provider of a platform offering at once:
   // there is no service, no revision pair and no regression, only the event.
@@ -91,6 +95,8 @@
   // A link may name an event this build does not know (a typo, a newer build): it is
   // never answered as another one, the form says so instead.
   const unknownEvent = untrack(() => (params.event && !eventKinds.some((k) => k.value === params.event) ? params.event : ''));
+  // A known event an offering cannot answer (a regression) is told apart from an unknown one.
+  const eventNeedsService = !!unknownEvent && EVENT_KINDS.some((k) => k.value === unknownEvent);
   let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
   const isEvent = $derived(mode === 'event');
@@ -252,7 +258,7 @@
       const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: NAME_LOOKUP_LIMIT });
       if (my !== serviceSearchSeq) return;
       const { matches: exact, complete } = boundedMatches(res, (e) => e.label === name || e.key === name);
-      if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key)); return; }
+      if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key, { correlationID: params.correlationID })); return; }
       // Only a complete page may narrow the picker to the exact matches: on a truncated one
       // the whole page is shown, so the "Showing N of M" hint stays true beside it.
       const narrowed = complete && exact.length > 0;
@@ -330,17 +336,17 @@
   }
 
   const changesUrl = (o = '') => (offeringKey
-    ? fleetChangesUrl('', { offering: offeringKey, event: eventKind, outcome: o })
+    ? fleetChangesUrl('', { offering: offeringKey, event: eventKind, outcome: o, correlationID: params.correlationID })
     : isEvent
-    ? fleetChangesUrl(serviceKey, { event: eventKind, rev: eventKind === 'regressed' ? eventRev.trim() : '', outcome: o })
-    : fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o }));
+    ? fleetChangesUrl(serviceKey, { event: eventKind, rev: eventKind === 'regressed' ? eventRev.trim() : '', outcome: o, correlationID: params.correlationID })
+    : fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o, correlationID: params.correlationID }));
 
   // Switching the question drops the other question's answer, and the URL says which
   // form is open (a replace: a mode is not a screen to go Back to).
   function setMode(/** @type {string} */ m) {
     if (m === mode) return;
     mode = m; result = null; outcome = ''; analyzeError = null; analyzeGen++;
-    history.replaceState(null, '', fleetChangesUrl(serviceKey, m === 'event' ? { mode: 'event' } : {}));
+    history.replaceState(null, '', fleetChangesUrl(serviceKey, { mode: m === 'event' ? 'event' : '', correlationID: params.correlationID }));
   }
 
   // A lane's count or "N more" lists that outcome. A plain click keeps the answer on
@@ -383,7 +389,7 @@
     analyze(0);
   }
 
-  function pickServiceOption(key) { if (key) location.hash = fleetChangesUrl(key); }
+  function pickServiceOption(key) { if (key) location.hash = fleetChangesUrl(key, { correlationID: params.correlationID }); }
 
   const consumers = $derived(result?.consumers ?? { items: [], total: 0, count: 0, offset: 0 });
   const owners = $derived(result?.owners ?? { items: [], total: 0, count: 0 });
@@ -441,6 +447,29 @@
     ...(r.secondary ? [{ value: r.secondary, label: `${r.version || r.label} artifact` }] : []),
     ...(r.version ? [{ value: r.version, label: 'version' }] : []),
   ]));
+  // The operation the answer leads to, when a Stage offers it to the caller: the promote
+  // of the new revision's artifact (matched by its contract digest, never a version
+  // label), or the undo on a Stage that runs the regressed artifact digest. Asked once
+  // per question, not per page of consumers.
+  const planAsk = $derived.by(() => {
+    const svc = serviceDetail?.entity;
+    if (!result || deliveryState !== 'enabled' || offeringKey || !svc?.label) return null;
+    const ev = result.event;
+    if (ev && ev.kind !== 'regressed') return null;
+    const contract = ev ? '' : revisions.find((x) => x.key === result.newRevision?.key)?.secondary ?? '';
+    return { service: svc.label, domain: svc.domain ?? '', contract, regressed: ev ? (ev.revision ?? '').trim() : '' };
+  });
+  const planKey = $derived(planAsk ? JSON.stringify(planAsk) : '');
+  let planOffers = $state(null);
+  $effect(() => {
+    const key = planKey;
+    planOffers = null;
+    if (!key) return;
+    const a = JSON.parse(key);
+    Promise.all([stageRowsOf(a.service, a.domain), a.regressed || artifactOf(a.service, a.domain, a.contract)]).then(([rows, digest]) => {
+      if (key === planKey) planOffers = { rows, match: a.regressed ? undoes(digest) : promotes(digest), service: a.service };
+    });
+  });
   // Delivery evidence about a regressed revision, and why it could not be read.
   const regression = $derived(result?.regression ?? []);
   const deliveryUnread = $derived(limitations.items.filter((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE'));
@@ -600,6 +629,10 @@
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
+    {#if planOffers}
+      <!-- What the caller may already do about this answer: each button plans, nothing is proposed until the panel's second press. -->
+      <div class="ca-plan" data-testid="changes-plan"><StageOffers rows={planOffers.rows} service={planOffers.service} match={planOffers.match} onlyAvailable labelPrefix="Plan" correlation={params.correlationID ?? ''} /></div>
+    {/if}
 
     <div class="ca-stack">
     {#if result.event?.kind === 'regressed'}
@@ -832,7 +865,10 @@
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if isEvent}
-      {#if unknownEvent}
+      {#if eventNeedsService}
+        <EmptyState title="A regression needs a service" message="A regression belongs to one revision of one service: open one of the providers and ask there." />
+        <p class="disco-more" data-testid="changes-event-needs-service"><a href={fleetServicesUrl({ offering: offeringKey })}>Providers of {offeringKey}</a></p>
+      {:else if unknownEvent}
         <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the {subjectNoun} and press Ask." />
       {:else if eventKind === 'regressed' && !eventRev.trim()}
         <EmptyState identity title="Name the revision" message="A version, or an artifact digest to read delivery evidence." />
@@ -875,6 +911,7 @@
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .ca-stack { border-top: 1px solid var(--c-border); }
+  .ca-plan { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; margin-block: var(--sp-3); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }
   .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }

@@ -109,7 +109,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -135,7 +135,7 @@ export function installScaleFixture(): void {
         [r.availability, r.availabilityProvenance] = AV[i % AV.length];
         r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
         r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
-        if (i % 2) { r.hiddenConsumers = 1234; r.targetsUnknown = true; r.targets = 0; }
+        if (i % 2) { r.hiddenConsumers = 1234; r.hiddenProviders = 12; r.targetsUnknown = true; r.targets = 0; }
       });
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
@@ -205,16 +205,56 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;
-      scaleTally(s.ownership as Record<string, number>, 5000);
+      s.ownership = { consistent: 3120, conflicting: 640, unowned: 1060, unknown: 180 };
       s.degradedSources = 2; s.staleSources = 2; s.unavailableSources = 2;
+      // The health and knowledge bands and the domain table at fleet scale: every
+      // count four digits, every gap kind present and long domain names.
+      Object.assign(s, {
+        targets: 9000, compliantTargets: 6100, staleCompliantTargets: 1240, nonCompliantTargets: 1200, unknownTargets: 1700,
+        warningTargets: 0, invalidTargets: 0, referenceTargets: 0, notEvaluatedTargets: 0, otherComplianceTargets: 0,
+        exactTargetLinks: 7000, inferredTargetLinks: 1200, ambiguousTargetLinks: 500, unresolvedTargetLinks: 300,
+        evidence: { withEvidence: 8100, withoutEvidence: 900, stale: 1500 },
+      });
+      s.operationalHealth = { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 };
+      s.knowledge = { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+        gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } };
+      s.coverage = { evaluated: 81200, required: 96400, reporting: 7900, notReporting: 1100 };
+      const row = { targets: 2100, nonCompliant: 1300, failingHealth: 1100, unknown: 1400, stale: 1250, notDeployed: 1020, withGaps: 1900, unowned: 1080, ownerUnknown: 1010 };
+      s.byDomain = [...NC_DOMAINS.map(([domain], i) => ({ ...row, domain, services: 1200 - i * 100 })),
+        { ...row, domain: '', domainUnknown: true, services: 1400 }, { ...row, domain: '', services: 1100 }];
       const at = doc.attention as Record<string, unknown>;
-      if (at) at.total = 2400;
+      if (at) { at.total = 2400; at.actionable = 1900; }
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
+      // Every category holds items, so each bar and its label are drawn at scale.
       const cats = doc.categories as { count: number }[] | undefined;
-      if (cats) { const parts = split(2400, cats.map((c) => c.count)); cats.forEach((c, i) => { c.count = parts[i]; }); }
+      if (cats) { const parts = split(2400, cats.map((c) => c.count || 1)); cats.forEach((c, i) => { c.count = parts[i] || 1; }); }
+      // Each item's cause and next action at their longest: the code chip, the reason and
+      // the words of #472's nextAction must wrap inside the row.
+      for (const it of (doc.items as Record<string, unknown>[] | undefined) ?? []) {
+        it.code = `${String(it.code || 'UNKNOWN')}_${'OBSERVATION_UNSUPPORTED_'.repeat(3)}CAUSE`;
+        it.reason = longName(String(it.reason || 'reason'));
+        it.nextAction = { verb: 'edit-contract', tool: 'pacto_edit', environment: longName('production-environment') };
+      }
+    }
+    // Owner and domain rows with every count four digits.
+    if (route === '/api/fleet/entities' && ['owner', 'domain'].includes(q.get('kinds') || '')) {
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => Object.assign(r, { unknown: 1400 + i, stale: 1250 + i, failingHealth: 1100 + i, withGaps: 1900 + i }));
+    }
+    // The owner and domain pages: their health, knowledge and facts line at fleet scale.
+    if (route === '/api/fleet/entities/owner' || route === '/api/fleet/entities/domain') {
+      const sum = ((doc.owner ?? doc.domain) as Record<string, unknown> | undefined)?.summary as Record<string, unknown> | undefined;
+      if (sum) {
+        Object.assign(sum, {
+          targets: 9000, health: { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 },
+          knowledge: { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+            gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } },
+          notDeployed: 1050, readiness: { passing: 2100, belowThreshold: 1300, expired: 1100, notDeclared: 3100 },
+          unresolvedDependencies: 1200, undeclaredDependencies: 1400,
+        });
+      }
     }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
@@ -300,6 +340,9 @@ export function installScaleFixture(): void {
       // keys, digests and hrefs stay the engine's.
       for (const r of (doc.environments as Record<string, unknown>[] | undefined) ?? []) {
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
+        if (flags.__pactoLongPropose) {
+          for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
+        }
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
@@ -359,21 +402,24 @@ export function installScaleFixture(): void {
           { state: 'reported', figures: figures(2), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
           { state: 'unknown', reason: longName('the usage report is not signed'), reported: figures(3), source: 'target-state', verified: false, asOf: '2026-07-29T09:40:00Z' },
           { state: 'reported', figures: figures(16), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the providers that report usage for this resource disagree'), conflict: [longName('producer-a'), longName('producer-b')] },
         ];
+        const consumerRevision = { kind: 'revision', key: `orders-service@sha256:${'b'.repeat(64)}`, label: longName('orders-service 1.4.0'), href: `/fleet/revisions/${encodeURIComponent(`orders-service@sha256:${'b'.repeat(64)}`)}` };
         used.items = Array.from({ length: 40 }, (_, i) => {
           const key = `${pv.key}-r${i}`;
           return {
             ...base, offering: i % 3 === 2 ? '' : base.offering, via: i % 2 ? 'dependency' : 'configuration_reference',
             provider: { ...pv, key, label: longName(`resource-provider-${i}`), href: `${pv.href}-r${i}` },
             providerAvailability: { state: ['available', 'degraded', 'unavailable', 'unknown'][i % 4], byEnvironment: [], total: 0, asOf: '2026-11-10T08:00:00Z' },
-            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared',
+            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared', consumerRevision,
               revision: { kind: 'revision', key: `${key}@sha256:${'a'.repeat(64)}`, label: longName(`resource-provider-${i} 16.1.0`), href: `/fleet/revisions/${encodeURIComponent(`${key}@sha256:${'a'.repeat(64)}`)}` },
               values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
             provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
               externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
             consumption: i % 4 === 3
               ? [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }]
-              : [0, 1, 2].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), provenance: 'observed' })),
+              : [0, 1, 2, 3].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), entry: longName(`entry-${i}`), provenance: 'observed',
+                revision: { kind: 'revision', key: consumerRevision.key, label: consumerRevision.label } })),
           };
         });
         used.total = 120; used.count = 40; used.truncated = true;
@@ -590,16 +636,41 @@ export function installScaleFixture(): void {
 
   // A service page asks delivery for its service by the page's (lengthened) label: ask
   // the engine for the name it knows, and the rows come back under the long name.
+  // Under longPropose a panel also asks by a Stage's lengthened namespace and stage (the
+  // undo panel's GET): those go back to the engine's names too.
   const engineName = (path: string): string => {
     const [route, query = ''] = path.split('?');
+    if (!route.startsWith('/api/delivery/')) return path;
     const q = new URLSearchParams(query);
-    const asked = q.get('service');
-    const short = asked && route.startsWith('/api/delivery/') ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
-    if (!short) return path;
-    q.set('service', short);
-    return `${route}?${q}`;
+    const keys = flags.__pactoLongPropose ? ['service', 'namespace', 'stage'] : ['service'];
+    let moved = false;
+    for (const k of keys) {
+      const asked = q.get(k);
+      const short = asked ? [...memo].find(([, v]) => v === asked)?.[0] : undefined;
+      if (short) { q.set(k, short); moved = true; }
+    }
+    return moved ? `${route}?${q}` : path;
+  };
+  // A route that opens the propose panel sets these flags on the page: longPropose
+  // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
+  // asked of the engine under the short names again), stalePropose answers every
+  // propose PlanStale with the fresh plan and no field that explains it.
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+  const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
+  const engineBody = (path: string, body: string | null): string | null => {
+    if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
+    const b = JSON.parse(body) as Record<string, unknown>;
+    b.namespace = shortOf(b.namespace);
+    b.stage = shortOf(b.stage);
+    return JSON.stringify(b);
   };
   const wrapped: Serve = async (method, path, body) => {
+    body = engineBody(path, body);
+    if (flags.__pactoStalePropose && method === 'POST' && path === '/api/delivery/operations' && body) {
+      const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
+      return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
+        detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
     const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
@@ -1063,6 +1134,51 @@ const INBOX_LOADED = '#inbox-held, [data-testid="inbox-empty"]';
 const PUBLISH_LOADED = 'li.pv-row';
 const AUTONOMY_LOADED = '[data-testid="autonomy-contracted"]';
 
+/**
+ * Opens the propose panel from the environments board as the default persona
+ * (pay-agent, an agent), with the Stage rows' names at their longest, and waits for
+ * the plan and the on-behalf-of field an agent is asked for.
+ */
+const openPropose = async (page: Page, stale = false) => {
+  await page.evaluate((s) => {
+    const w = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+    w.__pactoLongPropose = true;
+    w.__pactoStalePropose = s;
+  }, stale);
+  await page.goto('/#/delivery/environments');
+  await page.getByRole('button', { name: /^Promote payments in prod to / }).first().click({ timeout: 30_000 });
+  const panel = page.locator('[data-testid="propose-panel"]');
+  await expect(panel.locator('[data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByTestId('pp-on-behalf-of')).toBeVisible();
+  return panel;
+};
+
+// The story's payments service and its 3.0.0 revision (examples/story): prod offers the
+// promote of 3.0.0's artifact, and test runs that artifact with an undo on offer.
+const STORY_PAYMENTS = 'registry.example%252Fstory%2Fpayments';
+const PAYMENTS_300 = 'sha256:a16380137bcba704971cd4258237e24fb8822d93f66bd3f280bd829005665323';
+const PAYMENTS_300_ARTIFACT = 'sha256:d08642a39559182a2b9bc69a8f7ad32e87fa058ebd250087dbc071bf3df809a4';
+const PLAN = /^Plan /;
+
+/**
+ * Opens an investigation page with the Stage rows' names at their longest (the panels
+ * ask the engine under the short names again) and waits for its first "Plan" offer, so
+ * a page that renders none fails instead of passing.
+ */
+const planOffer = async (page: Page, hash: string, before?: (page: Page) => Promise<void>) => {
+  await page.evaluate(() => { (window as unknown as { __pactoLongPropose?: boolean }).__pactoLongPropose = true; });
+  await page.goto(`/${hash}`);
+  if (before) await before(page);
+  const offer = page.getByRole('button', { name: PLAN }).first();
+  await expect(offer).toBeVisible({ timeout: 30_000 });
+  return offer;
+};
+const comparePayments = async (page: Page) => { await page.getByRole('button', { name: 'Compare revisions' }).click({ timeout: 30_000 }); };
+const planOpened = async (page: Page) => {
+  await expect(page.locator('[data-testid="propose-panel"] [data-testid="plan-prediction"]')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -1086,6 +1202,13 @@ export const ROUTES: Route[] = [
   { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'attention health category', list: true, hash: '#/fleet/attention?category=health' },
+  { name: 'attention knowledge category', list: true, hash: '#/fleet/attention?category=knowledge' },
+  { name: 'services with a knowledge gap', list: true, hash: '#/fleet/services?gap=no-summary' },
+  { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
+  { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
+  { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
+  { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
   { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },
@@ -1133,6 +1256,7 @@ export const ROUTES: Route[] = [
       const input = page.locator('[data-testid="offering-provider"]').first().getByRole('textbox');
       await input.fill('^16.0.0');
       await expect(page.locator('[data-testid="versions-successor"]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the fill scrolled the input into view; the gate reads from the top
     },
   },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
@@ -1185,7 +1309,17 @@ export const ROUTES: Route[] = [
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
   { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
-  { name: 'service page, resources at scale', open: serviceResources('#/fleet/services/orders-service') },
+  {
+    // Expanded, so every card (usage figures included) is laid out where the gate looks,
+    // never below the preview's clip.
+    name: 'service page, resources at scale',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/orders-service')(page);
+      await page.locator('#sec-resources [data-testid="preview-show-all"]').click();
+      await expect(page.locator('#sec-resources .ps-clipped')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the section into view; the gate reads from the top
+    },
+  },
   {
     name: 'service page, resources empty',
     open: async (page) => {
@@ -1272,6 +1406,42 @@ export const ROUTES: Route[] = [
     open: async (page) => {
       await page.goto('/#/fleet/targets/staging%2FDeployment%2Fnotification-worker');
       await expect(page.locator('[data-testid="target-delivery"]')).toContainText('No Stage you can see', { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'propose panel open, agent (on-behalf-of field)',
+    open: async (page) => {
+      await openPropose(page);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'propose panel, fresh plan banner',
+    open: async (page) => {
+      const panel = await openPropose(page, true);
+      await panel.getByTestId('pp-on-behalf-of').fill('dana@example.com');
+      await panel.getByRole('button', { name: /^Propose/ }).click();
+      await expect(panel.getByRole('alert')).toContainText('Something changed since the plan', { timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  { name: 'target page with Plan offers', open: async (page) => { await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout'); } },
+  { name: 'revision page with a promote offer', open: async (page) => { await planOffer(page, `#/fleet/revisions/${STORY_PAYMENTS}@${PAYMENTS_300}`); } },
+  { name: 'change analysis answered with Plan promote', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments); } },
+  { name: 'change analysis regressed with Plan undo', open: async (page) => { await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}?event=regressed&rev=${PAYMENTS_300_ARTIFACT}`); } },
+  {
+    name: 'target page, Plan undo panel open',
+    open: async (page) => {
+      await (await planOffer(page, '#/fleet/targets/test%2FDeployment%2Fcheckout')).click();
+      await page.getByRole('button', { name: /^Plan this / }).click({ timeout: 30_000 });
+      await planOpened(page);
+    },
+  },
+  {
+    name: 'change analysis answered, Plan promote panel open',
+    open: async (page) => {
+      await (await planOffer(page, `#/fleet/changes/${STORY_PAYMENTS}`, comparePayments)).click();
+      await planOpened(page);
     },
   },
   {

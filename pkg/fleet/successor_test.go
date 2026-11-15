@@ -3,8 +3,10 @@ package fleet
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -28,6 +30,13 @@ func lockedTo16(rev RawRevision) RawRevision {
 // >=16 <18 and any accepts every version, both locked to 16.1.0.
 func successorFleet(t *testing.T, l *contract.InterfaceLifecycle, extra ...RawRevision) *Query {
 	t.Helper()
+	return successorFleetRunning(t, "", l, extra...)
+}
+
+// successorFleetRunning is successorFleet with a target running pg at
+// running, none when it is empty.
+func successorFleetRunning(t *testing.T, running string, l *contract.InterfaceLifecycle, extra ...RawRevision) *Query {
+	t.Helper()
 	revs := []RawRevision{
 		asPGProvider(lcRev("pg", "16.0.0", nil)),
 		asPGProvider(lcRev("pg", "16.1.0", l)),
@@ -38,7 +47,11 @@ func successorFleet(t *testing.T, l *contract.InterfaceLifecycle, extra ...RawRe
 	for _, r := range extra {
 		revs = append(revs, asPGProvider(r))
 	}
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: revs}))
+	col := &Collection{Revisions: revs}
+	if running != "" {
+		col.Targets = []RawTarget{{Scope: "prod", Kind: "k8s", Name: "pg", Service: "pg", Digest: "sha256:pg" + running}}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +169,7 @@ func TestSuccessorRangeSatisfied(t *testing.T) {
 
 func TestSuccessorNoRangeUnknown(t *testing.T) {
 	q := successorFleet(t, deprecated16, lcRev("pg", "17.0.0", nil))
-	if got := successorRange("", q.latestSupported(q.snap.Services["pg"])); got != RangeUnknown {
+	if got := successorRange("", "pg", q.latestSupported(q.snap.Services["pg"])); got != RangeUnknown {
 		t.Errorf("no range = %q", got)
 	}
 	d, _ := succDetail(t, q)
@@ -165,21 +178,79 @@ func TestSuccessorNoRangeUnknown(t *testing.T) {
 	}
 }
 
+// TestLatestSupportedFallback: a revision published before the deprecation
+// is not supported, since a service lifecycle retires the whole service; only
+// a newer revision that declares none is.
 func TestLatestSupportedFallback(t *testing.T) {
 	q := successorFleet(t, deprecated16)
 	d, _ := succDetail(t, q)
-	p := d.Providers.Items[0]
-	if p.LatestSupported == nil || p.LatestSupported.Version != "16.0.0" {
+	if p := d.Providers.Items[0]; p.LatestSupported != nil || useOf(t, d, "app16").SupportedRange != "" {
+		t.Errorf("16.0.0 predates the deprecation: latest supported = %+v", p.LatestSupported)
+	}
+	q = successorFleet(t, deprecated16, lcRev("pg", "17.0.0", nil))
+	d, _ = succDetail(t, q)
+	if p := d.Providers.Items[0]; p.LatestSupported == nil || p.LatestSupported.Version != "17.0.0" {
 		t.Fatalf("latest supported = %+v", p.LatestSupported)
 	}
-	if got := useOf(t, d, "app16").SupportedRange; got != RangeSatisfied {
-		t.Errorf("^16 vs 16.0.0 = %q", got)
+	if got := useOf(t, d, "app16").SupportedRange; got != RangeUnsatisfied {
+		t.Errorf("^16 vs 17.0.0 = %q", got)
 	}
-	all := successorFleet(t, deprecated16)
-	all.snap.Revisions[RevisionKey(p.LatestSupported.Key)].Contract.Service.Lifecycle = deprecated16
-	d, _ = succDetail(t, all)
-	if d.Providers.Items[0].LatestSupported != nil || useOf(t, d, "app16").SupportedRange != "" {
-		t.Errorf("a provider whose every revision is deprecated has no supported revision: %+v", d.Providers.Items[0].LatestSupported)
+}
+
+// TestSuccessorOtherServiceNeverGraded: a successor that is another service
+// says so; no consumer's range for the old provider is graded against it.
+func TestSuccessorOtherServiceNeverGraded(t *testing.T) {
+	aurora := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://ghcr.io/acme/aurora-pg:16.4.0"}
+	q := successorFleet(t, aurora, lcRev("aurora-pg", "16.4.0", nil))
+	d, _ := succDetail(t, q)
+	var pg OfferingProvider
+	for _, p := range d.Providers.Items {
+		if p.Service.Key == "pg" {
+			pg = p
+		}
+	}
+	if s := pg.Successor; s == nil || s.Revision == nil || s.Reason != "the successor is another service, aurora-pg: change the dependency to it" {
+		t.Errorf("successor = %+v", pg.Successor)
+	}
+	if got := useOf(t, d, "app16").SuccessorRange; got != RangeUnknown {
+		t.Errorf("^16 vs aurora-pg 16.4.0 = %q", got)
+	}
+	items, err := q.Attention(AttentionFilter{Category: categoryLifecycle, Limit: MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items.Items {
+		if it.Code == CodeSuccessorOutOfRange || !strings.Contains(it.NextStep, "dependency on pg to aurora-pg") {
+			t.Errorf("item = %+v", it)
+		}
+	}
+	res, _ := q.OfferingVersions("postgresql", "", "^16.0.0")
+	for _, p := range res.Providers {
+		if p.Provider.Key == "pg" && p.Versions.SuccessorRange != RangeUnknown {
+			t.Errorf("versions = %+v", p.Versions)
+		}
+	}
+}
+
+// TestSuccessorRestrictedNeverAbsent: in a restricted view, a successor the
+// viewer may not see is not called absent.
+func TestSuccessorRestrictedNeverAbsent(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.target("pg", "pg-0", "data", "prod", time.Hour)
+	a.target("pg-next", "n-0", "data-next", "prod", time.Hour)
+	a.declares("other")
+	a.target("other", "o-0", "data", "prod", time.Hour)
+	q := a.query()
+	if _, why := q.successorRevision(q.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no revision of pg-next in this fleet matches it" {
+		t.Errorf("unrestricted reason = %q", why)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "data-next" })
+	if _, why := r.successorRevision(r.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no service pg-next you may see in pg's registry domain is in this fleet" {
+		t.Errorf("reason = %q", why)
+	}
+	if _, why := r.successorRevision(r.snap.Services["pg"], "oci://reg/platform/other:17.0.0"); why != "no revision of other you may see in this fleet matches it" {
+		t.Errorf("reason = %q", why)
 	}
 }
 
@@ -189,8 +260,20 @@ func TestVersionsCarrySuccessorRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 17.0.0 is the newest and declares nothing, so it names no successor.
+	// ^16 reaches 16.1.0, whose successor 17.0.0 the range excludes, even
+	// though the newest revision 17.0.0 declares nothing.
+	if v := res.Providers[0].Versions; v.Successor == nil || v.Successor.Revision == nil || v.SuccessorRange != RangeUnsatisfied {
+		t.Errorf("versions = %+v", v)
+	}
+	// Without a range and with no target, the newest readable revision
+	// speaks: 17.0.0 names no successor.
+	res, _ = q.OfferingVersions("postgresql", "", "")
 	if v := res.Providers[0].Versions; v.Successor != nil || v.SuccessorRange != "" {
+		t.Errorf("versions = %+v", v)
+	}
+	// A range that reaches nothing falls back to the newest revision.
+	res, _ = q.OfferingVersions("postgresql", "", "^18.0.0")
+	if v := res.Providers[0].Versions; v.Successor != nil {
 		t.Errorf("versions = %+v", v)
 	}
 	q = successorFleet(t, &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://ghcr.io/acme/pg:16.0.0"})
@@ -209,6 +292,24 @@ func TestVersionsCarrySuccessorRange(t *testing.T) {
 	}
 }
 
+// TestVersionsSuccessorFromRunningRevision: a target still running 16.1.0
+// makes it the provider's current revision, so its successor shows with no
+// range, the provider reads deprecated and the lifecycle filter lists it.
+func TestVersionsSuccessorFromRunningRevision(t *testing.T) {
+	running := successorFleetRunning(t, "16.1.0", deprecated16, lcRev("pg", "17.0.0", nil))
+	res, _ := running.OfferingVersions("postgresql", "", "")
+	if v := res.Providers[0].Versions; v.Successor == nil || v.Successor.Revision == nil || v.SuccessorRange != "" {
+		t.Errorf("running 16.1.0: versions = %+v", v)
+	}
+	d, _ := succDetail(t, running)
+	if p := d.Providers.Items[0]; p.Lifecycle == nil || p.Successor == nil || p.LatestSupported == nil || p.LatestSupported.Label != "pg 17.0.0" {
+		t.Errorf("running 16.1.0: provider lifecycle %+v successor %+v latest supported %+v", p.Lifecycle, p.Successor, p.LatestSupported)
+	}
+	if got := offeringRows(t, running, EntityFilter{Lifecycle: LifecycleDeprecated}); len(got) != 1 {
+		t.Errorf("running 16.1.0: deprecated offerings = %+v", got)
+	}
+}
+
 func TestLifecycleAttentionSuccessorOutOfRange(t *testing.T) {
 	items := lifecycleItems(t, lifecycleRangeFleet(t))
 	it := itemFor(items, "app16")
@@ -219,9 +320,9 @@ func TestLifecycleAttentionSuccessorOutOfRange(t *testing.T) {
 		Entity: it.Entity, Service: "app16", Label: "app16 uses pg", Severity: severityError,
 		Code: CodeSuccessorOutOfRange, Category: categoryLifecycle, Summary: "Its range excludes the provider's successor",
 		Reason:   "app16 accepts pg ^16.0.0, which excludes its successor 17.0.0",
-		NextStep: "Widen the range in app16's contract to accept 17.0.0",
+		NextStep: "Widen the range in app16's contract to accept 17.0.0", NextAction: editContract(),
 	}
-	if *it != want {
+	if !reflect.DeepEqual(*it, want) {
 		t.Errorf("item = %+v\nwant %+v", *it, want)
 	}
 	sunset := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-06-30", Successor: "oci://ghcr.io/acme/pg:17.0.0"}

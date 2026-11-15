@@ -11,6 +11,34 @@ import (
 // The text forms below are shared by the CLI and the TUI so the two print a
 // resource the same way.
 
+// ResourceLines is the body of one use row, as the CLI and the TUI print it:
+// the provider's owner and availability (unknown when unset), each request,
+// a warning when the request list was cut, each provisioning status and each
+// consumption.
+func (u OfferingUse) ResourceLines() []string {
+	owner, availability := "unknown", "unknown"
+	if u.ProviderOwner != nil && u.ProviderOwner.Owner != "" {
+		owner = u.ProviderOwner.Owner
+	}
+	if u.ProviderAvailability != nil && u.ProviderAvailability.State != "" {
+		availability = string(u.ProviderAvailability.State)
+	}
+	lines := []string{"owner " + owner + ", availability " + availability}
+	for _, r := range u.Requested {
+		lines = append(lines, r.Text())
+	}
+	if u.RequestedTruncated {
+		lines = append(lines, "requested values may be missing: the configurations list was cut")
+	}
+	for _, st := range u.Provisioning {
+		lines = append(lines, st.Text())
+	}
+	for _, c := range u.Consumption {
+		lines = append(lines, c.Text())
+	}
+	return lines
+}
+
 // Text renders one declared request: its values, the provider revision it
 // resolves to and the provider configuration it selects.
 func (r RequestedConfiguration) Text() string {
@@ -19,6 +47,9 @@ func (r RequestedConfiguration) Text() string {
 		values = append(values, f.Key+"="+f.Value)
 	}
 	s := "requested (" + r.Provenance + "): " + cmp.Or(strings.Join(values, " "), "none")
+	if r.ConsumerRevision != nil {
+		s += ", declared by " + revisionText(r.ConsumerRevision)
+	}
 	if r.Revision != nil {
 		s += ", provider " + revisionText(r.Revision)
 	}
@@ -68,9 +99,10 @@ func (st ProvisioningStatus) Text() string {
 // environment: figures only when reported, otherwise the state, why and the
 // raw figures kept apart.
 func (c ResourceConsumption) Text() string {
+	// The entry tells two consumer entries' figures apart, as in ProvisioningStatus.Text.
 	where := ""
-	if c.Environment != "" {
-		where = " " + c.Environment
+	if w := strings.TrimSpace(c.Environment + " " + c.Entry); w != "" {
+		where = " " + w
 	}
 	switch {
 	case c.State == consumptionNotReported:
@@ -87,6 +119,9 @@ func (c ResourceConsumption) Text() string {
 		s += " (" + strings.Join(append([]string{"reported " + figuresText(c.Reported)}, usageProvenance(c)...), ", ") + ")"
 	case len(c.Conflict) > 0:
 		s += " (" + strings.Join(c.Conflict, ", ") + ")"
+	case c.AsOf != nil:
+		// A report with no figures (failed, unsupported) still says who and when.
+		s += " (" + strings.Join(usageProvenance(c), ", ") + ")"
 	}
 	return s
 }
@@ -105,7 +140,7 @@ func figuresText(f *UsageFigures) string {
 }
 
 // usageProvenance is who reported a usage figure: the producer when named,
-// signed or unsigned, and asOf.
+// signed or unsigned, asOf and the consumer revision it is about.
 func usageProvenance(c ResourceConsumption) []string {
 	parts := []string{c.Producer}
 	if c.Verified {
@@ -115,6 +150,9 @@ func usageProvenance(c ResourceConsumption) []string {
 	}
 	if c.AsOf != nil {
 		parts = append(parts, "asOf "+c.AsOf.UTC().Format(time.RFC3339))
+	}
+	if c.Revision != nil {
+		parts = append(parts, "about "+revisionText(c.Revision))
 	}
 	return slices.DeleteFunc(parts, func(s string) bool { return s == "" })
 }

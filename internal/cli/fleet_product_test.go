@@ -33,6 +33,10 @@ func TestFleetEntities(t *testing.T) {
 	for _, f := range [][]string{
 		{"ord"}, {"--owner", "commerce"}, {"--owner-key", "team:commerce"}, {"--business-domain", "(none)"},
 		{"--offering", "redis"}, {"--status", "NonCompliant"}, {"--sort", "health"}, {"--limit", "1", "--offset", "1"},
+		// Each kind the dashboard lists, and the filters of one kind with no --kind.
+		{"--kind", "revision", "--service", "orders"}, {"--kind", "target", "--environment", "prod"}, {"--source-kind", "local"},
+		{"--source-health", "available"}, {"--readiness", "not-declared"}, {"--scope", "prod"}, {"--capability", "health"},
+		{"--domain", "x"}, {"--source", "local"},
 	} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err != nil {
 			t.Errorf("entities %v: %v", f, err)
@@ -49,11 +53,10 @@ func TestFleetEntities(t *testing.T) {
 
 }
 
-// TestFleetEntitiesRejects: an invalid --sort is an error, and --kind takes
-// only the four kinds pacto_fleet_entities takes.
+// TestFleetEntitiesRejects: an invalid --sort or --kind is an error.
 func TestFleetEntitiesRejects(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	for _, f := range [][]string{{"--sort", "bogus"}, {"--kind", "revision"}} {
+	for _, f := range [][]string{{"--sort", "bogus"}, {"--kind", "bogus"}} {
 		if _, _, err := execFleet(t, append([]string{"fleet", "entities", "--local", root, "--target-state", ev}, f...)...); err == nil {
 			t.Errorf("entities %v is an error", f)
 		}
@@ -96,13 +99,19 @@ func TestFleetAttention(t *testing.T) {
 		t.Fatalf("attention: %v", err)
 	}
 	if !regexp.MustCompile(`(?m)^\d+ of \d+ attention item\(s\):$`).MatchString(out) ||
-		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\)$`).MatchString(out) {
+		!regexp.MustCompile(`(?m)^  \[info\] unowned lonely: .+ \(next: .+\) \(action: edit-contract via pacto_edit\)$`).MatchString(out) {
 		t.Errorf("attention --category unowned:\n%s", out)
+	}
+	// Unknown compliance is never a contract edit: its line names no action.
+	uout, _, err := execFleet(t, append(append([]string{}, base...), "--category", "unknown")...)
+	if err != nil || !strings.Contains(uout, "[warning] unknown ") || strings.Contains(uout, "(action:") {
+		t.Errorf("attention --category unknown = %v:\n%s", err, uout)
 	}
 
 	for _, f := range [][]string{
 		{"--severity", "error"}, {"--owner", "commerce"}, {"--owner-key", "team:commerce"},
 		{"--business-domain", "(none)"}, {"--service", "orders"}, {"--limit", "1", "--offset", "1"},
+		{"--kind", "service"}, {"--key", "lonely"}, {"--source", "local"}, {"--status", "Unknown"}, {"--stale-only"},
 	} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err != nil {
 			t.Errorf("attention %v: %v", f, err)
@@ -113,7 +122,7 @@ func TestFleetAttention(t *testing.T) {
 	if err != nil || !strings.Contains(jout, `"nextOffset": 1`) || !strings.Contains(jout, `"categories"`) {
 		t.Errorf("attention json = %v:\n%s", err, jout)
 	}
-	for _, f := range [][]string{{"--offset", "-1"}, {"--category", "undeclard"}, {"--severity", "critical"}} {
+	for _, f := range [][]string{{"--offset", "-1"}, {"--category", "undeclard"}, {"--severity", "critical"}, {"--kind", "bogus"}, {"--status", "bogus"}} {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err == nil {
 			t.Errorf("attention %v is an error", f)
 		}
@@ -368,5 +377,33 @@ func TestFleetStatusLifecycleFlag(t *testing.T) {
 	out, _, err = execFleet(t, "fleet", "attention", "--category", "lifecycle", "--local", root)
 	if err != nil || !strings.Contains(out, "lifecycle app") {
 		t.Errorf("attention --category lifecycle = %v:\n%s", err, out)
+	}
+}
+
+func TestFleetEntitiesGapFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	// Local bundles alone report no target, so placement is unknown: every
+	// service is unknown, never "runs nowhere", and the knowledge line says so.
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "unknown", "--local", root)
+	if err != nil || !strings.Contains(out, "3 of 3 entit(ies):") || !strings.Contains(out, "Knowledge: 3 services · 0 fully described · 0 with gaps") ||
+		!strings.Contains(out, "· 3 unknown") {
+		t.Errorf("--gap unknown = %v:\n%s", err, out)
+	}
+	out, _, err = execFleet(t, "fleet", "entities", "--kind", "service", "--ownership", "unknown", "--local", root)
+	if err != nil || !strings.HasPrefix(out, "0 of 0 entit(ies):") {
+		t.Errorf("--ownership unknown = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "bogus", "--local", root); err == nil {
+		t.Error("a bad --gap is an error")
+	}
+}
+
+// TestFleetEntitiesOwnerRowFacts: owner and domain rows print the counts the
+// health and gaps sorts order them by.
+func TestFleetEntitiesOwnerRowFacts(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "owner", "--sort", "gaps", "--local", root, "--target-state", ev)
+	if err != nil || !regexp.MustCompile(`services \d+  not compliant \d+  failing health \d+  unknown \d+  stale \d+  with gaps \d+`).MatchString(out) {
+		t.Errorf("owner rows lack their facts (err %v):\n%s", err, out)
 	}
 }

@@ -231,9 +231,17 @@ reaches. What changed, the affected consumers, owners and targets and the
 evidence gaps are folded below it, each with its count. It reads the **currently published** snapshot, the same one the
 Operational Graph shows, so its `snapshotId` matches the graph. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.
+**Plan…** offers what you may do
+([act on what you found](investigate-a-problem.md#act-on-what-you-found)).
 
 ![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-light.png#only-light)
 ![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the Incompatible lane names api-gateway and orders-service](assets/screenshots/dashboard-change-analysis-dark.png#only-dark)
+
+### Which refs a shared dashboard reads
+
+A dashboard that serves other people, signed in or open, takes only `oci://`
+refs of revisions in your view and reads each one's digest-pinned ref, as
+`pacto_impact` does over HTTP. Only a local dashboard reads local folders.
 
 ## What's next
 

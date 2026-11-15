@@ -49,7 +49,7 @@ describe('phaseLabel', () => {
     expect(phaseLabel(st({ ...ready, verified: true }), NOW)).toBe('Ready (reported by platform-adapter through evidence, 2 hours ago)');
   });
   it('says a target-state file is unsigned', () => {
-    expect(phaseLabel(st({ ...ready, verified: false, sourceKind: 'target-state' }), NOW)).toBe('Ready (unsigned target-state file, 2 hours ago)');
+    expect(phaseLabel(st({ ...ready, verified: false, sourceKind: 'target-state (unsigned)' }), NOW)).toBe('Ready (unsigned target-state file, 2 hours ago)');
   });
   it('names the source of an unsigned report that is not a target-state file', () => {
     expect(phaseLabel(st({ ...ready, verified: false, source: 'k8s-production', sourceKind: 'kubernetes' }), NOW)).toBe('Ready (unsigned report through k8s-production, 2 hours ago)');

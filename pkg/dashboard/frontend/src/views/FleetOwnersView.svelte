@@ -5,6 +5,7 @@
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { fleetOverviewUrl, fleetOwnersUrl, fleetServicesUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, ownerRanking } from '../lib/distributions.ts';
+  import { joinAnd } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
@@ -81,7 +82,7 @@
   function removeChip(key) { location.hash = urlWith({ [key]: key === 'nc' ? false : '' }); }
   // An owner's non-compliant count is of the services it owns outright, so its link
   // lists exactly those, as the rank figure's lanes do.
-  const ncHref = (ref) => fleetServicesUrl({ ownerKey: ref.key, ownership: 'consistent', status: 'NonCompliant' });
+  const statusHref = (ref, status) => fleetServicesUrl({ ownerKey: ref.key, ownership: 'consistent', status });
 
   // The ownership picture above the inventory.
   //
@@ -142,8 +143,10 @@
     const rest = [
       o.conflicting ? `${formatCount(o.conflicting)} ${o.conflicting === 1 ? 'is' : 'are'} disputed` : '',
       o.unowned ? `${formatCount(o.unowned)} ${o.unowned === 1 ? 'has' : 'have'} no owner` : '',
-    ].filter(Boolean).join(' and ');
-    return { lead: `${formatCount(o.consistent ?? 0)} of ${formatCount(services)} ${services === 1 ? 'service has' : 'services have'} one clear owner.`, rest: rest ? `${rest[0].toUpperCase()}${rest.slice(1)}.` : '' };
+      o.unknown ? `${formatCount(o.unknown)} ${o.unknown === 1 ? 'has an owner' : 'have owners'} Pacto cannot read` : '',
+    ].filter(Boolean);
+    const restText = joinAnd(rest);
+    return { lead: `${formatCount(o.consistent ?? 0)} of ${formatCount(services)} ${services === 1 ? 'service has' : 'services have'} one clear owner.`, rest: restText ? `${restText[0].toUpperCase()}${restText.slice(1)}.` : '' };
   });
 </script>
 
@@ -244,7 +247,7 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <GroupTable kind="owner" entities={list.entities} {order} {sortHref} {ncHref} testid="owner-list" />
+    <GroupTable kind="owner" entities={list.entities} {order} {sortHref} {statusHref} testid="owner-list" />
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />
   {/if}
 </div>

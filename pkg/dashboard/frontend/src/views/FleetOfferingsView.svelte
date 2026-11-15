@@ -28,7 +28,7 @@
   let { text = '', lifecycle = '', failed = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  // The figure's ranking (T3): the offerings with most failed requests first.
+  // The figure's ranking (T3): the offerings with the most consumers with a failed request first.
   const DEFAULT_SORT = 'failed';
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
@@ -92,7 +92,6 @@
     const st = r.availability || 'unknown';
     return st !== 'unknown' && r.availabilityProvenance ? `${st} · ${r.availabilityProvenance}` : st;
   };
-  const hiddenNote = (r) => `${plural(r.hiddenConsumers, 'consumer', 'consumers')} you may not see ${r.hiddenConsumers === 1 ? 'is' : 'are'} not counted`;
   // Count headers are links that ask the server for that order; the active one carries aria-sort.
   const SORTS = { consumers: 'Consumers', failed: 'Failed' };
   // The Owners column is sized to the longest owner on the page, capped (T1).
@@ -124,7 +123,7 @@
       <input type="checkbox" checked={onlyFailed} onchange={(e) => { location.hash = urlWith({ failed: e.currentTarget.checked }); }} data-testid="offering-failed-filter" />
       Only offerings with a failed request
     </label>
-    <ListSort value={order} options={[['failed', 'Most failed requests first'], ['consumers', 'Most consumers first'], ['name', 'Name'], ['services', 'Most providers first']]} href={sortHref} testid="offering-sort" />
+    <ListSort value={order} options={[['failed', 'Most consumers with a failed request first'], ['consumers', 'Most consumers first'], ['name', 'Name'], ['services', 'Most providers first']]} href={sortHref} testid="offering-sort" />
   </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
@@ -177,21 +176,22 @@
             {@const consumers = ref.consumers ?? 0}
             {@const failedN = ref.failedRequests ?? 0}
             {@const hidden = ref.hiddenConsumers ?? 0}
+            {@const hiddenP = ref.hiddenProviders ?? 0}
             <tr animate:flip={{ duration: dur(MOTION.row) }}>
               <th scope="row">
-                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span></span>
+                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
               </th>
               <td data-label="Owners">{#if ref.owner}<span class="cell-clip" title={ref.owner}><bdi>{ref.owner}</bdi></span>{:else}<span class="t-meta">none declared</span>{/if}</td>
               <td data-label="Lifecycle"><span class="badge badge-{lc[1]}">{lc[0]}</span></td>
-              <td data-label="Availability"><span class="badge badge-{AVAILABILITY_TONE[av] ?? 'neutral'}" class:hatch={av === 'unknown'} title={ref.availabilityProvenance ? `${av}, ${ref.availabilityProvenance}` : av}>{availabilityLabel(ref)}</span></td>
+              <td data-label="Availability"><span class="badge badge-{AVAILABILITY_TONE[av] ?? 'neutral'}" title={ref.availabilityProvenance ? `${av}, ${ref.availabilityProvenance}` : av}>{#if av === 'unknown'}<span class="ot-hatch hatch" aria-hidden="true"></span>{/if}{availabilityLabel(ref)}</span></td>
               <td class="num" data-label="Consumers">
-                {#if consumers}<a href={fleetServicesUrl({ consumes: ref.key })}>{formatCount(consumers)}</a>{:else}<span data-nofilter>0</span>{/if}{#if hidden}<span class="ot-hidden" title={hiddenNote(ref)}>{` +${formatCount(hidden)}`}</span><span class="visually-hidden">, {hiddenNote(ref)}</span>{/if}
+                {#if consumers}<a href={fleetServicesUrl({ consumes: ref.key })}>{formatCount(consumers)}</a>{:else}<span data-nofilter>0</span>{/if}{#if hidden}<span class="t-meta ot-note" data-testid="offering-hidden-consumers">+{formatCount(hidden)} you may not see</span>{/if}
               </td>
               <td class="num" data-label="Failed">
-                {#if failedN}<a href={fleetServicesUrl({ consumes: ref.key, phase: 'failed' })}>{formatCount(failedN)}</a>{:else}<span data-nofilter>{hidden ? '0 seen' : '0'}</span>{/if}{#if hidden}<span class="visually-hidden">, {hiddenNote(ref)}</span>{/if}
+                {#if failedN}<a href={fleetServicesUrl({ consumes: ref.key, phase: 'failed' })}>{formatCount(failedN)}</a>{:else}<span data-nofilter>{hidden ? '0 seen' : '0'}</span>{/if}{#if hidden}<span class="t-meta ot-note">of the consumers you may see</span>{/if}
               </td>
               <td class="num" data-label="Observed targets">
-                {#if ref.targetsUnknown}<span class="t-meta" title="You may not see every target of these providers">unknown</span><span class="visually-hidden">: you may not see every target of these providers</span>{:else}<span data-nofilter>{formatCount(ref.targets ?? 0)}</span>{/if}
+                {#if ref.targetsUnknown}<span class="t-meta" title="You may not see every target of these providers, or a target source is incomplete">unknown</span><span class="visually-hidden">: you may not see every target of these providers, or a target source is incomplete</span>{:else}<span data-nofilter>{formatCount(ref.targets ?? 0)}</span>{/if}
               </td>
             </tr>
           {/each}
@@ -205,7 +205,8 @@
 <style>
   .ov-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
-  .lv-search .input { flex: 1; }
+  /* The input yields its intrinsic width, so the button stays inside the form at its floor. */
+  .lv-search .input { flex: 1; min-width: 0; }
   .ov-failed { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   @media (pointer: coarse) { .ov-failed { min-height: 44px; } }
   .ov-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--c-text-2); }
@@ -213,7 +214,10 @@
   .ot .num { text-align: right; font-variant-numeric: tabular-nums; }
   .ot-sort { color: inherit; text-decoration: none; }
   .ot-sort:hover, .ot-sort:focus-visible { text-decoration: underline; }
-  .ot-hidden { color: var(--c-text-3); }
+  /* The words beside a hidden count stay visible: a title is unreachable on touch. */
+  .ot-note { display: block; overflow-wrap: anywhere; }
+  /* The grey hatch marks unknown; it sits beside the word, never behind text. */
+  .ot-hatch { display: inline-block; inline-size: 0.75em; block-size: 0.75em; margin-inline-end: var(--sp-1); border-radius: 2px; vertical-align: middle; box-shadow: inset 0 0 0 1px var(--c-neutral); }
   /* A count link sits beside the hidden-consumers note, so it is underlined, never told by color alone. */
   .ot td a { text-decoration: underline; }
   /* Seven columns, five of them fixed: cards below their sum plus room for the two

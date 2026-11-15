@@ -17,6 +17,7 @@
   import { api } from '../../lib/api.ts';
   import { inService } from '../../lib/identityContext.ts';
   import TargetFigure from '../../components/figure/TargetFigure.svelte';
+  import StageOffers from '../../components/StageOffers.svelte';
 
   // The deployment/target page. It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -27,8 +28,9 @@
   // contradictory (they are separate badges with independent tones). An
   // ambiguous/unresolved match NEVER presents a specific revision as authoritative.
   // `deliveryState` is whether this dashboard serves delivery: only 'enabled' asks
-  // which Stage delivers this target's environment.
-  let { detail, deliveryState = 'unknown' } = $props();
+  // which Stage delivers this target's environment, and offers what the caller may do there.
+  // `correlation` is the investigation's ticket or incident id (the URL's correlationID).
+  let { detail, deliveryState = 'unknown', correlation = '' } = $props();
   const d = $derived(detail.target ?? {});
   const id = $derived(d.identity ?? {});
   // A specific revision is authoritative ONLY when the match is exact or inferred.
@@ -129,6 +131,7 @@
         {#if deliveryRows.length}
           <!-- Several Stages deliver this environment: each link names its Stage, so no two read alike (WCAG 2.4.4). -->
           {#each deliveryRows as row (row.namespace + '/' + row.stage)}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}{#if deliveryRows.length > 1}{' '}(<bdi>{row.namespace}/{row.stage}</bdi>){/if}</a>{/each}
+          <div class="te-offers"><StageOffers rows={deliveryRows} service={svcName} onlyAvailable labelPrefix="Plan" {correlation} /></div>
         {:else if delivery.error}
           <span class="te-note">Pacto could not read the Stages of this service: {delivery.error.message || String(delivery.error)}</span>
         {:else}
@@ -236,5 +239,6 @@
   .te-rr-head h2 { margin: 0; }
   .te-rr-line, .te-note { margin: 0; }
   .te-expired { color: var(--c-warn); }
+  .te-offers { flex-basis: 100%; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .te-env-reason { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

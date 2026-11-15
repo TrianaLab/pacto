@@ -11,8 +11,8 @@ viewer may not see. Each use carries `providerOwner`, `providerAvailability`,
 row) and `consumption`, which reads `not-reported` until a provider reports
 usage or cost. A new `provisioning` attention category raises
 `PROVISIONING_FAILED` and `PROVISIONING_STALE`; a resource's phase never changes
-the service's compliance. `pacto fleet entity service` prints a Resources block
-with provenance, and the dashboard's service page gains a Resources section
+the service's compliance. `pacto fleet entity service` and the TUI's service
+page print a Resources block with provenance, and the dashboard's service page gains a Resources section
 that joins each use with its requested configuration.
 
 Provider adapters can report a resource's usage and cost with the new

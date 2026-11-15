@@ -120,6 +120,23 @@ func TestUsageConflictIsUnknown(t *testing.T) {
 	}
 }
 
+// One producer seen through two sources is one origin: its later sample
+// supersedes the earlier, it never disagrees with it.
+func TestUsageSameProducerTwoSourcesNoConflict(t *testing.T) {
+	later := fixedNow().Add(-30 * time.Minute)
+	newer := usageReport(func(r *RawUsage) {
+		r.ObservedAt, r.AcceptedAt, r.Metrics = later, &later, []evidence.UsageMetric{{Name: "storage-used", Value: 31.2, Unit: "Gi"}}
+	})
+	cs, lims := consumption(t, NewQuery(usageSnap(t, 0, ordersFleet(), []RawUsage{usageReport()}, []RawUsage{newer})))
+	c := one(t, cs)
+	if c.State != consumptionReported || c.Conflict != nil || c.Figures.Metrics[0].Value != 31.2 || countLimitations(lims, LimitationUsageConflict) != 0 {
+		t.Errorf("consumption = %+v, limitations = %+v", c, lims)
+	}
+	if c.Revision == nil || c.Revision.Version != "1.3.0" {
+		t.Errorf("revision = %+v, want the report's consumer revision", c.Revision)
+	}
+}
+
 func TestUsageForeignRevisionIsUnknown(t *testing.T) {
 	cs, _ := consumption(t, NewQuery(usageSnap(t, 0, ordersFleet(), []RawUsage{usageReport(func(r *RawUsage) { r.Digest = testDigest(acme, "orders", "1.2.0") })})))
 	c := one(t, cs)
@@ -342,8 +359,10 @@ func hiddenMailUsageSnap(t *testing.T) *FleetSnapshot {
 	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("oci", "oci", base),
 		NewMemorySource("evidence-0", "evidence-http", &Collection{
-			Provisioning: []RawProvisioning{mailReport(failed, func(r *RawProvisioning) { r.ExternalRef = "arn:hidden-sender" })},
-			Usage:        []RawUsage{usageReport(mail), usageReport(db)},
+			Provisioning: []RawProvisioning{mailReport(failed, func(r *RawProvisioning) {
+				r.ExternalRef, r.Producer, r.ProducerKeyID = "arn:hidden-sender", "hush-ses-adapter", "hush-k1"
+			})},
+			Usage: []RawUsage{usageReport(mail), usageReport(db)},
 		}))
 	if err != nil {
 		t.Fatal(err)
@@ -368,7 +387,8 @@ func TestAttackHiddenProviderCostWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "arn:hidden-sender") || strings.Contains(string(data), `"ses"`) {
+	if strings.Contains(string(data), "arn:hidden-sender") || strings.Contains(string(data), `"ses"`) ||
+		strings.Contains(string(data), "hush-ses-adapter") || strings.Contains(string(data), "hush-k1") {
 		t.Errorf("restricted snapshot names the hidden provider's resource:\n%s", data)
 	}
 	if items := provisioningItems(t, r); len(items) != 1 || items[0].Code != codeProvisioningFailed {

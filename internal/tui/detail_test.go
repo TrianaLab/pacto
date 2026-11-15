@@ -713,7 +713,7 @@ func TestRenderDetailForAnOfferingAvailability(t *testing.T) {
 				Successor: &fleet.SuccessorInfo{Ref: "oci://x/pg:17.0.0", Revision: &rev}, LatestSupported: &fleet.EntityRef{Label: "pg 16.0.1"},
 			}}},
 			Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{
-				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg"}, SuccessorRange: fleet.RangeUnsatisfied,
+				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg"}, SuccessorRange: fleet.RangeUnsatisfied, SupportedRange: fleet.RangeUnknown,
 			}}},
 			ObservedConsumers:       fleet.ObservedConsumersPreview{Total: 1, Count: 1, Items: []fleet.ObservedConsumer{{Caller: "10.0.0.1", Uncontracted: true}}},
 			HiddenObservedConsumers: 2,
@@ -721,7 +721,7 @@ func TestRenderDetailForAnOfferingAvailability(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Availability", "degraded", "  prod: degraded (inferred, 1 of 2 consumers cannot reach it) [partial]", "1 you may not see",
-		"    prod: degraded (inferred", "oci://x/pg:17.0.0 (pg 17.0.0)", "pg 16.0.1", "orders -> pg, successor range unsatisfied",
+		"    prod: degraded (inferred", "oci://x/pg:17.0.0 (pg 17.0.0)", "pg 16.0.1", "orders -> pg, successor range unsatisfied, latest supported range unknown",
 		"Also calling a provider (observed, no declaration): 10.0.0.1 (no contract, last seen unknown)", "Observed callers you may not see: 2",
 	} {
 		if !strings.Contains(out, want) {
@@ -757,9 +757,12 @@ func TestRenderServiceResources(t *testing.T) {
 		t.Errorf("no resources, no section:\n%s", b.String())
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency}}}}, fleet.CompletenessComplete)
-	if !strings.Contains(b.String(), "email-provider (no offering) via dependency") {
-		t.Errorf("a non-offering resource says so:\n%s", b.String())
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete)
+	// A cut request list and an unknown owner say so, as the CLI prints them.
+	for _, want := range []string{"email-provider (no offering) via dependency", "owner unknown, availability unknown", "requested values may be missing: the configurations list was cut"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("resources lack %q:\n%s", want, b.String())
+		}
 	}
 }
 

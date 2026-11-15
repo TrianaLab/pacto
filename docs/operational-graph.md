@@ -103,6 +103,76 @@ source that is down shows even when the snapshot calls itself complete.
 **An unavailable source means missing data.** A partial answer with zero rows
 is a set Pacto could not finish building.
 
+## Organizational health and knowledge
+
+Unknown is never a pass: Pacto reports what it cannot see as unknown and never
+counts it as healthy.
+
+The dashboard overview, `pacto fleet overview` and the MCP tool
+`pacto_fleet_overview` return one answer to "how healthy is the organization
+and how much do we know?". Pacto computes no score from it. Each count opens
+the list of exactly what it counts, and every partition keeps its own unknown
+bucket.
+
+### Three questions about a target
+
+Each operational target answers three questions separately:
+
+| Question | Answer | Where |
+|----------|--------|-------|
+| Does it obey its contract? | `Compliant`, `NonCompliant`, `Unknown` and the other compliance states | `compliantTargets` and its siblings |
+| Is its own health check passing? | Healthy, Failing, Unknown or Not observed | `operationalHealth` |
+| How recently did we look? | Fresh, stale or never observed | `evidence` |
+
+A target is **Failing** when its declared health check answered and reports it
+is not healthy. The source records the finding `HEALTH_FAILING`, and compliance
+stays `Unknown`: a failing check neither satisfies nor contradicts the
+contract. A target is **Unknown** when Pacto cannot tell, for example because
+no evidence arrived or the evidence is stale. A target is **Healthy** only when
+its contract revision declares a health check, a source evaluated it on fresh
+evidence and no finding names it. **Not observed** means the revision declares
+no health check.
+
+In the demo, the `gift-cards` target is Failing and its compliance is
+`Unknown`. The `audit-log` target is Compliant on evidence older than the
+freshness window, so it stays Compliant, counts in `staleCompliantTargets` and
+its health is Unknown. The dashboard draws stale Compliant targets hatched.
+
+![The overview's Operational health band for the demo: of 19 operational targets, 1 fails its health check, Pacto cannot tell the health of 6 and 12 declare no health check](assets/screenshots/dashboard-overview-health-light.png#only-light)
+![The overview's Operational health band for the demo: of 19 operational targets, 1 fails its health check, Pacto cannot tell the health of 6 and 12 declare no health check](assets/screenshots/dashboard-overview-health-dark.png#only-dark)
+
+### What the contracts leave out
+
+Knowledge partitions the services that are no golden path into Described, With
+gaps and Unknown. A service is Described only when Pacto read its current
+contract and the OpenAPI documents it names and nothing is missing. Pacto
+reads no gRPC or AsyncAPI document. The gaps are:
+
+- **No summary**: no revision declares `service.summary`;
+- **No domain**: the service has no business domain;
+- **No interface document**: an interface declares no document. A declared
+  document Pacto could not read is unknown, never a gap;
+- **No readiness assessment**: the current revision carries none;
+- **Runs nowhere**: the service has no operational target. Pacto counts it
+  only when at least one target source is configured, every target source is
+  available and your view sees every target;
+- **Unverified capability**: the current revision declares an extension
+  capability that no evaluator verifies.
+
+A service whose contract or OpenAPI document Pacto cannot read, whose
+summaries or business domains conflict or whose placement Pacto cannot see is
+Unknown, and its
+attention item names the cause.
+
+Ownership keeps two cases apart. **No declared owner** means Pacto read the
+contracts and none declares an owner. **Owner unknown** means Pacto cannot read
+the contract, so it cannot tell whether an owner is declared.
+
+![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)
+![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-dark.png#only-dark)
+
+The [tallies reference](operational-graph-tallies.md) lists every field.
+
 ## Who consumes it
 
 A human portal and an agent consume the *same* graph.
@@ -145,14 +215,17 @@ flowchart LR
   gathers one service's owner, contract, dependencies, targets, delivery and
   signatures.
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
-  `entities`, `entity` and `attention` for owners, domains, offerings and
-  what needs attention, `neighborhood` for the services around one service
-  and `reconcile` and `snapshot`. Scriptable, deterministic output.
+  `overview` for the organization in one answer, `entities`, `entity` and
+  `attention` for owners, domains, offerings and what needs attention,
+  `neighborhood` for the services around one service, `versions` for an
+  offering's versions and `reconcile` and `snapshot`. Scriptable,
+  deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
-  `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention` and
-  `pacto_fleet_neighborhood`, plus
-  [`pacto_impact`](impact.md), give an agent read-only understanding of the
+  `pacto_fleet_overview`, `pacto_fleet_entities`, `pacto_fleet_entity`,
+  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`
+  and `pacto_fleet_revision_document`, plus
+  [`pacto_impact`](impact.md) and `pacto_stats`, give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 
@@ -224,6 +297,8 @@ demand and versioned by its as-of time.
 
 - [Operational graph reference](operational-graph-reference.md): sources,
   the target-state file, query semantics and owner keys
+- [Operational graph tallies](operational-graph-tallies.md): every count,
+  knowledge-gap filter and attention category
 - [The Pacto model](model.md): the engine, the compliance states and the
   boundaries the graph inherits
 - [Impact analysis](impact.md): the consumers a change affects, projected onto

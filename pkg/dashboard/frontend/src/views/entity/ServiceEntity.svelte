@@ -111,7 +111,7 @@
   // Drill-downs from the posture bars stay scoped to THIS service, by canonical key.
   // Sending a service page's "3 non-compliant" to the fleet-wide backlog would answer
   // a question the user did not ask and lose the three rows they clicked for.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ service: key, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ service: key, category, ...extra }));
   // Drift rows are only worth a line each when they are non-zero; a service with no
   // declared dependencies should not be told about seven kinds of zero. Each row links
   // to where its dependencies are listed: the attention item when one exists, else the
@@ -162,7 +162,10 @@
   // declarations and reports, so the number is a lower bound.
   const hiddenProviders = $derived(d.hiddenProviders ?? 0);
   // Configuration entries a resource row already shows as a request: listed by name only.
-  const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? []).map((r) => r.entry))));
+  // Only a request the current revision declares folds its Configuration entry: another
+  // revision's request leaves the current values shown where they are.
+  const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
+    .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
 </script>
 
@@ -221,7 +224,7 @@
     {/if}
     <div class="se-fact" data-testid="service-resources-fact">
       <span class="se-k">Resources</span>
-      <button type="button" class="se-jump" onclick={() => scrollToSection('sec-resources')}>{formatCount(used.total ?? 0)}{(used.phases?.failed ?? 0) > 0 ? `, ${formatCount(used.phases.failed)} failed ${used.phases.failed === 1 ? 'request' : 'requests'}` : ''}</button>
+      <button type="button" class="se-jump" onclick={() => scrollToSection('sec-resources')}>{formatCount(used.total ?? 0)}{(used.phases?.failed ?? 0) > 0 ? `, ${formatCount(used.phases.failed)} failed ${used.phases.failed === 1 ? 'request' : 'requests'}` : ''}{hiddenProviders > 0 ? `, at least ${formatCount(hiddenProviders)} you may not see` : ''}</button>
     </div>
     <div class="se-fact" data-testid="service-capabilities">
       <span class="se-k">Declared capabilities</span>

@@ -109,7 +109,7 @@ describe('service page: owner fact', () => {
     expect(text(f)).not.toContain('No declared owner');
     const a = f.querySelector('a[href]')!;
     expect(a.getAttribute('href')).toBe(unowned);
-    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.");
+    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.");
     done();
   });
 
@@ -507,6 +507,8 @@ describe('service page: platform offerings', () => {
     expect(text(s)).not.toContain('None');
     expect(text(s.querySelector('[data-testid="hidden-providers"]'))).toBe('At least 2 resources from providers you may not see.');
     expect(t.querySelectorAll('[data-testid="hidden-providers"]').length).toBe(1);
+    // The header fact never reads a confident zero while providers are hidden.
+    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 0, at least 2 you may not see');
     expect(text(fact(t, 'resources-footer'))).toContain(FOOTER);
     done();
   });
@@ -533,7 +535,7 @@ describe('service page: platform offerings', () => {
 
   it('lists a configuration entry a resource requests by name only, with a jump to Resources', async () => {
     const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
-      requested: [{ entry: 'database', provenance: 'declared', values: preview([{ key: 'size', value: 'medium' }], { scanned: 1 }) }] }]);
+      requested: [{ entry: 'database', provenance: 'declared', consumerRevision: rev('1'), values: preview([{ key: 'size', value: 'medium' }], { scanned: 1 }) }] }]);
     const configurations = preview([
       { name: 'database', ref: 'oci://ghcr.io/acme/postgresql:16.1.0', resolution: { service: pg }, values: preview([{ key: 'size', value: 'medium' }]) },
       { name: 'main', schema: 'configuration/schema.json' },
@@ -544,6 +546,20 @@ describe('service page: platform offerings', () => {
     expect(cfgs.querySelectorAll('[data-testid="configuration-resource"]').length).toBe(1);
     expect(cfgs.querySelectorAll('.kv-table').length).toBe(0);
     expect(text(section(t).querySelector('[data-testid="preview-count"]'))).toBe('1 of 1');
+    done();
+  });
+
+  it('keeps the current entry whole when another revision makes the request', async () => {
+    const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
+      requested: [{ entry: 'database', provenance: 'declared', consumerRevision: rev('2'), values: preview([{ key: 'size', value: 'large' }], { scanned: 1 }) }] }]);
+    const configurations = preview([
+      { name: 'database', ref: 'oci://ghcr.io/acme/postgresql:16.1.0', resolution: { service: pg }, values: preview([{ key: 'size', value: 'small' }]) },
+    ]);
+    const { target: t, done } = await render(detail({ consumedOfferings: used, configurations, currentRevision: rev('1') }));
+    const cfgs = fact(t, 'service-configuration')!;
+    expect(cfgs.querySelector('[data-testid="configuration-resource"]')).toBeNull();
+    expect(text(cfgs)).toContain('small');
+    expect(text(res(t))).toContain('declared by payments 2');
     done();
   });
 

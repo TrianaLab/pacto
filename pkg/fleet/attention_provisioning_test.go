@@ -169,8 +169,8 @@ func TestFailedResourceLeavesServiceStatus(t *testing.T) {
 
 func TestAttentionCategoryOrderHasProvisioning(t *testing.T) {
 	cats := AttentionCategoriesList()
-	if i := slices.Index(cats, categoryProvisioning); i < 1 || cats[i-1] != categoryInvalid {
-		t.Errorf("provisioning is not right after invalid: %v", cats)
+	if i := slices.Index(cats, categoryProvisioning); i < 1 || cats[i-1] != categoryHealth {
+		t.Errorf("provisioning is not right after health: %v", cats)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestProvisioningAttentionSortedAndCountedOnOverview(t *testing.T) {
 		items[1].Label != "notifier: email-provider in staging is Failed" {
 		t.Fatalf("items = %+v", items)
 	}
-	if got := q.servicesNeedingAttention(); got != 1 {
+	if got := q.servicesNeedingAttention(items); got != 1 {
 		t.Errorf("servicesNeedingAttention = %d, want notifier only", got)
 	}
 }

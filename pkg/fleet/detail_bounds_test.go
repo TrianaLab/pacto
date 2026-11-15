@@ -352,7 +352,7 @@ func TestOwnerDetailAttentionTrueTotal(t *testing.T) {
 		revs[i] = RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: fmt.Sprintf("sha256:%04d", i)}
 	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
-		NewMemorySource("local", "local", &Collection{Revisions: revs}))
+		NewMemorySource("local", "local", &Collection{Revisions: revs}), emptyTargetSource())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,8 +361,10 @@ func TestOwnerDetailAttentionTrueTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	att := d.Owner.Attention
-	if att.Total != over {
-		t.Errorf("owner attention total = %d, want the TRUE matched total %d (double-truncation regression)", att.Total, over)
+	// Each service also raises three knowledge items: no summary, no domain and
+	// runs nowhere.
+	if att.Total != 4*over {
+		t.Errorf("owner attention total = %d, want the TRUE matched total %d (double-truncation regression)", att.Total, 4*over)
 	}
 	if att.Count != MaxDetailPreview || !att.Truncated {
 		t.Errorf("owner attention preview = {count:%d trunc:%v}, want count=%d trunc=true", att.Count, att.Truncated, MaxDetailPreview)

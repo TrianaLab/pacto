@@ -22,8 +22,13 @@ import (
 // ImpactOptions configures blast-radius analysis of a change from an old to a new
 // contract revision, projected onto a fleet snapshot assembled from Fleet.
 type ImpactOptions struct {
-	OldPath      string
-	NewPath      string
+	OldPath string
+	NewPath string
+	// Domain qualifies the changed service when NewPath cannot: a local path
+	// names no registry, so a caller that knows the service's fleet domain
+	// (an edit of a checkout of ghcr.io/acme/orders) passes ghcr.io/acme.
+	// Empty derives the domain from NewPath.
+	Domain       string
 	OldOverrides override.Overrides
 	NewOverrides override.Overrides
 	Fleet        FleetOptions
@@ -34,6 +39,9 @@ type ImpactOptions struct {
 	// Traces is optional OTLP/JSON trace data; its observed caller→provider edges
 	// corroborate declared consumers and surface shadow (observed-only) ones.
 	Traces []byte
+	// OnResolved is called by [Service.Impact] once both revisions resolve;
+	// nil does nothing. The snapshot paths never call it.
+	OnResolved func(old, new *contract.Bundle)
 }
 
 // Impact builds a fleet snapshot from the configured sources and analyzes the
@@ -44,6 +52,9 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if opts.OnResolved != nil {
+		opts.OnResolved(oldBundle, newBundle)
 	}
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
@@ -82,7 +93,7 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
 	var err error
-	domain := revisionDomain(opts.NewPath)
+	domain := opts.domain()
 	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
 	if added {
 		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
@@ -105,6 +116,15 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 	}
 	res.NewRevisionAdded = added
 	return res, nil
+}
+
+// domain is the changed service's fleet domain: Domain when set, else the
+// domain of the reference that resolved the new revision.
+func (o ImpactOptions) domain() string {
+	if o.Domain != "" {
+		return o.Domain
+	}
+	return revisionDomain(o.NewPath)
 }
 
 func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {
@@ -131,7 +151,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:          revisionDomain(opts.NewPath),
+			Domain:          opts.domain(),
 			IncludeObserved: opts.IncludeObserved,
 			ObservedEdges:   observed,
 		}), nil

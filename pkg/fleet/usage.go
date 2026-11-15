@@ -190,6 +190,8 @@ func usageConsumption(recs []*UsageRecord, revs map[string]*ContractRevision, cu
 	c.Source, c.Producer, c.ProducerKeyID, c.Verified = newest.Source, newest.Producer, newest.ProducerKeyID, newest.Verified
 	figures := &UsageFigures{Metrics: newest.Metrics, Cost: newest.Cost}
 	rev := revs[newest.Digest]
+	ref := revisionEntityRef(rev)
+	c.Revision = &ref
 	switch {
 	case newest.Outcome != string(evidence.Observed):
 		c.Reason = "the provider reported " + strings.ToLower(newest.Outcome)
@@ -206,20 +208,28 @@ func usageConsumption(recs []*UsageRecord, revs map[string]*ContractRevision, cu
 }
 
 // usageConflict is the sorted producers of the Observed current reports when
-// they report different figures, nil when they agree.
+// they report different figures, nil when they agree. One producer seen
+// through several sources counts once, by its newest report: a later sample
+// supersedes an earlier one, it never disagrees with it.
 func usageConflict(current []*UsageRecord) []string {
-	figures := map[string]bool{}
-	producers := map[string]bool{}
+	byProducer := map[string]*UsageRecord{}
 	for _, r := range current {
-		if r.Outcome == string(evidence.Observed) {
-			figures[figuresKey(r)] = true
-			producers[cmp.Or(r.Producer, r.Source)] = true
+		if r.Outcome != string(evidence.Observed) {
+			continue
 		}
+		p := cmp.Or(r.Producer, r.Source)
+		if l, ok := byProducer[p]; !ok || l.at().Before(r.at()) {
+			byProducer[p] = r
+		}
+	}
+	figures := map[string]bool{}
+	for _, r := range byProducer {
+		figures[figuresKey(r)] = true
 	}
 	if len(figures) < 2 {
 		return nil
 	}
-	return slices.Sorted(maps.Keys(producers))
+	return slices.Sorted(maps.Keys(byProducer))
 }
 
 // figuresKey compares two reports' figures, whatever order they list the

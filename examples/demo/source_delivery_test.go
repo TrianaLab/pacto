@@ -111,7 +111,7 @@ func TestViewsFollowALaterStep(t *testing.T) {
 		return ""
 	}
 	before := pointer()
-	if _, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0")}); err != nil {
+	if _, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), OnBehalfOf: story.Dana.User}); err != nil {
 		t.Fatal(err)
 	}
 	if pointer() != before || len(queued) != 1 {
@@ -173,7 +173,7 @@ func storyReplayed(t *testing.T, d *demoDelivery) {
 // checkout and orders, and checkout 1.9.0 can move first.
 func storyHeld(t *testing.T, d *demoDelivery, h http.Handler) (delivery.OperationObject, string) {
 	t.Helper()
-	body := `{"namespace":"prod","stage":"payments","to":"` + digest("payments", "3.0.0") + `"}`
+	body := `{"namespace":"prod","stage":"payments","onBehalfOf":"dana@example.com","to":"` + digest("payments", "3.0.0") + `"}`
 	var proposed struct {
 		Operation delivery.OperationObject `json:"operation"`
 	}
@@ -205,7 +205,7 @@ func storyApproved(t *testing.T, d *demoDelivery, h http.Handler, decide string)
 
 	// B6: checkout 1.9.0 ships with nobody, and the held change now asks
 	// only orders.
-	body := `{"namespace":"prod","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
+	body := `{"namespace":"prod","stage":"checkout","onBehalfOf":"dana@example.com","to":"` + digest("checkout", "1.9.0") + `"}`
 	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 || proposed.Operation.Status.Phase != delivery.PhaseConcluded {
 		t.Fatalf("B6 checkout: %d %+v", code, proposed.Operation.Status)
 	}
@@ -449,7 +449,7 @@ func TestDemoPathsDiffer(t *testing.T) {
 // undo's plan is checked in storyRecords).
 func TestDemoPlanHasNext(t *testing.T) {
 	d, h := demoServer(t)
-	req := `{"namespace":"` + story.Prod + `","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","onBehalfOf":"dana@example.com","to":"` + digest("checkout", "1.9.0") + `"}`
 	var p delivery.PlanAnswer
 	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 || p.IntentDigest == "" || len(p.Next) == 0 {
 		t.Fatalf("plan %d %+v", code, p)
@@ -460,7 +460,7 @@ func TestDemoPlanHasNext(t *testing.T) {
 	if code := call(t, h, "POST", "/api/delivery/operations", req, &out); code != 201 || len(out.Plan.Next) == 0 {
 		t.Fatalf("propose %d %+v", code, out)
 	}
-	_, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), IntentDigest: "stale"})
+	_, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), IntentDigest: "stale", OnBehalfOf: story.Dana.User})
 	var refused *dashboard.DeliveryError
 	if !errors.As(err, &refused) || refused.Plan == nil || len(refused.Plan.Next) == 0 {
 		t.Fatalf("a stale propose carries the fresh plan with next: %v", err)
@@ -656,9 +656,10 @@ func TestDemoProgressStates(t *testing.T) {
 	}
 }
 
-// TestDemoHistoryFilters: B1's promote to prod carries a change ticket, so
-// the correlation filter finds it, and the cause filter finds the rollback
-// and step-down its failed health check raised.
+// TestDemoHistoryFilters: B1's promote to prod carries a change ticket, and
+// the rollback and step-down its failed health check raised inherit it, so
+// the correlation filter finds all three (newest first), and the cause filter
+// finds the rollback and the step-down.
 func TestDemoHistoryFilters(t *testing.T) {
 	_, h := demoServer(t)
 	ops := func(query string) []string {
@@ -676,10 +677,88 @@ func TestDemoHistoryFilters(t *testing.T) {
 		}
 		return names
 	}
-	if got := ops("correlationID=" + demoCorrelation); !slices.Equal(got, []string{"payments-promote-2"}) {
+	if got := ops("correlationID=" + demoCorrelation); !slices.Equal(got, []string{"payments-autonomy-4", "payments-rollback-3", "payments-promote-2"}) {
 		t.Errorf("correlation: %v", got)
 	}
 	if got := ops("cause=error+ratio"); !slices.Equal(got, []string{"payments-autonomy-4", "payments-rollback-3"}) {
 		t.Errorf("cause: %v", got)
+	}
+}
+
+// TestDemoBoundsCorrelationID: the demo refuses a correlation id the CLI
+// would print raw, as the cluster dashboard does.
+func TestDemoBoundsCorrelationID(t *testing.T) {
+	_, h := demoServer(t)
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `","correlationID":"` + strings.Repeat("x", delivery.MaxCorrelationID+1) + `"}`
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 422 {
+		t.Fatalf("a long correlation id: %d", code)
+	}
+}
+
+// TestDemoProposeStaleNamesReason: a propose that only adds a reason to the
+// plan it read is refused PlanStale naming the reason, as the cluster does; a
+// propose against a digest that matches nothing names nothing.
+func TestDemoProposeStaleNamesReason(t *testing.T) {
+	d, _ := demoServer(t)
+	req := delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), OnBehalfOf: story.Dana.User}
+	p, err := d.Plan(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Reason, req.IntentDigest = "CHG-1 hotfix", p.IntentDigest
+	_, _, err = d.Propose(t.Context(), req)
+	var refused *dashboard.DeliveryError
+	if !errors.As(err, &refused) || refused.Code != "PlanStale" || refused.Differs != "reason" || !strings.Contains(refused.Detail, "reason") {
+		t.Fatalf("a typed reason is named: %v", err)
+	}
+	req.IntentDigest = "stale"
+	_, _, err = d.Propose(t.Context(), req)
+	if !errors.As(err, &refused) || refused.Differs != "" {
+		t.Fatalf("a real move names nothing: %v", err)
+	}
+}
+
+// TestDemoAgentProposeNeedsPrincipal: pay-agent's propose that names nobody,
+// itself or a service account is refused 403 with the promoter's code, as
+// the cluster dashboard answers it.
+func TestDemoAgentProposeNeedsPrincipal(t *testing.T) {
+	d, h := demoServer(t)
+	to := digest("checkout", "1.9.0")
+	if got := call(t, h, "POST", "/api/delivery/operations", `{"namespace":"prod","stage":"checkout","to":"`+to+`"}`, nil); got != 403 {
+		t.Errorf("no principal: %d", got)
+	}
+	for behalf, code := range map[string]string{"": "NoPrincipal", story.PayAgent.User: "SelfPrincipal", story.Promoter.User: "NotAPerson"} {
+		_, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: to, OnBehalfOf: behalf})
+		var refused *dashboard.DeliveryError
+		if !errors.As(err, &refused) || refused.Status != 403 || refused.Code != code {
+			t.Errorf("on behalf of %q: %v", behalf, err)
+		}
+	}
+	if ops, _ := d.Operations(t.Context(), story.Prod); slices.ContainsFunc(ops, func(o delivery.OperationObject) bool { return o.Spec.Params.To == to }) {
+		t.Fatal("a refused propose created an operation")
+	}
+}
+
+// TestDemoAgentPlansWithoutPrincipal: a plan is a preview and names nobody.
+func TestDemoAgentPlansWithoutPrincipal(t *testing.T) {
+	_, h := demoServer(t)
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", `{"namespace":"prod","stage":"checkout","to":"`+digest("checkout", "1.9.0")+`"}`, &p); code != 200 || p.IntentDigest == "" {
+		t.Fatalf("plan %d %+v", code, p)
+	}
+}
+
+// TestDemoReplanHeldAsAgent: pay-agent's held change is planned again, with
+// no principal, once checkout moves first, and then asks only orders.
+func TestDemoReplanHeldAsAgent(t *testing.T) {
+	d, h := demoServer(t)
+	op, _ := storyHeld(t, d, h)
+	if _, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0"), OnBehalfOf: story.Dana.User}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	if got.Spec.OnBehalfOf == nil || got.Spec.OnBehalfOf.User != story.Dana.User || !slices.Equal(got.Status.Plan.Floor.Owners, []string{"orders"}) {
+		t.Fatalf("replanned: %+v %+v", got.Spec.OnBehalfOf, got.Status.Plan.Floor)
 	}
 }

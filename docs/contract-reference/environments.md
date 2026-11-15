@@ -107,6 +107,13 @@ environment with no `owner` shows the service owner, labelled inferred.
 | Compare two environments | `pacto explain <bundle> --environments production,pr-482` or `pacto_check` with `environments` |
 | See the Stages that deliver it | `pacto delivery status --service <name>` |
 
+Adding an environment declares it: nothing in a cluster changes until a Stage
+exists for it. `pacto_edit` returns the steps that get there in `chain`:
+publish the contract, then plan a promote on the environment's Stage. Its
+`executor` names who acts on the published revision, an adapter or a GitOps
+tool, and `impact` says who the edit affects when the session has a fleet
+snapshot.
+
 `pacto explain --environments` lists only the values the environments disagree
 on:
 

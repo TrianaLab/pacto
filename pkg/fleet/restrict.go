@@ -112,6 +112,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	out.hiddenDependents = hiddenDependents
+	out.hiddenReferrers = hiddenReferrers
 	origins, hiddenCreated := restrictOrigins(s, hiddenSvc)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenCounts{hiddenDeps, hiddenDependents, hiddenReferrers}, origins, hiddenCreated)...)
 	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
@@ -141,13 +142,28 @@ func restrictReports(out, s *FleetSnapshot) {
 	// orphaned report or one about a hidden service never reaches the view.
 	// A visible consumer's report about a provider the viewer may not see
 	// keeps its phase, which raises attention, but never names the provider:
-	// its adapter and external reference go. Its usage and cost go whole,
-	// since no surface shows a resource of a hidden provider.
+	// its adapter, external reference and signing identity go. Each hidden
+	// producer gets an opaque name instead, so two of them stay two origins
+	// and can still disagree. Its usage and cost go whole, since no surface
+	// shows a resource of a hidden provider.
 	hiddenUse := hiddenUseKeys(out)
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
+	hidden := func(rec *ProvisioningRecord) bool {
+		return hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}]
+	}
+	producers := map[string]bool{}
 	for i := range out.Provisioning {
-		if rec := &out.Provisioning[i]; hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}] {
-			rec.Provider, rec.ExternalRef = "", ""
+		if rec := &out.Provisioning[i]; hidden(rec) {
+			producers[rec.Producer] = true
+		}
+	}
+	alias := map[string]string{}
+	for i, p := range slices.Sorted(maps.Keys(producers)) {
+		alias[p] = fmt.Sprintf("hidden producer %d", i+1)
+	}
+	for i := range out.Provisioning {
+		if rec := &out.Provisioning[i]; hidden(rec) {
+			rec.Provider, rec.ExternalRef, rec.Producer, rec.ProducerKeyID = "", "", alias[rec.Producer], ""
 		}
 	}
 	out.Usage = slices.DeleteFunc(slices.Clone(s.Usage), func(rec UsageRecord) bool {
@@ -364,11 +380,21 @@ func targetPlacementKnown(s *FleetSnapshot) bool {
 	return id == ""
 }
 
+// hasTargetSource reports whether any source in s reports operational targets:
+// one of a target kind, or any that contributed a target. With none, Pacto
+// looked at no runtime and a missing target proves nothing.
+func hasTargetSource(s *FleetSnapshot) bool {
+	return len(s.Targets) > 0 || slices.ContainsFunc(s.Sources, func(src SourceState) bool { return slices.Contains(targetSourceKinds, src.Kind) })
+}
+
+// targetSourceKinds are the source kinds that report operational targets.
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}
+
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.
 func firstIncompleteTargetSource(s *FleetSnapshot) (id, status string) {
 	for _, src := range s.Sources {
-		if src.Status != SourceAvailable && slices.Contains([]string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}, src.Kind) {
+		if src.Status != SourceAvailable && slices.Contains(targetSourceKinds, src.Kind) {
 			return src.ID, string(src.Status)
 		}
 	}
@@ -612,7 +638,7 @@ func restrictBusinessDomain(out *FleetSnapshot, s *ServiceRecord) {
 // what out still holds, so a value only a hidden target reported never shows.
 func restrictOffering(out *FleetSnapshot, s *ServiceRecord) {
 	s.Offering, s.OfferingProvenance, _ = offeringOf(out, s)
-	s.Summary = summaryOf(out, s)
+	s.Summary, s.SummaryUnknown = summaryOf(out, s)
 }
 
 // recountSources recomputes each source's revision and target counts from

@@ -18,7 +18,15 @@ queries, so an agent and a person asking the same question get the same answer.
 | What breaks if payments goes down? | `pacto_impact` with `event=unavailable` and `service` | `pacto impact --unavailable payments-service` | Change analysis, What if this service… |
 | What uses this resource before I remove it? | `pacto_impact` with `event=removed` and `service` | `pacto impact --removed postgresql` | Change analysis, What if this service… |
 | Which services does this policy change reach? | `pacto_impact` with the policy provider's old and new refs | `pacto impact <old> <new>` | Change analysis |
+| How healthy is the organization and how much do we know? | `pacto_fleet_overview` | `pacto fleet overview` | Overview |
+| Which services are failing versus unknown? | `pacto_fleet_attention` with `category=health` for failing health checks, `category=unknown` for what Pacto cannot tell | `pacto fleet attention --category health`, `pacto fleet attention --category unknown` | The Overview's Operational health band |
+| Where do our contracts leave knowledge out? | `pacto_fleet_attention` with `category=knowledge`, `pacto_fleet_entities` with `gap` | `pacto fleet attention --category knowledge`, `pacto fleet entities --gap no-summary` | The Overview's Knowledge band |
+| Which teams own services nobody can read? | `pacto_fleet_entities` with `gap=unknown` (each row names its owner), and `ownership=unknown` for those with no owner claim | `pacto fleet entities --gap unknown`, `pacto fleet entities --ownership unknown` | Services, filtered by Owner unknown |
 | Where are the biggest operational risks? | `pacto_fleet_attention` (most severe first), `pacto_fleet_entities` with `sort=health` | `pacto fleet attention`, `pacto fleet entities --sort health` | Needs attention |
+| What waits on me? | `pacto_delivery_inbox` (with `--delivery`) | `pacto delivery inbox` | Delivery, Inbox |
+| Which environments run which version? | `pacto_delivery_environments` (with `--delivery`) | `pacto delivery environments` | Delivery, Stages |
+| Who am I to delivery? | `pacto_delivery_caller` (with `--delivery`) | `pacto delivery caller` | `GET /api/delivery/caller` |
+| What can this server do? | `pacto_capabilities` | Not needed: the CLI runs every command as you | `GET /api/capabilities` |
 
 ## Read the answer
 

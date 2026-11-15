@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"strings"
@@ -164,8 +165,8 @@ func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 // TestDeliveryToolsWritesOnlyForAgents: a human identity gets the read-only
 // tools; an agent identity gets propose and cancel too; nobody gets approve.
 func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
-	read := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})), ",")
-	write := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})), ",")
+	read := strings.Join(deliveryToolNames(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})), ",")
+	write := strings.Join(deliveryToolNames(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})), ",")
 	if strings.Contains(read, "propose") || strings.Contains(read, "cancel") || !strings.Contains(read, "pacto_delivery_operation_plan") {
 		t.Fatalf("human tools: %s", read)
 	}
@@ -192,7 +193,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 }
 
 func TestDeliveryToolCalls(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})
 	var types []delivery.OperationType
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{}), &types)
 	if len(types) != len(delivery.Types()) {
@@ -213,7 +214,7 @@ func TestDeliveryToolCalls(t *testing.T) {
 
 func TestDeliveryPlanToolCalls(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}, Next: []string{"held"}}}
-	server := NewDeliveryServer("v", api, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}})
 	var plan delivery.PlanAnswer
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
 		"namespace": "prod", "stage": "s", "to": "3.0.0", "on_behalf_of": "alice"}), &plan)
@@ -240,7 +241,7 @@ func TestDeliveryPlanToolCalls(t *testing.T) {
 
 // B7: one Stage's history carries its timeline.
 func TestDeliveryHistoryToolTimeline(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})
 	var h delivery.History
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
 	if h.Timeline == nil || len(h.Timeline.Buckets) != delivery.TimelineBuckets {
@@ -249,7 +250,7 @@ func TestDeliveryHistoryToolTimeline(t *testing.T) {
 }
 
 func TestDeliveryCandidatesToolCall(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: true}})
 	var c delivery.CandidateVersions
 	decode(t, callToolOn(t, server, "pacto_delivery_candidates", map[string]any{"namespace": "prod", "stage": "s"}), &c)
 	if c.Stage != "s" || len(c.Versions) != 1 || c.Versions[0].Version != "3.0.0" {
@@ -258,7 +259,7 @@ func TestDeliveryCandidatesToolCall(t *testing.T) {
 }
 
 func TestDeliveryRecordToolCalls(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
 	var b delivery.Blame
 	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s", "digest": "sha256:d"}), &b)
 	if b.Stage.Name != "s" || b.Digest != "sha256:d" {
@@ -289,7 +290,7 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 
 func TestDeliveryWriteToolCalls(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
-	server := NewDeliveryServer("v", api, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}})
 	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
 	var proposed struct {
 		Operation delivery.OperationObject `json:"operation"`
@@ -315,7 +316,7 @@ func TestDeliveryWriteToolCalls(t *testing.T) {
 
 func TestDeliveryToolErrors(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
-	server := NewDeliveryServer("v", api, true, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}})
 	api.op, api.err = nil, errors.New("PlanStale: moved")
 	res := callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{"namespace": "prod", "stage": "s"})
 	if !res.IsError || !strings.Contains(resultText(t, res), "PlanStale") || !strings.Contains(resultText(t, res), "sha256:i") {
@@ -349,7 +350,7 @@ func TestDeliveryToolErrors(t *testing.T) {
 }
 
 func TestDeliveryFleetToolErrors(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{err: errors.New("forbidden")}, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{err: errors.New("forbidden")}, Writes: false}})
 	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
 			t.Fatalf("%s of every Stage must surface the error", tool)
@@ -362,7 +363,7 @@ func TestDeliveryFleetToolErrors(t *testing.T) {
 // walk and makes no sense with one Stage.
 func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	api := &stubDelivery{}
-	server := NewDeliveryServer("v", api, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}})
 	names := func(es []delivery.HistoryEntry) string {
 		var out []string
 		for _, e := range es {
@@ -403,7 +404,7 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 // TestHistoryToolDurations: since and until take a duration before now, as
 // the CLI flags do, and the schema says so.
 func TestHistoryToolDurations(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
 	var h delivery.History
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s", "since": "2h"}), &h)
 	if len(h.Entries) != 1 || h.Entries[0].Operation != "timeless" || !strings.Contains(h.Note, "at or after") {
@@ -420,7 +421,7 @@ func TestHistoryToolDurations(t *testing.T) {
 // TestHistoryToolCorrelation: cause and correlation_id keep only the changes
 // tied to an incident, in both modes, and the timeline counts only those.
 func TestHistoryToolCorrelation(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}})
 	window := map[string]any{"since": "2026-11-05T09:00:00Z", "until": "2026-11-05T11:00:00Z"}
 	args := func(extra map[string]any) map[string]any {
 		out := map[string]any{"namespace": "prod", "stage": "s"}
@@ -475,7 +476,7 @@ func TestDeliveryDescriptionsExplainCheckedPass(t *testing.T) {
 	ctx := context.Background()
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
-	if _, err := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{}).Connect(ctx, t1, nil); err != nil {
+	if _, err := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: false}}).Connect(ctx, t1, nil); err != nil {
 		t.Fatal(err)
 	}
 	s, err := client.Connect(ctx, t2, nil)
@@ -507,28 +508,28 @@ func TestDeliveryDescriptionsExplainCheckedPass(t *testing.T) {
 func TestDeliveryStatusTool(t *testing.T) {
 	api := &stubDelivery{}
 	var got delivery.ServiceStatus
-	decode(t, callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status",
+	decode(t, callToolOn(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}}), "pacto_delivery_status",
 		map[string]any{"service": "payments", "domain": "d", "namespace": "prod", "why": true}), &got)
 	if api.status != (delivery.StatusQuery{Namespace: "prod", Service: "payments", Domain: "d", Why: true}) ||
 		got.Note != "in promotion order"+noProposeNote {
 		t.Fatalf("status %+v from %+v", got, api.status)
 	}
-	decode(t, callToolOn(t, NewDeliveryServer("v", api, true, Authoring{}), "pacto_delivery_status", map[string]any{"service": "payments"}), &got)
+	decode(t, callToolOn(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}}), "pacto_delivery_status", map[string]any{"service": "payments"}), &got)
 	if got.Note != "in promotion order" {
 		t.Fatalf("an agent's server has propose: %q", got.Note)
 	}
-	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{}); !res.IsError {
+	if res := callToolOn(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}}), "pacto_delivery_status", map[string]any{}); !res.IsError {
 		t.Fatal("a missing service must be an error")
 	}
 	api.err = errors.New("boom")
-	if res := callToolOn(t, NewDeliveryServer("v", api, false, Authoring{}), "pacto_delivery_status", map[string]any{"service": "p"}); !res.IsError {
+	if res := callToolOn(t, mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}}), "pacto_delivery_status", map[string]any{"service": "p"}); !res.IsError {
 		t.Fatal("an error must be an error result")
 	}
 }
 
 func TestRecordGetTool(t *testing.T) {
 	api := &stubDelivery{}
-	server := NewDeliveryServer("v", api, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}})
 	var r delivery.RecordView
 	decode(t, callToolOn(t, server, "pacto_delivery_record_get", map[string]any{"namespace": "prod", "stage": "s", "record": "sha256:r"}), &r)
 	if r.Namespace != "prod" || r.Stage != "s" || r.Record != "sha256:r" || !r.Verified {
@@ -546,7 +547,7 @@ func TestRecordGetTool(t *testing.T) {
 
 func TestLifecycleTool(t *testing.T) {
 	api := &stubDelivery{}
-	server := NewDeliveryServer("v", api, false, Authoring{})
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}})
 	var l delivery.Lifecycle
 	decode(t, callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments", "version": "3.7.4", "namespace": "prod", "domain": "r"}), &l)
 	if l.Service != "payments" || l.Digest != "3.7.4" || l.Note != "prod|r" {
@@ -559,5 +560,42 @@ func TestLifecycleTool(t *testing.T) {
 	if res := callToolOn(t, server, "pacto_delivery_lifecycle", map[string]any{"service": "payments"}); !res.IsError ||
 		!strings.Contains(resultText(t, res), "pass exactly one") {
 		t.Fatal("lifecycle must surface the error")
+	}
+}
+
+func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i"}}}
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}})
+	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
+	callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{
+		"namespace": "prod", "stage": "s", "to": "sha256:x", "correlation_id": "CHG-2041"})
+	if api.req.CorrelationID != "CHG-2041" {
+		t.Fatalf("propose request %+v", api.req)
+	}
+	for name, schema := range map[string]map[string]any{"plan": requestSchema(), "propose": requestSchema("intent_digest", "name")} {
+		props := schema["properties"].(map[string]any)
+		if _, ok := props["correlation_id"]; !ok {
+			t.Errorf("the %s schema lacks correlation_id", name)
+		}
+		// The own-change rule compares on_behalf_of with the approver's username.
+		if b, _ := json.Marshal(props["on_behalf_of"]); !strings.Contains(string(b), "Kubernetes username") {
+			t.Errorf("the %s on_behalf_of says nothing of the cluster username: %s", name, b)
+		}
+	}
+}
+
+// TestDeliveryInstructionsNamePrincipalAndCorrelation: an agent learns before
+// it proposes that it must name a person and how to tie a change to an
+// incident.
+func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
+	for _, want := range []string{
+		"names the person it acts for in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the promoter",
+		"that person may not approve the change, and planning needs no person",
+		"Pass correlation_id on plan and propose",
+		"it never changes the intent digest",
+	} {
+		if !strings.Contains(deliveryInstructions, want) {
+			t.Errorf("deliveryInstructions lack %q", want)
+		}
 	}
 }

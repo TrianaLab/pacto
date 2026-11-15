@@ -80,19 +80,18 @@ pacto evidence usage \
 ```
 
 The subject defaults to `<repository>/<environment or default>/usage/<kind>/<name>`.
-The server keeps the latest report per producer and subject, so the `usage`
-segment keeps a usage report from replacing the same resource's provisioning
-report; a usage subject without it is refused. The server accepts a usage
-report under the provisioning rules above, with `ResourceUsage` in place of
-`ResourceProvisioned`: the key lists `ResourceUsage`, `allowedProviderRepos`
-scopes it, and an EvidenceSet carries one provider-reported kind only.
+The server keeps the latest report per producer and subject, so only usage
+subjects hold the `usage` segment and a usage report never replaces a
+provisioning report. Otherwise the provisioning rules above apply, with
+`ResourceUsage` in place of `ResourceProvisioned`.
 
 The targets endpoint lists usage under `usage` with schema
 `pacto.dev/evidence-source/v4`, written only when it holds usage, so a v3
 reader keeps working. The operational graph shows a figure as reported only
-when one signed report about the consumer's current revision is fresh and no
-other current report contradicts it. An unsigned, stale or contradicted
-report, or one about another revision, reads unknown, with its figures kept
-apart as reported, never as current. Pacto never sums or converts a cost, and
+when one signed, fresh report about the newest consumer revision that uses
+the resource, named as `revision`, is contradicted by no other producer. An
+unsigned, stale or foreign report reads unknown, with its figures apart as
+reported; disagreeing reports read unknown, name the producers under
+`conflict` and give no figures. Pacto never sums or converts a cost, and
 usage never changes a service's compliance. A v2 target-state file carries
 usage reports unsigned, so they always read unknown.

@@ -10,7 +10,7 @@ import (
 // past-sunset provider, through a declared dependency or configuration
 // reference (validation's DependencyServiceWarnings scope; a policy only
 // constrains its contract). It is the one producer the attention list, Status,
-// the Overview tile and servicesNeedingAttention read. Per consumer, provider
+// the Overview tile and, through the list, servicesNeedingAttention read. Per consumer, provider
 // and kind of use the newest consumer revision speaks, as in
 // [Query.offeringUsesIn]; one item remains per consumer and provider, the worst.
 // A provider the viewer may not see carries no lifecycle (hideProvider), so no
@@ -92,7 +92,11 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 		return
 	}
 	succ, _ := q.successorRevision(provider, rel.ProviderLifecycle.Successor)
-	if successorRange(rel.Compatibility, succ) != RangeUnsatisfied {
+	if succ != nil && succ.ServiceKey != provider.Key {
+		it.NextStep = fmt.Sprintf("Change %s's dependency on %s to %s, its successor", consumer.Name, provider.Name, succ.Service)
+		return
+	}
+	if successorRange(rel.Compatibility, provider.Key, succ) != RangeUnsatisfied {
 		return
 	}
 	if it.Code == "DEPENDENCY_SERVICE_DEPRECATED" {
@@ -100,6 +104,7 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 		it.Reason = fmt.Sprintf("%s accepts %s %s, which excludes its successor %s", consumer.Name, provider.Name, rel.Compatibility, succ.Version)
 	}
 	it.NextStep = fmt.Sprintf("Widen the range in %s's contract to accept %s", consumer.Name, succ.Version)
+	it.NextAction = editContract()
 }
 
 // lifecycleTally counts the distinct real services with a lifecycle item and
@@ -107,10 +112,8 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 // agree.
 func (q *Query) lifecycleTally() (int, string) {
 	consumers, sev := map[string]bool{}, severityWarning
+	// lifecycleAttention already leaves golden paths out (TestLifecycleAttentionGoldenPathSkipped).
 	for _, it := range q.lifecycleAttention() {
-		if !q.populationService(ServiceKey(it.Service)) {
-			continue
-		}
 		consumers[it.Service] = true
 		if it.Severity == severityError {
 			sev = severityError

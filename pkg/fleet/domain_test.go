@@ -298,11 +298,12 @@ func TestOverview_ByDomainCoversEveryService(t *testing.T) {
 	if total != s.Services {
 		t.Errorf("domain rows hold %d services, want all %d", total, s.Services)
 	}
-	// commerce, then ghost (unknown, unowned), then web (No domain).
+	// commerce, then ghost (domain and owner unknown, never unowned), then web
+	// (No domain).
 	want := []DomainTally{
-		{Domain: "commerce", Services: 2, Targets: 2, NonCompliant: 1, Unowned: 1},
-		{DomainUnknown: true, Services: 1, Targets: 1, Unowned: 1},
-		{Services: 1},
+		{Domain: "commerce", Services: 2, Targets: 2, NonCompliant: 1, Unowned: 1, WithGaps: 2},
+		{DomainUnknown: true, Services: 1, Targets: 1, OwnerUnknown: 1},
+		{Services: 1, NotDeployed: 1, WithGaps: 1},
 	}
 	if !slices.Equal(s.ByDomain, want) || s.Domains != 1 {
 		t.Errorf("byDomain = %+v, domains = %d, want %+v", s.ByDomain, s.Domains, want)
@@ -380,12 +381,12 @@ func TestOverview_UnownedEntryPoint(t *testing.T) {
 			ep = &ov.EntryPoints[i]
 		}
 	}
-	if ep == nil || ep.Label != "Services with no declared owner" || ep.Count != 2 || ep.Severity != "info" || ep.View != EntryPointAttention {
+	if ep == nil || ep.Label != "Services with no declared owner" || ep.Count != 1 || ep.Severity != "info" || ep.View != EntryPointAttention {
 		t.Fatalf("unowned entry point = %+v", ep)
 	}
-	// orders and ghost are unowned; only pay (non-compliant) needs attention.
-	if ov.Summary.ServicesNeedingAttention != 1 {
-		t.Errorf("services needing attention = %d, want 1 (unowned does not count)", ov.Summary.ServicesNeedingAttention)
+	// Every service with an item in the list counts, the unowned one included.
+	if ov.Summary.ServicesNeedingAttention != 4 {
+		t.Errorf("services needing attention = %d, want 4 (every service the attention list names)", ov.Summary.ServicesNeedingAttention)
 	}
 }
 
@@ -436,7 +437,9 @@ func TestSearch_BusinessDomain(t *testing.T) {
 func TestOwnership_OperatorReportedOwnerIsNotUnowned(t *testing.T) {
 	src := NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{
 		{Scope: "a", Kind: "k8s", Name: "owned", Service: "owned", Owner: contract.Owner{Team: "ops"}},
-		{Scope: "a", Kind: "k8s", Name: "orphan", Service: "orphan"},
+		// The operator read orphan's contract (it reports its domain), so its
+		// owner is known to be absent, never unknown.
+		{Scope: "a", Kind: "k8s", Name: "orphan", Service: "orphan", BusinessDomainKnown: true},
 	}})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
 	if err != nil {
@@ -457,10 +460,12 @@ func TestOwnership_OperatorReportedOwnerIsNotUnowned(t *testing.T) {
 	if r := al.Items[0].Reason; strings.Contains(r, "no revision") && !strings.Contains(r, "source") {
 		t.Errorf("reason %q blames revisions alone", r)
 	}
+	unowned := 0
 	for _, row := range ov.ByDomain {
-		if row.Unowned != 1 {
-			t.Errorf("domain row %+v, want one unowned service", row)
-		}
+		unowned += row.Unowned
+	}
+	if unowned != 1 {
+		t.Errorf("domain rows %+v, want one unowned service", ov.ByDomain)
 	}
 	got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Ownership: OwnershipUnowned})
 	if strings.Join(got, ",") != "orphan" {
@@ -562,7 +567,7 @@ func TestBuild_BusinessDomainUnknownVersusNone(t *testing.T) {
 		t.Errorf("search (unknown) = %+v, %v", res, err)
 	}
 	ov := q.Overview().Summary
-	if want := []DomainTally{{DomainUnknown: true, Services: 1, Targets: 1, Unknown: 1, Unowned: 1}, {Services: 2, Targets: 1, Unknown: 1, Unowned: 2}}; !slices.Equal(ov.ByDomain, want) || ov.Domains != 0 {
+	if want := []DomainTally{{DomainUnknown: true, Services: 1, Targets: 1, Unknown: 1, OwnerUnknown: 1}, {Services: 2, Targets: 1, Unknown: 1, Unowned: 2, NotDeployed: 1, WithGaps: 1}}; !slices.Equal(ov.ByDomain, want) || ov.Domains != 0 {
 		t.Errorf("byDomain = %+v, want the unknown row, then No domain: %+v", ov.ByDomain, want)
 	}
 }
@@ -690,7 +695,8 @@ func TestEntities_KindlessQueryOmitsDomains(t *testing.T) {
 }
 
 // TestAttention_UnownedUnknownSaysSo: a service whose contracts Pacto cannot
-// read gets an item that says the owner is unknown, never that none is declared.
+// read is no unowned item: it is one knowledge item that says the owner is
+// unknown, never that none is declared.
 func TestAttention_UnownedUnknownSaysSo(t *testing.T) {
 	u, n := ServiceKey("unread"), ServiceKey("ownerless")
 	q := NewQuery(&FleetSnapshot{
@@ -704,24 +710,23 @@ func TestAttention_UnownedUnknownSaysSo(t *testing.T) {
 		},
 	})
 	al, err := q.Attention(AttentionFilter{Category: "unowned", Limit: MaxAttentionLimit})
-	if err != nil || al.Total != 2 {
+	if err != nil || al.Total != 1 || al.Items[0].Service != string(n) || al.Items[0].Code != "UNOWNED_SERVICE" {
 		t.Fatalf("unowned = %+v, %v", al, err)
 	}
-	for _, it := range al.Items {
-		unknown := strings.Contains(it.Summary, "Owner unknown")
-		if unknown != (it.Service == string(u)) || it.Code != "UNOWNED_SERVICE" {
-			t.Errorf("%s: %+v", it.Service, it)
-		}
-		if unknown && strings.Contains(it.NextStep, "Declare service.owner") {
-			t.Errorf("an unreadable contract is told to declare an owner: %+v", it)
-		}
+	kl, err := q.Attention(AttentionFilter{Category: categoryKnowledge, Service: string(u), Limit: MaxAttentionLimit})
+	if err != nil || kl.Total != 1 {
+		t.Fatalf("knowledge = %+v, %v", kl, err)
+	}
+	it := kl.Items[0]
+	if it.Code != causeContractUnreadable || !strings.Contains(it.Summary, "Owner, domain and summary unknown") || strings.Contains(it.NextStep, "Declare service.owner") {
+		t.Errorf("unreadable item = %+v", it)
 	}
 }
 
 func TestUndeclaredEntryPoint(t *testing.T) {
 	tiles := func(sum OverviewSummary) []EntryPoint {
 		var out []EntryPoint
-		for _, ep := range entryPoints(&sum) {
+		for _, ep := range entryPoints(&sum, 0) {
 			if ep.Label == "Undeclared runtime dependencies observed" || ep.Label == "Uncontracted callers observed" {
 				out = append(out, ep)
 			}

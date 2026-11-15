@@ -73,11 +73,6 @@ type demoDelivery struct {
 	key     ed25519.PrivateKey
 	keyHint string
 
-	// correlation is the correlation id the next operation spec takes, as a
-	// change-management pipeline that applies an Operation sets one; spec
-	// clears it. ponytail: one pending id, since replay raises one change at a time.
-	correlation string
-
 	// views are the copies the reads hand out, made once per change: a
 	// copy per Stage on every read was most of each answer's time on a
 	// large fleet. changed drops them.
@@ -318,8 +313,9 @@ func (d *demoDelivery) replay(start time.Time) error {
 		{"pay-agent", story.Test, "1.1.0"}, // and 1.1.0 passes 1 of 2, rolls back and steps test down
 	}
 	for _, s := range steps {
-		d.correlation = map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to]
-		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to)}
+		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to),
+			CorrelationID: map[string]string{"payments/" + story.Prod + "/2.4.0": demoCorrelation}[s.svc+"/"+s.env+"/"+s.to],
+			OnBehalfOf:    story.Dana.User}
 		o, _, err := d.propose(req, story.PayAgent)
 		if err != nil {
 			return err
@@ -390,7 +386,7 @@ func (d *demoDelivery) frozenHeld() error {
 	st.Status.Level = delivery.LevelAdvise
 	st.Status.Frozen, st.Status.FrozenReason = true, "frozen by alice@example.com while the prod-us payment database fails over"
 	_, _, err := d.propose(delivery.Request{Namespace: "prod-us", Stage: "checkout", To: story.ArtifactDigest("checkout", "1.9.0"),
-		Reason: "checkout 1.9.0 passed test"}, story.PayAgent)
+		Reason: "checkout 1.9.0 passed test", OnBehalfOf: story.Dana.User}, story.PayAgent)
 	return err
 }
 
@@ -611,9 +607,14 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 	if !ok {
 		return delivery.OperationSpec{}, dashboard.Refuse(http.StatusBadRequest, "UnknownType", "unknown operation type "+typ)
 	}
+	if err := delivery.CheckCorrelationID(req.CorrelationID); err != nil {
+		return delivery.OperationSpec{}, dashboard.Refuse(http.StatusUnprocessableEntity, "Refused", err.Error()) // as the cluster dashboard answers it
+	}
 	spec := delivery.OperationSpec{Type: typ, Stage: req.Stage, Facet: t.Facet, Reason: req.Reason, Cause: req.Cause,
-		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}, CorrelationID: d.correlation}
-	d.correlation = ""
+		Actor: delivery.Actor{User: actor.User, Groups: actor.Groups}, CorrelationID: req.CorrelationID}
+	if req.OnBehalfOf != "" {
+		spec.OnBehalfOf = &delivery.Principal{User: req.OnBehalfOf}
+	}
 	switch {
 	case typ == delivery.TypeRollback:
 		cited := d.op(req.Namespace, req.Undoes)
@@ -704,10 +705,17 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	if err != nil {
 		return nil, p, err
 	}
+	if r := delivery.AdmitPrincipal(spec, actor.Class(), story.Policy); r != "" {
+		code, why, _ := strings.Cut(r, ": ")
+		return nil, p, dashboard.Refuse(http.StatusForbidden, code, why) // as the cluster dashboard answers it
+	}
 	if req.IntentDigest != "" && req.IntentDigest != p.IntentDigest {
 		e := dashboard.Refuse(http.StatusConflict, "PlanStale", "the Stage moved since you planned; review the fresh plan and propose again")
 		fresh := d.answer(p, req, actor)
 		e.Plan = &fresh
+		if e.Differs = delivery.IntentDiffers(spec, d.stage(req.Namespace, req.Stage).Spec, req.IntentDigest); e.Differs != "" {
+			e.Detail = "you planned with no " + e.Differs + ", and this propose passes one; propose with the fresh plan's intent digest"
+		}
 		return nil, p, e
 	}
 	st := d.stage(req.Namespace, req.Stage)
@@ -857,7 +865,7 @@ func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts [
 	if failed.Status.Pointer.Before != "" {
 		req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeRollback,
 			Undoes: failed.Metadata.Name, Reason: reason,
-			Cause: &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
+			Cause: &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}, CorrelationID: failed.Spec.CorrelationID}
 		_, _, _ = d.propose(req, story.Promoter) // bound to the failed change by construction
 	}
 	d.stepDown(failed, cause)
@@ -877,8 +885,9 @@ func (d *demoDelivery) stepDown(failed *delivery.OperationObject, cause *deliver
 	}
 	req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeAutonomy,
 		From: string(from), To: string(to),
-		Reason: "automatic step-down: " + failed.Metadata.Name + ", which shipped with no person on " + string(from) + ", failed (" + cause.Gate + ")",
-		Cause:  &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
+		Reason:        "automatic step-down: " + failed.Metadata.Name + ", which shipped with no person on " + string(from) + ", failed (" + cause.Gate + ")",
+		Cause:         &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause},
+		CorrelationID: failed.Spec.CorrelationID}
 	_, _, _ = d.propose(req, story.Promoter)
 }
 

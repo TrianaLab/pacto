@@ -1294,7 +1294,7 @@ describe('change detail', () => {
     r.destroy();
 
     const own = heldOperation({ actions: ['cancel'] });
-    own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: 'https://idp#carol' } } as typeof own.operation.spec;
+    own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: ' https://IDP#Carol' } } as typeof own.operation.spec;
     fns.operation.mockResolvedValueOnce(own);
     auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));

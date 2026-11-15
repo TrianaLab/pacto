@@ -39,7 +39,17 @@ func (q *Query) resolveSuccessor(provider *ServiceRecord, l *contract.InterfaceL
 		return &SuccessorInfo{Ref: l.Successor, Provenance: provenanceUnknown, Reason: reason}
 	}
 	ref := revisionEntityRef(rev)
-	return &SuccessorInfo{Ref: l.Successor, Revision: &ref, Provenance: ProvenanceInferred}
+	info := &SuccessorInfo{Ref: l.Successor, Revision: &ref, Provenance: ProvenanceInferred}
+	if rev.ServiceKey != provider.Key {
+		info.Reason = otherServiceReason(rev)
+	}
+	return info
+}
+
+// otherServiceReason says that a successor is another service, so a
+// consumer moves by changing its dependency, never by widening its range.
+func otherServiceReason(rev *ContractRevision) string {
+	return "the successor is another service, " + rev.Service + ": change the dependency to it"
 }
 
 // successorRevision is the one revision the successor ref names: the service
@@ -54,9 +64,15 @@ func (q *Query) successorRevision(provider *ServiceRecord, ref string) (*Contrac
 		return nil, "it names no version or digest"
 	}
 	name := path.Base(repo)
+	// In a restricted view the successor may run where the viewer cannot
+	// look, so the reason never says it is absent.
+	seen := ""
+	if q.snap.hiddenDependents != nil {
+		seen = " you may see"
+	}
 	sk := lookupServiceInDomain(q.snap, provider.Domain, name)
 	if sk == "" {
-		return nil, fmt.Sprintf("no service %s in %s's registry domain is in this fleet", name, provider.Name)
+		return nil, fmt.Sprintf("no service %s%s in %s's registry domain is in this fleet", name, seen, provider.Name)
 	}
 	var match []*ContractRevision
 	for _, rk := range q.snap.Services[sk].Revisions {
@@ -66,7 +82,7 @@ func (q *Query) successorRevision(provider *ServiceRecord, ref string) (*Contrac
 	}
 	switch len(match) {
 	case 0:
-		return nil, "no revision of " + name + " in this fleet matches it"
+		return nil, "no revision of " + name + seen + " in this fleet matches it"
 	case 1:
 		return match[0], ""
 	}
@@ -74,21 +90,31 @@ func (q *Query) successorRevision(provider *ServiceRecord, ref string) (*Contrac
 }
 
 // latestSupported is the newest readable revision of provider that declares no
-// service lifecycle, nil when every one is deprecated or unreadable.
+// service lifecycle and is newer than every revision that declares one: a
+// service lifecycle retires the whole service, so a revision published before
+// the deprecation is not supported. Nil when there is none.
 func (q *Query) latestSupported(provider *ServiceRecord) *ContractRevision {
+	var deprecated *ContractRevision
+	for _, rk := range provider.Revisions {
+		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle != nil && (deprecated == nil || lessRevisionChrono(deprecated, r)) {
+			deprecated = r
+		}
+	}
 	var revs []*ContractRevision
 	for _, rk := range provider.Revisions {
-		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle == nil {
+		if r := q.snap.Revisions[rk]; r.Contract != nil && r.Contract.Service.Lifecycle == nil && (deprecated == nil || lessRevisionChrono(deprecated, r)) {
 			revs = append(revs, r)
 		}
 	}
 	return newestReadable(revs)
 }
 
-// successorRange checks a consumer's range against rev: unknown for no range
-// or no revision, so an unresolved successor is never satisfied.
-func successorRange(rng string, rev *ContractRevision) string {
-	if rng == "" || rev == nil {
+// successorRange checks a consumer's range for provider against rev: unknown
+// for no range or no revision, so an unresolved successor is never satisfied,
+// and for a revision of another service, whose versions the range does not
+// speak of.
+func successorRange(rng string, provider ServiceKey, rev *ContractRevision) string {
+	if rng == "" || rev == nil || rev.ServiceKey != provider {
 		return RangeUnknown
 	}
 	return CheckRange(rng, rev.Version)
@@ -105,9 +131,9 @@ func (q *Query) fillSuccessorRanges(u *OfferingUse) {
 	if u.ProviderLifecycle.Successor != "" {
 		rev, _ = q.successorRevision(provider, u.ProviderLifecycle.Successor)
 	}
-	u.SuccessorRange = successorRange(u.Compatibility, rev)
+	u.SuccessorRange = successorRange(u.Compatibility, provider.Key, rev)
 	if sup := q.latestSupported(provider); sup != nil {
-		u.SupportedRange = successorRange(u.Compatibility, sup)
+		u.SupportedRange = successorRange(u.Compatibility, provider.Key, sup)
 	}
 }
 

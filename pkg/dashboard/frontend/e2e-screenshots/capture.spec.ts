@@ -49,6 +49,28 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
     element: '#sec-environments',
   },
+  // The overview's Operational health and Knowledge bands, each alone: the ownership and
+  // readiness band sits between them, so one shot would not hold both.
+  { name: 'overview-health', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-health' },
+  { name: 'overview-knowledge', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-knowledge' },
+  // The Offerings list: where requests for platform offerings stand, then who maintains
+  // each offering, its lifecycle, availability and failed requests.
+  { name: 'offerings-list', open: (p) => go(p, '/#/fleet/offerings', 'Platform offerings') },
+  // The postgresql offering: availability per environment from its two providers, then
+  // each provider's versions, the successor 16.1.0 names and its consumers.
+  { name: 'offering-postgresql', open: async (p) => { await go(p, '/#/fleet/offerings/postgresql', 'postgresql'); await expect(p.getByTestId('availability').first()).toBeVisible(); } },
+  // The delivery section of payments' target page in prod, opened under ticket CHG-2041:
+  // the Plan offers, and the promote plan the first one opens with the ticket filled in.
+  {
+    name: 'act-from-investigation',
+    open: async (p) => {
+      await go(p, '/#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=CHG-2041', 'payments');
+      await p.getByRole('button', { name: /^Plan promote/ }).click();
+      await expect(p.getByTestId('pp-correlation')).toHaveValue('CHG-2041');
+      await expect(p.getByTestId('plan-prediction')).toBeVisible();
+    },
+    element: '[data-testid="target-delivery"]',
+  },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
   // catalog-service's Resources section alone: the declared request, its phase and usage.

@@ -193,7 +193,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['name', 'old', 'new', 'observed', 'outcome', 'mode', 'event', 'rev', 'offering']) {
+    for (const k of ['name', 'old', 'new', 'observed', 'outcome', 'mode', 'event', 'rev', 'offering', 'correlationID']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -216,7 +216,8 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
+    // `gap` keeps the services whose contracts leave that knowledge out.
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -265,7 +266,12 @@ function parseFleet(path: string, query: string): Route {
 
   const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings)\/(.+)$/);
   if (ent) {
-    return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
+    // correlationID is the ticket or incident id an investigation carries into the
+    // operations its page plans (the same key the delivery history filters by).
+    const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
+    const correlationID = new URLSearchParams(query).get('correlationID');
+    if (correlationID) params.correlationID = correlationID;
+    return { view: 'fleet-entity', params };
   }
 
   // Unknown /fleet/* falls back to the overview, never a broken screen.
@@ -454,7 +460,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // target-only Entities filter and source was never wired into the Services list, so
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
+  text?: string; owner?: string; ownerKey?: string; ownership?: string; gap?: string; status?: string; domain?: string;
   businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
@@ -469,6 +475,7 @@ export function fleetServicesUrl(opts: {
   // Who owns it (a name) and whether ownership is declared at all (a state) are two
   // different questions, and both are real Entities filters, so they compose.
   if (opts.ownership) qs.set('ownership', opts.ownership);
+  if (opts.gap) qs.set('gap', opts.gap);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
   if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
@@ -642,7 +649,7 @@ export function fleetAttentionUrl(opts: {
 // provider of a platform offering instead of one service (no service key then).
 export function fleetChangesUrl(
   serviceKey = '',
-  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string; mode?: string; event?: string; rev?: string; offering?: string } = {},
+  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string; mode?: string; event?: string; rev?: string; offering?: string; correlationID?: string } = {},
 ): string {
   const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
@@ -655,6 +662,7 @@ export function fleetChangesUrl(
   if (opts.rev) qs.set('rev', opts.rev);
   if (opts.observed) qs.set('observed', '1');
   if (opts.outcome) qs.set('outcome', opts.outcome);
+  if (opts.correlationID) qs.set('correlationID', opts.correlationID);
   const str = qs.toString();
   return str ? `${base}?${str}` : base;
 }

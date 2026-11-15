@@ -630,6 +630,8 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     expect(text).toContain('2 of 4');       // services preview honest count
     expect(text).toContain('Needs attention');
     expect(text).toContain('evidence stale');
+    // The category reads as its label, the same as on the domain page.
+    expect(target.querySelector('.oe-cat')?.textContent).toBe('Stale evidence');
     // breadcrumb: Fleet > Owners > platform-team
     expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Owners']));
     unmount(component); document.body.removeChild(target);

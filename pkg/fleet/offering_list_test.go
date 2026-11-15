@@ -141,7 +141,7 @@ func TestOfferingRowAvailability(t *testing.T) {
 	}
 	// The worst environment says how Pacto knows: staging unavailable here.
 	envs := []EnvironmentAvailability{{State: AvailabilityAvailable, Provenance: ProvenanceObserved}, {State: AvailabilityUnavailable, Provenance: ProvenanceInferred}, {State: AvailabilityDegraded, Provenance: ProvenanceObserved}}
-	if got := worstProvenance(envs); got != ProvenanceInferred {
+	if got := rowProvenance(Availability{State: AvailabilityDegraded, ByEnvironment: envs}); got != ProvenanceInferred {
 		t.Errorf("worst provenance = %s", got)
 	}
 }
@@ -419,5 +419,107 @@ func TestAggregateOfferingPhasesRestricted(t *testing.T) {
 	agg := assertOfferingTallyMatchesDetail(t, r)
 	if agg.OfferingPhases.Failed != 0 || agg.OfferingPhases.Ready != 1 || len(agg.FailedByOffering) != 0 {
 		t.Errorf("restricted = %+v", agg)
+	}
+}
+
+// TestOfferingRowLifecycleInUse: a successor shipped under the same service
+// never hides the deprecation of the version a target still runs; with no
+// target, the newest readable revision speaks, whatever range consumers take.
+func TestOfferingRowLifecycleInUse(t *testing.T) {
+	build := func(running string) map[string]EntityRef {
+		old := svc24("pg", "16.1.0", "postgresql")
+		old.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://" + acme + "/pg:17.0.0"}
+		next := svc24("pg", "17.0.0", "postgresql")
+		app := svc24("app", "1.0.0", "")
+		app.Dependencies = []contract.Dependency{{Name: "pg", Ref: "oci://" + acme + "/pg", Required: true, Compatibility: "^16.0.0"}}
+		col := &Collection{Revisions: []RawRevision{ociRev(acme, old, nil), ociRev(acme, next, nil), ociRev(acme, app, nil)}}
+		if running != "" {
+			col.Targets = []RawTarget{{Scope: "prod", Kind: SourceKindKubernetes, Name: "pg", Service: "pg", Domain: acme, Digest: testDigest(acme, "pg", running)}}
+		}
+		return offeringRows(t, buildDomainSnap(t, "oci", col), EntityFilter{})
+	}
+	if got := build("16.1.0")["postgresql"].Lifecycle; got != LifecycleDeprecated {
+		t.Errorf("runs 16.1.0: lifecycle = %q", got)
+	}
+	if got := build("17.0.0")["postgresql"].Lifecycle; got != LifecycleSupported {
+		t.Errorf("runs 17.0.0: lifecycle = %q", got)
+	}
+	if got := build("")["postgresql"].Lifecycle; got != LifecycleSupported {
+		t.Errorf("runs nowhere: lifecycle = %q", got)
+	}
+}
+
+// TestProviderCurrentRevision: the newest revision a target runs, else the
+// newest readable one.
+func TestProviderCurrentRevision(t *testing.T) {
+	a := newAvailSnap()
+	old := a.declares("pg")
+	old.Contract.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}
+	q := a.query()
+	pg := q.snap.Services["pg"]
+	lifecycle := func() string { return revisionLifecycle(q.providerCurrentRevision(pg), q.snap.GeneratedAt) }
+	if got := lifecycle(); got != LifecycleDeprecated {
+		t.Errorf("newest = %q", got)
+	}
+	a.Revisions["pg@2.0.0"] = &ContractRevision{Key: "pg@2.0.0", ServiceKey: "pg", Version: "2.0.0", Contract: &contract.Contract{}}
+	a.Revisions["pg@3.0.0"] = &ContractRevision{Key: "pg@3.0.0", ServiceKey: "pg", Version: "3.0.0"}
+	pg.Revisions = append(pg.Revisions, "pg@2.0.0", "pg@3.0.0")
+	if got := q.providerCurrentRevision(pg); got == nil || got.Key != "pg@2.0.0" {
+		t.Errorf("nothing in use: current = %+v, want the newest readable", got)
+	}
+	a.target("pg", "pg-0", "db", "prod", time.Hour).ContractRevision = old.Key
+	if got := lifecycle(); got != LifecycleDeprecated {
+		t.Errorf("target runs 1.0.0 = %q", got)
+	}
+	if got := q.providerCurrentRevision(&ServiceRecord{Key: "none"}); got != nil {
+		t.Errorf("no revision: current = %+v", got)
+	}
+}
+
+// TestServiceLifecycleUnreadableNewestUnknown: an older readable revision
+// never speaks for an unreadable newest one.
+func TestServiceLifecycleUnreadableNewestUnknown(t *testing.T) {
+	a := newAvailSnap()
+	a.declares("pg")
+	a.Revisions["pg@2.0.0"] = &ContractRevision{Key: "pg@2.0.0", ServiceKey: "pg", Version: "2.0.0", Contract: &contract.Contract{}, validated: true}
+	pg := a.svc("pg", "")
+	pg.Revisions = append(pg.Revisions, "pg@2.0.0")
+	if got := a.query().serviceLifecycleState(pg); got != LifecycleUnknown {
+		t.Errorf("lifecycle = %q", got)
+	}
+	a.Revisions["pg@2.0.0"].Valid = true
+	if got := a.query().serviceLifecycleState(pg); got != LifecycleSupported {
+		t.Errorf("readable newest = %q", got)
+	}
+}
+
+// TestOfferingRowHiddenProviders: a row counts the providers the viewer may
+// not see, and its lifecycle cannot read supported past them.
+func TestOfferingRowHiddenProviders(t *testing.T) {
+	row := offeringRows(t, restrictedOffering(), EntityFilter{})["postgresql"]
+	if row.HiddenProviders != 1 || row.Lifecycle != LifecycleUnknown || row.Services != 1 {
+		t.Errorf("row = %+v", row)
+	}
+	if blob, _ := json.Marshal(row); strings.Contains(string(blob), "pg-ha") {
+		t.Errorf("the hidden provider leaks: %s", blob)
+	}
+}
+
+// TestOwnerLabelContactsOnly: one owner that names only contacts is declared,
+// so the row never reads as unowned.
+func TestOwnerLabelContactsOnly(t *testing.T) {
+	for _, c := range []struct {
+		n          int
+		sole, want string
+	}{{0, "", ""}, {1, "team:a", "a"}, {1, "", ownerByContactsLabel}, {3, "", "3 owners claim it"}} {
+		if got := ownerLabel(c.n, c.sole); got != c.want {
+			t.Errorf("ownerLabel(%d, %q) = %q, want %q", c.n, c.sole, got, c.want)
+		}
+	}
+	pg := svc24("pg", "1.0.0", "postgresql")
+	pg.Service.Owner = contract.Owner{Contacts: []contract.OwnerContact{{Type: "email", Value: "dba@acme"}}}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{ociRev(acme, pg, nil)}})
+	if got := offeringRows(t, q, EntityFilter{})["postgresql"].Owner; got != ownerByContactsLabel {
+		t.Errorf("row owner = %q", got)
 	}
 }

@@ -110,12 +110,12 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], sort: 'rate' }));
     const ths = Array.from(target.querySelectorAll('[data-testid="owner-list"] thead th'));
     expect(ths.map((th) => [th.textContent?.trim(), th.getAttribute('aria-sort')])).toEqual([
-      ['Owner', 'none'], ['Services', 'none'], ['Non-compliant', 'none'], ['Rate ▼', 'descending'],
+      ['Owner', 'none'], ['Services', 'none'], ['Non-compliant', 'none'], ['Unknown', null], ['Failing', null], ['Stale', null], ['Gaps', 'none'], ['Rate ▼', 'descending'],
     ]);
     expect(ths[2].querySelector('a')?.getAttribute('href')).toBe('#/fleet/owners');
     const cells = Array.from(target.querySelectorAll('[data-testid="owner-list"] tbody td')).map((td) => td.textContent?.trim());
     // The rate is of the services the owner owns outright, the figure's denominator.
-    expect(cells).toEqual(['12', '3', '30%']);
+    expect(cells).toEqual(['12', '3', '0', '0', '0', '0', '30%']);
     expect(target.querySelector('[data-testid="owner-list"] tbody td a')?.getAttribute('href'))
       .toBe('#/fleet/services?ownerKey=team%3Aa&ownership=consistent&status=NonCompliant');
     const box = target.querySelector('[data-testid="owner-nc-filter"]') as HTMLInputElement;
@@ -296,6 +296,20 @@ describe('FleetOwnersView (G)', () => {
  * with nothing to summarize, and, on a refresh, indistinguishable from a current
  * picture that had simply stopped moving.
  */
+describe('FleetOwnersView — rank by health and by gaps', () => {
+  beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+  for (const sort of ['health', 'gaps']) {
+    it(`asks the server for the ${sort} order`, async () => {
+      entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team:a', label: 'a', href: '/fleet/owners/team:a', services: 1 }], { total: 1 }));
+      const { target, component } = mountView(FleetOwnersView, { sort });
+      await vi.waitFor(() => expect(target.querySelector('[data-testid="owner-list"] tbody tr')).toBeTruthy());
+      expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], sort }));
+      expect(target.querySelector('[data-testid="owner-list-rank-health"]')?.getAttribute('href')).toBe('#/fleet/owners?sort=health');
+      unmount(component); document.body.removeChild(target);
+    });
+  }
+});
+
 describe('FleetOwnersView — the ownership summary has its own state', () => {
   beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
 
@@ -435,6 +449,17 @@ describe('FleetSourcesView (G)', () => {
     const sel = target.querySelector('select') as HTMLSelectElement;
     sel.value = 'unavailable'; sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/sources?sourceHealth=unavailable');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The overview's "Incomplete sources" tile opens this list with sourceHealth=incomplete.
+  it('names the incomplete filter Incomplete in its chip and its select', async () => {
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'source', key: 'kubernetes', label: 'kubernetes', href: '/fleet/sources/kubernetes' }], { total: 1 }));
+    const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'incomplete' });
+    await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ sourceHealth: 'incomplete' }));
+    expect(target.textContent).toContain('Incomplete');
+    expect((target.querySelector('select') as HTMLSelectElement).value).toBe('incomplete');
     unmount(component); document.body.removeChild(target);
   });
 

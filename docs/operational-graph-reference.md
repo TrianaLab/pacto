@@ -53,7 +53,7 @@ compliance evidence that a source carries.
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
-and cannot be combined with `--fleet`. Two are narrower: `impact` takes a single
+server and takes no other mode. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
 
 ### Observed calls under a restricted view
@@ -154,7 +154,7 @@ I/O. A single snapshot serves concurrent queries.
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
 | **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
 | **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
-| **status** | What needs attention, in the [attention categories](#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
+| **status** | What needs attention, in the [attention categories](operational-graph-tallies.md#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
 Two more operations sit beside the queries: `snapshot` emits the whole read model and
@@ -200,18 +200,9 @@ across domains. A bounded preview nested in a `get` answer is the
 exception: it omits `total` when the walk was itself bounded, so an absent
 `total` means "we stopped counting".
 
-Beside the rows, the dashboard's entity list and the TUI carry an aggregate over
-the complete matched population, computed before paging:
-
-| Tally | Partitions | Buckets |
-|-------|-----------|---------|
-| `serviceCompliance` | matched services | compliance states, rolled up from each service's targets |
-| `targetCompliance` | matched operational targets | compliance states as observed per target |
-| `ownership` | matched services | `consistent` · `conflicting` · `unowned` |
-| `readiness` | matched contract revisions | `passing` · `belowThreshold` · `expired` · `notDeclared` |
-
-`notDeclared` is its own readiness bucket so that a missing assessment stays
-separate from a failing one.
+Beside the rows, answers carry tallies over the complete matched population,
+computed before paging. The [tallies reference](operational-graph-tallies.md)
+lists them, the knowledge-gap filters and the attention categories.
 
 `get`, `graph` and `explain` name a single subject and carry no envelope: a
 missing subject is a *failure*. `pacto fleet get ghost` exits 1
@@ -257,28 +248,6 @@ provider never makes a revision invalid and never passes its values. A
 relationship carries the provider's
 [service lifecycle](contract-reference/sections.md#service-lifecycle) as
 `providerLifecycle`.
-
-### Attention categories
-
-Attention items fall into these categories, worst first:
-
-| Category | Code | Severity |
-|----------|------|----------|
-| `non-compliant` | `NON_COMPLIANT` | error |
-| `invalid` | `INVALID_CONTRACT` | error |
-| `provisioning` | `PROVISIONING_FAILED`, a provider reports a resource Failed | error |
-| `provisioning` | `PROVISIONING_STALE`, the last report about the current revision is stale | warning |
-| `unknown` | `UNKNOWN` | warning |
-| `stale` | `STALE_EVIDENCE` | warning |
-| `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
-| `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
-| `undeclared` | `DEPENDENCY_UNDECLARED`, a runtime call no contract declares | warning |
-| `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
-| `readiness` | `MISSING_READINESS` | info |
-| `unowned` | `UNOWNED_SERVICE` | info |
-
-The Overview tile "Undeclared runtime dependencies observed" opens both kinds
-of `undeclared` item.
 
 ### Resolved dependencies and accepted ranges
 
@@ -334,7 +303,9 @@ owner comes from the newest revision that declares one. A service known only
 from Kubernetes has no revisions, so its owner comes from the owner the
 operator read from the running contract (`status.contract.owner`). A service
 counts as `unowned`, in the ownership tally and in attention, only when no
-revision declares an owner and no source reports one.
+revision declares an owner and no source reports one. A service with no owner
+claim whose contract Pacto cannot read counts as `unknown` instead: the
+dashboard labels it Owner unknown and never No declared owner.
 
 ## Business domains
 
@@ -372,7 +343,21 @@ See the [golden paths reference](golden-paths-reference.md).
 
 ## Platform offerings
 
-See the [platform offerings reference](platform-offerings.md).
+See the [platform offerings reference](platform-offerings.md) and
+[offering availability and lifecycle](offering-availability.md).
+
+| `AvailabilityState` | Meaning |
+|---------------------|---------|
+| `available` | Fresh provider targets serve and no consumer reports the provider unreachable. |
+| `degraded` | Some provider targets report `INTERFACE_ABSENT`, or some consumer targets cannot reach it. |
+| `unavailable` | Every fresh provider target serves none of its interfaces, or with no fresh provider target every consumer target that declares it cannot reach it. |
+| `unknown` | Targets are hidden, a target source is incomplete, no fresh evidence exists or no interface was seen answering. |
+
+| Limitation | Raised when |
+|------------|-------------|
+| `SUCCESSOR_UNRESOLVED` | A provider's declared successor names no revision in the fleet. |
+| `HIDDEN_PROVIDERS` | An offering event has providers the viewer cannot see. |
+| `OFFERING_NOT_IN_FLEET` | No visible service provides the offering an event names. |
 
 | A service's `consumedOfferings` item | Detail |
 |---|---|

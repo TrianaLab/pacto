@@ -259,7 +259,7 @@ func TestLifecycleTileEqualsList(t *testing.T) {
 
 func TestServicesNeedingAttentionCountsLifecycle(t *testing.T) {
 	q := lifecycleRangeFleet(t)
-	if got := q.servicesNeedingAttention(); got < 2 {
+	if got := q.servicesNeedingAttention(q.collectAttention()); got < 2 {
 		t.Errorf("servicesNeedingAttention = %d, want app16 and pinned at least", got)
 	}
 }

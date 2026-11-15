@@ -835,7 +835,7 @@ func TestStatus_Categories(t *testing.T) {
 		code  string
 	}{
 		{"noncompliant", StatusQuery{NonCompliant: true}, "NON_COMPLIANT"},
-		{"unknown", StatusQuery{Unknown: true}, "UNKNOWN"},
+		{"unknown", StatusQuery{Unknown: true}, "EVIDENCE_MISSING"},
 		{"stale", StatusQuery{StaleEvidence: true}, "STALE_EVIDENCE"},
 		{"invalid", StatusQuery{Invalid: true}, "INVALID_CONTRACT"},
 		{"missing readiness", StatusQuery{MissingReadiness: true}, "MISSING_READINESS"},

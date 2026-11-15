@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"cmp"
+	"slices"
 	"sort"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -37,7 +39,8 @@ type ProviderVersionsPreview struct {
 	Completeness     string            `json:"completeness" enum:"fleet"`
 	Note             string            `json:"note"`
 	// Successor is the successor the provider's newest readable revision
-	// declares and the revision it resolves to.
+	// declares, or with Range the newest one Range reaches, and the revision
+	// it resolves to.
 	Successor *SuccessorInfo `json:"successor,omitempty"`
 	// SuccessorRange says whether Range accepts Successor; present only when
 	// both are, and unknown when the successor does not resolve.
@@ -90,16 +93,25 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 	return out
 }
 
-// versionsSuccessor sets out's successor from the newest readable of revs and,
-// when a range is given, whether the range accepts it.
+// versionsSuccessor sets out's successor and, when a range is given, whether
+// the range accepts it. The successor is the one the provider's current
+// revision declares (see [Query.providerCurrentRevision]), or with a range the
+// one the newest revision the range reaches declares, as the lifecycle a
+// consumer sees is range-aware: a ^16 range asks about 16.x even once 17
+// ships.
 func (q *Query) versionsSuccessor(out *ProviderVersionsPreview, s *ServiceRecord, revs []*ContractRevision) {
-	out.Successor = q.resolveSuccessor(s, serviceLifecycle(newestReadable(revs)))
+	from := q.providerCurrentRevision(s)
+	if out.Range != "" {
+		inRange := slices.DeleteFunc(slices.Clone(revs), func(r *ContractRevision) bool { return CheckRange(out.Range, r.Version) != RangeSatisfied })
+		from = cmp.Or(newestReadable(inRange), from)
+	}
+	out.Successor = q.resolveSuccessor(s, serviceLifecycle(from))
 	if out.Successor != nil && out.Range != "" {
 		var rev *ContractRevision
 		if out.Successor.Revision != nil {
 			rev = q.snap.Revisions[RevisionKey(out.Successor.Revision.Key)]
 		}
-		out.SuccessorRange = successorRange(out.Range, rev)
+		out.SuccessorRange = successorRange(out.Range, s.Key, rev)
 	}
 }
 

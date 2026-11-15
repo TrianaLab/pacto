@@ -28,8 +28,9 @@ func recordingStore(reads *atomic.Int32) *testutil.MockBundleStore {
 }
 
 // callCreateFrom builds the server through the command layer with flags and
-// calls pacto_create from an oci:// golden path into dir.
-func callCreateFrom(t *testing.T, flags map[string]string, dir string) (*mcpsdk.CallToolResult, int32) {
+// calls pacto_create from an oci:// golden path into dir. A server that does not
+// offer pacto_create answers with a call error.
+func callCreateFrom(t *testing.T, flags map[string]string, dir string) (int32, error) {
 	t.Helper()
 	var reads atomic.Int32
 	svc := app.NewService(recordingStore(&reads), nil)
@@ -55,20 +56,18 @@ func callCreateFrom(t *testing.T, flags map[string]string, dir string) (*mcpsdk.
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close() }()
-	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_create", Arguments: map[string]any{
+	_, err = session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_create", Arguments: map[string]any{
 		"from": "oci://ghcr.io/acme/paths/http-service:1.0.0", "name": "gift-cards", "owner": "checkout", "path": dir,
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res, reads.Load()
+	return reads.Load(), err
 }
 
-func assertFromRefused(t *testing.T, res *mcpsdk.CallToolResult, reads int32, dir string) {
+// assertNotOffered: an HTTP server does not offer pacto_create at all, so the
+// call reads no registry and writes nothing.
+func assertNotOffered(t *testing.T, err error, reads int32, dir string) {
 	t.Helper()
-	text := res.Content[0].(*mcpsdk.TextContent).Text
-	if !res.IsError || !strings.Contains(text, "creating from a golden path serves stdio only") {
-		t.Errorf("from over HTTP: %q", text)
+	if err == nil || !strings.Contains(err.Error(), `unknown tool "pacto_create"`) {
+		t.Errorf("pacto_create over HTTP: %v", err)
 	}
 	if reads != 0 {
 		t.Errorf("the registry was read %d times", reads)
@@ -78,27 +77,26 @@ func assertFromRefused(t *testing.T, res *mcpsdk.CallToolResult, reads int32, di
 	}
 }
 
-// TestCreateFromRefusedOverHTTP: an HTTP server never creates from a golden
-// path, so no caller pulls with this process's credentials or writes here.
+// TestCreateFromRefusedOverHTTP: an HTTP server offers no pacto_create, so no caller pulls with this process's credentials or writes here.
 func TestCreateFromRefusedOverHTTP(t *testing.T) {
 	t.Setenv(trustEnv, "")
 	dir := t.TempDir()
-	res, reads := callCreateFrom(t, map[string]string{"transport": "http"}, dir)
-	assertFromRefused(t, res, reads, dir)
+	reads, err := callCreateFrom(t, map[string]string{"transport": "http"}, dir)
+	assertNotOffered(t, err, reads, dir)
 	// Over stdio the same call reaches the registry.
-	if _, reads := callCreateFrom(t, nil, t.TempDir()); reads == 0 {
+	if reads, _ := callCreateFrom(t, nil, t.TempDir()); reads == 0 {
 		t.Error("stdio never asked the registry")
 	}
 }
 
 // TestCreateFromNotOfferedUnderView: the --fleet HTTP server whose callers
-// sign in and are narrowed by Kubernetes RBAC refuses from the same way.
+// sign in and are narrowed by Kubernetes RBAC offers no pacto_create either.
 func TestCreateFromNotOfferedUnderView(t *testing.T) {
 	t.Setenv(trustEnv, "")
 	dir := t.TempDir()
-	res, reads := callCreateFrom(t, map[string]string{"transport": "http", "auth-issuer": "https://idp.example",
+	reads, err := callCreateFrom(t, map[string]string{"transport": "http", "auth-issuer": "https://idp.example",
 		"fleet": "true", "local": t.TempDir()}, dir)
-	assertFromRefused(t, res, reads, dir)
+	assertNotOffered(t, err, reads, dir)
 }
 
 // TestMCPInitMapsOverrides: values and set reach the created contract, set

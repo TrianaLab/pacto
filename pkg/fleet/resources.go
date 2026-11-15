@@ -55,21 +55,13 @@ func notReportedConsumption() []ResourceConsumption {
 	return []ResourceConsumption{{State: consumptionNotReported, Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
 }
 
-// revisionsOf is every revision of s.
-func (q *Query) revisionsOf(s *ServiceRecord) []*ContractRevision {
-	revs := make([]*ContractRevision, 0, len(s.Revisions))
-	for _, rk := range s.Revisions {
-		revs = append(revs, q.snap.Revisions[rk])
-	}
-	return revs
-}
-
 // attachProviderFacts sets each use's provider owner, as the offering page
 // derives it, and the provider's availability.
 func (q *Query) attachProviderFacts(uses []OfferingUse) {
+	x := q.newAvailIndex()
 	for i := range uses {
 		p := q.snap.Services[ServiceKey(uses[i].Provider.Key)]
-		av := q.providerAvailability(p)
+		av := x.providerAvailability(p)
 		uses[i].ProviderOwner, uses[i].ProviderAvailability = serviceOwnership(p, q.revisionsOf(p)), &av
 	}
 }
@@ -93,9 +85,15 @@ func (q *Query) attachRequested(uses []OfferingUse, cur *ContractRevision, cfgs 
 		if rev != nil && (cur == nil || rev.Key != cur.Key) {
 			_, revCfgs, _ = q.currentRevisionContent(rev)
 		}
+		var consumer *EntityRef
+		if rev != nil {
+			ref := revisionEntityRef(rev)
+			consumer = &ref
+		}
 		for _, c := range revCfgs.Items {
 			if res := c.Resolution; res != nil && res.Service != nil && res.Service.Key == u.Provider.Key && entries[c.Name] {
-				u.Requested = append(u.Requested, RequestedConfiguration{Entry: c.Name, Configuration: c.Configuration, Revision: res.Revision, Values: c.Values, Provenance: ProvenanceDeclared})
+				u.Requested = append(u.Requested, RequestedConfiguration{Entry: c.Name, Configuration: c.Configuration, Revision: res.Revision,
+					ConsumerRevision: consumer, Values: c.Values, Provenance: ProvenanceDeclared})
 			}
 		}
 		u.RequestedTruncated = revCfgs.Truncated

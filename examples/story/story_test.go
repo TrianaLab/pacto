@@ -680,3 +680,22 @@ func TestRevisionConfigRefs(t *testing.T) {
 		t.Errorf("revision = %+v, %v", r.ConfigRefs, err)
 	}
 }
+
+// TestStoryRequesterNeverDecides: dana, the person pay-agent names, is a
+// person on no team any beat asks, so OwnChange never refuses a decision the
+// story shows.
+func TestStoryRequesterNeverDecides(t *testing.T) {
+	if Dana.Class() != delivery.ClassHuman {
+		t.Fatalf("dana is a person: %s", Dana.Class())
+	}
+	for _, b := range Beats {
+		if b.To == "" || b.Type == delivery.TypeUnfreeze {
+			continue
+		}
+		for _, team := range append(plan(t, b).Floor.Owners, b.Expect.Asked...) {
+			if Policy.InTeams(Dana.Groups, []string{team}) {
+				t.Errorf("%s asks %s, a team dana is on", b.ID, team)
+			}
+		}
+	}
+}

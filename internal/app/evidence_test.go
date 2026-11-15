@@ -1400,6 +1400,7 @@ func TestProvisionedEvidence_Rejects(t *testing.T) {
 		"no name":                       with(func(o *ProvisionedOptions) { o.Configuration = "" }),
 		"mutable ref":                   with(func(o *ProvisionedOptions) { o.ContractRef = "oci://ghcr.io/a/orders:1.0.0" }),
 		"subject outside repository":    with(func(o *ProvisionedOptions) { o.Subject = "ghcr.io/b/orders/default/db" }),
+		"subject in the usage space":    with(func(o *ProvisionedOptions) { o.Subject = "ghcr.io/a/orders/production/usage/configuration/db" }),
 		"unknown outcome":               with(func(o *ProvisionedOptions) { o.Outcome = "Done" }),
 		"provider not a slug":           with(func(o *ProvisionedOptions) { o.Provider = "Crossplane" }),
 		"externalRef control character": with(func(o *ProvisionedOptions) { o.ExternalRef = "x\ny" }),
