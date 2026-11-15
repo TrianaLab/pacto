@@ -534,7 +534,7 @@ func floorUnseen(e EnvironmentAvailability, n int) EnvironmentAvailability {
 // Lines renders a for text surfaces: one line per environment, then how many
 // the bound left out. The CLI and the TUI share the wording.
 func (a Availability) Lines() []string {
-	out := make([]string, 0, len(a.ByEnvironment)+1)
+	out := make([]string, 0, len(a.ByEnvironment))
 	for _, e := range a.ByEnvironment {
 		out = append(out, e.Line())
 	}
