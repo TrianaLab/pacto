@@ -103,7 +103,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ ownership: 'conflicting' });
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
-    expect(target.querySelector('.chip')?.textContent).toContain('Revisions name different owners');
+    expect(target.querySelector('.chip')?.textContent).toContain('Owners disagree');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -231,7 +231,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const ownership = dist(target, 'Declared ownership');
     expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, across every page.');
     expect(Array.from(ownership.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent))
-      .toEqual(['Revisions name different owners', 'No declared owner', 'One declared owner']);
+      .toEqual(['Owners disagree', 'No declared owner', 'One declared owner']);
     // The owner filter survives the click; it is narrowed, not replaced.
     expect(ownership.querySelectorAll('.dist-legend a')[2]?.getAttribute('href'))
       .toBe('#/fleet/services?owner=team-a&ownership=consistent');
@@ -256,7 +256,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const note = services.querySelector('.hb-scope')?.textContent || '';
     expect(note).toContain('Top 2 of 5 named owners by service count.');
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
-    expect(note).toContain('Services with no declared owner, or whose revisions name different owners, appear in no row here.');
+    expect(note).toContain('Services with no declared owner, or whose owners disagree, appear in no row here.');
     // A row counts team-a's CONSISTENTLY owned services, so its destination carries
     // ownership too: ownerKey=team-a alone also selects what team-a co-owns, which is a
     // longer list than the bar the reader clicked. And it is ownerKey, the exact owner,

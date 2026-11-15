@@ -97,7 +97,7 @@ export function rankModel(kind: 'owner' | 'domain', agg: RankAggregate | null | 
     groups = agg?.nonCompliantOwners ?? rows.length;
     // An empty bucket keeps its place and shows 0 (SPEC 2.2).
     const none = agg?.nonCompliantUnidentified ?? 0;
-    tails.push({ key: '-none', label: 'No identified owner', ident: false, n: none, hatch: true, glyph: 'unknown', href: hrefs.services(''), note: none ? { text: 'No single owner: none declared, revisions that disagree or contacts only' } : null });
+    tails.push({ key: '-none', label: 'No identified owner', ident: false, n: none, hatch: true, glyph: 'unknown', href: hrefs.services(''), note: none ? { text: 'No single owner: none declared, owners that disagree or contacts only' } : null });
   } else {
     rows = (agg?.nonCompliantByDomain ?? []).map((d) => ({ key: d.domain, label: d.domain, n: d.nonCompliant, size: d.services }));
     groups = agg?.nonCompliantDomains ?? rows.length;

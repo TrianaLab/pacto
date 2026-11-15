@@ -4778,6 +4778,8 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
+            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
@@ -7305,7 +7307,7 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
-                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
+                /** @description Declared-ownership filter for service entities; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
                 ownership?: "consistent" | "conflicting" | "unowned" | "unidentified" | "unknown";
                 /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge */
                 gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";

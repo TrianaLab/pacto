@@ -60,6 +60,9 @@ type OwnershipInfo struct {
 	// owner however many contact points this carries.
 	Contacts  *ContactsPreview `json:"contacts,omitempty"`
 	Conflicts StringsPreview   `json:"conflicts"`
+	// ConflictReason says why the owners disagree, set only on a service whose
+	// current claims hold more than one owner (see [conflictReason]).
+	ConflictReason string `json:"conflictReason,omitempty" doc:"Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -1054,7 +1057,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		}
 	}
 	self := serviceEntityRef(s)
-	ownership := serviceOwnership(s, view.Revisions)
+	ownership := serviceOwnership(q.snap, s)
 	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
@@ -1214,11 +1217,13 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	// The aggregate is accumulated in the SAME walk that builds the previews, over the
 	// same records, so the summary and the lists can never describe two populations.
 	var sum OwnerSummary
-	// The estate is read off the DECLARATIONS, in one walk over the revisions: a
-	// service belongs here when any of its revisions names this owner, which is the
-	// same rule [Query.ownerClaims] applies to every owner filter. Reading it off
-	// ServiceRecord.Owner instead would show an owner one revision of a disputed
-	// service and none of the service that revision belongs to.
+	// The revisions are the DECLARATIONS: every revision that names this owner,
+	// history included, so a former owner's page still lists what it declared. The
+	// estate is the services whose CURRENT claims include this owner, the same rule
+	// [Query.ownerClaims] applies to every owner filter: a service handed over to
+	// another team leaves this estate, while a service two teams dispute now stays
+	// on both pages. Reading it off ServiceRecord.Owner instead would show an owner
+	// one revision of a disputed service and none of the service it belongs to.
 	//
 	// The comparison is IDENTITY ([contract.Owner.IsKey]), never the free-text owner
 	// search: this page IS one canonical owner, and a substring rule would hand
@@ -1245,6 +1250,9 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	}
 	for sk, s := range q.snap.Services {
 		if !claimed[sk] {
+			continue
+		}
+		if claims := q.ownerClaimsOf(s); !containsStr(claims.keys, key) {
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
@@ -1390,7 +1398,7 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 	newest := newestReadable(all)
 	current, cfgs, pols := q.currentRevisionContent(newest)
 	p := OfferingProvider{
-		Service: serviceEntityRef(s), OfferingProvenance: s.OfferingProvenance, Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
+		Service: serviceEntityRef(s), OfferingProvenance: s.OfferingProvenance, Ownership: serviceOwnership(q.snap, s), Summary: s.Summary, CurrentRevision: current,
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
@@ -2003,20 +2011,23 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 	return out
 }
 
-// serviceOwnership reports the service owner and a BOUNDED preview of per-revision
-// ownership conflicts (a revision whose owner differs from the service owner).
-func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo {
-	key := s.Owner.KeyString()
+// serviceOwnership reports the service owner and, when its current claims
+// disagree (see [serviceOwnerClaims]), a BOUNDED preview of the revisions behind
+// those claims and the reason ([conflictReason]). A handover, where only an
+// older version names another owner, yields an empty preview.
+func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
-	// A conflict is a disagreement of IDENTITY, and it is spelled out with the
-	// namespace: a revision owned by DRI `alice` disagreeing with a service owned by
-	// team `alice` would otherwise print as a revision disagreeing with itself.
 	var conflicts []string
-	for _, r := range revs {
-		rk, ok := r.Owner.Key()
-		if ok && rk.String() != key {
-			conflicts = append(conflicts, string(r.Key)+": "+rk.Label())
+	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
+		// A conflict is a disagreement of IDENTITY, and it is spelled out with the
+		// namespace: a revision owned by DRI `alice` beside one owned by team
+		// `alice` would otherwise print as one owner twice.
+		for _, r := range currentOwnerRevisions(snap, s) {
+			if rk, ok := r.Owner.Key(); ok {
+				conflicts = append(conflicts, string(r.Key)+": "+rk.Label())
+			}
 		}
+		info.ConflictReason = conflictReason(snap, s)
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
@@ -2077,12 +2088,7 @@ func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, Confi
 // ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
 // owner, the one [deriveOwner] takes the service owner from; nil when none does.
 func (q *Query) ownerRevision(s *ServiceRecord) *EntityRef {
-	var newest *ContractRevision
-	for _, rk := range s.Revisions {
-		if r := q.snap.Revisions[rk]; !r.Owner.IsEmpty() && (newest == nil || lessRevisionChrono(newest, r)) {
-			newest = r
-		}
-	}
+	newest := newestOwnerRevision(q.snap, s)
 	if newest == nil {
 		return nil
 	}

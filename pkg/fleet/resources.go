@@ -70,7 +70,7 @@ func (q *Query) attachProviderFacts(uses []OfferingUse) {
 	for i := range uses {
 		p := q.snap.Services[ServiceKey(uses[i].Provider.Key)]
 		av := q.providerAvailability(p)
-		uses[i].ProviderOwner, uses[i].ProviderAvailability = serviceOwnership(p, q.revisionsOf(p)), &av
+		uses[i].ProviderOwner, uses[i].ProviderAvailability = serviceOwnership(q.snap, p), &av
 	}
 }
 

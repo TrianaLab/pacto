@@ -304,7 +304,7 @@ export interface ReadinessTally {
  * revisions name two teams has no answer at all to "who do I page".
  */
 export const OWNERSHIP_STATES: BucketState<keyof OwnershipTally>[] = [
-  { value: 'conflicting', field: 'conflicting', label: 'Revisions name different owners', tone: 'err' },
+  { value: 'conflicting', field: 'conflicting', label: 'Owners disagree', tone: 'err' },
   { value: 'unowned', field: 'unowned', label: 'No declared owner', tone: 'warn' },
   // Unreadable is never ownerless: drawn as the unknown hatch.
   { value: 'unknown', field: 'unknown', label: 'Owner unknown', tone: 'neutral', hatch: true },
@@ -364,7 +364,8 @@ export interface OwnerRankingTally {
  *
  * It is a RANKING, not a partition, and three separate populations sit outside it:
  *
- *  - services whose revisions name different owners, and services nobody claims —
+ *  - services whose owners disagree (targets run different owners, or one version
+ *    declares two), and services nobody claims —
  *    counted in `ownership`, in no row, and the ones most in need of an owner;
  *  - consistently owned services whose owner ranks past the bound (`beyondRanking`);
  *  - consistently owned services whose owner has NO canonical identity at all
@@ -429,7 +430,7 @@ export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey
   // includes owners that rank nowhere because every service naming them is disputed.
   const scope = ranked === distinct
     ? `Top ${shown} of ${ranked} named ${ranked === 1 ? 'owner' : 'owners'} by service count.`
-    : `Top ${shown} of ${ranked} rankable ${ranked === 1 ? 'owner' : 'owners'} by service count, out of ${distinct} named across these services. The other ${distinct - ranked} ${distinct - ranked === 1 ? 'is named only by services whose revisions disagree' : 'are named only by services whose revisions disagree'}.`;
+    : `Top ${shown} of ${ranked} rankable ${ranked === 1 ? 'owner' : 'owners'} by service count, out of ${distinct} named across these services. The other ${distinct - ranked} ${distinct - ranked === 1 ? 'is named only by services whose owners disagree' : 'are named only by services whose owners disagree'}.`;
   const rest = ranked - shown;
   const tail = beyond > 0
     ? ` ${rest === 1 ? 'The remaining owner accounts' : `The remaining ${rest} of ${ranked} owners account`} for ${beyond} more ${beyond === 1 ? 'service' : 'services'}.`
@@ -445,7 +446,7 @@ export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey
     services: rows.map((o) => row(o, o.services)),
     targets: rows.map((o) => row(o, o.targets)),
     note: shown
-      ? `${scope}${tail} Services with no declared owner, or whose revisions name different owners, appear in no row here.`
+      ? `${scope}${tail} Services with no declared owner, or whose owners disagree, appear in no row here.`
       : '',
   };
 }

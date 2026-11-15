@@ -264,7 +264,7 @@
     <div class="se-conflicts" role="status">
       <div class="se-conflicts-head">
         <strong>Ownership conflict.</strong>
-        <span>These revisions declare an owner other than {d.ownership.owner || 'the service owner'}:</span>
+        <span>{d.ownership.conflictReason ? `${d.ownership.conflictReason[0].toUpperCase()}${d.ownership.conflictReason.slice(1)}:` : 'Owners disagree:'}</span>
       </div>
       <ul class="se-conflict-list">
         {#each d.ownership.conflicts.items as c}<li title={c}>{abbreviateDigests(dropService(c, self))}</li>{/each}

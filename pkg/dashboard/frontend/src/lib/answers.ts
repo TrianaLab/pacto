@@ -20,8 +20,9 @@ interface PostureSummary {
 /**
  * postureAnswer reads a service, owner or fleet posture aggregate and says whether
  * anything is broken. `incomplete` (the snapshot is missing data) withholds the
- * all-good claim. `conflicts` counts revisions that name a different owner: it and an
- * estate where no running target matches a known revision are named in the answer, so
+ * all-good claim. `conflicts` is the service's ownership conflict (owners disagree:
+ * targets run different owners, or one version declares two): it and an estate
+ * where no running target matches a known revision are named in the answer, so
  * the line never says "nothing broken" above either. Stale and never-observed running
  * targets are concerns too: a compliance verdict on old or missing evidence is no
  * reason to say "Healthy.".
@@ -44,7 +45,7 @@ export function postureAnswer(sum: PostureSummary = {}, incomplete = false, conf
   const concerns = [
     targets && unknown ? ask(`${plural(unknown, 'running target has', 'running targets have')} unknown compliance`) : '',
     targets && sum.revisionsInUse === 0 && (sum.revisions ?? 0) > 0 ? 'no running target matches a known revision' : '',
-    conflicts ? `${plural(conflicts, 'revision names', 'revisions name')} a different owner` : '',
+    conflicts ? 'owners disagree' : '',
     targets && stale ? `${plural(stale, 'running target has', 'running targets have')} stale evidence` : '',
     targets && never ? ask(`${plural(never, 'running target was', 'running targets were')} never observed`) : '',
   ].filter(Boolean);

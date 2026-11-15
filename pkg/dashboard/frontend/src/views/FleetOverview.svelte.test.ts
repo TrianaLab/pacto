@@ -372,8 +372,8 @@ describe('FleetOverview — every band draws a complete population', () => {
     expect(org).toContain('Declared ownership');
     expect(org).toContain('All 3 services in the snapshot.');
     // Two teams claiming one service is its own state, never folded into "no owner".
-    expect(org).toContain('Revisions name different owners');
-    expect(linkIn(target, 'ov-org', 'Revisions name different owners')?.getAttribute('href'))
+    expect(org).toContain('Owners disagree');
+    expect(linkIn(target, 'ov-org', 'Owners disagree')?.getAttribute('href'))
       .toBe('#/fleet/services?ownership=conflicting');
     expect(linkIn(target, 'ov-org', 'No declared owner')?.getAttribute('href'))
       .toBe('#/fleet/services?ownership=unowned');
