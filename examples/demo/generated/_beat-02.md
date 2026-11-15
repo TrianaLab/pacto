@@ -5,7 +5,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
 ```
 
 ```console
-39 of 39 service(s):
+40 of 40 service(s):
   analytics-pipeline           NotEvaluated owner=data-platform  domain=-            offering=-            revs=2 targets=0
   api-gateway                  NotEvaluated owner=platform-foundations domain=-            offering=-            revs=3 targets=0
   audit-log                    Compliant    owner=platform-foundations-security domain=-            offering=-            revs=1 targets=1
@@ -30,6 +30,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   payments-service             Compliant    owner=payments-team  domain=payments     offering=-            revs=7 targets=1
   platform-app-config          NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
   platform-http-policy         NotEvaluated owner=platform-foundations domain=-            offering=shared-policy revs=2 targets=0
+  platform-security            NotEvaluated owner=platform-security domain=-            offering=security-scanning revs=1 targets=0
   platform-worker-config       NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
   postgresql                   Compliant    owner=infra-data     domain=-            offering=postgresql   revs=4 targets=2
   postgresql-ha                Compliant    owner=platform-data  domain=-            offering=postgresql   revs=1 targets=1
@@ -37,12 +38,12 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   recommendations              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   redis                        NotEvaluated owner=infra-data     domain=-            offering=redis        revs=2 targets=0
   reporting-api                NotEvaluated owner=data-platform  domain=-            offering=-            revs=1 targets=0
-  returns-service              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
+  returns-service              NotEvaluated owner=logistics-team domain=-            offering=-            revs=3 targets=0
   search-indexer               NotEvaluated owner=catalog-team   domain=-            offering=-            revs=1 targets=0
   shipping-rates               NotEvaluated owner=logistics-team domain=-            offering=-            revs=3 targets=0
   storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=6 targets=2
   stripe-api                   NotEvaluated owner=external/stripe domain=-            offering=-            revs=1 targets=0
   support-assistant            NotEvaluated owner=support-team   domain=-            offering=-            revs=1 targets=0
   ticketing-service            NonCompliant owner=support-team   domain=-            offering=-            revs=3 targets=1
-  warehouse-scanner            NotEvaluated owner=logistics-team domain=-            offering=-            revs=1 targets=0
+  warehouse-scanner            NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
 ```
