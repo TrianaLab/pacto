@@ -65,6 +65,11 @@ func TestOperationAgentNamesAPerson(t *testing.T) {
 	denied(t, onBehalf(bot, runner, agents), msg)
 	denied(t, onBehalf(bot, controller, agents), msg)
 	denied(t, onBehalf(runner, "", saGroups...), msg)
+	// The promoter trims and case-folds the name, and admission mirrors it.
+	denied(t, onBehalf(bot, "   ", agents), msg)
+	denied(t, onBehalf(bot, " DEPLOY-BOT", agents), msg)
+	denied(t, onBehalf(bot, " "+runner, agents), msg)
+	denied(t, onBehalf(bot, " "+strings.ToUpper(controller)+" ", agents), msg)
 	allowed(t, onBehalf(bot, "dana@example.com", agents))
 	allowed(t, onBehalf(runner, "dana@example.com", saGroups...))
 	allowed(t, onBehalf(controller, ""))

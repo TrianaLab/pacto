@@ -53,8 +53,9 @@ describes, and `pacto_delivery_get` repeats it while an operation is held.
 Propose with the plan's intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell.
 
-- `on_behalf_of` on plan and propose: the person an agent acts for, asserted
-  and never verified. An agent must name one when it proposes, never itself,
+- `on_behalf_of` on plan and propose: the person an agent acts for, as the
+  Kubernetes username the cluster authenticates them as, asserted and never
+  verified. An agent must name one when it proposes, never itself,
   a service account or the promoter, and that person may not approve the
   change ([agents](integrations/kubernetes/delivery-agents.md#an-agent-names-the-person-it-acts-for)).
   Planning needs none.

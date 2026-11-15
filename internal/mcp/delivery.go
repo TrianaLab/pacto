@@ -66,7 +66,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
 	"service for you, and order.unknown says what it could not see. When an agent proposes, it names the person it acts for " +
-	"in on_behalf_of, never itself, a service account or the promoter: the name is asserted, that person may not approve " +
+	"in on_behalf_of, as the Kubernetes username the cluster authenticates them as, never itself, a service account or the " +
+	"promoter: the name is asserted, that person may not approve " +
 	"the change, and planning needs no person. Pass correlation_id on plan and propose to tie a change to a ticket or " +
 	"incident; the rollback, freeze or step-down the promoter raises after it inherits the id, and it never changes the " +
 	"intent digest." + checkedPass + noApprove
@@ -394,7 +395,7 @@ func requestSchema(extra ...string) map[string]any {
 		"from":         {Type: "string", Description: "Digest the Stage runs now (defaults to its pointer)"},
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},
-		"on_behalf_of": {Type: "string", Description: "The person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change"},
+		"on_behalf_of": {Type: "string", Description: "The person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change"},
 		"correlation_id": {Type: "string", Description: "An id that ties this change to an incident or another change, such as a ticket " +
 			"(at most 128 printable ASCII characters). Not part of the intent digest; pacto_delivery_history filters by it"},
 		"cause_verdict": {Type: "string", Description: "A verdict you cite as the cause, as JSON (a verdict from pacto_delivery_explain); " +

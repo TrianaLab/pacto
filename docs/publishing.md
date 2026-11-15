@@ -174,9 +174,11 @@ its signature. It waits up to `--propose-timeout` (10 minutes by default), then
 gives up and says so.
 
 A CI service account is an agent to Pacto delivery, so its `--propose` must
-also name the person who asked for the change with `--on-behalf-of`, for
-example the author of the merged pull request. That person may not approve
-the change, and the name is asserted, never verified
+also name the person who asked for the change with `--on-behalf-of`, as the
+Kubernetes username the cluster authenticates them as, any OIDC prefix
+included. A pull request author's Git login is a different name: map it to
+that username first, or the person's own approval goes unrecognised. That
+person may not approve the change, and the name is asserted, never verified
 ([agents](integrations/kubernetes/delivery-agents.md#an-agent-names-the-person-it-acts-for)).
 
 To take a version back out of an environment, see

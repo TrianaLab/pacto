@@ -363,10 +363,10 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
 // count. A question that names no team is also break-glass's: under
-// requireOwnerTeam nobody else can resolve it.
+// requireOwnerTeam nobody else can resolve it, unless they asked for it.
 func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
 	return answerRefusal(op, caller, it.Decision) == "" ||
-		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != op.Spec.Actor.User
+		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User)
 }
 
 // EnvironmentRow is one Stage: one service in one environment, as the

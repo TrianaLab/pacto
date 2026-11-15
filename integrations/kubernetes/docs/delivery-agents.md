@@ -15,7 +15,11 @@ approve them in the dashboard or from the terminal
 When an agent proposes a change, it names the person who asked for it in
 `onBehalfOf`: `--on-behalf-of` for `pacto delivery propose`, `on_behalf_of` for
 `pacto_delivery_operation_propose` and the "Who asked you for this" field in the
-dashboard. The cluster's admission policy and the promoter both refuse an
+dashboard. The name is the person's Kubernetes username exactly as the cluster
+authenticates them, any OIDC username prefix included: `kubectl auth whoami`,
+run as them, prints it. Pacto compares it with the approver's username, so a
+Git login or a display name never matches and leaves the person free to
+approve. The cluster's admission policy and the promoter both refuse an
 agent's Operation that names nobody, names the agent itself, a service account
 or the promoter. The client refuses it first, before anything reaches the
 cluster:

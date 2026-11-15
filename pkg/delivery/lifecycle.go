@@ -145,6 +145,13 @@ func samePerson(a, b string) bool {
 	return a != "" && strings.EqualFold(a, strings.TrimSpace(b))
 }
 
+// AskedBy reports whether user asked for the change spec describes: its
+// actor, or the person an agent named it acts for, under any spelling of
+// their name. That person never decides it.
+func AskedBy(spec OperationSpec, user string) bool {
+	return samePerson(user, spec.Actor.User) || spec.OnBehalfOf != nil && samePerson(user, spec.OnBehalfOf.User)
+}
+
 // askerMay says why a may not decide op for who asked for it: the person
 // who asked never decides, and an agent's change that names nobody it acts
 // for (admitted before that was required) has nobody who may.
@@ -152,7 +159,7 @@ func askerMay(spec OperationSpec, st OperationStatus, a ApprovalSpec) (string, s
 	switch {
 	case st.ActorClass == ClassAgent && !named(spec):
 		return "NoPrincipal", "an agent raised this change without naming the person it acts for, so nobody may approve it; propose it again with onBehalfOf"
-	case samePerson(a.By, spec.Actor.User) || spec.OnBehalfOf != nil && samePerson(a.By, spec.OnBehalfOf.User):
+	case AskedBy(spec, a.By):
 		return "OwnChange", a.By + " asked for this change, so someone else must decide it"
 	}
 	return "", ""

@@ -230,7 +230,7 @@ func (p *progress) heldReason(op OperationObject) {
 	if op.Status.Question != "" {
 		msg += ": " + op.Status.Question
 	}
-	asker := samePerson(caller.User, op.Spec.Actor.User) || op.Spec.OnBehalfOf != nil && samePerson(caller.User, op.Spec.OnBehalfOf.User)
+	asker := AskedBy(op.Spec, caller.User)
 	fix := ""
 	switch {
 	case !p.commands():
