@@ -54,6 +54,10 @@ A service's detail lists the offerings it consumes (`consumedOfferings`) and,
 separately, inferred suggestions (`inferredOfferings`). A suggestion is an
 external or unresolved dependency whose name exactly matches an offering or a
 provider's name, ignoring case. Suggestions are never counted as consumption.
+A use of a provider that declares no offering joins `consumedOfferings`, with
+`offering` empty, once a provider reports on it. The service's
+`hiddenProviders` is a lower bound on the resources from providers you may not
+see. See [Resources a service consumes](provision-infrastructure.md#resources-a-service-consumes).
 
 A [golden path](golden-paths.md) never consumes: the offerings its contract
 reaches are the requirements of the services created from it. Its detail lists

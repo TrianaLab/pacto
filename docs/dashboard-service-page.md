@@ -2,9 +2,8 @@
 
 Open a service in the dashboard to see everything Pacto knows about it on one
 page: who owns it, which contract it runs, what it depends on and where it runs.
-It also shows how the service is delivered, whether its revisions are ready and
-signed and what its policies and configuration declare. Every fact the page cannot establish is
-stated as missing, so an empty area always says why it is empty.
+Every fact the page cannot establish is stated as missing, so an empty area
+always says why it is empty.
 
 ## What the page answers
 
@@ -12,7 +11,7 @@ The facts at the top name the service's domain, its owner, the contract it runs,
 its capabilities and the sources that saw it. The operational summary shows
 compliance, how certainly each target is matched to a revision, how recently it
 was observed and how the declared dependencies compare with observed traffic.
-The sections below list findings, observed traffic, operational targets,
+The sections below list findings, observed traffic, resources, operational targets,
 environments, delivery, revisions, expected dependencies, dependents, signatures, policies,
 configuration, recent evidence and the limitations that make any of it
 uncertain.
@@ -43,6 +42,22 @@ observed and never declared, and unresolved. **Outside accepted range** counts
 dependencies whose provider version falls outside the range the contract
 accepts. **Cannot be observed** counts dependencies Pacto has no observation
 data for, so it cannot tell whether the service talks to them.
+
+## Resources
+
+Each card is one resource the service consumes.
+
+![The Resources section of catalog-service's service page](assets/screenshots/dashboard-service-resources-light.png#only-light)
+![The Resources section of catalog-service's service page](assets/screenshots/dashboard-service-resources-dark.png#only-dark)
+
+| Part | Shows |
+|---|---|
+| Heading | The provider, linked, its offering or **no offering**, the kind of use, the accepted range and the provider's lifecycle. A use of a provider with no offering appears once an adapter reports on it |
+| Provider owner | The provider's owner and whether the provider answers where it runs, apart from this resource's phase |
+| Requested (declared) | On the configuration row only: the provider revision, the configuration entry and the values the contract asks for |
+| Provisioning (observed) | The phase per environment with the adapter, **signed** or **unsigned** and the external reference. Select a phase to see the request as a drawing. A phase is never the service's health; see [Resources a service consumes](provision-infrastructure.md#resources-a-service-consumes) |
+| Usage | **Not reported** with the reason, and a link to the service in Mira when Mira is configured |
+| Below the cards | **At least N resources from providers you may not see**, counted from this service's own contract and reports, then the sentence: Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it |
 
 ## Targets and delivery
 
@@ -90,7 +105,7 @@ declared, observed or inferred.
 |---|---|
 | Declared | Whether the environment's values pass, its lifetime (**Lifetime not declared** when absent, never persistent), its expiry, or **Expired (inferred, as of ...)** once `expires` has passed, and its owner: declared, **service owner, inferred** or **Owner unknown**. An environment only targets report reads **Not declared by** the current revision |
 | Observed | The targets you can see labelled with the environment, linked to that target list, with **(incomplete)** and the reason when you may not see every target, and the revisions they run |
-| Provisioning | The phases of the resources the service's offering uses there, **Unknown until a provider reports**, or why provisioning is not tracked there |
+| Provisioning | The phases of the resources in the Resources section there, including those whose provider declares no offering, **Unknown until a provider reports**, or why provisioning is not tracked there. A provider you may not see makes the cell Unknown |
 | Stage | On a dashboard that serves delivery, the Stages whose `spec.environment` equals the name exactly, with their state. **Stages unknown: partial listing** when Pacto could not list every Stage. A Stage environment that matches no row is listed as **Stage only** |
 
 Below the rows:
