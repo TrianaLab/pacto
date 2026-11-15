@@ -875,6 +875,9 @@ type FleetSnapshot struct {
 	// services that depend on or call it and its hidden uncontracted callers
 	// (as caller:<name> keys). Only counted.
 	hiddenDependents map[ServiceKey]map[ServiceKey]bool
+	// hiddenReferrers maps, in a restricted snapshot, a service to the hidden
+	// services whose policy references resolve to it. Only counted.
+	hiddenReferrers map[ServiceKey]map[ServiceKey]bool
 	// hiddenProviders counts, in a restricted snapshot, the hidden providers
 	// of each offering that keeps a visible provider. Only counted.
 	hiddenProviders map[string]int

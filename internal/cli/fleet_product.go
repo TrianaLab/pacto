@@ -53,9 +53,9 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
-	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first)")
+	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first) or consumers (offerings with the most declared consumers first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
-	f.String("lifecycle", "", "offerings whose worst provider lifecycle, or services whose own lifecycle, is deprecated or sunset")
+	f.String("lifecycle", "", "offerings whose worst provider lifecycle in use (the versions consumers reach and targets run), or services whose newest revision, is deprecated or sunset")
 	f.Bool("failed", false, "with --kind offering, offerings with at least one failed provisioning request")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
@@ -274,12 +274,16 @@ func offeringRowFacts(e fleet.EntityRef) string {
 	if e.TargetsUnknown {
 		targets = "unknown"
 	}
-	return fmt.Sprintf("owners %s  lifecycle %s  availability %s (%s)  consumers %s  failed %d  observed targets %s",
+	s := fmt.Sprintf("owners %s  lifecycle %s  availability %s (%s)  consumers %s  failed consumers %d  observed targets %s",
 		orDash(e.Owner), orDash(e.Lifecycle), orDash(string(e.Availability)), orDash(e.AvailabilityProvenance), consumers, e.FailedRequests, targets)
+	if e.HiddenProviders > 0 {
+		s += fmt.Sprintf("  +%d providers you may not see", e.HiddenProviders)
+	}
+	return s
 }
 
 // printOfferingPhases renders the provisioning requests of the matched
-// offerings by phase and the offerings with the most failed ones.
+// offerings by phase and the offerings with the most consumers with a failed one.
 func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
 	if a.OfferingPhases == (fleet.PhaseTally{}) {
 		return
@@ -295,7 +299,7 @@ func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
 	if a.FailedOfferingsBeyond > 0 {
 		parts = append(parts, fmt.Sprintf("and %d more offerings", a.FailedOfferingsBeyond))
 	}
-	_, _ = fmt.Fprintf(w, "Most failed: %s\n", strings.Join(parts, ", "))
+	_, _ = fmt.Fprintf(w, "Most consumers with a failed request: %s\n", strings.Join(parts, ", "))
 }
 
 // phaseText renders a phase tally, every phase in pipeline order.

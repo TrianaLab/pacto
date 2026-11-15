@@ -58,11 +58,11 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 		}
 		f.providers = append(f.providers, s)
 		f.owners.merge(q.ownerClaimsOf(s))
-		f.lifecycle = worstLifecycle(f.lifecycle, q.serviceLifecycleState(s))
 		f.targetsUnknown = f.targetsUnknown || !placementKnown || q.snap.targetsHidden[s.Key]
 		maps.Copy(f.hidden, q.snap.hiddenConsumers[s.Key])
 	}
 	uses, _ := q.offeringUses(func(*ServiceRecord) bool { return true }, "")
+	inUse := map[ServiceKey]string{}
 	for _, u := range uses {
 		f := by[u.Offering]
 		f.uses = append(f.uses, u)
@@ -73,38 +73,76 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 				f.failed[key] = true
 			}
 		}
+		if u.Via != RelationshipPolicyRef {
+			pk := ServiceKey(u.Provider.Key)
+			inUse[pk] = worstLifecycle(cmp.Or(inUse[pk], LifecycleSupported), q.useLifecycle(u))
+		}
+	}
+	for name, f := range by {
+		for _, p := range f.providers {
+			f.lifecycle = worstLifecycle(f.lifecycle, q.providerRowLifecycle(p, inUse[p.Key]))
+		}
+		if q.snap.hiddenProviders[name] > 0 {
+			f.lifecycle = worstLifecycle(f.lifecycle, LifecycleUnknown) // a hidden provider may be deprecated
+		}
 	}
 	return by
 }
 
-// applyOfferingFacts fills ref, an offering row, from f.
-func (q *Query) applyOfferingFacts(ref *EntityRef, f *offeringFacts) {
-	switch n := f.owners.len(); {
-	case n == 1 && f.owners.soleKey() != "":
-		ref.Owner = ownerEntityRef(f.owners.soleKey()).Label
-	case n > 1:
-		ref.Owner = ownersClaimLabel(n)
+// useLifecycle is the provider lifecycle u's consumer reaches.
+func (q *Query) useLifecycle(u OfferingUse) string {
+	switch l := u.ProviderLifecycle; {
+	case l == nil:
+		return LifecycleSupported
+	case l.SunsetReached(q.snap.GeneratedAt):
+		return LifecycleSunset
 	}
+	return LifecycleDeprecated
+}
+
+// providerRowLifecycle is the lifecycle an offering row reads for provider p:
+// the worst over the revisions in use, those its consumers' ranges reach
+// (inUse, "" when none) and those its targets run, so a successor shipped
+// under the same service never hides the deprecation of the version still in
+// use. A provider nothing uses reads its newest revision's lifecycle.
+func (q *Query) providerRowLifecycle(p *ServiceRecord, inUse string) string {
+	l := inUse
+	for _, tk := range p.Targets {
+		if t := q.snap.Targets[tk]; t != nil && q.snap.Revisions[t.ContractRevision] != nil {
+			l = worstLifecycle(cmp.Or(l, LifecycleSupported), revisionLifecycle(q.snap.Revisions[t.ContractRevision], q.snap.GeneratedAt))
+		}
+	}
+	return cmp.Or(l, q.serviceLifecycleState(p))
+}
+
+// applyOfferingFacts fills ref, an offering row, from f.
+func (q *Query) applyOfferingFacts(ref *EntityRef, f *offeringFacts, x *availIndex) {
+	ref.Owner = ownerLabel(f.owners.len(), f.owners.soleKey())
 	ref.Lifecycle = f.lifecycle
+	ref.HiddenProviders = q.snap.hiddenProviders[ref.Key]
 	ref.Consumers, ref.FailedRequests, ref.HiddenConsumers = len(f.consumers), len(f.failed), len(f.hidden)
 	if f.targetsUnknown {
 		ref.Targets, ref.TargetsUnknown = 0, true
 	}
-	av := q.offeringAvailability(ref.Key, f.providers)
-	ref.Availability, ref.AvailabilityProvenance = av.State, worstProvenance(av.ByEnvironment)
+	av := x.offeringAvailability(ref.Key, f.providers)
+	ref.Availability, ref.AvailabilityProvenance = av.State, rowProvenance(av)
 }
 
-// worstProvenance is the provenance of the worst environment in envs, the
-// one that sets an offering row's state apart, so a row never shows a state
-// without saying how Pacto knows it.
-func worstProvenance(envs []EnvironmentAvailability) string {
-	worst := EnvironmentAvailability{State: AvailabilityAvailable, Provenance: provenanceUnknown}
-	for i, e := range envs {
-		if i == 0 || availabilityRank[e.State] > availabilityRank[worst.State] {
+// rowProvenance is how Pacto knows av's roll-up: unknown for an unknown
+// state, else the provenance of the worst environment holding a known state,
+// the one that sets the row apart, so a row never shows a state without saying
+// how Pacto knows it.
+func rowProvenance(av Availability) string {
+	worst := EnvironmentAvailability{State: AvailabilityUnknown, Provenance: provenanceUnknown}
+	if av.State == AvailabilityUnknown {
+		return worst.Provenance
+	}
+	for _, e := range av.ByEnvironment {
+		if e.State != AvailabilityUnknown && (worst.State == AvailabilityUnknown || availabilityRank[e.State] > availabilityRank[worst.State]) {
 			worst = e
 		}
 	}
-	return worst.Provenance // envs is never empty: an offering lists one environment at least
+	return worst.Provenance
 }
 
 // merge adds every claim of o to c.
@@ -121,6 +159,24 @@ func (c *ownerClaimSet) merge(o ownerClaimSet) {
 
 // ownersClaimLabel is the owner label of a row whose revisions name n owners.
 func ownersClaimLabel(n int) string { return fmt.Sprintf("%d owners claim it", n) }
+
+// ownerByContactsLabel is the owner label of a row whose one owner names no
+// team or DRI, only contacts.
+const ownerByContactsLabel = "declared by contacts only"
+
+// ownerLabel is a list row's owner label from its n owner claims and the key
+// of the only one: empty only when none is declared.
+func ownerLabel(n int, sole string) string {
+	switch {
+	case n == 1 && sole != "":
+		return ownerEntityRef(sole).Label
+	case n == 1:
+		return ownerByContactsLabel
+	case n > 1:
+		return ownersClaimLabel(n)
+	}
+	return ""
+}
 
 // worstLifecycle is the worse of a and b: sunset, deprecated, unknown, then
 // supported.
@@ -147,16 +203,31 @@ func revisionLifecycle(r *ContractRevision, now time.Time) string {
 	}
 }
 
-// serviceLifecycleState is the lifecycle of s's newest readable revision,
-// unknown for a service no readable revision describes (observed only).
+// serviceLifecycleState is the lifecycle of s's newest revision, unknown for
+// a service no readable revision describes (observed only) or whose newest
+// revision is unreadable: an older revision cannot speak for it.
 func (q *Query) serviceLifecycleState(s *ServiceRecord) string {
+	var newest *ContractRevision
+	for _, r := range q.revisionsOf(s) {
+		if newest == nil || lessRevisionChrono(newest, r) {
+			newest = r
+		}
+	}
+	if newest == nil || !readableRevision(newest) {
+		return LifecycleUnknown
+	}
+	return revisionLifecycle(newest, q.snap.GeneratedAt)
+}
+
+// revisionsOf is every revision of s in the snapshot.
+func (q *Query) revisionsOf(s *ServiceRecord) []*ContractRevision {
 	revs := make([]*ContractRevision, 0, len(s.Revisions))
 	for _, rk := range s.Revisions {
 		if r := q.snap.Revisions[rk]; r != nil {
 			revs = append(revs, r)
 		}
 	}
-	return revisionLifecycle(newestReadable(revs), q.snap.GeneratedAt)
+	return revs
 }
 
 // maxFailedOfferings bounds EntityAggregate.FailedByOffering.

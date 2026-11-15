@@ -31,21 +31,22 @@ const (
 // the targets with no environment label, and the one entry of a capability
 // no target or report places anywhere).
 type EnvironmentAvailability struct {
-	Environment string            `json:"environment" doc:"The environment label of the targets; empty for targets with no label"`
-	State       AvailabilityState `json:"state" enum:"available,degraded,unavailable,unknown" doc:"Whether the capability answers here"`
-	Provenance  string            `json:"provenance" enum:"observed,inferred,unknown" doc:"observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen"`
-	Reason      string            `json:"reason" doc:"Why the state is what it is"`
-	Partial     bool              `json:"partial,omitempty" doc:"Consumers or providers the viewer may not see are not counted"`
-	Reporting   int               `json:"reporting" doc:"Provider targets with fresh evidence"`
-	Targets     int               `json:"targets" doc:"Provider targets in this environment the viewer can see"`
-	Unreachable []EntityRef       `json:"unreachable,omitempty" doc:"Consumer targets that report they cannot reach it, bounded"`
-	EvidenceAt  *time.Time        `json:"evidenceAt,omitempty" doc:"The newest fresh evidence the state reads"`
-	Providers   []EntityRef       `json:"providers,omitempty" doc:"On an offering: the providers whose state this is"`
+	Environment   string            `json:"environment" doc:"The environment label of the targets; empty for targets with no label"`
+	State         AvailabilityState `json:"state" enum:"available,degraded,unavailable,unknown" doc:"Whether the capability answers here"`
+	Provenance    string            `json:"provenance" enum:"observed,inferred,unknown" doc:"observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown"`
+	Reason        string            `json:"reason" doc:"Why the state is what it is"`
+	Partial       bool              `json:"partial,omitempty" doc:"Consumers or providers the viewer may not see are not counted"`
+	TargetsHidden bool              `json:"targetsHidden,omitempty" doc:"Targets of the provider the viewer may not see are not counted"`
+	Reporting     int               `json:"reporting" doc:"Provider targets with fresh evidence"`
+	Targets       int               `json:"targets" doc:"Provider targets in this environment the viewer can see"`
+	Unreachable   []EntityRef       `json:"unreachable,omitempty" doc:"Consumer targets that report they cannot reach it, bounded"`
+	EvidenceAt    *time.Time        `json:"evidenceAt,omitempty" doc:"The newest fresh evidence the state reads"`
+	Providers     []EntityRef       `json:"providers,omitempty" doc:"On an offering: the providers whose state this is"`
 }
 
 // Availability is a capability's state by environment and its roll-up.
 type Availability struct {
-	State         AvailabilityState         `json:"state" enum:"available,degraded,unavailable,unknown" doc:"available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded"`
+	State         AvailabilityState         `json:"state" enum:"available,degraded,unavailable,unknown" doc:"available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown"`
 	ByEnvironment []EnvironmentAvailability `json:"byEnvironment" doc:"The state per environment, bounded"`
 	Total         int                       `json:"total" doc:"Environments before the bound"`
 	AsOf          time.Time                 `json:"asOf" doc:"The snapshot time the evidence is judged against"`
@@ -54,6 +55,7 @@ type Availability struct {
 // Reasons an availability is unknown.
 const (
 	availabilityStaleReason   = "evidence older than 24h before asOf"
+	availabilityUnseenReason  = "no fresh target shows an interface answering"
 	availabilityNoneReason    = "no target reports it; a provider outside the observed clusters is not seen"
 	availabilityHiddenSuffix  = "; consumers you may not see are not counted"
 	availabilityPartialSource = "source %s is %s"
@@ -65,20 +67,60 @@ var availabilityRank = map[AvailabilityState]int{AvailabilityAvailable: 0, Avail
 
 // envEvidence is what one environment holds for a provider.
 type envEvidence struct {
-	targets, fresh, absent []*TargetRecord
-	reporting, reaching    []*TargetRecord
+	targets, fresh      []*TargetRecord
+	absent, partly      []*TargetRecord // fresh targets serving no declared interface, and some but not all
+	serving             []*TargetRecord // fresh targets with no interface absent or unobserved
+	reporting, reaching []*TargetRecord
+}
+
+// availIndex is what one answer reads to compute availability: the declared
+// dependency edges by provider, built once, and each provider's environments,
+// computed once. It keeps a list linear in the relationships.
+type availIndex struct {
+	q     *Query
+	names map[ServiceKey]map[ServiceKey]map[string]bool // provider, consumer, dependency names
+	envs  map[ServiceKey][]EnvironmentAvailability
+}
+
+// newAvailIndex indexes the declared dependency edges of q's snapshot.
+func (q *Query) newAvailIndex() *availIndex {
+	x := &availIndex{q: q, names: map[ServiceKey]map[ServiceKey]map[string]bool{}, envs: map[ServiceKey][]EnvironmentAvailability{}}
+	for _, r := range q.snap.Relationships {
+		if r.Type != RelationshipDependency || !ConsumesEdge(r) || r.FromService == r.ToService {
+			continue
+		}
+		if x.names[r.ToService] == nil {
+			x.names[r.ToService] = map[ServiceKey]map[string]bool{}
+		}
+		if x.names[r.ToService][r.FromService] == nil {
+			x.names[r.ToService][r.FromService] = map[string]bool{}
+		}
+		x.names[r.ToService][r.FromService][r.To] = true
+	}
+	return x
+}
+
+// environments is s's state in every environment, computed once.
+func (x *availIndex) environments(s *ServiceRecord) []EnvironmentAvailability {
+	if envs, ok := x.envs[s.Key]; ok {
+		return envs
+	}
+	envs := x.q.providerEnvironments(s, x.names[s.Key])
+	x.envs[s.Key] = envs
+	return envs
 }
 
 // providerAvailability is s's availability per environment, bounded.
-func (q *Query) providerAvailability(s *ServiceRecord) Availability {
-	return q.availability(q.providerEnvironments(s))
+func (x *availIndex) providerAvailability(s *ServiceRecord) Availability {
+	return x.q.availability(slices.Clone(x.environments(s)))
 }
 
 // providerEnvironments is s's state in every environment: what its own fresh
-// targets and the INTERFACE_ABSENT finding they carry say, then the
-// DEPENDENCY_UNREACHABLE reports of the consumers that declare it.
+// targets and the interface findings they carry say, then the
+// DEPENDENCY_UNREACHABLE reports of the consumers that declare it (names: per
+// consumer, the names of its dependencies resolved to s).
 // The compliance verdict is never read.
-func (q *Query) providerEnvironments(s *ServiceRecord) []EnvironmentAvailability {
+func (q *Query) providerEnvironments(s *ServiceRecord, names map[ServiceKey]map[string]bool) []EnvironmentAvailability {
 	byEnv := map[string]*envEvidence{}
 	at := func(env string) *envEvidence {
 		if byEnv[env] == nil {
@@ -91,7 +133,7 @@ func (q *Query) providerEnvironments(s *ServiceRecord) []EnvironmentAvailability
 			q.addProviderTarget(at(t.Environment), t)
 		}
 	}
-	q.consumerReports(s, at)
+	q.consumerReports(names, at)
 	hiddenReason := q.availabilityHidden(s)
 	partial := q.availabilityPartial(s)
 	envs := make([]EnvironmentAvailability, 0, len(byEnv))
@@ -104,7 +146,7 @@ func (q *Query) providerEnvironments(s *ServiceRecord) []EnvironmentAvailability
 		envs = append(envs, markPartial(e, partial))
 	}
 	if len(envs) == 0 {
-		e := EnvironmentAvailability{State: AvailabilityUnknown, Provenance: provenanceUnknown, Reason: cmp.Or(hiddenReason, availabilityNoneReason)}
+		e := EnvironmentAvailability{State: AvailabilityUnknown, Provenance: provenanceUnknown, Reason: cmp.Or(hiddenReason, availabilityNoneReason), TargetsHidden: q.snap.targetsHidden[s.Key]}
 		envs = append(envs, markPartial(e, partial))
 	}
 	return envs
@@ -141,9 +183,65 @@ func (q *Query) addProviderTarget(ev *envEvidence, t *TargetRecord) {
 		return
 	}
 	ev.fresh = append(ev.fresh, t)
-	if _, ok := interfaceAbsent(t); ok {
+	switch q.targetServing(t) {
+	case servingNone:
 		ev.absent = append(ev.absent, t)
+	case servingSome:
+		ev.partly = append(ev.partly, t)
+	case servingAll:
+		ev.serving = append(ev.serving, t)
 	}
+}
+
+// What a fresh target's interface findings say it serves.
+const (
+	servingAll     = iota // no declared interface is absent or unobserved
+	servingSome           // some declared interfaces are absent
+	servingNone           // every declared interface is absent
+	servingUnknown        // none is absent and some interface was not observed
+)
+
+// targetServing reads t's interface findings: INTERFACE_ABSENT is the
+// provider's own report that one interface is not served, an inconclusive
+// finding on an interface means it was never seen answering. A target serves
+// nothing only when every interface its contract declares is absent; when no
+// readable contract says how many it declares, it serves some.
+func (q *Query) targetServing(t *TargetRecord) int {
+	absent, unseen := map[string]bool{}, false
+	for _, f := range t.Findings {
+		switch {
+		case f.Code == finding.CodeInterfaceAbsent:
+			absent[f.Subject.Name] = true
+		case f.Subject.Kind == "interface" && finding.CategoryOf(f.Code) == finding.CategoryInconclusive:
+			unseen = true
+		}
+	}
+	switch n := q.declaredInterfaces(t); {
+	case len(absent) > 0 && n > 0 && len(absent) >= n:
+		return servingNone
+	case len(absent) > 0:
+		return servingSome
+	case unseen:
+		return servingUnknown
+	}
+	return servingAll
+}
+
+// declaredInterfaces is how many interfaces t's contract declares: the
+// revision t runs, else its service's newest readable revision; 0 when no
+// readable revision says.
+func (q *Query) declaredInterfaces(t *TargetRecord) int {
+	r := q.snap.Revisions[t.ContractRevision]
+	if r == nil || r.Contract == nil {
+		r = nil
+		if s := q.snap.Services[t.ServiceKey]; s != nil {
+			r = newestReadable(q.revisionsOf(s))
+		}
+	}
+	if r == nil {
+		return 0
+	}
+	return len(r.Contract.Interfaces)
 }
 
 // freshTarget reports whether t's evidence is recent and its record trusted.
@@ -152,31 +250,11 @@ func (q *Query) freshTarget(t *TargetRecord) bool {
 	return recent && !t.Stale && !t.Quarantined
 }
 
-// interfaceAbsent is the message of t's first INTERFACE_ABSENT finding: the
-// provider's own report that an interface is not being served.
-func interfaceAbsent(t *TargetRecord) (string, bool) {
-	for _, f := range t.Findings {
-		if f.Code == finding.CodeInterfaceAbsent {
-			return f.Message, true
-		}
-	}
-	return "", false
-}
-
-// consumerReports files the fresh targets of every consumer declaring a
-// dependency resolved to s: those reporting they cannot reach it under the
-// dependency's name, and those that do not. The keying is the one impact's
-// unreachable evidence uses.
-func (q *Query) consumerReports(s *ServiceRecord, at func(env string) *envEvidence) {
-	names := map[ServiceKey]map[string]bool{}
-	for _, r := range q.snap.Relationships {
-		if r.Type == RelationshipDependency && ConsumesEdge(r) && r.ToService == s.Key && r.FromService != s.Key {
-			if names[r.FromService] == nil {
-				names[r.FromService] = map[string]bool{}
-			}
-			names[r.FromService][r.To] = true
-		}
-	}
+// consumerReports files the fresh targets of every consumer in names, the
+// consumers declaring a dependency resolved to the provider: those reporting
+// they cannot reach it under the dependency's name, and those that do not.
+// The keying is the one impact's unreachable evidence uses.
+func (q *Query) consumerReports(names map[ServiceKey]map[string]bool, at func(env string) *envEvidence) {
 	for _, ck := range slices.Sorted(maps.Keys(names)) {
 		c := q.snap.Services[ck]
 		if c == nil {
@@ -231,30 +309,36 @@ func (q *Query) environmentAvailability(ev *envEvidence, hiddenReason string) En
 	switch {
 	case hiddenReason != "":
 		e.State, e.Provenance, e.Reason = AvailabilityUnknown, provenanceUnknown, hiddenReason
-	case len(ev.fresh) > 0:
+		e.TargetsHidden = hiddenReason == targetsIncompleteReason
+	case len(ev.absent)+len(ev.partly)+len(ev.serving) > 0:
 		e.State, e.Provenance, e.Reason = q.servingAvailability(ev)
 	case len(ev.reporting) > 0:
 		e.State, e.Provenance, e.Reason = reportedAvailability(ev)
+	case len(ev.fresh) > 0:
+		e.State, e.Provenance, e.Reason = AvailabilityUnknown, provenanceUnknown, availabilityUnseenReason
 	default:
-		e.State, e.Provenance, e.Reason = AvailabilityUnknown, ProvenanceObserved, availabilityStaleReason
+		e.State, e.Provenance, e.Reason = AvailabilityUnknown, provenanceUnknown, availabilityStaleReason
 	}
 	return e
 }
 
-// servingAvailability is the state of an environment where the provider has
-// fresh targets: what they report of themselves, then what consumers report.
+// servingAvailability is the state of an environment where a fresh provider
+// target says what it serves: what they report of themselves, then what
+// consumers report. It is unavailable only when every fresh target serves no
+// declared interface.
 func (q *Query) servingAvailability(ev *envEvidence) (AvailabilityState, string, string) {
-	msg, _ := firstInterfaceAbsent(ev.absent)
+	trouble := append(slices.Clip(ev.absent), ev.partly...)
+	msg := absentMessage(trouble)
 	switch {
 	case len(ev.absent) == len(ev.fresh):
 		return AvailabilityUnavailable, ProvenanceObserved, msg
-	case len(ev.absent) > 0:
-		return AvailabilityDegraded, ProvenanceObserved, fmt.Sprintf("%d of %d targets report %s", len(ev.absent), len(ev.targets), msg)
+	case len(trouble) > 0:
+		return AvailabilityDegraded, ProvenanceObserved, fmt.Sprintf("%d of %d targets report %s", len(trouble), len(ev.targets), msg)
 	case len(ev.reporting) > 0:
-		return AvailabilityDegraded, ProvenanceInferred, fmt.Sprintf("%d targets reporting; %s cannot reach it", len(ev.fresh), reporterNames(ev.reporting))
+		return AvailabilityDegraded, ProvenanceInferred, fmt.Sprintf("%d targets reporting; %s cannot reach it", len(ev.serving), reporterNames(ev.reporting))
 	}
 	age := q.snap.GeneratedAt.Sub(*newestEvidence(ev)).Round(time.Minute)
-	return AvailabilityAvailable, ProvenanceObserved, fmt.Sprintf("%d of %d targets reporting, evidence %s old", len(ev.fresh), len(ev.targets), shortAge(age))
+	return AvailabilityAvailable, ProvenanceObserved, fmt.Sprintf("%d of %d targets reporting, evidence %s old", len(ev.serving), len(ev.targets), shortAge(age))
 }
 
 // shortAge writes a whole-minute age the way a person would: 1h, 1h30m, 15m.
@@ -278,12 +362,16 @@ func reportedAvailability(ev *envEvidence) (AvailabilityState, string, string) {
 	return AvailabilityDegraded, ProvenanceInferred, fmt.Sprintf("%d of %d consumers cannot reach it", len(ev.reporting), all)
 }
 
-// firstInterfaceAbsent is the INTERFACE_ABSENT message of the first target.
-func firstInterfaceAbsent(ts []*TargetRecord) (string, bool) {
-	if len(ts) == 0 {
-		return "", false
+// absentMessage is the first INTERFACE_ABSENT message of the targets in ts.
+func absentMessage(ts []*TargetRecord) string {
+	for _, t := range ts {
+		for _, f := range t.Findings {
+			if f.Code == finding.CodeInterfaceAbsent {
+				return f.Message
+			}
+		}
 	}
-	return interfaceAbsent(ts[0])
+	return ""
 }
 
 // reporterNames names the first reporting consumer target and counts the rest.
@@ -323,39 +411,64 @@ func newestEvidence(ev *envEvidence) *time.Time {
 	return nil
 }
 
-// rollUp is the state over every environment: available or unavailable when
-// every one is, unknown when every one is or none is listed, else degraded.
+// rollUp is the state over every environment: the state every one holds;
+// degraded when confirmed trouble sits beside an environment that answers
+// (one degraded, or one unavailable and another available); otherwise
+// unknown, so an unknown environment never reads as trouble nor as service.
 func rollUp(envs []EnvironmentAvailability) AvailabilityState {
-	if len(envs) == 0 {
-		return AvailabilityUnknown
+	has := map[AvailabilityState]bool{}
+	for _, e := range envs {
+		has[e.State] = true
 	}
-	first := envs[0].State
-	for _, e := range envs[1:] {
-		if e.State != first {
-			return AvailabilityDegraded
-		}
+	switch {
+	case len(has) == 1:
+		return envs[0].State
+	case has[AvailabilityDegraded] || (has[AvailabilityUnavailable] && has[AvailabilityAvailable]):
+		return AvailabilityDegraded
 	}
-	return first
+	return AvailabilityUnknown
 }
 
 // offeringAvailability is an offering's availability: per environment, the
 // best state of its providers there (available, degraded, unknown, then
-// unavailable). When the viewer may not see some providers, no environment
-// reads unavailable.
-func (q *Query) offeringAvailability(name string, providers []*ServiceRecord) Availability {
+// unavailable). When the viewer may not see some providers, or a provider's
+// state is tied to no environment (some of its targets are hidden or no target
+// places it), no environment reads unavailable: that provider may serve it.
+// Its nowhere entry is left out when another provider places the offering.
+func (x *availIndex) offeringAvailability(name string, providers []*ServiceRecord) Availability {
 	best := map[string]*EnvironmentAvailability{}
-	for _, p := range providers {
-		for _, e := range q.providerEnvironments(p) {
+	unseen := 0
+	byProvider := make([][]EnvironmentAvailability, len(providers))
+	placed := false
+	for i, p := range providers {
+		byProvider[i] = x.environments(p)
+		nowhere := isNowhere(byProvider[i])
+		if nowhere || x.q.availabilityHidden(p) != "" {
+			unseen++
+		}
+		placed = placed || !nowhere
+	}
+	for i, p := range providers {
+		if placed && isNowhere(byProvider[i]) {
+			continue
+		}
+		for _, e := range byProvider[i] {
 			mergeBest(best, e, serviceEntityRef(p))
 		}
 	}
-	hidden := q.snap.hiddenProviders[name]
+	hidden := x.q.snap.hiddenProviders[name]
 	envs := make([]EnvironmentAvailability, 0, len(best))
 	for _, e := range best {
 		sortEntityRefs(e.Providers)
-		envs = append(envs, floorHidden(*e, hidden))
+		envs = append(envs, floorUnseen(floorHidden(*e, hidden), unseen))
 	}
-	return q.availability(envs)
+	return x.q.availability(envs)
+}
+
+// isNowhere reports whether envs is the one entry of a provider no target or
+// report places anywhere.
+func isNowhere(envs []EnvironmentAvailability) bool {
+	return len(envs) == 1 && envs[0].Environment == "" && envs[0].Targets == 0 && len(envs[0].Unreachable) == 0
 }
 
 // mergeBest keeps, in best, the better of its entry and e, a provider's state
@@ -369,7 +482,7 @@ func mergeBest(best map[string]*EnvironmentAvailability, e EnvironmentAvailabili
 	case e.State == cur.State:
 		cur.Providers = append(cur.Providers, provider)
 		cur.Reporting, cur.Targets, cur.Partial = cur.Reporting+e.Reporting, cur.Targets+e.Targets, cur.Partial || e.Partial
-		cur.Unreachable = boundRefs(append(cur.Unreachable, e.Unreachable...))
+		cur.Unreachable = boundRefs(append(slices.Clip(cur.Unreachable), e.Unreachable...))
 		if e.EvidenceAt != nil && (cur.EvidenceAt == nil || e.EvidenceAt.After(*cur.EvidenceAt)) {
 			cur.EvidenceAt = e.EvidenceAt
 		}
@@ -403,6 +516,21 @@ func floorHidden(e EnvironmentAvailability, hidden int) EnvironmentAvailability 
 	return e
 }
 
+// floorUnseen turns e unknown and partial when it reads unavailable while n
+// providers of the offering are not seen in every environment.
+func floorUnseen(e EnvironmentAvailability, n int) EnvironmentAvailability {
+	if n == 0 || e.State != AvailabilityUnavailable {
+		return e
+	}
+	noun := "providers are"
+	if n == 1 {
+		noun = "provider is"
+	}
+	e.State, e.Provenance, e.Partial = AvailabilityUnknown, provenanceUnknown, true
+	e.Reason = fmt.Sprintf("%s; %d %s not seen in every environment and may serve it", e.Reason, n, noun)
+	return e
+}
+
 // Lines renders a for text surfaces: one line per environment, then how many
 // the bound left out. The CLI and the TUI share the wording.
 func (a Availability) Lines() []string {
@@ -416,14 +544,19 @@ func (a Availability) Lines() []string {
 	return out
 }
 
-// label names e's environment: "(nowhere observed)" for the entry that keeps
-// the reason when no target or report places the provider anywhere,
-// "(no environment label)" for targets that carry no environment label.
+// label names e's environment: "(no target you may see)" for the entry of a
+// provider whose targets are all hidden from the viewer, "(nowhere observed)"
+// for the entry that keeps the reason when no target or report places the
+// provider anywhere, "(no environment label)" for targets that carry no
+// environment label.
 func (e EnvironmentAvailability) label() string {
 	if e.Environment != "" {
 		return e.Environment
 	}
 	if e.Targets == 0 && len(e.Unreachable) == 0 {
+		if e.TargetsHidden {
+			return "(no target you may see)"
+		}
 		return "(nowhere observed)"
 	}
 	return "(no environment label)"

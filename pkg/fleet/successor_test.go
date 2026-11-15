@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -156,7 +157,7 @@ func TestSuccessorRangeSatisfied(t *testing.T) {
 
 func TestSuccessorNoRangeUnknown(t *testing.T) {
 	q := successorFleet(t, deprecated16, lcRev("pg", "17.0.0", nil))
-	if got := successorRange("", q.latestSupported(q.snap.Services["pg"])); got != RangeUnknown {
+	if got := successorRange("", "pg", q.latestSupported(q.snap.Services["pg"])); got != RangeUnknown {
 		t.Errorf("no range = %q", got)
 	}
 	d, _ := succDetail(t, q)
@@ -165,21 +166,79 @@ func TestSuccessorNoRangeUnknown(t *testing.T) {
 	}
 }
 
+// TestLatestSupportedFallback: a revision published before the deprecation
+// is not supported, since a service lifecycle retires the whole service; only
+// a newer revision that declares none is.
 func TestLatestSupportedFallback(t *testing.T) {
 	q := successorFleet(t, deprecated16)
 	d, _ := succDetail(t, q)
-	p := d.Providers.Items[0]
-	if p.LatestSupported == nil || p.LatestSupported.Version != "16.0.0" {
+	if p := d.Providers.Items[0]; p.LatestSupported != nil || useOf(t, d, "app16").SupportedRange != "" {
+		t.Errorf("16.0.0 predates the deprecation: latest supported = %+v", p.LatestSupported)
+	}
+	q = successorFleet(t, deprecated16, lcRev("pg", "17.0.0", nil))
+	d, _ = succDetail(t, q)
+	if p := d.Providers.Items[0]; p.LatestSupported == nil || p.LatestSupported.Version != "17.0.0" {
 		t.Fatalf("latest supported = %+v", p.LatestSupported)
 	}
-	if got := useOf(t, d, "app16").SupportedRange; got != RangeSatisfied {
-		t.Errorf("^16 vs 16.0.0 = %q", got)
+	if got := useOf(t, d, "app16").SupportedRange; got != RangeUnsatisfied {
+		t.Errorf("^16 vs 17.0.0 = %q", got)
 	}
-	all := successorFleet(t, deprecated16)
-	all.snap.Revisions[RevisionKey(p.LatestSupported.Key)].Contract.Service.Lifecycle = deprecated16
-	d, _ = succDetail(t, all)
-	if d.Providers.Items[0].LatestSupported != nil || useOf(t, d, "app16").SupportedRange != "" {
-		t.Errorf("a provider whose every revision is deprecated has no supported revision: %+v", d.Providers.Items[0].LatestSupported)
+}
+
+// TestSuccessorOtherServiceNeverGraded: a successor that is another service
+// says so; no consumer's range for the old provider is graded against it.
+func TestSuccessorOtherServiceNeverGraded(t *testing.T) {
+	aurora := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://ghcr.io/acme/aurora-pg:16.4.0"}
+	q := successorFleet(t, aurora, lcRev("aurora-pg", "16.4.0", nil))
+	d, _ := succDetail(t, q)
+	var pg OfferingProvider
+	for _, p := range d.Providers.Items {
+		if p.Service.Key == "pg" {
+			pg = p
+		}
+	}
+	if s := pg.Successor; s == nil || s.Revision == nil || s.Reason != "the successor is another service, aurora-pg: change the dependency to it" {
+		t.Errorf("successor = %+v", pg.Successor)
+	}
+	if got := useOf(t, d, "app16").SuccessorRange; got != RangeUnknown {
+		t.Errorf("^16 vs aurora-pg 16.4.0 = %q", got)
+	}
+	items, err := q.Attention(AttentionFilter{Category: categoryLifecycle, Limit: MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items.Items {
+		if it.Code == CodeSuccessorOutOfRange || !strings.Contains(it.NextStep, "dependency on pg to aurora-pg") {
+			t.Errorf("item = %+v", it)
+		}
+	}
+	res, _ := q.OfferingVersions("postgresql", "", "^16.0.0")
+	for _, p := range res.Providers {
+		if p.Provider.Key == "pg" && p.Versions.SuccessorRange != RangeUnknown {
+			t.Errorf("versions = %+v", p.Versions)
+		}
+	}
+}
+
+// TestSuccessorRestrictedNeverAbsent: in a restricted view, a successor the
+// viewer may not see is not called absent.
+func TestSuccessorRestrictedNeverAbsent(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.target("pg", "pg-0", "data", "prod", time.Hour)
+	a.target("pg-next", "n-0", "data-next", "prod", time.Hour)
+	a.declares("other")
+	a.target("other", "o-0", "data", "prod", time.Hour)
+	q := a.query()
+	if _, why := q.successorRevision(q.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no revision of pg-next in this fleet matches it" {
+		t.Errorf("unrestricted reason = %q", why)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "data-next" })
+	if _, why := r.successorRevision(r.snap.Services["pg"], "oci://reg/platform/pg-next:17.0.0"); why != "no service pg-next you may see in pg's registry domain is in this fleet" {
+		t.Errorf("reason = %q", why)
+	}
+	if _, why := r.successorRevision(r.snap.Services["pg"], "oci://reg/platform/other:17.0.0"); why != "no revision of other you may see in this fleet matches it" {
+		t.Errorf("reason = %q", why)
 	}
 }
 

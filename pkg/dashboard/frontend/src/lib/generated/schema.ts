@@ -2396,6 +2396,8 @@ export interface components {
             fetchedAt?: string;
             /** Format: int64 */
             hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
@@ -3980,7 +3982,7 @@ export interface components {
             asOf: string;
             byEnvironment: components["schemas"]["ProductEnvironmentAvailability"][] | null;
             /**
-             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @description available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown
              * @enum {string}
              */
             state: "available" | "degraded" | "unavailable" | "unknown";
@@ -4098,7 +4100,7 @@ export interface components {
             /** @description Consumers or providers the viewer may not see are not counted */
             partial?: boolean;
             /**
-             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown
              * @enum {string}
              */
             provenance: "observed" | "inferred" | "unknown";
@@ -4120,6 +4122,8 @@ export interface components {
              * @description Provider targets in this environment the viewer can see
              */
             targets: number;
+            /** @description Targets of the provider the viewer may not see are not counted */
+            targetsHidden?: boolean;
             unreachable?: components["schemas"]["ProductRef"][] | null;
         };
         ProductEnvironmentEvent: {
@@ -4610,6 +4614,8 @@ export interface components {
             fetchedAt?: string;
             /** Format: int64 */
             hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             href: string;
             key: string;
             /** @enum {string} */
@@ -7027,11 +7033,11 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision */
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider version in use (the versions consumers reach and targets run), service entities by their newest revision */
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;

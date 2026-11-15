@@ -1311,8 +1311,9 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	sortEntityRefs(providers)
 	shown, total, trunc := boundSlice(providers, MaxOfferingProviders)
 	items := make([]OfferingProvider, 0, len(shown))
+	x := q.newAvailIndex()
 	for _, ref := range shown {
-		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
+		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)], x))
 	}
 	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
 	hidden, declared := map[ServiceKey]bool{}, map[ServiceKey]bool{}
@@ -1327,7 +1328,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
-			Availability: q.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
+			Availability: x.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
 			ObservedConsumers: q.observedConsumers(records, declared), HiddenObservedConsumers: q.hiddenObservedConsumers(records),
 		},
 		Actions: []string{"impact"},
@@ -1336,7 +1337,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 
 // offeringProvider projects one provider of an offering from the snapshot. Its
 // current revision is the newest readable one, the revision the snippet pins.
-func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
+func (q *Query) offeringProvider(s *ServiceRecord, x *availIndex) OfferingProvider {
 	var all []*ContractRevision
 	for _, rk := range s.Revisions {
 		all = append(all, q.snap.Revisions[rk])
@@ -1348,7 +1349,7 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
-		Availability: q.providerAvailability(s),
+		Availability: x.providerAvailability(s),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {

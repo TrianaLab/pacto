@@ -92,7 +92,11 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 		return
 	}
 	succ, _ := q.successorRevision(provider, rel.ProviderLifecycle.Successor)
-	if successorRange(rel.Compatibility, succ) != RangeUnsatisfied {
+	if succ != nil && succ.ServiceKey != provider.Key {
+		it.NextStep = fmt.Sprintf("Change %s's dependency on %s to %s, its successor", consumer.Name, provider.Name, succ.Service)
+		return
+	}
+	if successorRange(rel.Compatibility, provider.Key, succ) != RangeUnsatisfied {
 		return
 	}
 	if it.Code == "DEPENDENCY_SERVICE_DEPRECATED" {

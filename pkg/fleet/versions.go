@@ -110,7 +110,7 @@ func (q *Query) versionsSuccessor(out *ProviderVersionsPreview, s *ServiceRecord
 		if out.Successor.Revision != nil {
 			rev = q.snap.Revisions[RevisionKey(out.Successor.Revision.Key)]
 		}
-		out.SuccessorRange = successorRange(out.Range, rev)
+		out.SuccessorRange = successorRange(out.Range, s.Key, rev)
 	}
 }
 

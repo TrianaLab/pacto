@@ -365,8 +365,9 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 }
 
 // TestDemoOfferingRows: on the demo fleet, postgresql has two providers with
-// two owners, and its newest revision, 17.0.0, declares no lifecycle, so the
-// row reads supported and no offering is deprecated. The services whose range
+// two owners. Its newest revision, 17.0.0, declares no lifecycle, but the ^16
+// consumers still reach the deprecated 16.1.0, so the row reads deprecated and
+// postgresql is the only deprecated offering. The services whose range
 // stops at 16 still reach the deprecated 16.1.0, and each gets one lifecycle
 // item saying the successor is out of its range. The clock is pinned before
 // postgresql 16.1.0's sunset, so the answer never ages.
@@ -381,11 +382,11 @@ func TestDemoOfferingRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
 		t.Errorf("postgresql offering = %+v", l.Entities)
 	}
 	dep, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
-	if err != nil || dep.Total != 0 {
+	if err != nil || dep.Total != 1 || dep.Entities[0].Key != "postgresql" {
 		t.Errorf("deprecated offerings = %+v (%v)", dep, err)
 	}
 	items, err := q.Attention(fleet.AttentionFilter{Category: "lifecycle", Limit: fleet.MaxAttentionLimit})

@@ -159,9 +159,12 @@ const (
 
 // Result is the deterministic impact answer.
 type Result struct {
-	SchemaVersion              string        `json:"schemaVersion"`
-	SnapshotID                 string        `json:"snapshotId"`
-	AsOf                       time.Time     `json:"asOf"`
+	SchemaVersion string    `json:"schemaVersion"`
+	SnapshotID    string    `json:"snapshotId"`
+	AsOf          time.Time `json:"asOf"`
+	// Service is the changed service; on an offering event it is the
+	// offering's name, Event.Service is empty and Providers lists the
+	// services that provide it.
 	Service                    string        `json:"service"`
 	OldVersion                 string        `json:"oldVersion,omitempty"`
 	NewVersion                 string        `json:"newVersion,omitempty"`

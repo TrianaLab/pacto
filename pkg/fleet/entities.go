@@ -111,8 +111,8 @@ type EntityFilter struct {
 	// list a per-kind source tally ([SourceCounts.AvailableByKind]) opens.
 	SourceKind string
 	// Lifecycle keeps the entities whose provider lifecycle is deprecated or
-	// sunset: OFFERING rows by their worst provider, SERVICE rows by their
-	// newest readable revision.
+	// sunset: OFFERING rows by the worst provider version in use (see
+	// [EntityRef.Lifecycle]), SERVICE rows by their newest revision.
 	Lifecycle string
 	// Failed keeps the OFFERING rows with at least one failed provisioning
 	// request.
@@ -141,8 +141,8 @@ const (
 	// services first ([EntityRef.NonCompliant] of its rate base), then the most
 	// non-compliant, then by name.
 	SortRate = "rate"
-	// SortFailed puts the offerings with the most failed provisioning requests
-	// first, then by name.
+	// SortFailed puts the offerings with the most consumers with a failed
+	// provisioning request first, then by name.
 	SortFailed = "failed"
 	// SortConsumers puts the offerings with the most declared consumers first,
 	// then by name.
@@ -615,8 +615,9 @@ func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 		ref.Targets += len(s.Targets)
 	}
 	refs := make([]EntityRef, 0, len(by))
+	x := q.newAvailIndex()
 	for name, ref := range by {
-		q.applyOfferingFacts(ref, facts[name])
+		q.applyOfferingFacts(ref, facts[name], x)
 		refs = append(refs, *ref)
 	}
 	return refs, facts
@@ -630,12 +631,7 @@ func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef 
 	if s.Template {
 		ref.Created, ref.NonCompliant, ref.Signature = created.Services, created.NonCompliant, q.pathSignature(s)
 	}
-	switch n, key := q.ownershipState(s); {
-	case n == 1 && key != "":
-		ref.Owner = ownerEntityRef(key).Label
-	case n > 1:
-		ref.Owner = ownersClaimLabel(n)
-	}
+	ref.Owner = ownerLabel(q.ownershipState(s))
 	return ref
 }
 
