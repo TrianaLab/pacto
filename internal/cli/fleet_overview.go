@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/tui"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -48,10 +49,11 @@ func printFleetOverview(cmd *cobra.Command, ov *fleet.Overview, format string) e
 		c := s.Coverage
 		_, _ = fmt.Fprintf(w, "Coverage: %d of %d required assertions evaluated on %d targets; %d report none\n", c.Evaluated, c.Required, c.Reporting, c.NotReporting)
 		printOverviewDomains(w, s.ByDomain)
-		printIncompleteSources(w, ov.Meta.Sources)
+		printIncompleteSources(w, ov.Meta.Sources, ov.Meta.SourcesTruncated)
+		src := sourceArgsText(cmd)
 		for _, ep := range ov.EntryPoints {
 			if next := entryPointCommand(ep); next != "" {
-				_, _ = fmt.Fprintf(w, "Next: %s  (%s: %d)\n", next, ep.Label, ep.Count)
+				_, _ = fmt.Fprintf(w, "Next: %s%s  (%s: %d)\n", next, src, ep.Label, ep.Count)
 			}
 		}
 		warnProductPartial(cmd, ov.Meta)
@@ -104,9 +106,11 @@ func printOverviewDomains(w io.Writer, rows []fleet.DomainTally) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "DOMAIN\tSERVICES\tNOT-COMPLIANT\tUNKNOWN\tSTALE\tFAILING\tGAPS\tNO-OWNER")
+	// Compliance, staleness and health count targets; the rest count services.
+	_, _ = fmt.Fprintln(tw, "DOMAIN\tTARGETS\tNC-TARGETS\tUNKNOWN-TARGETS\tSTALE-TARGETS\tFAILING-TARGETS\tSERVICES\tGAPS\tNO-OWNER\tOWNER-UNKNOWN\tRUN-NOWHERE")
 	for _, d := range rows {
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", domainLabel(d), d.Services, d.NonCompliant, d.Unknown, d.Stale, d.FailingHealth, d.WithGaps, d.Unowned)
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", domainLabel(d), d.Targets, d.NonCompliant, d.Unknown, d.Stale, d.FailingHealth,
+			d.Services, d.WithGaps, d.Unowned, d.OwnerUnknown, d.NotDeployed)
 	}
 	_ = tw.Flush()
 }
@@ -122,9 +126,9 @@ func domainLabel(d fleet.DomainTally) string {
 	return d.Domain
 }
 
-// printIncompleteSources lists the sources that are not available. Sources are
-// no CLI entity kind, so the overview names them here from the answer's meta.
-func printIncompleteSources(w io.Writer, sources []fleet.SourceState) {
+// printIncompleteSources lists the sources that are not available from the
+// answer's bounded meta, and says so when that list was cut.
+func printIncompleteSources(w io.Writer, sources []fleet.SourceState, truncated bool) {
 	for _, s := range sources {
 		if s.Status == fleet.SourceAvailable {
 			continue
@@ -135,13 +139,29 @@ func printIncompleteSources(w io.Writer, sources []fleet.SourceState) {
 		}
 		_, _ = fmt.Fprintf(w, "Incomplete source: %s (%s) %s%s\n", s.ID, s.Kind, s.Status, reason)
 	}
+	if truncated {
+		_, _ = fmt.Fprintln(w, "... and more incomplete sources; the sources Next line lists them all")
+	}
 }
 
-// entryPointCommand is the CLI command that lists what an attention entry
-// point counts, or "" for any other view: the sources entry point's sources
-// are already listed above.
+// sourceArgsText is the source flags the overview ran with, shell-quoted with
+// a leading space, so a printed Next line reads the same snapshot.
+func sourceArgsText(cmd *cobra.Command) string {
+	out := ""
+	for _, a := range fleetSourceArgs(cmd) {
+		out += " " + tui.ShellQuote(a)
+	}
+	return out
+}
+
+// entryPointCommand is the CLI command that lists what an attention or
+// sources entry point counts, or "" for any other view.
 func entryPointCommand(ep fleet.EntryPoint) string {
-	if ep.View != fleet.EntryPointAttention {
+	switch ep.View {
+	case fleet.EntryPointSources:
+		return "pacto fleet entities --kind source --source-health " + fleet.SourceHealthIncomplete
+	case fleet.EntryPointAttention:
+	default:
 		return ""
 	}
 	if ep.Category == "" {

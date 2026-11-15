@@ -59,11 +59,15 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 
 // overviewInstructions explain pacto_fleet_overview and the words its answer
 // uses for health and knowledge.
-const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. A target's health is " +
-	"'failing' when its own health check reports it is not healthy (finding HEALTH_FAILING) and 'unknown' when " +
-	"Pacto cannot tell; neither changes compliance. Knowledge gaps are what the contracts leave out (no summary, " +
-	"no domain, no interface document, no readiness assessment, runs nowhere, unverified extension capability). Unknown is never a pass: report it " +
-	"as unknown."
+const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. Its summary.operationalHealth " +
+	"partitions operational targets: available (healthy), unavailable (failing: its own health check reports it is not " +
+	"healthy, finding HEALTH_FAILING), unknown (Pacto cannot tell), notObserved (the revision declares no health " +
+	"capability, which is not missing evidence; see summary.evidence.withoutEvidence for that) and degraded (always 0 " +
+	"today); neither failing nor unknown changes compliance. summary.ownership is consistent (one declared owner), " +
+	"conflicting, unowned (none declared) or unknown (no contract read). summary.knowledge partitions services into " +
+	"described (nothing left out), withGaps and unknown, and knowledge.gaps counts what the contracts leave out " +
+	"(noSummary, noDomain, noInterfaceDocs, noReadiness, notDeployed, unverifiedCapability). Unknown is never a pass: " +
+	"report it as unknown."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
 // snapshot. It is asked once per call, so a long session follows a refreshing
@@ -733,10 +737,11 @@ func fleetOverviewTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_overview",
 		Description: "Summarize the organization in one call: target compliance (with how many compliant targets rest on " +
-			"stale evidence), operational health (healthy, failing, unknown, not observed), knowledge gaps per kind, " +
-			"ownership (declared, disputed, none declared, unknown), evaluation coverage, evidence freshness, per-domain " +
-			"and per-scope breakdowns and entry points. Failing means the target's own health check reports it is not " +
-			"healthy; unknown means Pacto cannot tell. Read-only.",
+			"stale evidence), summary.operationalHealth (available = healthy, unavailable = failing, unknown, notObserved = " +
+			"the revision declares no health capability, degraded = always 0 today), summary.knowledge (described, withGaps, " +
+			"unknown and knowledge.gaps per kind), summary.ownership (consistent, conflicting, unowned, unknown), evaluation " +
+			"coverage, evidence freshness, per-domain and per-scope breakdowns and entry points. unavailable means the " +
+			"target's own health check reports it is not healthy (HEALTH_FAILING); unknown means Pacto cannot tell. Read-only.",
 		InputSchema: inputSchema(map[string]property{}, nil),
 	}
 }

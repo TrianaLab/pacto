@@ -266,9 +266,16 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 				kind = "golden path"
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
-			if e.Kind == fleet.KindOffering {
+			switch e.Kind {
+			case fleet.KindOffering:
 				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
+			case fleet.KindOwner, fleet.KindDomain:
+				_, _ = fmt.Fprintf(w, "              services %d  not compliant %d  failing health %d  unknown %d  stale %d  with gaps %d\n",
+					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
 			}
+		}
+		if res.Aggregate.Knowledge.Services > 0 {
+			printOverviewKnowledge(w, res.Aggregate.Knowledge)
 		}
 		printOfferingPhases(w, &res.Aggregate)
 		printNonCompliantRanking(w, &res.Aggregate)

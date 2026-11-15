@@ -78,12 +78,24 @@ func TestMCPFleetOverviewRestricted(t *testing.T) {
 func TestFleetInstructionsExplainFailingVersusUnknown(t *testing.T) {
 	for _, want := range []string{
 		"Use pacto_fleet_overview first for organization-wide questions",
-		"'failing' when its own health check reports it is not healthy (finding HEALTH_FAILING)",
-		"'unknown' when Pacto cannot tell; neither changes compliance",
+		"unavailable (failing: its own health check reports it is not healthy, finding HEALTH_FAILING)",
+		"unknown (Pacto cannot tell)",
+		"notObserved (the revision declares no health capability",
+		"degraded (always 0 today)",
+		"summary.ownership is consistent (one declared owner), conflicting, unowned (none declared) or unknown",
+		"summary.knowledge partitions services into described (nothing left out), withGaps and unknown",
+		"(noSummary, noDomain, noInterfaceDocs, noReadiness, notDeployed, unverifiedCapability)",
 		"Unknown is never a pass",
 	} {
 		if !strings.Contains(fleetInstructions, want) {
 			t.Errorf("fleetInstructions lack %q", want)
+		}
+	}
+	desc := fleetOverviewTool().Description
+	for _, key := range []string{"summary.operationalHealth", "available", "unavailable", "notObserved", "degraded",
+		"summary.knowledge", "described", "withGaps", "knowledge.gaps", "summary.ownership", "consistent", "conflicting", "unowned"} {
+		if !strings.Contains(desc, key) {
+			t.Errorf("pacto_fleet_overview description lacks the key %q", key)
 		}
 	}
 }
