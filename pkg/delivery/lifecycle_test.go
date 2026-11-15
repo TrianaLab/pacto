@@ -216,6 +216,9 @@ func TestAdmitPrincipal(t *testing.T) {
 		{"agent names a service account", as(&Principal{User: "system:serviceaccount:a:b"}), ClassAgent, "NotAPerson:"},
 		{"agent names the controller", as(&Principal{User: policy.ControllerUser}), ClassAgent, "NotAPerson:"},
 		{"agent with person", as(&Principal{User: "dana"}), ClassAgent, ""},
+		{"agent blank user", as(&Principal{User: "  "}), ClassAgent, "NoPrincipal:"},
+		{"agent self in another case", as(&Principal{User: " BOT"}), ClassAgent, "SelfPrincipal:"},
+		{"agent padded service account", as(&Principal{User: " system:serviceaccount:a:b"}), ClassAgent, "NotAPerson:"},
 		{"human none", as(nil), ClassHuman, ""},
 		{"controller none", as(nil), ClassController, ""},
 		{"break-glass none", as(nil), ClassBreakGlass, ""},
@@ -239,5 +242,17 @@ func TestApproverMayRefusesAgentOpWithoutPrincipal(t *testing.T) {
 	st.ActorClass = ClassHuman
 	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "" {
 		t.Errorf("a person's change needs no principal: %q %q", code, why)
+	}
+}
+
+// TestNamedPersonMayNotApproveUnderAnotherSpelling: the asserted name is
+// text, so a change in case or padding does not let the named person decide.
+func TestNamedPersonMayNotApproveUnderAnotherSpelling(t *testing.T) {
+	at := time.Unix(1_000_000, 0)
+	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}, OnBehalfOf: &Principal{User: " Dana@Example.com"}}
+	st := OperationStatus{Phase: PhaseHeld, ActorClass: ClassAgent}
+	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "dana@example.com"}
+	if code, _ := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "OwnChange" {
+		t.Errorf("got %q, want OwnChange", code)
 	}
 }

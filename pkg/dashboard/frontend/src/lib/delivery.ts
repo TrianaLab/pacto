@@ -593,6 +593,12 @@ export function proposalText(level: string | undefined, proposal: { level?: stri
 const OFFERS: Record<DeliveryOffer['action'], string> = { promote: 'Promote', unfreeze: 'Unfreeze', freeze: 'Freeze', undo: 'Undo' };
 
 /** offerLabel names an action a Stage row offers. */
+// samePerson compares user names the way the promoter's approval rule does:
+// the on-behalf-of name is asserted text, so case and padding do not count.
+export function samePerson(a: string | undefined, b: string | undefined): boolean {
+  return !!a?.trim() && a.trim().toLowerCase() === b?.trim().toLowerCase();
+}
+
 export function offerLabel(action: string): string {
   return OFFERS[action as DeliveryOffer['action']] ?? action;
 }

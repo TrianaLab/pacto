@@ -123,16 +123,23 @@ func AdmitPrincipal(spec OperationSpec, class ActorClass, p ClassPolicy) string 
 		return ""
 	case !named(spec):
 		return "NoPrincipal: an agent must name the person it acts for (onBehalfOf); that person may not approve this change"
-	case spec.OnBehalfOf.User == spec.Actor.User:
+	case samePerson(spec.OnBehalfOf.User, spec.Actor.User):
 		return "SelfPrincipal: an agent cannot act on behalf of itself; name the person who asked for this change"
-	case isServiceAccount(spec.OnBehalfOf.User) || spec.OnBehalfOf.User == p.ControllerUser:
+	case isServiceAccount(strings.TrimSpace(spec.OnBehalfOf.User)) || samePerson(spec.OnBehalfOf.User, p.ControllerUser):
 		return "NotAPerson: onBehalfOf names a service account or the promoter; name the person who asked for this change"
 	}
 	return ""
 }
 
 // named says whether spec names a principal.
-func named(spec OperationSpec) bool { return spec.OnBehalfOf != nil && spec.OnBehalfOf.User != "" }
+func named(spec OperationSpec) bool {
+	return spec.OnBehalfOf != nil && strings.TrimSpace(spec.OnBehalfOf.User) != ""
+}
+
+// samePerson compares two user names the way a person reads them. The
+// on-behalf-of name is asserted text, so " Dana@Example.com" still names
+// dana@example.com: the rules that keep the asker from deciding fail closed.
+func samePerson(a, b string) bool { return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) }
 
 // askerMay says why a may not decide op for who asked for it: the person
 // who asked never decides, and an agent's change that names nobody it acts
@@ -141,7 +148,7 @@ func askerMay(spec OperationSpec, st OperationStatus, a ApprovalSpec) (string, s
 	switch {
 	case st.ActorClass == ClassAgent && !named(spec):
 		return "NoPrincipal", "an agent raised this change without naming the person it acts for, so nobody may approve it; propose it again with onBehalfOf"
-	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
+	case samePerson(a.By, spec.Actor.User) || spec.OnBehalfOf != nil && samePerson(a.By, spec.OnBehalfOf.User):
 		return "OwnChange", a.By + " asked for this change, so someone else must decide it"
 	}
 	return "", ""
