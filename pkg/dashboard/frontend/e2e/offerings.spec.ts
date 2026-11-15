@@ -293,5 +293,21 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(note.locator('.tag', { hasText: 'inferred' })).toBeVisible();
     expect(await titledValues(page, '[data-testid="offering-provider"] bdi.oe-ref, [data-testid="offering-adapter"] bdi.oe-name')).toBe(true);
     expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'shared-config unresolved uses');
+  });
+
+  test('an unsigned Ready never reads positive in the offering figures', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // Every postgresql Ready is unsigned: the Ready station is info, draws no check and says so.
+    await page.goto('/#/fleet/offerings/postgresql');
+    const fig = page.getByTestId('offering-figure');
+    const ready = fig.locator('.ph-ready');
+    await expect(ready.locator('.nd')).toHaveClass(/\bt-info\b/, { timeout: T });
+    await expect(ready.locator('.nd')).not.toHaveClass(/\bt-ok\b/);
+    await expect(ready).toContainText('unsigned');
+    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(\d+ unsigned\)/);
+    // The list adds security-scanning's signed Ready, so its Ready station reads ok.
+    await page.goto('/#/fleet/offerings');
+    await expect(page.getByTestId('offerings-figure').locator('.ph-ready .nd')).toHaveClass(/\bt-ok\b/, { timeout: T });
   });
 });

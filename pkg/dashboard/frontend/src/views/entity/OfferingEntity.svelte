@@ -165,7 +165,7 @@
   {#if hiddenConsumers > 0}<p class="oe-note" data-testid="hidden-consumers">{formatCount(hiddenConsumers)} {hiddenConsumers === 1 ? 'consumer' : 'consumers'} you may not see</p>{/if}
 
   <PreviewSection title="Adapters reporting" summary="Who reports on these requests?" total={adapters.total ?? 0} count={adapters.count ?? 0} truncated={adapters.truncated}
-    empty="No adapter has reported. Provisioning status is Unknown."
+    empty={hiddenConsumers > 0 ? 'No adapter has reported on the requests you can see. Provisioning status is Unknown.' : 'No adapter has reported. Provisioning status is Unknown.'}
     help="The programs that report what they provisioned for these requests, as their reports name them. The provider is the service that declares the offering.">
     <div class="oe-adapters-box"><ul class="oe-adapters" data-testid="offering-adapters">
       {#each adapters.items ?? [] as a, ai (`${a.provider}:${a.producer}:${a.verified}:${ai}`)}

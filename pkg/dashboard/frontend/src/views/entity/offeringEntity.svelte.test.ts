@@ -454,6 +454,13 @@ describe('adapters reporting', () => {
     done();
   });
 
+  it('speaks only for the visible requests when no adapter has reported and consumers are hidden', async () => {
+    const { target, done } = await render(detail({ hiddenConsumers: 1, adapters: { total: 0, count: 0, truncated: false, conflicting: 0, unattributed: 0, items: [] } }));
+    expect(text(target)).toContain('No adapter has reported on the requests you can see. Provisioning status is Unknown.');
+    expect(text(target)).not.toContain('No adapter has reported. Provisioning');
+    done();
+  });
+
   it('counts the declared uses that did not resolve, as inferred', async () => {
     const { target, done } = await render(detail({ unresolvedUses: { count: 3, reason: 'the reference is not digest-pinned or locked', provenance: 'inferred' } }));
     const note = target.querySelector('[data-testid="unresolved-uses"]') as HTMLElement;

@@ -1267,6 +1267,7 @@ export const ROUTES: Route[] = [
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
   { name: 'offering entity postgresql unsigned provisioning', hash: '#/fleet/offerings/postgresql' },
   { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
+  { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
   {
     // The successor range line is component state, never in the URL: type the range.
