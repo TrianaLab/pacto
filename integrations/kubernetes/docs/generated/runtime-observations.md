@@ -57,7 +57,7 @@ An assertion is one claim of the contract the operator can check. These are the 
 - `PersistenceObserved`
 - `WorkloadObserved`
 
-Provider-reported kinds: `ResourceProvisioned`. Platform adapters report them through the Evidence Server; the operator never emits them.
+Provider-reported kinds: `ResourceProvisioned`, `ResourceUsage`. Platform adapters report them through the Evidence Server; the operator never emits them.
 
 ## Facts
 

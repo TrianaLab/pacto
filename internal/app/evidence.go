@@ -256,47 +256,107 @@ type ProvisionedOptions struct {
 // (the kind keeps a dependency and a configuration of one name apart), so two
 // resources never replace each other in the latest-per-target store.
 func (s *Service) ProvisionedEvidence(opts ProvisionedOptions) (evidence.EvidenceSet, error) {
-	if (opts.Configuration == "") == (opts.Dependency == "") {
-		return evidence.EvidenceSet{}, errors.New("set exactly one of configuration or dependency")
+	use, set, err := s.resourceReport(opts.ContractRef, opts.Configuration, opts.Dependency, opts.Subject, "", opts.Environment, opts.Collector, opts.ObservedAt)
+	if err != nil {
+		return evidence.EvidenceSet{}, err
 	}
-	if err := evidenceingest.CheckContractRef(opts.ContractRef); err != nil {
-		return evidence.EvidenceSet{}, fmt.Errorf("contract %q must be an immutable oci://<repo>@sha256:<digest> reference: %w", opts.ContractRef, err)
+	return finishResourceReport(set, evidence.ResourceProvisioned, use, opts.Environment, opts.Outcome, func(prov evidence.Provenance) (evidence.Observation, error) {
+		return evidence.NewResourceProvisioned(use, evidence.ProvisionedObservation{Provider: opts.Provider,
+			ExternalRef: opts.ExternalRef, Phase: evidence.ProvisionPhase(opts.Phase), Environment: opts.Environment}, prov), nil
+	})
+}
+
+// UsageOptions configures UsageEvidence. Exactly one of Configuration or
+// Dependency names the consumer entry that asked for the resource; an Observed
+// report carries at least one metric or a cost.
+type UsageOptions struct {
+	ContractRef   string // the consumer revision: oci://<repo>@sha256:<digest>
+	Subject       string // optional; defaults to <repository>/<environment or default>/usage/<kind>/<name>
+	Configuration string
+	Dependency    string
+	Environment   string
+	Provider      string
+	ExternalRef   string
+	Metrics       []evidence.UsageMetric
+	Cost          *evidence.UsageCost
+	Outcome       string    // optional; defaults to Observed
+	ObservedAt    time.Time // optional; defaults to now
+	Collector     string    // optional; defaults to "pacto"
+}
+
+// UsageEvidence builds the EvidenceSet a platform adapter reports for the usage
+// and cost of the resource a consumer's configuration reference or dependency
+// asked for. Its subject holds a usage segment, so a usage report never
+// replaces the same resource's provisioning report in the latest-per-target
+// store.
+func (s *Service) UsageEvidence(opts UsageOptions) (evidence.EvidenceSet, error) {
+	use, set, err := s.resourceReport(opts.ContractRef, opts.Configuration, opts.Dependency, opts.Subject, "usage/", opts.Environment, opts.Collector, opts.ObservedAt)
+	if err != nil {
+		return evidence.EvidenceSet{}, err
 	}
-	use := evidence.SubjectRef{Kind: "configuration", Name: opts.Configuration}
-	if opts.Dependency != "" {
-		use = evidence.SubjectRef{Kind: "dependency", Name: opts.Dependency}
+	return finishResourceReport(set, evidence.ResourceUsage, use, opts.Environment, opts.Outcome, func(prov evidence.Provenance) (evidence.Observation, error) {
+		p := evidence.UsageObservation{Provider: opts.Provider, ExternalRef: opts.ExternalRef, Environment: opts.Environment, Metrics: opts.Metrics, Cost: opts.Cost}
+		// Validated before it is marshalled: a non-finite value cannot be.
+		if err := evidence.ValidateUsage(p); err != nil {
+			return evidence.Observation{}, fmt.Errorf("invalid usage report: %w", err)
+		}
+		return evidence.NewResourceUsage(use, p, prov), nil
+	})
+}
+
+// resourceReport checks the contract checks a provisioning and a usage report
+// share and returns the consumer entry they are about plus the set without its
+// observation. The default subject is <repository>/<environment or
+// default>/<segment><kind>/<name>.
+func (s *Service) resourceReport(ref, configuration, dependency, subject, segment, environment, collector string, observedAt time.Time) (evidence.SubjectRef, evidence.EvidenceSet, error) {
+	if (configuration == "") == (dependency == "") {
+		return evidence.SubjectRef{}, evidence.EvidenceSet{}, errors.New("set exactly one of configuration or dependency")
 	}
-	repo, _, _ := strings.Cut(contract.TrimOCIScheme(opts.ContractRef), "@")
-	subject := cmp.Or(opts.Subject, repo+"/"+cmp.Or(opts.Environment, "default")+"/"+use.Kind+"/"+use.Name)
-	if !strings.HasPrefix(subject, repo+"/") {
-		return evidence.EvidenceSet{}, fmt.Errorf("subject %q must start with the contract repository %q", subject, repo+"/")
+	if err := evidenceingest.CheckContractRef(ref); err != nil {
+		return evidence.SubjectRef{}, evidence.EvidenceSet{}, fmt.Errorf("contract %q must be an immutable oci://<repo>@sha256:<digest> reference: %w", ref, err)
 	}
-	observedAt := opts.ObservedAt
+	use := evidence.SubjectRef{Kind: "configuration", Name: configuration}
+	if dependency != "" {
+		use = evidence.SubjectRef{Kind: "dependency", Name: dependency}
+	}
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(ref), "@")
 	if observedAt.IsZero() {
 		observedAt = s.env().now().UTC()
 	}
-	collector := cmp.Or(opts.Collector, "pacto")
-	prov := evidence.Provenance{Collector: collector, DetectedAt: observedAt}
-	obs := evidence.NewResourceProvisioned(use, evidence.ProvisionedObservation{Provider: opts.Provider,
-		ExternalRef: opts.ExternalRef, Phase: evidence.ProvisionPhase(opts.Phase), Environment: opts.Environment}, prov)
-	if outcome := evidence.Outcome(cmp.Or(opts.Outcome, string(evidence.Observed))); outcome != evidence.Observed {
-		// Anything short of Observed carries no phase: Unknown is never reported as a state.
-		var err error
+	collector = cmp.Or(collector, "pacto")
+	return use, evidence.EvidenceSet{
+		Subject:     evidence.SubjectRef{Kind: "resource", Name: cmp.Or(subject, repo+"/"+cmp.Or(environment, "default")+"/"+segment+use.Kind+"/"+use.Name)},
+		ContractRef: ref,
+		Source:      collector,
+		ObservedAt:  observedAt,
+	}, nil
+}
+
+// finishResourceReport adds the one observation of kind to set: the observed
+// one for an Observed outcome, a payload-less one otherwise (anything short of
+// Observed carries no phase or figures: Unknown is never reported as a state),
+// then checks the subject and the set.
+func finishResourceReport(set evidence.EvidenceSet, kind evidence.ObservationKind, use evidence.SubjectRef, environment, outcome string,
+	observed func(evidence.Provenance) (evidence.Observation, error)) (evidence.EvidenceSet, error) {
+	prov := evidence.Provenance{Collector: set.Source, DetectedAt: set.ObservedAt}
+	var obs evidence.Observation
+	var err error
+	if o := evidence.Outcome(cmp.Or(outcome, string(evidence.Observed))); o == evidence.Observed {
+		obs, err = observed(prov)
+	} else {
 		// The environment rides on the subject, so the report keeps its environment's row.
-		use.Environment = opts.Environment
-		if obs, err = evidence.NewUnobserved(evidence.ResourceProvisioned, use, outcome, prov); err != nil {
-			return evidence.EvidenceSet{}, err
-		}
+		use.Environment = environment
+		obs, err = evidence.NewUnobserved(kind, use, o, prov)
 	}
-	set := evidence.EvidenceSet{
-		Subject:      evidence.SubjectRef{Kind: "resource", Name: subject},
-		ContractRef:  opts.ContractRef,
-		Source:       collector,
-		ObservedAt:   observedAt,
-		Observations: []evidence.Observation{obs},
+	if err != nil {
+		return evidence.EvidenceSet{}, err
+	}
+	set.Observations = []evidence.Observation{obs}
+	if err := evidenceingest.CheckReportSubject(set); err != nil {
+		return evidence.EvidenceSet{}, err
 	}
 	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
-		return evidence.EvidenceSet{}, fmt.Errorf("invalid provisioning report: %w", errors.Join(errs...))
+		return evidence.EvidenceSet{}, fmt.Errorf("invalid %s report: %w", kind, errors.Join(errs...))
 	}
 	return set, nil
 }
@@ -566,13 +626,13 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 	return mux, unscopedProvisioningKeys(trust), nil
 }
 
-// unscopedProvisioningKeys returns, sorted, the ids of keys granted
-// ResourceProvisioned with no provider scope: each may report provisioning for
-// every provider.
+// unscopedProvisioningKeys returns, sorted, the ids of keys granted a
+// provider-scoped kind (ResourceProvisioned or ResourceUsage) with no provider
+// scope: each may report provisioning or usage for every provider.
 func unscopedProvisioningKeys(ts evidenceenvelope.MapTrustStore) []string {
 	var ids []string
 	for id, e := range ts {
-		if e.KindAllowed(evidence.ResourceProvisioned) && len(e.ProviderRepos) == 0 {
+		if slices.ContainsFunc(evidenceingest.ProviderScopedKinds(), e.KindAllowed) && len(e.ProviderRepos) == 0 {
 			ids = append(ids, id)
 		}
 	}
@@ -591,7 +651,7 @@ func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, 
 	}
 	log := logging.LoggerFromContext(ctx)
 	for _, id := range unscoped {
-		log.Warn("trust key grants ResourceProvisioned for every provider", "keyId", id, "hint", "set allowedProviderRepos when more than one adapter reports")
+		log.Warn("trust key grants ResourceProvisioned or ResourceUsage for every provider", "keyId", id, "hint", "set allowedProviderRepos when more than one adapter reports")
 	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1548,10 +1549,17 @@ func newScopedFixture(t *testing.T) scopedFixture {
 // line fragments (empty means unscoped) and starts a host over it.
 func (f scopedFixture) serve(t *testing.T, ctx context.Context, scopes map[string]string) string {
 	t.Helper()
+	return f.serveKinds(t, ctx, scopes, nil)
+}
+
+// serveKinds is serve with each producer's allowedObservationKinds list
+// (default ResourceProvisioned).
+func (f scopedFixture) serveKinds(t *testing.T, ctx context.Context, scopes, kinds map[string]string) string {
+	t.Helper()
 	var b strings.Builder
 	b.WriteString("apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n")
 	for _, p := range []string{"db-adapter", "cache-adapter"} {
-		fmt.Fprintf(&b, "  - keyId: %s-key\n    producerId: %s\n    publicKeyFile: %s__%s-key.pub\n    allowedObservationKinds: [ResourceProvisioned]\n", p, p, p, p)
+		fmt.Fprintf(&b, "  - keyId: %s-key\n    producerId: %s\n    publicKeyFile: %s__%s-key.pub\n    allowedObservationKinds: [%s]\n", p, p, p, p, cmp.Or(kinds[p], "ResourceProvisioned"))
 		if scopes[p] != "" {
 			fmt.Fprintf(&b, "    allowedProviderRepos: [%s]\n", scopes[p])
 		}
@@ -1571,6 +1579,12 @@ func (f scopedFixture) report(t *testing.T, base, producer, configuration string
 	if err != nil {
 		t.Fatal(err)
 	}
+	return f.send(t, base, producer, set, seq)
+}
+
+// send signs set with the producer's key and the given sequence and posts it.
+func (f scopedFixture) send(t *testing.T, base, producer string, set evidence.EvidenceSet, seq uint64) SendResult {
+	t.Helper()
 	kp := f.keys[producer]
 	env, err := f.svc.SignEvidenceSet(set, SignOptions{KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: producer, Sequence: seq, TTL: time.Hour})
 	if err != nil {
@@ -1604,7 +1618,7 @@ func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
 	ctx := logging.WithLogger(context.Background(), logging.New(&buf, false))
 	f.serve(t, ctx, map[string]string{"db-adapter": "ghcr.io/acme/platform/postgresql"})
 	out := buf.String()
-	if strings.Count(out, "trust key grants ResourceProvisioned for every provider") != 1 || !strings.Contains(out, "keyId=cache-adapter-key") {
+	if strings.Count(out, "trust key grants ResourceProvisioned or ResourceUsage for every provider") != 1 || !strings.Contains(out, "keyId=cache-adapter-key") {
 		t.Errorf("log = %q, want one warning naming cache-adapter-key", out)
 	}
 	if strings.Contains(out, "db-adapter-key") {

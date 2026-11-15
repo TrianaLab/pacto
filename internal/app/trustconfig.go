@@ -38,10 +38,11 @@ type trustConfigKey struct {
 	AllowedSubjects      []string `yaml:"allowedSubjects"`
 	AllowedContractRepos []string `yaml:"allowedContractRepos"`
 	// AllowedObservationKinds grants the kinds this key may report; empty keeps
-	// every runtime kind and withholds ResourceProvisioned.
+	// every runtime kind and withholds the provider-reported kinds
+	// (ResourceProvisioned and ResourceUsage).
 	AllowedObservationKinds []string `yaml:"allowedObservationKinds"`
 	// AllowedProviderRepos lists the prefixes of provider-contract repositories a
-	// ResourceProvisioned report may be about; empty means any provider.
+	// ResourceProvisioned or ResourceUsage report may be about; empty means any provider.
 	AllowedProviderRepos []string `yaml:"allowedProviderRepos"`
 }
 
@@ -161,7 +162,7 @@ func validateProviderScope(k trustConfigKey) error {
 	if len(k.AllowedProviderRepos) > 0 && !slices.ContainsFunc(evidenceingest.ProviderScopedKinds(), func(kind evidence.ObservationKind) bool {
 		return slices.Contains(k.AllowedObservationKinds, string(kind))
 	}) {
-		return fmt.Errorf("allowedProviderRepos scopes provisioning reports, so allowedObservationKinds must list ResourceProvisioned")
+		return fmt.Errorf("allowedProviderRepos scopes provisioning and usage reports, so allowedObservationKinds must list ResourceProvisioned or ResourceUsage")
 	}
 	return nil
 }

@@ -1052,7 +1052,7 @@ func TestRepoUnder(t *testing.T) {
 
 func TestProviderScopedKindsIsACopy(t *testing.T) {
 	got := ProviderScopedKinds()
-	if len(got) != 1 || got[0] != evidence.ResourceProvisioned {
+	if len(got) != 2 || got[0] != evidence.ResourceProvisioned || got[1] != evidence.ResourceUsage {
 		t.Fatalf("ProviderScopedKinds = %v", got)
 	}
 	got[0] = evidence.WorkloadObserved
