@@ -273,7 +273,8 @@ func TestGoldenPathExcludedFromOverview(t *testing.T) {
 		t.Errorf("services %d, revisions %d, invalid %d, golden paths %d, invalid golden paths %d",
 			sum.Services, sum.Revisions, sum.InvalidRevisions, sum.GoldenPaths, sum.InvalidGoldenPaths)
 	}
-	if sum.Ownership.Total() != 3 || sum.Readiness.Total() != 3 || sum.ServicesNeedingAttention != 0 {
+	// The three services hold knowledge items; the golden paths never count.
+	if sum.Ownership.Total() != 3 || sum.Readiness.Total() != 3 || sum.ServicesNeedingAttention != 3 {
 		t.Errorf("ownership %+v, readiness %+v, needing attention %d", sum.Ownership, sum.Readiness, sum.ServicesNeedingAttention)
 	}
 	domains := 0

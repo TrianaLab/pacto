@@ -4326,6 +4326,8 @@ export interface components {
             count?: number;
             description?: string;
             href: string;
+            /** Format: int64 */
+            itemCount?: number;
             label: string;
             /** @enum {string} */
             severity?: "error" | "warning" | "info";

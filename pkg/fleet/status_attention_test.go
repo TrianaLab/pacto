@@ -149,7 +149,7 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 		t.Fatalf("total=%d observedOnly=%d callers=%d", al.Total, sum.ObservedOnlyRelationships, sum.UncontractedCallers)
 	}
 	var tile *EntryPoint
-	for _, ep := range entryPoints(&sum) {
+	for _, ep := range entryPoints(&sum, 0) {
 		if ep.Category == categoryUndeclared {
 			tile = &ep
 		}

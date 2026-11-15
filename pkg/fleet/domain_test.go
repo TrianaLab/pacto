@@ -384,9 +384,9 @@ func TestOverview_UnownedEntryPoint(t *testing.T) {
 	if ep == nil || ep.Label != "Services with no declared owner" || ep.Count != 1 || ep.Severity != "info" || ep.View != EntryPointAttention {
 		t.Fatalf("unowned entry point = %+v", ep)
 	}
-	// orders is unowned (ghost's owner is unknown); only pay (non-compliant) needs attention.
-	if ov.Summary.ServicesNeedingAttention != 1 {
-		t.Errorf("services needing attention = %d, want 1 (unowned does not count)", ov.Summary.ServicesNeedingAttention)
+	// Every service with an item in the list counts, the unowned one included.
+	if ov.Summary.ServicesNeedingAttention != 4 {
+		t.Errorf("services needing attention = %d, want 4 (every service the attention list names)", ov.Summary.ServicesNeedingAttention)
 	}
 }
 
@@ -726,7 +726,7 @@ func TestAttention_UnownedUnknownSaysSo(t *testing.T) {
 func TestUndeclaredEntryPoint(t *testing.T) {
 	tiles := func(sum OverviewSummary) []EntryPoint {
 		var out []EntryPoint
-		for _, ep := range entryPoints(&sum) {
+		for _, ep := range entryPoints(&sum, 0) {
 			if ep.Label == "Undeclared runtime dependencies observed" || ep.Label == "Uncontracted callers observed" {
 				out = append(out, ep)
 			}

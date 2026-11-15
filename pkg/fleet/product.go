@@ -695,6 +695,9 @@ type EntryPoint struct {
 	View        EntryPointView `json:"view"`
 	Category    string         `json:"category,omitempty"`
 	Count       int            `json:"count,omitempty"`
+	// ItemCount is set on the lead "Services needing attention" tile only: the
+	// number of attention items its Count services hold, so the tile can say both.
+	ItemCount int `json:"itemCount,omitempty"`
 	// Severity grades the category the same way the attention items inside it are
 	// graded. Without it every entry point rendered in one tone, so the overview
 	// presented a confirmed drift and a missing readiness gate as equally urgent and
@@ -786,17 +789,19 @@ func (q *Query) Overview() *Overview {
 	q.tallyDomains(sum)
 
 	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
-	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
-	// A constant, valid filter never errors; ignore it deliberately. The attention
-	// preview carries the TRUE matched total (al.Total), not the 10-item page size.
-	al, _ := q.Attention(AttentionFilter{Limit: overviewAttentionLimit})
+	// The lead tile and the attention preview read ONE collection, so the tile
+	// counts exactly the services of the list it opens. The preview carries the
+	// TRUE matched total (al.Total), not the 10-item page size.
+	items := q.collectAttention()
+	sum.ServicesNeedingAttention = q.servicesNeedingAttention(items)
+	al := q.attentionList(items, AttentionFilter{Limit: overviewAttentionLimit})
 	ov.Attention = attentionPreviewFromList(al)
 	// The recent-evidence preview carries the TRUE recent count (== sum.RecentEvidence),
 	// not merely the first overviewEvidenceLimit sliced off it.
 	sortEvidenceDesc(recent)
 	it, total, trunc := boundSlice(recent, overviewEvidenceLimit)
 	ov.RecentEvidence = EvidencePreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
-	ov.EntryPoints = entryPoints(sum)
+	ov.EntryPoints = entryPoints(sum, al.Total)
 	return ov
 }
 
@@ -868,52 +873,25 @@ func (q *Query) recentEvidence(t *TargetRecord) (EvidenceItem, bool) {
 	return EvidenceItem{Target: targetEntityRef(t), At: copyTime(t.EvidenceAt)}, true
 }
 
-// servicesNeedingAttention counts distinct real services that have any attention
-// signal: a target that is non-compliant, unknown or stale; an invalid revision;
-// an unresolved declared dependency; or a deprecated or past-sunset provider.
+// servicesNeedingAttention counts the distinct real services the attention
+// items name, so the lead tile counts exactly the services of the list it opens.
 // A golden path is no service.
-func (q *Query) servicesNeedingAttention() int {
+func (q *Query) servicesNeedingAttention(items []AttentionItem) int {
 	need := map[ServiceKey]bool{}
-	for _, t := range q.snap.Targets {
-		if t.Compliance == StatusNonCompliant || t.Compliance == StatusUnknown || t.Stale {
-			need[t.ServiceKey] = true
+	for i := range items {
+		if k := ServiceKey(items[i].Service); q.populationService(k) {
+			need[k] = true
 		}
 	}
-	for _, r := range q.snap.Revisions {
-		if r.validated && !r.Valid {
-			need[r.ServiceKey] = true
-		}
-	}
-	q.markDependencyAttention(need)
-	n := 0
-	for k := range need {
-		if q.populationService(k) {
-			n++
-		}
-	}
-	return n
-}
-
-// markDependencyAttention marks the consumers of an unresolved or out-of-range
-// declared dependency and of a deprecated or past-sunset provider.
-func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		// Dependencies only: unresolved and out-of-range attention judges dependencies.
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
-			need[rel.FromService] = true
-		}
-	}
-	for _, it := range q.lifecycleAttention() {
-		need[ServiceKey(it.Service)] = true
-	}
+	return len(need)
 }
 
 // entryPoints builds the suggested navigational entry points, one per non-zero
-// summary category, each with a canonical route.
-func entryPoints(sum *OverviewSummary) []EntryPoint {
+// summary category, each with a canonical route. items is the unfiltered
+// attention total the lead tile's services hold.
+func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 	candidates := []EntryPoint{
-		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention, Severity: severityWarning},
+		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, ItemCount: items, View: EntryPointAttention, Severity: severityWarning},
 		// "Not compliant", not "Non-compliant": the Overview shows this tile directly
 		// above the triage chips and status badges that name the very same state, and a
 		// hyphenated spelling beside the two-word one reads as two different states
@@ -1080,7 +1058,11 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 			return nil, err
 		}
 	}
-	items := q.collectAttention()
+	return q.attentionList(q.collectAttention(), f), nil
+}
+
+// attentionList filters, sorts and pages already collected attention items.
+func (q *Query) attentionList(items []AttentionItem, f AttentionFilter) *AttentionList {
 	filtered := items[:0:0]
 	for _, it := range items {
 		if q.attentionMatches(it, f) {
@@ -1093,7 +1075,7 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		Severities: attentionSeverities(filtered), Categories: attentionCategories(filtered),
-	}, nil
+	}
 }
 
 // attentionSeverities and attentionCategories tally the COMPLETE filtered attention

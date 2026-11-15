@@ -112,7 +112,7 @@ func TestOverview_Counts(t *testing.T) {
 	s := ov.Summary
 	checks := map[string]struct{ got, want int }{
 		"services":                  {s.Services, 5},
-		"servicesNeedingAttention":  {s.ServicesNeedingAttention, 4},
+		"servicesNeedingAttention":  {s.ServicesNeedingAttention, 5},
 		"invalidRevisions":          {s.InvalidRevisions, 1},
 		"exactTargetLinks":          {s.ExactTargetLinks, 2},
 		"inferredTargetLinks":       {s.InferredTargetLinks, 1},
