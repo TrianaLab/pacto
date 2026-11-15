@@ -486,7 +486,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"scope":             {Type: "string", Description: "Targets in this scope, such as a namespace"},
 			"readiness":         {Type: "string", Description: "Revisions by declared readiness", Enum: []string{"passing", "below-threshold", "expired", "not-declared"}},
 			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
-			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle in use (the versions consumers reach and targets run), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
+			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},

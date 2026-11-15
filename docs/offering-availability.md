@@ -80,9 +80,11 @@ The lifecycle a consumer sees belongs to the newest provider revision its
 range reaches, or the one `pacto.lock` pins, so a successor released under the
 same service never hides the deprecation of the version a consumer still
 uses. `pacto fleet status --lifecycle` and the `lifecycle` argument of
-`pacto_fleet_status` report the same items. An offering row's `lifecycle` is
-the worst over the provider versions in use, the ones consumers reach and
-targets run, so the demo's postgresql row reads deprecated after 17.0.0 ships.
+`pacto_fleet_status` report the same items. A provider's own `lifecycle`,
+`successor` and an offering row's `lifecycle` come from its current revision:
+the newest one a target runs, else the newest readable one, as on a service
+page. The demo's postgresql targets still run 16.1.0, so its row reads
+deprecated after 17.0.0 ships.
 
 ### Successors
 

@@ -46,10 +46,10 @@ Each offering row of `pacto fleet entities --kind offering`,
 
 - `owner`: the providers' owner, "2 owners claim it" when they disagree or
   "declared by contacts only" for one owner that names no team or DRI;
-- `lifecycle`: the worst lifecycle over the provider versions in use, the
-  ones consumers' ranges reach and targets run, else each provider's newest
-  revision (`supported`, `deprecated` or `sunset`); `unknown` when a provider
-  is observed only, its newest revision is unreadable or a provider is
+- `lifecycle`: the worst lifecycle over the providers' current revisions,
+  each the newest revision a target runs, else the newest readable one
+  (`supported`, `deprecated` or `sunset`); `unknown` when a provider is
+  observed only, the revision a target runs is unreadable or a provider is
   hidden from the viewer;
 - `hiddenProviders`: under a restricted view, the providers the viewer may
   not see, which `owner`, `consumers` and `failedRequests` leave out;

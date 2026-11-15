@@ -1070,7 +1070,7 @@ pacto fleet entities [text] [flags]
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
-      --lifecycle string                 offerings whose worst provider lifecycle in use (the versions consumers reach and targets run), or services whose newest revision, is deprecated or sunset
+      --lifecycle string                 offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging

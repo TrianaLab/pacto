@@ -56,7 +56,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
 	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
-	f.String("lifecycle", "", "offerings whose worst provider lifecycle in use (the versions consumers reach and targets run), or services whose newest revision, is deprecated or sunset")
+	f.String("lifecycle", "", "offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset")
 	f.Bool("failed", false, "with --kind offering, offerings with at least one failed provisioning request")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.String("capability", "", "services whose revisions declare this capability key, such as health or acme.io/cost")

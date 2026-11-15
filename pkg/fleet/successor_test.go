@@ -30,6 +30,13 @@ func lockedTo16(rev RawRevision) RawRevision {
 // >=16 <18 and any accepts every version, both locked to 16.1.0.
 func successorFleet(t *testing.T, l *contract.InterfaceLifecycle, extra ...RawRevision) *Query {
 	t.Helper()
+	return successorFleetRunning(t, "", l, extra...)
+}
+
+// successorFleetRunning is successorFleet with a target running pg at
+// running, none when it is empty.
+func successorFleetRunning(t *testing.T, running string, l *contract.InterfaceLifecycle, extra ...RawRevision) *Query {
+	t.Helper()
 	revs := []RawRevision{
 		asPGProvider(lcRev("pg", "16.0.0", nil)),
 		asPGProvider(lcRev("pg", "16.1.0", l)),
@@ -40,7 +47,11 @@ func successorFleet(t *testing.T, l *contract.InterfaceLifecycle, extra ...RawRe
 	for _, r := range extra {
 		revs = append(revs, asPGProvider(r))
 	}
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: revs}))
+	col := &Collection{Revisions: revs}
+	if running != "" {
+		col.Targets = []RawTarget{{Scope: "prod", Kind: "k8s", Name: "pg", Service: "pg", Digest: "sha256:pg" + running}}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,10 +265,25 @@ func TestVersionsCarrySuccessorRange(t *testing.T) {
 	if v := res.Providers[0].Versions; v.Successor == nil || v.Successor.Revision == nil || v.SuccessorRange != RangeUnsatisfied {
 		t.Errorf("versions = %+v", v)
 	}
-	// Without a range the newest revision speaks: 17.0.0 names no successor.
+	// Without a range and with no target, the newest readable revision
+	// speaks: 17.0.0 names no successor.
 	res, _ = q.OfferingVersions("postgresql", "", "")
 	if v := res.Providers[0].Versions; v.Successor != nil || v.SuccessorRange != "" {
 		t.Errorf("versions = %+v", v)
+	}
+	// A target still running 16.1.0 makes it the current revision: its
+	// successor shows with no range, and the provider reads deprecated.
+	running := successorFleetRunning(t, "16.1.0", deprecated16, lcRev("pg", "17.0.0", nil))
+	res, _ = running.OfferingVersions("postgresql", "", "")
+	if v := res.Providers[0].Versions; v.Successor == nil || v.Successor.Revision == nil || v.SuccessorRange != "" {
+		t.Errorf("running 16.1.0: versions = %+v", v)
+	}
+	d, _ := succDetail(t, running)
+	if p := d.Providers.Items[0]; p.Lifecycle == nil || p.Successor == nil || p.LatestSupported == nil || p.LatestSupported.Label != "pg 17.0.0" {
+		t.Errorf("running 16.1.0: provider lifecycle %+v successor %+v latest supported %+v", p.Lifecycle, p.Successor, p.LatestSupported)
+	}
+	if got := offeringRows(t, running, EntityFilter{Lifecycle: LifecycleDeprecated}); len(got) != 1 {
+		t.Errorf("running 16.1.0: deprecated offerings = %+v", got)
 	}
 	// A range that reaches nothing falls back to the newest revision.
 	res, _ = q.OfferingVersions("postgresql", "", "^18.0.0")

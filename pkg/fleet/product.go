@@ -191,10 +191,11 @@ type EntityRef struct {
 	// Consumers, HiddenConsumers, FailedRequests and TargetsUnknown are set only on
 	// OFFERING list answers.
 	//
-	// Lifecycle is the worst lifecycle over the provider revisions in use:
-	// those the consumers' ranges reach and those the targets run, else each
-	// provider's newest revision. It is unknown when a provider has no readable
-	// newest revision (observed only) or the viewer may not see a provider.
+	// Lifecycle is the worst lifecycle over the providers' current revisions:
+	// each provider's newest revision a target runs, else its newest readable
+	// one. It is unknown when a provider has no such revision (observed only),
+	// the revision a target runs is unreadable or the viewer may not see a
+	// provider.
 	Lifecycle string `json:"lifecycle,omitempty" enum:"supported,deprecated,sunset,unknown"`
 	// HiddenProviders counts the providers the viewer may not see: Owner,
 	// Consumers and FailedRequests then speak only for the visible ones.

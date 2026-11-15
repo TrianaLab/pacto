@@ -62,7 +62,6 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 		maps.Copy(f.hidden, q.snap.hiddenConsumers[s.Key])
 	}
 	uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering != "" }, "")
-	inUse := map[ServiceKey]string{}
 	for _, u := range uses {
 		f := by[u.Offering]
 		f.uses = append(f.uses, u)
@@ -73,14 +72,10 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 				f.failed[key] = true
 			}
 		}
-		if u.Via != RelationshipPolicyRef {
-			pk := ServiceKey(u.Provider.Key)
-			inUse[pk] = worstLifecycle(cmp.Or(inUse[pk], LifecycleSupported), q.useLifecycle(u))
-		}
 	}
 	for name, f := range by {
 		for _, p := range f.providers {
-			f.lifecycle = worstLifecycle(f.lifecycle, q.providerRowLifecycle(p, inUse[p.Key]))
+			f.lifecycle = worstLifecycle(f.lifecycle, revisionLifecycle(q.providerCurrentRevision(p), q.snap.GeneratedAt))
 		}
 		if q.snap.hiddenProviders[name] > 0 {
 			f.lifecycle = worstLifecycle(f.lifecycle, LifecycleUnknown) // a hidden provider may be deprecated
@@ -89,30 +84,22 @@ func (q *Query) offeringFactsByName() map[string]*offeringFacts {
 	return by
 }
 
-// useLifecycle is the provider lifecycle u's consumer reaches.
-func (q *Query) useLifecycle(u OfferingUse) string {
-	switch l := u.ProviderLifecycle; {
-	case l == nil:
-		return LifecycleSupported
-	case l.SunsetReached(q.snap.GeneratedAt):
-		return LifecycleSunset
-	}
-	return LifecycleDeprecated
-}
-
-// providerRowLifecycle is the lifecycle an offering row reads for provider p:
-// the worst over the revisions in use, those its consumers' ranges reach
-// (inUse, "" when none) and those its targets run, so a successor shipped
-// under the same service never hides the deprecation of the version still in
-// use. A provider nothing uses reads its newest revision's lifecycle.
-func (q *Query) providerRowLifecycle(p *ServiceRecord, inUse string) string {
-	l := inUse
-	for _, tk := range p.Targets {
-		if t := q.snap.Targets[tk]; t != nil && q.snap.Revisions[t.ContractRevision] != nil {
-			l = worstLifecycle(cmp.Or(l, LifecycleSupported), revisionLifecycle(q.snap.Revisions[t.ContractRevision], q.snap.GeneratedAt))
+// providerCurrentRevision is an offering provider's current revision, the one
+// its lifecycle, successor and current content are read from: the newest
+// revision a target runs, else the newest readable one, as a service page's
+// current revision is. So a successor shipped under the same service never
+// hides the deprecation of the version still running. Nil when there is none.
+func (q *Query) providerCurrentRevision(s *ServiceRecord) *ContractRevision {
+	var running []*ContractRevision
+	for _, tk := range s.Targets {
+		if r := q.snap.Revisions[q.snap.Targets[tk].ContractRevision]; r != nil {
+			running = append(running, r)
 		}
 	}
-	return cmp.Or(l, q.serviceLifecycleState(p))
+	if len(running) > 0 {
+		return newestInUse(running, nil)
+	}
+	return newestReadable(q.revisionsOf(s))
 }
 
 // applyOfferingFacts fills ref, an offering row, from f.

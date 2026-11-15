@@ -94,12 +94,13 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 }
 
 // versionsSuccessor sets out's successor and, when a range is given, whether
-// the range accepts it. The successor is the one the newest readable revision
-// declares, or with a range the newest one the range reaches, as the lifecycle
-// a consumer sees is range-aware: a ^16 range asks about 16.x even once 17
+// the range accepts it. The successor is the one the provider's current
+// revision declares (see [Query.providerCurrentRevision]), or with a range the
+// one the newest revision the range reaches declares, as the lifecycle a
+// consumer sees is range-aware: a ^16 range asks about 16.x even once 17
 // ships.
 func (q *Query) versionsSuccessor(out *ProviderVersionsPreview, s *ServiceRecord, revs []*ContractRevision) {
-	from := newestReadable(revs)
+	from := q.providerCurrentRevision(s)
 	if out.Range != "" {
 		inRange := slices.DeleteFunc(slices.Clone(revs), func(r *ContractRevision) bool { return CheckRange(out.Range, r.Version) != RangeSatisfied })
 		from = cmp.Or(newestReadable(inRange), from)

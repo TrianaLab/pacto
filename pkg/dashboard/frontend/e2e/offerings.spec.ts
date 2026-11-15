@@ -64,7 +64,8 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();
     const pg = page.getByTestId('offering-list').locator('tbody tr').filter({ has: page.locator(PG_ROW) });
     // Two teams maintain a provider each. The newest postgresql, 17.0.0, declares no lifecycle,
-    // but the ^16 consumers still reach the deprecated 16.1.0, so the row reads deprecated.
+    // but its targets still run the deprecated 16.1.0, the provider's current revision, so the
+    // row reads deprecated.
     await expect(pg.locator('[data-label="Owners"]')).toHaveText('2 owners claim it');
     await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('deprecated');
     // production is available and staging unknown: the row reads unknown, never degraded.
@@ -118,7 +119,10 @@ test.describe('WASM demo — platform offerings', () => {
     await page.addStyleTag({ content: WIDE_FONT });
     await expect(page.getByTestId('offering-provider')).toHaveCount(2, { timeout: T });
     const provider = page.getByTestId('offering-provider').filter({ hasText: 'infra-data' });
-    // 17.0.0 is the newest and supported; the 16.1.0 the targets run is deprecated.
+    // 17.0.0 is the newest and supported, the revision the snippet pins; the 16.1.0 the
+    // targets run is deprecated, so the provider reads deprecated and names its successor.
+    await expect(provider.locator('.oe-head .tag', { hasText: 'Deprecated' })).toBeVisible();
+    await expect(provider.getByTestId('provider-successor')).toContainText('17.0.0');
     await expect(provider.locator('.oe-row').filter({ hasText: 'Current' })).toContainText('17.0.0');
     await expect(provider.locator('.oe-row').filter({ hasText: 'Latest supported' })).toContainText('17.0.0');
     const v16 = provider.locator('.ov-chips li').filter({ hasText: '16.1.0' });

@@ -7386,7 +7386,7 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider version in use (the versions consumers reach and targets run), service entities by their newest revision */
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision */
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;

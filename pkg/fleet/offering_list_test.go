@@ -423,47 +423,56 @@ func TestAggregateOfferingPhasesRestricted(t *testing.T) {
 }
 
 // TestOfferingRowLifecycleInUse: a successor shipped under the same service
-// never hides the deprecation of the version consumers still reach.
+// never hides the deprecation of the version a target still runs; with no
+// target, the newest readable revision speaks, whatever range consumers take.
 func TestOfferingRowLifecycleInUse(t *testing.T) {
-	build := func(rng string) map[string]EntityRef {
+	build := func(running string) map[string]EntityRef {
 		old := svc24("pg", "16.1.0", "postgresql")
 		old.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://" + acme + "/pg:17.0.0"}
 		next := svc24("pg", "17.0.0", "postgresql")
 		app := svc24("app", "1.0.0", "")
-		app.Dependencies = []contract.Dependency{{Name: "pg", Ref: "oci://" + acme + "/pg", Required: true, Compatibility: rng}}
-		q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{ociRev(acme, old, nil), ociRev(acme, next, nil), ociRev(acme, app, nil)}})
-		return offeringRows(t, q, EntityFilter{})
+		app.Dependencies = []contract.Dependency{{Name: "pg", Ref: "oci://" + acme + "/pg", Required: true, Compatibility: "^16.0.0"}}
+		col := &Collection{Revisions: []RawRevision{ociRev(acme, old, nil), ociRev(acme, next, nil), ociRev(acme, app, nil)}}
+		if running != "" {
+			col.Targets = []RawTarget{{Scope: "prod", Kind: SourceKindKubernetes, Name: "pg", Service: "pg", Domain: acme, Digest: testDigest(acme, "pg", running)}}
+		}
+		return offeringRows(t, buildDomainSnap(t, "oci", col), EntityFilter{})
 	}
-	if got := build("^16.0.0")["postgresql"].Lifecycle; got != LifecycleDeprecated {
-		t.Errorf("^16 consumer: lifecycle = %q", got)
+	if got := build("16.1.0")["postgresql"].Lifecycle; got != LifecycleDeprecated {
+		t.Errorf("runs 16.1.0: lifecycle = %q", got)
 	}
-	if got := build("^17.0.0")["postgresql"].Lifecycle; got != LifecycleSupported {
-		t.Errorf("^17 consumer: lifecycle = %q", got)
+	if got := build("17.0.0")["postgresql"].Lifecycle; got != LifecycleSupported {
+		t.Errorf("runs 17.0.0: lifecycle = %q", got)
+	}
+	if got := build("")["postgresql"].Lifecycle; got != LifecycleSupported {
+		t.Errorf("runs nowhere: lifecycle = %q", got)
 	}
 }
 
-// TestProviderRowLifecycleTargets: a target running a deprecated revision
-// makes the provider deprecated; nothing in use reads the newest revision.
-func TestProviderRowLifecycleTargets(t *testing.T) {
+// TestProviderCurrentRevision: the newest revision a target runs, else the
+// newest readable one.
+func TestProviderCurrentRevision(t *testing.T) {
 	a := newAvailSnap()
 	old := a.declares("pg")
 	old.Contract.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}
 	q := a.query()
 	pg := q.snap.Services["pg"]
-	if got := q.providerRowLifecycle(pg, ""); got != LifecycleDeprecated {
+	lifecycle := func() string { return revisionLifecycle(q.providerCurrentRevision(pg), q.snap.GeneratedAt) }
+	if got := lifecycle(); got != LifecycleDeprecated {
 		t.Errorf("newest = %q", got)
 	}
 	a.Revisions["pg@2.0.0"] = &ContractRevision{Key: "pg@2.0.0", ServiceKey: "pg", Version: "2.0.0", Contract: &contract.Contract{}}
-	pg.Revisions = append(pg.Revisions, "pg@2.0.0")
-	if got := q.providerRowLifecycle(pg, ""); got != LifecycleSupported {
-		t.Errorf("nothing in use = %q", got)
+	a.Revisions["pg@3.0.0"] = &ContractRevision{Key: "pg@3.0.0", ServiceKey: "pg", Version: "3.0.0"}
+	pg.Revisions = append(pg.Revisions, "pg@2.0.0", "pg@3.0.0")
+	if got := q.providerCurrentRevision(pg); got == nil || got.Key != "pg@2.0.0" {
+		t.Errorf("nothing in use: current = %+v, want the newest readable", got)
 	}
 	a.target("pg", "pg-0", "db", "prod", time.Hour).ContractRevision = old.Key
-	if got := q.providerRowLifecycle(pg, ""); got != LifecycleDeprecated {
+	if got := lifecycle(); got != LifecycleDeprecated {
 		t.Errorf("target runs 1.0.0 = %q", got)
 	}
-	if got := q.providerRowLifecycle(pg, LifecycleSunset); got != LifecycleSunset {
-		t.Errorf("in use sunset = %q", got)
+	if got := q.providerCurrentRevision(&ServiceRecord{Key: "none"}); got != nil {
+		t.Errorf("no revision: current = %+v", got)
 	}
 }
 

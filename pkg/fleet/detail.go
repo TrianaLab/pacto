@@ -1418,7 +1418,9 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 }
 
 // offeringProvider projects one provider of an offering from the snapshot. Its
-// current revision is the newest readable one, the revision the snippet pins.
+// current revision is the newest readable one, the revision the snippet pins;
+// its lifecycle and successor come from [Query.providerCurrentRevision], so the
+// version a target still runs speaks for them.
 func (q *Query) offeringProvider(s *ServiceRecord, x *availIndex) OfferingProvider {
 	all := q.revisionsOf(s)
 	newest := newestReadable(all)
@@ -1433,8 +1435,10 @@ func (q *Query) offeringProvider(s *ServiceRecord, x *availIndex) OfferingProvid
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
 			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
-			p.Lifecycle = rec.Contract.Service.Lifecycle
 		}
+	}
+	if cur := q.providerCurrentRevision(s); cur != nil && cur.Contract != nil {
+		p.Lifecycle = cur.Contract.Service.Lifecycle
 	}
 	p.Successor = p.Versions.Successor
 	if sup := q.latestSupported(s); sup != nil {

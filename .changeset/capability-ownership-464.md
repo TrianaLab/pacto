@@ -28,6 +28,11 @@ range reaches, or the one `pacto.lock` pins, instead of the provider's newest
 revision. A declared successor resolves to a revision in the fleet
 (`SUCCESSOR_UNRESOLVED` when it does not), and each consumer use says whether
 its range accepts the successor and the provider's newest supported version.
+A provider's own lifecycle and successor, and an offering row's lifecycle and
+the `lifecycle` filter, come from the provider's current revision: the newest
+one a target runs, else the newest readable one, as on a service page. A
+successor shipped under the same service no longer hides the deprecation of
+the version still running.
 
 The offering answer lists observed consumers, callers seen at runtime that
 declare no use of the offering, apart from its declared consumers.
