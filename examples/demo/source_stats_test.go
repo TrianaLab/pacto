@@ -10,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // The port serves the generator's records, read as a registry read would
@@ -36,39 +37,57 @@ func TestDemoStatsServesTheStory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			named, err := port(context.Background(), []string{want[0].Service})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(named.Entries) == 0 {
-				t.Fatalf("a read naming %q lists nothing", want[0].Service)
-			}
-			for _, e := range named.Entries {
-				if e.Anchor != runrecord.AnchorTag(want[0].Service) {
-					t.Fatalf("a read naming %q lists anchor %q", want[0].Service, e.Anchor)
-				}
-			}
-			if len(set.Entries) != len(want)+tc.extra {
-				t.Fatalf("entries = %d, want %d", len(set.Entries), len(want)+tc.extra)
-			}
-			for i, r := range want {
-				e := set.Entries[i]
-				if !reflect.DeepEqual(e.Record, r) {
-					t.Fatalf("entry %d = %+v, want %+v", i, e.Record, r)
-				}
-				if e.Anchor != runrecord.AnchorTag(r.Service) || e.Digest == "" {
-					t.Fatalf("entry %d anchor %q digest %q", i, e.Anchor, e.Digest)
-				}
-			}
-			for _, e := range set.Entries[len(want):] {
-				if e.Record.Kind != runrecord.KindCoverage {
-					t.Fatalf("extra entry kind %q", e.Record.Kind)
-				}
-			}
-			if set.Truncated != "" || set.RepositoryMissing || len(set.Skipped) != 0 {
-				t.Fatalf("set reads as incomplete: %+v", set)
-			}
+			checkStatsSet(t, set, want, tc.extra)
 		})
+	}
+}
+
+func checkStatsSet(t *testing.T, set stats.RecordSet, want []runrecord.Record, extra int) {
+	t.Helper()
+	if len(set.Entries) != len(want)+extra {
+		t.Fatalf("entries = %d, want %d", len(set.Entries), len(want)+extra)
+	}
+	for i, r := range want {
+		e := set.Entries[i]
+		if !reflect.DeepEqual(e.Record, r) {
+			t.Fatalf("entry %d = %+v, want %+v", i, e.Record, r)
+		}
+		if e.Anchor != runrecord.AnchorTag(r.Service) || e.Digest == "" {
+			t.Fatalf("entry %d anchor %q digest %q", i, e.Anchor, e.Digest)
+		}
+	}
+	for _, e := range set.Entries[len(want):] {
+		if e.Record.Kind != runrecord.KindCoverage {
+			t.Fatalf("extra entry kind %q", e.Record.Kind)
+		}
+	}
+	if set.Truncated != "" || set.RepositoryMissing || len(set.Skipped) != 0 {
+		t.Fatalf("set reads as incomplete: %+v", set)
+	}
+}
+
+// A read naming services lists only their anchors, as a registry read does.
+func TestDemoStatsReadsNamedServices(t *testing.T) {
+	port, err := demoStats(story.Now, &runrecord.Coverage{Services: 8, SnapshotAsOf: story.Now, Completeness: "partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := port(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := all.Entries[0].Record.Service
+	named, err := port(context.Background(), []string{svc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(named.Entries) == 0 || len(named.Entries) == len(all.Entries) {
+		t.Fatalf("a read naming %q lists %d of %d entries", svc, len(named.Entries), len(all.Entries))
+	}
+	for _, e := range named.Entries {
+		if e.Anchor != runrecord.AnchorTag(svc) {
+			t.Fatalf("a read naming %q lists anchor %q", svc, e.Anchor)
+		}
 	}
 }
 
