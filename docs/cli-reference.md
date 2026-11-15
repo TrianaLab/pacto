@@ -1714,7 +1714,7 @@ pacto mcp [bundle-ref] [flags]
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)

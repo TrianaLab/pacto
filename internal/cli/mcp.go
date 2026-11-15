@@ -155,6 +155,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
+	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set")
 	// The rest are the fleet source flags, from the one declaration `pacto fleet`
 	// uses, and they apply in --fleet mode only.
 	addFleetSourceFlags(cmd.Flags())
@@ -213,7 +214,7 @@ func mcpModes(cmd *cobra.Command, svc *app.Service, version string, args []strin
 // run on the command's lifetime context, never a request's, so a cancelled call
 // cannot abort the build other sessions wait on.
 func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.FleetMode, error) {
-	fopts := fleetOptions(cmd)
+	fopts := mcpFleetOptions(cmd)
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
 	}, fleetRefreshInterval, time.Now)
@@ -231,6 +232,17 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
 		Stats: mcpStatsProvider(cmd, svc, transport == "stdio"),
 	}}, nil
+}
+
+// mcpFleetOptions is fleetOptions for the fleet server. Over HTTP every caller
+// reads the snapshot as this process, so the server scans the working
+// directory's bundles only when --local says so; stdio keeps `--local .`.
+func mcpFleetOptions(cmd *cobra.Command) app.FleetOptions {
+	fopts := fleetOptions(cmd)
+	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && !cmd.Flags().Changed("local") {
+		fopts.LocalRoots = nil
+	}
+	return fopts
 }
 
 // mcpFleetSource builds the first snapshot (its error fails startup) and
@@ -467,7 +479,7 @@ func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) 
 // delivery: over HTTP every caller would read them as this process.
 // Extracted so the wiring is directly testable.
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
-	fopts := fleetOptions(cmd)
+	fopts := mcpFleetOptions(cmd)
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 		req, err := refuseUntrustedImpact(req, trusted, snap)
 		if err != nil {

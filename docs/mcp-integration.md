@@ -95,7 +95,9 @@ it in your project; for Claude Desktop, have the agent pass full paths.
 
 **Fleet.** `--fleet` reads the sources you name with more flags, such as
 `--local ./contracts` for folders, `--oci <ref>` for published contracts and
-`--k8s` for your kubeconfig's cluster. See
+`--k8s` for your kubeconfig's cluster. Over stdio it also reads the
+bundles under the folder it was started in (`--local .`); over HTTP it reads
+local bundles only from the `--local` roots you name. See
 [`pacto mcp`](cli-reference.md#pacto-mcp).
 [Ask questions about your organization](ask-your-organization.md) lists the
 questions an agent can answer with it, and [Investigate a problem with
