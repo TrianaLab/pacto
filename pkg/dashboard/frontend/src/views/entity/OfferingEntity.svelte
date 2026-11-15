@@ -1,7 +1,8 @@
 <script>
   import { fleetServicesUrl } from '../../lib/router.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
-  import { formatRelative } from '../../lib/dateFormat.ts';
+  import { formatRelative, formatDateTime } from '../../lib/dateFormat.ts';
+  import { PHASE_WORDS, phaseTone, adapterLine } from '../../lib/provisioning.ts';
   import { successorBadge } from '../../lib/behavior.ts';
   import { inService } from '../../lib/identityContext.ts';
   import EntityLink from '../../components/EntityLink.svelte';
@@ -37,6 +38,13 @@
   const observed = $derived(d.observedConsumers ?? { items: [], total: 0, count: 0 });
   const hiddenObserved = $derived(d.hiddenObservedConsumers ?? 0);
   const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
+  const UNRESOLVED_DOCS = 'https://pacto.run/latest/platform-offerings/#consumers';
+  // The programs that report what they provisioned, observed from their reports; the
+  // provider is the service that declares the offering.
+  const adapters = $derived(d.adapters ?? { items: [], total: 0, count: 0, conflicting: 0, unattributed: 0 });
+  const unresolved = $derived(d.unresolvedUses?.count ?? 0);
+  const BUCKETS = ['ready', 'failed', 'provisioning', 'requested', 'deleting', 'unknown'];
+  const BUCKET_PHASE = { ready: 'Ready', failed: 'Failed', provisioning: 'Provisioning', requested: 'Requested', deleting: 'Deleting', unknown: 'Unknown' };
   // The request the reader opened: which use row and which of its statuses.
   let picked = $state(/** @type {{ row: number, i: number } | null} */ (null));
   const pickedUse = $derived(picked ? consumers.items?.[picked.row] : null);
@@ -145,8 +153,46 @@
     <OfferingUseFigure consumer={pickedUse.consumer?.label ?? ''} request={pickedRequest}
       useKey={`${pickedUse.consumer?.key}:${pickedUse.provider?.key}:${pickedUse.via}:${picked?.i}`} />
   {/if}
+  <!-- Outside the section so the count shows when the list is empty; the empty text above stays true. -->
+  {#if unresolved > 0}
+    <p class="oe-note" data-testid="unresolved-uses">
+      <IdentityBadge label="inferred" tone="info" title="Matched by the reference's repository or name" describe />
+      {formatCount(unresolved)} declared {unresolved === 1 ? 'use' : 'uses'} may name a provider of this offering but did not resolve{#if d.unresolvedUses?.reason}: <bdi>{d.unresolvedUses.reason}</bdi>{/if}.
+      <a href={UNRESOLVED_DOCS} target="_blank" rel="noopener noreferrer">How Pacto resolves a use</a>
+    </p>
+  {/if}
   <!-- Outside the section so the count shows when every consumer is hidden. -->
   {#if hiddenConsumers > 0}<p class="oe-note" data-testid="hidden-consumers">{formatCount(hiddenConsumers)} {hiddenConsumers === 1 ? 'consumer' : 'consumers'} you may not see</p>{/if}
+
+  <PreviewSection title="Adapters reporting" summary="Who reports on these requests?" total={adapters.total ?? 0} count={adapters.count ?? 0} truncated={adapters.truncated}
+    empty="No adapter has reported. Provisioning status is Unknown."
+    help="The programs that report what they provisioned for these requests, as their reports name them. The provider is the service that declares the offering.">
+    <div class="oe-adapters-box"><ul class="oe-adapters" data-testid="offering-adapters">
+      {#each adapters.items ?? [] as a, ai (`${a.provider}:${a.producer}:${a.verified}:${ai}`)}
+        <li class="inset-card oe-adapter" data-testid="offering-adapter">
+          <div class="oe-head" title={adapterLine(a)}>
+            {#if a.provider}<bdi class="oe-name" title={a.provider}>{a.provider}</bdi>{:else}<span class="oe-unnamed">unnamed adapter</span>{/if}
+            <span class="oe-by">by <bdi class="oe-name" title={a.producer || 'an unnamed producer'}>{a.producer || 'an unnamed producer'}</bdi></span>
+            {#if a.verified}<IdentityBadge label="signed" tone="ok" title="Reported through signed evidence" describe />
+            {:else}<IdentityBadge label="unsigned" tone="info" title="Reported through the unsigned target-state file" describe />{/if}
+            <IdentityBadge label="observed" tone="info" title="Observed from the adapter's reports" describe />
+            {#if a.disagrees > 0}<IdentityBadge label={`disagrees on ${formatCount(a.disagrees)}`} tone="warn" title="Requests where another adapter reports a different phase, so their status is Unknown" describe />{/if}
+          </div>
+          {#if (a.environments ?? []).length}
+            <div class="oe-row"><span class="oe-k">Environments</span>{#each a.environments as e, ei (`${e}:${ei}`)}<bdi class="oe-env" title={e}>{e}</bdi>{/each}</div>
+          {/if}
+          <div class="oe-row">
+            {#each BUCKETS.filter((k) => a.phases?.[k]) as k (k)}
+              <IdentityBadge label={`${PHASE_WORDS[k]} ${formatCount(a.phases[k])}${k === 'ready' && !a.verified ? ' (unsigned)' : ''}`} tone={phaseTone(BUCKET_PHASE[k], a.verified)} />
+            {/each}
+          </div>
+          <span class="oe-note" data-testid="adapter-last" title={a.lastReportedAt ? formatDateTime(a.lastReportedAt) : 'No report time'}>{a.lastReportedAt ? `last reported ${formatRelative(a.lastReportedAt)}` : 'last reported at an unknown time'}</span>
+        </li>
+      {/each}
+    </ul></div>
+  </PreviewSection>
+  {#if (adapters.conflicting ?? 0) > 0}<p class="oe-note" data-testid="adapters-conflicting">{countOf(adapters.conflicting, 'request')} where adapters disagree, so their status is Unknown</p>{/if}
+  {#if (adapters.unattributed ?? 0) > 0}<p class="oe-note" data-testid="adapters-unattributed">{countOf(adapters.unattributed, 'request')} no adapter reports on</p>{/if}
 
   <PreviewSection title="Also calling a provider" total={observed.total ?? 0} count={observed.count ?? 0} truncated={observed.truncated}
     empty="No observation source saw an undeclared caller. A caller outside the observed sources is not seen." emptyBody={hiddenObserved > 0 ? hiddenObservedNote : null}
@@ -191,4 +237,12 @@
   /* The snippet scrolls by itself and never widens the page. */
   .consume-snippet { margin: 0; padding: var(--sp-2) var(--sp-3); max-width: 100%; overflow-x: auto; background: var(--c-surface-inset); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
   .oe-foot { margin: 0; color: var(--c-text-3); }
+  /* Adapter cards flow into as many columns as fit and stack in a narrow container. */
+  .oe-adapters-box { container-type: inline-size; min-width: 0; }
+  .oe-adapters { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); grid-template-columns: repeat(auto-fit, minmax(min(28ch, 100%), 1fr)); }
+  @container (max-width: 40ch) { .oe-adapters { grid-template-columns: minmax(0, 1fr); } }
+  .oe-adapter { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+  .oe-env { overflow-wrap: anywhere; min-width: 0; font-size: var(--text-sm); }
+  .oe-by { color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
+  .oe-unnamed { color: var(--c-text-3); font-style: italic; }
 </style>

@@ -613,3 +613,34 @@ describe('target detail stays a runtime inspector', () => {
     unmount(component); target.remove();
   });
 });
+
+/**
+ * The offering page keeps who reports on its requests and how many declared uses
+ * did not resolve: an empty consumers list must never read as "nobody".
+ */
+describe('offering detail keeps its adapters and unresolved uses', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('renders every adapter fact and the unresolved count', async () => {
+    const tally = { requested: 0, provisioning: 0, ready: 2, readyUnsigned: 1, failed: 0, deleting: 0, unknown: 0 };
+    detailFn.mockResolvedValue({
+      meta,
+      entity: { kind: 'offering', key: 'postgresql', label: 'postgresql', href: '/fleet/offerings/postgresql', offering: 'postgresql' },
+      actions: [],
+      offering: {
+        providers: preview([]), consumers: preview([]),
+        adapters: { ...preview([{ provider: 'platform-db', producer: 'platform-adapter', verified: false, environments: ['eu-prod'], phases: tally,
+          disagrees: 1, provenance: 'observed', lastReportedAt: '2026-07-29T09:00:00Z' }]), conflicting: 1, unattributed: 5 },
+        unresolvedUses: { count: 7, reason: 'not digest-pinned', provenance: 'inferred' },
+      },
+    });
+    const { target, component } = await mountView('offering', 'postgresql');
+    await vi.waitFor(() => expect(target.textContent).toContain('platform-db'));
+    const text = target.textContent || '';
+    for (const fragment of ['platform-db', 'platform-adapter', 'unsigned', 'eu-prod', 'disagrees on 1', 'last reported', 'observed',
+      '1 request where adapters disagree', '5 requests no adapter reports on', '7 declared uses may name a provider', 'not digest-pinned', 'inferred']) {
+      expect(text).toContain(fragment);
+    }
+    unmount(component); target.remove();
+  });
+});

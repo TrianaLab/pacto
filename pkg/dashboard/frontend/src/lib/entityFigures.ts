@@ -9,7 +9,7 @@ import { MAX_STACK_LAYERS, sharePct } from './figure.ts';
 import type { Step } from './narrate.ts';
 import { stageName } from './behavior.ts';
 import { countOf, formatCount } from './format.ts';
-import { phaseGlyph, phaseTone } from './provisioning.ts';
+import { phaseGlyph, phaseTone, readyTone } from './provisioning.ts';
 
 type Ref = { key?: string; label?: string; href?: string };
 
@@ -187,11 +187,11 @@ export function evidenceModel(sources: { total?: number; items?: (Ref & { status
 
 // ── Offering: who provides it, who uses it, and is their request ready ─────────────
 
-export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; failed?: number; deleting?: number; unknown?: number }
+export interface PhaseTally { requested?: number; provisioning?: number; ready?: number; readyUnsigned?: number; failed?: number; deleting?: number; unknown?: number }
 
 export interface PhaseStation { key: string; label: string; sub: string; tone: FigTone; hatch?: boolean; glyph: GlyphName | ''; n: number; share: string; consumers: number }
 
-const PHASES: [keyof PhaseTally, string, string, FigTone, GlyphName | '', boolean?][] = [
+const PHASES: [Exclude<keyof PhaseTally, 'readyUnsigned'>, string, string, FigTone, GlyphName | '', boolean?][] = [
   ['requested', 'Requested', 'asked for, not started', 'info', 'progress'],
   ['provisioning', 'Provisioning', 'being created', 'info', 'progress'],
   ['ready', 'Ready', 'in use', 'ok', 'ok'],
@@ -250,8 +250,15 @@ const NOT_COL: WireDef['when'] = ['wide', 'mid', 'narrow'];
 export function phaseTrack(phases: PhaseTally | undefined, phaseConsumers?: PhaseTally) {
   const n = (k: keyof PhaseTally) => phases?.[k] ?? 0;
   const requests = PHASES.reduce((sum, [k]) => sum + n(k), 0);
+  const unsigned = n('readyUnsigned');
   const stations: PhaseStation[] = PHASES.map(([key, label, sub, tone, glyph, hatch]) => {
     const c = n(key);
+    // Only a signed Ready reads positive: with every Ready unsigned the station is info and draws no check.
+    if (key === 'ready' && c) {
+      tone = readyTone(c, unsigned);
+      glyph = tone === 'ok' ? 'ok' : 'none';
+      if (unsigned) sub = `${sub}; ${formatCount(unsigned)} unsigned`;
+    }
     return { key, label, sub, n: c, share: sharePct(c, requests), consumers: phaseConsumers?.[key] ?? 0, tone: c ? tone : 'neutral', hatch: hatch && c > 0, glyph: c ? glyph : '' };
   });
   const wires: WireDef[] = [
@@ -264,7 +271,7 @@ export function phaseTrack(phases: PhaseTally | undefined, phaseConsumers?: Phas
     { id: 'wfail', from: 'ph-provisioning-b', fs: 'c', to: 'ph-failed', ts: 't', style: 'obs', tone: n('failed') ? 'err' : 'neutral', head: true, when: NOT_COL },
   ];
   const progress = n('requested') + n('provisioning');
-  const rest = `${formatCount(n('ready'))} ${n('ready') === 1 ? 'is' : 'are'} ready, ${formatCount(progress)} in progress, ${formatCount(n('failed'))} failed and ${formatCount(n('deleting'))} being removed; ${formatCount(n('unknown'))} ${n('unknown') === 1 ? 'has' : 'have'} no reported phase, so their readiness is unknown.`;
+  const rest = `${formatCount(n('ready'))} ${n('ready') === 1 ? 'is' : 'are'} ready${unsigned ? ` (${formatCount(unsigned)} unsigned)` : ''}, ${formatCount(progress)} in progress, ${formatCount(n('failed'))} failed and ${formatCount(n('deleting'))} being removed; ${formatCount(n('unknown'))} ${n('unknown') === 1 ? 'has' : 'have'} no reported phase, so their readiness is unknown.`;
   return { requests, stations, wires, rest };
 }
 

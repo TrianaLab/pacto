@@ -403,3 +403,60 @@ describe('offering page', () => {
     }
   });
 });
+
+describe('adapters reporting', () => {
+  const tally = (over = {}) => ({ requested: 0, provisioning: 0, ready: 0, readyUnsigned: 0, failed: 0, deleting: 0, unknown: 0, ...over });
+  const adapter = (extra: Record<string, unknown>) => ({ provider: 'scanner', producer: 'security-adapter', verified: true, environments: ['production'],
+    phases: tally({ ready: 1 }), disagrees: 0, provenance: 'observed', lastReportedAt: '2026-11-04T09:00:00Z', ...extra });
+
+  it('lists signed, unsigned and unnamed adapters with their disagreements and the requests nobody reports on', async () => {
+    const { target, done } = await render(detail({
+      adapters: { total: 3, count: 3, truncated: false, conflicting: 2, unattributed: 4, items: [
+        adapter({}),
+        adapter({ verified: false, environments: ['default', 'staging'], phases: tally({ ready: 1, readyUnsigned: 1, unknown: 2 }), disagrees: 2 }),
+        adapter({ provider: '', producer: 'platform-adapter', verified: false, environments: ['default'], phases: tally({ unknown: 1 }), lastReportedAt: undefined }),
+      ] },
+    }));
+    const items = [...target.querySelectorAll('[data-testid="offering-adapter"]')] as HTMLElement[];
+    expect(items).toHaveLength(3);
+    expect(text(target)).toContain('Who reports on these requests?');
+    expect(text(items[0])).toContain('scanner');
+    expect(text(items[0])).toContain('by security-adapter');
+    expect(items[0].querySelector('.tone-ok')?.textContent).toBe('signed');
+    expect(text(items[0])).toContain('production');
+    expect(text(items[0])).toContain('observed');
+    expect(text(items[0])).toMatch(/last reported/);
+    expect(items[0].querySelector('[data-testid="adapter-last"]')?.getAttribute('title')).toBeTruthy();
+    const unsigned = [...items[1].querySelectorAll('.tag')].find((t) => t.textContent === 'unsigned') as HTMLElement;
+    expect(unsigned.classList.contains('tone-info')).toBe(true);
+    expect(unsigned.getAttribute('title')).toBe('Reported through the unsigned target-state file');
+    expect(items[1].querySelector('.tone-warn')?.textContent).toBe('disagrees on 2');
+    // An unsigned Ready never reads positive on its phase badge.
+    expect([...items[1].querySelectorAll('.tag.tone-ok')]).toHaveLength(0);
+    expect(text(items[2])).toContain('unnamed adapter');
+    expect(items[2].querySelector('bdi.oe-name:empty')).toBeNull();
+    expect(text(target.querySelector('[data-testid="adapters-conflicting"]'))).toBe('2 requests where adapters disagree, so their status is Unknown');
+    expect(text(target.querySelector('[data-testid="adapters-unattributed"]'))).toBe('4 requests no adapter reports on');
+    // Every value that may be cut carries its full text.
+    for (const el of items[0].querySelectorAll('bdi.oe-name, bdi.oe-env')) expect(el.getAttribute('title')).toBe(el.textContent);
+    done();
+  });
+
+  it('says that provisioning is unknown when no adapter has reported', async () => {
+    const { target, done } = await render(detail({ adapters: { total: 0, count: 0, truncated: false, conflicting: 0, unattributed: 0, items: [] } }));
+    expect(text(target)).toContain('No adapter has reported. Provisioning status is Unknown.');
+    expect(target.querySelector('[data-testid="adapters-conflicting"]')).toBeNull();
+    expect(target.querySelector('[data-testid="adapters-unattributed"]')).toBeNull();
+    expect(target.querySelector('[data-testid="unresolved-uses"]')).toBeNull();
+    done();
+  });
+
+  it('counts the declared uses that did not resolve, as inferred', async () => {
+    const { target, done } = await render(detail({ unresolvedUses: { count: 3, reason: 'the reference is not digest-pinned or locked', provenance: 'inferred' } }));
+    const note = target.querySelector('[data-testid="unresolved-uses"]') as HTMLElement;
+    expect(text(note)).toContain('3 declared uses may name a provider of this offering but did not resolve: the reference is not digest-pinned or locked');
+    expect(note.querySelector('.tone-info')?.textContent).toBe('inferred');
+    expect(note.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/platform-offerings/#consumers');
+    done();
+  });
+});

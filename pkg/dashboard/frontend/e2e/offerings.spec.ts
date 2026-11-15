@@ -227,4 +227,43 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(snippet).toContainText('policies:', { timeout: T });
     await expect(snippet).toContainText('name: platform-http-policy');
   });
+  // Adapters (#463): who reports on an offering's requests, observed from their reports.
+  const titledValues = (page: Page, sel: string) => page.locator(sel).evaluateAll((els) =>
+    els.every((e) => e.getAttribute('title') === e.textContent));
+
+  test('the postgresql page names the adapters that report on its requests', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/postgresql');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const items = page.getByTestId('offering-adapter');
+    await expect(items.first()).toBeVisible({ timeout: T });
+    const db = items.filter({ hasText: 'platform-db' });
+    await expect(db).toContainText('by platform-adapter');
+    await expect(db.locator('.tag', { hasText: /^unsigned$/ })).toBeVisible();
+    await expect(db.locator('.tag.tone-ok')).toHaveCount(0);
+    await expect(items.filter({ hasText: 'unnamed adapter' })).toHaveCount(1);
+    expect(await titledValues(page, '[data-testid="offering-adapter"] bdi.oe-name, [data-testid="offering-adapter"] bdi.oe-env')).toBe(true);
+    expect(await noSideScroll(page)).toBe(true);
+    await audit(page, 'postgresql adapters');
+  });
+
+  test('the messaging page says provisioning is unknown when no adapter has reported', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/messaging');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await expect(page.getByText('No adapter has reported. Provisioning status is Unknown.')).toBeVisible({ timeout: T });
+    await expect(page.getByTestId('offering-adapter')).toHaveCount(0);
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
+  test('the shared-config page counts the declared uses that did not resolve', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/shared-config');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const note = page.getByTestId('unresolved-uses');
+    await expect(note).toContainText(/\d+ declared uses? may name a provider of this offering but did not resolve/, { timeout: T });
+    await expect(note.locator('.tag', { hasText: 'inferred' })).toBeVisible();
+    expect(await titledValues(page, '[data-testid="offering-provider"] bdi.oe-ref, [data-testid="offering-adapter"] bdi.oe-name')).toBe(true);
+    expect(await noSideScroll(page)).toBe(true);
+  });
 });
