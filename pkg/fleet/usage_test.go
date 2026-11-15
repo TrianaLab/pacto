@@ -322,11 +322,11 @@ func TestAttackReplayedUsageStaysStale(t *testing.T) {
 	}
 }
 
-// TestAttackHiddenProviderCostWithheld: a viewer who may not see a provider
-// reads a visible consumer's raw snapshot. The consumer's Failed report about
-// it stays (it raises attention) without the adapter or external reference,
-// and its usage and cost go whole, while a visible provider's stay.
-func TestAttackHiddenProviderCostWithheld(t *testing.T) {
+// hiddenMailUsageSnap is hiddenMailFleet's fleet, with postgresql visible,
+// holding a Failed report and a usage report about the hidden email-provider
+// and a usage report about postgresql's db.
+func hiddenMailUsageSnap(t *testing.T) *FleetSnapshot {
+	t.Helper()
 	base := &Collection{Revisions: []RawRevision{mailProvider(""), provider("postgresql"), notifier("1.0.0", true, "production")}}
 	k := SourceKindKubernetes
 	base.Targets = []RawTarget{
@@ -348,7 +348,15 @@ func TestAttackHiddenProviderCostWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "hush" })
+	return snap
+}
+
+// TestAttackHiddenProviderCostWithheld: a viewer who may not see a provider
+// reads a visible consumer's raw snapshot. The consumer's Failed report about
+// it stays (it raises attention) without the adapter or external reference,
+// and its usage and cost go whole, while a visible provider's stay.
+func TestAttackHiddenProviderCostWithheld(t *testing.T) {
+	r := NewQuery(hiddenMailUsageSnap(t)).Restrict(func(ns string) bool { return ns != "hush" })
 	view := r.SnapshotForSerialization()
 	if len(view.Usage) != 1 || view.Usage[0].Name != "db" || view.Usage[0].Cost == nil {
 		t.Errorf("usage = %+v, want the visible db report only", view.Usage)
@@ -366,8 +374,10 @@ func TestAttackHiddenProviderCostWithheld(t *testing.T) {
 	if items := provisioningItems(t, r); len(items) != 1 || items[0].Code != codeProvisioningFailed {
 		t.Errorf("the hidden provider's failure still raises attention: %+v", items)
 	}
-	// The unrestricted view keeps everything.
-	if full := NewQuery(snap).SnapshotForSerialization(); len(full.Usage) != 2 || full.Provisioning[0].ExternalRef != "arn:hidden-sender" {
+}
+
+func TestUnrestrictedViewKeepsEveryReport(t *testing.T) {
+	if full := NewQuery(hiddenMailUsageSnap(t)).SnapshotForSerialization(); len(full.Usage) != 2 || full.Provisioning[0].ExternalRef != "arn:hidden-sender" {
 		t.Errorf("unrestricted = %+v %+v", full.Usage, full.Provisioning)
 	}
 }
