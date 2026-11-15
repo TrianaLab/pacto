@@ -232,7 +232,9 @@ provider ever reported on stays Unknown and raises nothing.
 A restricted viewer never sees a provider it may not read. The service's
 `hiddenProviders` says at least that many resources come from such providers,
 counted from the service's own contract and reports, and an environment they
-may provision in reads Unknown.
+may provision in reads Unknown. A Failed or stale report about such a provider
+raises attention without naming the adapter or external reference; its usage
+and cost stay out.
 
 ## Use the resource
 

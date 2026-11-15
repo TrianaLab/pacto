@@ -321,3 +321,51 @@ func TestAttackReplayedUsageStaysStale(t *testing.T) {
 		t.Errorf("consumption = %+v, want stale and unknown", c)
 	}
 }
+
+// TestAttackHiddenProviderCostWithheld: a viewer who may not see a provider
+// reads a visible consumer's raw snapshot. The consumer's Failed report about
+// it stays (it raises attention) without the adapter or external reference,
+// and its usage and cost go whole, while a visible provider's stay.
+func TestAttackHiddenProviderCostWithheld(t *testing.T) {
+	base := &Collection{Revisions: []RawRevision{mailProvider(""), provider("postgresql"), notifier("1.0.0", true, "production")}}
+	k := SourceKindKubernetes
+	base.Targets = []RawTarget{
+		{Scope: "hush", Kind: k, Name: "email-provider", Service: "email-provider", Domain: acme, Compliance: StatusCompliant},
+		{Scope: "shop", Kind: k, Name: "postgresql", Service: "postgresql", Domain: acme, Compliance: StatusCompliant},
+		{Scope: "shop", Kind: k, Name: "notifier", Service: "notifier", Domain: acme, Digest: testDigest(acme, "notifier", "1.0.0"), Compliance: StatusCompliant},
+	}
+	mail := func(r *RawUsage) {
+		r.Service, r.Digest, r.Kind, r.Name, r.Provider, r.ExternalRef = "notifier", testDigest(acme, "notifier", "1.0.0"), "dependency", "email-provider", "ses", "arn:hidden-sender"
+	}
+	db := func(r *RawUsage) { r.Service, r.Digest, r.Name = "notifier", testDigest(acme, "notifier", "1.0.0"), "db" }
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("oci", "oci", base),
+		NewMemorySource("evidence-0", "evidence-http", &Collection{
+			Provisioning: []RawProvisioning{mailReport(failed, func(r *RawProvisioning) { r.ExternalRef = "arn:hidden-sender" })},
+			Usage:        []RawUsage{usageReport(mail), usageReport(db)},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns != "hush" })
+	view := r.SnapshotForSerialization()
+	if len(view.Usage) != 1 || view.Usage[0].Name != "db" || view.Usage[0].Cost == nil {
+		t.Errorf("usage = %+v, want the visible db report only", view.Usage)
+	}
+	if len(view.Provisioning) != 1 || view.Provisioning[0].Phase != "Failed" || view.Provisioning[0].Provider != "" || view.Provisioning[0].ExternalRef != "" {
+		t.Errorf("provisioning = %+v, want the Failed phase without its adapter", view.Provisioning)
+	}
+	data, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "arn:hidden-sender") || strings.Contains(string(data), `"ses"`) {
+		t.Errorf("restricted snapshot names the hidden provider's resource:\n%s", data)
+	}
+	if items := provisioningItems(t, r); len(items) != 1 || items[0].Code != codeProvisioningFailed {
+		t.Errorf("the hidden provider's failure still raises attention: %+v", items)
+	}
+	// The unrestricted view keeps everything.
+	if full := NewQuery(snap).SnapshotForSerialization(); len(full.Usage) != 2 || full.Provisioning[0].ExternalRef != "arn:hidden-sender" {
+		t.Errorf("unrestricted = %+v %+v", full.Usage, full.Provisioning)
+	}
+}

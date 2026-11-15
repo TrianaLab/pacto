@@ -118,8 +118,20 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	// An allowlist: a report stays only when its consumer is visible, so an
 	// orphaned report or one about a hidden service never reaches the view.
+	// A visible consumer's report about a provider the viewer may not see
+	// keeps its phase, which raises attention, but never names the provider:
+	// its adapter and external reference go. Its usage and cost go whole,
+	// since no surface shows a resource of a hidden provider.
+	hiddenUse := hiddenUseKeys(&out)
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
-	out.Usage = slices.DeleteFunc(slices.Clone(s.Usage), func(rec UsageRecord) bool { return out.Services[rec.ServiceKey] == nil })
+	for i := range out.Provisioning {
+		if rec := &out.Provisioning[i]; hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}] {
+			rec.Provider, rec.ExternalRef = "", ""
+		}
+	}
+	out.Usage = slices.DeleteFunc(slices.Clone(s.Usage), func(rec UsageRecord) bool {
+		return out.Services[rec.ServiceKey] == nil || hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}]
+	})
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -136,6 +148,20 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// hiddenUseKeys is every entry a visible consumer's report may name on a
+// provider the viewer may not see: its hidden, declared dependency or
+// configuration reference edges, keyed as a report names them.
+func hiddenUseKeys(out *FleetSnapshot) map[provisioningKey]bool {
+	keys := map[provisioningKey]bool{}
+	for i := range out.Relationships {
+		rel := &out.Relationships[i]
+		if r := out.Revisions[rel.FromRevision]; r != nil && hiddenProviderEdge(rel, rel.FromService) {
+			keys[provisioningKey{rel.FromService, r.Digest, provisioningKind(rel.Type), rel.To}] = true
+		}
+	}
+	return keys
 }
 
 // restrictRevisions is the revisions of s's visible services. A golden path
