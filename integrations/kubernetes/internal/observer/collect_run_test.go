@@ -366,3 +366,33 @@ func TestCheckReadinessProbeFallback_UnmappableEndpointsNoVerdict(t *testing.T) 
 		t.Fatalf("got %v, want no readiness verdict", got)
 	}
 }
+
+// A workload scaled to zero runs no Pod, so its readiness probe never answered: no verdict, never
+// HEALTH_FAILING.
+func TestCheckReadinessProbeFallback_ScaledToZeroNoVerdict(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "web"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromInt32(8080)}},
+		},
+	}
+	input := CollectInput{Namespace: "default", ServiceName: "web", WorkloadName: "web", WorkloadKind: workloadDeployment}
+	zero, two := int32(0), int32(2)
+	for _, tc := range []struct {
+		replicas *int32
+		want     tierB
+	}{{&zero, tierBNone}, {&two, tierBNotReady}, {nil, tierBNotReady}} {
+		dep := makeDeployment("default", "web", nil)
+		dep.Spec.Replicas = tc.replicas
+		dep.Spec.Template.Spec.Containers = []corev1.Container{{
+			Name:           "app",
+			Ports:          []corev1.ContainerPort{{ContainerPort: 8080}},
+			ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz"}}},
+		}}
+		o := &Observer{client: fake.NewClientBuilder().WithObjects(svc, dep).Build(), run: newCollectRun()}
+		if got := o.checkReadinessProbeFallback(context.Background(), input, svc, 80, "/healthz"); got != tc.want {
+			t.Errorf("replicas %v: got %v, want %v", tc.replicas, got, tc.want)
+		}
+	}
+}

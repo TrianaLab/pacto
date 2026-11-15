@@ -193,6 +193,8 @@ must equal it. A liveness-only pod, an `exec` or `tcpSocket` probe or
 no probe leaves nothing to read. Passive observation can confirm health but
 never contradict it, so the answer here is `Unknown`. A readiness probe that
 keeps every pod out of Ready reads `HEALTH_FAILING`, which is also `Unknown`.
+A workload scaled to zero runs no pod, so nothing answers the probe and the
+answer is `EVIDENCE_INSUFFICIENT`.
 
 ## Operator RBAC errors
 
