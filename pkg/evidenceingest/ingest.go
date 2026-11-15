@@ -361,17 +361,22 @@ func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt
 }
 
 // CheckReportSubject checks the subject of a provisioning or usage report: it
-// sits under the consumer contract's repository path and, for usage, holds a
-// "usage" segment. The store keeps the latest record per producer and subject,
-// so a usage report on its own subject never replaces the resource's
-// provisioning record.
+// sits under the consumer contract's repository path and holds a "usage"
+// segment exactly when it is a usage report. The store keeps the latest record
+// per producer and subject, so the two kinds never share a subject and a usage
+// report never replaces the resource's provisioning record, whatever subject
+// either names.
 func CheckReportSubject(set evidence.EvidenceSet) error {
 	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
 	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
 		return fmt.Errorf("subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
 	}
-	if isUsageReport(set) && !hasUsageSegment(strings.TrimPrefix(set.Subject.Name, repo+"/")) {
+	usage, segment := isUsageReport(set), hasUsageSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"))
+	if usage && !segment {
 		return fmt.Errorf("usage subject %q must hold a /usage/ segment under the contract repository, such as %s<environment>/usage/<kind>/<name>", set.Subject.Name, repo+"/")
+	}
+	if !usage && segment {
+		return fmt.Errorf("provisioning subject %q must not hold a /usage/ segment, which usage reports use", set.Subject.Name)
 	}
 	return nil
 }

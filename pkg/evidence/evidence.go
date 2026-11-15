@@ -469,7 +469,7 @@ func (o Observation) checkProviderPayload() error {
 		}
 		return ValidateProvisioned(p)
 	}
-	if err := checkMetricValues(o.Value); err != nil {
+	if err := CheckMetricValues(o.Value); err != nil {
 		return err
 	}
 	p, err := decode[UsageObservation](o.Value)
@@ -496,9 +496,10 @@ func (o Observation) checkVerdictKeys() error {
 	return nil
 }
 
-// checkMetricValues rejects a usage metric with no value: a missing value would
-// decode as 0 and read as a confirmed zero usage.
-func checkMetricValues(raw json.RawMessage) error {
+// CheckMetricValues rejects a usage metric with no value in raw, a JSON object
+// with a "metrics" array: a missing value would decode as 0 and read as a
+// confirmed zero usage.
+func CheckMetricValues(raw json.RawMessage) error {
 	var p struct {
 		Metrics []map[string]json.RawMessage `json:"metrics"`
 	}

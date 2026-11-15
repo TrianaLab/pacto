@@ -824,6 +824,7 @@ func TestAcceptProvisioning(t *testing.T) {
 		{"non-Observed outcome", grant, provisionedSet("ghcr.io/a/orders/default/db", before, unobserved), nil},
 		{"non-Observed outcome in a declared environment", grant, provisionedSet("ghcr.io/a/orders/production/db", before, unobservedIn("production")), nil},
 		{"non-Observed outcome in an undeclared environment", grant, provisionedSet("ghcr.io/a/orders/staging/db", before, unobservedIn("staging")), ErrInvalidEvidence},
+		{"subject in the usage space", grant, provisionedSet("ghcr.io/a/orders/production/usage/configuration/db", before, provisioned("configuration", "db", "production")), ErrInvalidEvidence},
 		{"unknown configuration", grant, provisionedSet("ghcr.io/a/orders/production/cache", before, provisioned("configuration", "cache", "production")), ErrInvalidEvidence},
 		{"local-schema configuration", grant, provisionedSet("ghcr.io/a/orders/production/app", before, provisioned("configuration", "app", "production")), ErrInvalidEvidence},
 		{"unknown dependency", grant, provisionedSet("ghcr.io/a/orders/default/redis", before, provisioned("dependency", "redis", "")), ErrInvalidEvidence},
