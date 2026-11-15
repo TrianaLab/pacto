@@ -79,6 +79,25 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/catalog-service', 'catalog-service'); await expect(p.locator('#sec-resources')).toBeVisible(); },
     element: '#sec-resources',
   },
+  // The story payments service's Changes section alone, with the times its revisions
+  // reached a Stage read from signed delivery records.
+  {
+    name: 'service-changes',
+    open: async (p) => {
+      await go(p, '/#/fleet/services/registry.example%252Fstory%2Fpayments?section=changes', 'payments');
+      await expect(p.locator('#sec-changes [data-testid="service-change-reached"] a').first()).toBeVisible();
+    },
+    element: '#sec-changes',
+  },
+  // The story payments service's Delivery history as of a minute ago: what each of its
+  // Stages ran then, known where a complete signed history holds and partial where not.
+  {
+    name: 'delivery-history-as-of',
+    open: async (p) => {
+      await go(p, '/#/delivery/history?service=payments&domain=registry.example%2Fstory&at=1m', 'History');
+      await expect(p.getByTestId('history-at-row').first()).toBeVisible();
+    },
+  },
 ];
 
 async function finish(page: Page) {
