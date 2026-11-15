@@ -218,16 +218,15 @@ describe('OperationalSummary', () => {
       { label: 'Operational targets not compliant', count: 2, view: 'attention', category: 'non-compliant', severity: 'error', href: '/fleet/attention?category=non-compliant' },
       { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', severity: 'warning', href: '/fleet/attention?category=stale' },
       { label: 'Undeclared runtime dependencies observed', count: 3, view: 'attention', category: 'undeclared', severity: 'info', href: '/fleet/attention?category=undeclared' },
-      // View "overview" means "this very page" -- its href is /fleet.
-      { label: 'Incomplete sources', count: 1, view: 'overview', severity: 'warning', href: '/fleet' },
+      // Incomplete sources opens the sources list filtered to the incomplete ones.
+      { label: 'Incomplete sources', count: 1, view: 'sources', category: 'incomplete', severity: 'warning', href: '/fleet/sources?sourceHealth=incomplete' },
     ],
     attentionTotal: 6,
   });
 
   // Every entry prints the backend's label verbatim, and only entry points that lead
   // somewhere else are rendered at all. The lead tile and the uncategorised entry point
-  // are the same measurement (two wordings, one number); the overview entry point links
-  // back to the page it is on, where the source health strip already shows what it counts.
+  // are the same measurement (two wordings, one number).
   //
   // Eight identical tiles made the reader redo the ranking the backend had already done,
   // so the backend's own grade now decides the treatment: errors share the grid with the
@@ -241,12 +240,14 @@ describe('OperationalSummary', () => {
     // Demoting the treatment must not delete the number: the milder entries keep their
     // exact count and stay one click away.
     const sec = Array.from(target.querySelectorAll('.op-secondary a.op-sec'));
-    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls']);
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls', 'incomplete sources']);
     expect(sec.map((n) => n.querySelector('.op-sec-label')?.getAttribute('title'))).toEqual([
       'Operational targets with stale evidence',
       'Undeclared runtime dependencies observed',
+      'Incomplete sources',
     ]);
-    expect(sec.map((n) => n.querySelector('.op-sec-count')?.textContent)).toEqual(['4', '3']);
+    expect(sec.map((n) => n.querySelector('.op-sec-count')?.textContent)).toEqual(['4', '3', '1']);
+    expect(sec[2].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=incomplete');
   });
 
   it('sends every entry to the backend href it arrived with', () => {
