@@ -25,8 +25,13 @@
 # Both reports carry the same fixed date as the targets, so they read the same
 # on every run: older than the provisioning window (24h), catalog-service's
 # database reads Unknown with reportedPhase Ready, which is the freshness rule at
-# work. A wider --freshness, such as 100000h, shows it Ready. The in-browser demo
-# dates the same reports 30 minutes before it loads, so it shows them current.
+# work. A wider --freshness, such as 100000h, shows it Ready. notification-worker
+# 1.0.0 depends on email-provider, a service that declares no offering, and the
+# mail adapter reported that resource Failed. Under the provisioning window the
+# CLI reads it as a stale Failed report (Unknown, PROVISIONING_STALE); a
+# --freshness that covers the date shows it Failed (PROVISIONING_FAILED). The
+# in-browser demo dates the same reports 30 minutes before it loads, so it shows
+# them current, and notification-worker's resource Failed.
 schemaVersion: pacto.dev/fleet-targets/v2
 targets:
   - scope: production-eu
@@ -153,6 +158,15 @@ provisioning:
     name: postgresql
     outcome: Insufficient
     producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
+  - service: notification-worker
+    digest: sha256:03978604c856d024541bef040d2d409290d6a225cdc71b8a53c2f70afe9c4d3e
+    kind: dependency
+    name: email-provider
+    provider: mail-adapter
+    externalRef: senders/notifications
+    phase: Failed
+    producer: mail-adapter
     observedAt: 2026-07-29T09:40:00Z
 
 state:

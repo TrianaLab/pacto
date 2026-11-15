@@ -313,11 +313,14 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 	}
 }
 
-// demoProvisioning is what a platform adapter reports about the resources two
-// consumers asked for, the same two reports examples/demo/fleet-targets.yaml
-// carries: catalog-service 1.3.0's database is Ready in production, and the
+// demoProvisioning is what provider adapters report about the resources three
+// consumers asked for, the same three reports examples/demo/fleet-targets.yaml
+// carries: catalog-service 1.3.0's database is Ready in production, the
 // adapter could not observe orders-service's postgresql, so that use reads
-// Unknown. Neither is signed, and the dashboard says so. They are dated off the
+// Unknown, and the mail adapter failed to provision notification-worker
+// 1.0.0's email-provider, a provider that declares no offering, so the
+// resource reads Failed and raises PROVISIONING_FAILED. None is signed, and
+// the dashboard says so. They are dated off the
 // demo clock, so they stay current; the file's fixed date reads stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
@@ -327,6 +330,9 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
 		{Service: "orders-service", Digest: demoDigest(src, "orders-service", "1.2.1"), Kind: "dependency", Name: "postgresql",
 			Outcome: string(evidence.Insufficient), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications", Phase: string(evidence.PhaseFailed),
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ObservedAt: at},
 	}
 }
 

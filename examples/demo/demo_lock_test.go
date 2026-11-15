@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDemoLockPinsTheLocalProvider holds catalog-service 1.3.0's committed lock
@@ -182,8 +183,72 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
-	if len(snap.Provisioning) != 2 {
-		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	raw, err := os.ReadFile("fleet-targets.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Provisioning []map[string]any `yaml:"provisioning"`
+	}
+	if err := yaml.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Provisioning) == 0 || len(snap.Provisioning) != len(file.Provisioning) {
+		t.Errorf("provisioning records = %d, want every one of the file's %d reports kept", len(snap.Provisioning), len(file.Provisioning))
+	}
+}
+
+// TestDemoNonOfferingResourceStaleFailed: notification-worker 1.0.0 depends on
+// email-provider, which declares no offering, and the mail adapter reported
+// that resource Failed on the file's fixed date. Under the default provisioning
+// window the CLI demo reads it Unknown, a stale Failed report raising
+// PROVISIONING_STALE; a window that covers the date reads it Failed and raises
+// PROVISIONING_FAILED.
+func TestDemoNonOfferingResourceStaleFailed(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		window      time.Duration
+		phase, code string
+		reported    string
+		stale       bool
+	}{
+		{"default window", 0, "Unknown", "PROVISIONING_STALE", "Failed", true},
+		{"window covers the date", 100000 * time.Hour, "Failed", "PROVISIONING_FAILED", "Failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: tc.window},
+				fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := fleet.NewQuery(snap)
+			d, err := q.EntityDetail(fleet.KindService, "notification-worker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var use *fleet.OfferingUse
+			for i, u := range d.Service.ConsumedOfferings.Items {
+				if u.Provider.Key == "email-provider" {
+					use = &d.Service.ConsumedOfferings.Items[i]
+				}
+			}
+			if use == nil || use.Offering != "" || len(use.Provisioning) != 1 {
+				t.Fatalf("email-provider use = %+v", use)
+			}
+			st := use.Provisioning[0]
+			if st.Phase != tc.phase || st.ReportedPhase != tc.reported || st.Stale != tc.stale {
+				t.Errorf("status phase %q reportedPhase %q stale %v", st.Phase, st.ReportedPhase, st.Stale)
+			}
+			l, err := q.Attention(fleet.AttentionFilter{Category: "provisioning", Limit: fleet.MaxAttentionLimit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(l.Items, func(it fleet.AttentionItem) bool {
+				return it.Service == "notification-worker" && it.Code == tc.code
+			}) {
+				t.Errorf("attention %+v, want %s for notification-worker", l.Items, tc.code)
+			}
+		})
 	}
 }
 
