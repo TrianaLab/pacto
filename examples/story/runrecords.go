@@ -377,7 +377,7 @@ func storyEvents() []StatsEvent {
 		// payments 2.4.0 is safe, ships to test, fails verification in prod and is rolled back.
 		diffRun(ago(27, 6), "payments", 0, 1, "NON_BREAKING"),
 		diffRun(ago(27, 5), "payments", 0, 1, "NON_BREAKING"),
-		clearImpact(ago(27, 5), "payments", 0, 1, 3),
+		clearImpact(ago(27, 5), "payments", 0, 1, 2),
 		publishRun(ago(27, 4), "payments", 0, 1),
 		promote(ago(27, 2), "payments", Test, 0, 1),
 		failedPromote(ago(26, 20), "payments", Prod, 0, 1, Promoter),
@@ -392,28 +392,30 @@ func storyEvents() []StatsEvent {
 		rejected,
 		// payments 2.4.2 ships to test and prod.
 		diffRun(ago(20, 9), "payments", 2, 3, "NON_BREAKING"),
-		clearImpact(ago(20, 9), "payments", 2, 3, 3),
+		clearImpact(ago(20, 9), "payments", 2, 3, 2),
 		publishRun(ago(20, 8), "payments", 2, 3),
 		promote(ago(20, 6), "payments", Test, 1, 3),
 		promote(ago(19, 22), "payments", Prod, 0, 3),
-		// checkout 1.9.0 ships to test, waits three hours for dana in prod, then to both regions.
+		// checkout 1.9.0 ships to test.
 		diffRun(ago(18, 10), "checkout", 0, 1, "NON_BREAKING"),
 		clearImpact(ago(18, 10), "checkout", 0, 1, 0),
 		publishRun(ago(18, 9), "checkout", 0, 1),
 		promote(ago(18, 7), "checkout", Test, 0, 1),
-		held(promote(ago(17, 3), "checkout", Prod, 0, 1), 3*time.Hour, Dana),
-		promote(ago(16, 9), "checkout", "prod-eu", -1, 1),
-		promote(ago(16, 8), "checkout", "prod-us", -1, 1),
 		// payments 2.4.3 is refused: it is not the version its change needs.
 		refused,
-		// payments 3.0.0 is BREAKING: checkout and orders block it, run after run.
+		// payments 3.0.0 is BREAKING: checkout 1.8, still in prod, and orders block it, run after run.
 		diffRun(ago(12, 9), "payments", 3, 5, "BREAKING"),
 		diffRun(ago(12, 7), "payments", 3, 5, "BREAKING"),
 		diffRun(ago(11, 10), "payments", 3, 5, "BREAKING"),
-		blockedImpact(ago(12, 8), "payments", 3, 5, 2, 1),
-		blockedImpact(ago(11, 10), "payments", 3, 5, 2, 1),
+		blockedImpact(ago(12, 8), "payments", 3, 5, 2, 0),
+		blockedImpact(ago(11, 10), "payments", 3, 5, 2, 0),
+		// checkout 1.9.0 waits three hours for dana in prod, then ships to both regions.
+		held(promote(ago(11, 3), "checkout", Prod, 0, 1), 3*time.Hour, Dana),
+		promote(ago(10, 21), "checkout", "prod-eu", -1, 1),
+		promote(ago(10, 20), "checkout", "prod-us", -1, 1),
+		// checkout 1.9 accepts payments ^2 || ^3, so only orders blocks 3.0.0 now.
 		diffRun(ago(10, 9), "payments", 0, 5, "BREAKING"),
-		blockedImpact(ago(10, 9), "payments", 0, 5, 2, 1),
+		blockedImpact(ago(10, 9), "payments", 0, 5, 1, 1),
 		// audit-log's Stage is frozen while its candidates verify no publisher.
 		operation(ago(9, 10), delivery.TypeFreeze, "audit-log", Prod, -1, -1, delivery.Succeeded, "", Alice),
 		// fraud publishes for the first time.
@@ -430,13 +432,16 @@ func storyEvents() []StatsEvent {
 	}
 }
 
-// historyEvents are days 31 to 90: eight weeks of the same pattern. They use
-// only Stages the Kubernetes demo also has (payments, checkout and pay-agent
-// test and prod, orders prod), so HistoryRecords runs over its topology too.
+// historyEvents are days 31 to 90: eight weeks of the same pattern, oldest
+// first, so every version, publish baseline and promote chains forward in
+// time from where the older weeks left it. They use only Stages the
+// Kubernetes demo also has (payments, checkout and pay-agent test and prod,
+// orders prod), so HistoryRecords runs over its topology too.
 func historyEvents() []StatsEvent {
+	h := historyChain{published: map[string]int{}, next: map[string]int{}, running: map[string]int{}}
 	var out []StatsEvent
-	for w := range 8 {
-		for _, e := range historyWeek(w) {
+	for w := 7; w >= 0; w-- {
+		for _, e := range h.week(w) {
 			e.History = true
 			out = append(out, e)
 		}
@@ -444,36 +449,70 @@ func historyEvents() []StatsEvent {
 	return out
 }
 
-// historyWeek is week w of the history, w = 0 the newest: each service moves
-// from synthetic revision w to w+1. Every third week payments' change is
-// BREAKING and blocked, so nothing of it ships.
-func historyWeek(w int) []StatsEvent {
+// historyChain is where the older history weeks left each service: its newest
+// published synthetic revision, the next unused one, and the revision each
+// "service/stage" runs. Every service starts at revision 0, published and
+// running before records were kept.
+type historyChain struct {
+	published, next, running map[string]int
+}
+
+// candidate is service's next change: from its newest published revision to
+// a new one.
+func (h historyChain) candidate(service string) (from, to int) {
+	h.next[service] = max(h.next[service], 1)
+	to = h.next[service]
+	h.next[service]++
+	return h.published[service], to
+}
+
+func (h historyChain) publish(at time.Duration, service string, from, to int) StatsEvent {
+	h.published[service] = to
+	return publishRun(at, service, from, to)
+}
+
+func (h historyChain) promote(at time.Duration, service, stage string, to int) StatsEvent {
+	from := h.running[service+"/"+stage]
+	h.running[service+"/"+stage] = to
+	return promote(at, service, stage, from, to)
+}
+
+// week is week w of the history, w = 0 the newest. Every third week payments'
+// change is BREAKING and blocked by one of its two consumers, so nothing of it
+// ships; in week 5 its promote fails in prod and is rolled back.
+func (h historyChain) week(w int) []StatsEvent {
 	start := ago(31+7*w+5, 0)
 	at := func(days, hours int) time.Duration { return start - ago(days, hours) }
-	n := w + 1
-	out := []StatsEvent{diffRun(at(0, 9), "payments", w, n, "NON_BREAKING"), diffRun(at(0, 11), "payments", w, n, "NON_BREAKING")}
+	from, to := h.candidate("payments")
+	out := []StatsEvent{diffRun(at(0, 9), "payments", from, to, "NON_BREAKING"), diffRun(at(0, 11), "payments", from, to, "NON_BREAKING")}
 	switch {
 	case w%3 == 1:
 		out[0].Classification, out[1].Classification = "BREAKING", "BREAKING"
-		out = append(out, blockedImpact(at(0, 11), "payments", w, n, 1, 2))
+		out = append(out, blockedImpact(at(0, 11), "payments", from, to, 1, 1))
 	case w == 5:
-		out = append(out, clearImpact(at(0, 11), "payments", w, n, 3), publishRun(at(0, 13), "payments", w, n), promote(at(0, 15), "payments", Test, w, n),
-			failedPromote(at(1, 10), "payments", Prod, w, n, Promoter), rollback(at(1, 12), "payments", Prod, n, w))
+		prod := h.running["payments/"+Prod]
+		out = append(out, clearImpact(at(0, 11), "payments", from, to, 2), h.publish(at(0, 13), "payments", from, to), h.promote(at(0, 15), "payments", Test, to),
+			failedPromote(at(1, 10), "payments", Prod, prod, to, Promoter), rollback(at(1, 12), "payments", Prod, to, prod))
 	default:
-		prod := promote(at(1, 10), "payments", Prod, w, n)
+		out = append(out, clearImpact(at(0, 11), "payments", from, to, 2), h.publish(at(0, 13), "payments", from, to), h.promote(at(0, 15), "payments", Test, to))
+		prod := h.promote(at(1, 10), "payments", Prod, to)
 		if w%2 == 0 {
 			prod = held(prod, 30*time.Minute, Alice)
 		}
-		out = append(out, clearImpact(at(0, 11), "payments", w, n, 3), publishRun(at(0, 13), "payments", w, n), promote(at(0, 15), "payments", Test, w, n), prod)
+		out = append(out, prod)
 	}
-	out = append(out, diffRun(at(2, 9), "checkout", w, n, "NON_BREAKING"), diffRun(at(2, 10), "checkout", w, n, "NON_BREAKING"), clearImpact(at(2, 10), "checkout", w, n, 0),
-		publishRun(at(2, 11), "checkout", w, n), promote(at(2, 13), "checkout", Test, w, n), promote(at(3, 9), "checkout", Prod, w, n))
+	from, to = h.candidate("checkout")
+	out = append(out, diffRun(at(2, 9), "checkout", from, to, "NON_BREAKING"), diffRun(at(2, 10), "checkout", from, to, "NON_BREAKING"),
+		clearImpact(at(2, 10), "checkout", from, to, 0), h.publish(at(2, 11), "checkout", from, to),
+		h.promote(at(2, 13), "checkout", Test, to), h.promote(at(3, 9), "checkout", Prod, to))
 	if w%2 == 0 {
-		out = append(out, diffRun(at(3, 10), "orders", w, n, "NON_BREAKING"), publishRun(at(3, 11), "orders", w, n), promote(at(3, 14), "orders", Prod, w, n))
+		from, to = h.candidate("orders")
+		out = append(out, diffRun(at(3, 10), "orders", from, to, "NON_BREAKING"), h.publish(at(3, 11), "orders", from, to), h.promote(at(3, 14), "orders", Prod, to))
 	}
 	if w%3 == 0 {
-		out = append(out, diffRun(at(4, 9), "pay-agent", w, n, "NON_BREAKING"), publishRun(at(4, 10), "pay-agent", w, n),
-			promote(at(4, 12), "pay-agent", Test, w, n), promote(at(4, 16), "pay-agent", Prod, w, n))
+		from, to = h.candidate("pay-agent")
+		out = append(out, diffRun(at(4, 9), "pay-agent", from, to, "NON_BREAKING"), h.publish(at(4, 10), "pay-agent", from, to),
+			h.promote(at(4, 12), "pay-agent", Test, to), h.promote(at(4, 16), "pay-agent", Prod, to))
 	}
 	return out
 }

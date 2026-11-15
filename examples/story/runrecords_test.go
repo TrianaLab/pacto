@@ -2,6 +2,7 @@ package story
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"reflect"
 	"regexp"
@@ -364,5 +365,102 @@ func checkCoveragePoint(t *testing.T, now time.Time, i int, r runrecord.Record) 
 	}
 	if i < 12 && r.Coverage.Completeness != "partial" {
 		t.Errorf("record %d completeness %q, want partial", i, r.Coverage.Completeness)
+	}
+}
+
+// consumersOf counts, per service, the story services whose contract (any
+// version) declares a dependency on it.
+func consumersOf(t *testing.T) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for _, s := range StatsServices() {
+		names := map[string]bool{}
+		for _, rev := range s.Revisions {
+			b, err := Bundle(s.Name, rev.Version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, d := range b.Contract.Dependencies {
+				names[d.Name] = true
+			}
+		}
+		for n := range names {
+			out[n]++
+		}
+	}
+	return out
+}
+
+// checkoutInProd is when checkout 1.9.0 reached prod in the story.
+func checkoutInProd(t *testing.T, recs []runrecord.Record) time.Time {
+	t.Helper()
+	i := slices.IndexFunc(recs, func(r runrecord.Record) bool {
+		return r.Kind == runrecord.KindOperation && r.Service == "checkout" && r.Environment == Prod && r.Outcome == "Succeeded" &&
+			r.RecordedAt.After(Now.Add(-30*24*time.Hour))
+	})
+	if i < 0 {
+		t.Fatal("checkout 1.9.0 never reaches prod")
+	}
+	return recs[i].RecordedAt
+}
+
+// Every impact record counts the consumers the story's contracts declare,
+// and once checkout 1.9.0 (which accepts payments ^3) runs in prod only orders
+// blocks payments 3.0.0.
+func TestImpactConsumersMatchTheStoryContracts(t *testing.T) {
+	consumers := consumersOf(t)
+	recs := runRecords(t, Now)
+	checkoutProd := checkoutInProd(t, recs)
+	for _, r := range recs {
+		if r.Kind != runrecord.KindImpact {
+			continue
+		}
+		c := r.Consumers
+		if got := c.Blocking + c.Compatible; got != consumers[r.Service] || c.Incompatible != c.Blocking {
+			t.Errorf("%s impact at %v counts %+v, but %d services consume it", r.Service, r.RecordedAt, *c, consumers[r.Service])
+		}
+		if r.Service == "payments" && r.Gate.Verdict == runrecord.VerdictBlocked && r.RecordedAt.After(Now.Add(-30*24*time.Hour)) {
+			want := 2
+			if r.RecordedAt.After(checkoutProd) {
+				want = 1
+			}
+			if c.Blocking != want {
+				t.Errorf("payments impact at %v: %d blocking, want %d (checkout 1.9.0 in prod at %v)", r.RecordedAt, c.Blocking, want, checkoutProd)
+			}
+		}
+	}
+}
+
+// The history runs forward: each service publishes higher versions from the
+// one it published last, and every operation starts from what its Stage runs.
+func TestHistoryChainsForward(t *testing.T) {
+	published, running := map[string]string{}, map[string]string{}
+	version := map[string]int{}
+	for _, r := range runRecords(t, Now) {
+		if r.RecordedAt.After(Now.Add(-30 * 24 * time.Hour)) {
+			break
+		}
+		switch r.Kind {
+		case runrecord.KindPublish:
+			var n int
+			if _, err := fmt.Sscanf(r.NewRevision, "0.%d.0", &n); err != nil || n <= version[r.Service] {
+				t.Errorf("%s publishes %s after 0.%d.0", r.Service, r.NewRevision, version[r.Service])
+			}
+			if old, ok := published[r.Service]; ok && r.OldRevision != old {
+				t.Errorf("%s publishes %s over %s, but %s is its newest", r.Service, r.NewRevision, r.OldRevision, old)
+			}
+			published[r.Service], version[r.Service] = r.NewRevision, n
+		case runrecord.KindOperation:
+			key := r.Service + "/" + r.Environment
+			if from, ok := running[key]; ok && r.From != from {
+				t.Errorf("%s %s at %v starts from %s, but the Stage runs %s", key, r.Type, r.RecordedAt, r.From, from)
+			}
+			if r.Outcome == "Succeeded" || r.Outcome == "Failed" { // a failed promote applied its version, then failed to verify
+				running[key] = r.To
+			}
+		}
+	}
+	if len(published) == 0 || len(running) == 0 {
+		t.Fatal("the history holds no publish or operation record")
 	}
 }
