@@ -327,5 +327,19 @@ check("at T a Stage with no record before T is unknown",
 check("an at answer with an unknown Stage is partial", atAnswer.completeness === "partial", atAnswer.completeness);
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
 
+// ── Metrics (#493): the story's run records, generated in the tab, no registry ──
+check("capabilities: stats enabled", caps.stats === true, JSON.stringify(caps.stats));
+const statsRes = call("GET", "/api/stats");
+const st = statsRes.status === 200 ? json(statsRes) : {};
+check("GET /api/stats 200 with records, unsigned statistics and completeness",
+  statsRes.status === 200 && st.recordsRead > 0 && st.provenance === "unsigned statistics" && typeof st.completeness === "string" && st.completeness !== "",
+  `status=${statsRes.status} recordsRead=${st.recordsRead} provenance=${st.provenance} completeness=${st.completeness}`);
+// The trend's newest coverage point is the page's "now" value and the Overview's
+// service count: all three come from the demo's one fleet query.
+const ovServices = json(call("GET", "/api/fleet/overview")).summary?.services;
+check("the newest coverage point counts the Overview's services",
+  typeof ovServices === "number" && st.coverage?.services === ovServices && st.coverageNow?.services === ovServices,
+  `coverage=${st.coverage?.services} coverageNow=${st.coverageNow?.services} overview=${ovServices}`);
+
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

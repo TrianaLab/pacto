@@ -55,6 +55,9 @@ NS=pacto-system
 # Delivery runs in its own namespace, where the operator holds no role.
 DNS=pacto-delivery
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
+# Run records (unsigned statistics): the story's publishes, the promoter's
+# operations and the seeded history all go here; the dashboard reads them.
+STATS_REPO="$REG_HOST/pacto-stats"
 LOCAL_REG_PORT=5602
 MIRA_PORT=5603
 FLUX_VERSION=v2.9.5
@@ -99,7 +102,7 @@ mkdirs() {
 admin() { [ -s "$ADMIN_KC" ] || { echo "no demo cluster: run 'make e2e-delivery-demo-up' first" >&2; exit 1; }; export KUBECONFIG="$ADMIN_KC"; }
 # reg CMD... — a host command that reaches the in-cluster registry by its
 # in-cluster name, through the port-forward (plain HTTP goes through HTTP_PROXY).
-reg() { HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"; }
+reg() { HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" PACTO_STATS_REGISTRY="$STATS_REPO" COSIGN_PASSWORD="" "$@"; }
 registry_pf() { [ -n "$PF_PIDS" ] || PF_PIDS=" $(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"; }
 PF_PIDS=""
 stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; PF_PIDS=""; }
@@ -218,7 +221,7 @@ servers() {
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli \
-    --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
+    --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub --stats-registry "$STATS_REPO"
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$mcpkc:/kube/config:ro" \
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
@@ -499,7 +502,8 @@ cmd_up() {
   else
     infra "build the Pacto images" build_images & build=$!
   fi
-  ( go build -o "$PACTO" "$ROOT/cmd/pacto" && cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) > "$DEMO/go-build.log" 2>&1 &
+  ( go build -o "$PACTO" "$ROOT/cmd/pacto" && cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin \
+    && go build -o "$BIN/storystats" ./tests/acceptance/kind/storystats ) > "$DEMO/go-build.log" 2>&1 &
   local gobuild=$!
   local flux; flux="$(mktemp)"
   infra "download the Flux $FLUX_VERSION install manifest" \
@@ -546,6 +550,7 @@ cmd_up() {
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
     --set-json "delivery.gates.providers=$providers" \
     --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
+    --set delivery.stats.repository="$STATS_REPO" \
     --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
   local op_helm=$!
   mira
@@ -582,6 +587,7 @@ cmd_up() {
   bootstrap
   # Spans flow once payments runs; the agent shard seeds no service.
   [ "${DEMO_SEED:-all}" = none ] || mira_map
+  stats_seed
   stop_pf
   pass "the demo is up"
   next_steps up
@@ -946,6 +952,51 @@ story_records() {
   pass "the payments prod history reads back from signed records, and they verify"
 }
 
+# stats_seed — run records of the weeks before the story (days 31 to 90) for
+# the services this run set up, from examples/story's generator. The story's
+# own publishes and operations are recorded for real (reg sets
+# PACTO_STATS_REGISTRY, the promoter has delivery.stats.repository), so the
+# seed never repeats them, and a service the cluster lacks gets none.
+stats_seed() {
+  local svcs n
+  svcs="$(kubectl get pactos -A -o json | jq -r '[.items[].metadata.name] | unique | join(",")')"
+  [ -n "$svcs" ] || return 0
+  n="$(reg "$BIN/storystats" -out "$DEMO/stats" -services "$svcs" -publish "$STATS_REPO")" || fail "the run record history was not seeded"
+  pass "seeded $n run records of history older than the story ($svcs)"
+}
+# stats_records SERVICE — every run record of SERVICE in the stats
+# repository, one JSON document each.
+stats_records() {
+  local repo="127.0.0.1:${LOCAL_REG_PORT}/${STATS_REPO#*/}" tag m l
+  tag="pacto-stats-$(printf %s "$1" | shasum -a 256 | cut -d' ' -f1)"
+  for m in $(oras discover --plain-http --format json "$repo:$tag" 2>/dev/null \
+    | jq -r '[.. | objects | select(.artifactType == "application/vnd.pacto.run.v1") | .digest] | unique | .[]'); do
+    l="$(oras manifest fetch --plain-http "$repo@$m" | jq -r '.layers[0].digest')" || return 1
+    oras blob fetch --plain-http --output - "$repo@$l" || return 1
+    echo
+  done
+}
+# story_stats — the stats repository holds what the run did, as pacto stats
+# totals it: the promoter's promotions of the last day, a rollback when one
+# succeeded, and, once B4 ran, exactly one refused publish of payments 2.4.3
+# (the seed holds history only, so it never doubles it).
+story_stats() {
+  echo; echo "== run records: what the run did, as unsigned statistics"
+  local rollbacks ops="" refused
+  rollbacks="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "rollback" and .status.outcome == "Succeeded")] | length')"
+  ops_recorded() {
+    ops="$(reg "$PACTO" stats --registry "$STATS_REPO" --kind operation --since 1d --output-format json)" || return 1
+    jq -e --argjson rb "$rollbacks" '[.totals.environments[]?] | (map(.held.of) | add // 0) > 0
+      and ($rb == 0 or (map(.rolledBack.count) | add // 0) > 0)' <<<"$ops" >/dev/null
+  }
+  eventually 60 ops_recorded || fail "pacto stats reads no promote of the last day, or no rollback though $rollbacks succeeded: ${ops:-nothing read}"
+  if [ -s "$DEMO/digests/payments-3.0.0" ]; then
+    refused="$(stats_records payments | jq -s -c '[.[] | select(.kind == "publish" and .outcome == "refused" and .newRevision == "2.4.3")]')"
+    [ "$(jq length <<<"$refused")" = 1 ] || fail "want one refused publish record of payments 2.4.3, the stats repository holds: $refused"
+  fi
+  pass "pacto stats totals the promoter's operations of the run$([ "$rollbacks" = 0 ] || echo ', its rollback included')$([ ! -s "$DEMO/digests/payments-3.0.0" ] || echo ', and 2.4.3 is one refused publish record')"
+}
+
 cmd_story() {
   admin
   [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
@@ -958,6 +1009,7 @@ cmd_story() {
   story_b4
   story_b5
   story_records
+  story_stats
   stop_pf
   echo; echo "STORY PASS: every played beat matched examples/story"
   next_steps story
@@ -1002,6 +1054,7 @@ browser_ready() {
 }
 b7() { beat B7; journeys B7; }
 history_beat() { echo; echo "== moment 5 in Chromium: History reads the steps from signed records"; journeys History; }
+metrics_beat() { echo; echo "== in Chromium: Metrics totals the run records a signed-in reader may see"; journeys Metrics; }
 
 # seed_held — the state B5 leaves, for a shard that does not play B3 to B5:
 # publishing 2.4.3 refused (B7 shows the refusal), 3.0.0 verified in test (on
@@ -1248,6 +1301,7 @@ cmd_browser() {
   b8
   b9
   history_beat
+  metrics_beat
   registry_pf
   b10
   b_agent
@@ -1595,9 +1649,9 @@ cmd_status() {
 SHARDS="story browser rollback reach freeze agent"
 shard() {
   case "$1" in
-    story) echo "all story_pactify story_b3 story_b4 story_b5 story_records" ;;
-    browser) echo "all seed_held b6 b7 b8 b9 history_beat" ;;
-    rollback) echo "payments story_b1 story_b2 story_records b10" ;;
+    story) echo "all story_pactify story_b3 story_b4 story_b5 story_records story_stats" ;;
+    browser) echo "all seed_held b6 b7 b8 b9 history_beat metrics_beat" ;;
+    rollback) echo "payments story_b1 story_b2 story_records b10 story_stats" ;;
     reach) echo "payments us_bg story_b1 story_b2 reach_follow" ;;
     freeze) echo "payments us_bg seed_240 reach_freeze" ;;
     agent) echo "none b_agent" ;;

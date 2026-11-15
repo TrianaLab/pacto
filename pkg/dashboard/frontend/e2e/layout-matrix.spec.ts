@@ -136,8 +136,8 @@ test('the Environments section at 200 environments keeps its differences, change
   await expect(section.getByTestId('environments-footer')).toContainText(/^As of .*, (complete|partial)/);
 });
 
-// The Metrics fixture answers on the plain demo, which has no stats repository: the
-// metrics routes above draw the fixture's answers, never the engine's 404.
+// The Metrics fixture answers on the plain demo in place of the demo's own run records: the
+// metrics routes above draw the fixture's answers unless they ask for `engine`.
 test('the metrics fixture answers GET /api/stats on the plain demo', async ({ page }) => {
   await page.addInitScript(installScaleFixture);
   await appReady(page);
@@ -150,4 +150,6 @@ test('the metrics fixture answers GET /api/stats on the plain demo', async ({ pa
   expect(await serve('')).toEqual({ status: 200, stats: true });
   expect(await serve('none')).toEqual({ status: 200, stats: true });
   expect(await serve('off')).toEqual({ status: 404, stats: false });
+  // `engine` leaves both to the demo, which serves its own run records.
+  expect(await serve('engine')).toEqual({ status: 200, stats: true });
 });

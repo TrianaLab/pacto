@@ -127,6 +127,15 @@ async function playTour(page: Page, reload: boolean) {
   await expect(text).toContainText('its runner ran the eval suite and signed the count');
   await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
   await next.click();
+  // What Pacto did this month: the numbers the demo's own run records total.
+  await expect(page.getByTestId('demo-tour-title')).toHaveText('What Pacto did this month');
+  await expect(text).toContainText('caught 2 breaking changes and blocked 2 changes');
+  await expect(page).toHaveURL(/#\/metrics$/);
+  const caught = page.getByTestId('metrics-tiles').locator('.mx-tile').first();
+  await expect(caught).toContainText('Breaking changes caught', { timeout: T });
+  await expect(caught).toContainText('2');
+  await expect.poll(() => lit(page, '[data-testid="metrics-tiles"] .mx-tile:first-child'), { timeout: T }).toBe(true);
+  await next.click();
   await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(4);
   await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
   await next.click();

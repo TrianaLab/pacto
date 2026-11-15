@@ -25,15 +25,21 @@ const (
 // Later stories add their readers in the same commit as the import: S3 adds
 // pkg/runrecord/stats, internal/app, internal/mcp and internal/tui; S4 adds
 // pkg/dashboard and its importers (examples/demo, cmd/genbundle, pkg/doc); S5
-// adds examples/story and the acceptance harnesses that import it; nothing that
-// decides a gate, a compliance state or an admission is ever added.
+// adds examples/story and the acceptance harnesses that import it (the kind
+// demo's history seeder also publishes, because pacto stats publish refuses
+// operation records); nothing that decides a gate, a compliance state or an
+// admission is ever added.
 var (
 	// runRecordImporters may import pkg/runrecord directly.
-	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "pkg/dashboard"}
+	runRecordImporters = []string{modRoot + "pkg/runrecord/registry", modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "pkg/dashboard", modRoot + "examples/story", modRoot + "examples/demo",
+		modRoot + "tests/acceptance/scenario", modRoot + "tests/acceptance/kind/storystats"}
 	// runRecordRegistryImporters may import pkg/runrecord/registry directly.
-	runRecordRegistryImporters = []string{modRoot + "internal/cli", modRoot + "internal/app"}
+	runRecordRegistryImporters = []string{modRoot + "internal/cli", modRoot + "internal/app", modRoot + "tests/acceptance/kind/storystats"}
 	// runRecordReachers may reach either package transitively.
-	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/mcp", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs", modRoot + "pkg/dashboard", modRoot + "examples/demo", modRoot + "cmd/genbundle", modRoot + "pkg/doc"}
+	runRecordReachers = []string{runRecordPkg, runRecordRegistry, modRoot + "pkg/runrecord/stats", modRoot + "internal/cli", modRoot + "internal/app", modRoot + "internal/mcp", modRoot + "internal/tui", modRoot + "cmd/pacto", modRoot + "cmd/gendocs",
+		modRoot + "pkg/dashboard", modRoot + "cmd/genbundle", modRoot + "pkg/doc",
+		modRoot + "examples/story", modRoot + "examples/demo", modRoot + "tests/acceptance/kind/storybeats",
+		modRoot + "tests/acceptance/scenario", modRoot + "tests/acceptance/scenario/project", modRoot + "tests/acceptance/kind/productready", modRoot + "tests/acceptance/kind/storystats"}
 )
 
 // operatorRunRecordEmitters may import pkg/runrecord/... from the operator

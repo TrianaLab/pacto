@@ -16,6 +16,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // embeddedBundles holds the demo contracts baked into the wasm binary at build
@@ -73,6 +74,13 @@ func main() {
 		q := fleet.NewQuery(snap)
 		opts.Fleet = func(context.Context) (*fleet.Query, error) { return q, nil }
 		opts.Impact = demoImpactProvider(byRef)
+		// The Metrics page's run records, generated once at load so a session's
+		// numbers hold still; the newest coverage point is the query the
+		// Overview reads.
+		coverage := stats.CoverageOf(q)
+		if opts.Stats, err = demoStats(time.Now(), &coverage); err != nil {
+			panic(err)
+		}
 		// The observed capability is derived from the snapshot's observed edges;
 		// the demo carries them, so no flag is needed.
 	}

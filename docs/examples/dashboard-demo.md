@@ -67,11 +67,12 @@ can see how Pacto reports them.
 **Metrics**, under Change and delivery, draws the [run records](../run-record-reference.md)
 in a stats repository as trends: breaking changes caught, gates, delivery rates,
 lead time and coverage, each labelled unsigned statistics and linked to the
-records behind it. The demo has no stats repository yet, so the page explains
-how to turn recording on.
+records behind it. In the demo it shows about 90 days of generated run records
+that follow the payments story; [Measure what Pacto does](../measure-what-pacto-does.md)
+explains how to record your own.
 
-![The Metrics page with recording off: "Metrics are off" and the commands that set a stats repository for CI, the dashboard and pacto stats](../assets/screenshots/dashboard-metrics-light.png#only-light)
-![The Metrics page with recording off: "Metrics are off" and the commands that set a stats repository for CI, the dashboard and pacto stats](../assets/screenshots/dashboard-metrics-dark.png#only-dark)
+![The Metrics page with the demo's run records: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-light.png#only-light)
+![The Metrics page with the demo's run records: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](../assets/screenshots/dashboard-metrics-dark.png#only-dark)
 
 ## What the delivery story shows
 

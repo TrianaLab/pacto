@@ -692,6 +692,11 @@
     hash: "#/delivery/changes/test/pay-agent-promote-17",
     target: '[data-testid="verdict-runner"]'
   }, {
+    title: "What Pacto did this month",
+    text: "This month Pacto caught 2 breaking changes and blocked 2 changes at a gate, counted from unsigned statistics this demo generated from the story; each number links to the records it counts.",
+    hash: "#/metrics",
+    target: '[data-testid="metrics-tiles"] .mx-tile:first-child'
+  }, {
     title: "Recap",
     text: "You saw pacto init write a contract, safe changes ship and roll back by themselves, a breaking change wait for the teams it breaks and autonomy earned one level at a time, all kept as signed records; the links below explore more.",
     links: [

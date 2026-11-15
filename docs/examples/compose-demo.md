@@ -66,6 +66,11 @@ recorded trace file. Follow the graph from `orders` to
 `checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
+The Metrics page totals the run records the demo's seed published to its own
+registry, as unsigned statistics. They are CI records only (diffs, impact checks
+and publishes), because the Compose demo runs no delivery.
+[Measure what Pacto does](../measure-what-pacto-does.md) explains recording.
+
 ### The cold start, step by step
 
 Every Pacto rollout starts the same way. Every service in this demo already
@@ -111,6 +116,13 @@ docker compose -p pacto-demo exec dashboard sh -c \
    pacto init --plan --owner commerce /tmp/checkout'
 ```
 
+Total the run records behind the Metrics page:
+
+```sh
+docker compose -p pacto-demo exec -e PACTO_STATS_REGISTRY=registry:5000/demo/pacto-stats \
+  dashboard pacto stats
+```
+
 ## Connect an agent
 
 [`pacto mcp`](../mcp-integration.md) serves the demo's fleet to an agent over
@@ -120,11 +132,13 @@ Evidence Server at the addresses the dashboard reads them:
 ```sh
 docker compose -p pacto-demo exec -T dashboard pacto mcp --fleet --local "" \
   --oci oci://registry:5000/demo/checkout --oci oci://registry:5000/demo/orders \
-  --oci oci://registry:5000/demo/inventory --evidence-url http://evidence:8686
+  --oci oci://registry:5000/demo/inventory --evidence-url http://evidence:8686 \
+  --stats-read-registry registry:5000/demo/pacto-stats
 ```
 
 Give that command to your agent as a stdio MCP server. `--local ""` keeps the
-container's working directory out of the fleet. The agent's first call can be
+container's working directory out of the fleet, and `--stats-read-registry`
+gives `pacto_stats` the run records the Metrics page totals. The agent's first call can be
 `pacto_capabilities`: it lists the modes, tools and caller this server serves.
 
 ## The live runtime check

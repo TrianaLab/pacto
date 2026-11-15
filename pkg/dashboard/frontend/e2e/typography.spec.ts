@@ -44,16 +44,24 @@ test.describe('typography hierarchy on desktop', () => {
       ['Graph discovery', '#/fleet/graph'],
       ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
-      // The plain demo has no stats repository: the explainer.
+      // The plain demo serves its own run records (#493 S5).
       ['Metrics', '#/metrics'],
-      // Last: the scale fixture answers for a stats repository from here on.
+      // The scale fixture answers from here on: first with no stats repository
+      // (the explainer), then with a recorded one.
+      ['Metrics (off)', '#/metrics'],
       ['Metrics (recorded)', '#/metrics'],
     ];
 
     const all: RoleSample[] = [];
     for (const [label, hash] of routes) {
-      if (label === 'Metrics (recorded)') await page.addInitScript(installScaleFixture);
+      if (label === 'Metrics (off)') {
+        await page.addInitScript(installScaleFixture);
+        await page.addInitScript(() => sessionStorage.setItem('fixture.stats', 'off'));
+      }
+      if (label === 'Metrics (recorded)') await page.addInitScript(() => sessionStorage.removeItem('fixture.stats'));
       await boot(page, hash);
+      // The explainer must be what this row audits, never a populated page.
+      if (label === 'Metrics (off)') await expect(page.getByRole('heading', { level: 2, name: 'Metrics are off' })).toBeVisible();
       if (label === 'Change analysis') await runAnalysis(page);
       const s = await sampleRoles(page, label);
       assertPageHierarchy(s, label, await normalBody(page));

@@ -201,16 +201,24 @@ test.describe('document structure on every canonical Fleet route', () => {
       ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
       ['Change analysis (unscoped)', '#/fleet/changes'],
       ['Change analysis (scoped)', `#/fleet/changes/${e(k.service)}`],
-      // The plain demo has no stats repository: the explainer.
+      // The plain demo serves its own run records (#493 S5).
       ['Metrics', '#/metrics'],
-      // Last: the scale fixture answers for a stats repository from here on.
+      // The scale fixture answers from here on: first with no stats repository
+      // (the explainer), then with a recorded one.
+      ['Metrics (off)', '#/metrics'],
       ['Metrics (recorded)', '#/metrics'],
     ];
 
     const titles: string[] = [];
     for (const [label, hash] of routes) {
-      if (label === 'Metrics (recorded)') await page.addInitScript(installScaleFixture);
+      if (label === 'Metrics (off)') {
+        await page.addInitScript(installScaleFixture);
+        await page.addInitScript(() => sessionStorage.setItem('fixture.stats', 'off'));
+      }
+      if (label === 'Metrics (recorded)') await page.addInitScript(() => sessionStorage.removeItem('fixture.stats'));
       await boot(page, hash);
+      // The explainer must be what this row audits, never a populated page.
+      if (label === 'Metrics (off)') await expect(page.getByRole('heading', { level: 2, name: 'Metrics are off' })).toBeVisible();
       titles.push((await assertStructure(page, label)).title);
     }
 

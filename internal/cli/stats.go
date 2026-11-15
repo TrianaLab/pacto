@@ -22,11 +22,13 @@ func newStatsCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Total what Pacto did from its unsigned run statistics",
-		Long: "Total the run records in a stats repository for a time window, as text or JSON. " +
+		Long: "Pacto can record what it catches as unsigned statistics in a registry you name; pacto stats and the dashboard Metrics page total them, and nothing leaves your registry. " +
+			"Total the run records in a stats repository for a time window, as text or JSON. " +
 			"Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. " +
 			"Every answer says how many records were read, how many could not be read and which bound cut the read; " +
 			"a rate with nothing to take it over is marked unknown. " +
-			"With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.",
+			"With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build. " +
+			"See https://pacto.run/latest/measure-what-pacto-does/.",
 		Example: `  pacto stats --registry ghcr.io/acme/pacto-stats
   pacto stats --since 7d --by environment --output-format json
   pacto stats --by owner --kind impact --kind publish`,
