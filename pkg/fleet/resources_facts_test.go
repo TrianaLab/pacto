@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -187,7 +188,7 @@ func TestConsumptionNotReportedByDefault(t *testing.T) {
 	}
 	want := []ResourceConsumption{{State: "not-reported", Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
 	for _, k := range []string{"postgresql/dependency", "postgresql/configuration_reference", "redis/dependency"} {
-		if got := uses[k].Consumption; !slices.Equal(got, want) {
+		if got := uses[k].Consumption; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s consumption = %+v", k, got)
 		}
 	}

@@ -119,6 +119,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	// An allowlist: a report stays only when its consumer is visible, so an
 	// orphaned report or one about a hidden service never reaches the view.
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
+	out.Usage = slices.DeleteFunc(slices.Clone(s.Usage), func(rec UsageRecord) bool { return out.Services[rec.ServiceKey] == nil })
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -161,15 +162,16 @@ func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, o
 }
 
 // keepsEveryName reports whether a caller restricted or not may see every
-// name with no namespace and every provisioning report of s.
+// name with no namespace and every provisioning and usage report of s.
 func keepsEveryName(s *FleetSnapshot, restricted bool) bool {
 	return (!restricted || !hasBareNames(s)) && provisioningVisible(s)
 }
 
-// provisioningVisible reports whether every provisioning report of s is about
-// a service s holds.
+// provisioningVisible reports whether every provisioning and usage report of
+// s is about a service s holds.
 func provisioningVisible(s *FleetSnapshot) bool {
-	return !slices.ContainsFunc(s.Provisioning, func(rec ProvisioningRecord) bool { return s.Services[rec.ServiceKey] == nil })
+	return !slices.ContainsFunc(s.Provisioning, func(rec ProvisioningRecord) bool { return s.Services[rec.ServiceKey] == nil }) &&
+		!slices.ContainsFunc(s.Usage, func(rec UsageRecord) bool { return s.Services[rec.ServiceKey] == nil })
 }
 
 // restrictCallers is s's uncontracted callers without those of a hidden
@@ -245,7 +247,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 			return true
 		}
 		// A fleet-wide count of reports; rebuilt below from the visible ones.
-		if l.Code == LimitationProvisioningTruncated {
+		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated {
 			return true
 		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -255,7 +257,8 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		_, _, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
 	}
-	out.Limitations = append(out.Limitations, provisioningTruncated(out)...)
+	out.Limitations = append(out.Limitations, droppedReports(out, out.provisioningDropped, LimitationProvisioningTruncated, "provisioning", MaxProvisioningRecords)...)
+	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
@@ -264,19 +267,19 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	}
 }
 
-// provisioningTruncated is the PROVISIONING_TRUNCATED limitation of a
-// restricted view: how many reports about its visible consumers the fleet-wide
+// droppedReports is the truncation limitation (code) of a restricted view:
+// how many reports of the kind what about its visible consumers the fleet-wide
 // bound dropped, none when it dropped none of theirs.
-func provisioningTruncated(out *FleetSnapshot) []Limitation {
-	dropped := 0
+func droppedReports(out *FleetSnapshot, dropped map[ServiceKey]int, code, what string, limit int) []Limitation {
+	n := 0
 	for k := range out.Services {
-		dropped += out.provisioningDropped[k]
+		n += dropped[k]
 	}
-	if dropped == 0 {
+	if n == 0 {
 		return nil
 	}
-	return []Limitation{{Code: LimitationProvisioningTruncated, Message: fmt.Sprintf(
-		"%d provisioning reports about the services you can see were dropped: the fleet holds more than the limit of %d", dropped, MaxProvisioningRecords)}}
+	return []Limitation{{Code: code, Message: fmt.Sprintf(
+		"%d %s reports about the services you can see were dropped: the fleet holds more than the limit of %d", n, what, limit)}}
 }
 
 // kubeTarget reports whether t is a Kubernetes target with a namespace, the

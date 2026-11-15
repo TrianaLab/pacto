@@ -77,10 +77,13 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
 		return nil, err
 	}
-	// v3 is v2 plus provisioning records, which a v2 body never carries.
-	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion && body.SchemaVersion != evidenceingest.TargetsSchemaVersionProvisioning {
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q or %q", url, body.SchemaVersion,
-			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning)
+	// v3 is v2 plus provisioning records and v4 is v3 plus usage records,
+	// which an older body never carries.
+	switch body.SchemaVersion {
+	case evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage:
+	default:
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q, %q or %q", url, body.SchemaVersion,
+			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage)
 	}
 
 	col := &fleet.Collection{}
@@ -131,6 +134,19 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 			Service: p.Service, Domain: p.Domain, Digest: digest, Kind: p.Kind, Name: p.Name, Environment: p.Environment,
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: p.Outcome,
 			Producer: p.Producer, ProducerKeyID: p.ProducerKeyID, ObservedAt: p.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
+		})
+	}
+
+	for _, u := range body.Usage {
+		digest := u.Digest
+		if digest == "" {
+			digest = digestFromRef(u.ContractRef)
+		}
+		acceptedAt := u.AcceptedAt
+		col.Usage = append(col.Usage, fleet.RawUsage{
+			Service: u.Service, Domain: u.Domain, Digest: digest, Kind: u.Kind, Name: u.Name, Environment: u.Environment,
+			Provider: u.Provider, ExternalRef: u.ExternalRef, Metrics: u.Metrics, Cost: u.Cost, Outcome: u.Outcome,
+			Producer: u.Producer, ProducerKeyID: u.ProducerKeyID, ObservedAt: u.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
 		})
 	}
 

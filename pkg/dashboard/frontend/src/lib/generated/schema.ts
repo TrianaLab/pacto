@@ -2084,6 +2084,17 @@ export interface components {
             /** Format: int64 */
             required: number;
         };
+        "Evidence.UsageCost": {
+            amount: string;
+            currency: string;
+            period: string;
+        };
+        "Evidence.UsageMetric": {
+            name: string;
+            unit?: string;
+            /** Format: double */
+            value: number;
+        };
         ExplanationStatusStruct: {
             actorClass?: string;
             message?: string;
@@ -2556,6 +2567,7 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -3035,12 +3047,25 @@ export interface components {
             version?: string;
         };
         "Fleet.ResourceConsumption": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
             environment?: string;
+            externalRef?: string;
+            figures?: components["schemas"]["Fleet.UsageFigures"];
+            producer?: string;
+            producerKeyId?: string;
             /** @enum {string} */
             provenance: "observed";
+            provider?: string;
             reason?: string;
+            reported?: components["schemas"]["Fleet.UsageFigures"];
+            source?: string;
+            stale?: boolean;
             /** @enum {string} */
-            state: "not-reported";
+            state: "reported" | "unknown" | "not-reported";
+            verified?: boolean;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -3380,6 +3405,35 @@ export interface components {
             caller: string;
             sources: string[] | null;
             toService: string;
+        };
+        "Fleet.UsageFigures": {
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+        };
+        "Fleet.UsageRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            stale: boolean;
+            verified: boolean;
         };
         "Fleet.ValidationStage": {
             name: string;

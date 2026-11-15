@@ -690,12 +690,37 @@ type RequestedConfiguration struct {
 }
 
 // ResourceConsumption is what Pacto knows about the usage and cost of one
-// resource. Today no provider reports either, so the state is not-reported.
+// resource in one environment, joined from provider usage reports at query
+// time. State is reported only for a signed, fresh, non-conflicting report
+// about the consumer's current revision, and only then does Figures carry
+// numbers. Otherwise it is unknown, with the reason and the newest report's
+// figures in Reported, or not-reported when no provider reports usage there.
+// Entry names the consumer entry when the use has more than one. Conflict
+// lists the producers whose current reports disagree.
 type ResourceConsumption struct {
-	Environment string `json:"environment,omitempty"`
-	State       string `json:"state" enum:"not-reported"`
-	Provenance  string `json:"provenance" enum:"observed"`
-	Reason      string `json:"reason,omitempty"`
+	Environment   string        `json:"environment,omitempty"`
+	Entry         string        `json:"entry,omitempty"`
+	State         string        `json:"state" enum:"reported,unknown,not-reported"`
+	Provenance    string        `json:"provenance" enum:"observed"`
+	Reason        string        `json:"reason,omitempty"`
+	Figures       *UsageFigures `json:"figures,omitempty"`
+	Reported      *UsageFigures `json:"reported,omitempty"`
+	Provider      string        `json:"provider,omitempty"`
+	ExternalRef   string        `json:"externalRef,omitempty"`
+	Producer      string        `json:"producer,omitempty"`
+	ProducerKeyID string        `json:"producerKeyId,omitempty"`
+	Source        string        `json:"source,omitempty"`
+	Verified      bool          `json:"verified,omitempty"`
+	AsOf          *time.Time    `json:"asOf,omitempty"`
+	Stale         bool          `json:"stale,omitempty"`
+	Conflict      []string      `json:"conflict,omitempty"`
+}
+
+// UsageFigures is what a provider reported: metrics and a cost. Pacto never
+// sums or converts them.
+type UsageFigures struct {
+	Metrics []evidence.UsageMetric `json:"metrics,omitempty"`
+	Cost    *evidence.UsageCost    `json:"cost,omitempty"`
 }
 
 // OfferingUsesPreview is a bounded preview of offering uses. Range, Phases and
@@ -1465,14 +1490,14 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		})
 	}
 	var lims []Limitation
-	idx := q.provisioningIndex()
+	idx, uidx := q.provisioningIndex(), q.usageIndex()
 	for j, k := range keys {
 		q.fillSuccessorRanges(&uses[j])
 		if provisioning && k.via != RelationshipPolicyRef {
-			var conflicts []Limitation
+			var conflicts, usageConflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
-			uses[j].Consumption = notReportedConsumption()
-			lims = append(lims, conflicts...)
+			uses[j].Consumption, usageConflicts = q.usageFor(uses[j], rels[k], keptRev[k], uidx)
+			lims = append(append(lims, conflicts...), usageConflicts...)
 		}
 	}
 	slices.SortStableFunc(uses, func(a, b OfferingUse) int {

@@ -148,6 +148,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
+	matchUsage(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
@@ -277,6 +278,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		targetCount++
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
+	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -2433,6 +2435,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 	sortRelationships(snap.templateEdges)
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
 	sortProvisioning(snap.Provisioning)
+	sortUsage(snap.Usage)
 	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })
