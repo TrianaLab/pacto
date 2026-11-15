@@ -500,7 +500,6 @@
   }
   .ov-domains thead th[scope='colgroup'] { text-align: center; }
   .ov-caption { margin: 0; color: var(--c-text-2); }
-  .ov-caption a { color: var(--c-accent); text-decoration: underline; }
   .ov-gaps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-1) var(--sp-4); }
   .ov-gaps a { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); color: var(--c-text); text-decoration: none; border: 1px solid var(--c-border); }
   .ov-gaps a:hover, .ov-gaps a:focus-visible { border-color: var(--c-accent); }
