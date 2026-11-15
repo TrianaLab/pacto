@@ -16,7 +16,7 @@ const OUT = '../../../docs/assets/screenshots';
 const NOW = '2026-11-09T12:00:00Z';
 const WORKER_CLOCK = `{const T=Date.parse('${NOW}'),D=Date;self.Date=class extends D{constructor(...a){super(...(a.length?a:[T]))}static now(){return T}}}\n`;
 
-const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; element?: string }[] = [
+const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; clipTo?: string; element?: string }[] = [
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
   { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await p.waitForTimeout(1500); } },
@@ -72,13 +72,16 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     element: '[data-testid="target-delivery"]',
   },
   // The expanded sidebar alone, below the top bar, on the overview.
-  { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
+  // Clipped to the expanded nav's own box, so a new item never pushes Data sources out of frame.
+  { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clipTo: '[data-testid="sidebar"] nav' },
   // catalog-service's Resources section alone: the declared request, its phase and usage.
   {
     name: 'service-resources',
     open: async (p) => { await go(p, '/#/fleet/services/catalog-service', 'catalog-service'); await expect(p.locator('#sec-resources')).toBeVisible(); },
     element: '#sec-resources',
   },
+  // Metrics: the explainer on the plain demo, which records no run statistics.
+  { name: 'metrics', open: (p) => go(p, '/#/metrics', 'Metrics') },
 ];
 
 async function finish(page: Page) {
@@ -137,7 +140,12 @@ for (const theme of ['light', 'dark'] as const) {
           await finish(page);
           await page.locator(s.element).screenshot({ path, animations: 'disabled', caret: 'hide' });
         }
-        else await page.screenshot({ path, animations: 'disabled', caret: 'hide', clip: s.clip });
+        else {
+          // clipTo: the full sidebar column below the 56px top bar, down to the selector's foot.
+          const box = s.clipTo ? await page.locator(s.clipTo).boundingBox() : null;
+          const clip = box ? { x: 0, y: 56, width: 232, height: Math.ceil(box.y + box.height) + 16 - 56 } : s.clip;
+          await page.screenshot({ path, animations: 'disabled', caret: 'hide', clip });
+        }
       });
     }
   });

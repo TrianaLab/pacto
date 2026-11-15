@@ -747,9 +747,14 @@ export function installScaleFixture(): void {
     }
     if (metric === 'coverage') return { record: { id, version: '1', pactoVersion: '4', kind: 'coverage', service: '_fleet', recordedAt } };
     const verdict = ['clear', 'unverified'].includes(metric) ? metric : 'blocked';
-    return { record: { id, version: '1', pactoVersion: '4', kind: 'impact', service: n === 0 ? 'payments-service' : longName(`stats-svc-${n}`), classification: 'BREAKING',
-      oldRevision: digest(`${id}-old`), newRevision: digest(`${id}-new`), gate: { verdict }, recordedAt },
-      ...(n === 0 ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' } } : {}), note: 'not in the current snapshot' };
+    // The two newest blocked records name payments-service, so each opens its change analysis.
+    const placed = n === 0 || (n === 1 && verdict === 'blocked');
+    const [oldRevision, newRevision] = [digest(`${id}-old`), digest(`${id}-new`)];
+    const change = placed && verdict === 'blocked'
+      ? { change: { href: `/fleet/changes/payments-service?old=${encodeURIComponent(oldRevision)}&new=${encodeURIComponent(newRevision)}` } } : {};
+    return { record: { id, version: '1', pactoVersion: '4', kind: 'impact', service: placed ? 'payments-service' : longName(`stats-svc-${n}`), classification: 'BREAKING',
+      oldRevision, newRevision, gate: { verdict }, recordedAt },
+      ...(placed ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' }, ...change } : { note: 'not in the current snapshot' }) };
   };
   const statsAnswer = (route: string, query: string): Record<string, unknown> => {
     const mode = statsMode(), q = new URLSearchParams(query);
