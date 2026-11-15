@@ -115,7 +115,7 @@
             {#if miraHref}<a href={miraHref} target="_blank" rel="noopener noreferrer" data-testid="resource-mira-link">Open {service} in Mira</a>{/if}
           </div>
           {#if !notReported(u)}
-            <ul class="rl-status">
+            <ul class="rl-status rl-usage">
               {#each u.consumption as c, ci (`${c.environment ?? ''}:${c.entry ?? ''}:${ci}`)}
                 {@const f = c.figures ?? c.reported}
                 <li data-testid="resource-usage-entry" data-state={c.state}>
@@ -165,6 +165,8 @@
   /* Stacked by default; environment and status side by side once the card has room. */
   .rl-status li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px var(--sp-3); align-items: center; min-inline-size: 0; }
   @container (min-width: 40ch) { .rl-status li { grid-template-columns: minmax(10ch, max-content) minmax(14ch, 1fr); } }
+  /* A usage entry stacks: its figures need both grid tracks, wider than a status column. */
+  .rl-status.rl-usage li { display: flex; flex-direction: column; align-items: stretch; }
   .rl-env { font-weight: 600; overflow-wrap: anywhere; min-inline-size: 0; }
   @media (pointer: coarse) { .rl-chip, .rl-status :global(.pb-btn) { min-block-size: 44px; display: inline-flex; align-items: center; } }
 </style>
