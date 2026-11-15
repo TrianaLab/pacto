@@ -217,6 +217,58 @@ describe('target page Delivery link (B4)', () => {
   });
 });
 
+const OTHER = 'sha256:' + 'b'.repeat(64);
+const offerRow = (over = {}) => ({ namespace: 'prod', stage: 'payments', service: 'payments', domain: 'registry.example/story', environment: 'prod', state: 'verified',
+  pointer: REC, candidate: ART, candidateVersion: '2.0.0', offers: [
+    { action: 'promote', available: true, reason: 'promotes 2.0.0', to: ART },
+    { action: 'freeze', available: false, reason: 'an agent may not raise a freeze' },
+    { action: 'undo', available: true, reason: 'undoes op-1', operation: 'op-1', to: OTHER },
+  ], ...over });
+const planButtons = (t: HTMLElement) => [...t.querySelectorAll('button')].map((b) => text(b)).filter((x) => x.startsWith('Plan '));
+
+describe('Plan on the revision and target pages (#472 D4)', () => {
+  beforeEach(() => { fns.lifecycle.mockReset(); fns.environments.mockReset(); });
+
+  it('offers the promote of the artifact whose contract is this revision', async () => {
+    fns.lifecycle.mockResolvedValue(lifecycle([]));
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [offerRow()] });
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled', correlation: 'CHG-1' });
+    await settle();
+    expect(fns.environments).toHaveBeenCalledWith({ service: 'payments', domain: 'registry.example/story', limit: 1 });
+    expect(planButtons(target)).toEqual(['Plan promote of 2.0.0 in prod…']);
+    destroy();
+  });
+
+  it('offers no promote when the candidate has the same version but another digest', async () => {
+    fns.lifecycle.mockResolvedValue(lifecycle([]));
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [offerRow({ candidate: OTHER,
+      offers: [{ action: 'promote', available: true, reason: 'promotes 2.0.0', to: OTHER }] })] });
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
+    await settle();
+    expect(planButtons(target)).toEqual([]);
+    destroy();
+  });
+
+  it('offers nothing when no Stage names the revision', async () => {
+    fns.lifecycle.mockRejectedValue(new ApiError(404, 'no artifact', 'LifecycleNotFound'));
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [offerRow()] });
+    const { target, destroy } = render(RevisionEntity, { detail: revision(), deliveryState: 'enabled' });
+    await settle();
+    expect(planButtons(target)).toEqual([]);
+    destroy();
+  });
+
+  it('offers on a target page only what the caller may take in its environment', async () => {
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', environments: [offerRow({ service: 'audit-log', domain: '', stage: 'audit-log' })] });
+    const { target, destroy } = render(TargetEntity, { detail: targetDetail('prod'), deliveryState: 'enabled' });
+    await settle();
+    const sec = target.querySelector('[data-testid="target-delivery"]') as HTMLElement;
+    expect(planButtons(sec)).toEqual(['Plan promote of 2.0.0 in prod…', 'Plan undo in prod…']);
+    expect(text(sec)).not.toContain('Freeze');
+    destroy();
+  });
+});
+
 describe('VerdictList contract citations (B4)', () => {
   it('lists each judged Pacto with its status and findings, linked to its target', () => {
     const key = 'kubernetes:prod/payments';

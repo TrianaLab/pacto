@@ -193,7 +193,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['name', 'old', 'new', 'observed', 'outcome', 'mode', 'event', 'rev', 'offering']) {
+    for (const k of ['name', 'old', 'new', 'observed', 'outcome', 'mode', 'event', 'rev', 'offering', 'correlationID']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -265,7 +265,12 @@ function parseFleet(path: string, query: string): Route {
 
   const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings)\/(.+)$/);
   if (ent) {
-    return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
+    // correlationID is the ticket or incident id an investigation carries into the
+    // operations its page plans (the same key the delivery history filters by).
+    const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
+    const correlationID = new URLSearchParams(query).get('correlationID');
+    if (correlationID) params.correlationID = correlationID;
+    return { view: 'fleet-entity', params };
   }
 
   // Unknown /fleet/* falls back to the overview, never a broken screen.
@@ -642,7 +647,7 @@ export function fleetAttentionUrl(opts: {
 // provider of a platform offering instead of one service (no service key then).
 export function fleetChangesUrl(
   serviceKey = '',
-  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string; mode?: string; event?: string; rev?: string; offering?: string } = {},
+  opts: { name?: string; old?: string; new?: string; observed?: boolean; outcome?: string; mode?: string; event?: string; rev?: string; offering?: string; correlationID?: string } = {},
 ): string {
   const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
@@ -655,6 +660,7 @@ export function fleetChangesUrl(
   if (opts.rev) qs.set('rev', opts.rev);
   if (opts.observed) qs.set('observed', '1');
   if (opts.outcome) qs.set('outcome', opts.outcome);
+  if (opts.correlationID) qs.set('correlationID', opts.correlationID);
   const str = qs.toString();
   return str ? `${base}?${str}` : base;
 }

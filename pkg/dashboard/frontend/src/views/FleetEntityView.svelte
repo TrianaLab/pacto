@@ -30,7 +30,7 @@
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
   // miraURL: Mira's address, only for a caller whose permissions hide nothing.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '' } = $props();
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '' } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -189,9 +189,9 @@
         {#if detail.service}
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} />
         {:else if detail.revision}
-          <RevisionEntity {detail} {deliveryState} {miraURL} />
+          <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />
         {:else if detail.target}
-          <TargetEntity {detail} {deliveryState} />
+          <TargetEntity {detail} {deliveryState} {correlation} />
         {:else if detail.owner}
           <OwnerEntity {detail} />
         {:else if detail.source}

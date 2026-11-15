@@ -3,7 +3,8 @@
  * decision a person left behind when a fresh login took them to the identity
  * provider.
  */
-import type { DeliveryDecision, DeliveryOffer, DeliveryOperation } from './api.ts';
+import { api } from './api.ts';
+import type { DeliveryDecision, DeliveryEnvironments, DeliveryOffer, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -610,6 +611,38 @@ export function offerRequest(r: OfferRow, o: DeliveryOffer) {
   if (o.action === 'promote') Object.assign(request, { to, from: r.pointer || undefined });
   return { request, version: o.action === 'promote' && to === r.candidate ? (r.candidateVersion ?? '') : '' };
 }
+
+type StageRows = DeliveryEnvironments['environments'];
+
+/**
+ * stageRowsOf is a service's Stage rows, for the offers an investigation page shows;
+ * none when this dashboard serves no delivery or the rows cannot be read: the page's
+ * own Delivery section says why, and an offer is never guessed.
+ */
+export async function stageRowsOf(service: string, domain: string): Promise<StageRows> {
+  try {
+    const d = await api.deliveryEnvironments({ service, domain, limit: 1 });
+    return (d?.environments ?? []).filter((r) => r.service === service && (!r.domain || r.domain === domain));
+  } catch { return []; }
+}
+
+/**
+ * artifactOf is the one artifact digest of the service's Stages whose contract is
+ * `contract` (a revision's digest), '' when none, several or it cannot be read. A
+ * promote is matched by it, never by a version label: two artifacts can carry one.
+ */
+export async function artifactOf(service: string, domain: string, contract: string): Promise<string> {
+  if (!contract) return '';
+  try { return (await api.deliveryLifecycle({ service, domain, contract }))?.digest ?? ''; } catch { return ''; }
+}
+
+/** promotes keeps the promote offer of artifact `digest`, compared as offerRequest does. */
+export const promotes = (digest: string) => (r: OfferRow, o: DeliveryOffer) =>
+  !!digest && o.action === 'promote' && (o.to || r.candidate) === digest;
+
+/** undoes keeps the undo offer of a Stage that runs artifact `digest`. */
+export const undoes = (digest: string) => (r: OfferRow, o: DeliveryOffer) =>
+  !!digest && o.action === 'undo' && r.pointer === digest;
 
 /**
  * lifecycleWords words a lifecycle answer: the signature as the Publish page words it
