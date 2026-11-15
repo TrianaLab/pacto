@@ -70,7 +70,7 @@ func (o fileOps) explain(ctx context.Context, opts EditOptions, dir string, bund
 			imp = editImpact(res)
 		}
 	}
-	return imp, editChain(c, input, imp, why, opts.Served), executor(input)
+	return imp, editChain(c, dir, imp, why, opts.Served), executor(input)
 }
 
 func (o fileOps) stagedImpact(ctx context.Context, opts EditOptions, dir string, bundleFS fstest.MapFS) (*impact.Result, error) {
@@ -130,13 +130,9 @@ func approvals(gate string, owners []string) string {
 
 // editChain is the steps that carry an edit to running: impact first when it
 // is not known, then publish and promote.
-func editChain(c *contract.Contract, input EditInput, imp *EditImpact, unknownWhy string, served func(string) bool) []ChainStep {
+func editChain(c *contract.Contract, dir string, imp *EditImpact, unknownWhy string, served func(string) bool) []ChainStep {
 	var steps []ChainStep
 	if imp == nil {
-		dir := input.Path
-		if dir == "" {
-			dir = "."
-		}
 		steps = append(steps, step(served, "pacto_impact", "pacto impact <published ref> "+dir, unknownWhy))
 	}
 	return append(steps, promoteChain(c.Service.Name, c.Service.Version, served)...)
