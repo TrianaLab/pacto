@@ -62,7 +62,8 @@ The `lifecycle` filter (`deprecated` or `sunset`) and the `failed` filter
 narrow the list; `--sort failed` and `--sort consumers` order it. The
 aggregate tallies every matched offering's provisioning statuses by phase in
 `offeringPhases` and `offeringPhaseConsumers`, and names the three offerings
-with the most failures in `failedByOffering`. The dashboard draws that tally
+with the most failures in `failedByOffering`, where `services` counts the
+consumers whose request failed. The dashboard draws that tally
 as the phase track above the list.
 
 ![The Offerings list: 20 provisioning requests across 5 offerings drawn as a phase track, with one failed postgresql request and the lifecycle and failed-request filters](assets/screenshots/dashboard-offerings-list-light.png#only-light)
