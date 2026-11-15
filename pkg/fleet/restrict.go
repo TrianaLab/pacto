@@ -141,13 +141,28 @@ func restrictReports(out, s *FleetSnapshot) {
 	// orphaned report or one about a hidden service never reaches the view.
 	// A visible consumer's report about a provider the viewer may not see
 	// keeps its phase, which raises attention, but never names the provider:
-	// its adapter and external reference go. Its usage and cost go whole,
-	// since no surface shows a resource of a hidden provider.
+	// its adapter, external reference and signing identity go. Each hidden
+	// producer gets an opaque name instead, so two of them stay two origins
+	// and can still disagree. Its usage and cost go whole, since no surface
+	// shows a resource of a hidden provider.
 	hiddenUse := hiddenUseKeys(out)
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
+	hidden := func(rec *ProvisioningRecord) bool {
+		return hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}]
+	}
+	producers := map[string]bool{}
 	for i := range out.Provisioning {
-		if rec := &out.Provisioning[i]; hiddenUse[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}] {
-			rec.Provider, rec.ExternalRef = "", ""
+		if rec := &out.Provisioning[i]; hidden(rec) {
+			producers[rec.Producer] = true
+		}
+	}
+	alias := map[string]string{}
+	for i, p := range slices.Sorted(maps.Keys(producers)) {
+		alias[p] = fmt.Sprintf("hidden producer %d", i+1)
+	}
+	for i := range out.Provisioning {
+		if rec := &out.Provisioning[i]; hidden(rec) {
+			rec.Provider, rec.ExternalRef, rec.Producer, rec.ProducerKeyID = "", "", alias[rec.Producer], ""
 		}
 	}
 	out.Usage = slices.DeleteFunc(slices.Clone(s.Usage), func(rec UsageRecord) bool {

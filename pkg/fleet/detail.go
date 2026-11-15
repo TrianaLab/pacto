@@ -662,9 +662,11 @@ type OfferingUse struct {
 	// ProviderAvailability is whether the provider answers where it runs (see
 	// [Availability]). Set only on the service page.
 	ProviderAvailability *Availability `json:"providerAvailability,omitempty"`
-	// Requested is what the consumer's current revision declares for the
-	// provider's configuration, one entry per configuration reference. Set only
-	// on a configuration_reference row of the service page.
+	// Requested is what the consumer revision the use's provisioning is about
+	// (the newest with a reference to the provider, named by each entry's
+	// ConsumerRevision) declares for the provider's configuration, one entry
+	// per configuration reference. Set only on a configuration_reference row of
+	// the service page.
 	Requested []RequestedConfiguration `json:"requested,omitempty"`
 	// RequestedTruncated says Requested was joined from a truncated
 	// configurations preview, so an entry may be missing.
@@ -684,6 +686,9 @@ type RequestedConfiguration struct {
 	Configuration string `json:"configuration,omitempty"`
 	// Revision is the provider revision the reference resolves to.
 	Revision *EntityRef `json:"revision,omitempty"`
+	// ConsumerRevision is the consumer revision that declares the values. It
+	// need not be the service's current revision.
+	ConsumerRevision *EntityRef `json:"consumerRevision,omitempty"`
 	// Values is the bounded flattening of the declared values.
 	Values     RuntimePreview `json:"values"`
 	Provenance string         `json:"provenance" enum:"declared"`
@@ -692,7 +697,8 @@ type RequestedConfiguration struct {
 // ResourceConsumption is what Pacto knows about the usage and cost of one
 // resource in one environment, joined from provider usage reports at query
 // time. State is reported only for a signed, fresh, non-conflicting report
-// about the consumer's current revision, and only then does Figures carry
+// about the use's consumer revision (the newest with an edge to the provider,
+// named by Revision), and only then does Figures carry
 // numbers. Otherwise it is unknown, with the reason and the newest report's
 // figures in Reported, or not-reported when no provider reports usage there.
 // Entry names the consumer entry when the use has more than one. Conflict
@@ -714,6 +720,8 @@ type ResourceConsumption struct {
 	AsOf          *time.Time    `json:"asOf,omitempty"`
 	Stale         bool          `json:"stale,omitempty"`
 	Conflict      []string      `json:"conflict,omitempty"`
+	// Revision is the consumer revision the newest report is about.
+	Revision *EntityRef `json:"revision,omitempty"`
 }
 
 // UsageFigures is what a provider reported: metrics and a cost. Pacto never
@@ -1440,9 +1448,11 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 }
 
 // reported reports whether a provider reported on u: any status besides the
-// seeded no-report one, a conflict with no source included.
+// seeded no-report one, a conflict with no source included, or any usage
+// report, so a usage-only report never vanishes with its row.
 func (u OfferingUse) reported() bool {
-	return slices.ContainsFunc(u.Provisioning, func(st ProvisioningStatus) bool { return st.Reason != noProvisioningReport })
+	return slices.ContainsFunc(u.Provisioning, func(st ProvisioningStatus) bool { return st.Reason != noProvisioningReport }) ||
+		slices.ContainsFunc(u.Consumption, func(c ResourceConsumption) bool { return c.State != consumptionNotReported })
 }
 
 // offeringUsesIn is every use in rels of a provider match accepts, from one

@@ -211,20 +211,7 @@ func renderResources(b *strings.Builder, s *fleet.ServiceDetailData) {
 			offering = "offering " + u.Offering
 		}
 		fmt.Fprintf(b, "  %s (%s) via %s\n", safeText(u.Provider.Label), safeText(offering), safeText(u.Via))
-		if u.ProviderOwner != nil {
-			field(b, "owner", u.ProviderOwner.Owner)
-		}
-		lines := make([]string, 0, len(u.Requested)+len(u.Provisioning)+len(u.Consumption))
-		for _, r := range u.Requested {
-			lines = append(lines, r.Text())
-		}
-		for _, st := range u.Provisioning {
-			lines = append(lines, st.Text())
-		}
-		for _, c := range u.Consumption {
-			lines = append(lines, c.Text())
-		}
-		for _, l := range lines {
+		for _, l := range u.ResourceLines() {
 			b.WriteString("    " + safeText(l) + "\n")
 		}
 	}

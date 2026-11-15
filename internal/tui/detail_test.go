@@ -757,8 +757,11 @@ func TestRenderServiceResources(t *testing.T) {
 		t.Errorf("no resources, no section:\n%s", b.String())
 	}
 	b.Reset()
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency}}}}, fleet.CompletenessComplete)
-	if !strings.Contains(b.String(), "email-provider (no offering) via dependency") {
-		t.Errorf("a non-offering resource says so:\n%s", b.String())
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete)
+	// A cut request list and an unknown owner say so, as the CLI prints them.
+	for _, want := range []string{"email-provider (no offering) via dependency", "owner unknown, availability unknown", "requested values may be missing: the configurations list was cut"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("resources lack %q:\n%s", want, b.String())
+		}
 	}
 }

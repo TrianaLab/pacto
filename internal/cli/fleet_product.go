@@ -699,25 +699,8 @@ func printResource(w io.Writer, u fleet.OfferingUse) {
 		offering = "offering " + u.Offering
 	}
 	_, _ = fmt.Fprintf(w, "  %s (%s) via %s%s\n", u.Provider.Label, offering, u.Via, useNotes(u))
-	owner, availability := "unknown", "unknown"
-	if u.ProviderOwner != nil && u.ProviderOwner.Owner != "" {
-		owner = u.ProviderOwner.Owner
-	}
-	if u.ProviderAvailability != nil && u.ProviderAvailability.State != "" {
-		availability = string(u.ProviderAvailability.State)
-	}
-	_, _ = fmt.Fprintf(w, "    owner %s, availability %s\n", owner, availability)
-	for _, r := range u.Requested {
-		_, _ = fmt.Fprintln(w, "    "+r.Text())
-	}
-	if u.RequestedTruncated {
-		_, _ = fmt.Fprintln(w, "    requested values may be missing: the configurations list was cut")
-	}
-	for _, st := range u.Provisioning {
-		_, _ = fmt.Fprintln(w, "    "+st.Text())
-	}
-	for _, c := range u.Consumption {
-		_, _ = fmt.Fprintln(w, "    "+c.Text())
+	for _, l := range u.ResourceLines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
 	}
 }
 
