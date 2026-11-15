@@ -89,6 +89,8 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"Propose roll back", `propose-panel"] button[type=submit]`},
 		{"press Propose on fraud", "Propose Advise for fraud in test"},
 		{"press Roll back this change", "change-rollback"},
+		{"press Plan undo", "service-delivery-offer"},
+		{"Press Plan this rollback", "undo-panel"},
 		{"press Compare revisions", "#sec-revisions button[type=submit]"},
 		{"press Ask", "#sec-revisions button[type=submit]"},
 		{"set Earlier revision", "#impact-old-rev"},

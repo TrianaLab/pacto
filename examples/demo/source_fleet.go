@@ -278,9 +278,14 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			ObservedRuntime: map[string]any{"schedule": "*/15 * * * *", "lastSuccessful": older.Format(time.RFC3339)}},
 		// checkout 1.9.0 in the story's test environment, the one story workload the
 		// cluster reports: its target page offers what its delivery Stage allows.
-		{Scope: "test", Kind: "Deployment", Name: "checkout", Service: "checkout", Compliance: fleet.StatusCompliant,
+		{Scope: "test", Kind: "Deployment", Name: "checkout", Service: "checkout", Domain: story.Domain, Compliance: fleet.StatusCompliant,
 			ResolvedRef: "oci://" + story.Domain + "/checkout:1.9.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: map[string]string{"app.kubernetes.io/name": "checkout", fleet.TargetEnvironmentLabel: story.Test}},
+		// payments in the story's prod, back on 2.3.0 after the CHG-2041 incident: the
+		// delivery tour plans an undo from its target page under that ticket.
+		{Scope: story.Prod, Kind: "Deployment", Name: "payments", Service: "payments", Domain: story.Domain, Compliance: fleet.StatusCompliant,
+			ResolvedRef: "oci://" + story.Domain + "/payments:2.3.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: map[string]string{"app.kubernetes.io/name": "payments", fleet.TargetEnvironmentLabel: story.Prod}},
 		// The synthetic catalog and logistics domains. fulfillment-service running in
 		// prod is what makes inventory-service 3.0.0, which stops promising the dedupe
 		// window fulfillment-service requires, a blocked change rather than an

@@ -372,6 +372,12 @@
   var NOTE = '[data-testid="decision-panel"] textarea';
   var APPROVE = '[data-testid="decide-approve"]';
   var RAISE_FRAUD = '[aria-label="Propose Advise for fraud in test"]';
+  // Acting from an investigation: the target page of payments in prod, opened under
+  // the incident's ticket, offers what the person may already do there.
+  var INCIDENT = "CHG-2041";
+  var PLAN_UNDO = '[data-testid="target-delivery"] [data-testid="service-delivery-offer"][title^="Plan undo"]';
+  var PLAN_THIS = '[data-testid="undo-panel"] .btn-primary';
+  var TICKET = '[data-testid="propose-panel"] [data-testid="pp-correlation"]';
   // A plan is open for this Stage ("prod/payments"), as Promote opens it.
   function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
   function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
@@ -383,6 +389,11 @@
   }
   function shipped(version) { return row("prod", "payments").version === version; }
   function clickOn(sel) { var b = q(sel); if (b) { b.click(); } }
+  // A control that renders after a read: a skip pressed while it loads waits for it.
+  function clickWhenReady(sel, tries) {
+    var b = q(sel);
+    if (b) { b.click(); } else if ((tries || 0) < 50) { setTimeout(function () { clickWhenReady(sel, (tries || 0) + 1); }, 200); }
+  }
   // A decision on the held change as Carol: what a skipped approve or accept
   // does in one go.
   function decide(decision, note) {
@@ -610,9 +621,31 @@
       clickOn('[data-testid="propose-panel"] .pp-btns button[type=button]');
     }
   }, {
+    title: "Act from what you found",
+    text: "This page of payments in prod came from ticket CHG-2041, so press Plan undo right here, where you found the problem.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INCIDENT,
+    target: PLAN_UNDO,
+    wait: "Waiting for the undo plan to open.",
+    gate: function () { return !!q('[data-testid="undo-panel"]'); },
+    skip: function () { clickWhenReady(PLAN_UNDO); }
+  }, {
+    title: "Act from what you found",
+    text: "Press Plan this rollback: the plan already carries ticket CHG-2041 from the page address, and nothing is proposed until a person proposes it.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INCIDENT,
+    target: [PLAN_THIS, TICKET],
+    wait: "Waiting for the plan to carry the ticket.",
+    hold: true,
+    gate: function () { var t = q(TICKET); return !!t && t.value === INCIDENT; },
+    skip: function () { clickWhenReady(PLAN_THIS); }
+  }, {
     title: "Every step is a signed record",
     text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
     hash: "#/delivery/history",
+    target: '[data-stage="prod/payments"]'
+  }, {
+    title: "One incident, every change",
+    text: "Ticket CHG-2041 gathers the incident in one list: the promote of 2.4.0, the rollback Pacto raised by itself and the step down that followed.",
+    hash: "#/delivery/history?correlationID=" + INCIDENT,
     target: '[data-stage="prod/payments"]'
   }, {
     title: "How much runs on its own",

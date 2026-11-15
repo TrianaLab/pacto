@@ -99,6 +99,11 @@ async function playTour(page: Page, reload: boolean) {
   await expect(text).toContainText('History reads every step back');
   await next.click();
 
+  // One ticket, the whole incident: the promote, the rollback and the step down.
+  await expect(text).toContainText('Ticket CHG-2041 gathers the incident');
+  await expect(page).toHaveURL(/correlationID=CHG-2041/);
+  await next.click();
+
   // The autonomy ladder and the signed eval: reading steps, and one action.
   await expect(text).toContainText('fraud is new, so it observes', { timeout: T });
   await next.click();
