@@ -348,6 +348,18 @@ describe('FleetAttentionView — the motion ration', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('renders one target\'s failing health check under two categories, instead of throwing on a duplicate key', async () => {
+    // A failing health check raises a health item and names the cause of the target's
+    // unknown compliance: same code, same entity, same label, two categories.
+    serve([
+      item('warning', 'prod/k8s/a', { code: 'HEALTH_FAILING', category: 'health', label: 'prod/k8s/a' }),
+      item('warning', 'prod/k8s/a', { code: 'HEALTH_FAILING', category: 'unknown', label: 'prod/k8s/a' }),
+    ]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(2));
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('says what the order means in the header', async () => {
     serve([item('error', 'a')], { errors: 1, warnings: 0, infos: 0 });
     const { target, component } = mountView({});

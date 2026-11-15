@@ -486,6 +486,13 @@ describe('FindingList provenance', () => {
     expect(metas[0]).toContain('seen by: Kubernetes + kernel');
     expect(metas[1]).not.toContain('seen by');
   });
+
+  it('names each finding by the code a CLI or an agent reads', () => {
+    comp = mount(FindingList, { target, props: { items: [{ code: 'HEALTH_FAILING', severity: 'unknown', message: 'm' }] } });
+    const code = target.querySelector('.f-meta .f-code');
+    expect(code?.textContent).toBe('HEALTH_FAILING');
+    expect(code?.querySelector('bdi')).not.toBeNull();
+  });
 });
 
 describe('PageHeader', () => {

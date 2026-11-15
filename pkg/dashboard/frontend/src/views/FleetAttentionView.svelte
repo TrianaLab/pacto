@@ -183,9 +183,11 @@
   });
 
   // A page can carry the same code for the same entity twice (two revisions of one
-  // service, same finding), so the key is code + identity + label. Keying on less throws
-  // "keyed each duplicate" at runtime, which is a blank page, not a warning.
-  const itemKey = (it) => `${it.code}::${it.entity?.kind}::${it.entity?.key}::${it.label}`;
+  // service, same finding), and one failing health check raises a health item and names
+  // the cause of the same target's unknown compliance, so the key is category + code +
+  // identity + label. Keying on less throws "keyed each duplicate" at runtime, which is
+  // a blank page, not a warning.
+  const itemKey = (it) => `${it.category}::${it.code}::${it.entity?.kind}::${it.entity?.key}::${it.label}`;
 
   // Cardinality one. The backend sorts errors first, so the head of the page IS the worst
   // thing visible; if it is not an error, nothing rings. Two rings means the design has
