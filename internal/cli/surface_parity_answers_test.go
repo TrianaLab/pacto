@@ -269,6 +269,15 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	// one beyond the oldest revision's present events.
 	app := cliJSON(t, flags, "fleet", "entity", "service", "app")
 	expect(t, strings.Contains(app, `"kind": "dependency"`) && strings.Contains(app, `"change": "added"`), "the fixture has no dependency change: %s", app)
+	// The Resources answer (#468) and the offering's adapters and unresolved
+	// uses (#463) are compared above: the fixture must hold them.
+	for _, want := range []string{`"consumedOfferings"`, `"consumption"`, `"state": "not-reported"`, `"providerOwner"`} {
+		expect(t, strings.Contains(app, want), "the fixture's app answer lacks %s: %s", want, app)
+	}
+	offering := cliJSON(t, flags, "fleet", "entity", "offering", "postgresql")
+	for _, want := range []string{`"adapters"`, `"unresolvedUses"`} {
+		expect(t, strings.Contains(offering, want), "the fixture's offering answer lacks %s: %s", want, offering)
+	}
 	// AttentionItem.nextAction is compared above with the rest of the answer:
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
@@ -327,6 +336,9 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 	}
 	// Changes are built from the revisions alice may read: app's survive the view.
 	expect(t, strings.Contains(text, `"changes"`) && strings.Contains(text, `"kind": "dependency"`), "alice's app lacks its changes: %s", text)
+	// Resources come from the restricted query: alice reads app's use of
+	// postgresql, whose provider she may see, with its consumption.
+	expect(t, strings.Contains(text, `"consumedOfferings"`) && strings.Contains(text, `"consumption"`), "alice's app lacks its resources: %s", text)
 	// The view narrows nextAction with its item: alice still reads the actions
 	// of what she sees, and lonely's unowned action is gone with lonely.
 	attention, _ := callText(t, session, "pacto_fleet_attention", map[string]any{})

@@ -83,7 +83,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -304,6 +304,14 @@ func publishRows() []surfaceRow {
 	)
 }
 
+// evidenceRows map pacto evidence usage: a provider adapter's scripted step
+// that writes the usage EvidenceSet the service page's consumedOfferings
+// consumption reads back on every surface.
+func evidenceRows() []surfaceRow {
+	return alike("evidence usage", "", "", "an adapter writes usage evidence with the CLI and signs it; MCP and the dashboard read it back as consumedOfferings consumption and write none",
+		"collector", "configuration", "contract", "cost", "dependency", "environment", "external-ref", "metric", "observed-at", "outcome", "provider", "subject")
+}
+
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
@@ -312,7 +320,7 @@ var parityCommands = []string{
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
 	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain", "stats", "publish",
+	"impact", "init", "validate", "explain", "stats", "publish", "evidence usage",
 }
 
 // surfaces is what the three surfaces expose at HEAD.
