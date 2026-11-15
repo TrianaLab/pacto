@@ -922,6 +922,32 @@ pacto evidence sign <evidence.json> [flags]
       --ttl duration              validity window; 0 disables expiry (default 24h0m0s)
 ```
 
+### `pacto evidence usage`
+
+Writes an EvidenceSet that reports how much of the resource a consumer's configuration reference or dependency asked for is used, and what it costs. Sign it with pacto evidence sign and post it with pacto evidence send; the signing key needs ResourceUsage in allowedObservationKinds. Pacto never sums or converts the figures. The subject defaults to &lt;repository&gt;/<environment or default>/usage/&lt;kind&gt;/&lt;name&gt;, so a usage report never replaces the resource's provisioning report. Prints the EvidenceSet JSON.
+
+```
+pacto evidence usage [flags]
+```
+
+**Flags:**
+
+```
+      --collector string       collector id recorded as provenance (defaults to pacto)
+      --configuration string   consumer configuration (with a ref) that asked for the resource
+      --contract string        consumer contract revision: oci://<repo>@sha256:<digest>
+      --cost string            cost as amount:CURRENCY:period, such as 212.40:USD:P30D (ISO 4217 code, ISO 8601 period from P1D to P1Y)
+      --dependency string      consumer dependency that asked for the resource
+      --environment string     consumer environment the resource serves
+      --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
+  -h, --help[=true|false]      help for usage
+      --metric stringArray     a measured quantity as name=value[:unit], such as storage-used=31:Gi (repeatable, at most 16)
+      --observed-at string     observation timestamp (RFC3339; defaults to now)
+      --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no figures (default "Observed")
+      --provider string        provider slug (lowercase letters, digits and hyphens)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/usage/<kind>/<name>)
+```
+
 ### `pacto evidence verify`
 
 Decodes an envelope and verifies its signature, freshness and trust against a --trust public-key file or directory of &lt;keyId&gt;.pub files. Exits non-zero when verification fails.

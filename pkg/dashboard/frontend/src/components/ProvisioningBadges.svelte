@@ -28,6 +28,8 @@
 
 <style>
   .pb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+  /* A long environment or entry name breaks inside its badge instead of spilling out. */
+  .pb :global(.tag) { min-width: 0; overflow-wrap: anywhere; }
   .pb-btn { padding: 2px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: pointer; }
   .pb-btn:hover { border-color: var(--c-text-3); }
   .pb-btn[aria-pressed='true'] { border-color: var(--c-accent); }

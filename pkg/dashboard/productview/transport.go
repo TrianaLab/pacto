@@ -632,9 +632,19 @@ func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 // both navigable.
 type ProductOfferingUse struct {
 	fleet.OfferingUse
-	Consumer     ProductRef                  `json:"consumer"`
-	Provider     ProductRef                  `json:"provider"`
-	Provisioning []ProductProvisioningStatus `json:"provisioning,omitempty"`
+	Consumer      ProductRef                      `json:"consumer"`
+	Provider      ProductRef                      `json:"provider"`
+	Provisioning  []ProductProvisioningStatus     `json:"provisioning,omitempty"`
+	ProviderOwner *ProductOwnership               `json:"providerOwner,omitempty"`
+	Requested     []ProductRequestedConfiguration `json:"requested,omitempty"`
+}
+
+// ProductRequestedConfiguration is a requested configuration whose provider
+// revision is navigable.
+type ProductRequestedConfiguration struct {
+	fleet.RequestedConfiguration
+	Revision         *ProductRef `json:"revision,omitempty"`
+	ConsumerRevision *ProductRef `json:"consumerRevision,omitempty"`
 }
 
 // ProductProvisioningStatus is a provisioning status whose consumer revision is
@@ -654,7 +664,10 @@ type ProductOfferingUsesPreview struct {
 func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview {
 	items := make([]ProductOfferingUse, len(p.Items))
 	for i, u := range p.Items {
-		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider)}
+		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider), ProviderOwner: productOwnership(u.ProviderOwner)}
+		for _, r := range u.Requested {
+			items[i].Requested = append(items[i].Requested, ProductRequestedConfiguration{RequestedConfiguration: r, Revision: RefPtr(r.Revision), ConsumerRevision: RefPtr(r.ConsumerRevision)})
+		}
 		for _, st := range u.Provisioning {
 			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})
 		}

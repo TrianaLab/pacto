@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -78,6 +79,10 @@ type Collection struct {
 	// Provisioning is provider-reported state of what a consumer's
 	// configuration reference or dependency asked for. It is never a target.
 	Provisioning []RawProvisioning
+	// Usage is provider-reported usage and cost of what a consumer's
+	// configuration reference or dependency asked for. It is never a target
+	// and never changes compliance.
+	Usage []RawUsage
 }
 
 // RawProvisioning is one provider report about the resource a consumer
@@ -94,6 +99,24 @@ type RawProvisioning struct {
 	ObservedAt                   time.Time
 	AcceptedAt                   *time.Time
 	Verified                     bool
+}
+
+// RawUsage is one provider report on how much of the resource a consumer
+// revision asked for is used and what it costs: [RawProvisioning] with Metrics
+// and Cost in place of Phase. Provider, ExternalRef, Metrics and Cost are set
+// only for an Observed outcome. Verified is true only for records accepted
+// through signed envelopes.
+type RawUsage struct {
+	Service, Domain, Digest string
+	Kind, Name, Environment string
+	Provider, ExternalRef   string
+	Metrics                 []evidence.UsageMetric
+	Cost                    *evidence.UsageCost
+	Outcome                 string
+	Producer, ProducerKeyID string
+	ObservedAt              time.Time
+	AcceptedAt              *time.Time
+	Verified                bool
 }
 
 // ObservedEdge is one runtime-observed caller→provider dependency. From and To are

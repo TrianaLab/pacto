@@ -1,3 +1,8 @@
+<script module>
+  /** The tone of an availability state, shared with the service page's Resources section. */
+  export const STATE_TONE = { available: 'ok', degraded: 'warn', unavailable: 'err', unknown: 'neutral' };
+</script>
+
 <script>
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
@@ -11,7 +16,6 @@
   // answer only: provider compliance is a contract verdict and is never availability.
   // #463 places its adapter block after this component.
   let { availability = null, compact = false, hiddenProviders = 0 } = $props();
-  const STATE_TONE = { available: 'ok', degraded: 'warn', unavailable: 'err', unknown: 'neutral' };
   const PROV_TONE = { observed: 'info', inferred: 'info', unknown: 'neutral' };
   const PARTIAL = 'consumers you may not see are not counted';
   const HELP = 'Whether the offering answers where it runs, from its targets and from what its consumers report. Separate from the resources consumers asked for, below.';

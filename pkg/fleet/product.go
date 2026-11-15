@@ -884,7 +884,8 @@ func (q *Query) servicesNeedingAttention() int {
 }
 
 // markDependencyAttention marks the consumers of an unresolved or out-of-range
-// declared dependency and of a deprecated or past-sunset provider.
+// declared dependency, of a deprecated or past-sunset provider and of a
+// resource that failed to provision or reports stale.
 func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
@@ -894,6 +895,9 @@ func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
 		}
 	}
 	for _, it := range q.lifecycleAttention() {
+		need[ServiceKey(it.Service)] = true
+	}
+	for _, it := range q.provisioningAttention() {
 		need[ServiceKey(it.Service)] = true
 	}
 }
@@ -951,7 +955,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,lifecycle,undeclared,golden-path,unowned"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,provisioning,readiness,unresolved,out-of-range,lifecycle,undeclared,golden-path,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -979,6 +983,7 @@ const (
 	categoryUnknown      = "unknown"
 	categoryStale        = "stale"
 	categoryInvalid      = "invalid"
+	categoryProvisioning = "provisioning"
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
@@ -1119,7 +1124,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1158,6 +1163,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	}
 	items = append(items, q.unresolvedAttention()...)
 	items = append(items, q.lifecycleAttention()...)
+	items = append(items, q.provisioningAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)

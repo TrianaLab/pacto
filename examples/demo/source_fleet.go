@@ -117,6 +117,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
+		Usage:        demoUsage(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -345,14 +346,17 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 	}
 }
 
-// demoProvisioning is what a platform adapter reports about the resources
-// three consumers asked for, the same three reports
-// examples/demo/fleet-targets.yaml carries: catalog-service 1.3.0's database is
-// Ready in production, the adapter could not observe orders-service's
-// postgresql, so that use reads Unknown, and it could not provision
-// ticketing-service 1.2.0's postgresql-ha database in staging, so that request
-// reads Failed. None is signed, and the dashboard says so. They are dated off the
-// demo clock, so they stay current; the file's fixed date reads stale instead.
+// demoProvisioning is what provider adapters report about the resources four
+// consumers asked for, the same four reports examples/demo/fleet-targets.yaml
+// carries: catalog-service 1.3.0's database is Ready in production, the
+// adapter could not observe orders-service's postgresql, so that use reads
+// Unknown, the mail adapter failed to provision notification-worker 1.0.0's
+// email-provider, a provider that declares no offering, so the resource reads
+// Failed and raises PROVISIONING_FAILED, and the platform adapter could not
+// provision ticketing-service 1.2.0's postgresql-ha database in staging, so
+// that request reads Failed. None is signed, and the dashboard says so. They
+// are dated off the demo clock, so they stay current; the file's fixed date
+// reads stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
 	return []fleet.RawProvisioning{
@@ -364,6 +368,35 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 		{Service: "ticketing-service", Digest: demoDigest(src, "ticketing-service", "1.2.0"), Kind: "dependency", Name: "postgresql-ha",
 			Environment: "staging", Provider: "platform-db", ExternalRef: "databases/ticketing-staging", Phase: string(evidence.PhaseFailed),
 			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications", Phase: string(evidence.PhaseFailed),
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ObservedAt: at},
+	}
+}
+
+// demoUsage is what the platform adapter reports about the usage and cost of
+// catalog-service 1.3.0's database in production. It is marked Verified because
+// the WASM demo stands in for the Evidence Server, which accepts only signed
+// usage reports from a key granted ResourceUsage, so the dashboard shows the
+// figures as reported. examples/demo/fleet-targets.yaml carries the same report
+// unsigned, so the CLI demo reads the same resource's usage unknown. The mail
+// adapter's last usage report on notification-worker's email-provider is
+// signed but two days old, older than the demo's freshness window, so its
+// figures read unknown and stay apart as reported, never as current.
+func demoUsage(src *EmbedSource) []fleet.RawUsage {
+	at := demoNow().Add(-30 * time.Minute)
+	old := demoNow().Add(-48 * time.Hour)
+	return []fleet.RawUsage{
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications",
+			Metrics: []evidence.UsageMetric{{Name: "emails-sent", Value: 120000}},
+			Cost:    &evidence.UsageCost{Amount: "48.00", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ProducerKeyID: "demo-mail-adapter", ObservedAt: old, Verified: true},
+		{Service: "catalog-service", Digest: demoDigest(src, "catalog-service", "1.3.0"), Kind: "configuration", Name: "database",
+			Environment: "production", Provider: "platform-db", ExternalRef: "databases/catalog-production",
+			Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}},
+			Cost:    &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ProducerKeyID: "demo-platform-adapter", ObservedAt: at, Verified: true},
 	}
 }
 

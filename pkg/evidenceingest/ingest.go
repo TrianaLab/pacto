@@ -60,16 +60,15 @@ var ErrInvalidEvidence = errors.New("evidence ingest: evidence set is invalid")
 var ErrContractRefPolicy = errors.New("evidence ingest: contract reference violates ingestion policy")
 
 // ErrProviderNotAllowed is returned when a key scoped to provider repositories
-// (its trust entry's ProviderRepos) reports provisioning about a use whose
+// (its trust entry's ProviderRepos) reports provisioning or usage about a use whose
 // declared ref names no repository under that scope, so one team's adapter can
 // never mark another team's resource Ready. A ref that is not oci:// and a
 // dependency with no ref name no provider repository and are rejected too.
-var ErrProviderNotAllowed = errors.New("evidence ingest: the key may not report provisioning for this provider")
+var ErrProviderNotAllowed = errors.New("evidence ingest: the key may not report provisioning or usage for this provider")
 
 // providerScopedKinds are the observation kinds a trust entry's ProviderRepos
-// scope applies to. A usage kind (#468's possible ResourceUsage) is the next
-// entry if one is added.
-var providerScopedKinds = []evidence.ObservationKind{evidence.ResourceProvisioned}
+// scope applies to: every provider-reported kind.
+var providerScopedKinds = []evidence.ObservationKind{evidence.ResourceProvisioned, evidence.ResourceUsage}
 
 // ProviderScopedKinds returns a copy of the observation kinds a trust entry's
 // ProviderRepos scope applies to, so trust configuration can refuse a scope
@@ -292,8 +291,8 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Domain: contract.OCIDomain(env.EvidenceSet.ContractRef),
 		Digest: digestOf(env.EvidenceSet.ContractRef),
 	}
-	if isProvisioning(env.EvidenceSet) {
-		// A provisioning report claims nothing about the consumer's compliance:
+	if isResourceReport(env.EvidenceSet) {
+		// A provisioning or usage report claims nothing about the consumer's compliance:
 		// it is checked against what the consumer declared and stored as is.
 		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt, entry.ProviderRepos); err != nil {
 			return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
@@ -321,30 +320,39 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	return rec, nil
 }
 
-// isProvisioning reports whether set carries provisioning reports.
-func isProvisioning(set evidence.EvidenceSet) bool {
-	return slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
-		return o.Kind == evidence.ResourceProvisioned
-	})
+// isResourceReport reports whether set carries provider-reported observations
+// (provisioning or usage).
+func isResourceReport(set evidence.EvidenceSet) bool {
+	return slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool { return o.Kind.ProviderReported() })
 }
 
-// checkProvisioning binds a provisioning report to the consumer contract it is
-// about: the set carries only ResourceProvisioned observations, its subject sits
-// under the consumer's repository path (so trust-entry subject globs scope which
-// consumers a key may report for), it is not dated beyond the allowed clock skew
-// past acceptedAt, and every observation names a configuration reference or a
+// isUsageReport reports whether set is a usage report. Accept admits only
+// single-kind provider-reported sets, so any usage observation makes it one.
+func isUsageReport(set evidence.EvidenceSet) bool {
+	return slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool { return o.Kind == evidence.ResourceUsage })
+}
+
+// checkProvisioning binds a provisioning or usage report to the consumer
+// contract it is about: the set carries only one provider-reported kind, its
+// subject sits under the consumer's repository path (so trust-entry subject
+// globs scope which consumers a key may report for) and, for usage, holds a
+// "usage" segment, it is not dated beyond the allowed clock skew past
+// acceptedAt, and every observation names a configuration reference or a
 // dependency the consumer declares, in an environment it declares. When scope
 // is non-empty, the declared ref of each use must also name a provider
 // repository under it.
 func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time, scope []string) error {
-	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
-	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
-		return fmt.Errorf("provisioning subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
+	if err := CheckReportSubject(set); err != nil {
+		return err
 	}
 	if set.ObservedAt.After(acceptedAt.Add(fleet.MaxProvisioningClockSkew)) {
 		return fmt.Errorf("provisioning report is dated %s, more than %s after it was accepted", set.ObservedAt.Format(time.RFC3339), fleet.MaxProvisioningClockSkew)
 	}
+	kind := set.Observations[slices.IndexFunc(set.Observations, func(o evidence.Observation) bool { return o.Kind.ProviderReported() })].Kind
 	for i, o := range set.Observations {
+		if o.Kind != kind {
+			return fmt.Errorf("observation[%d]: an evidence set carries only one provider-reported kind (%s), got %s", i, kind, o.Kind)
+		}
 		if err := checkProvisionedObservation(c, o, scope); err != nil {
 			return fmt.Errorf("observation[%d]: %w", i, err)
 		}
@@ -352,10 +360,40 @@ func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt
 	return nil
 }
 
-func checkProvisionedObservation(c contract.Contract, o evidence.Observation, scope []string) error {
-	if o.Kind != evidence.ResourceProvisioned {
-		return errors.New("a ResourceProvisioned evidence set carries only ResourceProvisioned observations")
+// CheckReportSubject checks the subject of a provisioning or usage report: it
+// sits under the consumer contract's repository path and holds a "usage"
+// segment exactly when it is a usage report. The store keeps the latest record
+// per producer and subject, so the two kinds never share a subject and a usage
+// report never replaces the resource's provisioning record, whatever subject
+// either names.
+func CheckReportSubject(set evidence.EvidenceSet) error {
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
+		return fmt.Errorf("subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
 	}
+	usage, segment := isUsageReport(set), hasUsageSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"))
+	if usage && !segment {
+		return fmt.Errorf("usage subject %q must hold a /usage/ segment under the contract repository, such as %s<environment>/usage/<kind>/<name>", set.Subject.Name, repo+"/")
+	}
+	if !usage && segment {
+		return fmt.Errorf("provisioning subject %q must not hold a /usage/ segment, which usage reports use", set.Subject.Name)
+	}
+	return nil
+}
+
+// hasUsageSegment reports whether rest (a subject below the contract
+// repository) holds "usage" as an inner segment after the first, as in
+// <environment>/usage/<kind>/<name>. A default provisioning subject,
+// <environment>/<kind>/<name>, can never hold it there, so the two never share
+// a subject.
+func hasUsageSegment(rest string) bool {
+	segs := strings.Split(rest, "/")
+	return len(segs) > 2 && slices.Contains(segs[1:len(segs)-1], "usage")
+}
+
+// checkProvisionedObservation checks one provisioning or usage observation
+// against the consumer's declared uses, environments and the key's provider scope.
+func checkProvisionedObservation(c contract.Contract, o evidence.Observation, scope []string) error {
 	ref, ok := declaredUseRef(c, o.Subject)
 	if !ok {
 		return fmt.Errorf("the contract declares no configuration reference or dependency %s %q", o.Subject.Kind, o.Subject.Name)
@@ -365,7 +403,11 @@ func checkProvisionedObservation(c contract.Contract, o evidence.Observation, sc
 			return fmt.Errorf("%w: %s %q refers to %s, outside %v", ErrProviderNotAllowed, o.Subject.Kind, o.Subject.Name, cmp.Or(repo, "no provider repository"), scope)
 		}
 	}
-	if env := o.ProvisionedEnvironment(); env != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }) {
+	env := o.ProvisionedEnvironment()
+	if o.Kind == evidence.ResourceUsage {
+		env = o.UsageEnvironment()
+	}
+	if env != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }) {
 		return fmt.Errorf("the contract declares no environment %q", env)
 	}
 	return nil
@@ -518,6 +560,11 @@ const TargetsSchemaVersion = "pacto.dev/evidence-source/v2"
 // that knows only v2 keeps working against a server with none.
 const TargetsSchemaVersionProvisioning = "pacto.dev/evidence-source/v3"
 
+// TargetsSchemaVersionUsage is v3 plus the usage list. The server writes it
+// only when the response carries usage records, so a v3 reader keeps working
+// against a server with none, and refuses a body it would misread.
+const TargetsSchemaVersionUsage = "pacto.dev/evidence-source/v4"
+
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 const maxFindingsPerTarget = 500
@@ -610,6 +657,30 @@ type ProvisioningDTO struct {
 	AcceptedAt    time.Time `json:"acceptedAt"`
 }
 
+// UsageDTO is one provider-reported usage observation: what the resource a
+// consumer's configuration reference or dependency (Kind, Name) asked for uses
+// and costs. Service/Domain/Digest/ContractRef name the CONSUMER revision. It
+// is never a target and claims nothing about the consumer's compliance.
+type UsageDTO struct {
+	Subject       string                 `json:"subject"`
+	Service       string                 `json:"service"`
+	Domain        string                 `json:"domain,omitempty"`
+	Digest        string                 `json:"digest,omitempty"`
+	ContractRef   string                 `json:"contractRef"`
+	Producer      string                 `json:"producer"`
+	ProducerKeyID string                 `json:"producerKeyId,omitempty"`
+	Kind          string                 `json:"kind"`
+	Name          string                 `json:"name"`
+	Environment   string                 `json:"environment,omitempty"`
+	Provider      string                 `json:"provider,omitempty"`
+	ExternalRef   string                 `json:"externalRef,omitempty"`
+	Metrics       []evidence.UsageMetric `json:"metrics,omitempty"`
+	Cost          *evidence.UsageCost    `json:"cost,omitempty"`
+	Outcome       string                 `json:"outcome"`
+	EvidenceAt    time.Time              `json:"evidenceAt"`
+	AcceptedAt    time.Time              `json:"acceptedAt"`
+}
+
 // TargetsResponse is the versioned read-only evidence-source contribution.
 type TargetsResponse struct {
 	SchemaVersion string            `json:"schemaVersion"`
@@ -618,6 +689,7 @@ type TargetsResponse struct {
 	Truncated     bool              `json:"truncated"`
 	Targets       []TargetDTO       `json:"targets"`
 	Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
+	Usage         []UsageDTO        `json:"usage,omitempty"`
 }
 
 // handleTargets serves the versioned, bounded, read-only evidence-source DTO. It
@@ -639,12 +711,12 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		Health:        res.Health,
 		Targets:       []TargetDTO{},
 	}
-	// Targets and provisioning observations share one budget, so provisioning
+	// Targets and provider-reported observations share one budget, so provider
 	// reports cannot grow the response past the bound targets alone respect.
 	budget := h.maxTargets
 	for _, rec := range res.Records {
-		if isProvisioning(rec.Envelope.EvidenceSet) {
-			budget = h.appendProvisioning(&out, rec, budget)
+		if isResourceReport(rec.Envelope.EvidenceSet) {
+			budget = appendResourceReports(&out, rec, budget)
 			continue
 		}
 		if budget == 0 {
@@ -654,7 +726,10 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		out.Targets = append(out.Targets, h.targetDTO(rec, &out.Truncated))
 		budget--
 	}
-	if len(out.Provisioning) > 0 {
+	switch {
+	case len(out.Usage) > 0:
+		out.SchemaVersion = TargetsSchemaVersionUsage
+	case len(out.Provisioning) > 0:
 		out.SchemaVersion = TargetsSchemaVersionProvisioning
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -683,14 +758,19 @@ func (h *Handler) targetDTO(rec Record, truncated *bool) TargetDTO {
 	}
 }
 
-// appendProvisioning projects one provisioning record, one DTO per observation,
-// within budget, and returns the budget left.
-func (h *Handler) appendProvisioning(out *TargetsResponse, rec Record, budget int) int {
+// appendResourceReports projects one provisioning or usage record, one DTO per
+// observation, within budget, and returns the budget left.
+func appendResourceReports(out *TargetsResponse, rec Record, budget int) int {
 	es := rec.Envelope.EvidenceSet
 	for _, o := range es.Observations {
 		if budget == 0 {
 			out.Truncated = true
 			return 0
+		}
+		budget--
+		if o.Kind == evidence.ResourceUsage {
+			out.Usage = append(out.Usage, usageDTO(rec, o))
+			continue
 		}
 		// The payload was validated at accept; a non-Observed outcome has none.
 		p, _ := o.GetProvisionedObservation()
@@ -701,9 +781,22 @@ func (h *Handler) appendProvisioning(out *TargetsResponse, rec Record, budget in
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: string(p.Phase), Outcome: string(o.Outcome),
 			EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,
 		})
-		budget--
 	}
 	return budget
+}
+
+// usageDTO projects one usage observation of rec.
+func usageDTO(rec Record, o evidence.Observation) UsageDTO {
+	es := rec.Envelope.EvidenceSet
+	// The payload was validated at accept; a non-Observed outcome has none.
+	p, _ := o.GetUsageObservation()
+	return UsageDTO{
+		Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
+		ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
+		Kind: o.Subject.Kind, Name: o.Subject.Name, Environment: o.UsageEnvironment(),
+		Provider: p.Provider, ExternalRef: p.ExternalRef, Metrics: p.Metrics, Cost: p.Cost, Outcome: string(o.Outcome),
+		EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,
+	}
 }
 
 // classifyAcceptError maps an accept error to (HTTP status, stable code, generic
@@ -725,7 +818,7 @@ func classifyAcceptError(err error) (int, string, string) {
 		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"
 	// Before ErrInvalidEvidence, which wraps it.
 	case errors.Is(err, ErrProviderNotAllowed):
-		return http.StatusForbidden, "provider_not_allowed", "the producer's key may not report provisioning for this provider"
+		return http.StatusForbidden, "provider_not_allowed", "the producer's key may not report provisioning or usage for this provider"
 	case errors.Is(err, ErrInvalidEvidence):
 		return http.StatusUnprocessableEntity, "invalid_evidence", "the evidence set is invalid"
 	case errors.Is(err, ErrMalformedEnvelope):

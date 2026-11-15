@@ -649,7 +649,7 @@ func TestRenderServiceEnvironments(t *testing.T) {
 		{Environment: "prod\x1b[31m", Targets: 1, Declared: 1, RevisionsTotal: 1, Revisions: []fleet.EntityRef{{Version: "1.0.0"}},
 			Declaration: &fleet.EnvironmentResult{Status: fleet.EnvironmentPass, Lifetime: fleet.LifetimeNotDeclared},
 			Owner:       fleet.EnvironmentOwner{Owner: "team-a", Provenance: "declared"}, TargetsComplete: true,
-			ProvisioningReason: "no offering use of the current revision provisions a resource"},
+			ProvisioningReason: "no resource use of the current revision provisions a resource"},
 	}, DifferencesError: "environment b: cannot read b.yaml"}}, fleet.CompletenessComplete)
 	out := b.String()
 	for _, want := range []string{"Environments", "prod", "declared: values pass, lifetime not declared; owner team-a (declared); targets you can see: 1 (1 declared), 1.0.0",
@@ -726,6 +726,42 @@ func TestRenderDetailForAnOfferingAvailability(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderServiceResources(t *testing.T) {
+	at := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	var b strings.Builder
+	renderServiceDetail(&b, "notifier", &fleet.ServiceDetailData{HiddenProviders: 2, ConsumedOfferings: fleet.OfferingUsesPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{
+		Provider: fleet.EntityRef{Label: "postgresql\x1b[31m"}, Offering: "postgresql", Via: fleet.RelationshipConfigRef,
+		ProviderOwner: &fleet.OwnershipInfo{Owner: "infra-data"},
+		Requested:     []fleet.RequestedConfiguration{{Provenance: "declared", Configuration: "db", Values: fleet.RuntimePreview{Items: []fleet.RuntimeFact{{Key: "size", Value: "medium"}}}}},
+		Provisioning:  []fleet.ProvisioningStatus{{Environment: "production", Phase: "Ready", Provider: "aws", Source: "evidence", Verified: true, AsOf: &at}},
+		Consumption:   []fleet.ResourceConsumption{{State: "unknown", Reason: "the usage report is not signed", Reported: &fleet.UsageFigures{}, Source: "target-state"}},
+	}}}}, fleet.CompletenessComplete)
+	out := b.String()
+	for _, want := range []string{"Resources (3)", " (offering postgresql) via configuration_reference", "infra-data",
+		"requested (declared): size=medium, configuration db", "production  Ready  aws  signed  asOf 2026-11-01T09:00:00Z",
+		"usage: unknown: the usage report is not signed", "... and 2 more", "at least 2 resources from providers you may not see", fleet.ResourceActionsNote} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resources lack %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[31m") {
+		t.Errorf("provider labels go through safeText:\n%q", out)
+	}
+	b.Reset()
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
+	if strings.Contains(b.String(), "Resources") {
+		t.Errorf("no resources, no section:\n%s", b.String())
+	}
+	b.Reset()
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{ConsumedOfferings: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Provider: fleet.EntityRef{Label: "email-provider"}, Via: fleet.RelationshipDependency, RequestedTruncated: true}}}}, fleet.CompletenessComplete)
+	// A cut request list and an unknown owner say so, as the CLI prints them.
+	for _, want := range []string{"email-provider (no offering) via dependency", "owner unknown, availability unknown", "requested values may be missing: the configurations list was cut"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("resources lack %q:\n%s", want, b.String())
 		}
 	}
 }

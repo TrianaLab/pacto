@@ -55,7 +55,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
 	"signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, correlate, " +
-	"get_trace and render_rca) with the service names Pacto reports, and cite them. A Mira read " +
+	"get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+	"resource's utilization and cost too, unless a resource carries reported consumption. A Mira read " +
 	"with no spans is unknown, never healthy."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
@@ -345,7 +346,9 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
 			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
 			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services with no declared owner, " +
-			"undeclared runtime dependencies and running services that declare service.template (GOLDEN_PATH_DEPLOYED). 'total' and 'truncated' say whether the limit cut the list. With no category " +
+			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
+			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
+			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
@@ -548,7 +551,17 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"from compliance, with 'provenance', 'reason' and 'partial' when the viewer may not see every consumer or provider; " +
 			"'hiddenProviders' counts the providers you may not see. 'observedConsumers' lists callers seen at runtime with no declaration. " +
 			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
-			"'successorRange'. Hidden services are only counted, in the hidden fields. Read-only.",
+			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
+			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
+			"configuration_reference row only, with the 'consumerRevision' that declares them) and 'consumption' per environment " +
+			"('entry' names the consumer entry when a use has more than one): 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about 'revision', the newest consumer revision that uses the " +
+			"resource, gave them, with producer and asOf); 'unknown' carries a 'reason' and, when a report exists but is unsigned, " +
+			"stale or about another revision, its raw numbers in 'reported', never to be quoted as current usage; when current " +
+			"reports disagree, 'conflict' names the producers and no figures are given; " +
+			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
+			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
+			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
@@ -631,7 +644,8 @@ func fleetAttentionTool() *mcpsdk.Tool {
 		Description: "List what needs attention, most severe first, each item with 'severity', 'category', " +
 			"'reason' and 'nextStep', paged ('total', 'truncated', 'nextOffset'), with 'severities' and " +
 			"'categories' tallied over every match. category=undeclared lists runtime calls no contract " +
-			"declares and callers with no contract. Read-only.",
+			"declares and callers with no contract. category=provisioning lists resources a provider reports " +
+			"Failed (PROVISIONING_FAILED) or whose last report about the current revision is stale (PROVISIONING_STALE). Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"category":        {Type: "string", Description: "Attention category", Enum: fleet.AttentionCategoriesList()},
 			"severity":        {Type: "string", Description: "Attention severity", Enum: []string{"error", "warning", "info"}},

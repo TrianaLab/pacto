@@ -69,6 +69,12 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
   },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
+  // catalog-service's Resources section alone: the declared request, its phase and usage.
+  {
+    name: 'service-resources',
+    open: async (p) => { await go(p, '/#/fleet/services/catalog-service', 'catalog-service'); await expect(p.locator('#sec-resources')).toBeVisible(); },
+    element: '#sec-resources',
+  },
 ];
 
 async function finish(page: Page) {

@@ -136,14 +136,23 @@ kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &
 pacto fleet search --evidence-url http://127.0.0.1:8686
 ```
 
-The targets endpoint takes no authentication. It lists contract references,
-producers and the external references of provisioned resources, so keep the
-Service behind the same network and auth boundary as the dashboard.
+The targets endpoint takes no authentication and knows no caller, so no
+viewer restriction applies to it. It lists contract references, producers, the
+external references of provisioned resources and the usage and cost of every
+consumer's resources, so keep the Service behind the same network and auth
+boundary as the dashboard.
+
+A `pacto fleet` or dashboard reads every provisioning and usage record that
+endpoint lists as signed, because the server checked each signature before it
+stored the record; the reader re-checks none. Point `--evidence-url` only at
+your own Evidence Server over a path you trust, such as TLS to its host or the
+port-forward above. Anyone who can answer on that URL can make a forged phase
+or cost read as signed.
 
 ## Provisioning reports
 
 A provider adapter reports the state of a resource a consumer's contract asked
-for as a [`ResourceProvisioned`](../../evidence.md#provisioning-reports)
+for as a [`ResourceProvisioned`](../../provider-reports.md#provisioning-reports)
 EvidenceSet, written with `pacto evidence provisioned`. The report is stored on
 the consumer's contract revision, so that revision must be one of the
 `evidence.registry.subjects`. Use one EvidenceSet subject per resource: the
@@ -173,15 +182,16 @@ keys:
     allowedProviderRepos: [ghcr.io/acme/platform/postgresql]
 ```
 
+A usage adapter's key lists
+[`ResourceUsage`](../../provider-reports.md#usage-reports) instead.
 Give each adapter its own key, scoped with `allowedProviderRepos` to the
 provider repositories it serves. A report is in scope when the consumer's
 declared configuration or dependency ref names a repository under one of the
 prefixes, so the PostgreSQL adapter above can never mark a Redis cache Ready.
 The server refuses a report outside the scope with HTTP 403 and the code
-`provider_not_allowed`, and logs a startup warning for every provisioning key
-with no scope. Reports accepted before a key is narrowed stay until a newer
-report replaces them or they pass the provisioning window, so have the right
-adapter report again. The field needs Pacto core 4.5.0 or later; older servers
+`provider_not_allowed`, and logs a startup warning for every provisioning or
+usage key with no scope. Reports accepted before a key is narrowed stay until a newer
+report replaces them or they pass the provisioning window. The field needs Pacto core 4.5.0 or later; older servers
 refuse the config. The unsigned target-state file has no keys, so the scope
 cannot protect it.
 
@@ -201,10 +211,11 @@ longer trusted. The chart accepts only a `.yaml` or `.yml` key.
 
 ### Read provisioning reports
 
-The targets endpoint answers with schema `pacto.dev/evidence-source/v3` and a
-`provisioning` list when it holds provisioning reports, and with
+The targets endpoint answers with schema `pacto.dev/evidence-source/v4` and a
+`usage` list when it holds usage reports, with `pacto.dev/evidence-source/v3`
+and a `provisioning` list when it holds only provisioning reports, and with
 `pacto.dev/evidence-source/v2` otherwise, so an older reader keeps working
-against a server that holds none. A provisioning report is never a target.
+against a server that holds none. A provider report is never a target.
 
 Nothing durable lives in the cluster: no PersistentVolumeClaim, no data volume,
 because the registry is the store. Delete and recreate the Deployment and the

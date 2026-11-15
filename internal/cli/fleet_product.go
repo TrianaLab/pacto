@@ -380,7 +380,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOfferingText(w, res.Offering)
 		}
 		if res.Service != nil {
-			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
+			printResources(w, res.Service)
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
@@ -659,20 +659,7 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 	}
 	_, _ = fmt.Fprintln(w, title)
 	for _, u := range uses.Items {
-		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via)
-		if u.RangeStatus != "" {
-			_, _ = fmt.Fprintf(w, ", range %s", u.RangeStatus)
-		}
-		if l := lifecycleText(u.ProviderLifecycle); l != "" {
-			_, _ = fmt.Fprintf(w, ", provider %s", l)
-		}
-		if u.SuccessorRange != "" {
-			_, _ = fmt.Fprintf(w, ", successor range %s", u.SuccessorRange)
-		}
-		if u.SupportedRange != "" {
-			_, _ = fmt.Fprintf(w, ", latest supported range %s", u.SupportedRange)
-		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s%s\n", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via, useNotes(u))
 		for _, st := range u.Provisioning {
 			where := strings.TrimSpace(st.Environment + " " + st.Entry)
 			if where != "" {
@@ -681,6 +668,12 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", where, provisioningText(st))
 		}
 	}
+	printUsesTallies(w, uses)
+}
+
+// printUsesTallies renders what the bounded preview left out and the tallies
+// over every use.
+func printUsesTallies(w io.Writer, uses fleet.OfferingUsesPreview) {
 	if uses.Truncated {
 		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
 	}
@@ -690,6 +683,60 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 		_, _ = fmt.Fprintf(w, "  provisioning requests: %s\n", phaseText(p))
 		_, _ = fmt.Fprintf(w, "  consumers by phase: %s\n", phaseText(uses.PhaseConsumers))
 	}
+}
+
+// printResources renders the resources a service consumes, one per use: the
+// provider and its owner and availability, what the service requested
+// (declared), what each environment reports (observed, with the adapter,
+// signature and time) and what Pacto knows about consumption. Uses whose
+// provider the caller may not see are counted, never named.
+func printResources(w io.Writer, d *fleet.ServiceDetailData) {
+	uses := d.ConsumedOfferings
+	if uses.Total == 0 && d.HiddenProviders == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Resources:")
+	for _, u := range uses.Items {
+		printResource(w, u)
+	}
+	if uses.Total > 0 {
+		printUsesTallies(w, uses)
+	}
+	if d.HiddenProviders > 0 {
+		_, _ = fmt.Fprintf(w, "  at least %d resources from providers you may not see\n", d.HiddenProviders)
+	}
+	_, _ = fmt.Fprintln(w, "  "+fleet.ResourceActionsNote)
+}
+
+// printResource renders one use row of the Resources block.
+func printResource(w io.Writer, u fleet.OfferingUse) {
+	offering := "no offering"
+	if u.Offering != "" {
+		offering = "offering " + u.Offering
+	}
+	_, _ = fmt.Fprintf(w, "  %s (%s) via %s%s\n", u.Provider.Label, offering, u.Via, useNotes(u))
+	for _, l := range u.ResourceLines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
+	}
+}
+
+// useNotes is the range, provider lifecycle and successor range of a use, as
+// the offering pages print them.
+func useNotes(u fleet.OfferingUse) string {
+	var s string
+	if u.RangeStatus != "" {
+		s += ", range " + u.RangeStatus
+	}
+	if l := lifecycleText(u.ProviderLifecycle); l != "" {
+		s += ", provider " + l
+	}
+	if u.SuccessorRange != "" {
+		s += ", successor range " + u.SuccessorRange
+	}
+	if u.SupportedRange != "" {
+		s += ", latest supported range " + u.SupportedRange
+	}
+	return s
 }
 
 // printRevisionPlace renders where a revision stands in its service, how many

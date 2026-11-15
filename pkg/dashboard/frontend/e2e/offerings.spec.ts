@@ -143,7 +143,7 @@ test.describe('WASM demo — platform offerings', () => {
   test('the catalog-service page words its unsigned database report the same way', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet/services/catalog-service');
-    const use = page.getByTestId('service-offerings-used').locator('.se-use').filter({ hasText: 'postgresql' });
+    const use = page.getByTestId('service-resource').filter({ has: page.locator('a.entity-link[href$="/fleet/services/postgresql"]') });
     // catalog-service 1.3.0 uses postgresql twice; the adapter reported only the configuration's database.
     const badge = use.getByTestId('provisioning-badge').filter({ has: page.locator('.tag', { hasText: 'Ready' }) });
     await expect(badge.locator('.tag')).toHaveText('production: Ready (unsigned)', { timeout: T });
