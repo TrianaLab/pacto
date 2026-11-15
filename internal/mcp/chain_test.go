@@ -116,7 +116,9 @@ func TestEditNoSnapshotSaysUnknown(t *testing.T) {
 }
 
 func TestEditImpactErrorIsUnknown(t *testing.T) {
-	failing := func(context.Context, string, string, string) (*impact.Result, error) { return nil, errors.New("registry down") }
+	failing := func(context.Context, string, string, string) (*impact.Result, error) {
+		return nil, errors.New("registry down")
+	}
 	dir := refRoot(t, orders23, nil)
 	res, err := Edit(context.Background(), nil, EditOptions{Impact: failing, Served: allServed}, EditInput{Path: dir, Version: strPtr("1.1.0")})
 	if err != nil {
