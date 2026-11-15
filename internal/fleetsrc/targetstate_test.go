@@ -418,3 +418,29 @@ usage:
 		t.Errorf("v1 with usage: err = %v, want the v2 hint", err)
 	}
 }
+
+// TestAttackTargetStateMissingMetricValue: a usage entry whose metric omits
+// its value is skipped with a limitation, never read as a measured zero.
+func TestAttackTargetStateMissingMetricValue(t *testing.T) {
+	body := `schemaVersion: pacto.dev/fleet-targets/v2
+targets: []
+usage:
+  - service: orders
+    digest: sha256:o
+    kind: configuration
+    name: db
+    provider: aws
+    metrics:
+      - name: storage-used
+        unit: Gi
+    observedAt: 2026-07-29T09:40:00Z
+`
+	col, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Usage) != 0 || len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
+		!strings.Contains(col.Limitations[0].Message, `metric "storage-used" has no value`) {
+		t.Errorf("usage %+v limitations %+v, want the entry skipped with a limitation", col.Usage, col.Limitations)
+	}
+}
