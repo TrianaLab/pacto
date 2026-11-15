@@ -121,6 +121,8 @@ func fleetDetailRows() []surfaceRow {
 		[]surfaceRow{
 			{"fleet entity <kind>", "pacto_fleet_entity.kind", "GET /api/fleet/entities/{kind}?kind", ""},
 			{"fleet entity <key>", "pacto_fleet_entity.key", "GET /api/fleet/entities/{kind}?key", ""},
+			{"fleet entity --reached", "pacto_fleet_entity.reached", "GET /api/fleet/entities/{kind}?reached", ""},
+			{"fleet entity --trust", "", "", whyAtServerStart},
 			{"fleet versions <offering>", "pacto_fleet_versions.offering", "GET /api/fleet/versions?offering", ""},
 			{"fleet get [service]", "pacto_fleet_get.service", "GET /api/fleet/service?key", ""},
 			{"fleet get --target", "pacto_fleet_get.target", "GET /api/fleet/target?key", ""},

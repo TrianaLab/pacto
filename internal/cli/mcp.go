@@ -205,6 +205,15 @@ func mcpModes(cmd *cobra.Command, svc *app.Service, version string, args []strin
 	return m, err
 }
 
+// stdioReached reads delivery for reached as this process's own user, over
+// stdio only: an HTTP server's callers are not that user.
+func stdioReached(cmd *cobra.Command, d deps, transport string) pactomcp.ReachedReader {
+	if transport != "stdio" {
+		return nil
+	}
+	return attachReached(cmd, d)
+}
+
 // buildFleetMode serves the fleet tools over a snapshot that rebuilds after
 // the dashboard's refresh interval. The first build fails startup; later ones
 // run on the command's lifetime context, never a request's, so a cancelled call
@@ -226,6 +235,7 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
+		Reached: stdioReached(cmd, d, transport),
 	}}, nil
 }
 

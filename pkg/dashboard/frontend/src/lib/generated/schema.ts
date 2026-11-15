@@ -2180,6 +2180,24 @@ export interface components {
             ref?: string;
             type?: string;
         };
+        "Fleet.ChangeReach": {
+            /** @description When the move that brought the revision reached the Stage (applied, else finished), RFC 3339 */
+            at: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The move was read from an Operation's status or an unrecordable record: nothing signed it */
+            fromStatus?: boolean;
+            /** @description The pacto.impact verdict the record carries; signed only when verified */
+            impact?: components["schemas"]["Fleet.RecordedVerdict"];
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The delivery record of the move; empty when it was read from an Operation's status */
+            record?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /** @description The record's signature was checked against a trust config: a signed move */
+            verified: boolean;
+        };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
             compliant: number;
@@ -3190,6 +3208,17 @@ export interface components {
             notDeclared: number;
             /** Format: int64 */
             passing: number;
+        };
+        "Fleet.RecordedVerdict": {
+            /** @description The gate that judged */
+            gate: string;
+            /** @description Why */
+            message?: string;
+            /**
+             * @description What it said
+             * @enum {string}
+             */
+            result: "Pass" | "Fail" | "Unknown";
         };
         "Fleet.ReferrersPreview": {
             /** Format: int64 */
@@ -4283,6 +4312,8 @@ export interface components {
              * @enum {string}
              */
             provenance: "declared";
+            /** @description With reached: when the revision first reached each Stage the caller may read, at most one per Stage, from delivery records */
+            reached?: components["schemas"]["Fleet.ChangeReach"][] | null;
             /** @description The first revision this answer holds that shows the change */
             revision: components["schemas"]["ProductRef"];
             /**
@@ -4311,6 +4342,15 @@ export interface components {
             gaps: number;
             /** @description Newest first, in version order, not a timeline */
             items: components["schemas"]["ProductChangeEvent"][] | null;
+            /**
+             * @description Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed), hidden (the caller may not list Stages)
+             * @enum {string}
+             */
+            times: "not-read" | "read" | "partial" | "hidden";
+            /** @description Why the times were not read in full */
+            timesReason?: string;
+            /** @description partial: the namespaces whose Stages were not read */
+            timesUnreadable?: string[] | null;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -7427,6 +7467,8 @@ export interface operations {
             query: {
                 /** @description Canonical entity key (a slash-bearing key is transported safely as a query param) */
                 key: string;
+                /** @description For a service: also read, as you, when each change reached a Stage, from delivery history (changes.times says how) */
+                reached?: boolean;
             };
             header?: never;
             path: {

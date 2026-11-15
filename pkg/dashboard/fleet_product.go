@@ -168,6 +168,8 @@ func (s *Server) fleetVersions(ctx context.Context, in *fleetVersionsInput) (*fl
 type fleetEntityDetailInput struct {
 	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source, domain or offering"`
 	Key  string `query:"key" required:"true" doc:"Canonical entity key (a slash-bearing key is transported safely as a query param)"`
+	// Reached reads delivery as the caller; the answer is never cached.
+	Reached bool `query:"reached" doc:"For a service: also read, as you, when each change reached a Stage, from delivery history (changes.times says how)"`
 }
 
 type fleetEntityDetailOutput struct{ Body *ProductEntityDetail }
@@ -180,6 +182,9 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 	res, err := q.EntityDetail(fleet.EntityKind(in.Kind), in.Key)
 	if err != nil {
 		return nil, productQueryError(err)
+	}
+	if in.Reached && res.Service != nil {
+		s.attachReached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
 	}
 	return &fleetEntityDetailOutput{Body: productview.ToEntityDetail(res)}, nil
 }

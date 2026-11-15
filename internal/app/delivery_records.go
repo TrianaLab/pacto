@@ -436,15 +436,21 @@ func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery
 		out.Unreadable, out.Completeness = append(w.Forbidden, out.Unreadable...), "partial"
 		out.Note += "; the namespaces listed as unreadable were not read, so a change in them may still have happened"
 	}
+	return &delivery.HistoriesAnswer{HistoryWalk: out, Revisions: d.revisionKeys(ctx, historyDigests(w.Stages, out.Histories)...)}, nil
+}
+
+// historyDigests are the artifact digests each of hs names, on its Stage
+// among stages.
+func historyDigests(stages []delivery.StageObject, hs []delivery.StageHistory) []stageDigests {
 	byName := map[string]*delivery.StageObject{}
-	for i, st := range w.Stages {
-		byName[st.Metadata.Namespace+"/"+st.Metadata.Name] = &w.Stages[i]
+	for i, st := range stages {
+		byName[st.Metadata.Namespace+"/"+st.Metadata.Name] = &stages[i]
 	}
-	var on []stageDigests
-	for _, h := range out.Histories {
+	on := make([]stageDigests, 0, len(hs))
+	for _, h := range hs {
 		on = append(on, stageDigests{byName[h.Namespace+"/"+h.Stage.Name], delivery.HistoryDigests(h.History)})
 	}
-	return &delivery.HistoriesAnswer{HistoryWalk: out, Revisions: d.revisionKeys(ctx, on...)}, nil
+	return on
 }
 
 // HistoryWithRevisions is History with the derived revision key of every
@@ -487,20 +493,7 @@ type stageDigests struct {
 // its artifact could not be read or any Stage naming it is of another service
 // than its contract: a key is never guessed.
 func (d *Delivery) revisionKeys(ctx context.Context, on ...stageDigests) map[string]string {
-	var ask []string
-	from := map[string]*delivery.StageObject{}
-	for _, o := range on {
-		for _, dg := range o.digests {
-			if _, seen := from[dg]; dg != "" && !seen {
-				ask, from[dg] = append(ask, dg), o.st
-			}
-		}
-	}
-	revs := delivery.DescribeAll(ctx, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] }, d.Describe)
-	read := map[string]delivery.Described{}
-	for i, dg := range ask {
-		read[dg] = delivery.DescribedOf(revs[i], "")
-	}
+	read := d.describeOn(ctx, on...)
 	out, refused := map[string]string{}, map[string]bool{}
 	for _, o := range on {
 		for _, dg := range o.digests {
@@ -515,6 +508,26 @@ func (d *Delivery) revisionKeys(ctx context.Context, on ...stageDigests) map[str
 		}
 	}
 	return out
+}
+
+// describeOn reads what each digest of on carries, delivery.DescribeParallel
+// at once, each from the first Stage that names it.
+func (d *Delivery) describeOn(ctx context.Context, on ...stageDigests) map[string]delivery.Described {
+	var ask []string
+	from := map[string]*delivery.StageObject{}
+	for _, o := range on {
+		for _, dg := range o.digests {
+			if _, seen := from[dg]; dg != "" && !seen {
+				ask, from[dg] = append(ask, dg), o.st
+			}
+		}
+	}
+	revs := delivery.DescribeAll(ctx, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] }, d.Describe)
+	read := make(map[string]delivery.Described, len(ask))
+	for i, dg := range ask {
+		read[dg] = delivery.DescribedOf(revs[i], "")
+	}
+	return read
 }
 
 // auditWalk is what a fleet audit's listing read: Stages, the Stages of the

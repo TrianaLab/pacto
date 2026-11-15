@@ -83,7 +83,18 @@ type FleetOptions struct {
 	// DashboardURL, when set, is the base URL of a Pacto dashboard: fleet answers
 	// then carry an href to each entity's page there.
 	DashboardURL string
+	// Reached, when set, reads as this process's own user when each change of
+	// service svc reached its Stages and attaches it to h (q.AttachReached).
+	// nil: the server reads no delivery for its callers.
+	Reached ReachedReader
 }
+
+// ReachedReader attaches to h when each change of service svc reached its
+// Stages, read as the caller.
+type ReachedReader func(ctx context.Context, q *fleet.Query, svc fleet.ServiceKey, h *fleet.ChangeHistoryPreview)
+
+// httpNotRead is why a server with no ReachedReader leaves times unread.
+const httpNotRead = "this server answers over HTTP and reads no delivery for its callers; run pacto mcp over stdio beside the agent"
 
 // FleetView narrows q to what the verified caller may see (caller is nil over
 // stdio). An error is answered as the tool's error, never as a smaller answer.
@@ -146,7 +157,7 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetEntitiesHandler(q, link)
 	})
 	addFleetTool(server, fleetEntityTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-		return fleetEntityHandler(q, link)
+		return fleetEntityHandler(q, link, opts.Reached)
 	})
 	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 		return fleetAttentionHandler(q, link)
@@ -556,8 +567,10 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"'provisioningTracked', 'targetsComplete' and the 'differences' between the environments' values; and " +
 			"'changes', every declared change across the versions held (owner, domain, offering, dependency, lifecycle, " +
 			"environment, plus finding changes from validation), in version order, each with 'provenance', 'source', " +
-			"'revision' and 'previous'; 'gaps' and 'completeness'. A change has a time only from a signed delivery " +
-			"record ('reached'), never from when Pacto read it. An offering carries 'availability' and each provider its own: per " +
+			"'revision' and 'previous'; 'gaps' and 'completeness'. A change has a time only from delivery history, never " +
+			"from when Pacto read it: with reached=true each change carries 'reached', when its revision first reached each Stage " +
+			"(a 'record' with 'verified' true is signed; 'fromStatus' is not signed), and 'times' says how they were read " +
+			"(not-read, read, partial or hidden, with 'timesReason'). Only a server over stdio reads delivery, as its own user. An offering carries 'availability' and each provider its own: per " +
 			"environment a 'state' (available, degraded, unavailable or unknown) derived from observed targets and consumer reports, never " +
 			"from compliance, with 'provenance', 'reason' and 'partial' when the viewer may not see every consumer or provider; " +
 			"'hiddenProviders' counts the providers you may not see. 'observedConsumers' lists callers seen at runtime with no declaration. " +
@@ -571,18 +584,29 @@ func fleetEntityTool() *mcpsdk.Tool {
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
+			"reached": {Type: "boolean", Description: "For a service: also read when each change reached a Stage, from delivery records " +
+				"with the server's own cluster credentials (stdio only)"},
 		}, []string{"kind", "key"}),
 	}
 }
 
 type fleetEntityArgs struct {
-	Kind string `json:"kind"`
-	Key  string `json:"key"`
+	Kind    string `json:"kind"`
+	Key     string `json:"key"`
+	Reached bool   `json:"reached,omitempty"`
 }
 
-func fleetEntityHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToEntityDetail)(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
+func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := q.EntityDetail(fleet.EntityKind(a.Kind), a.Key)
+		switch {
+		case err != nil || !a.Reached || res.Service == nil:
+		case reached == nil:
+			q.AttachReached(&res.Service.Changes, nil, fleet.TimesNotRead, httpNotRead, nil)
+		default:
+			reached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
+		}
+		return productResult(link, productview.ToEntityDetail)(res, err)
 	}
 }
 

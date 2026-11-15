@@ -278,6 +278,15 @@ check("prod held payments 2.4.1 for team payments: it declares no prod environme
   env241.outcome === "Rejected" && /declares no environment prod/.test(envVerdict?.message || ""), envVerdict?.message);
 const evals = (json(call("GET", "/api/delivery/operations/test/pay-agent-promote-17")).operation?.status?.verdicts || []).find((v) => v.gate === "evals");
 check("pay-agent 1.1.0 failed evals its runner signed", evals?.result === "Fail" && evals.citation?.runner === "story-evals" && !!evals.citation?.runnerBundle, JSON.stringify(evals?.citation?.runner));
+// A change's time comes only from delivery records, read when asked (reached):
+// the story payments service reached its Stages by signed records.
+const storyPayments = "/api/fleet/entities/service?key=registry.example%252Fstory%2Fpayments";
+const reached = json(call("GET", storyPayments + "&reached=true")).service?.changes || {};
+const unread = json(call("GET", storyPayments)).service?.changes || {};
+check("story payments changes carry reached times from records",
+  reached.times === "read" && (reached.items || []).some((e) => (e.reached || []).some((r) => !!r.record)), `times=${reached.times}`);
+check("without reached no delivery is read and the changes are the same",
+  unread.times === "not-read" && unread.total === reached.total && !(unread.items || []).some((e) => e.reached), `times=${unread.times} total=${unread.total}/${reached.total}`);
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

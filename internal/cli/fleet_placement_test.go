@@ -49,8 +49,8 @@ func TestPrintChanges(t *testing.T) {
 		{Kind: "environment", Subject: "dev", Change: "present", Revision: rev},
 	}})
 	want := "Changes, version order (2 of 2, partial: r):\n" +
-		"  web 1.1.0  owner changed: team:a -> team:b, compared with web 1.0.0  time not recorded\n" +
-		"  web 1.0.0  environment dev declared since at least web 1.0.0  time not recorded\n" +
+		"  web 1.1.0  owner changed: team:a -> team:b, compared with web 1.0.0  time not read\n" +
+		"  web 1.0.0  environment dev declared since at least web 1.0.0  time not read\n" +
 		changesFooter + "\n"
 	if b.String() != want {
 		t.Errorf("changes:\n%s\nwant:\n%s", b.String(), want)

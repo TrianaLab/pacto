@@ -110,7 +110,7 @@ func TestFleetEntityTool(t *testing.T) {
 	q := buildProductQuery(t)
 	detail := func(kind, key string) fleet.EntityDetail {
 		var out fleet.EntityDetail
-		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": kind, "key": key}), &out)
+		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": kind, "key": key}), &out)
 		return out
 	}
 	if d := detail("domain", "shop"); d.Domain == nil || d.Entity.Kind != fleet.KindDomain {
@@ -119,13 +119,13 @@ func TestFleetEntityTool(t *testing.T) {
 	if d := detail("offering", "payments-api"); d.Offering == nil {
 		t.Errorf("offering detail = %+v", d)
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
 		t.Error("an unknown kind is rejected by the schema")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service"}); !res.IsError {
 		t.Error("a missing key is an error result")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false, nil), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
 		t.Error("an unknown key is an error result")
 	}
 }

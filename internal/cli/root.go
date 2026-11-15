@@ -249,7 +249,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newPublishCommand(svc, v, d, rec))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
-	root.AddCommand(newFleetCommand(svc, v))
+	root.AddCommand(newFleetCommand(svc, v, d))
 	root.AddCommand(newEvidenceCommand(svc, v))
 	root.AddCommand(newAgentCommand(svc, v, info.Version, d))
 	root.AddCommand(newRunCommand(svc, v, info.Version, d))

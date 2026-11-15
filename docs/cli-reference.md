@@ -1065,7 +1065,7 @@ pacto fleet entities [text] [flags]
 
 ### `pacto fleet entity`
 
-Inspect one service, revision, target, owner, source, business domain or offering
+Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by content, so their changes match no delivery record.
 
 ```
 pacto fleet entity <kind> <key> [flags]
@@ -1074,7 +1074,9 @@ pacto fleet entity <kind> <key> [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]   help for entity
+  -h, --help[=true|false]      help for entity
+      --reached[=true|false]   read when each change reached a Stage from signed delivery records, with your cluster credentials
+      --trust string           with --reached: the trust config delivery records are verified with (default $PACTO_DELIVERY_TRUST)
 ```
 
 ### `pacto fleet explain`

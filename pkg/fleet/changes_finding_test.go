@@ -41,7 +41,7 @@ func TestChangesFindingAppeared(t *testing.T) {
 			t.Errorf("event %+v", e)
 		}
 	}
-	if l := h.Lines(); l[0] != "  svc v2.0.0  finding B (interface admin) added: error, compared with svc v1.0.0  time not recorded" {
+	if l := h.Lines(); l[0] != "  svc v2.0.0  finding B (interface admin) added: error, compared with svc v1.0.0  time not read" {
 		t.Errorf("lines = %q", l)
 	}
 }

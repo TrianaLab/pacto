@@ -681,12 +681,12 @@ func TestRenderServiceChanges(t *testing.T) {
 		{Kind: "owner", Change: "present", To: "team:web", Revision: rev},
 	}}}, fleet.CompletenessComplete)
 	out := b.String()
-	for _, want := range []string{"Changes, version order (2 of 2, 1 revision(s) unread)", "environment prod changed (owner)  time not recorded", "owner team:web declared since at least svc 1.1.0"} {
+	for _, want := range []string{"Changes, version order (2 of 2, 1 revision(s) unread)", "environment prod changed (owner)  time not read", "owner team:web declared since at least svc 1.1.0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("changes lack %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not recorded") != 2 {
+	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not read") != 2 {
 		t.Errorf("change lines:\n%q", out)
 	}
 	b.Reset()

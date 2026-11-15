@@ -17,16 +17,37 @@ import (
 // revisions this answer holds, in version order. It carries no time: the
 // fleet records no revision creation time.
 type ChangeEvent struct {
-	Kind       string     `json:"kind" enum:"owner,domain,offering,dependency,lifecycle,environment,finding" doc:"What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding"`
-	Subject    string     `json:"subject,omitempty" doc:"The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle"`
-	Change     string     `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum"`
-	Fields     []string   `json:"fields,omitempty" doc:"changed: which declared fields changed"`
-	From       string     `json:"from,omitempty" doc:"The value before the change, as the previous revision declares it; for a finding, its severity or the readiness \"score N/M\" (score and minimum)"`
-	To         string     `json:"to,omitempty" doc:"The value after the change, as the revision declares it"`
-	Revision   EntityRef  `json:"revision" doc:"The first revision this answer holds that shows the change; versions between it and previous may not be held"`
-	Previous   *EntityRef `json:"previous,omitempty" doc:"The revision it was compared with: the change happened after it, at or before revision"`
-	Provenance string     `json:"provenance" enum:"declared" doc:"declared: read from immutable contract revisions"`
-	Source     string     `json:"source" enum:"contract,validation" doc:"contract: an edit the contract declares; validation: a result of Pacto's own check of the revision"`
+	Kind       string        `json:"kind" enum:"owner,domain,offering,dependency,lifecycle,environment,finding" doc:"What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding"`
+	Subject    string        `json:"subject,omitempty" doc:"The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle"`
+	Change     string        `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum"`
+	Fields     []string      `json:"fields,omitempty" doc:"changed: which declared fields changed"`
+	From       string        `json:"from,omitempty" doc:"The value before the change, as the previous revision declares it; for a finding, its severity or the readiness \"score N/M\" (score and minimum)"`
+	To         string        `json:"to,omitempty" doc:"The value after the change, as the revision declares it"`
+	Revision   EntityRef     `json:"revision" doc:"The first revision this answer holds that shows the change; versions between it and previous may not be held"`
+	Previous   *EntityRef    `json:"previous,omitempty" doc:"The revision it was compared with: the change happened after it, at or before revision"`
+	Provenance string        `json:"provenance" enum:"declared" doc:"declared: read from immutable contract revisions"`
+	Source     string        `json:"source" enum:"contract,validation" doc:"contract: an edit the contract declares; validation: a result of Pacto's own check of the revision"`
+	Reached    []ChangeReach `json:"reached,omitempty" doc:"With reached: when the revision first reached each Stage the caller may read, at most one per Stage, from delivery records"`
+}
+
+// ChangeReach is when a revision's artifact first reached one Stage, read
+// from that Stage's delivery history as the caller.
+type ChangeReach struct {
+	Namespace   string           `json:"namespace" doc:"The Stage's namespace"`
+	Stage       string           `json:"stage" doc:"The Stage's name"`
+	Environment string           `json:"environment,omitempty" doc:"The environment the Stage delivers to"`
+	At          string           `json:"at" doc:"When the move that brought the revision reached the Stage (applied, else finished), RFC 3339"`
+	Record      string           `json:"record,omitempty" doc:"The delivery record of the move; empty when it was read from an Operation's status"`
+	FromStatus  bool             `json:"fromStatus,omitempty" doc:"The move was read from an Operation's status or an unrecordable record: nothing signed it"`
+	Verified    bool             `json:"verified" doc:"The record's signature was checked against a trust config: a signed move"`
+	Impact      *RecordedVerdict `json:"impact,omitempty" doc:"The pacto.impact verdict the record carries; signed only when verified"`
+}
+
+// RecordedVerdict is a gate verdict a delivery record carries.
+type RecordedVerdict struct {
+	Gate    string `json:"gate" doc:"The gate that judged"`
+	Result  string `json:"result" enum:"Pass,Fail,Unknown" doc:"What it said"`
+	Message string `json:"message,omitempty" doc:"Why"`
 }
 
 // ChangeHistoryPreview is every declared change across the revisions of a
@@ -39,6 +60,9 @@ type ChangeHistoryPreview struct {
 	Gaps               int           `json:"gaps" doc:"Revisions whose contract could not be read; no change is reported across them"`
 	Completeness       string        `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held"`
 	CompletenessReason string        `json:"completenessReason,omitempty"`
+	Times              string        `json:"times" enum:"not-read,read,partial,hidden" doc:"Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed), hidden (the caller may not list Stages)"`
+	TimesReason        string        `json:"timesReason,omitempty" doc:"Why the times were not read in full"`
+	TimesUnreadable    []string      `json:"timesUnreadable,omitempty" doc:"partial: the namespaces whose Stages were not read"`
 }
 
 // Change kinds, in the order a revision's changes are listed.
@@ -123,7 +147,29 @@ func (q *Query) serviceChanges(s *ServiceRecord) ChangeHistoryPreview {
 	h.Items, h.Total, h.Truncated = boundSlice(newestFirst(groups), MaxDetailPreview)
 	h.Count = len(h.Items)
 	h.Completeness, h.CompletenessReason = historyCompleteness(q.revisionsPartial(s), len(groups))
+	h.Times, h.TimesReason = TimesNotRead, "ask with reached to read delivery records"
 	return h
+}
+
+// The values of ChangeHistoryPreview.Times.
+const (
+	TimesNotRead = "not-read"
+	TimesRead    = "read"
+	TimesPartial = "partial"
+	TimesHidden  = "hidden"
+)
+
+// AttachReached sets on each event of h when its revision reached each
+// Stage, byContract keyed by the revision's contract digest, and how the
+// times were read. It never adds or drops an event: delivery decides only
+// the times.
+func (q *Query) AttachReached(h *ChangeHistoryPreview, byContract map[string][]ChangeReach, times, reason string, unreadable []string) {
+	h.Times, h.TimesReason, h.TimesUnreadable = times, reason, unreadable
+	for i, e := range h.Items {
+		if r := q.snap.Revisions[RevisionKey(e.Revision.Key)]; r != nil && r.Digest != "" {
+			h.Items[i].Reached = byContract[r.Digest]
+		}
+	}
 }
 
 // revisionChanges is every declared change r makes to prev, or what r
@@ -414,18 +460,56 @@ func (h ChangeHistoryPreview) Heading() string {
 	if h.CompletenessReason != "" {
 		s += ", partial: " + h.CompletenessReason
 	}
+	if h.Times != TimesRead && h.TimesReason != "" {
+		s += ", times " + h.Times + ": " + h.TimesReason
+	}
 	return s + ")"
 }
 
-// Lines is one line per event: the revision, the change and the revision it
-// was compared with. No event has a time, and every line says so.
+// Lines is one line per event: the revision, the change, the revision it was
+// compared with and when it reached each Stage, or why no time is shown.
 func (h ChangeHistoryPreview) Lines() []string {
 	out := make([]string, 0, len(h.Items))
 	for _, e := range h.Items {
-		out = append(out, "  "+e.Revision.Label+"  "+e.what()+"  time not recorded")
+		out = append(out, "  "+e.Revision.Label+"  "+e.what()+"  "+h.timeOf(e))
 	}
 	return out
 }
+
+// timeOf is when e reached each Stage, or why it has no time.
+func (h ChangeHistoryPreview) timeOf(e ChangeEvent) string {
+	if len(e.Reached) > 0 {
+		parts := make([]string, len(e.Reached))
+		for i, r := range e.Reached {
+			parts[i] = r.line()
+		}
+		return strings.Join(parts, "; ")
+	}
+	switch h.Times {
+	case TimesRead:
+		return "time not recorded"
+	case TimesPartial:
+		return "time not recorded in the Stages read (" + h.TimesReason + ")"
+	case TimesHidden:
+		return "time hidden (" + h.TimesReason + ")"
+	}
+	return "time not read"
+}
+
+// line is the reach as "reached <stage> <time> (<how it is known>)".
+func (r ChangeReach) line() string {
+	how := "record " + shortRecord(r.Record)
+	switch {
+	case r.FromStatus:
+		how = "from status, not signed"
+	case !r.Verified:
+		how = "recorded, signature not checked"
+	}
+	return "reached " + r.Stage + " " + r.At + " (" + how + ")"
+}
+
+// shortRecord is a record id as short as the CLI's history table prints it.
+func shortRecord(id string) string { return id[:min(len(id), 19)] }
 
 // what is the event without its revision and time.
 func (e ChangeEvent) what() string {

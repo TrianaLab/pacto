@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -147,11 +149,14 @@ func addTemplateFlag(f *pflag.FlagSet) {
 	f.Lookup("template").NoOptDefVal = fleet.TemplateOnly
 }
 
-func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
-	return &cobra.Command{
+func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "entity <kind> <key>",
 		Short: "Inspect one service, revision, target, owner, source, business domain or offering",
-		Args:  cobra.ExactArgs(2),
+		Long: "Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's " +
+			"revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by " +
+			"content, so their changes match no delivery record.",
+		Args: cobra.ExactArgs(2),
 		// The kind is a closed vocabulary; the key lives in a snapshot too
 		// expensive to build at the prompt.
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -169,8 +174,29 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if reached, _ := cmd.Flags().GetBool("reached"); reached && res.Service != nil {
+				attachReached(cmd, d)(cmd.Context(), q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
+			}
 			return printFleetEntity(cmd, res, v.GetString(outputFormatKey))
 		},
+	}
+	cmd.Flags().Bool("reached", false, "read when each change reached a Stage from signed delivery records, with your cluster credentials")
+	cmd.Flags().String("trust", "", "with --reached: the trust config delivery records are verified with (default $"+trustEnv+")")
+	return cmd
+}
+
+// attachReached attaches to a service's changes when each reached its
+// Stages, read with the ambient cluster credentials; with no cluster to read
+// from, it says so and reads nothing.
+func attachReached(cmd *cobra.Command, d deps) pactomcp.ReachedReader {
+	return func(ctx context.Context, q *fleet.Query, service fleet.ServiceKey, h *fleet.ChangeHistoryPreview) {
+		c, _, err := deliveryClient(cmd, d)
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "no cluster to read delivery from: "+err.Error(), nil)
+			return
+		}
+		a := c.Reached(ctx, service)
+		q.AttachReached(h, a.ByContract, a.Times, a.Reason, a.Unreadable)
 	}
 }
 
@@ -867,7 +893,7 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 }
 
 // changesFooter says where a change comes from and when it has a time.
-const changesFooter = "Declared, read from contract revisions; a time is shown only from a signed delivery record."
+const changesFooter = "Declared, read from contract revisions; a time is read from delivery history with --reached, and each says how it is known."
 
 // printChanges prints every declared change across a service's revisions, or
 // nothing when there is nothing to say.

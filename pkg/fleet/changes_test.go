@@ -229,9 +229,9 @@ func TestChangesOldestIsPresent(t *testing.T) {
 		t.Errorf("one revision compares nothing: %+v", h)
 	}
 	want := []string{
-		"  svc v1.0.0  owner team:a declared since at least svc v1.0.0  time not recorded",
-		"  svc v1.0.0  domain payments declared since at least svc v1.0.0  time not recorded",
-		"  svc v1.0.0  environment prod declared since at least svc v1.0.0  time not recorded",
+		"  svc v1.0.0  owner team:a declared since at least svc v1.0.0  time not read",
+		"  svc v1.0.0  domain payments declared since at least svc v1.0.0  time not read",
+		"  svc v1.0.0  environment prod declared since at least svc v1.0.0  time not read",
 	}
 	checkChanges(t, h.Lines(), want)
 	if empty := svcChanges(changesQuery([]string{"v1.0.0"}, []*contract.Contract{{}})); empty.Items == nil || empty.Total != 0 || len(empty.Lines()) != 0 {
@@ -326,6 +326,13 @@ func TestChangesNeverUseFetchedAt(t *testing.T) {
 		}
 	}
 	for _, l := range h.Lines() {
+		if !strings.HasSuffix(l, "  time not read") {
+			t.Errorf("line %q", l)
+		}
+	}
+	// Read delivery that holds no arrival: FetchedAt still gives no time.
+	q.AttachReached(&h, nil, TimesRead, "", nil)
+	for _, l := range h.Lines() {
 		if !strings.HasSuffix(l, "  time not recorded") {
 			t.Errorf("line %q", l)
 		}
@@ -354,7 +361,7 @@ func TestChangesProvenanceDeclared(t *testing.T) {
 		}
 	}
 	// Removed and added alone read their one value.
-	if l := h.Lines(); !slices.Contains(l, "  svc v2.0.0  domain added: d, compared with svc v1.0.0  time not recorded") {
+	if l := h.Lines(); !slices.Contains(l, "  svc v2.0.0  domain added: d, compared with svc v1.0.0  time not read") {
 		t.Errorf("lines = %q", l)
 	}
 }
