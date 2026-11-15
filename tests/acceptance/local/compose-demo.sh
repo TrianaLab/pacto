@@ -1143,13 +1143,14 @@ grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
 pass "pacto init --plan shows the checkout contract and changes nothing"
 
 # The Metrics page reads the CI run records the seed published to the demo's
-# own registry. Compose runs no delivery, so no record is an operation, and the
-# dashboard is an unrestricted local reader, so nothing is hidden.
+# own registry. Compose runs no delivery, so no record is an operation. The
+# dashboard is shared without sign-in (--allow-anonymous), so it is a restricted
+# reader, but every seeded service is in its fleet, so nothing is hidden.
 stats_json=$(curl -fsS "$V1_BASE/api/stats") || fail "GET /api/stats failed on the Compose demo"
 [ "$(jq -r '.recordsRead' <<<"$stats_json")" -gt 0 ] ||
 	fail "the Compose dashboard read no run records: $stats_json"
 [ "$(jq -r '.hidden.present' <<<"$stats_json")" = "false" ] ||
-	fail "the Compose dashboard hides run records from an unrestricted reader: $stats_json"
+	fail "the Compose dashboard hides run records of services in its own fleet: $stats_json"
 [ "$(jq -r '.environments | length' <<<"$stats_json")" = "0" ] ||
 	fail "the Compose dashboard shows delivery numbers, but Compose runs no delivery: $stats_json"
 stats_cli() { # ARGS...: pacto stats inside the stack, against the demo's own registry

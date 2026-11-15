@@ -30,6 +30,17 @@ picks one for you. Each service has one anchor in that repository, tagged
 of that anchor, next to your bundles and never inside them. Every record stays
 in the registry you name. Pacto sends nothing to TrianaLab or any other party.
 
+A coverage snapshot is the exception: `pacto fleet status` writes one only
+with `--stats-registry` or `--stats-file` on its own command line and ignores
+both environment variables on purpose, so a job that sets
+`PACTO_STATS_REGISTRY` for its other steps records no coverage by accident:
+
+```shell
+pacto fleet status --stats-registry ghcr.io/acme/pacto-stats
+```
+
+[Coverage records](run-record-reference.md#coverage-records) has the details.
+
 Anyone with pull access to the repository can list every recorded service name
 with plain `oras discover`, so give it pull access that matches who may see the
 whole fleet.
@@ -91,8 +102,12 @@ prod         13          2/13 (15%)  0/13 (0%)  0/13 (0%)    0/13 (0%)          
 test         9           0/9 (0%)    0/9 (0%)   0/9 (0%)     0/9 (0%)             2h0m0s         2h0m0s
 ```
 
-The read-only MCP tool `pacto_stats` gives the same answer to an agent, and
-`pacto dashboard --stats-registry` draws it as trends on the Metrics page, each
+The read-only MCP tool `pacto_stats` gives the same answer to an agent. An MCP
+server reads the repository named with `--stats-read-registry`; over stdio,
+`PACTO_STATS_REGISTRY` and the tool's `registry` argument also work, and over
+HTTP only the flag turns `pacto_stats` on
+([MCP integration](mcp-integration.md#which-tools-exist)).
+`pacto dashboard --stats-registry` draws the same answer as trends on the Metrics page, each
 number linked to the records behind it. A rate with nothing to take it over and
 a lead time with no publish record to join are shown as unknown, never as 0.
 Every answer carries its `asOf`, its completeness and how many records it read
@@ -117,8 +132,10 @@ an HTTP MCP server started with `--auth-issuer` show the records of services
 the viewer may list Pactos for, and operation records only in namespaces where
 the viewer may list Operations. Records outside the view are left out of every
 number and never named: the answer says some records are outside your view and
-is marked partial. Coverage history is shown only to readers who see the whole
-fleet. [Dashboard access](integrations/kubernetes/dashboard-access.md#metrics)
+is marked partial. A dashboard shared without sign-in (`--allow-anonymous`)
+counts only the services of its fleet and no operation record. These
+restricted readers see no coverage history, only the current value computed
+from their view. [Dashboard access](integrations/kubernetes/dashboard-access.md#metrics)
 has the details.
 
 ## Registries without native Referrers
@@ -132,13 +149,16 @@ with every record, so prune it.
 ## Prune records
 
 Pacto never deletes records. List a service's records with `oras`, pick the old
-ones by their `dev.pacto.recorded-at` annotation and delete them:
+ones by their `dev.pacto.recorded-at` annotation and delete them. ORAS 1.2
+lists them under `manifests` and ORAS 1.3 under `referrers`, so the filter reads
+both:
 
 ```shell
+set -o pipefail
 repo=registry.example.com/acme/pacto-stats
 anchor=pacto-stats-$(printf payments | shasum -a 256 | cut -d' ' -f1)
 oras discover --format json "$repo:$anchor" |
-  jq -r '.manifests[] | select(.annotations["dev.pacto.recorded-at"] < "2026-01-01") | .digest' |
+  jq -r '((.manifests // []) + (.referrers // []))[] | select(.annotations["dev.pacto.recorded-at"] < "2026-01-01") | .digest' |
   while read -r digest; do oras manifest delete --force "$repo@$digest"; done
 ```
 

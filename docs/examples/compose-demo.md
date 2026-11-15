@@ -132,11 +132,13 @@ Evidence Server at the addresses the dashboard reads them:
 ```sh
 docker compose -p pacto-demo exec -T dashboard pacto mcp --fleet --local "" \
   --oci oci://registry:5000/demo/checkout --oci oci://registry:5000/demo/orders \
-  --oci oci://registry:5000/demo/inventory --evidence-url http://evidence:8686
+  --oci oci://registry:5000/demo/inventory --evidence-url http://evidence:8686 \
+  --stats-read-registry registry:5000/demo/pacto-stats
 ```
 
 Give that command to your agent as a stdio MCP server. `--local ""` keeps the
-container's working directory out of the fleet. The agent's first call can be
+container's working directory out of the fleet, and `--stats-read-registry`
+gives `pacto_stats` the run records the Metrics page totals. The agent's first call can be
 `pacto_capabilities`: it lists the modes, tools and caller this server serves.
 
 ## The live runtime check

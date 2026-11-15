@@ -45,4 +45,24 @@ func TestStatsMentionIsConsistent(t *testing.T) {
 			t.Errorf("docs/measure-what-pacto-does.md does not mention %s", want)
 		}
 	}
+	// What the code does: a restricted reader (signed in, HTTP MCP or shared
+	// without sign-in) gets no coverage history, pacto fleet status records
+	// coverage only from its own flag, an MCP server reads
+	// --stats-read-registry, and the prune recipe reads both ORAS 1.2 and
+	// 1.3 output.
+	for _, want := range []string{"no coverage history", "--allow-anonymous", "pacto fleet status --stats-registry",
+		"run-record-reference.md#coverage-records", "--stats-read-registry", "(.referrers // [])", "set -o pipefail"} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("docs/measure-what-pacto-does.md does not say %q", want)
+		}
+	}
+	for _, stale := range []string{"who see the whole fleet", "'.manifests[]"} {
+		if strings.Contains(guide, stale) {
+			t.Errorf("docs/measure-what-pacto-does.md still says %q", stale)
+		}
+	}
+	// The Compose demo's agent reads the same run records as its Metrics page.
+	if compose := read("docs", "examples", "compose-demo.md"); !strings.Contains(compose, "--stats-read-registry registry:5000/demo/pacto-stats") {
+		t.Error("docs/examples/compose-demo.md starts pacto mcp without the demo's stats repository")
+	}
 }
