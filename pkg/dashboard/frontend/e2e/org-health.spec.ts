@@ -39,6 +39,12 @@ test.describe('WASM demo — organizational health', () => {
     expect(n).toBeGreaterThan(0);
     // Failing and Unknown are two buckets, never one word for both.
     expect(num(await legend(page, '#sec-health', 'Unknown').locator('.dist-value').textContent())).toBeGreaterThan(0);
+    // The linked legend item sits on the same line as the plain ones beside it.
+    const middle = async (label: string) => {
+      const b = await legend(page, '#sec-health', label).locator('.dist-label').boundingBox();
+      return b ? b.y + b.height / 2 : NaN;
+    };
+    expect(Math.abs((await middle('Failing')) - (await middle('Unknown')))).toBeLessThanOrEqual(1);
     await failing.locator('a').click();
     await expect(page).toHaveURL(/#\/fleet\/attention\?category=health$/);
     await expect.poll(() => listTotal(page), { timeout: T }).toBe(n);

@@ -1,5 +1,6 @@
 <script>
   import { fleetAttentionUrl } from '../../lib/router.ts';
+  import { attentionCategoryLabel } from '../../lib/entityLabels.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import SeverityBadge from '../../components/SeverityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
@@ -70,7 +71,7 @@
       {#each d.attention?.items ?? [] as it, i (i)}
         <li class="oe-attn-row">
           <SeverityBadge severity={it.severity} />
-          <span class="oe-cat">{it.category}</span>
+          <span class="oe-cat">{attentionCategoryLabel(it.category)}</span>
           <EntityLink ref={it.entity} showStatus={false} />
           <span class="oe-sum">{it.summary || it.reason || it.label}</span>
         </li>
