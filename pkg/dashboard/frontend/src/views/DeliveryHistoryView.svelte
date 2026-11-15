@@ -86,11 +86,18 @@
     location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since: windowSince(e.currentTarget.value), ...by });
   }
   // As of: the time asked, shown and picked in UTC (the server's answer names it
-  // when at was a duration). A picked time drops the filters at cannot take.
+  // when at was a duration). The field is a draft the reader commits with Ask, as
+  // cause and correlation commit on submit: a date field changes on each digit
+  // typed, and an answer arriving mid-entry would overwrite it. A committed time
+  // drops the filters at cannot take; a future one is refused, so the field stops
+  // at now.
   const atValue = $derived(/^\d{4}-\d\d-\d\dT\d\d:\d\d/.exec(data?.at?.at || at)?.[0] ?? '');
-  function pickAt(e) {
-    const v = e.currentTarget.value;
-    location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, at: v ? `${v}:00Z` : undefined });
+  let atDraft = $state(untrack(() => atValue));
+  $effect(() => { atDraft = atValue; });
+  const atMax = new Date().toISOString().slice(0, 16);
+  function askAt(e) {
+    e.preventDefault();
+    location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, at: atDraft ? `${atDraft}:00Z` : undefined });
   }
   const version = (d) => versionLabel(d, data?.versions);
   // A digest's fleet revision, when this dashboard's fleet holds it; a revision key
@@ -157,8 +164,12 @@
   const tlProblems = $derived(one && histories[0] ? (histories[0].problemCount ?? histories[0].problems?.length ?? 0) + (histories[0].unreadableCount ?? histories[0].unreadable?.length ?? 0) : 0);
   // A column opens the changes it counts (T3): those timed in its slice. The last
   // column of a window that ends now is left open, so a change at the end stays in it.
-  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1', ...by });
-  const figQuestion = $derived(`What happened ${since || until ? 'in this window' : 'in the last 24 hours'}${one ? ' on this Stage' : ''}, and where is the record missing?`);
+  // As of ends the window at that time (the server sets until to at), never now; at
+  // stays off the slice link, which the server would refuse with since.
+  const endsNow = $derived(!until && !at);
+  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: endsNow && u === timeline?.end ? undefined : u, timed: '1', ...by });
+  const figWhen = $derived(at ? `in the 24 hours before ${timeLabel(data?.at?.at || timeline?.end || at)}` : since || until ? 'in this window' : 'in the last 24 hours');
+  const figQuestion = $derived(`What happened ${figWhen}${one ? ' on this Stage' : ''}, and where is the record missing?`);
 
   const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
   // The page's answer. Every Stage: what needs a look on this page. One Stage:
@@ -295,12 +306,13 @@
     </label>
     {#if cause || correlationID}<a class="hv-link t-body-2" href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm })}>Clear cause and correlation</a>{/if}
   </form>
-  <div class="hv-filters">
+  <form class="hv-filters" aria-label="Ask what each Stage ran at a time" onsubmit={askAt} data-testid="history-at-form">
     <label class="hv-field"><span class="t-meta">As of (UTC)</span>
-      <input class="input" type="datetime-local" value={atValue} onchange={pickAt} data-testid="history-at-input" />
+      <input class="input" type="datetime-local" bind:value={atDraft} max={atMax} data-testid="history-at-input" />
     </label>
+    <button type="submit" class="btn" data-testid="history-at-ask">Ask</button>
     {#if at}<a class="hv-link t-body-2" href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show now</a>{/if}
-  </div>
+  </form>
 
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
@@ -309,7 +321,7 @@
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if data.at}<HistoryAt answer={data.at} />{/if}
-    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={!until} question={figQuestion} problems={tlProblems} />{/if}
+    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={endsNow} question={figQuestion} problems={tlProblems} />{/if}
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited only on an Unknown check (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how to fix</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}

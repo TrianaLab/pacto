@@ -62,7 +62,8 @@ change reaches today, which may differ from what the record said.
 ## What ran at a past time
 
 The **As of (UTC)** field of Delivery history answers which revision each
-Stage ran at one time, from its signed records:
+Stage ran at one past time, from its signed records, when you select **Ask**.
+On one Stage the timeline then shows the 24 hours before that time:
 
 ![Delivery history as of a past time: each Stage with the version it ran, its owner, since when and whether the records make it known](assets/screenshots/dashboard-delivery-history-as-of-light.png#only-light)
 ![Delivery history as of a past time: each Stage with the version it ran, its owner, since when and whether the records make it known](assets/screenshots/dashboard-delivery-history-as-of-dark.png#only-dark)

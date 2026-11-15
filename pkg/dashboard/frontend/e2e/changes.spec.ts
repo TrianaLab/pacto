@@ -75,7 +75,9 @@ test.describe('WASM demo — what changed in a service', () => {
     const changes = page.getByTestId('service-changes');
     const reached = changes.getByTestId('service-change-reached').filter({ has: page.locator('a[href*="#/delivery/history"]') });
     await expect(reached.first()).toBeVisible({ timeout: T });
-    await expect(changes.getByTestId('service-changes-caption')).toContainText('times from delivery records');
+    // The payments test stream holds a deliberate gap, so an earliest move read there
+    // may not be the first: the times are partial and name that Stage.
+    await expect(changes.getByTestId('service-changes-caption')).toContainText('times from the Stages read; not read in full: test/payments: earlier moves may be missing');
     expect(await noSideScroll(page)).toBe(true);
     await axeClean(page);
 
@@ -104,5 +106,13 @@ test.describe('WASM demo — what changed in a service', () => {
     await expect(page.getByTestId('history-at-caption')).toContainText('As of');
     expect(await noSideScroll(page)).toBe(true);
     await axeClean(page);
+  });
+
+  test('One Stage as of a time draws a window that ends then, never now', async ({ page }) => {
+    await open(page, '#/delivery/history?namespace=test&stage=payments&at=1m');
+    await expect(page.getByTestId('history-at-row').first()).toBeVisible({ timeout: T });
+    const fig = page.getByTestId('history-figure');
+    await expect(fig).toContainText('in the 24 hours before', { timeout: T });
+    await expect(fig).not.toContainText('now,');
   });
 });

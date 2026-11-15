@@ -162,14 +162,42 @@ describe('delivery history as of a time', () => {
     destroy();
   });
 
-  it('commits a picked time to the URL as UTC and drops the filters it cannot take', async () => {
+  it('commits a typed time only on Ask, as UTC, and drops the filters it cannot take', async () => {
     fns.history.mockResolvedValue(at());
+    location.hash = '#/delivery/history?q=pay';
     const { target, destroy } = render({ q: 'pay' });
     await settle();
     const input = target.querySelector('[data-testid="history-at-input"]') as HTMLInputElement;
-    input.value = '2026-11-01T09:30';
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    // A date field changes on each digit typed: none of them navigates.
+    for (const v of ['0002-11-01T09:30', '0020-11-01T09:30', '0202-11-01T09:30', '2026-11-01T09:30']) {
+      input.value = v;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    expect(location.hash).toBe('#/delivery/history?q=pay');
+    expect(input.value).toBe('2026-11-01T09:30');
+    (target.querySelector('[data-testid="history-at-ask"]') as HTMLButtonElement).click();
     expect(location.hash).toBe('#/delivery/history?q=pay&at=2026-11-01T09%3A30%3A00Z');
+    expect(input.max).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/);
+    destroy();
+  });
+
+  it('draws one Stage as of a time as a window that ends then, never now', async () => {
+    const end = '2026-01-01T00:00:00Z';
+    const buckets = Array.from({ length: 12 }, (_, i) => ({ start: new Date(Date.parse(end) - (12 - i) * 7_200_000).toISOString(), end: new Date(Date.parse(end) - (11 - i) * 7_200_000).toISOString(),
+      released: i === 11 ? 1 : 0, failed: 0, held: 0, missing: 0 }));
+    buckets[11].end = end;
+    const timeline = { start: buckets[0].start, end, buckets, totals: { released: 1, failed: 0, held: 0, missing: 0 }, untimed: 0 };
+    const h = stageHistory(true, [promote()]);
+    fns.history.mockResolvedValue({ ...h, histories: [{ ...h.histories[0], timeline }], at: { ...at().at, at: end } });
+    const { target, destroy } = render({ namespace: 'prod', stage: 'pay', at: end });
+    await settle();
+    const fig = target.querySelector('[data-testid="history-figure"]') as HTMLElement;
+    expect(fig.textContent).toContain('What happened in the 24 hours before 2026-01-01 00:00 UTC on this Stage');
+    expect(fig.textContent).not.toContain('now,');
+    const last = [...fig.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '').find((u) => u.includes(encodeURIComponent(buckets[11].start)));
+    expect(last).toContain(`until=${encodeURIComponent(end)}`);
+    expect(last).not.toContain('at=');
     destroy();
   });
 

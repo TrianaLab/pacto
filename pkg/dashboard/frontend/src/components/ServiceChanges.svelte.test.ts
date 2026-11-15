@@ -39,7 +39,7 @@ const reached = (t: Element, i = 0) => text(rows(t)[i]?.querySelector('[data-tes
 describe('ServiceChanges', () => {
   it('generates its caption from the answer', () => {
     const t = render({ changes: changes([ev(), ev({ kind: 'environment', subject: 'dev', change: 'present', previous: undefined, from: '', to: '' })], { completeness: 'partial', completenessReason: 'you may not see every revision' }) });
-    expect(caption(t)).toBe('2 changes across the versions Pacto holds, in version order; partial: you may not see every revision; times not recorded: no delivery record was read');
+    expect(caption(t)).toBe('2 changes across the versions Pacto holds, in version order; partial: you may not see every revision; times not read');
   });
 
   it('filters by kind through links with counts', () => {
@@ -68,7 +68,7 @@ describe('ServiceChanges', () => {
     cleanup?.();
     const p = render({ changes: changes([ev()], { times: 'partial', timesUnreadable: ['team-a', 'team-b'] }) });
     expect(reached(p)).toBe('time not recorded in the Stages read');
-    expect(caption(p)).toContain('times from the Stages read; team-a and team-b could not be read');
+    expect(caption(p)).toContain('times from the Stages read; not read in full: team-a and team-b');
     cleanup?.();
     const h = render({ changes: changes([ev()], { times: 'hidden', timesReason: 'you may not list Stages' }) });
     expect(reached(h)).toBe('time hidden');
@@ -78,7 +78,7 @@ describe('ServiceChanges', () => {
   it('asks for reached times only when the dashboard serves delivery', async () => {
     const t = render({ changes: changes([ev()]), deliveryState: 'disabled' });
     expect(detailFn).not.toHaveBeenCalled();
-    expect(reached(t)).toBe('time not recorded');
+    expect(reached(t)).toBe('time not read');
     cleanup?.();
     let resolve: (v: unknown) => void = () => {};
     detailFn.mockReturnValue(new Promise((r) => { resolve = r; }));
@@ -94,7 +94,7 @@ describe('ServiceChanges', () => {
     const t = render({ changes: changes([ev()]), deliveryState: 'enabled' });
     await vi.waitFor(() => expect(caption(t)).toContain('times not read: delivery unavailable'));
     expect(rows(t)).toHaveLength(1);
-    expect(reached(t)).toBe('time not recorded');
+    expect(reached(t)).toBe('time not read');
   });
 
   it('links each row with a previous revision to Change analysis with a distinct label', () => {
@@ -125,6 +125,25 @@ describe('ServiceChanges', () => {
     expect(text(t)).toContain('2 revisions could not be read; changes across them are unknown');
     cleanup?.();
     expect(rows(render({ changes: changes(items), offset: '25' }))).toHaveLength(5);
+  });
+
+  it('counts a capped preview as the changes shown, never the service', () => {
+    const items = [ev(), ev(), ev({ kind: 'environment', subject: 'dev', change: 'added' })];
+    const t = render({ changes: changes(items, { total: 350, truncated: true }), kind: 'owner' });
+    expect(caption(t)).toContain('350 changes across the versions Pacto holds');
+    expect(text(t.querySelector('.sc-kinds .chip'))).toBe('All 3 shown');
+    expect(text(t.querySelector('[data-testid="service-changes-filtered"]'))).toBe('2 changes of kind owner in the 3 shown');
+    expect(text(t)).toContain('And 347 more changes.');
+    cleanup?.();
+    const u = render({ changes: changes(items), kind: 'owner' });
+    expect(text(u.querySelector('.sc-kinds .chip'))).toBe('All 3');
+    expect(text(u.querySelector('[data-testid="service-changes-filtered"]'))).toBe('2 changes of kind owner');
+  });
+
+  it('shows a present value alone, never "none →"', () => {
+    const t = render({ changes: changes([ev({ change: 'present', previous: undefined, from: '', to: 'team:a' }), ev({ kind: 'environment', subject: 'dev', change: 'present', previous: undefined, from: '', to: '' })]) });
+    expect(text(rows(t)[0].querySelector('[data-label="From → To"]'))).toBe('team:a');
+    expect(text(rows(t)[1].querySelector('[data-label="From → To"]'))).toBe('–');
   });
 
   it('labels the source of each change', () => {

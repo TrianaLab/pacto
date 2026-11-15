@@ -380,7 +380,8 @@ export function installScaleFixture(): void {
         pl.differencesTotal = 240;
       }
       // Changes at scale (#459): 200 events across every kind with long subjects and
-      // values, three reached Stages each with long names, three gaps, partial.
+      // values, three reached Stages each with long names, three gaps, partial, and
+      // capped: 350 held, the 200 newest shown.
       if (changes && entityKey === 'storefront-web') {
         const first = (changes.items ?? [])[0];
         const rev = first?.revision ?? pl?.currentRevision;
@@ -392,7 +393,7 @@ export function installScaleFixture(): void {
           provenance: 'declared', source: i % 7 === 6 ? 'validation' : 'contract',
           reached: [0, 1, 2].map((j) => ({ namespace: longName(`namespace-${j}`), stage: longName(`stage-${j}`), environment: longName(`environment-${j}`),
             at: '2026-11-10T14:02:00Z', record: j === 2 ? undefined : `rec-${i}-${j}`, verified: j === 0, fromStatus: j === 2 })) }));
-        Object.assign(changes, { total: 200, count: 200, truncated: false, gaps: 3, completeness: 'partial', completenessReason: longName('reason-changes'), times: 'read' });
+        Object.assign(changes, { total: 350, count: 200, truncated: true, gaps: 3, completeness: 'partial', completenessReason: longName('reason-changes'), times: 'read' });
       }
       // A caller who may not list Stages: every line reads "time hidden".
       if (changes && entityKey === 'notification-worker') {
@@ -1359,6 +1360,13 @@ export const ROUTES: Route[] = [
     name: 'delivery history as of',
     open: async (page) => {
       await page.goto('/#/delivery/history?at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of, one Stage',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments&at=1m');
       await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
     },
   },

@@ -60,10 +60,10 @@
   function timesSentence() {
     if (reading) return 'reading times from delivery records';
     if (times === 'read') return 'times from delivery records';
-    if (times === 'partial') return h?.timesUnreadable?.length ? `times from the Stages read; ${andList(h.timesUnreadable, 4)} could not be read` : `times from the Stages read${h?.timesReason ? `: ${h.timesReason}` : ''}`;
+    if (times === 'partial') return h?.timesUnreadable?.length ? `times from the Stages read; not read in full: ${andList(h.timesUnreadable, 4)}` : `times from the Stages read${h?.timesReason ? `: ${h.timesReason}` : ''}`;
     if (times === 'hidden') return h?.timesReason || 'you may not read delivery records, so times are hidden';
     if (reachedError) return `times not read: ${reachedError}`;
-    return h?.timesReason || 'times not recorded: no delivery record was read';
+    return h?.timesReason || 'times not read';
   }
 
   /** @param {import('../lib/api.ts').ChangeEvent} e */
@@ -75,8 +75,13 @@
     return `${what ? `${what} ` : ''}${e.change}`;
   }
   const version = (r) => r?.version || r?.label || '';
-  // A line without a time: hidden when the caller may not list Stages, else not recorded.
-  const noTime = $derived(reading ? 'reading times from delivery records' : times === 'hidden' ? 'time hidden' : times === 'partial' ? 'time not recorded in the Stages read' : 'time not recorded');
+  // A line without a time: not recorded only when the records were read; hidden
+  // when the caller may not list Stages; not read otherwise (no delivery, or the
+  // read failed), as the CLI says.
+  const noTime = $derived(reading ? 'reading times from delivery records' : times === 'hidden' ? 'time hidden'
+    : times === 'partial' ? 'time not recorded in the Stages read' : times === 'read' ? 'time not recorded' : 'time not read');
+  // A capped preview's counts are of the changes shown, never the service's.
+  const shown = $derived(h?.truncated ? ` in the ${formatCount(items.length)} shown` : '');
 
   // The route that asked for this section scrolls to it once its rows render.
   const wantsSection = $derived(section === 'changes' || !!kind || !!urlInt(offset) || !!urlInt(limit));
@@ -98,12 +103,12 @@
 
   {#if items.length}
     <nav class="sc-kinds" aria-label="Filter changes by kind">
-      <a class="chip" class:active={!kind} aria-current={!kind ? 'true' : undefined} href={chipHref('')}>All {formatCount(items.length)}</a>
+      <a class="chip" class:active={!kind} aria-current={!kind ? 'true' : undefined} href={chipHref('')}>All {formatCount(items.length)}{h?.truncated ? ' shown' : ''}</a>
       {#each KINDS.filter((k) => counts[k]) as k (k)}
         <a class="chip" class:active={kind === k} aria-current={kind === k ? 'true' : undefined} href={chipHref(k)} data-testid="service-changes-kind" data-kind={k}>{k} {formatCount(counts[k])}</a>
       {/each}
     </nav>
-    {#if kind}<p class="t-meta" data-testid="service-changes-filtered">{countOf(filtered.length, 'change')} of kind {kind}</p>{/if}
+    {#if kind}<p class="t-meta" data-testid="service-changes-filtered">{countOf(filtered.length, 'change')} of kind {kind}{shown}</p>{/if}
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (SPEC T2: the table region is labelled and takes focus) -->
     <div class="sc-frame" role="region" aria-label={`Changes of ${name}`} tabindex="0">
@@ -129,7 +134,10 @@
               <span class="badge badge-neutral">{e.kind}</span> <bdi title={changeText(e)}>{changeText(e)}</bdi>
             </span>
             <span class="sc-cell" role="cell" data-label="From → To">
-              {#if e.from || e.to}
+              {#if e.change === 'present'}
+                <!-- Declared since at least this version: what came before is unknown, never "none". -->
+                {#if e.to}<bdi title={e.to}>{e.to}</bdi>{:else}<span class="t-meta">–</span>{/if}
+              {:else if e.from || e.to}
                 <bdi title={e.from || 'none'}>{e.from || 'none'}</bdi> → <bdi title={e.to || 'none'}>{e.to || 'none'}</bdi>
               {:else}<span class="t-meta">–</span>{/if}
             </span>
