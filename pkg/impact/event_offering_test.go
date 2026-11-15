@@ -263,6 +263,28 @@ func TestImpactOfferingRemovedTemplatesAndPartial(t *testing.T) {
 	}
 }
 
+// TestImpactOfferingServiceIsOfferingName: on an offering answer the top-level
+// service holds the offering's name, the event names the offering and no
+// service, and providers lists the services.
+func TestImpactOfferingServiceIsOfferingName(t *testing.T) {
+	b, err := json.Marshal(offeringEvent(buildAt(t, offeringCollection()), EventUnavailable, "postgresql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Service string `json:"service"`
+		Event   struct {
+			Service  string `json:"service"`
+			Offering string `json:"offering"`
+		} `json:"event"`
+		Providers []string `json:"providers"`
+	}
+	_ = json.Unmarshal(b, &got)
+	if got.Service != "postgresql" || got.Event.Service != "" || got.Event.Offering != "postgresql" || len(got.Providers) < 2 {
+		t.Errorf("answer = %+v", got)
+	}
+}
+
 // TestImpactIgnoresConsumption: the resources an impact answer lists come
 // from UsesOf, which now carries a consumption state; the answer reads none
 // of it, so no consumption key or state reaches it.

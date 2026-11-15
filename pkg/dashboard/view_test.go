@@ -147,3 +147,26 @@ func TestImpactWithoutFleet(t *testing.T) {
 		t.Error("the provider was not called with a nil snapshot")
 	}
 }
+
+// TestSnapshotUsageRestricted: the bulk snapshot a restricted viewer reads
+// carries only the usage reports of the services it may see.
+func TestSnapshotUsageRestricted(t *testing.T) {
+	q := viewQuery(t)
+	snap := q.SnapshotForSerialization()
+	for k, svc := range snap.Services {
+		snap.Usage = append(snap.Usage, fleet.UsageRecord{ServiceKey: k, Service: svc.Name, ExternalRef: svc.Name + "-db", Producer: svc.Name + "-adapter"})
+	}
+	base := serveOptions(t, Options{
+		Fleet:     func(context.Context) (*fleet.Query, error) { return q, nil },
+		Published: func() *fleet.Query { return q },
+		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+			return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+		},
+		Auth: &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
+	})
+	var got fleet.FleetSnapshot
+	getJSON(t, base+"/api/fleet/snapshot", http.StatusOK, &got)
+	if len(got.Usage) != 1 || got.Usage[0].Service != "shop-svc" || got.Usage[0].Producer != "shop-svc-adapter" {
+		t.Errorf("restricted snapshot usage = %+v, want only shop-svc's", got.Usage)
+	}
+}

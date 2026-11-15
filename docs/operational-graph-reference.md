@@ -53,7 +53,7 @@ compliance evidence that a source carries.
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
-server of its own and takes no other mode. Two are narrower: `impact` takes a single
+server and takes no other mode. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
 
 ### Observed calls under a restricted view
@@ -219,7 +219,7 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 | Declaration | `declaration`: the current revision's entry with its values check, `lifetime` (`not-declared` when absent), `expires`, `owner` and `expired`, inferred against `asOf`. Absent for an environment only targets report |
 | Owner | `owner` with `provenance`: `declared` on the environment, `inferred` from the service owner, or `unknown` with a `reason` |
 | Counts | `targets` (observed), then `declared`, `notDeclared` and `unknown`: whether the revision each target runs declares that environment. `targetsComplete` is false, with `targetsReason`, when you may not see every target |
-| Provisioning | `provisioning`, a tally by phase of the statuses of the service's offering uses there; `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero |
+| Provisioning | `provisioning`, a tally by phase of the statuses of the service's uses there (`consumedOfferings`, including reported uses of providers with no offering); `provisioningTracked` is false, with `provisioningReason`, when no provider is asked about it there, so the tally is never a zero. When a provider you may not see may provision there, the reason says its status is unknown |
 | Revisions | The newest 8 distinct revisions, with `revisionsTotal` and `revisionsTruncated` |
 | Differences | `differences`: each value the declared environments disagree on, by configuration and path, with `differencesTotal`, or `differencesError` saying why they are unknown. `pacto explain --environments` computes the same list |
 | Restricted | Only targets, revisions and provisioning your view may see count; on a partial answer the CLI heading reads "Environments (targets Pacto can see)" |
@@ -343,7 +343,30 @@ See the [golden paths reference](golden-paths-reference.md).
 
 ## Platform offerings
 
-See the [platform offerings reference](platform-offerings.md).
+See the [platform offerings reference](platform-offerings.md) and
+[offering availability and lifecycle](offering-availability.md).
+
+| `AvailabilityState` | Meaning |
+|---------------------|---------|
+| `available` | Fresh provider targets serve and no consumer reports the provider unreachable. |
+| `degraded` | Some provider targets report `INTERFACE_ABSENT`, or some consumer targets cannot reach it. |
+| `unavailable` | Every fresh provider target serves none of its interfaces, or with no fresh provider target every consumer target that declares it cannot reach it. |
+| `unknown` | Targets are hidden, a target source is incomplete, no fresh evidence exists or no interface was seen answering. |
+
+| Limitation | Raised when |
+|------------|-------------|
+| `SUCCESSOR_UNRESOLVED` | A provider's declared successor names no revision in the fleet. |
+| `HIDDEN_PROVIDERS` | An offering event has providers the viewer cannot see. |
+| `OFFERING_NOT_IN_FLEET` | No visible service provides the offering an event names. |
+
+| A service's `consumedOfferings` item | Detail |
+|---|---|
+| Rule | Every declared dependency or configuration reference on a provider with an offering, plus one on a provider with no offering once a provider reports on it (`offering` empty) |
+| `providerOwner` | Who owns the provider, as its offering page names it |
+| `providerAvailability` | Whether the provider answers where it runs; separate from the resource's phase |
+| `requested` | On the `configuration_reference` row only: each entry, configuration, provider `revision` and `values` the current revision declares, with `provenance: declared`; `requestedTruncated` when the configuration preview was cut |
+| `consumption` | On every use that provisions: one entry, `state: not-reported`, `provenance: observed` and a `reason`. A policy reference carries none |
+| `hiddenProviders` | On the service detail: at least this many resources come from providers you may not see, counted from the service's own contract and reports and never named; omitted at zero |
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.

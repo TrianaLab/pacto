@@ -52,7 +52,9 @@ const AUTOPLAY: Fig[] = [
       await p.goto('/#/fleet/offerings/messaging');
       const pick = p.locator('main button[data-testid="provisioning-badge"]').first();
       await expect(pick).toBeVisible({ timeout: 20_000 });
-      await pick.click();
+      // Pick without scrolling to the badge: where the figure lands relative to the
+      // badge depends on the font, and a figure scrolled into view by the pick plays.
+      await pick.evaluate((el: HTMLElement) => el.click());
     },
   },
 ];

@@ -61,11 +61,15 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 
 // overviewInstructions explain pacto_fleet_overview and the words its answer
 // uses for health and knowledge.
-const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. A target's health is " +
-	"'failing' when its own health check reports it is not healthy (finding HEALTH_FAILING) and 'unknown' when " +
-	"Pacto cannot tell; neither changes compliance. Knowledge gaps are what the contracts leave out (no summary, " +
-	"no domain, no interface document, no readiness assessment, runs nowhere, unverified extension capability). Unknown is never a pass: report it " +
-	"as unknown."
+const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. Its summary.operationalHealth " +
+	"partitions operational targets: available (healthy), unavailable (failing: its own health check reports it is not " +
+	"healthy, finding HEALTH_FAILING), unknown (Pacto cannot tell), notObserved (the revision declares no health " +
+	"capability, which is not missing evidence; see summary.evidence.withoutEvidence for that) and degraded (always 0 " +
+	"today); neither failing nor unknown changes compliance. summary.ownership is consistent (one declared owner), " +
+	"conflicting, unowned (none declared) or unknown (no contract read). summary.knowledge partitions services into " +
+	"described (nothing left out), withGaps and unknown, and knowledge.gaps counts what the contracts leave out " +
+	"(noSummary, noDomain, noInterfaceDocs, noReadiness, notDeployed, unverifiedCapability). Unknown is never a pass: " +
+	"report it as unknown."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
 // snapshot. It is asked once per call, so a long session follows a refreshing
@@ -87,6 +91,8 @@ type FleetOptions struct {
 	// service svc reached its Stages and attaches it to h (q.AttachReached).
 	// nil: the server reads no delivery for its callers.
 	Reached ReachedReader
+	// Stats registers pacto_stats; nil omits it.
+	Stats StatsProvider
 }
 
 // ReachedReader attaches to h when each change of service svc reached its
@@ -178,6 +184,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		addTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
 			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
 		})))
+	}
+	if opts.Stats != nil {
+		addTool(server, statsTool(), statsHandler(src, opts.View, opts.Stats))
 	}
 }
 
@@ -478,7 +487,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
-			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most failed provisioning requests or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
+			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
 			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
 			"capability":        {Type: "string", Description: "Services whose revisions declare this capability key, such as health or acme.io/cost"},
@@ -488,7 +497,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"scope":             {Type: "string", Description: "Targets in this scope, such as a namespace"},
 			"readiness":         {Type: "string", Description: "Revisions by declared readiness", Enum: []string{"passing", "below-threshold", "expired", "not-declared"}},
 			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
-			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle, or services whose own lifecycle, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
+			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
@@ -577,8 +586,13 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
 			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
 			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
-			"configuration_reference row only) and 'consumption' (not-reported with a reason: no provider reports " +
-			"usage or cost to Pacto). A resource's provisioning phase is its lifecycle, never the service's health. " +
+			"configuration_reference row only, with the 'consumerRevision' that declares them) and 'consumption' per environment " +
+			"('entry' names the consumer entry when a use has more than one): 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about 'revision', the newest consumer revision that uses the " +
+			"resource, gave them, with producer and asOf); 'unknown' carries a 'reason' and, when a report exists but is unsigned, " +
+			"stale or about another revision, its raw numbers in 'reported', never to be quoted as current usage; when current " +
+			"reports disagree, 'conflict' names the producers and no figures are given; " +
+			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
 			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
@@ -641,7 +655,8 @@ func fleetVersionsTool() *mcpsdk.Tool {
 			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
 			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
 			"revisions the snapshot holds; the registry may publish others. Each provider names the 'successor' its newest " +
-			"revision declares (unknown when it resolves to no revision) and, with 'range', 'successorRange'. Read-only.",
+			"revision declares (unknown when it resolves to no revision); with 'range', the one the newest revision in the " +
+			"range declares, and 'successorRange'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"offering": {Type: "string", Description: "Platform offering slug, such as postgresql"},
 			"provider": {Type: "string", Description: "Only this provider: its key, or a name only one domain uses"},
@@ -761,10 +776,11 @@ func fleetOverviewTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_overview",
 		Description: "Summarize the organization in one call: target compliance (with how many compliant targets rest on " +
-			"stale evidence), operational health (healthy, failing, unknown, not observed), knowledge gaps per kind, " +
-			"ownership (declared, disputed, none declared, unknown), evaluation coverage, evidence freshness, per-domain " +
-			"and per-scope breakdowns and entry points. Failing means the target's own health check reports it is not " +
-			"healthy; unknown means Pacto cannot tell. Read-only.",
+			"stale evidence), summary.operationalHealth (available = healthy, unavailable = failing, unknown, notObserved = " +
+			"the revision declares no health capability, degraded = always 0 today), summary.knowledge (described, withGaps, " +
+			"unknown and knowledge.gaps per kind), summary.ownership (consistent, conflicting, unowned, unknown), evaluation " +
+			"coverage, evidence freshness, per-domain and per-scope breakdowns and entry points. unavailable means the " +
+			"target's own health check reports it is not healthy (HEALTH_FAILING); unknown means Pacto cannot tell. Read-only.",
 		InputSchema: inputSchema(map[string]property{}, nil),
 	}
 }

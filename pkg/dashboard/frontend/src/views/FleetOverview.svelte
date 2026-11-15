@@ -167,7 +167,7 @@
   });
   // Fleet scope: no service/owner filter, so a drill-down lands on the whole backlog
   // for that category -- which is exactly the population this chart drew.
-  const attentionUrl = (category) => fleetAttentionUrl({ category });
+  const attentionUrl = (category, extra = {}) => fleetAttentionUrl({ category, ...extra });
 
   // Band 3. Two authored-fact distributions, each over a COMPLETE population the
   // backend tallied (OverviewSummary.ownership over every service, .readiness over
@@ -297,15 +297,16 @@
           <div class="ov-title"><h2 id="ov-domains" class="t-section-title">Domains</h2><HelpTip label="domains" text="The business domain each service declares in its contract. Services that declare none are under No domain, and those whose domain Pacto cannot tell under Domain unknown." /></div>
           <a class="ov-viewall" href={fleetDomainsUrl()}>See every domain</a>
         </div>
-        <div class="data-scroll cq-cards cq-cards-xl">
+        <div class="data-scroll cq-cards">
           <table class="data-table ov-scopes ov-domains" data-testid="overview-by-domain">
             <caption class="visually-hidden">Services by domain, the most broken first</caption>
-            <!-- Every column has a floor (its words and the cell padding), so none collapses beside the
-                 others; below the floors' sum (80ch + 23rem) the table turns into cards (components.css, dtable-xl). -->
-            <colgroup><col style="width: max(8rem, 12%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /><col style="width: max(calc(8ch + 1.5rem), 8.8%)" /></colgroup>
+            <!-- Eight columns, so the table form fits the capped content column on every desktop and
+                 turns into cards only below 56rem (components.css, dtable-wide). Runs nowhere, gaps and
+                 owner unknown per domain live on each domain's page. -->
+            <colgroup><col style="width: max(8rem, 22%)" /><col /><col /><col /><col /><col /><col /><col /></colgroup>
             <thead>
-              <tr><th scope="col" rowspan="2">Domain</th><th scope="col" rowspan="2">Services</th><th scope="colgroup" colspan="5">Targets</th><th scope="colgroup" colspan="4">Services</th></tr>
-              <tr><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Failing</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">Runs nowhere</th><th scope="col">Gaps</th><th scope="col">No owner</th><th scope="col">Owner unknown</th></tr>
+              <tr><th scope="col" rowspan="2">Domain</th><th scope="col" rowspan="2">Services</th><th scope="colgroup" colspan="5">Targets</th><th scope="col" rowspan="2">No owner</th></tr>
+              <tr><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Failing</th><th scope="col">Unknown</th><th scope="col">Stale</th></tr>
             </thead>
             <tbody>
               {#each domains as dt (dt.domainUnknown ? UNKNOWN_DOMAIN : dt.domain)}
@@ -326,10 +327,7 @@
                   <td data-label="Targets: failing" class:ov-warn={dt.failingHealth > 0}>{@render cnt(dt.failingHealth, fleetAttentionUrl({ category: 'health', businessDomain: bd }))}</td>
                   <td data-label="Targets: unknown">{@render cnt(dt.unknown, fleetAttentionUrl({ category: 'unknown', businessDomain: bd }))}</td>
                   <td data-label="Targets: stale">{@render cnt(dt.stale, fleetAttentionUrl({ category: 'stale', businessDomain: bd }))}</td>
-                  <td data-label="Services: runs nowhere">{@render cnt(dt.notDeployed, fleetServicesUrl({ gap: 'not-deployed', businessDomain: bd }))}</td>
-                  <td data-label="Services: gaps">{formatCount(dt.withGaps || 0)}</td>
                   <td data-label="Services: no owner">{@render cnt(dt.unowned, fleetServicesUrl({ ownership: 'unowned', businessDomain: bd }))}</td>
-                  <td data-label="Services: owner unknown">{@render cnt(dt.ownerUnknown, fleetServicesUrl({ ownership: 'unknown', businessDomain: bd }))}</td>
                 </tr>
               {/each}
             </tbody>
@@ -417,7 +415,7 @@
       {/if}
       {#if coverage.reporting || coverage.notReporting}
         <p class="ov-caption t-body-2" data-testid="coverage-sentence">
-          {formatCount(coverage.evaluated || 0)} of {formatCount(coverage.required || 0)} required assertions evaluated on {formatCount(coverage.reporting || 0)} {coverage.reporting === 1 ? 'target' : 'targets'}{#if coverage.notReporting}; <a href={fleetEntityListUrl('target')}>{formatCount(coverage.notReporting)} {coverage.notReporting === 1 ? 'reports' : 'report'} no coverage</a>{/if}.
+          {formatCount(coverage.evaluated || 0)} of {formatCount(coverage.required || 0)} required assertions evaluated on {formatCount(coverage.reporting || 0)} {coverage.reporting === 1 ? 'target' : 'targets'}{#if coverage.notReporting}; {formatCount(coverage.notReporting)} {coverage.notReporting === 1 ? 'reports' : 'report'} no coverage{/if}.
         </p>
       {/if}
     </section>
@@ -495,14 +493,13 @@
   .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
   .ov-scopes .ov-warn { font-weight: 600; }
   /* Two header rows: the whole head sticks, so the unit row never slides under the group
-     row. Only while it is a table: as cards (dtable-xl, components.css) the head is hidden. */
-  @container dtable-xl (width > calc(80ch + 23rem)) {
+     row. Only while it is a table: as cards (dtable-wide, components.css) the head is hidden. */
+  @container dtable-wide (width > 56rem) {
     .ov-domains thead { position: sticky; top: var(--navbar-h); z-index: 2; }
     .ov-domains thead th { position: static; }
   }
   .ov-domains thead th[scope='colgroup'] { text-align: center; }
   .ov-caption { margin: 0; color: var(--c-text-2); }
-  .ov-caption a { color: var(--c-accent); text-decoration: underline; }
   .ov-gaps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-1) var(--sp-4); }
   .ov-gaps a { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); color: var(--c-text); text-decoration: none; border: 1px solid var(--c-border); }
   .ov-gaps a:hover, .ov-gaps a:focus-visible { border-color: var(--c-accent); }

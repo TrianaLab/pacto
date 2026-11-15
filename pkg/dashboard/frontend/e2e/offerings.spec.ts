@@ -63,11 +63,13 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(fig.locator('a[data-lists="1"]')).toHaveAttribute('href', /[?&]failed=1/);
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();
     const pg = page.getByTestId('offering-list').locator('tbody tr').filter({ has: page.locator(PG_ROW) });
-    // Two teams maintain a provider each, and the newest postgresql, 17.0.0, declares no lifecycle.
+    // Two teams maintain a provider each. The newest postgresql, 17.0.0, declares no lifecycle,
+    // but its targets still run the deprecated 16.1.0, the provider's current revision, so the
+    // row reads deprecated.
     await expect(pg.locator('[data-label="Owners"]')).toHaveText('2 owners claim it');
-    await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('supported');
-    // production is available and staging unknown: the row says how Pacto knows.
-    await expect(pg.locator('[data-label="Availability"]')).toContainText('observed');
+    await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('deprecated');
+    // production is available and staging unknown: the row reads unknown, never degraded.
+    await expect(pg.locator('[data-label="Availability"]')).toHaveText('unknown');
     await expect(pg.locator('[data-label="Failed"]')).toHaveText('1');
     await expect(pg.locator('[data-label="Observed targets"]')).not.toHaveText('0');
     await fig.locator('a[data-lists="1"]').click();
@@ -80,13 +82,16 @@ test.describe('WASM demo — platform offerings', () => {
     await audit(page, 'offerings list, failed filter');
   });
 
-  test('no demo offering is deprecated: the lifecycle filter narrows to none', async ({ page }) => {
+  test('postgresql is the deprecated offering: the lifecycle filter lists it alone', async ({ page }) => {
     await page.goto('/#/fleet/offerings');
     await expect(page.getByTestId('offering-list')).toBeVisible({ timeout: T });
     await page.getByLabel('Lifecycle').selectOption('deprecated');
     await expect(page).toHaveURL(/#\/fleet\/offerings\?lifecycle=deprecated$/);
     await expect(page.locator('.filter-chips')).toContainText('Deprecated');
-    await expect(page.getByTestId('offering-list')).toHaveCount(0, { timeout: T });
+    const rows = page.getByTestId('offering-list').locator('tbody tr');
+    await expect(rows).toHaveCount(1, { timeout: T });
+    await expect(rows.locator(PG_ROW)).toBeVisible();
+    await expect(rows.locator('[data-label="Lifecycle"] .badge-warn')).toHaveText('deprecated');
   });
 
   test('the postgresql page shows its providers, a consume snippet and its consumers', async ({ page }) => {
@@ -114,7 +119,10 @@ test.describe('WASM demo — platform offerings', () => {
     await page.addStyleTag({ content: WIDE_FONT });
     await expect(page.getByTestId('offering-provider')).toHaveCount(2, { timeout: T });
     const provider = page.getByTestId('offering-provider').filter({ hasText: 'infra-data' });
-    // 17.0.0 is the newest and supported; the 16.1.0 the targets run is deprecated.
+    // 17.0.0 is the newest and supported, the revision the snippet pins; the 16.1.0 the
+    // targets run is deprecated, so the provider reads deprecated and names its successor.
+    await expect(provider.locator('.oe-head .tag', { hasText: 'Deprecated' })).toBeVisible();
+    await expect(provider.getByTestId('provider-successor')).toContainText('17.0.0');
     await expect(provider.locator('.oe-row').filter({ hasText: 'Current' })).toContainText('17.0.0');
     await expect(provider.locator('.oe-row').filter({ hasText: 'Latest supported' })).toContainText('17.0.0');
     const v16 = provider.locator('.ov-chips li').filter({ hasText: '16.1.0' });
@@ -139,7 +147,7 @@ test.describe('WASM demo — platform offerings', () => {
   test('the catalog-service page words its unsigned database report the same way', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet/services/catalog-service');
-    const use = page.getByTestId('service-offerings-used').locator('.se-use').filter({ hasText: 'postgresql' });
+    const use = page.getByTestId('service-resource').filter({ has: page.locator('a.entity-link[href$="/fleet/services/postgresql"]') });
     // catalog-service 1.3.0 uses postgresql twice; the adapter reported only the configuration's database.
     const badge = use.getByTestId('provisioning-badge').filter({ has: page.locator('.tag', { hasText: 'Ready' }) });
     await expect(badge.locator('.tag')).toHaveText('production: Ready (unsigned)', { timeout: T });
@@ -206,6 +214,8 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(provider.locator('.ov')).toContainText('Latest compatible', { timeout: T });
     await expect(provider.locator('.ov-chips li').filter({ hasText: '16.1.0' })).toContainText(/(^|[^n])satisfied/);
     await expect(provider.locator('.ov-chips li').filter({ hasText: '17.0.0' })).toContainText('unsatisfied');
+    // ^16 reaches the deprecated 16.1.0, so the answer names its successor 17.0.0 and says the range excludes it.
+    await expect(provider.getByTestId('versions-successor')).toContainText('excludes successor');
     await provider.getByLabel('Versions satisfying').fill('not a range');
     await expect(provider.getByRole('alert')).toContainText('not a semver range', { timeout: T });
     expect(await noSideScroll(page)).toBe(true);

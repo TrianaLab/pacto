@@ -152,7 +152,8 @@ type EntityRef struct {
 	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 	// Owner is who a SERVICE reference's revisions name, set only on list answers:
 	// the owner's label when they agree on one, "N owners claim it" when they do
-	// not, and empty when none declares an owner. On an OFFERING list row it is
+	// not, "declared by contacts only" for one owner that names no team or
+	// DRI, and empty when none declares an owner. On an OFFERING list row it is
 	// the same over every provider's revisions.
 	Owner string `json:"owner,omitempty"`
 	// Targets counts what a SERVICE reference runs on; Services counts the services
@@ -186,13 +187,19 @@ type EntityRef struct {
 	Stale         int `json:"stale,omitempty"`
 	FailingHealth int `json:"failingHealth,omitempty"`
 	WithGaps      int `json:"withGaps,omitempty"`
-	// Lifecycle, Availability, AvailabilityProvenance, Consumers,
-	// HiddenConsumers, FailedRequests and TargetsUnknown are set only on
+	// Lifecycle, HiddenProviders, Availability, AvailabilityProvenance,
+	// Consumers, HiddenConsumers, FailedRequests and TargetsUnknown are set only on
 	// OFFERING list answers.
 	//
-	// Lifecycle is the worst lifecycle of the providers' newest readable
-	// revisions: unknown when a provider has none (observed only).
+	// Lifecycle is the worst lifecycle over the providers' current revisions:
+	// each provider's newest revision a target runs, else its newest readable
+	// one. It is unknown when a provider has no such revision (observed only),
+	// the revision a target runs is unreadable or the viewer may not see a
+	// provider.
 	Lifecycle string `json:"lifecycle,omitempty" enum:"supported,deprecated,sunset,unknown"`
+	// HiddenProviders counts the providers the viewer may not see: Owner,
+	// Consumers and FailedRequests then speak only for the visible ones.
+	HiddenProviders int `json:"hiddenProviders,omitempty"`
 	// Availability is the offering's availability roll-up (see [Availability]),
 	// and AvailabilityProvenance the provenance of the environment that sets
 	// its worst state: observed, inferred or unknown.
@@ -396,6 +403,25 @@ func (q *Query) HiddenDependentsOf(keys []ServiceKey) int {
 	for _, k := range keys {
 		for d := range q.snap.hiddenDependents[k] {
 			seen[d] = true
+		}
+	}
+	return len(seen)
+}
+
+// HiddenReferrersOf counts, in a restricted snapshot, the distinct hidden
+// services that reference the policy of any of keys and depend on or call
+// none of them, so with [Query.HiddenDependentsOf] each hidden service is
+// counted once. They are never named.
+func (q *Query) HiddenReferrersOf(keys []ServiceKey) int {
+	seen := map[ServiceKey]bool{}
+	for _, k := range keys {
+		for d := range q.snap.hiddenReferrers[k] {
+			seen[d] = true
+		}
+	}
+	for _, k := range keys {
+		for d := range q.snap.hiddenDependents[k] {
+			delete(seen, d)
 		}
 	}
 	return len(seen)
@@ -957,9 +983,8 @@ type AttentionItem struct {
 // tool that performs it. Only contract edits are named; the caller's own
 // permissions still decide whether the edit happens.
 type NextAction struct {
-	Verb        string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
-	Tool        string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
-	Environment string `json:"environment,omitempty" doc:"The environment the operation acts in; empty for a contract edit"`
+	Verb string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
+	Tool string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
 }
 
 // editContract is the action of every item whose next step is a contract edit.

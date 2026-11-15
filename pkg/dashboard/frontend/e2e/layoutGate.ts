@@ -135,7 +135,7 @@ export function installScaleFixture(): void {
         [r.availability, r.availabilityProvenance] = AV[i % AV.length];
         r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
         r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
-        if (i % 2) { r.hiddenConsumers = 1234; r.targetsUnknown = true; r.targets = 0; }
+        if (i % 2) { r.hiddenConsumers = 1234; r.hiddenProviders = 12; r.targetsUnknown = true; r.targets = 0; }
       });
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
@@ -380,6 +380,50 @@ export function installScaleFixture(): void {
         hist.items = Array.from({ length: 200 }, (_, i) => ({ change: ['added', 'removed', 'changed', 'present'][i % 4], environment: names[i],
           fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined, revision: rev }));
         hist.total = 200; hist.count = 200; hist.truncated = false; hist.gaps = 3; hist.completeness = 'partial'; hist.completenessReason = 'reason-history';
+      }
+      // Resources at scale (#468), on orders-service only so catalog-service stays the
+      // realistic case: 40 uses with long provider labels, long configuration keys and
+      // values, long external refs, three environments each (Failed, stale Unknown and
+      // unsigned Ready), usage reported, untrusted and with 16 long metrics, and three
+      // providers the viewer may not see.
+      const used = svc?.consumedOfferings as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      if (svc && used && (used.items ?? []).length && (doc.entity as { key?: string } | undefined)?.key === 'orders-service') {
+        const base = (used.items ?? [])[0];
+        const pv = base.provider as Record<string, unknown>;
+        const phases = [
+          { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
+          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
+          { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
+        ];
+        // Usage per environment: reported, unknown with untrusted figures and long figures.
+        const figures = (n: number) => ({ metrics: Array.from({ length: n }, (_, m) => ({ name: longName(`storage-used-metric-${m}`), value: 123456789.123456, unit: 'GiB-month' })),
+          cost: { amount: '123456789012345.123456', currency: 'USD', period: 'P1Y' } });
+        const usage = [
+          { state: 'reported', figures: figures(2), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the usage report is not signed'), reported: figures(3), source: 'target-state', verified: false, asOf: '2026-07-29T09:40:00Z' },
+          { state: 'reported', figures: figures(16), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the providers that report usage for this resource disagree'), conflict: [longName('producer-a'), longName('producer-b')] },
+        ];
+        const consumerRevision = { kind: 'revision', key: `orders-service@sha256:${'b'.repeat(64)}`, label: longName('orders-service 1.4.0'), href: `/fleet/revisions/${encodeURIComponent(`orders-service@sha256:${'b'.repeat(64)}`)}` };
+        used.items = Array.from({ length: 40 }, (_, i) => {
+          const key = `${pv.key}-r${i}`;
+          return {
+            ...base, offering: i % 3 === 2 ? '' : base.offering, via: i % 2 ? 'dependency' : 'configuration_reference',
+            provider: { ...pv, key, label: longName(`resource-provider-${i}`), href: `${pv.href}-r${i}` },
+            providerAvailability: { state: ['available', 'degraded', 'unavailable', 'unknown'][i % 4], byEnvironment: [], total: 0, asOf: '2026-11-10T08:00:00Z' },
+            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared', consumerRevision,
+              revision: { kind: 'revision', key: `${key}@sha256:${'a'.repeat(64)}`, label: longName(`resource-provider-${i} 16.1.0`), href: `/fleet/revisions/${encodeURIComponent(`${key}@sha256:${'a'.repeat(64)}`)}` },
+              values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
+            provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
+              externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
+            consumption: i % 4 === 3
+              ? [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }]
+              : [0, 1, 2, 3].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), entry: longName(`entry-${i}`), provenance: 'observed',
+                revision: { kind: 'revision', key: consumerRevision.key, label: consumerRevision.label } })),
+          };
+        });
+        used.total = 120; used.count = 40; used.truncated = true;
+        svc.hiddenProviders = 3;
       }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
@@ -1073,6 +1117,12 @@ const serviceEnvironments = (hash: string) => async (page: Page) => {
   await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
+/** Opens a service page and waits for its Resources section (#468). */
+const serviceResources = (hash: string) => async (page: Page) => {
+  await page.goto(`/${hash}`);
+  await expect(page.locator('[data-testid="service-resources"]')).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a delivery list narrowed to one service and waits for its filter chip, so an error page fails the route. */
 const deliveryOfService = (hash: string, landmark: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -1258,6 +1308,35 @@ export const ROUTES: Route[] = [
   },
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
+  { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
+  {
+    // Expanded, so every card (usage figures included) is laid out where the gate looks,
+    // never below the preview's clip.
+    name: 'service page, resources at scale',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/orders-service')(page);
+      await page.locator('#sec-resources [data-testid="preview-show-all"]').click();
+      await expect(page.locator('#sec-resources .ps-clipped')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the section into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'service page, resources empty',
+    open: async (page) => {
+      // postgresql provides an offering and consumes none.
+      await page.goto('/#/fleet/services/postgresql');
+      await expect(page.locator('#sec-resources').getByText('No resource you can see.', { exact: false })).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'service page, resource rail open',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/catalog-service')(page);
+      await page.locator('[data-testid="service-resources"] button[data-testid="provisioning-badge"]').first().click();
+      await expect(page.locator('[data-testid="offering-use-figure"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the rail into view; the gate reads from the top
+    },
+  },
   { name: 'service environments', hash: '#/fleet/services/storefront-web' },
   {
     name: 'service environments with Stage cells',

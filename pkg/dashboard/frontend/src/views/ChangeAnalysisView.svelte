@@ -95,6 +95,8 @@
   // A link may name an event this build does not know (a typo, a newer build): it is
   // never answered as another one, the form says so instead.
   const unknownEvent = untrack(() => (params.event && !eventKinds.some((k) => k.value === params.event) ? params.event : ''));
+  // A known event an offering cannot answer (a regression) is told apart from an unknown one.
+  const eventNeedsService = !!unknownEvent && EVENT_KINDS.some((k) => k.value === unknownEvent);
   let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
   const isEvent = $derived(mode === 'event');
@@ -863,7 +865,10 @@
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if isEvent}
-      {#if unknownEvent}
+      {#if eventNeedsService}
+        <EmptyState title="A regression needs a service" message="A regression belongs to one revision of one service: open one of the providers and ask there." />
+        <p class="disco-more" data-testid="changes-event-needs-service"><a href={fleetServicesUrl({ offering: offeringKey })}>Providers of {offeringKey}</a></p>
+      {:else if unknownEvent}
         <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the {subjectNoun} and press Ask." />
       {:else if eventKind === 'regressed' && !eventRev.trim()}
         <EmptyState identity title="Name the revision" message="A version, or an artifact digest to read delivery evidence." />

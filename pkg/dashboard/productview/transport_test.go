@@ -527,13 +527,13 @@ func TestProductOfferingUseRefsHaveHrefs(t *testing.T) {
 	team := fleet.EntityRef{Kind: fleet.KindOwner, Key: "team:db"}
 	use := fleet.OfferingUse{Consumer: svc, Provider: svc, Via: fleet.RelationshipConfigRef,
 		ProviderOwner: &fleet.OwnershipInfo{Owner: "db", Ref: &team, Declared: true},
-		Requested:     []fleet.RequestedConfiguration{{Entry: "db", Revision: &rev, Provenance: fleet.ProvenanceDeclared}, {Entry: "bare", Provenance: fleet.ProvenanceDeclared}},
+		Requested:     []fleet.RequestedConfiguration{{Entry: "db", Revision: &rev, ConsumerRevision: &rev, Provenance: fleet.ProvenanceDeclared}, {Entry: "bare", Provenance: fleet.ProvenanceDeclared}},
 	}
 	got := productOfferingUses(fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{use}}).Items[0]
 	if got.ProviderOwner == nil || got.ProviderOwner.Ref == nil || got.ProviderOwner.Ref.Href == "" || got.ProviderOwner.Owner != "db" {
 		t.Errorf("provider owner = %+v", got.ProviderOwner)
 	}
-	if len(got.Requested) != 2 || got.Requested[0].Revision == nil || got.Requested[0].Revision.Href == "" || got.Requested[1].Revision != nil || got.Requested[0].Entry != "db" {
+	if len(got.Requested) != 2 || got.Requested[0].Revision == nil || got.Requested[0].Revision.Href == "" || got.Requested[0].ConsumerRevision == nil || got.Requested[0].ConsumerRevision.Href == "" || got.Requested[1].Revision != nil || got.Requested[0].Entry != "db" {
 		t.Errorf("requested = %+v", got.Requested)
 	}
 	if none := productOfferingUses(fleet.OfferingUsesPreview{Items: []fleet.OfferingUse{{Consumer: svc, Provider: svc}}}).Items[0]; none.ProviderOwner != nil || none.Requested != nil {

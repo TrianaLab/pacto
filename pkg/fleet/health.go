@@ -21,7 +21,7 @@ type OperationalHealthTally struct {
 	Available   int `json:"available" doc:"Targets whose declared health check was evaluated on fresh evidence with no health finding"`
 	Degraded    int `json:"degraded" doc:"Targets reported as degraded; no source reports degradation yet, so it reads 0"`
 	Unavailable int `json:"unavailable" doc:"Targets whose health check answered and reports it is failing (HEALTH_FAILING)"`
-	Unknown     int `json:"unknown" doc:"Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved or quarantined target, or another finding on the health capability"`
+	Unknown     int `json:"unknown" doc:"Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved, inferred (mutable tag) or quarantined revision link, or another finding on the health capability"`
 	NotObserved int `json:"notObserved" doc:"Targets whose contract revision declares no health capability"`
 }
 
@@ -92,6 +92,10 @@ func (q *Query) targetHealth(t *TargetRecord) (AvailabilityState, bool) {
 	}
 	declared, resolved := q.declaresHealth(t)
 	switch {
+	case t.RevisionMatch == revisionMatchInferred:
+		// An inferred link is a mutable tag, not proof of what runs: the
+		// revision it names may not be the one the source evaluated.
+		return AvailabilityUnknown, true
 	case resolved && !declared:
 		return "", false
 	case !resolved || t.Coverage == nil || !q.freshEvidence(t):
@@ -129,10 +133,13 @@ var unknownCauses = []struct {
 	{finding.CodeEvidenceStale, func(string) string { return "the evidence is older than the source's freshness window" }},
 	{finding.CodeObservationUnsupported, func(s string) string { return s + " cannot be observed in this environment" }},
 	{finding.CodeEvidenceInsufficient, func(s string) string { return "the evidence cannot confirm or contradict " + s }},
-	{finding.CodeEvidenceMissing, func(string) string { return noEvidenceReason }},
+	{finding.CodeEvidenceMissing, func(s string) string { return "no evidence was collected for " + s }},
 }
 
-const noEvidenceReason = "no evidence was ever collected"
+const (
+	noEvidenceReason         = "no evidence was ever collected"
+	healthNotEvaluatedReason = "the source reported no evaluation of the declared health check"
+)
 
 // dominantUnknown names the cause of a target's unknown compliance: its most
 // telling Family-2 finding, else EVIDENCE_MISSING when no evidence (or no
@@ -145,8 +152,11 @@ func (q *Query) dominantUnknown(t *TargetRecord) (code, reason string) {
 			}
 		}
 	}
-	if declared, _ := q.declaresHealth(t); t.EvidenceAt == nil || (declared && t.Coverage == nil) {
+	if t.EvidenceAt == nil {
 		return string(finding.CodeEvidenceMissing), noEvidenceReason
+	}
+	if declared, _ := q.declaresHealth(t); declared && t.Coverage == nil {
+		return string(finding.CodeEvidenceMissing), healthNotEvaluatedReason
 	}
 	return "UNKNOWN", "compliance is unknown because evidence is insufficient"
 }

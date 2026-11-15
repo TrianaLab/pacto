@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
+
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 )
 
@@ -27,7 +30,7 @@ func statsDeps(calls *[]statsCall, err error) deps {
 
 func runStatsPublish(t *testing.T, d deps, args ...string) (string, error) {
 	t.Helper()
-	cmd := newStatsCommand(d)
+	cmd := newStatsCommand(app.NewService(nil, nil), viper.New(), d)
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(&strings.Builder{})
@@ -134,6 +137,15 @@ func TestStatsPublishRejectsForgedID(t *testing.T) {
 	_, err := runStatsPublish(t, statsDeps(&calls, nil), file, "--registry", "reg/acme/stats")
 	if err == nil || len(calls) != 0 || !strings.Contains(err.Error(), file+": id does not match its kind, service and revisions") {
 		t.Fatalf("err = %v, %d calls", err, len(calls))
+	}
+}
+
+func TestStatsPublishRefusesOperationRecords(t *testing.T) {
+	var calls []statsCall
+	file := filepath.Join("..", "..", "pkg", "runrecord", "testdata", "operation.golden.json")
+	_, err := runStatsPublish(t, statsDeps(&calls, nil), file, "--registry", "reg/acme/stats")
+	if err == nil || len(calls) != 0 || !strings.Contains(err.Error(), "operation records are written only by the delivery promoter") {
+		t.Fatalf("calls %d, err = %v", len(calls), err)
 	}
 }
 

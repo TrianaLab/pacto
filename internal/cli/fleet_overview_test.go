@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -45,14 +46,14 @@ func TestFleetOverviewText(t *testing.T) {
 		fmt.Sprintf("Owners: %d declared · %d disputed · %d none declared · %d unknown", o.Consistent, o.Conflicting, o.Unowned, o.Unknown),
 		fmt.Sprintf("Coverage: %d of %d required assertions evaluated on %d targets; %d report none", c.Evaluated, c.Required, c.Reporting, c.NotReporting),
 		fleet.NoBusinessDomain + "  ",
-		"Next: pacto fleet attention  (Services needing attention: ",
-		"Next: pacto fleet attention --category non-compliant  (Operational targets not compliant: 1)",
+		"Next: pacto fleet attention --local=" + root + " --target-state=" + ev + "  (Services needing attention: ",
+		"Next: pacto fleet attention --category non-compliant --local=" + root + " --target-state=" + ev + "  (Operational targets not compliant: 1)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("overview text lacks %q:\n%s", want, out)
 		}
 	}
-	if !regexp.MustCompile(`(?m)^DOMAIN +SERVICES +NOT-COMPLIANT +UNKNOWN +STALE +FAILING +GAPS +NO-OWNER$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^DOMAIN +TARGETS +NC-TARGETS +UNKNOWN-TARGETS +STALE-TARGETS +FAILING-TARGETS +SERVICES +GAPS +NO-OWNER +OWNER-UNKNOWN +RUN-NOWHERE$`).MatchString(out) {
 		t.Errorf("overview text lacks the domain table:\n%s", out)
 	}
 	if k.Services != s.Services || s.Targets == 0 {
@@ -96,7 +97,39 @@ func TestFleetOverviewPartialWarns(t *testing.T) {
 			t.Errorf("overview text lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "Next: pacto fleet attention --category "+fleet.SourceHealthIncomplete) {
-		t.Errorf("the sources entry point is listed inline, never as an attention command:\n%s", out)
+	if !strings.Contains(out, "Next: pacto fleet entities --kind source --source-health "+fleet.SourceHealthIncomplete+" --local=") {
+		t.Errorf("the sources entry point lacks its entities command:\n%s", out)
+	}
+}
+
+// TestFleetOverviewSourcesTruncated: past the meta cap the overview says the
+// incomplete-source list is cut.
+func TestFleetOverviewSourcesTruncated(t *testing.T) {
+	root, _ := writeFleetFixture(t)
+	args := []string{"fleet", "overview", "--local", root}
+	dir := t.TempDir()
+	for i := range fleet.MaxMetaSources + 1 {
+		args = append(args, "--target-state", filepath.Join(dir, fmt.Sprintf("missing-%d.yaml", i)))
+	}
+	out, _, err := execFleet(t, args...)
+	if err != nil {
+		t.Fatalf("overview: %v", err)
+	}
+	if !strings.Contains(out, "... and more incomplete sources") {
+		t.Errorf("overview text does not say the source list is cut:\n%s", out)
+	}
+}
+
+// TestFleetOverviewNextQuotesSourceFlags: a source value with a space is
+// shell-quoted in the Next lines.
+func TestFleetOverviewNextQuotesSourceFlags(t *testing.T) {
+	root, _ := writeFleetFixture(t)
+	spaced := filepath.Join(t.TempDir(), "my bundles")
+	if err := os.Rename(root, spaced); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := execFleet(t, "fleet", "overview", "--local", spaced)
+	if err != nil || !strings.Contains(out, "Next: pacto fleet attention '--local="+spaced+"'") {
+		t.Errorf("Next lines lack the quoted source flag (err %v):\n%s", err, out)
 	}
 }

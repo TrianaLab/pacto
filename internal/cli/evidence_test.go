@@ -378,3 +378,44 @@ func TestEvidenceProvisionedCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestEvidenceUsageCommand(t *testing.T) {
+	ref := "oci://ghcr.io/acme/orders@sha256:" + strings.Repeat("a", 64)
+	out, err := runEvidence(t, "evidence", "usage", "--contract", ref, "--configuration", "db",
+		"--provider", "acme-db", "--environment", "production", "--external-ref", "orders-db",
+		"--metric", "storage-used=31:Gi", "--metric", "connections=12", "--cost", "212.40:USD:P30D",
+		"--observed-at", "2026-11-06T10:00:00Z", "--collector", "adapter")
+	if err != nil {
+		t.Fatalf("usage: %v", err)
+	}
+	var set evidence.EvidenceSet
+	if err := json.Unmarshal([]byte(out), &set); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		t.Fatalf("invalid set: %v", errs)
+	}
+	if set.Subject.Name != "ghcr.io/acme/orders/production/usage/configuration/db" || set.Source != "adapter" {
+		t.Errorf("set = %+v", set)
+	}
+	u, err := set.Observations[0].GetUsageObservation()
+	if err != nil || len(u.Metrics) != 2 || u.Metrics[0] != (evidence.UsageMetric{Name: "storage-used", Value: 31, Unit: "Gi"}) ||
+		u.Metrics[1] != (evidence.UsageMetric{Name: "connections", Value: 12}) || *u.Cost != (evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"}) {
+		t.Errorf("usage = %+v %v", u, err)
+	}
+
+	base := []string{"evidence", "usage", "--contract", ref, "--configuration", "db", "--provider", "acme-db"}
+	for name, args := range map[string][]string{
+		"metric without value": {"--metric", "storage-used"},
+		"metric value":         {"--metric", "storage-used=lots:Gi"},
+		"metric NaN":           {"--metric", "storage-used=NaN"},
+		"cost parts":           {"--cost", "212.40:USD"},
+		"cost currency":        {"--cost", "212.40:usd:P30D"},
+		"no figures":           {},
+		"bad observed-at":      {"--cost", "1:USD:P1D", "--observed-at", "nope"},
+	} {
+		if _, err := runEvidence(t, append(append([]string{}, base...), args...)...); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}

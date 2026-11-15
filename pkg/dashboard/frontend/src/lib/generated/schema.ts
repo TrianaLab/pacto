@@ -481,7 +481,7 @@ export interface paths {
         };
         /**
          * Operational overview
-         * @description A product-oriented summary: target compliance, operational health (healthy, failing, unknown, not observed), the knowledge gaps the contracts leave, ownership (declared, disputed, none declared, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
+         * @description A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
          */
         get: operations["fleet-overview"];
         put?: never;
@@ -2141,6 +2141,17 @@ export interface components {
             /** Format: int64 */
             required: number;
         };
+        "Evidence.UsageCost": {
+            amount: string;
+            currency: string;
+            period: string;
+        };
+        "Evidence.UsageMetric": {
+            name: string;
+            unit?: string;
+            /** Format: double */
+            value: number;
+        };
         ExplanationStatusStruct: {
             actorClass?: string;
             message?: string;
@@ -2185,7 +2196,7 @@ export interface components {
             /** @description The state per environment, bounded */
             byEnvironment: components["schemas"]["Fleet.EnvironmentAvailability"][] | null;
             /**
-             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @description available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown
              * @enum {string}
              */
             state: "available" | "degraded" | "unavailable" | "unknown";
@@ -2522,6 +2533,8 @@ export interface components {
             fetchedAt?: string;
             /** Format: int64 */
             hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
@@ -2568,7 +2581,7 @@ export interface components {
             /** @description Consumers or providers the viewer may not see are not counted */
             partial?: boolean;
             /**
-             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown
              * @enum {string}
              */
             provenance: "observed" | "inferred" | "unknown";
@@ -2591,6 +2604,8 @@ export interface components {
              * @description Provider targets in this environment the viewer can see
              */
             targets: number;
+            /** @description Targets of the provider the viewer may not see are not counted */
+            targetsHidden?: boolean;
             /** @description Consumer targets that report they cannot reach it, bounded */
             unreachable?: components["schemas"]["Fleet.EntityRef"][] | null;
         };
@@ -2691,6 +2706,7 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -2766,7 +2782,7 @@ export interface components {
             noSummary: number;
             /**
              * Format: int64
-             * @description Services that run nowhere, counted only when every source reporting operational targets is complete
+             * @description Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete
              */
             notDeployed: number;
             /**
@@ -2778,7 +2794,7 @@ export interface components {
         "Fleet.KnowledgeTally": {
             /**
              * Format: int64
-             * @description Services whose contract and interface documents were read and leave nothing out
+             * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
              */
             described: number;
             gaps: components["schemas"]["Fleet.KnowledgeGaps"];
@@ -2789,7 +2805,7 @@ export interface components {
             services: number;
             /**
              * Format: int64
-             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or interface document, conflicting summaries or placement it cannot see
+             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see
              */
             unknown: number;
             /**
@@ -2857,8 +2873,6 @@ export interface components {
             sourcesTruncated?: boolean;
         };
         "Fleet.NextAction": {
-            /** @description The environment the operation acts in; empty for a contract edit */
-            environment?: string;
             /**
              * @description The MCP tool that performs the operation
              * @enum {string}
@@ -2916,7 +2930,7 @@ export interface components {
             unavailable: number;
             /**
              * Format: int64
-             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved or quarantined target, or another finding on the health capability
+             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved, inferred (mutable tag) or quarantined revision link, or another finding on the health capability
              */
             unknown: number;
         };
@@ -3318,12 +3332,26 @@ export interface components {
             version?: string;
         };
         "Fleet.ResourceConsumption": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
             environment?: string;
+            externalRef?: string;
+            figures?: components["schemas"]["Fleet.UsageFigures"];
+            producer?: string;
+            producerKeyId?: string;
             /** @enum {string} */
             provenance: "observed";
+            provider?: string;
             reason?: string;
+            reported?: components["schemas"]["Fleet.UsageFigures"];
+            revision?: components["schemas"]["Fleet.EntityRef"];
+            source?: string;
+            stale?: boolean;
             /** @enum {string} */
-            state: "not-reported";
+            state: "reported" | "unknown" | "not-reported";
+            verified?: boolean;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -3664,6 +3692,35 @@ export interface components {
             caller: string;
             sources: string[] | null;
             toService: string;
+        };
+        "Fleet.UsageFigures": {
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+        };
+        "Fleet.UsageRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            stale: boolean;
+            verified: boolean;
         };
         "Fleet.ValidationStage": {
             name: string;
@@ -4334,7 +4391,7 @@ export interface components {
             asOf: string;
             byEnvironment: components["schemas"]["ProductEnvironmentAvailability"][] | null;
             /**
-             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @description available or unavailable when every environment is; degraded when an environment is degraded, or one is unavailable and another available; otherwise unknown
              * @enum {string}
              */
             state: "available" | "degraded" | "unavailable" | "unknown";
@@ -4519,7 +4576,7 @@ export interface components {
             /** @description Consumers or providers the viewer may not see are not counted */
             partial?: boolean;
             /**
-             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown whenever the state is unknown
              * @enum {string}
              */
             provenance: "observed" | "inferred" | "unknown";
@@ -4541,6 +4598,8 @@ export interface components {
              * @description Provider targets in this environment the viewer can see
              */
             targets: number;
+            /** @description Targets of the provider the viewer may not see are not counted */
+            targetsHidden?: boolean;
             unreachable?: components["schemas"]["ProductRef"][] | null;
         };
         ProductEnvironmentEvent: {
@@ -5040,6 +5099,8 @@ export interface components {
             fetchedAt?: string;
             /** Format: int64 */
             hiddenConsumers?: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
             href: string;
             key: string;
             /** @enum {string} */
@@ -5100,6 +5161,7 @@ export interface components {
         };
         ProductRequestedConfiguration: {
             configuration?: string;
+            consumerRevision?: components["schemas"]["ProductRef"];
             entry: string;
             /** @enum {string} */
             provenance: "declared";
@@ -7482,11 +7544,11 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision */
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision */
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;

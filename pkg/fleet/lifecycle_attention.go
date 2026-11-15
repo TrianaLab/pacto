@@ -92,7 +92,11 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 		return
 	}
 	succ, _ := q.successorRevision(provider, rel.ProviderLifecycle.Successor)
-	if successorRange(rel.Compatibility, succ) != RangeUnsatisfied {
+	if succ != nil && succ.ServiceKey != provider.Key {
+		it.NextStep = fmt.Sprintf("Change %s's dependency on %s to %s, its successor", consumer.Name, provider.Name, succ.Service)
+		return
+	}
+	if successorRange(rel.Compatibility, provider.Key, succ) != RangeUnsatisfied {
 		return
 	}
 	if it.Code == "DEPENDENCY_SERVICE_DEPRECATED" {
@@ -108,10 +112,8 @@ func (q *Query) successorOutOfRange(it *AttentionItem, rel Relationship, consume
 // agree.
 func (q *Query) lifecycleTally() (int, string) {
 	consumers, sev := map[string]bool{}, severityWarning
+	// lifecycleAttention already leaves golden paths out (TestLifecycleAttentionGoldenPathSkipped).
 	for _, it := range q.lifecycleAttention() {
-		if !q.populationService(ServiceKey(it.Service)) {
-			continue
-		}
 		consumers[it.Service] = true
 		if it.Severity == severityError {
 			sev = severityError

@@ -357,6 +357,28 @@ func TestApprovedButRecheckChanged(t *testing.T) {
 	wantOutcome(t, e.drive("p1"), delivery.Rejected, "GateFailed")
 }
 
+// TestApprovedButRecheckFailsKeepsTheFailingGate: an approved promote whose
+// re-check fails concludes with the failing verdict, so its run record counts
+// the gate that refused it.
+func TestApprovedButRecheckFailsKeepsTheFailingGate(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dC, bot))
+	e.create(pactoObj("checkout", "checkout", c3, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "required": true, "compatibility": "^1.0.0"}))
+	o := e.drive("p1")
+	for _, v := range o.Status.Verdicts {
+		if v.Result == delivery.Fail {
+			t.Fatalf("a held promote has no failing verdict: %+v", o.Status.Verdicts)
+		}
+	}
+	e.approve(o, "ok", "alice", delivery.Approve)
+	e.reg.bundles[contractRef(c3)].Contract.Service.Name = "orders"
+	o = e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "GateFailed")
+	if !slices.ContainsFunc(o.Status.Verdicts, func(v delivery.Verdict) bool { return v.Result == delivery.Fail }) {
+		t.Fatalf("the re-check's failing verdict is missing: %+v", o.Status.Verdicts)
+	}
+}
+
 // TestTwoAgentsOneWins is acceptance item 6: two promotes raised at once; the
 // older is superseded, and a promote that loses the pointer CAS is refused.
 func TestTwoAgentsOneWins(t *testing.T) {

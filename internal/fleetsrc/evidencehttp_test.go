@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -325,5 +327,73 @@ func TestEvidenceHTTPSource_Collect_ProvisioningMapped(t *testing.T) {
 		Producer: "platform-adapter", ProducerKeyID: "adapter-key", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
 	if got := col.Provisioning; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("provisioning = %+v, want %+v", got, want)
+	}
+}
+
+// A v4 body is v3 plus usage records: each becomes a verified raw record with
+// the server's accept time; a missing digest falls back to the contract ref's.
+func TestEvidenceHTTPReadsV4Usage(t *testing.T) {
+	at, accepted := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC), time.Date(2026, 7, 29, 9, 1, 0, 0, time.UTC)
+	metrics := []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}}
+	cost := &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"}
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionUsage,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Usage: []evidenceingest.UsageDTO{{
+			Subject: "ghcr.io/a/orders/production/usage/configuration/db", Service: "orders", Domain: "ghcr.io/a", ContractRef: "oci://ghcr.io/a/orders@sha256:abc",
+			Producer: "platform-adapter", ProducerKeyID: "adapter-key", Kind: "configuration", Name: "db", Environment: "production", Provider: "aws",
+			ExternalRef: "orders-db", Metrics: metrics, Cost: cost, Outcome: "Observed", EvidenceAt: at, AcceptedAt: accepted,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := serveJSON(t, string(payload))
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("a v4 body must be accepted: %v", err)
+	}
+	want := fleet.RawUsage{Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:abc", Kind: "configuration", Name: "db",
+		Environment: "production", Provider: "aws", ExternalRef: "orders-db", Metrics: metrics, Cost: cost, Outcome: "Observed",
+		Producer: "platform-adapter", ProducerKeyID: "adapter-key", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
+	if got := col.Usage; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
+// A usage metric with no value is dropped with a counted limitation, never
+// read as a signed, measured zero.
+func TestEvidenceHTTPDropsValuelessUsageMetric(t *testing.T) {
+	at := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionUsage,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Usage: []evidenceingest.UsageDTO{
+			{Service: "orders", Kind: "configuration", Name: "db", Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 1, Unit: "Gi"}}, Outcome: "Observed", EvidenceAt: at, AcceptedAt: at},
+			{Service: "orders", Kind: "configuration", Name: "replica", Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 2, Unit: "Gi"}}, Outcome: "Observed", EvidenceAt: at, AcceptedAt: at},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Strip the replica's value, as a non-conforming server would send it.
+	body := strings.Replace(string(payload), `"value":2,`, ``, 1)
+	if body == string(payload) {
+		t.Fatalf("fixture did not drop the value: %s", payload)
+	}
+	srv := serveJSON(t, body)
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Usage) != 1 || col.Usage[0].Name != "db" {
+		t.Errorf("usage = %+v, want the db record only", col.Usage)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
+		t.Errorf("limitations = %+v, want one invalid-record limitation", col.Limitations)
 	}
 }

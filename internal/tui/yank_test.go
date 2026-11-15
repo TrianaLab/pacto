@@ -329,8 +329,8 @@ func TestShellQuoteHandlesTheAwkwardTokens(t *testing.T) {
 		{"a token that is only control characters collapses to an empty word", "\x01\x02", `''`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shellQuote(tt.in); got != tt.want {
-				t.Fatalf("shellQuote(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := ShellQuote(tt.in); got != tt.want {
+				t.Fatalf("ShellQuote(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

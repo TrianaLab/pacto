@@ -4,16 +4,27 @@
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import ContractReference from './ContractReference.svelte';
   import SchemaContent from './SchemaContent.svelte';
+  import { scrollToSection } from '../lib/motion.ts';
 
   // A revision's configuration scopes: whether each is required, its schema path or
   // the contract it references (and the revision and configuration a ref resolves
-  // to), the content of its schema and the bounded values.
-  let { items = [] } = $props();
+  // to), the content of its schema and the bounded values. An entry in `resourceEntries`
+  // is a request the service page's Resources section already shows in full, so here it
+  // keeps only its name and a jump there: counted once, never shown twice.
+  /** @type {{ items?: any[], resourceEntries?: Set<string> }} */
+  let { items = [], resourceEntries = new Set() } = $props();
 </script>
 
 <ul class="cl">
   {#each items as c, ci (`${c.name}:${ci}`)}
     <li class="inset-card">
+      {#if resourceEntries.has(c.name)}
+      <div class="cl-head" data-testid="configuration-resource">
+        <span class="cl-name">{c.name || 'default'}</span>
+        <span class="cl-note">Requested from {c.resolution?.service?.label ?? 'its provider'}, see</span>
+        <button type="button" class="cl-jump" onclick={() => scrollToSection('sec-resources')}>Resources</button>
+      </div>
+      {:else}
       <div class="cl-head">
         <span class="cl-name">{c.name || 'default'}</span>
         <IdentityBadge label={c.required ? 'required' : 'optional'} tone={c.required ? 'warn' : 'neutral'} />
@@ -42,6 +53,7 @@
           {#if c.values.truncated}<p class="cl-note">Showing {formatCount(c.values.count)} values{typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : '; total unknown'}.</p>{/if}
         </details>
       {/if}
+      {/if}
     </li>
   {/each}
 </ul>
@@ -53,5 +65,7 @@
   .cl-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cl-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .cl-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .cl-jump { padding: 0; border: none; background: none; color: var(--c-accent); font: inherit; font-size: var(--text-sm); cursor: pointer; text-decoration: underline; }
+  @media (pointer: coarse) { .cl-jump { min-block-size: 44px; } }
   .cl-ops > summary { color: var(--c-text-3); }
 </style>

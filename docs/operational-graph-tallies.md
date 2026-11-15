@@ -82,19 +82,20 @@ sidebar badge counts only items above `info`.
 | `non-compliant` | `NON_COMPLIANT` | error |
 | `invalid` | `INVALID_CONTRACT` | error |
 | `health` | `HEALTH_FAILING`, a target whose own health check is failing | warning |
-| `provisioning` | `PROVISIONING_FAILED` | error |
-| `provisioning` | `PROVISIONING_STALE` | warning |
+| `provisioning` | `PROVISIONING_FAILED`, a provider reports a resource Failed | error |
+| `provisioning` | `PROVISIONING_STALE`, the last report about the current revision is stale | warning |
 | `unknown` | the cause: `COLLECTION_FAILED`, `HEALTH_FAILING`, `EVIDENCE_STALE`, `OBSERVATION_UNSUPPORTED`, `EVIDENCE_INSUFFICIENT` or `EVIDENCE_MISSING`, else `UNKNOWN` | warning |
 | `stale` | `STALE_EVIDENCE` | warning |
 | `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
 | `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
-| `lifecycle` | `DEPENDENCY_SERVICE_DEPRECATED` | warning |
-| `lifecycle` | `DEPENDENCY_SERVICE_SUNSET` | error |
+| `lifecycle` | `DEPENDENCY_SERVICE_DEPRECATED`, a provider the consumer's range reaches is deprecated | warning |
+| `lifecycle` | `DEPENDENCY_SERVICE_SUNSET`, that provider is past its sunset | error |
+| `lifecycle` | `SUCCESSOR_OUT_OF_RANGE`, the consumer's range excludes the provider's successor | error |
 | `undeclared` | `DEPENDENCY_UNDECLARED`, a runtime call no contract declares | warning |
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `golden-path` | `GOLDEN_PATH_DEPLOYED` | warning |
 | `readiness` | `MISSING_READINESS` | info |
-| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN` or `PLACEMENT_UNKNOWN` | info |
+| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN` | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
 
 A revision with no readiness assessment raises a `readiness` item, so
@@ -103,14 +104,14 @@ read raises one `knowledge` item and no `unowned` item. The Overview tile
 "Undeclared runtime dependencies observed" opens both kinds of `undeclared`
 item.
 
-- `nextAction` names the operation that fixes an item and the tool that makes
-  it, `{"verb": "edit-contract", "tool": "pacto_edit"}`, on
-  `DEPENDENCY_UNDECLARED`, `UNOWNED_SERVICE` (when a contract could be read),
-  `INVALID_CONTRACT`, `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`,
-  `GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor.
-  Pacto infers it from the item's code, beside the `nextStep` prose. It grants
-  nothing, and an unknown, stale, unresolved or non-compliant item carries
-  none.
+`nextAction` names the operation that fixes an item and the tool that makes
+it, `{"verb": "edit-contract", "tool": "pacto_edit"}`, on
+`DEPENDENCY_UNDECLARED`, `UNOWNED_SERVICE` (when a contract could be read),
+`INVALID_CONTRACT`, `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`,
+`GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor.
+Pacto infers it from the item's code, beside the `nextStep` prose. It grants
+nothing, and an unknown, stale, unresolved or non-compliant item carries
+none.
 
 ## Freshness
 

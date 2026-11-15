@@ -47,7 +47,8 @@ func impactTool() *mcpsdk.Tool {
 			"(and 'revision' for regressed: an artifact digest reads delivery's recorded failures) instead of old_ref and new_ref " +
 			"to ask what happens if that service becomes unavailable, is removed or regressed; consumers carry 'effect' " +
 			"(breaks, may-degrade, unknown) and the gate is never blocked for an event. Pass 'offering' instead of 'service' " +
-			"to ask it of every provider of a platform offering (unavailable or removed only); 'providers' lists them. " +
+			"to ask it of every provider of a platform offering (unavailable or removed only); 'providers' lists them, and the top-level " +
+			"'service' then holds the offering's name, the same as 'event.offering'. " +
 			"Read-only: it lists review targets, never recommends or takes actions.",
 		InputSchema: inputSchema(map[string]property{
 			"old_ref":          {Type: "string", Description: "Old contract revision: a local directory or oci:// ref over stdio, an oci:// ref of a revision in your fleet view over HTTP"},

@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -58,9 +56,9 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
-	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
+	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
-	f.String("lifecycle", "", "offerings whose worst provider lifecycle, or services whose own lifecycle, is deprecated or sunset")
+	f.String("lifecycle", "", "offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset")
 	f.Bool("failed", false, "with --kind offering, offerings with at least one failed provisioning request")
 	f.String("source-kind", "", "sources of this exact kind only (oci, kubernetes, evidence-http, ...)")
 	f.String("capability", "", "services whose revisions declare this capability key, such as health or acme.io/cost")
@@ -292,9 +290,16 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 				kind = "golden path"
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
-			if e.Kind == fleet.KindOffering {
+			switch e.Kind {
+			case fleet.KindOffering:
 				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
+			case fleet.KindOwner, fleet.KindDomain:
+				_, _ = fmt.Fprintf(w, "              services %d  not compliant %d  failing health %d  unknown %d  stale %d  with gaps %d\n",
+					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
 			}
+		}
+		if res.Aggregate.Knowledge.Services > 0 {
+			printOverviewKnowledge(w, res.Aggregate.Knowledge)
 		}
 		printOfferingPhases(w, &res.Aggregate)
 		printNonCompliantRanking(w, &res.Aggregate)
@@ -316,12 +321,16 @@ func offeringRowFacts(e fleet.EntityRef) string {
 	if e.TargetsUnknown {
 		targets = "unknown"
 	}
-	return fmt.Sprintf("owners %s  lifecycle %s  availability %s (%s)  consumers %s  failed %d  observed targets %s",
+	s := fmt.Sprintf("owners %s  lifecycle %s  availability %s (%s)  consumers %s  failed consumers %d  observed targets %s",
 		orDash(e.Owner), orDash(e.Lifecycle), orDash(string(e.Availability)), orDash(e.AvailabilityProvenance), consumers, e.FailedRequests, targets)
+	if e.HiddenProviders > 0 {
+		s += fmt.Sprintf("  +%d providers you may not see", e.HiddenProviders)
+	}
+	return s
 }
 
 // printOfferingPhases renders the provisioning requests of the matched
-// offerings by phase and the offerings with the most failed ones.
+// offerings by phase and the offerings with the most consumers with a failed one.
 func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
 	if a.OfferingPhases == (fleet.PhaseTally{}) {
 		return
@@ -337,7 +346,7 @@ func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
 	if a.FailedOfferingsBeyond > 0 {
 		parts = append(parts, fmt.Sprintf("and %d more offerings", a.FailedOfferingsBeyond))
 	}
-	_, _ = fmt.Fprintf(w, "Most failed: %s\n", strings.Join(parts, ", "))
+	_, _ = fmt.Fprintf(w, "Most consumers with a failed request: %s\n", strings.Join(parts, ", "))
 }
 
 // phaseText renders a phase tally, every phase in pipeline order.
@@ -532,7 +541,7 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 	}
 	printOfferingUses(w, "Consumers:", o.Consumers)
 	if o.HiddenConsumers > 0 {
-		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
+		_, _ = fmt.Fprintf(w, "Consumers you may not see: %d\n", o.HiddenConsumers)
 	}
 	printObservedConsumers(w, o)
 }
@@ -741,25 +750,8 @@ func printResource(w io.Writer, u fleet.OfferingUse) {
 		offering = "offering " + u.Offering
 	}
 	_, _ = fmt.Fprintf(w, "  %s (%s) via %s%s\n", u.Provider.Label, offering, u.Via, useNotes(u))
-	owner, availability := "unknown", "unknown"
-	if u.ProviderOwner != nil && u.ProviderOwner.Owner != "" {
-		owner = u.ProviderOwner.Owner
-	}
-	if u.ProviderAvailability != nil && u.ProviderAvailability.State != "" {
-		availability = string(u.ProviderAvailability.State)
-	}
-	_, _ = fmt.Fprintf(w, "    owner %s, availability %s\n", owner, availability)
-	for _, r := range u.Requested {
-		_, _ = fmt.Fprintln(w, requestedText(r))
-	}
-	if u.RequestedTruncated {
-		_, _ = fmt.Fprintln(w, "    requested values may be missing: the configurations list was cut")
-	}
-	for _, st := range u.Provisioning {
-		_, _ = fmt.Fprintln(w, resourceStatusText(st))
-	}
-	for _, c := range u.Consumption {
-		_, _ = fmt.Fprintln(w, consumptionText(c))
+	for _, l := range u.ResourceLines() {
+		_, _ = fmt.Fprintln(w, "    "+l)
 	}
 }
 
@@ -776,76 +768,8 @@ func useNotes(u fleet.OfferingUse) string {
 	if u.SuccessorRange != "" {
 		s += ", successor range " + u.SuccessorRange
 	}
-	return s
-}
-
-// requestedText renders one declared request: its values, the provider
-// revision it resolves to and the provider configuration it selects.
-func requestedText(r fleet.RequestedConfiguration) string {
-	values := make([]string, 0, len(r.Values.Items))
-	for _, f := range r.Values.Items {
-		values = append(values, f.Key+"="+f.Value)
-	}
-	s := "    requested (" + r.Provenance + "): " + cmp.Or(strings.Join(values, " "), "none")
-	if r.Revision != nil {
-		s += ", provider " + revisionText(r.Revision)
-	}
-	if r.Configuration != "" {
-		s += ", configuration " + r.Configuration
-	}
-	return s
-}
-
-// revisionText names a revision as service@version, or by its label when it
-// has no version.
-func revisionText(r *fleet.EntityRef) string {
-	if r.ParentService != "" && r.Version != "" {
-		return r.ParentService + "@" + r.Version
-	}
-	return r.Label
-}
-
-// resourceStatusText renders one provisioning status with its provenance: the
-// environment and entry, the phase (and the phase a stale or foreign report
-// said), the adapter and external reference, signed or unsigned, asOf and,
-// when set, why.
-func resourceStatusText(st fleet.ProvisioningStatus) string {
-	phase := st.Phase
-	if st.ReportedPhase != "" && st.ReportedPhase != st.Phase {
-		phase += " (reported " + st.ReportedPhase + ")"
-	}
-	parts := []string{"    " + orDash(strings.TrimSpace(st.Environment+" "+st.Entry)), phase}
-	if adapter := strings.TrimSpace(st.Provider + " " + st.ExternalRef); adapter != "" {
-		parts = append(parts, adapter)
-	}
-	if st.Source != "" && st.Verified {
-		parts = append(parts, "signed")
-	} else if st.Source != "" {
-		parts = append(parts, "unsigned")
-	}
-	if st.AsOf != nil {
-		parts = append(parts, "asOf "+st.AsOf.UTC().Format(time.RFC3339))
-	}
-	s := strings.Join(parts, "  ")
-	if st.Reason != "" {
-		s += ": " + st.Reason
-	}
-	return s
-}
-
-// consumptionText renders what Pacto knows about a resource's consumption in
-// one environment.
-func consumptionText(c fleet.ResourceConsumption) string {
-	where := ""
-	if c.Environment != "" {
-		where = " " + c.Environment
-	}
-	if c.State == "not-reported" {
-		return "    usage" + where + ": not reported by any provider; for live signals ask Mira (query_metric)"
-	}
-	s := "    usage" + where + ": " + c.State
-	if c.Reason != "" {
-		s += ": " + c.Reason
+	if u.SupportedRange != "" {
+		s += ", latest supported range " + u.SupportedRange
 	}
 	return s
 }

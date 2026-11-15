@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -802,4 +803,27 @@ func mustNewMCP(version string, a pactomcp.Authoring, m pactomcp.Modes) *mcpsdk.
 		panic(err)
 	}
 	return s
+}
+
+// TestMCPFleetOptionsLocalDefault: stdio scans the working directory's bundles
+// by default; over HTTP the server scans none unless --local names a root.
+func TestMCPFleetOptionsLocalDefault(t *testing.T) {
+	for _, tc := range []struct {
+		flags map[string]string
+		want  []string
+	}{
+		{map[string]string{}, []string{"."}},
+		{map[string]string{"transport": "http"}, nil},
+		{map[string]string{"transport": "http", "local": "bundles"}, []string{"bundles"}},
+	} {
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
+		for k, v := range tc.flags {
+			if err := cmd.Flags().Set(k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := mcpFleetOptions(cmd).LocalRoots; !slices.Equal(got, tc.want) {
+			t.Errorf("%v: local roots %q, want %q", tc.flags, got, tc.want)
+		}
+	}
 }

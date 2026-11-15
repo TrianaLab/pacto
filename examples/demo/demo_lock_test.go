@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDemoLockPinsTheLocalProvider holds catalog-service 1.3.0's committed lock
@@ -178,12 +179,111 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
+		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationUsageUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
-	if len(snap.Provisioning) != 3 {
-		t.Errorf("provisioning records = %d, want all three reports kept", len(snap.Provisioning))
+	raw, err := os.ReadFile("fleet-targets.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Provisioning []map[string]any `yaml:"provisioning"`
+		Usage        []map[string]any `yaml:"usage"`
+	}
+	if err := yaml.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Provisioning) == 0 || len(snap.Provisioning) != len(file.Provisioning) {
+		t.Errorf("provisioning records = %d, want every one of the file's %d reports kept", len(snap.Provisioning), len(file.Provisioning))
+	}
+	if len(file.Usage) == 0 || len(snap.Usage) != len(file.Usage) {
+		t.Errorf("usage records = %d, want every one of the file's %d reports kept", len(snap.Usage), len(file.Usage))
+	}
+	for _, u := range snap.Usage {
+		if u.Verified {
+			t.Errorf("usage report %s/%s reads signed; the file is unsigned", u.Service, u.Name)
+		}
+	}
+}
+
+// TestDemoNonOfferingResourceStaleFailed: notification-worker 1.0.0 depends on
+// email-provider, which declares no offering, and the mail adapter reported
+// that resource Failed on the file's fixed date. Under the default provisioning
+// window the CLI demo reads it Unknown, a stale Failed report raising
+// PROVISIONING_STALE; a window that covers the date reads it Failed and raises
+// PROVISIONING_FAILED.
+func TestDemoNonOfferingResourceStaleFailed(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		window      time.Duration
+		phase, code string
+		reported    string
+		stale       bool
+	}{
+		{"default window", 0, "Unknown", "PROVISIONING_STALE", "Failed", true},
+		{"window covers the date", 100000 * time.Hour, "Failed", "PROVISIONING_FAILED", "Failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: tc.window},
+				fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := fleet.NewQuery(snap)
+			d, err := q.EntityDetail(fleet.KindService, "notification-worker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var use *fleet.OfferingUse
+			for i, u := range d.Service.ConsumedOfferings.Items {
+				if u.Provider.Key == "email-provider" {
+					use = &d.Service.ConsumedOfferings.Items[i]
+				}
+			}
+			if use == nil || use.Offering != "" || len(use.Provisioning) != 1 {
+				t.Fatalf("email-provider use = %+v", use)
+			}
+			st := use.Provisioning[0]
+			if st.Phase != tc.phase || st.ReportedPhase != tc.reported || st.Stale != tc.stale {
+				t.Errorf("status phase %q reportedPhase %q stale %v", st.Phase, st.ReportedPhase, st.Stale)
+			}
+			l, err := q.Attention(fleet.AttentionFilter{Category: "provisioning", Limit: fleet.MaxAttentionLimit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(l.Items, func(it fleet.AttentionItem) bool {
+				return it.Service == "notification-worker" && it.Code == tc.code
+			}) {
+				t.Errorf("attention %+v, want %s for notification-worker", l.Items, tc.code)
+			}
+		})
+	}
+}
+
+// TestDemoUsageUnsignedIsUnknown: the CLI demo's usage report for
+// catalog-service's database is unsigned, so under any window the usage reads
+// unknown and its figures stay in reported, never in figures.
+func TestDemoUsageUnsignedIsUnknown(t *testing.T) {
+	for _, window := range []time.Duration{0, 100000 * time.Hour} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: window},
+			fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "catalog-service")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []fleet.ResourceConsumption
+		for _, u := range d.Service.ConsumedOfferings.Items {
+			if u.Via == fleet.RelationshipConfigRef {
+				got = append(got, u.Consumption...)
+			}
+		}
+		if len(got) != 1 || got[0].State != "unknown" || got[0].Figures != nil || got[0].Reported == nil || got[0].Environment != "production" {
+			t.Errorf("window %v: catalog-service consumption = %+v", window, got)
+		}
 	}
 }
 
@@ -365,14 +465,17 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 }
 
 // TestDemoOfferingRows: on the demo fleet, postgresql has two providers with
-// two owners, and its newest revision, 17.0.0, declares no lifecycle, so the
-// row reads supported and no offering is deprecated. The services whose range
-// stops at 16 still reach the deprecated 16.1.0, and each gets one lifecycle
-// item saying the successor is out of its range. The clock is pinned before
-// postgresql 16.1.0's sunset, so the answer never ages.
+// two owners. Its newest revision, 17.0.0, declares no lifecycle, but its
+// targets still run the deprecated 16.1.0, the provider's current revision, so
+// the row reads deprecated and postgresql is the only deprecated offering.
+// The services whose range stops at 16 still reach the deprecated
+// 16.1.0, and each gets one lifecycle item saying the successor is out of its
+// range. The clock is pinned before postgresql 16.1.0's sunset, so the answer
+// never ages.
 func TestDemoOfferingRows(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
-	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,11 +484,11 @@ func TestDemoOfferingRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+	if l.Total != 1 || l.Entities[0].Owner != "2 owners claim it" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
 		t.Errorf("postgresql offering = %+v", l.Entities)
 	}
 	dep, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
-	if err != nil || dep.Total != 0 {
+	if err != nil || dep.Total != 1 || dep.Entities[0].Key != "postgresql" {
 		t.Errorf("deprecated offerings = %+v (%v)", dep, err)
 	}
 	items, err := q.Attention(fleet.AttentionFilter{Category: "lifecycle", Limit: fleet.MaxAttentionLimit})
@@ -398,6 +501,18 @@ func TestDemoOfferingRows(t *testing.T) {
 	}
 	if codes["orders-service"] != "SUCCESSOR_OUT_OF_RANGE" || codes["ticketing-service"] != "" {
 		t.Errorf("lifecycle items = %v, want orders-service out of range and ticketing-service, which reaches 17.0.0, silent", codes)
+	}
+}
+
+// TestDemoOfferingRowsNoTarget: with no target the newest readable postgresql
+// revision, 17.0.0, speaks, so the row reads supported.
+func TestDemoOfferingRowsNoTarget(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"}); err != nil || l.Total != 1 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+		t.Errorf("postgresql offering with no target = %+v (%v)", l, err)
 	}
 }
 

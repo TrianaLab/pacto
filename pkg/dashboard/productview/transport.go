@@ -668,7 +668,8 @@ type ProductOfferingUse struct {
 // revision is navigable.
 type ProductRequestedConfiguration struct {
 	fleet.RequestedConfiguration
-	Revision *ProductRef `json:"revision,omitempty"`
+	Revision         *ProductRef `json:"revision,omitempty"`
+	ConsumerRevision *ProductRef `json:"consumerRevision,omitempty"`
 }
 
 // ProductProvisioningStatus is a provisioning status whose consumer revision is
@@ -690,7 +691,7 @@ func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview
 	for i, u := range p.Items {
 		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider), ProviderOwner: productOwnership(u.ProviderOwner)}
 		for _, r := range u.Requested {
-			items[i].Requested = append(items[i].Requested, ProductRequestedConfiguration{RequestedConfiguration: r, Revision: RefPtr(r.Revision)})
+			items[i].Requested = append(items[i].Requested, ProductRequestedConfiguration{RequestedConfiguration: r, Revision: RefPtr(r.Revision), ConsumerRevision: RefPtr(r.ConsumerRevision)})
 		}
 		for _, st := range u.Provisioning {
 			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})

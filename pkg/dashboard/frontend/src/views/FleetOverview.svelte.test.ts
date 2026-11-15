@@ -580,7 +580,8 @@ describe('FleetOverview — operational health and knowledge', () => {
       .toBe('1 service leaves something out of the contract, Pacto cannot tell for 1 service and 1 service is fully described.');
     const cov = band.querySelector('[data-testid="coverage-sentence"]') as HTMLElement;
     expect(cov.textContent?.replace(/\s+/g, ' ').trim()).toBe('12 of 20 required assertions evaluated on 4 targets; 1 reports no coverage.');
-    expect(cov.querySelector('a')?.getAttribute('href')).toBe('#/fleet/targets');
+    // No list filters targets by coverage, so the count is plain text, never a link to every target.
+    expect(cov.querySelector('a')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -625,7 +626,9 @@ describe('FleetOverview — operational health and knowledge', () => {
     await vi.waitFor(() => expect(target.querySelector('#sec-posture')).toBeTruthy());
     const posture = target.querySelector('#sec-posture') as HTMLElement;
     expect(posture.textContent).toContain('Compliant, evidence stale');
-    expect(Array.from(posture.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toContain('#/fleet/attention?category=stale');
+    // The segment opens the stale list narrowed to compliant targets: exactly what it counts.
+    const seg = Array.from(posture.querySelectorAll('a')).find((a) => (a.textContent || '').includes('Compliant, evidence stale'));
+    expect(seg?.getAttribute('href')).toBe('#/fleet/attention?category=stale&status=Compliant');
     unmount(component); document.body.removeChild(target);
   });
 });

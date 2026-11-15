@@ -1,3 +1,8 @@
+<script module>
+  /** The tone of an availability state, shared with the service page's Resources section. */
+  export const STATE_TONE = { available: 'ok', degraded: 'warn', unavailable: 'err', unknown: 'neutral' };
+</script>
+
 <script>
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
@@ -11,19 +16,22 @@
   // answer only: provider compliance is a contract verdict and is never availability.
   // #463 places its adapter block after this component.
   let { availability = null, compact = false, hiddenProviders = 0 } = $props();
-  const STATE_TONE = { available: 'ok', degraded: 'warn', unavailable: 'err', unknown: 'neutral' };
   const PROV_TONE = { observed: 'info', inferred: 'info', unknown: 'neutral' };
   const PARTIAL = 'consumers you may not see are not counted';
   const HELP = 'Whether the offering answers where it runs, from its targets and from what its consumers report. Separate from the resources consumers asked for, below.';
   const rows = $derived(availability?.byEnvironment ?? []);
   const total = $derived(availability?.total ?? rows.length);
+  // The entry with no environment, no target and no report keeps the reason when nothing
+  // places the offering anywhere, or when every target is hidden from the viewer;
+  // unlabelled targets form the other unnamed group.
+  const envLabel = (e) => e.environment || (!e.targets && !(e.unreachable ?? []).length ? (e.targetsHidden ? 'no target you may see' : 'nowhere observed') : 'no environment label');
 </script>
 
 {#snippet list()}
   <ul class="oa-list" data-testid="availability">
     {#each rows as e, i (`${e.environment}:${i}`)}
       <li class="oa-row" data-testid="availability-env" data-state={e.state}>
-        <bdi class="oa-env" title={e.environment || 'no environment label'}>{e.environment || 'no environment label'}</bdi>
+        <bdi class="oa-env" title={envLabel(e)}>{envLabel(e)}</bdi>
         <span class="oa-badges">
           <IdentityBadge label={e.state} tone={STATE_TONE[e.state] ?? 'neutral'} />
           <IdentityBadge label={e.provenance} tone={PROV_TONE[e.provenance] ?? 'neutral'} />
@@ -31,7 +39,8 @@
         </span>
         <span class="oa-detail">
           <span class="oa-reason">{e.reason}{#if e.partial && !e.reason?.includes(PARTIAL)}; {PARTIAL}{/if}</span>
-          <span class="oa-meta">{formatCount(e.reporting ?? 0)} of {countOf(e.targets ?? 0, 'target')} reporting{#if e.evidenceAt}, evidence {formatRelative(e.evidenceAt)}{/if}</span>
+          <!-- An available reason already says how many targets report and how old the evidence is. -->
+          {#if e.state !== 'available'}<span class="oa-meta">{formatCount(e.reporting ?? 0)} of {countOf(e.targets ?? 0, 'target')} reporting{#if e.evidenceAt}, evidence {formatRelative(e.evidenceAt)}{/if}</span>{/if}
           {#if (e.unreachable ?? []).length}
             <span class="oa-links"><span class="oa-meta">Cannot reach it:</span>{#each e.unreachable as u (u.key)}<EntityLink ref={u} showStatus={false} showKind={false} />{/each}</span>
           {/if}

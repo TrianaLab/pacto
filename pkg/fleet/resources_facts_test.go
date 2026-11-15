@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestUseCarriesProviderOwner(t *testing.T) {
 
 func TestUseCarriesProviderAvailability(t *testing.T) {
 	q := catalogQuery(t)
-	want := q.providerAvailability(q.snap.Services[NewServiceKeyDomain(acme, "postgresql")])
+	want := q.newAvailIndex().providerAvailability(q.snap.Services[NewServiceKeyDomain(acme, "postgresql")])
 	if got := catalogUses(t, q)["postgresql/dependency"].ProviderAvailability; got == nil || got.State != want.State || len(got.ByEnvironment) != len(want.ByEnvironment) {
 		t.Errorf("availability = %+v, want %+v", got, want)
 	}
@@ -132,16 +133,53 @@ func TestRequestedOnlyOnConfigurationReferenceRow(t *testing.T) {
 		{Name: "unnamed", Resolution: &RefResolution{Resolved: true, Service: &pg}},
 		{Name: "local"},
 	}}
-	q.attachRequested(rows, cfgs)
+	q.attachRequested(rows, catalogRev(q), cfgs)
 	if len(rows[0].Requested) != 1 || rows[0].Requested[0].Entry != "db" {
 		t.Errorf("an entry the use's edges do not name joined: %+v", rows[0].Requested)
+	}
+}
+
+// catalogRev is catalog 1.0.0's snapshot record, catalogQuery's only catalog
+// revision and so its current one.
+func catalogRev(q *Query) *ContractRevision {
+	return q.snap.Revisions[q.snap.Services[ServiceKey(catalogKey)].Revisions[0]]
+}
+
+// TestRequestedFollowsTheProvisionedRevision: a target runs catalog 0.9.0,
+// which references nothing, so it is the current revision; the use row and its
+// provisioning are about 1.0.0, so the requested values are 1.0.0's.
+func TestRequestedFollowsTheProvisionedRevision(t *testing.T) {
+	old := svc24("catalog", "0.9.0", "")
+	running := RawTarget{Scope: "prod", Kind: SourceKindKubernetes, Name: "catalog", Service: "catalog", Domain: acme,
+		Compliance: StatusCompliant, Digest: testDigest(acme, "catalog", "0.9.0")}
+	q := NewQuery(provisioningSnap(t, 0, &Collection{Revisions: []RawRevision{ownedPG(), cacheProvider(), catalog(), ociRev(acme, old, nil)}, Targets: []RawTarget{running}}))
+	d, err := q.EntityDetail(KindService, catalogKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := d.Service.CurrentRevision; cur == nil || cur.Label != "catalog 0.9.0" {
+		t.Fatalf("current revision = %+v, want the running 0.9.0", cur)
+	}
+	u := catalogUses(t, q)["postgresql/configuration_reference"]
+	if len(u.Requested) != 1 || !slices.Equal(factsOf(u.Requested[0].Values), []string{"size=medium", "storageGi=50"}) {
+		t.Errorf("requested = %+v", u.Requested)
+	}
+	// The values name the revision that declares them, not the running one.
+	if cr := u.Requested[0].ConsumerRevision; cr == nil || cr.Version != "1.0.0" {
+		t.Errorf("consumer revision = %+v, want catalog 1.0.0", cr)
+	}
+	pg := EntityRef{Kind: KindService, Key: string(NewServiceKeyDomain(acme, "postgresql"))}
+	rows := []OfferingUse{{Consumer: EntityRef{Key: catalogKey}, Provider: pg, Via: RelationshipConfigRef}}
+	q.attachRequested(rows, nil, ConfigurationsPreview{})
+	if len(rows[0].Requested) != 1 {
+		t.Errorf("no current revision: requested = %+v", rows[0].Requested)
 	}
 }
 
 func TestRequestedTruncatedWhenPreviewTruncated(t *testing.T) {
 	q := catalogQuery(t)
 	rows := []OfferingUse{{Consumer: EntityRef{Key: catalogKey}, Provider: EntityRef{Key: "x"}, Via: RelationshipConfigRef}, {Via: RelationshipDependency}}
-	q.attachRequested(rows, ConfigurationsPreview{Truncated: true})
+	q.attachRequested(rows, catalogRev(q), ConfigurationsPreview{Truncated: true})
 	if !rows[0].RequestedTruncated || rows[1].RequestedTruncated {
 		t.Errorf("rows = %+v", rows)
 	}
@@ -154,7 +192,7 @@ func TestConsumptionNotReportedByDefault(t *testing.T) {
 	}
 	want := []ResourceConsumption{{State: "not-reported", Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
 	for _, k := range []string{"postgresql/dependency", "postgresql/configuration_reference", "redis/dependency"} {
-		if got := uses[k].Consumption; !slices.Equal(got, want) {
+		if got := uses[k].Consumption; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s consumption = %+v", k, got)
 		}
 	}

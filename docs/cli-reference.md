@@ -923,6 +923,32 @@ pacto evidence sign <evidence.json> [flags]
       --ttl duration              validity window; 0 disables expiry (default 24h0m0s)
 ```
 
+### `pacto evidence usage`
+
+Writes an EvidenceSet that reports how much of the resource a consumer's configuration reference or dependency asked for is used, and what it costs. Sign it with pacto evidence sign and post it with pacto evidence send; the signing key needs ResourceUsage in allowedObservationKinds. Pacto never sums or converts the figures. The subject defaults to &lt;repository&gt;/<environment or default>/usage/&lt;kind&gt;/&lt;name&gt;, so a usage report never replaces the resource's provisioning report. Prints the EvidenceSet JSON.
+
+```
+pacto evidence usage [flags]
+```
+
+**Flags:**
+
+```
+      --collector string       collector id recorded as provenance (defaults to pacto)
+      --configuration string   consumer configuration (with a ref) that asked for the resource
+      --contract string        consumer contract revision: oci://<repo>@sha256:<digest>
+      --cost string            cost as amount:CURRENCY:period, such as 212.40:USD:P30D (ISO 4217 code, ISO 8601 period from P1D to P1Y)
+      --dependency string      consumer dependency that asked for the resource
+      --environment string     consumer environment the resource serves
+      --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
+  -h, --help[=true|false]      help for usage
+      --metric stringArray     a measured quantity as name=value[:unit], such as storage-used=31:Gi (repeatable, at most 16)
+      --observed-at string     observation timestamp (RFC3339; defaults to now)
+      --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no figures (default "Observed")
+      --provider string        provider slug (lowercase letters, digits and hyphens)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/usage/<kind>/<name>)
+```
+
 ### `pacto evidence verify`
 
 Decodes an envelope and verifies its signature, freshness and trust against a --trust public-key file or directory of &lt;keyId&gt;.pub files. Exits non-zero when verification fails.
@@ -1045,7 +1071,7 @@ pacto fleet entities [text] [flags]
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
-      --lifecycle string                 offerings whose worst provider lifecycle, or services whose own lifecycle, is deprecated or sunset
+      --lifecycle string                 offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
@@ -1056,7 +1082,7 @@ pacto fleet entities [text] [flags]
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace
       --service string                   this service and its revisions and targets, by service key
-      --sort string                      order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)
+      --sort string                      order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)
       --source string                    entities read from this fleet source, by source key
       --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
@@ -1691,7 +1717,7 @@ pacto mcp [bundle-ref] [flags]
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
@@ -1703,6 +1729,7 @@ pacto mcp [bundle-ref] [flags]
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string              transport type: stdio or http (default "stdio")
@@ -1753,6 +1780,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
+| `pacto_stats` | `registry` (stdio only), `since` and `until` (`30d`, `12h`, a date or RFC 3339; default the last 30 days), `by` (`service`, `owner`, `domain`, `repository` or `environment`), `service` and `kinds` (comma-separated run-record kinds, for example `diff,impact`). It appears with `--fleet` over stdio, and over HTTP only when the server was started with `--stats-read-registry` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
@@ -1988,21 +2016,46 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ## `pacto stats`
 
-Run records are unsigned statistics about Pacto runs. Nothing that decides ever reads them.
+Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is marked unknown. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
 
 ```
 pacto stats [flags]
 ```
 
+**Examples:**
+
+```
+  pacto stats --registry ghcr.io/acme/pacto-stats
+  pacto stats --since 7d --by environment --output-format json
+  pacto stats --by owner --kind impact --kind publish
+```
+
 **Flags:**
 
 ```
-  -h, --help[=true|false]   help for stats
+      --by string                  group the numbers by service, owner, domain, repository, environment
+      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
+  -h, --help[=true|false]          help for stats
+      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
+      --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --service string             total only the run records of this service: the contract's service.name
+      --since string               start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --until string               end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
 
 ### `pacto stats publish`
 
-Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
+Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Operation records are written only by the delivery promoter and are refused. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
 
 ```
 pacto stats publish <file...> [flags]
@@ -2012,7 +2065,6 @@ pacto stats publish <file...> [flags]
 
 ```
   -h, --help[=true|false]   help for publish
-      --registry string     stats repository to publish to (default $PACTO_STATS_REGISTRY)
 ```
 
 ---

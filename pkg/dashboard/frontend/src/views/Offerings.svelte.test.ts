@@ -34,7 +34,7 @@ describe('FleetOfferingsView', () => {
   it('lists offerings in a table with their owners, lifecycle, availability, consumers, failed requests and observed targets', async () => {
     entitiesFn.mockResolvedValue(listResp([
       { ...offeringRef('postgresql', 2, 3), owner: '2 owners claim it', lifecycle: 'deprecated', availability: 'unavailable', availabilityProvenance: 'inferred', consumers: 4, failedRequests: 1 },
-      { ...offeringRef('shared-config', 1, 0), owner: 'team:platform', lifecycle: 'supported', availability: 'unknown', availabilityProvenance: 'unknown', consumers: 2, hiddenConsumers: 2, targetsUnknown: true },
+      { ...offeringRef('shared-config', 1, 0), owner: 'team:platform', lifecycle: 'supported', availability: 'unknown', availabilityProvenance: 'unknown', consumers: 2, hiddenConsumers: 2, hiddenProviders: 1, targetsUnknown: true },
     ]));
     const { target, done } = mountView({ text: 'sql' });
     await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(2));
@@ -58,9 +58,16 @@ describe('FleetOfferingsView', () => {
     expect(cell(sc, 'Observed targets').textContent).toContain('unknown');
     expect(cell(sc, 'Observed targets').textContent).not.toMatch(/\b0\b/);
     expect(cell(sc, 'Availability').textContent?.trim()).toBe('unknown');
-    expect(cell(sc, 'Availability').querySelector('.hatch')).not.toBeNull();
-    expect(cell(sc, 'Consumers').textContent).toContain('2 consumers you may not see are not counted');
+    // The hatch is a swatch beside the word, never the background behind it.
+    expect(cell(sc, 'Availability').querySelector('.hatch')?.textContent).toBe('');
+    expect(cell(sc, 'Availability').querySelector('.badge.hatch')).toBeNull();
+    // What a restricted row leaves out is visible words, never a title alone (touch has no hover).
+    expect(cell(sc, 'Consumers').textContent).toContain('+2 you may not see');
+    expect(cell(sc, 'Consumers').querySelector('[title]')).toBeNull();
     expect(cell(sc, 'Failed').textContent).toContain('0 seen');
+    expect(cell(sc, 'Failed').textContent).toContain('of the consumers you may see');
+    expect(sc.querySelector('[data-testid="offering-hidden-providers"]')?.textContent).toBe('+1 provider you may not see');
+    expect(pg.querySelector('[data-testid="offering-hidden-providers"]')).toBeNull();
     expect(Array.from(target.querySelectorAll('[data-testid="offering-list"] a.entity-link')).map((a) => a.getAttribute('href')))
       .toEqual(['#/fleet/offerings/postgresql', '#/fleet/offerings/shared-config']);
     done();

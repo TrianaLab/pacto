@@ -145,7 +145,8 @@ its health is Unknown. The dashboard draws stale Compliant targets hatched.
 
 Knowledge partitions the services that are no golden path into Described, With
 gaps and Unknown. A service is Described only when Pacto read its current
-contract and the documents it names and nothing is missing. The gaps are:
+contract and the OpenAPI documents it names and nothing is missing. Pacto
+reads no gRPC or AsyncAPI document. The gaps are:
 
 - **No summary**: no revision declares `service.summary`;
 - **No domain**: the service has no business domain;
@@ -153,12 +154,14 @@ contract and the documents it names and nothing is missing. The gaps are:
   document Pacto could not read is unknown, never a gap;
 - **No readiness assessment**: the current revision carries none;
 - **Runs nowhere**: the service has no operational target. Pacto counts it
-  only when every target source is available and your view sees every target;
+  only when at least one target source is configured, every target source is
+  available and your view sees every target;
 - **Unverified capability**: the current revision declares an extension
   capability that no evaluator verifies.
 
-A service whose contract or interface document Pacto cannot read, whose
-summaries conflict or whose placement Pacto cannot see is Unknown, and its
+A service whose contract or OpenAPI document Pacto cannot read, whose
+summaries or business domains conflict or whose placement Pacto cannot see is
+Unknown, and its
 attention item names the cause.
 
 Ownership keeps two cases apart. **No declared owner** means Pacto read the
@@ -222,7 +225,7 @@ flowchart LR
   `pacto_fleet_overview`, `pacto_fleet_entities`, `pacto_fleet_entity`,
   `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`
   and `pacto_fleet_revision_document`, plus
-  [`pacto_impact`](impact.md), give an agent read-only understanding of the
+  [`pacto_impact`](impact.md) and `pacto_stats`, give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 

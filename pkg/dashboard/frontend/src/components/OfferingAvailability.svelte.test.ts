@@ -21,7 +21,7 @@ function render(props: Record<string, unknown>) {
 const availability = {
   state: 'degraded', asOf: '2026-11-04T10:00:00Z', total: 3,
   byEnvironment: [
-    { environment: 'production', state: 'available', provenance: 'observed', reason: '2 of 2 targets reporting', reporting: 2, targets: 2, evidenceAt: '2026-11-04T09:00:00Z', providers: [ref('service', 'postgresql')] },
+    { environment: 'production', state: 'available', provenance: 'observed', reason: '2 of 2 targets reporting, evidence 1h old', reporting: 2, targets: 2, evidenceAt: '2026-11-04T09:00:00Z', providers: [ref('service', 'postgresql')] },
     { environment: 'staging', state: 'degraded', provenance: 'inferred', reason: '1 targets reporting; orders cannot reach it; consumers you may not see are not counted', reporting: 1, targets: 1, partial: true, unreachable: [ref('service', 'orders')] },
     { environment: '', state: 'unknown', provenance: 'unknown', reason: 'no target reports it; a provider outside the observed clusters is not seen', reporting: 0, targets: 0 },
   ],
@@ -36,7 +36,9 @@ describe('OfferingAvailability', () => {
     expect(text(rows[0])).toContain('production');
     expect(rows[0].querySelector('.tone-ok')?.textContent).toBe('available');
     expect(text(rows[0])).toContain('observed');
-    expect(text(rows[0])).toContain('2 of 2 targets reporting, evidence');
+    // The available reason carries the counts and the age; nothing repeats them.
+    expect(text(rows[0]).match(/2 of 2 targets reporting/g)?.length).toBe(1);
+    expect(text(rows[0])).toContain('evidence 1h old');
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/services/postgresql');
     expect(rows[0].querySelector('bdi.oa-env')).toBeTruthy();
     // Partial: hatched, and the reason says what is not counted, once.
@@ -44,18 +46,24 @@ describe('OfferingAvailability', () => {
     expect(text(rows[1]).match(/consumers you may not see are not counted/g)?.length).toBe(1);
     expect(text(rows[1])).toContain('Cannot reach it: orders');
     expect(text(rows[1])).toContain('1 of 1 target reporting');
-    expect(text(rows[2])).toContain('no environment label');
+    // Nothing places it anywhere: that entry is not the unlabelled-targets group.
+    expect(text(rows[2])).toContain('nowhere observed');
+    expect(text(rows[2])).not.toContain('no environment label');
     expect(rows[2].querySelector('.tone-neutral')?.textContent).toBe('unknown');
     expect(target.querySelector('[data-testid="hidden-providers"]')).toBeNull();
     done();
   });
 
   it('adds the partial note when the reason lacks it, counts hidden providers and the environments past the bound', () => {
-    const partial = { ...availability, total: 5, byEnvironment: [{ environment: 'dev', state: 'available', provenance: 'observed', reason: 'ok', reporting: 1, targets: 1, partial: true }] };
+    const partial = { ...availability, total: 5, byEnvironment: [
+      { environment: 'dev', state: 'available', provenance: 'observed', reason: 'ok', reporting: 1, targets: 1, partial: true },
+      { environment: '', state: 'unknown', provenance: 'observed', reason: 'stale', reporting: 0, targets: 2 },
+    ] };
     const { target, done } = render({ availability: partial, hiddenProviders: 2 });
     expect(text(target.querySelector('[data-testid="availability-env"]'))).toContain('ok; consumers you may not see are not counted');
+    expect(text(target.querySelectorAll('[data-testid="availability-env"]')[1])).toContain('no environment label');
     expect(text(target.querySelector('[data-testid="hidden-providers"]'))).toBe('2 providers you may not see');
-    expect(text(target)).toContain('+4 more environments');
+    expect(text(target)).toContain('+3 more environments');
     done();
   });
 
@@ -77,5 +85,15 @@ describe('OfferingAvailability', () => {
     const none = render({ availability: null, compact: true });
     expect(none.target.textContent).toBe('');
     none.done();
+  });
+  it('says a provider whose targets are all hidden has no target the viewer may see, never that it is nowhere observed', () => {
+    const hidden = { state: 'unknown', asOf: '2026-11-04T10:00:00Z', total: 1, byEnvironment: [
+      { environment: '', state: 'unknown', provenance: 'unknown', reason: 'you may not see every target of this service', reporting: 0, targets: 0, targetsHidden: true },
+    ] };
+    const { target, done } = render({ availability: hidden, compact: true });
+    const row = target.querySelector('[data-testid="availability-env"]');
+    expect(text(row)).toContain('no target you may see');
+    expect(text(row)).not.toContain('nowhere observed');
+    done();
   });
 });

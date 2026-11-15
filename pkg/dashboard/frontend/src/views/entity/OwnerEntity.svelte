@@ -32,7 +32,7 @@
   const owner = $derived(detail.entity?.key || detail.entity?.label || '');
   const attnHref = $derived(fleetAttentionUrl({ ownerKey: owner }));
   // Every posture bucket drills into THIS owner's backlog, not the fleet's.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ ownerKey: owner, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ ownerKey: owner, category, ...extra }));
 </script>
 
 <div class="owner-entity">

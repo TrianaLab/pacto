@@ -889,3 +889,48 @@ describe('responsive by construction', () => {
     expect(AUTO_TRACK_REVIEWED.filter((k) => !found.includes(k)), 'fixed: take it off the list').toEqual([]);
   });
 });
+
+// SPEC 2.2: the edge carries contrast and the hatch carries pattern. The hatch's grey
+// stripes are the colour of muted text, so a glyph drawn over them breaks up: the hatch
+// is a swatch beside the word, on an element that holds no text.
+describe('hatch never behind text', () => {
+  type Node = { type?: string; name?: string; data?: string; attributes?: Node[]; value?: unknown; fragment?: { nodes: Node[] } };
+  // An element is hatched by a class token or a class:hatch directive.
+  const hatched = (n: Node) => (n.attributes ?? []).some((a) =>
+    (a.type === 'ClassDirective' && a.name === 'hatch') ||
+    (a.type === 'Attribute' && a.name === 'class' && Array.isArray(a.value) &&
+      (a.value as Node[]).some((v) => v.type === 'Text' && /(^|\s)hatch(\s|$)/.test(String(v.data)))));
+  const textInside = (source: string) => {
+    const out: string[] = [];
+    const visit = (node: unknown) => {
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      if (!node || typeof node !== 'object') return;
+      const n = node as Node;
+      if (n.type === 'RegularElement' && hatched(n) && (n.fragment?.nodes ?? []).some((c) => c.type !== 'Text' || String(c.data).trim() !== '')) {
+        out.push(`<${n.name} class=hatch>`);
+      }
+      for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v);
+    };
+    visit(parse(source, { modern: true }).fragment);
+    return out;
+  };
+
+  // A hatched bar segment whose label sits on its own opaque plate, so no glyph meets a stripe.
+  const PLATED: Record<string, RegExp> = {
+    'components/viz/DistributionBar.svelte': /\.dist-seg\.hatch \.dist-seg-text \{[^}]*background: var\(--c-surface\)/,
+  };
+
+  it('puts the hatch only on empty elements', () => {
+    const offenders = files.filter((f) => f.rel.endsWith('.svelte'))
+      .filter((f) => !PLATED[f.rel]?.test(f.body))
+      .flatMap((f) => textInside(f.body).map((tag) => `${f.rel}: ${tag}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('catches a hatched badge that holds its word', () => {
+    expect(textInside('<span class="badge hatch">unknown</span>')).toHaveLength(1);
+    expect(textInside('<span class="badge" class:hatch={x}>{label}</span>')).toHaveLength(1);
+    expect(textInside('<span class="badge"><span class="sv-hatch hatch" aria-hidden="true"></span>unknown</span>')).toEqual([]);
+    expect(textInside('<i class="t-x" class:hatch={h} onmouseenter={() => go()}></i>')).toEqual([]);
+  });
+});

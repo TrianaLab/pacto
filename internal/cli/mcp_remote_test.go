@@ -353,8 +353,9 @@ func TestRemoteFleetNeedsExchange(t *testing.T) {
 	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"), "no cluster")
 	// The first snapshot still fails startup.
 	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
-	// (remoteCmd runs on a cancelled context, so the build fails).
-	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"),
+	// (remoteCmd runs on a cancelled context, so the build of the local
+	// source, which HTTP reads only when named, fails).
+	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c", "--local", "."),
 		"context canceled")
 }
 

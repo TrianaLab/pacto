@@ -779,7 +779,7 @@ def engine_registry(repo_root: str) -> dict:
 
 # Observation kinds a platform adapter reports through the Evidence Server. The
 # operator never emits them, so they stay out of its assertion-kind list.
-ADAPTER_REPORTED_KINDS = {"ResourceProvisioned"}
+ADAPTER_REPORTED_KINDS = {"ResourceProvisioned", "ResourceUsage"}
 
 
 def gen_runtime_observations(repo_root: str, k8s: str) -> str:

@@ -846,7 +846,7 @@ func TestFleetEntityDescriptionNamesChanges(t *testing.T) {
 // hidden count is a lower bound and that a resource's phase is no health.
 func TestFleetEntityToolDescribesResources(t *testing.T) {
 	d := fleetEntityTool().Description
-	for _, want := range []string{"'providerOwner'", "'providerAvailability'", "'requested'", "configuration_reference row", "'consumption'", "not-reported", "'hiddenProviders'", "at least", "never the service's health", "Resize or delete runs in the provider's tools"} {
+	for _, want := range []string{"'providerOwner'", "'providerAvailability'", "'requested'", "configuration_reference row", "'consumption'", "not-reported", "'figures'", "'reported'", "never sums or converts", "'hiddenProviders'", "at least", "never the service's health", "Resize or delete runs in the provider's tools"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %s", want)
 		}

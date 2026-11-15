@@ -122,8 +122,32 @@ func TestTargetHealthQuarantinedIsUnknown(t *testing.T) {
 func TestTargetHealthDeclaredNoCoverageIsUnknown(t *testing.T) {
 	q := healthFleet(t, time.Hour, probed("a", func(r *RawTarget) { r.Coverage = nil; r.Compliance = StatusUnknown }))
 	tr := onlyTarget(t, q)
-	if code, _ := q.dominantUnknown(tr); code != string(finding.CodeEvidenceMissing) {
-		t.Fatalf("cause = %q, want EVIDENCE_MISSING", code)
+	if code, reason := q.dominantUnknown(tr); code != string(finding.CodeEvidenceMissing) || reason != healthNotEvaluatedReason {
+		t.Fatalf("cause = %q (%q), want EVIDENCE_MISSING with the health reason", code, reason)
+	}
+	tr.EvidenceAt = nil
+	if _, reason := q.dominantUnknown(tr); reason != noEvidenceReason {
+		t.Fatalf("no evidence at all: reason %q", reason)
+	}
+}
+
+// TestTargetHealthInferredLinkIsUnknown: an inferred (mutable tag) link never
+// answers healthy or not observed, but a failing health check still reads failing.
+func TestTargetHealthInferredLinkIsUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		target RawTarget
+		want   AvailabilityState
+	}{
+		{probed("a", nil), AvailabilityUnknown},
+		{RawTarget{Name: "p", Service: "plain", Digest: "sha256:p", Compliance: StatusCompliant, EvidenceAt: freshAt, Coverage: evaluated}, AvailabilityUnknown},
+		{probed("a", func(r *RawTarget) { r.Findings = []finding.Finding{healthFinding(finding.CodeHealthFailing, "down")} }), AvailabilityUnavailable},
+	} {
+		q := healthFleet(t, time.Hour, tc.target)
+		tr := onlyTarget(t, q)
+		tr.RevisionMatch = revisionMatchInferred
+		if state, observed := q.targetHealth(tr); state != tc.want || !observed {
+			t.Errorf("%s: targetHealth = (%q, %v), want (%q, true)", tr.Service, state, observed, tc.want)
+		}
 	}
 }
 
@@ -246,7 +270,7 @@ func TestUnknownItemNamesItsCause(t *testing.T) {
 		{[]finding.Finding{f(finding.CodeObservationUnsupported), f(finding.CodeEvidenceStale)}, "EVIDENCE_STALE", "the evidence is older than the source's freshness window"},
 		{[]finding.Finding{f(finding.CodeEvidenceInsufficient), f(finding.CodeObservationUnsupported)}, "OBSERVATION_UNSUPPORTED", "interface http cannot be observed in this environment"},
 		{[]finding.Finding{f(finding.CodeEvidenceMissing), f(finding.CodeEvidenceInsufficient)}, "EVIDENCE_INSUFFICIENT", "the evidence cannot confirm or contradict interface http"},
-		{[]finding.Finding{f(finding.CodeEvidenceMissing)}, "EVIDENCE_MISSING", "no evidence was ever collected"},
+		{[]finding.Finding{f(finding.CodeEvidenceMissing)}, "EVIDENCE_MISSING", "no evidence was collected for interface http"},
 	}
 	for _, tc := range cases {
 		q := healthFleet(t, time.Hour, RawTarget{Name: "p", Service: "plain", Digest: "sha256:p", Compliance: StatusUnknown, EvidenceAt: freshAt, Coverage: evaluated, Findings: tc.findings})

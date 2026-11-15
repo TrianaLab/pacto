@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
@@ -56,12 +57,34 @@ func (a availSnap) dep(consumer, provider, name string) {
 
 func (a availSnap) query() *Query { return NewQuery(a.FleetSnapshot) }
 
+// declares gives svc a readable revision 1.0.0 declaring the interfaces ifaces.
+func (a availSnap) declares(svc string, ifaces ...string) *ContractRevision {
+	if a.Revisions == nil {
+		a.Revisions = map[RevisionKey]*ContractRevision{}
+	}
+	c := &contract.Contract{Service: contract.Service{Name: svc, Version: "1.0.0"}}
+	for _, n := range ifaces {
+		c.Interfaces = append(c.Interfaces, contract.Interface{Name: n})
+	}
+	r := &ContractRevision{Key: RevisionKey(svc + "@1.0.0"), Service: svc, ServiceKey: ServiceKey(svc), Version: "1.0.0", Contract: c}
+	a.Revisions[r.Key] = r
+	s := a.svc(svc, "")
+	s.Revisions = append(s.Revisions, r.Key)
+	return r
+}
+
+func (a availSnap) providerAvailability(q *Query, name string) Availability {
+	return q.newAvailIndex().providerAvailability(q.snap.Services[ServiceKey(name)])
+}
+
 func unreachable(dep string) finding.Finding {
 	return finding.Finding{Code: finding.CodeDependencyUnreachable, Subject: finding.SubjectRef{Kind: "dependency", Name: dep}, Message: "cannot reach " + dep}
 }
 
-func absent() finding.Finding {
-	return finding.Finding{Code: finding.CodeInterfaceAbsent, Message: `interface "sql" is not being served`}
+func absent() finding.Finding { return absentIface("sql") }
+
+func absentIface(name string) finding.Finding {
+	return finding.Finding{Code: finding.CodeInterfaceAbsent, Subject: finding.SubjectRef{Kind: "interface", Name: name}, Message: fmt.Sprintf("interface %q is not being served", name)}
 }
 
 // envOf is q's availability of provider in env, failing when it is not listed.
@@ -77,8 +100,7 @@ func envOf(t *testing.T, a Availability, env string) EnvironmentAvailability {
 }
 
 func providerAvail(a availSnap, name string) Availability {
-	q := a.query()
-	return q.providerAvailability(q.snap.Services[ServiceKey(name)])
+	return a.providerAvailability(a.query(), name)
 }
 
 func wantState(t *testing.T, e EnvironmentAvailability, state AvailabilityState, prov string) {
@@ -95,7 +117,7 @@ func TestAvailabilityAvailableFreshTarget(t *testing.T) {
 	av := providerAvail(a, "pg")
 	e := envOf(t, av, "prod")
 	wantState(t, e, AvailabilityAvailable, ProvenanceObserved)
-	if av.State != AvailabilityAvailable || e.Reporting != 1 || e.Targets != 1 || e.Reason != "1 of 1 targets reporting, evidence 1h0m0s old" || !av.AsOf.Equal(availNow) || e.EvidenceAt == nil {
+	if av.State != AvailabilityAvailable || e.Reporting != 1 || e.Targets != 1 || e.Reason != "1 of 1 targets reporting, evidence 1h old" || !av.AsOf.Equal(availNow) || e.EvidenceAt == nil {
 		t.Errorf("availability = %+v", av)
 	}
 }
@@ -123,6 +145,7 @@ func TestAvailabilityInterfaceAbsentDegraded(t *testing.T) {
 func TestAvailabilityInterfaceAbsentAllUnavailable(t *testing.T) {
 	a := newAvailSnap()
 	a.svc("pg", "postgresql")
+	a.declares("pg", "sql")
 	a.target("pg", "pg-0", "db", "prod", time.Hour, absent())
 	a.target("pg", "pg-1", "db", "prod", time.Hour, absent())
 	av := providerAvail(a, "pg")
@@ -220,7 +243,7 @@ func TestAvailabilityStaleTargetsUnknown(t *testing.T) {
 	av := providerAvail(a, "pg")
 	for _, env := range []string{"prod", "staging", "qa"} {
 		e := envOf(t, av, env)
-		wantState(t, e, AvailabilityUnknown, ProvenanceObserved)
+		wantState(t, e, AvailabilityUnknown, provenanceUnknown)
 		if e.Reason != availabilityStaleReason || e.Reporting != 0 || e.Targets != 1 {
 			t.Errorf("%s = %+v", env, e)
 		}
@@ -235,7 +258,7 @@ func TestAvailabilityNilEvidenceUnknown(t *testing.T) {
 	a.svc("pg", "postgresql")
 	a.target("pg", "pg-0", "db", "prod", 0).EvidenceAt = nil
 	e := envOf(t, providerAvail(a, "pg"), "prod")
-	wantState(t, e, AvailabilityUnknown, ProvenanceObserved)
+	wantState(t, e, AvailabilityUnknown, provenanceUnknown)
 	if e.EvidenceAt != nil {
 		t.Errorf("evidenceAt = %v", e.EvidenceAt)
 	}
@@ -251,8 +274,28 @@ func TestAvailabilityNoTargetUnknown(t *testing.T) {
 		t.Fatalf("availability = %+v", av)
 	}
 	wantState(t, av.ByEnvironment[0], AvailabilityUnknown, "unknown")
-	if av.ByEnvironment[0].Reason != availabilityNoneReason {
-		t.Errorf("reason = %q", av.ByEnvironment[0].Reason)
+	if av.ByEnvironment[0].Reason != availabilityNoneReason || av.ByEnvironment[0].label() != "(nowhere observed)" {
+		t.Errorf("entry = %+v", av.ByEnvironment[0])
+	}
+}
+
+// TestAvailabilityUnknownConsumerSkipped: an edge from a service the snapshot
+// does not hold contributes no report.
+func TestAvailabilityUnknownConsumerSkipped(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.dep("c", "pg", "db")
+	delete(a.Services, "c")
+	if av := providerAvail(a, "pg"); len(av.ByEnvironment) != 1 || av.ByEnvironment[0].Environment != "" {
+		t.Errorf("availability = %+v", av)
+	}
+}
+
+func TestShortAge(t *testing.T) {
+	for d, want := range map[time.Duration]string{0: "0m", 15 * time.Minute: "15m", time.Hour: "1h", 90 * time.Minute: "1h30m", 25 * time.Hour: "25h"} {
+		if got := shortAge(d); got != want {
+			t.Errorf("shortAge(%s) = %q, want %q", d, got, want)
+		}
 	}
 }
 
@@ -262,7 +305,7 @@ func TestAvailabilityHiddenTargetsUnknown(t *testing.T) {
 	a.target("pg", "pg-0", "db", "prod", time.Hour)
 	a.target("pg", "pg-1", "secret", "prod", time.Hour)
 	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
-	av := r.providerAvailability(r.snap.Services["pg"])
+	av := a.providerAvailability(r, "pg")
 	e := envOf(t, av, "prod")
 	wantState(t, e, AvailabilityUnknown, "unknown")
 	if e.Reason != targetsIncompleteReason || e.Targets != 1 {
@@ -283,7 +326,7 @@ func TestAvailabilityRestrictedIsUnknown(t *testing.T) {
 	if s == nil {
 		t.Fatal("the declared provider is hidden")
 	}
-	av := r.providerAvailability(s)
+	av := a.providerAvailability(r, "pg")
 	if av.State != AvailabilityUnknown || av.ByEnvironment[0].Reason != targetsIncompleteReason {
 		t.Errorf("availability = %+v", av)
 	}
@@ -350,8 +393,11 @@ func TestAvailabilityRollUp(t *testing.T) {
 		{env(AvailabilityAvailable, AvailabilityAvailable), AvailabilityAvailable},
 		{env(AvailabilityUnavailable, AvailabilityUnavailable), AvailabilityUnavailable},
 		{env(AvailabilityUnknown), AvailabilityUnknown},
-		{env(AvailabilityAvailable, AvailabilityUnknown), AvailabilityDegraded},
+		{env(AvailabilityAvailable, AvailabilityUnknown), AvailabilityUnknown},
+		{env(AvailabilityUnavailable, AvailabilityUnknown), AvailabilityUnknown},
 		{env(AvailabilityAvailable, AvailabilityUnavailable), AvailabilityDegraded},
+		{env(AvailabilityAvailable, AvailabilityUnavailable, AvailabilityUnknown), AvailabilityDegraded},
+		{env(AvailabilityDegraded, AvailabilityUnknown), AvailabilityDegraded},
 		{env(AvailabilityDegraded), AvailabilityDegraded},
 	}
 	for i, c := range cases {
@@ -387,7 +433,7 @@ func twoProviders() availSnap {
 
 func offeringAvail(a availSnap) Availability {
 	q := a.query()
-	return q.offeringAvailability("postgresql", []*ServiceRecord{q.snap.Services["pg"], q.snap.Services["pg-ha"]})
+	return q.newAvailIndex().offeringAvailability("postgresql", []*ServiceRecord{q.snap.Services["pg"], q.snap.Services["pg-ha"]})
 }
 
 func TestOfferingAvailabilityBestProvider(t *testing.T) {
@@ -412,6 +458,7 @@ func TestOfferingAvailabilityBestProvider(t *testing.T) {
 
 func TestOfferingAvailabilityUnknownOutranksUnavailable(t *testing.T) {
 	a := twoProviders()
+	a.declares("pg", "sql")
 	a.target("pg", "pg-0", "db", "prod", time.Hour, absent())
 	a.target("pg-ha", "ha-0", "db", "prod", 40*time.Hour)
 	av := offeringAvail(a)
@@ -424,6 +471,7 @@ func TestOfferingAvailabilityUnknownOutranksUnavailable(t *testing.T) {
 // prod and a provider pg-ha only in the hidden namespace secret.
 func restrictedOffering() *Query {
 	a := twoProviders()
+	a.declares("pg", "sql")
 	a.target("pg", "pg-0", "db", "prod", time.Hour, absent())
 	a.target("pg-ha", "ha-0", "secret", "prod", time.Hour)
 	a.svc("other", "hidden-only")
@@ -480,7 +528,7 @@ func TestAvailabilityHiddenConsumerReportPartial(t *testing.T) {
 	b.target("c", "c-0", "apps", "prod", time.Hour, unreachable("db"))
 	b.target("c", "c-1", "secret", "prod", time.Hour)
 	r = b.query().Restrict(func(ns string) bool { return ns != "secret" })
-	if e := envOf(t, r.providerAvailability(r.snap.Services["pg"]), "prod"); !e.Partial || e.State != AvailabilityUnavailable {
+	if e := envOf(t, b.providerAvailability(r, "pg"), "prod"); !e.Partial || e.State != AvailabilityUnavailable {
 		t.Errorf("consumer with hidden targets: %+v", e)
 	}
 }
@@ -523,8 +571,158 @@ func TestHiddenCountsForImpact(t *testing.T) {
 	if n := q.HiddenDependentsOf([]ServiceKey{"a", "b", "c"}); n != 3 {
 		t.Errorf("hidden dependents %d", n)
 	}
+	// A hidden service referencing the policy of both providers counts once,
+	// and one already counted as a dependent of either never again.
+	q.snap.hiddenReferrers = map[ServiceKey]map[ServiceKey]bool{"a": {"h": true, "y": true}, "b": {"h": true, "x": true}}
+	if n := q.HiddenReferrersOf([]ServiceKey{"a", "b"}); n != 1 {
+		t.Errorf("hidden referrers %d, want 1 (h)", n)
+	}
+	if n := q.HiddenReferrersOf([]ServiceKey{"b"}); n != 2 {
+		t.Errorf("hidden referrers of b %d, want 2 (h, x)", n)
+	}
 	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{"pg": {Offering: "postgresql", OfferingProvenance: ProvenanceDeclared}}}
 	if ref := OfferingRef(snap, "postgresql"); ref.Kind != KindOffering || ref.Key != "postgresql" || ref.OfferingProvenance != ProvenanceDeclared {
 		t.Errorf("ref %+v", ref)
+	}
+}
+
+// TestAvailabilityInterfaceUnobservedUnknown: a fresh target whose interface
+// was never observed answering is no evidence of service.
+func TestAvailabilityInterfaceUnobservedUnknown(t *testing.T) {
+	for _, code := range []finding.Code{finding.CodeEvidenceMissing, finding.CodeObservationUnsupported, finding.CodeCollectionFailed, finding.CodeEvidenceInsufficient, finding.CodeEvidenceStale} {
+		a := newAvailSnap()
+		a.svc("pg", "postgresql")
+		a.target("pg", "pg-0", "db", "prod", time.Hour, finding.Finding{Code: code, Subject: finding.SubjectRef{Kind: "interface", Name: "sql"}})
+		e := envOf(t, providerAvail(a, "pg"), "prod")
+		wantState(t, e, AvailabilityUnknown, provenanceUnknown)
+		if e.Reason != availabilityUnseenReason || e.Reporting != 1 {
+			t.Errorf("%s: env = %+v", code, e)
+		}
+	}
+	// An inconclusive finding about a workload leaves the interface answer alone.
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.target("pg", "pg-0", "db", "prod", time.Hour, finding.Finding{Code: finding.CodeEvidenceMissing, Subject: finding.SubjectRef{Kind: "workload", Name: "pg"}})
+	wantState(t, envOf(t, providerAvail(a, "pg"), "prod"), AvailabilityAvailable, ProvenanceObserved)
+	// Consumer reports still speak when the provider's targets show nothing.
+	b := newAvailSnap()
+	b.svc("pg", "postgresql")
+	b.target("pg", "pg-0", "db", "prod", time.Hour, finding.Finding{Code: finding.CodeEvidenceMissing, Subject: finding.SubjectRef{Kind: "interface", Name: "sql"}})
+	consumersOf(b, "prod", 2, 2)
+	wantState(t, envOf(t, providerAvail(b, "pg"), "prod"), AvailabilityUnavailable, ProvenanceInferred)
+}
+
+// TestAvailabilityOneInterfaceAbsentDegraded: a provider that serves one of
+// its interfaces is degraded, never unavailable.
+func TestAvailabilityOneInterfaceAbsentDegraded(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	a.declares("pg", "sql", "metrics")
+	a.target("pg", "pg-0", "db", "prod", time.Hour, absentIface("metrics"))
+	a.target("pg", "pg-1", "db", "prod", time.Hour, absentIface("metrics"))
+	e := envOf(t, providerAvail(a, "pg"), "prod")
+	wantState(t, e, AvailabilityDegraded, ProvenanceObserved)
+	if e.Reason != `2 of 2 targets report interface "metrics" is not being served` {
+		t.Errorf("reason = %q", e.Reason)
+	}
+	// Every declared interface absent: unavailable.
+	a.target("pg", "pg-2", "db", "staging", time.Hour, absentIface("metrics"), absentIface("sql"))
+	wantState(t, envOf(t, providerAvail(a, "pg"), "staging"), AvailabilityUnavailable, ProvenanceObserved)
+	// The revision the target runs decides how many interfaces it declares.
+	b := newAvailSnap()
+	b.svc("pg", "postgresql")
+	b.declares("pg", "sql", "metrics")
+	b.Revisions["pg@0.9.0"] = &ContractRevision{Key: "pg@0.9.0", ServiceKey: "pg", Version: "0.9.0", Contract: &contract.Contract{Interfaces: []contract.Interface{{Name: "sql"}}}}
+	b.target("pg", "pg-0", "db", "prod", time.Hour, absent()).ContractRevision = "pg@0.9.0"
+	wantState(t, envOf(t, providerAvail(b, "pg"), "prod"), AvailabilityUnavailable, ProvenanceObserved)
+}
+
+// TestOfferingAvailabilityNowhereProviderLeftOut: a provider no target places
+// leaves the environments other providers are seen in alone, and keeps any of
+// them from reading unavailable.
+func TestOfferingAvailabilityNowhereProviderLeftOut(t *testing.T) {
+	a := twoProviders()
+	a.target("pg", "pg-0", "db", "prod", time.Hour)
+	av := offeringAvail(a)
+	if av.State != AvailabilityAvailable || len(av.ByEnvironment) != 1 || av.ByEnvironment[0].Environment != "prod" {
+		t.Errorf("availability = %+v", av)
+	}
+	b := twoProviders()
+	b.declares("pg", "sql")
+	b.target("pg", "pg-0", "db", "prod", time.Hour, absent())
+	e := envOf(t, offeringAvail(b), "prod")
+	wantState(t, e, AvailabilityUnknown, provenanceUnknown)
+	if !e.Partial || !strings.HasSuffix(e.Reason, "1 provider is not seen in every environment and may serve it") {
+		t.Errorf("prod = %+v", e)
+	}
+	// Alone, a nowhere provider keeps its entry.
+	c := newAvailSnap()
+	c.svc("pg", "postgresql")
+	q := c.query()
+	if av := q.newAvailIndex().offeringAvailability("postgresql", []*ServiceRecord{q.snap.Services["pg"]}); len(av.ByEnvironment) != 1 || av.ByEnvironment[0].Partial {
+		t.Errorf("alone = %+v", av)
+	}
+	if got := floorUnseen(EnvironmentAvailability{State: AvailabilityUnavailable, Reason: "x"}, 2); got.Reason != "x; 2 providers are not seen in every environment and may serve it" {
+		t.Errorf("floor = %+v", got)
+	}
+}
+
+// TestOfferingAvailabilityPartlyHiddenProviderNeverUnavailable: a visible
+// provider with a hidden target keeps another provider's confirmed outage
+// from reading unavailable in any environment.
+func TestOfferingAvailabilityPartlyHiddenProviderNeverUnavailable(t *testing.T) {
+	a := twoProviders()
+	a.declares("pg", "sql")
+	a.target("pg", "pg-0", "a", "staging", time.Hour, absent())
+	a.target("pg-ha", "ha-0", "a", "prod", time.Hour)
+	a.target("pg-ha", "ha-1", "secret", "staging", time.Hour)
+	r := a.query().Restrict(func(ns string) bool { return ns != "secret" })
+	o := offeringData(t, r, "postgresql")
+	e := envOf(t, o.Availability, "staging")
+	wantState(t, e, AvailabilityUnknown, provenanceUnknown)
+	if !e.Partial || o.Availability.State == AvailabilityUnavailable {
+		t.Errorf("availability = %+v", o.Availability)
+	}
+}
+
+// TestAvailabilityHiddenTargetsLabel: the entry of a provider whose targets
+// are all hidden says so, never "nowhere observed".
+func TestAvailabilityHiddenTargetsLabel(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	tg := a.target("pg", "pg-0", "", "prod", time.Hour)
+	tg.Kind, tg.Scope = SourceKindTargetState, ""
+	r := a.query().Restrict(func(ns string) bool { return ns != "" })
+	e := a.providerAvailability(r, "pg").ByEnvironment[0]
+	if !e.TargetsHidden || e.label() != "(no target you may see)" || !strings.HasPrefix(e.Line(), "(no target you may see): unknown") {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+// TestAvailIndexComputesOnce: an answer reads each provider's environments
+// once, from the dependency edges it indexed once.
+func TestAvailIndexComputesOnce(t *testing.T) {
+	a := newAvailSnap()
+	a.svc("pg", "postgresql")
+	consumersOf(a, "prod", 2, 2)
+	q := a.query()
+	x := q.newAvailIndex()
+	if len(x.names["pg"]) != 2 {
+		t.Fatalf("index = %+v", x.names)
+	}
+	first := x.environments(q.snap.Services["pg"])
+	x.names = nil // a second read must not scan again
+	if again := x.environments(q.snap.Services["pg"]); &again[0] != &first[0] {
+		t.Error("environments computed twice")
+	}
+}
+
+func TestRowProvenance(t *testing.T) {
+	envs := []EnvironmentAvailability{{State: AvailabilityUnknown, Provenance: provenanceUnknown}, {State: AvailabilityDegraded, Provenance: ProvenanceInferred}}
+	if got := rowProvenance(Availability{State: AvailabilityDegraded, ByEnvironment: envs}); got != ProvenanceInferred {
+		t.Errorf("degraded = %s", got)
+	}
+	if got := rowProvenance(Availability{State: AvailabilityUnknown, ByEnvironment: []EnvironmentAvailability{{State: AvailabilityAvailable, Provenance: ProvenanceObserved}}}); got != provenanceUnknown {
+		t.Errorf("unknown = %s", got)
 	}
 }

@@ -66,10 +66,3 @@ func TestPrintChanges(t *testing.T) {
 		t.Errorf("nothing to say prints nothing, got:\n%s", b.String())
 	}
 }
-
-// A provider revision with no version is named by its label.
-func TestRevisionTextFallsBackToLabel(t *testing.T) {
-	if got := revisionText(&fleet.EntityRef{Label: "pg sha256:ab"}); got != "pg sha256:ab" {
-		t.Errorf("revisionText = %q", got)
-	}
-}
