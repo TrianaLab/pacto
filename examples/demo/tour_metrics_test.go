@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/examples/story"
@@ -55,5 +56,12 @@ func TestMetricsStepMatchesRecords(t *testing.T) {
 	}
 	if n := regexp.MustCompile(`\d+`).FindString(rest); n != "" {
 		t.Errorf("step text quotes %s, which no metric checks: %q", n, text)
+	}
+	// The browser demo generates its records in the tab and names no
+	// registry, and a tile counting 0 links nowhere.
+	for _, claim := range []string{"registry you name", "each tile"} {
+		if strings.Contains(text, claim) {
+			t.Errorf("step text claims %q, which is not true of the browser demo: %q", claim, text)
+		}
 	}
 }

@@ -679,7 +679,7 @@
     target: '[data-testid="verdict-runner"]'
   }, {
     title: "What Pacto did this month",
-    text: "This month Pacto caught 2 breaking changes and blocked 2 changes at a gate, counted from unsigned statistics in a registry you name, and each tile opens the records behind its number.",
+    text: "This month Pacto caught 2 breaking changes and blocked 2 changes at a gate, counted from unsigned statistics this demo generated from the story; each number links to the records it counts.",
     hash: "#/metrics",
     target: '[data-testid="metrics-tiles"] .mx-tile:first-child'
   }, {
