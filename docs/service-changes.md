@@ -36,7 +36,12 @@ read, from that Stage's delivery records, read with your identity:
 - A record whose signature was not checked reads **recorded, signature not
   checked**.
 - A row with no record reads **time not recorded**, and **time not recorded in
-  the Stages read** when Pacto could not read every namespace.
+  the Stages read** when Pacto could not read every namespace, a Stage's
+  history may lack earlier moves or an artifact could not be read. Each is
+  named.
+- A row reads **time not read** when delivery was not read, including for a
+  revision read from a local folder: it is keyed by its files, so no delivery
+  record can name it.
 - A row reads **time hidden** when you may not list Stages.
 
 The fleet's read time and the version order never become a time.

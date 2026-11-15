@@ -4454,13 +4454,13 @@ export interface components {
             /** @description Newest first, in version order, not a timeline */
             items: components["schemas"]["ProductChangeEvent"][] | null;
             /**
-             * @description Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed), hidden (the caller may not list Stages)
+             * @description Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed, a Stage history that may lack earlier moves, an artifact that could not be read, or a local revision no record can name), hidden (the caller may not list Stages)
              * @enum {string}
              */
             times: "not-read" | "read" | "partial" | "hidden";
             /** @description Why the times were not read in full */
             timesReason?: string;
-            /** @description partial: the namespaces whose Stages were not read */
+            /** @description partial: the namespaces or Stages not read, the Stages whose history may lack earlier moves and the artifacts that could not be read, each with why */
             timesUnreadable?: string[] | null;
             /** Format: int64 */
             total: number;

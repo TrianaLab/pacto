@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -38,17 +37,8 @@ func (d *Delivery) Reached(ctx context.Context, svc fleet.ServiceKey) ReachedAns
 		return ReachedAnswer{Times: fleet.TimesHidden, Reason: "no namespace's Stages could be read", Unreadable: w.Forbidden}
 	}
 	hs := d.Histories(ctx, w.Stages)
-	out := ReachedAnswer{ByContract: delivery.Arrivals(hs.Histories, d.contractsOf(ctx, w.Stages, hs.Histories)), Times: fleet.TimesRead,
-		Unreadable: append(w.Forbidden, hs.Unreadable...)}
-	if len(out.Unreadable) > 0 {
-		out.Times, out.Reason = fleet.TimesPartial, fmt.Sprintf("%d namespaces or Stages could not be read", len(out.Unreadable))
-	}
+	byContract, doubts := delivery.Arrivals(hs.Histories, delivery.ContractOf(d.describeOn(ctx, historyDigests(w.Stages, hs.Histories)...)))
+	out := ReachedAnswer{ByContract: byContract, Times: fleet.TimesRead}
+	out.Times, out.Reason, out.Unreadable = fleet.ReachedTimes(append(w.Forbidden, hs.Unreadable...), doubts)
 	return out
-}
-
-// contractsOf reads the artifact every move of hs brought, at once, and
-// answers the contract digest each carries ("" when unread).
-func (d *Delivery) contractsOf(ctx context.Context, stages []delivery.StageObject, hs []delivery.StageHistory) func(string) string {
-	read := d.describeOn(ctx, historyDigests(stages, hs)...)
-	return func(dg string) string { return delivery.ContractDigest(read[dg].Contract) }
 }

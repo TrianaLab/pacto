@@ -101,11 +101,15 @@ type Offer struct {
 // stamped on it (an annotation, not signed), and Err when it could not be
 // read. Service, BusinessDomain and OwnerKey are the contract's service.name,
 // service.domain and owner key; all three are empty when it was not read.
-type Described struct{ Version, Team, Contract, Source, Err, Service, BusinessDomain, OwnerKey string }
+type Described struct {
+	Version, Team, Contract, Source, Err, Service, BusinessDomain, OwnerKey string
+	// NoContract: the artifact was read and names no digest-pinned contract.
+	NoContract bool
+}
 
 // DescribedOf is what r carries, with version the version to show for it.
 func DescribedOf(r Revision, version string) Described {
-	d := Described{Version: version, Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
+	d := Described{Version: version, Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err, NoContract: r.NoContract}
 	if r.Bundle != nil && r.Bundle.Contract != nil {
 		s := r.Bundle.Contract.Service
 		d.Service, d.BusinessDomain, d.Team, d.OwnerKey = s.Name, s.Domain, s.Owner.DisplayString(), s.Owner.KeyString()

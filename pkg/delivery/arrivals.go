@@ -15,9 +15,19 @@ import (
 // history carries its record and says it was not checked; a line read from
 // an Operation's status or an unrecordable record says it was not signed.
 // A move with no time is left out: no time is invented.
-func Arrivals(hs []StageHistory, contractOf func(digest string) string) map[string][]fleet.ChangeReach {
-	out := map[string][]fleet.ChangeReach{}
+//
+// doubts names what leaves a time in doubt, so the caller never reads a
+// missing reach as "not recorded": each Stage whose history may lack earlier
+// moves (read from statuses, partial or with a problem), since its earliest
+// move read may not be its first, and each moved artifact contractOf could
+// not read (read false).
+func Arrivals(hs []StageHistory, contractOf func(digest string) (contract string, read bool)) (out map[string][]fleet.ChangeReach, doubts []string) {
+	out = map[string][]fleet.ChangeReach{}
+	unread := map[string]bool{}
 	for _, h := range hs {
+		if h.Source != SourceRecords || h.Completeness != string(fleet.CompletenessComplete) || len(h.Problems) > 0 {
+			doubts = append(doubts, h.Namespace+"/"+h.Stage.Name+": earlier moves may be missing")
+		}
 		earliest := map[string]fleet.ChangeReach{}
 		at := map[string]time.Time{}
 		for _, e := range h.Entries {
@@ -25,7 +35,11 @@ func Arrivals(hs []StageHistory, contractOf func(digest string) string) map[stri
 			if !ok || !timed {
 				continue
 			}
-			c := contractOf(e.Pointer.After)
+			c, read := contractOf(e.Pointer.After)
+			if !read && !unread[e.Pointer.After] {
+				unread[e.Pointer.After] = true
+				doubts = append(doubts, e.Pointer.After+": its artifact could not be read")
+			}
 			if prev, seen := at[c]; c == "" || seen && !t.Before(prev) {
 				continue
 			}
@@ -40,7 +54,19 @@ func Arrivals(hs []StageHistory, contractOf func(digest string) string) map[stri
 			return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Stage, b.Stage))
 		})
 	}
-	return out
+	return out, doubts
+}
+
+// ContractOf answers, from what each digest carries, the contract digest it
+// names ("" when its contract is not digest-pinned) and whether that was
+// read: a pinned contract was, even when the rest of the artifact was not,
+// and so was an artifact that names none (NoContract).
+func ContractOf(read map[string]Described) func(string) (string, bool) {
+	return func(dg string) (string, bool) {
+		d, ok := read[dg]
+		c := ContractDigest(d.Contract)
+		return c, ok && (c != "" || d.Err == "" || d.NoContract)
+	}
 }
 
 // reachOf is e's move as a reach of h's Stage.

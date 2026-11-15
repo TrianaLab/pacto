@@ -66,3 +66,39 @@ func TestChangesHeadingNamesTimes(t *testing.T) {
 		t.Errorf("heading %q", h.Heading())
 	}
 }
+
+// A local revision is keyed by its files: no delivery record can name it, so
+// its time is not read, never "not recorded".
+func TestAttachReachedLocalRevisionNotRead(t *testing.T) {
+	q, h := reachedQuery()
+	for _, r := range q.snap.Revisions {
+		r.RequestedRef = "file://bundles/svc"
+	}
+	q.AttachReached(&h, nil, TimesRead, "", nil)
+	if h.Times != TimesNotRead || !strings.Contains(h.TimesReason, "local revision") || strings.Contains(strings.Join(h.Lines(), "\n"), "not recorded") {
+		t.Fatalf("times %q %q lines %q", h.Times, h.TimesReason, h.Lines())
+	}
+	// One local revision beside a registry one: partial, and why.
+	q, h = reachedQuery()
+	q.snap.Revisions["svc@v1.0.0"].RequestedRef = "file://bundles/svc"
+	q.AttachReached(&h, nil, TimesRead, "", nil)
+	if h.Times != TimesPartial || !strings.Contains(h.TimesReason, "local revision") {
+		t.Fatalf("times %q %q", h.Times, h.TimesReason)
+	}
+	// Hidden stays hidden.
+	q.AttachReached(&h, nil, TimesHidden, "no", nil)
+	if h.Times != TimesHidden {
+		t.Fatalf("times %q", h.Times)
+	}
+}
+
+func TestReachedTimes(t *testing.T) {
+	if times, reason, names := ReachedTimes(nil, nil); times != TimesRead || reason != "" || names != nil {
+		t.Fatalf("%q %q %v", times, reason, names)
+	}
+	times, reason, names := ReachedTimes([]string{"dev"}, []string{"sha256:a: its artifact could not be read"})
+	if times != TimesPartial || !strings.Contains(reason, "1 namespaces or Stages could not be read; 1 Stages or artifacts were read only in part") ||
+		!reflect.DeepEqual(names, []string{"dev", "sha256:a: its artifact could not be read"}) {
+		t.Fatalf("%q %q %v", times, reason, names)
+	}
+}

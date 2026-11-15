@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 func reachedFake() *fakeDelivery {
 	f := sampleCluster("acme:team-payments")
 	f.contract = "oci://r/payments@" + dContract
-	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Source: "records", Verified: true, Entries: []delivery.HistoryEntry{{Operation: "ship",
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Source: "records", Completeness: "complete", Verified: true, Entries: []delivery.HistoryEntry{{Operation: "ship",
 		Kind: delivery.RecordOperation, Record: "rec-1", Outcome: delivery.Succeeded, Pointer: &delivery.PointerChange{After: dRun},
 		Applied: "2026-11-01T00:00:00Z"}}}
 	return f
@@ -106,6 +107,21 @@ func TestEntityReachedPartialNamespaces(t *testing.T) {
 	f.historyErr = errors.New("records down")
 	h = entityChanges(t, startReached(t, f), "&reached=true")
 	expect(t, h.Times == fleet.TimesPartial && strings.Contains(h.TimesUnreadable[0], "prod/payments: records down"), "changes %+v", h)
+}
+
+// What was read but leaves a time in doubt is partial and named, never
+// "time not recorded": a history that may lack earlier moves, or a moved
+// artifact the registry would not describe.
+func TestEntityReachedDoubtsPartial(t *testing.T) {
+	f := reachedFake()
+	f.history.Source, f.history.Completeness = delivery.SourceStatus, "partial"
+	h := entityChanges(t, startReached(t, f), "&reached=true")
+	expect(t, h.Times == fleet.TimesPartial && slices.Contains(h.TimesUnreadable, "prod/payments: earlier moves may be missing"), "changes %+v", h)
+	f = reachedFake()
+	f.history.Entries[0].Pointer.After = "sha256:unreadable"
+	h = entityChanges(t, startReached(t, f), "&reached=true")
+	expect(t, h.Times == fleet.TimesPartial && slices.Contains(h.TimesUnreadable, "sha256:unreadable: its artifact could not be read") &&
+		!strings.HasSuffix(h.Lines()[0], "time not recorded"), "changes %+v", h)
 }
 
 func TestReachedPartialNamespacesNotRecordedWording(t *testing.T) {

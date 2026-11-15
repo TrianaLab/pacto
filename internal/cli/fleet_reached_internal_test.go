@@ -30,9 +30,10 @@ func TestFleetEntityReachedNoClusterNotRead(t *testing.T) {
 	if !strings.Contains(out, "times not-read: no cluster to read delivery from: no kubeconfig") || !strings.Contains(out, "time not read\n") {
 		t.Fatalf("out:\n%s", out)
 	}
-	// With a cluster that holds no move of these contracts: read, none recorded.
+	// A --local fleet keys revisions by their files: no record can name one,
+	// so its times are not read, never "not recorded".
 	out = runFleetEntity(t, deliveryDeps("alice", nil), "--reached")
-	if strings.Contains(out, "times not-read") || !strings.Contains(out, "  time not recorded\n") {
+	if !strings.Contains(out, "times not-read: a local revision is keyed by its files") || strings.Contains(out, "time not recorded") {
 		t.Fatalf("out:\n%s", out)
 	}
 	// Without --reached the cluster is never asked.

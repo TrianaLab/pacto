@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -44,10 +43,10 @@ func (s *Server) attachReached(ctx context.Context, q *fleet.Query, svc fleet.Se
 	hs, on, unreadable := readHistories(ctx, api, stages)
 	unreadable = append(slices.Clone(l.Unreadable), unreadable...)
 	read := describedAll(ctx, api, nil, on...)
-	byContract := delivery.Arrivals(hs, func(d string) string { return delivery.ContractDigest(read[d].Contract) })
-	times, reason := fleet.TimesRead, ""
-	if len(unreadable) > 0 || l.Completeness == "partial" {
-		times, reason = fleet.TimesPartial, fmt.Sprintf("%d namespaces or Stages could not be read", len(unreadable))
+	byContract, doubts := delivery.Arrivals(hs, delivery.ContractOf(read))
+	times, reason, unreadable := fleet.ReachedTimes(unreadable, doubts)
+	if times == fleet.TimesRead && l.Completeness == "partial" {
+		times, reason = fleet.TimesPartial, "some namespaces' Stages were not listed"
 	}
 	q.AttachReached(h, byContract, times, reason, unreadable)
 }

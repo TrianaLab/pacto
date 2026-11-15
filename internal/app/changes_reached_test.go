@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,6 +81,16 @@ func TestReachedNotServedNotRead(t *testing.T) {
 	})
 	got := e.d.Reached(context.Background(), "payments")
 	if got.Times != fleet.TimesNotRead || !strings.Contains(got.Reason, "could not find") {
+		t.Fatalf("reached = %+v", got)
+	}
+}
+
+// A Stage read only from Operation statuses may lack earlier moves: its
+// times are partial and it is named, never "not recorded".
+func TestReachedStatusHistoryPartial(t *testing.T) {
+	e := newRecordEnv(t)
+	got := e.d.Reached(context.Background(), "payments")
+	if got.Times != fleet.TimesPartial || !slices.Contains(got.Unreadable, "prod/payments-prod: earlier moves may be missing") {
 		t.Fatalf("reached = %+v", got)
 	}
 }

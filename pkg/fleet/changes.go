@@ -60,9 +60,9 @@ type ChangeHistoryPreview struct {
 	Gaps               int           `json:"gaps" doc:"Revisions whose contract could not be read; no change is reported across them"`
 	Completeness       string        `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held"`
 	CompletenessReason string        `json:"completenessReason,omitempty"`
-	Times              string        `json:"times" enum:"not-read,read,partial,hidden" doc:"Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed), hidden (the caller may not list Stages)"`
+	Times              string        `json:"times" enum:"not-read,read,partial,hidden" doc:"Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed, a Stage history that may lack earlier moves, an artifact that could not be read, or a local revision no record can name), hidden (the caller may not list Stages)"`
 	TimesReason        string        `json:"timesReason,omitempty" doc:"Why the times were not read in full"`
-	TimesUnreadable    []string      `json:"timesUnreadable,omitempty" doc:"partial: the namespaces whose Stages were not read"`
+	TimesUnreadable    []string      `json:"timesUnreadable,omitempty" doc:"partial: the namespaces or Stages not read, the Stages whose history may lack earlier moves and the artifacts that could not be read, each with why"`
 }
 
 // Change kinds, in the order a revision's changes are listed.
@@ -170,14 +170,51 @@ const (
 // AttachReached sets on each event of h when its revision reached each
 // Stage, byContract keyed by the revision's contract digest, and how the
 // times were read. It never adds or drops an event: delivery decides only
-// the times.
+// the times. A local revision is keyed by its files, never by an artifact
+// digest, so no record can name it: its time is not read, never "not
+// recorded".
 func (q *Query) AttachReached(h *ChangeHistoryPreview, byContract map[string][]ChangeReach, times, reason string, unreadable []string) {
 	h.Times, h.TimesReason, h.TimesUnreadable = times, reason, unreadable
+	local, matchable := 0, 0
 	for i, e := range h.Items {
-		if r := q.snap.Revisions[RevisionKey(e.Revision.Key)]; r != nil && r.Digest != "" {
+		r := q.snap.Revisions[RevisionKey(e.Revision.Key)]
+		switch {
+		case r == nil || r.Digest == "":
+		case strings.HasPrefix(r.RequestedRef, "file://"): // ponytail: file:// is the one source keyed by content today
+			local++
+		default:
+			matchable++
 			h.Items[i].Reached = byContract[r.Digest]
 		}
 	}
+	if local == 0 || times != TimesRead && times != TimesPartial {
+		return
+	}
+	if matchable == 0 {
+		h.Times, h.TimesReason, h.TimesUnreadable = TimesNotRead, localRevisionReason, nil
+		return
+	}
+	h.Times, h.TimesReason = TimesPartial, strings.Join(slices.DeleteFunc([]string{reason, localRevisionReason}, func(s string) bool { return s == "" }), "; ")
+}
+
+// localRevisionReason is why a local revision has no time.
+const localRevisionReason = "a local revision is keyed by its files, not an artifact digest, so no delivery record can name it"
+
+// ReachedTimes is how complete the times read are: partial when a namespace
+// or Stage could not be read (unreadable) or what was read leaves a time in
+// doubt (doubts, see delivery.Arrivals), naming both.
+func ReachedTimes(unreadable, doubts []string) (times, reason string, names []string) {
+	if len(unreadable)+len(doubts) == 0 {
+		return TimesRead, "", nil
+	}
+	var why []string
+	if len(unreadable) > 0 {
+		why = append(why, fmt.Sprintf("%d namespaces or Stages could not be read", len(unreadable)))
+	}
+	if len(doubts) > 0 {
+		why = append(why, fmt.Sprintf("%d Stages or artifacts were read only in part, so a time may be missing or later than the first", len(doubts)))
+	}
+	return TimesPartial, strings.Join(why, "; "), append(slices.Clone(unreadable), doubts...)
 }
 
 // revisionChanges is every declared change r makes to prev, or what r
