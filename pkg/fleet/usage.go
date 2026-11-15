@@ -169,7 +169,8 @@ func (q *Query) usageFor(use OfferingUse, rels []*Relationship, current *Contrac
 // (source, producer); only current ones (fresh, about the current consumer
 // revision) can disagree or speak for the slot. Figures carry numbers only for
 // a signed, fresh, Observed report about the current revision that no other
-// current report contradicts.
+// current report contradicts. revs holds every record's digest: useSlots and
+// matchUsage drop a record whose digest names no revision before it gets here.
 func usageConsumption(recs []*UsageRecord, revs map[string]*ContractRevision, current *ContractRevision) ResourceConsumption {
 	c := ResourceConsumption{State: consumptionUnknown, Provenance: ProvenanceObserved}
 	latest := latestReports(recs)
