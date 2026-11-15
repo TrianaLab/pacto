@@ -1985,7 +1985,7 @@ pacto stats [flags]
       --by string                  group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
