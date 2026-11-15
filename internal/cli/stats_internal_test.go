@@ -137,6 +137,15 @@ func TestStatsPublishRejectsForgedID(t *testing.T) {
 	}
 }
 
+func TestStatsPublishRefusesOperationRecords(t *testing.T) {
+	var calls []statsCall
+	file := filepath.Join("..", "..", "pkg", "runrecord", "testdata", "operation.golden.json")
+	_, err := runStatsPublish(t, statsDeps(&calls, nil), file, "--registry", "reg/acme/stats")
+	if err == nil || len(calls) != 0 || !strings.Contains(err.Error(), "operation records are written only by the delivery promoter") {
+		t.Fatalf("calls %d, err = %v", len(calls), err)
+	}
+}
+
 func TestStatsPublishSuccessLine(t *testing.T) {
 	var calls []statsCall
 	file := fixture(t, "impact-blocked.json")

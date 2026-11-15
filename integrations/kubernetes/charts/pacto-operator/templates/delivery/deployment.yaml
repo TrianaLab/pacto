@@ -1,5 +1,9 @@
 {{- if .Values.delivery.enabled }}
 {{- include "pacto-operator.delivery.gate" . }}
+{{- $stats := .Values.delivery.stats }}
+{{- if and $stats.registryCredentials.secretName (not $stats.repository) }}
+{{- fail "delivery.stats.registryCredentials.secretName needs delivery.stats.repository: set the repository the promoter records to, or remove the Secret" }}
+{{- end }}
 {{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.
@@ -63,6 +67,12 @@ spec:
             {{- if .Values.delivery.promoter.upstreamTrust }}
             - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
             {{- end }}
+            {{- with $stats.repository }}
+            - --stats-repository={{ . }}
+            {{- end }}
+            {{- if $stats.registryCredentials.secretName }}
+            - --stats-docker-config=/etc/pacto/stats-registry
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -98,6 +108,11 @@ spec:
               mountPath: /etc/pacto/registry
               readOnly: true
             {{- end }}
+            {{- if $stats.registryCredentials.secretName }}
+            - name: stats-registry
+              mountPath: /etc/pacto/stats-registry
+              readOnly: true
+            {{- end }}
             - name: identities
               mountPath: /etc/pacto/identities
               readOnly: true
@@ -116,6 +131,14 @@ spec:
         - name: registry
           secret:
             secretName: {{ $creds }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        {{- end }}
+        {{- with $stats.registryCredentials.secretName }}
+        - name: stats-registry
+          secret:
+            secretName: {{ . }}
             items:
               - key: .dockerconfigjson
                 path: config.json

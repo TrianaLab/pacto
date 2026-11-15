@@ -30,6 +30,7 @@ func newStatsPublishCommand(d deps) *cobra.Command {
 		Use:   "publish <file...>",
 		Short: "Publish run record files to a stats registry",
 		Long: "Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. " +
+			"Operation records are written only by the delivery promoter and are refused. " +
 			"Every file is tried; the command fails when any of them could not be read, parsed or published. " +
 			"The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.",
 		Args: cobra.MinimumNArgs(1),
@@ -63,6 +64,11 @@ func publishRecordFile(cmd *cobra.Command, d deps, repo, file string) (string, e
 	r, err := readRecordFile(file)
 	if err != nil {
 		return "", err
+	}
+	// An operation record's id is a Kubernetes UID, which the id check below
+	// can never match: say why it is refused.
+	if r.Kind == runrecord.KindOperation {
+		return "", errors.New("operation records are written only by the delivery promoter")
 	}
 	// Parse never recomputes the id, so a forged one would merge or split
 	// distinct-change counts.

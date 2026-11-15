@@ -1977,7 +1977,7 @@ pacto stats [flags]
 
 ### `pacto stats publish`
 
-Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
+Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Operation records are written only by the delivery promoter and are refused. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
 
 ```
 pacto stats publish <file...> [flags]
