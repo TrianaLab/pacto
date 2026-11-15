@@ -278,6 +278,13 @@ check("prod held payments 2.4.1 for team payments: it declares no prod environme
   env241.outcome === "Rejected" && /declares no environment prod/.test(envVerdict?.message || ""), envVerdict?.message);
 const evals = (json(call("GET", "/api/delivery/operations/test/pay-agent-promote-17")).operation?.status?.verdicts || []).find((v) => v.gate === "evals");
 check("pay-agent 1.1.0 failed evals its runner signed", evals?.result === "Fail" && evals.citation?.runner === "story-evals" && !!evals.citation?.runnerBundle, JSON.stringify(evals?.citation?.runner));
+// A sequential owner handover is a change, never a dispute: payments-service 2.1.0
+// moved from team/payments to payments-team, and no OWNER_CONFLICT names it.
+const payChanges = json(call("GET", "/api/fleet/entities/service?key=payments-service")).service?.changes?.items || [];
+const ownerConflicts = (snap.limitations || []).filter((l) => l.code === "OWNER_CONFLICT").map((l) => l.message);
+check("payments-service 2.1.0 is an owner change and no OWNER_CONFLICT names it",
+  payChanges.some((e) => e.kind === "owner" && e.change === "changed" && e.revision?.version === "2.1.0")
+    && ownerConflicts.length > 0 && !ownerConflicts.some((m) => /payments-service/.test(m)), ownerConflicts.join("; "));
 // A change's time comes only from delivery records, read when asked (reached):
 // the story payments service reached its Stages by signed records.
 const storyPayments = "/api/fleet/entities/service?key=registry.example%252Fstory%2Fpayments";

@@ -99,6 +99,8 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"type payments in the search box", "svc-search"},
 		{"open payments-service from the list", "/fleet/services/payments-service"},
 		{"Press What if it becomes unavailable?", "page-hd-actions"},
+		{"the Changes section lists an owner change", "#sec-changes"},
+		{"each change says when its revision reached a Stage", "service-change-reached"},
 	}
 	for _, tour := range []string{"FLEET_TOUR", "DELIVERY_TOUR"} {
 		for i, s := range tourSteps(t, tour) {

@@ -231,6 +231,20 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
     }
   }, {
+    // Only something to read: the Changes section filtered to owner changes, where
+    // the 2.1.0 handover reads as a change rather than a dispute.
+    title: "Who owns payments-service now?",
+    text: "Its 2.1.0 revision handed payments-service from team/payments to payments-team, so the Changes section lists an owner change, the service ranks under payments-team and nothing reads as a dispute.",
+    target: "#sec-changes",
+    hash: "#/fleet/services/payments-service?changesKind=owner"
+  }, {
+    // Also only something to read: a change gets a time only from a signed delivery
+    // record of its revision reaching a Stage.
+    title: "When did a change reach production?",
+    text: "On the story's payments service each change says when its revision reached a Stage, from signed delivery records: 2.3.0 reached prod and 3.0.0 reached test.",
+    target: '#sec-changes [data-testid="service-change-reached"]',
+    hash: "#/fleet/services/registry.example%252Fstory%2Fpayments?section=changes"
+  }, {
     // Nothing to do here, only something to read, so it keeps a real button like the
     // opening notice: an auto-advance would flash the rows past unread.
     title: "What does a provider promise?",
@@ -274,7 +288,7 @@
     }
   }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
