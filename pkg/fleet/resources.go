@@ -52,7 +52,7 @@ const consumptionNotReportedReason = "no provider reports usage or cost for this
 // notReportedConsumption is the consumption of a resource no provider reports
 // usage or cost for: an explicit state, never zero.
 func notReportedConsumption() []ResourceConsumption {
-	return []ResourceConsumption{{State: "not-reported", Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
+	return []ResourceConsumption{{State: consumptionNotReported, Provenance: ProvenanceObserved, Reason: consumptionNotReportedReason}}
 }
 
 // revisionsOf is every revision of s.

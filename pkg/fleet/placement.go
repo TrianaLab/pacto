@@ -62,7 +62,7 @@ const (
 	targetsIncompleteReason = "you may not see every target of this service"
 	unlabelledProvisioning  = "targets with no environment label have no provisioning status"
 	noEnvironmentsDeclared  = "the revision declares no environments; see the service-wide offering status"
-	noProvisioningHere      = "no offering use of the current revision provisions a resource"
+	noProvisioningHere      = "no resource use of the current revision provisions a resource"
 	// hiddenProviderMayProvision replaces noProvisioningHere when a provider
 	// the viewer may not see is used: missing is never none.
 	hiddenProviderMayProvision = "a provider you may not see may provision a resource here; its status is unknown"
