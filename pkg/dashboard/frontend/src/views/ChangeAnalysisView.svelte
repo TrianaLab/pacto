@@ -256,7 +256,7 @@
       const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: NAME_LOOKUP_LIMIT });
       if (my !== serviceSearchSeq) return;
       const { matches: exact, complete } = boundedMatches(res, (e) => e.label === name || e.key === name);
-      if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key)); return; }
+      if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key, { correlationID: params.correlationID })); return; }
       // Only a complete page may narrow the picker to the exact matches: on a truncated one
       // the whole page is shown, so the "Showing N of M" hint stays true beside it.
       const narrowed = complete && exact.length > 0;
@@ -387,7 +387,7 @@
     analyze(0);
   }
 
-  function pickServiceOption(key) { if (key) location.hash = fleetChangesUrl(key); }
+  function pickServiceOption(key) { if (key) location.hash = fleetChangesUrl(key, { correlationID: params.correlationID }); }
 
   const consumers = $derived(result?.consumers ?? { items: [], total: 0, count: 0, offset: 0 });
   const owners = $derived(result?.owners ?? { items: [], total: 0, count: 0 });

@@ -17,9 +17,13 @@
   const offersOf = (r) => (r.offers ?? []).filter((o) => (!onlyAvailable || o.available) && (!match || match(r, o)));
   // The version a promote names: the candidate's label, else its short digest.
   const versionOf = (r, o) => (o.action === 'promote' ? offerRequest(r, o).version || shortDigest(o.to || r.candidate) : '');
+  // When two Stages deliver the same environment, each label names its Stage, so no
+  // two buttons read alike (WCAG 2.4.4).
+  const shared = (r) => rows.some((x) => x !== r && x.environment === r.environment);
+  const stageOf = (r) => (shared(r) ? keyOf(r) : '');
   const label = (r, o) => (labelPrefix
-    ? `${labelPrefix} ${offerLabel(o.action).toLowerCase()}${versionOf(r, o) ? ` of ${versionOf(r, o)}` : ''} in ${r.environment}…`
-    : `${offerLabel(o.action)} ${service} in ${r.environment}`);
+    ? `${labelPrefix} ${offerLabel(o.action).toLowerCase()}${versionOf(r, o) ? ` of ${versionOf(r, o)}` : ''} in ${r.environment}${stageOf(r) ? ` (${stageOf(r)})` : ''}…`
+    : `${offerLabel(o.action)} ${service} in ${r.environment}${stageOf(r) ? ` (${stageOf(r)})` : ''}`);
   function act(e, r, o) {
     opener = e.currentTarget;
     acting = { key: keyOf(r), offer: o, ...offerRequest(r, o) };
@@ -35,7 +39,7 @@
         <div class="sd-offer">
           {#if labelPrefix}
             <button type="button" class="btn btn-sm" data-testid="service-delivery-offer" disabled={!o.available} title={label(r, o)}
-              onclick={(e) => act(e, r, o)}><span class="so-label">{labelPrefix} {offerLabel(o.action).toLowerCase()}{#if versionOf(r, o)}{' '}of <bdi>{versionOf(r, o)}</bdi>{/if} in <bdi>{r.environment}</bdi>…</span></button>
+              onclick={(e) => act(e, r, o)}><span class="so-label">{labelPrefix} {offerLabel(o.action).toLowerCase()}{#if versionOf(r, o)}{' '}of <bdi>{versionOf(r, o)}</bdi>{/if} in <bdi>{r.environment}</bdi>{#if stageOf(r)}{' '}(<bdi>{stageOf(r)}</bdi>){/if}…</span></button>
           {:else}
             <button type="button" class="btn btn-sm" data-testid="service-delivery-offer" disabled={!o.available}
               aria-label={label(r, o)} title={label(r, o)} onclick={(e) => act(e, r, o)}>{offerLabel(o.action)}</button>

@@ -545,6 +545,23 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('keeps the correlation id when it canonicalizes a name or the picker routes', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, limit: 20, offset: 0, entities: [ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' })] });
+    const named = mountView({ name: 'payments', correlationID: 'CHG-2041' });
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments?correlationID=CHG-2041'));
+    unmount(named.component); document.body.removeChild(named.target);
+    location.hash = '';
+    const picked = mountView({ correlationID: 'CHG-2041' });
+    const input = picked.target.querySelector('#impact-pick') as HTMLInputElement;
+    input.value = 'pay';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(picked.target.querySelector('[data-testid="impact-picker-results"]')).toBeTruthy());
+    (picked.target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
+    flushSync();
+    expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments?correlationID=CHG-2041');
+    unmount(picked.component); document.body.removeChild(picked.target);
+  });
+
   it('asks which one when several services share the name, picking no arbitrary winner', async () => {
     entitiesFn.mockResolvedValue({ meta, total: 2, count: 2, entities: [
       ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' }),

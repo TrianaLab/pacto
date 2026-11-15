@@ -46,6 +46,17 @@ describe('StageOffers', () => {
     v.destroy();
   });
 
+  it('names the Stage when two Stages deliver one environment', () => {
+    const rows = [row({ namespace: 'team-a', stage: 'payments' }), row({ namespace: 'team-b', stage: 'payments' }), row({ namespace: 'test', environment: 'test' })];
+    const v = render({ rows, onlyAvailable: true, labelPrefix: 'Plan', match: (_r: unknown, o: { action: string }) => o.action === 'undo' });
+    expect(buttons(v.target).map(words)).toEqual(['Plan undo in prod (team-a/payments)…', 'Plan undo in prod (team-b/payments)…', 'Plan undo in test…']);
+    expect(buttons(v.target).map((b) => b.title)).toEqual(['Plan undo in prod (team-a/payments)…', 'Plan undo in prod (team-b/payments)…', 'Plan undo in test…']);
+    v.destroy();
+    const plain = render({ rows: rows.slice(0, 2), match: (_r: unknown, o: { action: string }) => o.action === 'undo' });
+    expect(buttons(plain.target).map((b) => b.getAttribute('aria-label'))).toEqual(['Undo orders in prod (team-a/payments)', 'Undo orders in prod (team-b/payments)']);
+    plain.destroy();
+  });
+
   it('match filters offers', () => {
     const v = render({ rows: [row(), row({ namespace: 'test', environment: 'test' })], onlyAvailable: true, labelPrefix: 'Plan',
       match: (r: { namespace: string }, o: { action: string }) => o.action === 'undo' && r.namespace === 'test' });
