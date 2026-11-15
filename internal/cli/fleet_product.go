@@ -164,6 +164,14 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			reached, _ := cmd.Flags().GetBool("reached")
+			if reached {
+				// A trust config that cannot be read is the caller's error,
+				// never a missing cluster.
+				if _, err := deliveryTrust(trustPath(cmd)); err != nil {
+					return err
+				}
+			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
 				return err
@@ -172,7 +180,7 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 			if err != nil {
 				return err
 			}
-			if reached, _ := cmd.Flags().GetBool("reached"); reached && res.Service != nil {
+			if reached && res.Service != nil {
 				attachReached(cmd, d)(cmd.Context(), q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
 			}
 			return printFleetEntity(cmd, res, v.GetString(outputFormatKey))
@@ -185,12 +193,17 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Comm
 
 // attachReached attaches to a service's changes when each reached its
 // Stages, read with the ambient cluster credentials; with no cluster to read
-// from, it says so and reads nothing.
+// from, or a trust config it cannot read, it says which and reads nothing.
 func attachReached(cmd *cobra.Command, d deps) pactomcp.ReachedReader {
 	return func(ctx context.Context, q *fleet.Query, service fleet.ServiceKey, h *fleet.ChangeHistoryPreview) {
-		c, _, err := deliveryClient(cmd, d)
+		dyn, err := d.newDynamic()
 		if err != nil {
 			q.AttachReached(h, nil, fleet.TimesNotRead, "no cluster to read delivery from: "+err.Error(), nil)
+			return
+		}
+		c, _, err := deliveryClientFor(cmd, d, dyn)
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "the delivery trust config could not be read: "+err.Error(), nil)
 			return
 		}
 		a := c.Reached(ctx, service)

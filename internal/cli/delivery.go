@@ -111,15 +111,20 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	return deliveryClientFor(cmd, d, dyn)
 }
 
-// deliveryClientFor builds the delivery client over dyn.
-func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
-	ns, _ := cmd.Flags().GetString("namespace")
-	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+// trustPath is the trust config --trust, else --delivery-trust, names.
+func trustPath(cmd *cobra.Command) string {
 	path, _ := cmd.Flags().GetString("trust")
 	if path == "" {
 		path, _ = cmd.Flags().GetString("delivery-trust")
 	}
-	trust, err := deliveryTrust(path)
+	return path
+}
+
+// deliveryClientFor builds the delivery client over dyn.
+func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
+	ns, _ := cmd.Flags().GetString("namespace")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+	trust, err := deliveryTrust(trustPath(cmd))
 	if err != nil {
 		return nil, "", err
 	}
