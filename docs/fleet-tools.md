@@ -22,8 +22,8 @@ reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables. [The service page](dashboard-service-page.md) describes what a
 service's page shows and how it says what Pacto does not know.
 
-![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-light.png#only-light)
-![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)
+![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-light.png#only-light)
+![The dashboard's page for payments-service: compliant, owned by payments-team as declared in 2.1.2 and a summary of its two operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)
 
 Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboard-docker.md#operational-endpoints).
 
@@ -92,6 +92,15 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+### A service's changes
+
+A service's detail carries its `changes`: each declared change between the
+revisions Pacto holds, in version order, with `provenance` and `source`.
+`pacto fleet entity service <key> --reached` and `reached` on a stdio
+`pacto_fleet_entity` add when each change's revision reached a Stage, from
+delivery records read with your credentials; see
+[a service's changes](service-changes.md).
+
 ## The organization in one answer
 
 `pacto fleet overview` prints the answer the dashboard overview draws: target
@@ -133,6 +142,7 @@ the note says where that answer lives instead.
 |---|---|---|---|---|
 | Which owners, domains, offerings or services match? | `pacto fleet entities` | `pacto_fleet_entities` | `GET /api/fleet/entities` | |
 | What is this service, revision, owner, domain or offering? | `pacto fleet entity` | `pacto_fleet_entity` | `GET /api/fleet/entities/{kind}` | |
+| What changed in this service, and when did it reach each Stage? | `pacto fleet entity service <key> --reached` | `pacto_fleet_entity` with `reached` | `GET /api/fleet/entities/{kind}?reached=true` | Times only from delivery records read as you; an HTTP MCP server answers `times: not-read` |
 | What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |

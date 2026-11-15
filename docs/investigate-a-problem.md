@@ -53,6 +53,13 @@ questions. When the changes of an incident share a correlation id,
 `pacto_delivery_history`) lists exactly those, and `--cause` finds the
 changes a verdict or reason caused.
 
+To ask what a service looked like before, run
+`pacto delivery history --all --service <service> --at <time>` (`at` in
+`pacto_delivery_history`): it names the revision each Stage ran then, from
+signed records, and a Stage with no record before that time reads `unknown`. Each history line carries the `pacto.impact`
+verdict its record signed at the time. Rerun `pacto_impact` on the same two
+revisions to see who the change reaches against today's graph.
+
 ## Act on what you found
 
 The dashboard plans a change from the page where you found the problem:

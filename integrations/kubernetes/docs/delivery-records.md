@@ -162,6 +162,9 @@ Operation's status, so those three are not signed, and the output says so.
 `pacto delivery record get` reads one record by its id; see
 [status, progress and lifecycle](delivery-status.md).
 
+[A service's changes and history](../../service-changes.md#from-the-cli-and-mcp)
+explains `--at` and the `IMPACT` and `REVISION (DERIVED)` columns.
+
 `blame` names the change that moved the Stage to what it runs: who asked, who
 approved, what each check said. No change on a partial history means unknown,
 never nobody. `undo` proposes nothing; it returns the plan and the command that

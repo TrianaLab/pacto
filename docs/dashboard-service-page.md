@@ -116,7 +116,8 @@ Below the rows:
   environments disagree on, one row per environment, with **not set** for a
   value an environment leaves out.
 - **Environment changes** opens the **What changed in this service?**
-  section filtered to environment changes.
+  section filtered to environment changes; see
+  [a service's changes](service-changes.md).
 - An expired environment is never deleted; see
   [temporary environments](contract-reference/environments.md#temporary-environments).
 

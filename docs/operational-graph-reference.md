@@ -226,8 +226,8 @@ with `service "ghost" not found in the fleet snapshot` on stderr. These answers 
 
 | `changes` | Detail |
 |---|---|
-| Items | Every declared change across the revisions the answer holds, newest first in version order: the owner, domain, offering, a dependency, the lifecycle, an environment (`kind`), or a validation finding that appeared or resolved. `revision` is the first held revision that shows the change and `previous` the one it was compared with; `provenance` is `declared` and `source` is `contract` or `validation` |
-| Times | A change carries a time only in `reached`, read from delivery records as you when asked (`reached`); `times` says whether they were read: `not-read`, `read`, `partial` or `hidden` |
+| Items | Every declared change across the revisions the answer holds, newest first in version order. `kind` is `owner`, `domain`, `offering`, `dependency`, `lifecycle`, `environment` or `finding` (a validation finding that appeared or resolved); `subject` names the dependency, environment or finding; `change` is `present`, `added`, `removed` or `changed`, with `fields`, `from` and `to`. `revision` is the first held revision that shows the change and `previous` the one it was compared with; `provenance` is `declared` and `source` is `contract` or `validation` |
+| Times | A change carries a time only in `reached`: per Stage you may read, when its revision first arrived there (`at`), with the `record`, `verified`, `fromStatus` and the recorded `impact` verdict. It is read from delivery records as you when asked (`--reached`, `reached`, `?reached=true`); `times` says whether they were read: `not-read`, `read`, `partial` (with `timesUnreadable`) or `hidden`, with `timesReason` |
 | Gaps | `gaps` counts revisions whose contract could not be read; no change is reported across them |
 | Completeness | `partial` when your view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held |
 
