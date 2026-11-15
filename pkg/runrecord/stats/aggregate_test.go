@@ -202,6 +202,7 @@ func TestAggregateTruncatedSaysUnreadServices(t *testing.T) {
 			t.Fatalf("unread %d = %q", unread, st.Limitations[0].Message)
 		}
 	}
+	cut.UnreadAnchors = 4 // the map above leaves whichever count it ranged last
 	st := Aggregate(cut, Query{Window: aggWindow}, Scope{Restricted: true, Place: place}, aggNow)
 	if m := st.Limitations[0].Message; !strings.Contains(m, "; services after it were not read at all") || strings.ContainsAny(m[strings.Index(m, ";"):], "0123456789") {
 		t.Fatalf("restricted = %q", m)
