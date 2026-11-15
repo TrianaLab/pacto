@@ -23,7 +23,7 @@
     servicesOffset = '', servicesLimit = '', refreshTick = 0,
   } = $props();
 
-  const GUIDE = 'https://pacto.run/latest/run-record-reference/';
+  const GUIDE = 'https://pacto.run/latest/measure-what-pacto-does/';
   const REPO = 'ghcr.io/acme/pacto-stats';
   const CI_LINE = `export PACTO_STATS_REGISTRY=${REPO}`;
   const DASHBOARD_LINE = `pacto dashboard --stats-registry ${REPO}`;

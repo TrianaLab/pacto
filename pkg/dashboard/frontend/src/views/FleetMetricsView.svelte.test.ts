@@ -42,7 +42,7 @@ describe('FleetMetricsView', () => {
     expect(off.textContent).toContain('Metrics are off');
     expect(off.textContent).toContain('Pacto records run statistics in your own registry.');
     expect(off.textContent).toContain('--stats-registry');
-    expect(off.querySelector('a[href^="https://pacto.run/latest/"]')?.textContent).toBe('How recording works');
+    expect(off.querySelector('a[href="https://pacto.run/latest/measure-what-pacto-does/"]')?.textContent).toBe('How recording works');
     expect(body(target).textContent).not.toMatch(/\d/);
     expect(statsFn).not.toHaveBeenCalled();
     done();
