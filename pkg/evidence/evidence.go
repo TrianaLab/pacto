@@ -231,7 +231,8 @@ type UsageMetric struct {
 }
 
 // UsageCost is what the resource costs over Period: Amount is a decimal string,
-// Currency an ISO 4217 code and Period an ISO 8601 duration from P1D to P1Y.
+// Currency an ISO 4217 code and Period an ISO 8601 duration of one unit from
+// P1D to P1Y.
 type UsageCost struct {
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
