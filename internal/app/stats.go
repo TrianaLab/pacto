@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"oras.land/oras-go/v2/registry/remote"
@@ -56,7 +55,7 @@ func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, er
 	}
 	scope := req.Scope
 	if req.OperationAccess != nil {
-		visible, err := req.OperationAccess(ctx, operationNamespaces(set))
+		visible, err := req.OperationAccess(ctx, stats.OperationNamespaces(set))
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
@@ -97,17 +96,4 @@ func statsReadError(req StatsRequest, err error) error {
 		return fmt.Errorf("reading run records from %s failed", req.Registry)
 	}
 	return fmt.Errorf("reading run records from %s: %w", req.Registry, err)
-}
-
-// operationNamespaces is the sorted, unique Stage namespaces the operation
-// records of set name.
-func operationNamespaces(set stats.RecordSet) []string {
-	var out []string
-	for _, e := range set.Entries {
-		if e.Record.Kind == runrecord.KindOperation && e.Record.Stage != nil && e.Record.Stage.Namespace != "" {
-			out = append(out, e.Record.Stage.Namespace)
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out)
 }

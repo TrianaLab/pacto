@@ -98,10 +98,6 @@ var deadCodeAllowlist = map[string]string{
 	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,
-
-	// Story #503 lands its statistics in phases: P3 adds Behind, and the P4
-	// dashboard /api/stats records handler calls it. P4 deletes this entry.
-	"pkg/runrecord/stats.Behind": "the P4 dashboard /api/stats records handler calls it",
 }
 
 // crdVocabulary is the operator's counterpart of schemaVocabulary: the values

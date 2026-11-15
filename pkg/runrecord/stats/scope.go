@@ -261,3 +261,16 @@ func groups(entries, publishes []Entry, by string, sc Scope) []Group {
 	})
 	return out
 }
+
+// OperationNamespaces is the sorted, unique Stage namespaces the operation
+// records of set name: the namespaces a caller's access is reviewed in.
+func OperationNamespaces(set RecordSet) []string {
+	var out []string
+	for _, e := range set.Entries {
+		if e.Record.Kind == runrecord.KindOperation && e.Record.Stage != nil && e.Record.Stage.Namespace != "" {
+			out = append(out, e.Record.Stage.Namespace)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}

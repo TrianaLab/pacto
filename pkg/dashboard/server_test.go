@@ -421,11 +421,23 @@ func TestExportOpenAPI(t *testing.T) {
 		"/api/services", "/api/services/{name}", "/api/services/{name}/versions",
 		"/api/services/{name}/versions/{version}", "/api/services/{name}/sources",
 		"/api/services/{name}/dependents", "/api/services/{name}/refs",
-		"/api/graph", "/api/diff",
+		"/api/graph", "/api/diff", "/api/stats", "/api/stats/records",
 	} {
 		if paths[p] == nil {
 			t.Errorf("expected %s in the API document", p)
 		}
+	}
+	for p, id := range map[string]string{"/api/stats": "get-stats", "/api/stats/records": "get-stats-records"} {
+		get, _ := paths[p].(map[string]any)["get"].(map[string]any)
+		if get["operationId"] != id {
+			t.Errorf("%s operationId = %v, want %s", p, get["operationId"], id)
+		}
+	}
+	// The stubs only make the operations register; answering with one fails.
+	s := &Server{}
+	s.stubProvidersForSchemaExport()
+	if _, err := s.opts.Stats(context.Background()); err == nil {
+		t.Error("the schema-export Stats stub answered")
 	}
 }
 
