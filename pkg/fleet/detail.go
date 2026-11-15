@@ -1063,7 +1063,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
 	q.attachProviderFacts(consumed)
-	q.attachRequested(consumed, cfgs)
+	q.attachRequested(consumed, cur, cfgs)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,

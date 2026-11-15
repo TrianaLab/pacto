@@ -75,35 +75,55 @@ func (q *Query) attachProviderFacts(uses []OfferingUse) {
 }
 
 // attachRequested joins each configuration reference use with the request
-// values cfgs, the consumer's current revision, declares for that provider
-// under an entry the use's edges name. A dependency row requested nothing.
-// ponytail: cfgs is the bounded preview; a revision with more configurations
-// than it holds loses the tail, flagged by RequestedTruncated.
-func (q *Query) attachRequested(uses []OfferingUse, cfgs ConfigurationsPreview) {
+// values its consumer declares for that provider under an entry the use's
+// edges name. The values come from the consumer revision the use's
+// provisioning is about, the newest one with such an edge: cfgs when that is
+// cur, the consumer's current revision, else that revision's own preview. A
+// dependency row requested nothing.
+// ponytail: the join reads the bounded preview; a revision with more
+// configurations than it holds loses the tail, flagged by RequestedTruncated.
+func (q *Query) attachRequested(uses []OfferingUse, cur *ContractRevision, cfgs ConfigurationsPreview) {
 	for i := range uses {
 		u := &uses[i]
 		if u.Via != RelationshipConfigRef {
 			continue
 		}
-		entries := q.configRefEntries(ServiceKey(u.Consumer.Key), ServiceKey(u.Provider.Key))
-		for _, c := range cfgs.Items {
+		rev, entries := q.configRefRequest(ServiceKey(u.Consumer.Key), ServiceKey(u.Provider.Key))
+		revCfgs := cfgs
+		if rev != nil && (cur == nil || rev.Key != cur.Key) {
+			_, revCfgs, _ = q.currentRevisionContent(rev)
+		}
+		for _, c := range revCfgs.Items {
 			if res := c.Resolution; res != nil && res.Service != nil && res.Service.Key == u.Provider.Key && entries[c.Name] {
 				u.Requested = append(u.Requested, RequestedConfiguration{Entry: c.Name, Configuration: c.Configuration, Revision: res.Revision, Values: c.Values, Provenance: ProvenanceDeclared})
 			}
 		}
-		u.RequestedTruncated = cfgs.Truncated
+		u.RequestedTruncated = revCfgs.Truncated
 	}
 }
 
-// configRefEntries is the entry names of consumer's configuration references
-// to provider in the (possibly restricted) view.
-func (q *Query) configRefEntries(consumer, provider ServiceKey) map[string]bool {
-	entries := map[string]bool{}
+// configRefRequest is the newest consumer revision (see [lessRevisionChrono])
+// with a configuration reference to provider in the (possibly restricted)
+// view, the revision offeringUsesIn reports provisioning about, and the entry
+// names of that revision's references to provider.
+func (q *Query) configRefRequest(consumer, provider ServiceKey) (*ContractRevision, map[string]bool) {
+	var rels []*Relationship
+	var newest *ContractRevision
+	var newestKey RevisionKey
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
 		if rel.Type == RelationshipConfigRef && rel.ToService == provider && offeringRelationship(rel, consumer) {
+			rels = append(rels, rel)
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (newest == nil || lessRevisionChrono(newest, r)) {
+				newest, newestKey = r, r.Key
+			}
+		}
+	}
+	entries := map[string]bool{}
+	for _, rel := range rels {
+		if rel.FromRevision == newestKey {
 			entries[rel.To] = true
 		}
 	}
-	return entries
+	return newest, entries
 }
