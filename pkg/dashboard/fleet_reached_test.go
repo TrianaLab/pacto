@@ -70,6 +70,22 @@ func TestEntityReachedForbiddenHidden(t *testing.T) {
 	expect(t, h.Times == fleet.TimesHidden && strings.Contains(h.TimesReason, "forbidden"), "changes %+v", h)
 }
 
+// A caller allowed to list Stages in no namespace (cluster-wide refused, every
+// namespace refused or none allowed) reads hidden, never "time not recorded".
+func TestEntityReachedNoNamespaceAllowedHidden(t *testing.T) {
+	for name, set := range map[string]func(*fakeDelivery){
+		"none allowed":  func(f *fakeDelivery) { f.stageNS = []string{} },
+		"each refused":  func(f *fakeDelivery) { f.stageNS, f.forbid = []string{"prod"}, map[string]bool{"prod": true} },
+		"guess refused": func(f *fakeDelivery) { f.stageNS, f.forbid = nil, map[string]bool{"prod": true} },
+	} {
+		f := reachedFake()
+		f.forbidAll = true
+		set(f)
+		h := entityChanges(t, startReached(t, f), "&reached=true")
+		expect(t, h.Times == fleet.TimesHidden && strings.Contains(h.Lines()[0], "time hidden"), "%s: changes %+v lines %q", name, h, h.Lines())
+	}
+}
+
 func TestReachedHiddenKeepsEventCount(t *testing.T) {
 	f := reachedFake()
 	base := startReached(t, f)

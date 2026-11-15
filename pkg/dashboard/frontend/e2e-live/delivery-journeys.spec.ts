@@ -167,7 +167,7 @@ test('History: dave, who may read no Stage, sees the same changes with their tim
   await signIn(page, 'dave', `/#/fleet/services/${encodeURIComponent(paymentsService)}?section=changes`);
   const changes = page.getByTestId('service-changes');
   await expect(changes.getByTestId('service-changes-caption')).not.toContainText('reading times', { timeout: T });
-  await expect(changes.getByTestId('service-change-reached').first()).toContainText(/time hidden|time not recorded in the Stages read/, { timeout: T });
+  await expect(changes.getByTestId('service-change-reached').first()).toContainText('time hidden', { timeout: T });
   await expect(changes.getByTestId('service-change-row')).toHaveCount(carolChanges);
   await expect(changes.locator('[data-testid="service-change-reached"] a')).toHaveCount(0);
 });

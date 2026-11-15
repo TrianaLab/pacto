@@ -33,6 +33,11 @@ func (s *Server) attachReached(ctx context.Context, q *fleet.Query, svc fleet.Se
 	case err != nil:
 		q.AttachReached(h, nil, fleet.TimesNotRead, "delivery could not be read: "+err.Error(), nil)
 		return
+	case !l.everywhere && len(l.listed) == 0:
+		// Refused everywhere it asked, or allowed in no namespace at all: an
+		// empty list here is a refusal, never "no record".
+		q.AttachReached(h, nil, fleet.TimesHidden, "you may not list Stages in any namespace", nil)
+		return
 	}
 	domain, name := fleet.ParseServiceKey(svc)
 	stages = slices.DeleteFunc(stages, func(st delivery.StageObject) bool { return !delivery.OfService(st, name, domain) })

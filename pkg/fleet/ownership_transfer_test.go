@@ -251,3 +251,12 @@ func TestOwnerClaimSetHas(t *testing.T) {
 		t.Errorf("keyless has = %+v", c)
 	}
 }
+
+// W-3: a former owner stays in the owner list, so its page and the revisions it
+// declared stay reachable, while rankings count current claims only.
+func TestFormerOwnerStaysListed(t *testing.T) {
+	q := transferFleet(t, handover, nil)
+	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindOwner}}); fmt.Sprint(got) != "[team:team-a team:team-b team:team-c]" {
+		t.Errorf("owners = %v, want the former owner team-a listed beside team-b and the other service's team-c", got)
+	}
+}
