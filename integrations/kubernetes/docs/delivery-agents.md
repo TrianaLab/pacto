@@ -31,8 +31,9 @@ rollback, a freeze or a step-down, need none either.
 
 The person an agent names may not approve that change, and neither may the
 agent. The name is asserted, never verified: Pacto records it in the Operation
-and its signed record (`for: dana@example.com (asserted)` in
-`pacto delivery history`), so a reviewer reads who the agent says it acts for.
+and its signed record (`for:       dana@example.com (asserted)` in
+`pacto delivery blame` and `for dana@example.com (asserted)` in
+`pacto delivery record get`), so a reviewer reads who the agent says it acts for.
 A person who controls an agent's credentials can still name someone else and
 then approve the change as themselves. Where that matters, run every agent
 under its own identity and ask for two distinct approvers.
@@ -61,9 +62,9 @@ pacto delivery propose -n prod --stage checkout --type promote --to 2.3.0 \
   --reason "release 2.3.0" --intent-digest <digest from the plan>
 ```
 
-Pacto keeps no task or delegation object: the Operation and its record are the
-trail. When the plan needs a person, the change is held in the **Inbox** of the
-team the approval floor names: the team that owns the service, or for a
+The Operation and its record are the whole trail of the task. When the plan
+needs a person, the change is held in the **Inbox** of the team the approval
+floor names: the team that owns the service, or for a
 breaking change the consumer that would break. `pacto delivery inbox` and
 `pacto_delivery_inbox` list it there. A person in that team other than you
 decides it, because neither you nor the agent may approve it. The record names
