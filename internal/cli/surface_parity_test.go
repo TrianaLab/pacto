@@ -77,12 +77,13 @@ const (
 	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
 	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
 	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
+	whyNoStatsRoute  = "the dashboard has no stats route yet; pacto stats and pacto_stats total the same run records"
 )
 
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -275,6 +276,16 @@ func authoringRows() []surfaceRow {
 	)
 }
 
+func statsRows() []surfaceRow {
+	return slices.Concat(
+		alike("stats", "pacto_stats", "", whyNoStatsRoute, "by", "service", "since", "until"),
+		[]surfaceRow{
+			{"stats --kind", "pacto_stats.kinds", "", whyNoStatsRoute + "; the CLI repeats --kind, MCP takes comma-separated kinds"},
+			{"stats --registry", "pacto_stats.registry", "", whyNoStatsRoute + "; pacto_stats honours it over stdio only"},
+		},
+	)
+}
+
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
@@ -283,7 +294,7 @@ var parityCommands = []string{
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
 	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain",
+	"impact", "init", "validate", "explain", "stats",
 }
 
 // surfaces is what the three surfaces expose at HEAD.
@@ -321,7 +332,8 @@ func mcpNames(t *testing.T) map[string]bool {
 	q := fleet.NewQuery(&fleet.FleetSnapshot{})
 	svc := app.NewService(nil, nil)
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
-		Fleet:    &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps())}},
+		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
+			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true)}},
 		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }},
 	})
 	expect(t, err == nil, "server: %v", err)

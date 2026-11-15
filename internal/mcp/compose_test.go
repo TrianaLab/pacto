@@ -14,16 +14,22 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // composedModes is fleet, delivery and the shadow bundle in one server.
 func composedModes(t *testing.T, writes bool) Modes {
 	t.Helper()
 	return Modes{
-		Fleet:    &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}},
+		Fleet:    &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil), Stats: noStats}},
 		Delivery: &DeliveryMode{API: &stubDelivery{}, Writes: writes, Reads: (&stubReads{}).reads},
 		Bundle:   &BundleMode{Bundle: shadowBundle(), Opts: CapabilityOptions{BaseURL: "http://x"}, Stderr: io.Discard},
 	}
+}
+
+// noStats is a stats provider that answers an empty envelope.
+func noStats(context.Context, *auth.TokenInfo, *fleet.Query, *fleet.Query, StatsRequest) (*stats.Stats, error) {
+	return &stats.Stats{}, nil
 }
 
 func TestComposedFleetDeliveryBundle(t *testing.T) {
@@ -36,7 +42,7 @@ func TestComposedFleetDeliveryBundle(t *testing.T) {
 		seen[tl.Name]++
 	}
 	for _, want := range []string{"pacto_schema", "pacto_fleet_get", "pacto_impact", "pacto_delivery_get",
-		"pacto_delivery_operation_propose", "lookup", "pacto_skill", "pacto_capabilities"} {
+		"pacto_delivery_operation_propose", "lookup", "pacto_skill", "pacto_capabilities", "pacto_stats"} {
 		if seen[want] != 1 {
 			t.Errorf("%s registered %d times, want once", want, seen[want])
 		}
@@ -84,6 +90,8 @@ func instructionCombos(t *testing.T) map[string]*mcpsdk.Server {
 		a := Authoring{Remote: remote}
 		tr := map[bool]string{false: "stdio", true: "http"}[remote]
 		out["publish/"+tr] = NewPublishServer("test", nil, a)
+		// A fleet server whose stats provider is unset names no pacto_stats.
+		out[tr+"+fleet-without-stats"] = mustNew("test", a, Modes{Fleet: &FleetMode{Src: staticFleet(buildFleetQuery(t)), Opts: FleetOptions{Impact: stubImpact(nil, nil, nil)}}})
 		for mask := range 16 {
 			full := composedModes(t, mask&8 != 0)
 			m := Modes{}

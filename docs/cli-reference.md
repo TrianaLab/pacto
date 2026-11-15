@@ -1679,6 +1679,7 @@ pacto mcp [bundle-ref] [flags]
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string              transport type: stdio or http (default "stdio")
@@ -1729,6 +1730,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_fleet_revision_document` | `key` and `path` (**both required**): a revision key and a document path its docs list |
 | `pacto_impact` | `old_ref` and `new_ref`, plus `include_observed` and `traces`; or `event` (`unavailable`, `removed` or `regressed`) with `service`, plus `revision` for `regressed` |
+| `pacto_stats` | `registry` (stdio only), `since` and `until` (`30d`, `12h`, a date or RFC 3339; default the last 30 days), `by` (`service`, `owner`, `domain`, `repository` or `environment`), `service` and `kinds` (comma-separated run-record kinds, for example `diff,impact`). It appears with `--fleet` over stdio, and over HTTP only when the server was started with `--stats-read-registry` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
@@ -1963,16 +1965,41 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ## `pacto stats`
 
-Run records are unsigned statistics about Pacto runs. Nothing that decides ever reads them.
+Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is marked unknown. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
 
 ```
 pacto stats [flags]
 ```
 
+**Examples:**
+
+```
+  pacto stats --registry ghcr.io/acme/pacto-stats
+  pacto stats --since 7d --by environment --output-format json
+  pacto stats --by owner --kind impact --kind publish
+```
+
 **Flags:**
 
 ```
-  -h, --help[=true|false]   help for stats
+      --by string                  group the numbers by service, owner, domain, repository, environment
+      --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help[=true|false]          help for stats
+      --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
+      --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --service string             total only the run records of this service: the contract's service.name
+      --since string               start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --until string               end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
 
 ### `pacto stats publish`
@@ -1987,7 +2014,6 @@ pacto stats publish <file...> [flags]
 
 ```
   -h, --help[=true|false]   help for publish
-      --registry string     stats repository to publish to (default $PACTO_STATS_REGISTRY)
 ```
 
 ---

@@ -72,6 +72,8 @@ type FleetOptions struct {
 	// DashboardURL, when set, is the base URL of a Pacto dashboard: fleet answers
 	// then carry an href to each entity's page there.
 	DashboardURL string
+	// Stats registers pacto_stats; nil omits it.
+	Stats StatsProvider
 }
 
 // FleetView narrows q to what the verified caller may see (caller is nil over
@@ -153,6 +155,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		addTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
 			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
 		})))
+	}
+	if opts.Stats != nil {
+		addTool(server, statsTool(), statsHandler(src, opts.View, opts.Stats))
 	}
 }
 

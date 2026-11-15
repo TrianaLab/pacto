@@ -1,0 +1,125 @@
+{
+  "asOf": "2026-11-14T12:00:00Z",
+  "window": {
+    "since": "2026-10-15T12:00:00Z",
+    "until": "2026-11-14T12:00:00Z"
+  },
+  "registry": "registry.example.com/acme/pacto-stats",
+  "provenance": "unsigned statistics",
+  "recordsRead": 6,
+  "runs": 5,
+  "distinctChanges": 1,
+  "skipped": {
+    "malformed": 1,
+    "oversized": 0,
+    "unreadable": 0
+  },
+  "truncated": "",
+  "hidden": {
+    "present": false
+  },
+  "completeness": "partial",
+  "limitations": [
+    {
+      "code": "RUN_RECORDS_SKIPPED",
+      "message": "1 record could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number"
+    }
+  ],
+  "by": "service",
+  "totals": {
+    "breakingCaught": {
+      "distinct": 1,
+      "runs": 2
+    },
+    "consumersProtected": {
+      "count": 2,
+      "unknown": 1
+    },
+    "gates": {
+      "clear": 0,
+      "blocked": 1,
+      "unverified": 0
+    },
+    "environments": [
+      {
+        "environment": "production",
+        "source": "context",
+        "operations": 2,
+        "held": {
+          "count": 1,
+          "of": 2
+        },
+        "failed": {
+          "count": 1,
+          "of": 2
+        },
+        "rolledBack": {
+          "count": 0,
+          "of": 1
+        },
+        "verificationFailed": {
+          "count": 0,
+          "of": 1
+        },
+        "acceptedUnknown": 0,
+        "leadTime": {
+          "p50Seconds": 3600,
+          "p90Seconds": 3600,
+          "joined": 1,
+          "unjoined": 0
+        }
+      }
+    ]
+  },
+  "groups": [
+    {
+      "key": "orders",
+      "label": "orders",
+      "metrics": {
+        "breakingCaught": {
+          "distinct": 1,
+          "runs": 2
+        },
+        "consumersProtected": {
+          "count": 2,
+          "unknown": 1
+        },
+        "gates": {
+          "clear": 0,
+          "blocked": 1,
+          "unverified": 0
+        },
+        "environments": [
+          {
+            "environment": "production",
+            "source": "context",
+            "operations": 2,
+            "held": {
+              "count": 1,
+              "of": 2
+            },
+            "failed": {
+              "count": 1,
+              "of": 2
+            },
+            "rolledBack": {
+              "count": 0,
+              "of": 1
+            },
+            "verificationFailed": {
+              "count": 0,
+              "of": 1
+            },
+            "acceptedUnknown": 0,
+            "leadTime": {
+              "p50Seconds": 3600,
+              "p90Seconds": 3600,
+              "joined": 1,
+              "unjoined": 0
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

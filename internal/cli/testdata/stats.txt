@@ -1,0 +1,7 @@
+asOf 2026-11-14T00:00:00Z  window 2026-10-15T00:00:00Z to 2026-11-14T00:00:00Z  records 3 read, 0 skipped (complete)  unsigned statistics
+TOTAL  BREAKING CAUGHT  CONSUMERS PROTECTED  CLEAR  BLOCKED  UNVERIFIED
+all    1 (1 runs)       2 (1 unknown)        0      1        0
+
+Environments (alphabetical)
+ENVIRONMENT  OPERATIONS  HELD        FAILED      ROLLED BACK  VERIFICATION FAILED  LEAD TIME p50         p90
+prod         1           1/1 (100%)  1/1 (100%)  unknown      1/1 (100%)           unknown (0 unjoined)  unknown (0 unjoined)

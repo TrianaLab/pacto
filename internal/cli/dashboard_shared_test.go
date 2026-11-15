@@ -269,6 +269,23 @@ func TestSharedReadsTypedLists(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// An update counts as a change too.
+	n := w.s.stages.changed.Load()
+	_, err = w.sa.Resource(gvrTestStages).Namespace("a").Update(ctx, deliveryObj("Stage", "a", "s3", map[string]any{"spec": map[string]any{"x": "y"}}), metav1.UpdateOptions{})
+	expect(t, err == nil, "updating a Stage: %v", err)
+	for w.s.stages.changed.Load() == n {
+		if time.Now().After(deadline) {
+			t.Fatal("the update never counted")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The dashboard's delivery reads Stages and Operations from the lists.
+	dd := dashDelivery{shared: &alice}
+	sts, err := dd.Stages(ctx, "a")
+	expect(t, err == nil && len(sts) == 3, "Stages from the cache: %d %v", len(sts), err)
+	ops, err = dd.Operations(ctx, "a")
+	expect(t, err == nil && len(ops) == 2, "Operations from the cache: %d %v", len(ops), err)
 
 	w.wrote.Store(true)
 	_, ok, _ = typedIn(ctx, alice, sharedStages, w.s.stages, "a")

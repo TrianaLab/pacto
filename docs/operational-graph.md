@@ -152,7 +152,7 @@ flowchart LR
   `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
   `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention` and
   `pacto_fleet_neighborhood`, plus
-  [`pacto_impact`](impact.md), give an agent read-only understanding of the
+  [`pacto_impact`](impact.md) and `pacto_stats`, give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 
