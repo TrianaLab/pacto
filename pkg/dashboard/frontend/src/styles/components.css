@@ -885,11 +885,6 @@ button.detail-card-header {
   grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 10rem) minmax(0, 12rem) 8rem;
   grid-template-areas: "name status ctx owner num";
 }
-/* A domain row: the name, then its service and target counts at their own width. */
-.pl-list.pl-list--domains .pl-row > .entity-link:only-child {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "name num";
-}
 .pl-list--facts .pl-row .entity-identity { display: contents; }
 .pl-list--facts .ei-label { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--facts .ei-status { grid-area: status; }
@@ -901,11 +896,6 @@ button.detail-card-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "name status" "owner num" "ctx ctx";
   }
-  .pl-list.pl-list--domains .pl-row > .entity-link:only-child {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "name" "num";
-  }
-  .pl-list.pl-list--domains .pl-num { text-align: left; white-space: normal; }
 }
 
 /* The one-line answer under a page title: each page answers its question first, in
