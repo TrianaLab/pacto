@@ -139,7 +139,11 @@ func named(spec OperationSpec) bool {
 // samePerson compares two user names the way a person reads them. The
 // on-behalf-of name is asserted text, so " Dana@Example.com" still names
 // dana@example.com: the rules that keep the asker from deciding fail closed.
-func samePerson(a, b string) bool { return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) }
+// An empty name is nobody, so it matches no one.
+func samePerson(a, b string) bool {
+	a = strings.TrimSpace(a)
+	return a != "" && strings.EqualFold(a, strings.TrimSpace(b))
+}
 
 // askerMay says why a may not decide op for who asked for it: the person
 // who asked never decides, and an agent's change that names nobody it acts

@@ -256,3 +256,9 @@ func TestNamedPersonMayNotApproveUnderAnotherSpelling(t *testing.T) {
 		t.Errorf("got %q, want OwnChange", code)
 	}
 }
+
+func TestSamePersonNeverMatchesNobody(t *testing.T) {
+	if samePerson("", "") || samePerson(" ", "") || !samePerson("Dana ", "dana") {
+		t.Error("an empty name matches no one; case and padding do not count")
+	}
+}
