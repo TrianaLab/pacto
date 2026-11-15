@@ -192,7 +192,7 @@ func provisioningByEnvironment(uses []OfferingUse) map[string]PhaseTally {
 				continue
 			}
 			t := out[st.Environment]
-			t.add(st.Phase)
+			t.addStatus(st)
 			out[st.Environment] = t
 		}
 	}

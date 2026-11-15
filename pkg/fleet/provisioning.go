@@ -46,6 +46,27 @@ type ProvisioningStatus struct {
 	Stale         bool       `json:"stale,omitempty"`
 	Conflict      []string   `json:"conflict,omitempty"`
 	Reason        string     `json:"reason,omitempty"`
+	// reporters are the reports the status was read from: every current
+	// reporter, or the newest report per reporter when none is current. The
+	// offering's adapters are grouped from them; never serialized.
+	reporters []provisioningReporter
+}
+
+// provisioningReporter is one (source, producer) report a status was read
+// from, as the offering's adapters name it.
+type provisioningReporter struct {
+	Provider, Producer, Source, SourceKind string
+	Verified                               bool
+	ObservedAt                             time.Time
+}
+
+// reportersOf is the reporters behind recs.
+func reportersOf(recs []*ProvisioningRecord) []provisioningReporter {
+	out := make([]provisioningReporter, len(recs))
+	for i, r := range recs {
+		out[i] = provisioningReporter{Provider: r.Provider, Producer: r.Producer, Source: r.Source, SourceKind: r.SourceKind, Verified: r.Verified, ObservedAt: r.ObservedAt}
+	}
+	return out
 }
 
 // ingestProvisioning validates one source's provisioning reports into the
@@ -357,6 +378,10 @@ func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs 
 	currentReports := slices.DeleteFunc(slices.Clone(latest), func(r *ProvisioningRecord) bool {
 		return q.staleReport(r) || (current != nil && revs[r.Digest].Key != current.Key)
 	})
+	st.reporters = reportersOf(latest)
+	if len(currentReports) > 0 {
+		st.reporters = reportersOf(currentReports)
+	}
 	phases := map[string]bool{}
 	for _, r := range currentReports {
 		if r.Outcome == string(evidence.Observed) {

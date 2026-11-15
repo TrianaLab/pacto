@@ -741,7 +741,8 @@ type OfferingUsesPreview struct {
 	Phases PhaseTally `json:"phases"`
 	// PhaseConsumers counts the distinct consumers with at least one status in
 	// each phase: the total of the list a phase filter returns. A consumer
-	// with statuses in two phases counts in both.
+	// with statuses in two phases counts in both. Its ReadyUnsigned counts
+	// the consumers in Ready none of whose Ready statuses is signed.
 	PhaseConsumers PhaseTally `json:"phaseConsumers"`
 	// Failed names up to MaxFailedConsumers of the distinct consumers with a
 	// Failed status, by key; its Total counts them all.
@@ -766,6 +767,10 @@ type PhaseTally struct {
 	Failed       int `json:"failed"`
 	Deleting     int `json:"deleting"`
 	Unknown      int `json:"unknown"`
+	// ReadyUnsigned is the part of Ready reported through an unsigned file;
+	// in PhaseConsumers, the consumers in Ready whose every Ready status is
+	// unsigned.
+	ReadyUnsigned int `json:"readyUnsigned" doc:"Ready statuses reported through an unsigned file, a subset of Ready; only a signed Ready reads positive. In phaseConsumers, the consumers whose every Ready status is unsigned"`
 }
 
 // MaxFailedConsumers bounds OfferingUsesPreview.Failed.
@@ -788,7 +793,7 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 			out.Range.None++
 		}
 		for _, st := range u.Provisioning {
-			out.Phases.add(st.Phase)
+			out.Phases.addStatus(st)
 			if id := phaseBucket(st.Phase) + "\x00" + u.Consumer.Key; !inPhase[id] {
 				inPhase[id] = true
 				out.PhaseConsumers.add(st.Phase)
@@ -798,6 +803,7 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 			}
 		}
 	}
+	out.PhaseConsumers.ReadyUnsigned = readyUnsignedConsumers(uses)
 	refs := make([]EntityRef, 0, len(failed))
 	for _, k := range slices.Sorted(maps.Keys(failed)) {
 		refs = append(refs, failed[k])
@@ -805,6 +811,35 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	shown, n, more := boundSlice(refs, MaxFailedConsumers)
 	out.Failed = RefPreview{Total: n, Count: len(shown), Truncated: more, Items: shown}
 	return out
+}
+
+// readyUnsignedConsumers counts the distinct consumers of uses with a Ready
+// status none of whose Ready statuses is signed.
+func readyUnsignedConsumers(uses []OfferingUse) int {
+	signed := map[string]bool{}
+	for _, u := range uses {
+		for _, st := range u.Provisioning {
+			if phaseBucket(st.Phase) == PhaseBucketReady {
+				signed[u.Consumer.Key] = signed[u.Consumer.Key] || st.Verified
+			}
+		}
+	}
+	n := 0
+	for _, s := range signed {
+		if !s {
+			n++
+		}
+	}
+	return n
+}
+
+// addStatus counts st by phase, and apart in ReadyUnsigned when it is a Ready
+// that is not signed.
+func (t *PhaseTally) addStatus(st ProvisioningStatus) {
+	t.add(st.Phase)
+	if phaseBucket(st.Phase) == PhaseBucketReady && !st.Verified {
+		t.ReadyUnsigned++
+	}
 }
 
 func (t *PhaseTally) add(phase string) {
@@ -963,6 +998,9 @@ type OfferingDetailData struct {
 	// UnresolvedUses counts the declared references that may name a provider
 	// of the offering but did not resolve.
 	UnresolvedUses UnresolvedUses `json:"unresolvedUses"`
+	// Adapters names the adapters whose current reports speak for the
+	// offering's requests, from the same statuses Consumers shows.
+	Adapters OfferingAdaptersPreview `json:"adapters"`
 }
 
 // UnresolvedUses counts consumers' declared references that may name a
@@ -1436,7 +1474,7 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
 			Availability: q.offeringAvailability(key, records), HiddenProviders: q.snap.hiddenProviders[key],
 			ObservedConsumers: q.observedConsumers(records, declared), HiddenObservedConsumers: q.hiddenObservedConsumers(records),
-			UnresolvedUses: unresolved,
+			UnresolvedUses: unresolved, Adapters: offeringAdapters(uses),
 		},
 		Actions: []string{"impact"},
 	}, nil

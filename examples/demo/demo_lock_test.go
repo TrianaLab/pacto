@@ -499,7 +499,7 @@ func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
 	var phases, consumers fleet.PhaseTally
 	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
 		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
-			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown}
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown, ReadyUnsigned: a.ReadyUnsigned + b.ReadyUnsigned}
 	}
 	for _, r := range l.Entities {
 		d, err := q.EntityDetail(fleet.KindOffering, r.Key)

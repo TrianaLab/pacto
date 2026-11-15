@@ -446,3 +446,36 @@ func TestEntitiesConsumesPhase(t *testing.T) {
 		}
 	}
 }
+
+// A status keeps every current reporter, on agreement and on conflict, and
+// the newest report per reporter when none is current.
+func TestProvisioningStatusReporters(t *testing.T) {
+	old := fixedNow().Add(-3 * time.Hour)
+	other := func(r *RawProvisioning) { r.Provider, r.Producer = "file", "file-adapter" }
+	stale := func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = old, &old }
+	for _, tc := range []struct {
+		name    string
+		window  time.Duration
+		reports []RawProvisioning
+		want    []string
+	}{
+		{"agreement", 0, []RawProvisioning{report(), report(other)}, []string{"aws/adapter", "file/file-adapter"}},
+		{"conflict", 0, []RawProvisioning{report(), report(other, func(r *RawProvisioning) { r.Phase = "Failed" })}, []string{"aws/adapter", "file/file-adapter"}},
+		{"every report stale", 2 * time.Hour, []RawProvisioning{report(stale), report(other, stale)}, []string{"aws/adapter", "file/file-adapter"}},
+		{"one current, one stale", 2 * time.Hour, []RawProvisioning{report(), report(other, stale)}, []string{"aws/adapter"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := NewQuery(provisioningSnap(t, tc.window, ordersFleet(), tc.reports))
+			uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == "postgresql" }, "")
+			i := slices.IndexFunc(uses, func(u OfferingUse) bool { return u.Via == RelationshipConfigRef })
+			var got []string
+			for _, r := range uses[i].Provisioning[0].reporters {
+				got = append(got, r.Provider+"/"+r.Producer)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("reporters %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

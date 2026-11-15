@@ -135,7 +135,7 @@ func TestPlacementProvisioningPerEnvironment(t *testing.T) {
 	}
 	p := q.placement("svc", nil, rev, nil, uses)
 	staging, production := placementItem(t, p, "staging"), placementItem(t, p, "production")
-	if (staging.Provisioning != PhaseTally{Ready: 1, Unknown: 1}) || !staging.ProvisioningTracked || staging.ProvisioningReason != "" {
+	if (staging.Provisioning != PhaseTally{Ready: 1, Unknown: 1, ReadyUnsigned: 1}) || !staging.ProvisioningTracked || staging.ProvisioningReason != "" {
 		t.Errorf("staging = %+v", staging)
 	}
 	if (production.Provisioning != PhaseTally{Failed: 1}) || !production.ProvisioningTracked {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -752,11 +753,12 @@ func TestOfferingUsesPreviewTallies(t *testing.T) {
 	if want := (RangeTally{Satisfied: 2, Unsatisfied: 1, Unknown: 1, None: 3}); p.Range != want {
 		t.Errorf("range = %+v, want %+v", p.Range, want)
 	}
-	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 2, Failed: 4, Deleting: 1, Unknown: 1}); p.Phases != want {
+	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 2, Failed: 4, Deleting: 1, Unknown: 1, ReadyUnsigned: 2}); p.Phases != want {
 		t.Errorf("phases = %+v, want %+v", p.Phases, want)
 	}
 	// d is Ready twice: two requests, one consumer, as the phase filter lists it.
-	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 1, Failed: 4, Deleting: 1, Unknown: 1}); p.PhaseConsumers != want {
+	// Neither Ready is signed, so d counts in ReadyUnsigned too.
+	if want := (PhaseTally{Requested: 1, Provisioning: 1, Ready: 1, Failed: 4, Deleting: 1, Unknown: 1, ReadyUnsigned: 1}); p.PhaseConsumers != want {
 		t.Errorf("phase consumers = %+v, want %+v", p.PhaseConsumers, want)
 	}
 	if p.Failed.Total != 4 || p.Failed.Count != MaxFailedConsumers || !p.Failed.Truncated || p.Failed.Items[0].Key != "a" || p.Failed.Items[2].Key != "d" {
@@ -931,5 +933,122 @@ func TestOfferingUnresolvedUsesCountsHiddenConsumers(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "secret-") {
 		t.Errorf("a hidden consumer is named: %s", raw)
+	}
+}
+
+// A restricted view builds the adapters from the visible consumers' reports
+// only: a hidden consumer's adapter is neither listed nor counted.
+func TestOfferingAdaptersFollowRestrict(t *testing.T) {
+	billing := func(r *RawProvisioning) {
+		r.Service, r.Digest, r.Provider, r.Producer = "billing", testDigest(acme, "billing", "1.0.0"), "billing-db", "billing-adapter"
+	}
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	base.Targets = []RawTarget{
+		{Scope: "open", Kind: SourceKindKubernetes, Name: "orders", Service: "orders", Domain: acme, Digest: testDigest(acme, "orders", "1.3.0")},
+		{Scope: "secret", Kind: SourceKindKubernetes, Name: "billing", Service: "billing", Domain: acme, Digest: testDigest(acme, "billing", "1.0.0")},
+	}
+	q := NewQuery(provisioningSnap(t, 0, base, []RawProvisioning{report(), report(billing)}))
+	full, err := q.EntityDetail(KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Offering.Adapters.Total != 2 {
+		t.Fatalf("unrestricted adapters = %q", adapterLines(full.Offering.Adapters))
+	}
+	d, err := q.Restrict(func(ns string) bool { return ns != "secret" }).EntityDetail(KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := d.Offering.Adapters
+	if a.Total != 1 || a.Items[0].Provider != "aws" || a.Unattributed != 1 || a.Conflicting != 0 {
+		t.Errorf("restricted adapters = %q (%+v)", adapterLines(a), a)
+	}
+	data, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{"billing-adapter", "billing-db"} {
+		if strings.Contains(string(data), leak) {
+			t.Errorf("restricted answer leaks %q", leak)
+		}
+	}
+}
+
+// Every key an older client reads keeps its name; the new fields are added
+// beside them and the reporters behind the adapters are never serialized.
+func TestOfferingDetailJSONKeepsProvisioningFields(t *testing.T) {
+	d, err := NewQuery(provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{report()})).EntityDetail(KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(d.Offering)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o struct {
+		Data      map[string]json.RawMessage
+		Consumers map[string]json.RawMessage `json:"consumers"`
+	}
+	if err := json.Unmarshal(data, &o.Data); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(o.Data["consumers"], &o.Consumers); err != nil {
+		t.Fatal(err)
+	}
+	var items []struct {
+		Provisioning []map[string]json.RawMessage `json:"provisioning"`
+	}
+	var phases map[string]json.RawMessage
+	if err := json.Unmarshal(o.Consumers["items"], &items); err != nil || len(items) == 0 || len(items[0].Provisioning) == 0 {
+		t.Fatalf("items %s: %v", o.Consumers["items"], err)
+	}
+	if err := json.Unmarshal(o.Consumers["phases"], &phases); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		got  map[string]json.RawMessage
+		keys []string
+	}{
+		"OfferingDetailData":  {o.Data, []string{"providers", "consumers", "hiddenConsumers", "availability", "observedConsumers", "hiddenObservedConsumers", "unresolvedUses", "adapters"}},
+		"OfferingUsesPreview": {o.Consumers, []string{"total", "count", "truncated", "items", "range", "phases", "phaseConsumers", "failed"}},
+		"PhaseTally":          {phases, []string{"requested", "provisioning", "ready", "failed", "deleting", "unknown", "readyUnsigned"}},
+		"ProvisioningStatus":  {items[0].Provisioning[0], []string{"environment", "phase", "reportedPhase", "revision", "provider", "externalRef", "source", "sourceKind", "producer", "producerKeyId", "provenance", "verified", "asOf"}},
+	} {
+		for _, k := range c.keys {
+			if _, ok := c.got[k]; !ok {
+				t.Errorf("%s lost %q: %v", name, k, slices.Collect(maps.Keys(c.got)))
+			}
+		}
+	}
+	if strings.Contains(string(data), "reporters") {
+		t.Errorf("reporters serialized: %s", data)
+	}
+}
+
+func TestPhaseTallyReadyUnsigned(t *testing.T) {
+	signed := ProvisioningStatus{Phase: "Ready", Verified: true}
+	unsigned := ProvisioningStatus{Phase: "Ready"}
+	var tally PhaseTally
+	for _, st := range []ProvisioningStatus{signed, unsigned, {Phase: "Failed"}} {
+		tally.addStatus(st)
+	}
+	if tally.Ready != 2 || tally.ReadyUnsigned != 1 || tally.Failed != 1 {
+		t.Errorf("tally = %+v", tally)
+	}
+	ref := func(k string) EntityRef { return EntityRef{Key: k} }
+	p := offeringUsesPreview([]OfferingUse{
+		{Consumer: ref("a"), Provisioning: []ProvisioningStatus{unsigned}},
+		{Consumer: ref("b"), Provisioning: []ProvisioningStatus{signed, unsigned}},
+		{Consumer: ref("b"), Provisioning: []ProvisioningStatus{unsigned}},
+		{Consumer: ref("c"), Provisioning: []ProvisioningStatus{signed, {Phase: "Failed"}}},
+	})
+	if p.PhaseConsumers.Ready != 3 || p.PhaseConsumers.ReadyUnsigned != 1 || p.Phases.Ready != 5 || p.Phases.ReadyUnsigned != 3 {
+		t.Errorf("phases %+v, consumers %+v", p.Phases, p.PhaseConsumers)
+	}
+	var sum PhaseTally
+	sum.plus(p.Phases)
+	if sum != p.Phases {
+		t.Errorf("plus = %+v", sum)
 	}
 }
