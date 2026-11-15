@@ -75,13 +75,10 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	// comment cited does not exist -- internal may import pkg, and internal/app
 	// already imports this package -- and only this direction is importable, since
 	// pkg/evidenceingest may not reach internal.
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxEvidenceBodyBytes))
-	if err != nil {
-		return nil, err
-	}
 	var body evidenceingest.TargetsResponse
+	var data bytes.Buffer // the raw body, which usageRecords reads again
 	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
-	if err := strictjson.Decode(bytes.NewReader(data), &body); err != nil {
+	if err := strictjson.Decode(io.TeeReader(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &data), &body); err != nil {
 		return nil, err
 	}
 	// v3 is v2 plus provisioning records and v4 is v3 plus usage records,
@@ -144,7 +141,7 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 
-	usage, lims := s.usageRecords(data, body.Usage)
+	usage, lims := s.usageRecords(data.Bytes(), body.Usage)
 	col.Usage, col.Limitations = usage, append(col.Limitations, lims...)
 
 	// An unreadable subject, an invalid published artifact or a truncated response

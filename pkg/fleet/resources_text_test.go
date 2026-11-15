@@ -41,3 +41,45 @@ func TestConsumptionTextNamesEntryAndProvenance(t *testing.T) {
 		t.Errorf("failed = %q", got)
 	}
 }
+
+// ResourceLines prints owner and availability (unknown when unset), a cut
+// request list, each status and each consumption, as the CLI and TUI share it.
+func TestResourceLines(t *testing.T) {
+	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	u := OfferingUse{
+		RequestedTruncated: true,
+		Requested:          []RequestedConfiguration{{Provenance: ProvenanceDeclared}},
+		Provisioning: []ProvisioningStatus{
+			{Environment: "production", Entry: "db", Phase: StatusUnknown, ReportedPhase: "Ready", Provider: "aws", Source: "s", AsOf: &at, Reason: "stale"},
+			{Phase: "Ready", Source: "s", Verified: true},
+		},
+		Consumption: []ResourceConsumption{
+			{State: consumptionNotReported},
+			{Environment: "production", State: consumptionUnknown, Reason: "the usage report is not signed", Reported: &UsageFigures{Cost: &evidence.UsageCost{Amount: "1", Currency: "USD", Period: "P1M"}}},
+			{State: consumptionUnknown, Reason: "disagree", Conflict: []string{"a", "b"}},
+		},
+	}
+	want := []string{
+		"owner unknown, availability unknown",
+		"requested (declared): none",
+		"requested values may be missing: the configurations list was cut",
+		"production db  Unknown (reported Ready)  aws  unsigned  asOf 2026-11-01T10:00:00Z: stale",
+		"-  Ready  signed",
+		"usage: not reported by any provider; for live signals ask Mira (query_metric)",
+		"usage production: unknown: the usage report is not signed (reported cost 1 USD/P1M, unsigned)",
+		"usage: unknown: disagree (a, b)",
+	}
+	got := u.ResourceLines()
+	if len(got) != len(want) {
+		t.Fatalf("lines:\n%q\nwant\n%q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	u.ProviderOwner, u.ProviderAvailability = &OwnershipInfo{Owner: "infra"}, &Availability{State: "available"}
+	if got := u.ResourceLines()[0]; got != "owner infra, availability available" {
+		t.Errorf("owner line = %q", got)
+	}
+}
