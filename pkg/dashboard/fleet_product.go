@@ -445,7 +445,7 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
-	s.opts.Stats = func(context.Context) (stats.RecordSet, error) {
+	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("schema export only")
 	}
 }

@@ -68,14 +68,19 @@ type reader struct {
 // repository is RepositoryMissing. A record that cannot be counted is in
 // Skipped, a bound that cut the read is in Truncated with the anchors left
 // unread in UnreadAnchors, and a deadline or a failed listing is an error,
-// never fewer records.
+// never fewer records. Named anchors that leave out the coverage anchor only
+// check that it exists (CoverageAnchor), so its records never use the bounds.
 func Read(ctx context.Context, repo *remote.Repository, anchors []string) (stats.RecordSet, error) {
 	r := &reader{repo: repo}
-	if len(anchors) == 0 {
+	if coverage := runrecord.AnchorTag(runrecord.CoverageService); len(anchors) == 0 {
 		var err error
 		if anchors, err = r.anchorTags(ctx); err != nil {
 			return stats.RecordSet{}, err
 		}
+	} else if !slices.Contains(anchors, coverage) {
+		// ponytail: a failed check says withheld, the honest side of unknown.
+		_, err := repo.Resolve(ctx, coverage)
+		r.set.CoverageAnchor = !errors.Is(err, errdef.ErrNotFound)
 	}
 	for i, tag := range anchors {
 		if r.listed >= MaxRecords && r.set.Truncated != "" {
@@ -110,7 +115,14 @@ func (r *reader) anchorTags(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	slices.Sort(tags)
-	return slices.Compact(tags), nil
+	tags = slices.Compact(tags)
+	// The coverage anchor is read last: one record per pacto fleet status run
+	// must not crowd the services' records out of the bounds.
+	coverage := runrecord.AnchorTag(runrecord.CoverageService)
+	if i := slices.Index(tags, coverage); i >= 0 {
+		tags = append(slices.Delete(tags, i, i+1), coverage)
+	}
+	return tags, nil
 }
 
 // readAnchor lists the referrers of the anchor tagged tag and reads each.

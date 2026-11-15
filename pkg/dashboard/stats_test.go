@@ -107,8 +107,8 @@ func standardSet() stats.RecordSet {
 	)
 }
 
-func fixedSet(set stats.RecordSet) func(context.Context) (stats.RecordSet, error) {
-	return func(context.Context) (stats.RecordSet, error) { return set, nil }
+func fixedSet(set stats.RecordSet) func(context.Context, []string) (stats.RecordSet, error) {
+	return func(context.Context, []string) (stats.RecordSet, error) { return set, nil }
 }
 
 func fleetOf(q *fleet.Query) func(context.Context) (*fleet.Query, error) {
@@ -310,7 +310,7 @@ func TestStatsBucketsEmptyBucketHasNoMetrics(t *testing.T) {
 }
 
 func TestStatsReadErrorIs503(t *testing.T) {
-	failing := func(context.Context) (stats.RecordSet, error) {
+	failing := func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("dial tcp: secret.internal")
 	}
 	srv := statsServer(t, Options{Stats: failing, StatsRegistry: "ghcr.io/acme/stats"})
@@ -461,10 +461,37 @@ func TestStatsUnrestrictedUnknownServiceGroupsAsUnknown(t *testing.T) {
 	}
 }
 
+// With no service in view there is nothing to read, and the answer says so
+// rather than that recording is off.
 func TestStatsRestrictedWithoutFleetHidesEverything(t *testing.T) {
-	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(standardSet()), Auth: &Auth{}}), "")
-	if b.Runs != 0 || !b.Hidden.Present {
-		t.Fatalf("runs %d, hidden %+v", b.Runs, b.Hidden)
+	read := func(context.Context, []string) (stats.RecordSet, error) { panic("read with nothing in view") }
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: read, Auth: &Auth{}}), "")
+	if b.Runs != 0 || b.Completeness != fleet.CompletenessPartial || !hasLimitation(b.Limitations, stats.LimitationOutsideView) {
+		t.Fatalf("runs %d, completeness %s, limitations %+v", b.Runs, b.Completeness, b.Limitations)
+	}
+}
+
+// A restricted viewer reads only the anchors of their view, as pacto stats
+// does: hidden records neither use the bounds nor fail the read.
+func TestStatsRestrictedReadsOnlyViewAnchors(t *testing.T) {
+	var asked [][]string
+	read := func(_ context.Context, services []string) (stats.RecordSet, error) {
+		asked = append(asked, services)
+		if services == nil {
+			return stats.RecordSet{}, errors.New("a hidden anchor answered 500")
+		}
+		return recordSet(blockedRec("orders", sha('a'), sha('b'), ago(30))), nil
+	}
+	opts := restrictedOpts(t, shopAccess)
+	opts.Stats = read
+	b, _ := getStatsBody(t, statsServer(t, opts), "")
+	if b.Runs != 1 || b.Truncated != "" || b.Totals == nil || b.Totals.Gates.Blocked != 1 {
+		t.Fatalf("stats = %+v", b.Stats)
+	}
+	for _, a := range asked {
+		if !reflect.DeepEqual(a, []string{"orders"}) {
+			t.Fatalf("read %v, want only the view's anchors", a)
+		}
 	}
 }
 

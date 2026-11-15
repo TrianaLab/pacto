@@ -176,6 +176,7 @@ func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
 	visible, skipped, outside, coverage := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
 	current, future := notFuture(visible, now)
 	skipped.Malformed += future
+	coverage = coverage || sc.Restricted && set.CoverageAnchor
 	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside, coverageHidden: coverage}
 }
 
@@ -335,6 +336,7 @@ func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy 
 		skippedLimitation(st.Skipped, sel.future),
 		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
+		limitationIf(sc.Restricted && len(sc.Names) == 0 && st.Runs == 0 && !st.Hidden.Present, LimitationOutsideView, "your view of the fleet holds no service, so no run record is read for you"),
 		limitationIf(sel.coverageHidden, LimitationCoverageOutsideView, "coverage records count every service, so only a reader who can see every service sees them"),
 		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),

@@ -167,3 +167,17 @@ func TestCoverageOfSnapshotIsWholeSeconds(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A read that only found the coverage anchor withholds coverage from a
+// restricted caller as surely as one that read it.
+func TestRestrictedCoverageAnchorWithheld(t *testing.T) {
+	s := set(diffOf("catalog"))
+	s.CoverageAnchor = true
+	st := Aggregate(s, Query{Window: aggWindow}, restrictedScope(t), aggNow)
+	if !slices.Contains(limitationCodes(st.Limitations), LimitationCoverageOutsideView) || st.Completeness != fleet.CompletenessPartial {
+		t.Fatalf("limitations %+v, %s", st.Limitations, st.Completeness)
+	}
+	if open := Aggregate(s, Query{Window: aggWindow}, Scope{}, aggNow); slices.Contains(limitationCodes(open.Limitations), LimitationCoverageOutsideView) {
+		t.Fatal("an unrestricted caller is told coverage is withheld")
+	}
+}

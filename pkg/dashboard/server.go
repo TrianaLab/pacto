@@ -106,9 +106,12 @@ type Options struct {
 	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
 	// Stats reads the run records of the stats repository the Metrics page
-	// totals. The host bounds and caches the read; nil serves no stats
-	// routes and capabilities.stats is false.
-	Stats func(ctx context.Context) (stats.RecordSet, error)
+	// totals: those of services, or every record when services is nil. A
+	// restricted viewer's read names only the services in their view, so
+	// hidden records never use the bounds or fail the read. The host bounds
+	// and caches the read; nil serves no stats routes and capabilities.stats
+	// is false.
+	Stats func(ctx context.Context, services []string) (stats.RecordSet, error)
 	// StatsRegistry is the stats repository Stats reads, shown on the page.
 	StatsRegistry string
 	// OperationAccess reviews a signed-in viewer's access to list operations

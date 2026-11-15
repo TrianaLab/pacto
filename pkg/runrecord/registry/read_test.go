@@ -497,11 +497,61 @@ func TestReadAcceptsCoverageAnchor(t *testing.T) {
 	cov := runrecord.CoverageRecord(runrecord.Coverage{Services: 3, SnapshotAsOf: asOf, Completeness: "complete"}, "4.6.0", asOf.Add(time.Minute))
 	publish(t, repo, cov, runOf("payments", "b"))
 	set := mustRead(t, repo)
-	if got := services(set); !slices.Equal(got, []string{runrecord.CoverageService, "payments"}) || len(set.Skipped) != 0 {
-		t.Fatalf("services = %v, skipped %+v", got, set.Skipped)
+	// The coverage anchor sorts first by hash and is read last.
+	if len(set.Entries) != 2 || set.Entries[1].Record.Service != runrecord.CoverageService || len(set.Skipped) != 0 {
+		t.Fatalf("entries = %+v, skipped %+v", set.Entries, set.Skipped)
 	}
 	one := mustRead(t, repo, runrecord.AnchorTag(runrecord.CoverageService))
 	if len(one.Entries) != 1 || one.Entries[0].Record.Coverage == nil || one.Entries[0].Record.Coverage.Services != 3 {
 		t.Fatalf("the coverage anchor read %+v", one)
+	}
+}
+
+// Coverage records never crowd a service's records out of the bounds.
+func TestReadCoverageAnchorLastWithinBounds(t *testing.T) {
+	old := MaxRecords
+	MaxRecords = 1
+	t.Cleanup(func() { MaxRecords = old })
+	repo := serveWith(t, testutil.ReferrersOptions{}, nil)
+	asOf := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC)
+	publish(t, repo, runrecord.CoverageRecord(runrecord.Coverage{SnapshotAsOf: asOf, Completeness: "complete"}, "dev", asOf), runOf("payments", "b"))
+	set := mustRead(t, repo)
+	if got := services(set); !slices.Equal(got, []string{"payments"}) || set.Truncated == "" {
+		t.Fatalf("services = %v, set %+v", got, set)
+	}
+}
+
+// A read of named anchors only checks the coverage anchor exists; a failed
+// check says it may.
+func TestReadNamedAnchorsChecksCoverageAnchor(t *testing.T) {
+	asOf := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC)
+	cov := runrecord.CoverageRecord(runrecord.Coverage{SnapshotAsOf: asOf, Completeness: "complete"}, "dev", asOf)
+	tag := runrecord.AnchorTag("payments")
+	repo := serveWith(t, testutil.ReferrersOptions{}, nil)
+	publish(t, repo, runOf("payments", "b"))
+	if set := mustRead(t, repo, tag); set.CoverageAnchor {
+		t.Fatal("no coverage anchor, none withheld")
+	}
+	publish(t, repo, cov)
+	if set := mustRead(t, repo, tag); !set.CoverageAnchor || len(set.Entries) != 1 {
+		t.Fatalf("set = %+v", set)
+	}
+	if set := mustRead(t, repo, tag, runrecord.AnchorTag(runrecord.CoverageService)); set.CoverageAnchor || len(set.Entries) != 2 {
+		t.Fatalf("a read of the coverage anchor reads it: %+v", set)
+	}
+	if set := mustRead(t, repo); set.CoverageAnchor {
+		t.Fatal("a whole read reads the coverage anchor")
+	}
+	failing := serveWith(t, testutil.ReferrersOptions{}, func(inner http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/manifests/"+runrecord.AnchorTag(runrecord.CoverageService)) {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			inner.ServeHTTP(w, r)
+		})
+	})
+	if set := mustRead(t, failing, tag); !set.CoverageAnchor {
+		t.Fatal("a failed check reads as no coverage")
 	}
 }

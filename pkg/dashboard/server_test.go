@@ -436,7 +436,7 @@ func TestExportOpenAPI(t *testing.T) {
 	// The stubs only make the operations register; answering with one fails.
 	s := &Server{}
 	s.stubProvidersForSchemaExport()
-	if _, err := s.opts.Stats(context.Background()); err == nil {
+	if _, err := s.opts.Stats(context.Background(), nil); err == nil {
 		t.Error("the schema-export Stats stub answered")
 	}
 }

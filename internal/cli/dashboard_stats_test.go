@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,6 +82,32 @@ func TestStatsCacheDetachedFromRequest(t *testing.T) {
 	cancel()
 	_, err := c.get(ctx)
 	expect(t, err == nil, "a closed tab does not fail the read every viewer waits on: %v", err)
+}
+
+// Each set of services read has its own cached read: a restricted view never
+// shares, or depends on, the read of every record.
+func TestStatsCachesKeyedByServices(t *testing.T) {
+	var reads []string
+	c := &statsCaches{now: time.Now, byKey: map[string]*statsCache{}, read: func(_ context.Context, services []string) (stats.RecordSet, error) {
+		reads = append(reads, fmt.Sprint(services == nil, services))
+		if services == nil {
+			return stats.RecordSet{}, errors.New("a hidden anchor failed")
+		}
+		return stats.RecordSet{Truncated: strings.Join(services, ",")}, nil
+	}}
+	if _, err := c.get(t.Context(), nil); err == nil {
+		t.Fatal("the whole read's failure is returned")
+	}
+	set, err := c.get(t.Context(), []string{"orders"})
+	expect(t, err == nil && set.Truncated == "orders", "a view's read is its own: %+v %v", set, err)
+	_, _ = c.get(t.Context(), []string{"orders"})
+	expect(t, len(reads) == 2, "one read per set: %v", reads)
+	for i := range maxStatsReads {
+		_, _ = c.get(t.Context(), []string{fmt.Sprint(i)})
+	}
+	expect(t, len(c.byKey) == maxStatsReads && len(c.order) == maxStatsReads, "kept %d reads", len(c.byKey))
+	_, _ = c.get(t.Context(), nil)
+	expect(t, len(reads) == 2+maxStatsReads+1, "an evicted read is read again: %v", reads)
 }
 
 // statsFlagCmd is a command with the dashboard's --stats-registry flag,

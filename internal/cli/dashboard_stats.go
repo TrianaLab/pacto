@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +18,52 @@ import (
 // repository; a failed read is kept failureTTL.
 const statsTTL = time.Minute
 
-// statsCache keeps the last read of the stats repository the Metrics page
-// totals, so every viewer and every chart on a page share one read. It holds
-// one repository's read, which the reader bounds (stats.MaxRecords records of
-// at most runrecord.MaxRecordBytes), so it is bounded by construction.
+// maxStatsReads bounds how many distinct reads, one per set of services read,
+// statsCaches keeps.
+const maxStatsReads = 8
+
+// statsCaches keeps one statsCache per set of services read: every record
+// for unrestricted viewers and one per restricted view, so a viewer's read
+// never holds or depends on another view's records.
+type statsCaches struct {
+	read func(ctx context.Context, services []string) (stats.RecordSet, error)
+	now  func() time.Time
+
+	mu    sync.Mutex
+	order []string // keys, least recently used first
+	byKey map[string]*statsCache
+}
+
+// get is the cached read of services; nil reads every record.
+func (c *statsCaches) get(ctx context.Context, services []string) (stats.RecordSet, error) {
+	key := "*"
+	if services != nil {
+		key = "=" + strings.Join(services, "\x00")
+	}
+	c.mu.Lock()
+	e := c.byKey[key]
+	if e == nil {
+		// ponytail: an LRU of maxStatsReads reads, each bounded by the reader;
+		// key by anchor if many distinct views share one dashboard.
+		if len(c.order) >= maxStatsReads {
+			delete(c.byKey, c.order[0])
+			c.order = c.order[1:]
+		}
+		names := slices.Clone(services)
+		e = &statsCache{now: c.now, read: func(ctx context.Context) (stats.RecordSet, error) { return c.read(ctx, names) }}
+		c.byKey[key] = e
+	} else {
+		c.order = slices.DeleteFunc(c.order, func(k string) bool { return k == key })
+	}
+	c.order = append(c.order, key)
+	c.mu.Unlock()
+	return e.get(ctx)
+}
+
+// statsCache keeps the last read of one set of services, so every viewer of
+// that set and every chart on a page share one read. It holds one read,
+// which the reader bounds (stats.MaxRecords records of at most
+// runrecord.MaxRecordBytes), so it is bounded by construction.
 type statsCache struct {
 	read func(context.Context) (stats.RecordSet, error)
 	now  func() time.Time
@@ -59,13 +103,13 @@ func (c *statsCache) get(ctx context.Context) (stats.RecordSet, error) {
 // ./pacto.yaml, the contract). Empty: the page explains how to turn
 // recording on. The read uses the dashboard's registry credentials, and
 // anonymous access to a public repository.
-func dashboardStats(cmd *cobra.Command, svc *app.Service) (func(context.Context) (stats.RecordSet, error), string) {
+func dashboardStats(cmd *cobra.Command, svc *app.Service) (func(context.Context, []string) (stats.RecordSet, error), string) {
 	repo := flagOrEnv(cmd, "stats-registry", "PACTO_STATS_REGISTRY")
 	if repo == "" {
 		return nil, ""
 	}
-	c := &statsCache{now: time.Now, read: func(ctx context.Context) (stats.RecordSet, error) {
-		return svc.ReadRunRecords(ctx, repo, nil)
+	c := &statsCaches{now: time.Now, byKey: map[string]*statsCache{}, read: func(ctx context.Context, services []string) (stats.RecordSet, error) {
+		return svc.ReadRunRecords(ctx, repo, services)
 	}}
 	return c.get, repo
 }

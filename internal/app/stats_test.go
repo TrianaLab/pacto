@@ -17,6 +17,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/runrecord"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/registry"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -292,5 +293,20 @@ func TestReadRunRecordsSharesOpener(t *testing.T) {
 	s.sys.statsRepo = func(string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
 	if _, err := s.ReadRunRecords(t.Context(), "::", nil); err == nil || err.Error() != "bad reference" {
 		t.Fatalf("the registry's error, unwrapped: %v", err)
+	}
+}
+
+// A restricted caller never reads the coverage anchor, yet is told coverage
+// is withheld from it, never that there is none.
+func TestServiceStatsRestrictedSaysCoverageWithheld(t *testing.T) {
+	asOf := statsClock.Add(-time.Hour)
+	cov := runrecord.CoverageRecord(runrecord.Coverage{SnapshotAsOf: asOf, Completeness: "complete"}, "dev", asOf)
+	s, path := statsService(t, nil, cov, diffRecord("orders"))
+	place := func(string) (stats.Placement, bool) { return stats.Placement{}, true }
+	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: stats.Query{Window: statsWindow().Window, Kinds: []string{runrecord.KindCoverage}},
+		Scope: stats.Scope{Restricted: true, Place: place, Names: []string{"orders"}}, Now: statsClock})
+	if err != nil || st.Coverage != nil || st.Completeness != fleet.CompletenessPartial ||
+		!slices.ContainsFunc(st.Limitations, func(l fleet.Limitation) bool { return l.Code == stats.LimitationCoverageOutsideView }) {
+		t.Fatalf("stats = %+v err = %v", st, err)
 	}
 }

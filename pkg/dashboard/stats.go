@@ -188,7 +188,19 @@ func (s *Server) readStats(ctx context.Context, window string) (*statsRead, erro
 		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 	restricted := s.opts.View != nil || s.authSummary(ctx).Mode == "open"
-	set, err := s.opts.Stats(ctx)
+	r := &statsRead{window: w, now: now}
+	if r.scope, r.view, err = s.statsScope(ctx, restricted); err != nil {
+		return nil, err
+	}
+	// A restricted viewer reads only the anchors of the services in their
+	// view, as pacto stats does, so hidden records never use the bounds or
+	// fail the read; with none in view there is nothing to read.
+	switch {
+	case !restricted:
+		r.set, err = s.opts.Stats(ctx, nil)
+	case len(r.scope.Names) > 0:
+		r.set, err = s.opts.Stats(ctx, r.scope.Names)
+	}
 	if err != nil {
 		msg := "reading run records from " + s.opts.StatsRegistry + " failed"
 		if restricted {
@@ -196,19 +208,22 @@ func (s *Server) readStats(ctx context.Context, window string) (*statsRead, erro
 		}
 		return nil, huma.Error503ServiceUnavailable(msg, err)
 	}
-	r := &statsRead{set: set, window: w, now: now}
-	if r.scope, r.view, err = s.statsScope(ctx, set, restricted); err != nil {
-		return nil, err
+	if s.opts.View != nil && s.opts.OperationAccess != nil {
+		visible, err := s.opts.OperationAccess(ctx, stats.OperationNamespaces(r.set))
+		if err != nil {
+			return nil, Refuse(http.StatusServiceUnavailable, "PermissionCheckFailed", "checking your Kubernetes permissions failed: "+err.Error())
+		}
+		r.scope.OperationVisible = visible
 	}
 	return r, nil
 }
 
 // statsScope is what the caller may count (Decision 3): an identified local
 // or identity-less host sees every record; a signed-in viewer sees the
-// services of their fleet view and the operation records of the namespaces
-// they may list operations in; an open host sees its fleet's services and no
-// operation record.
-func (s *Server) statsScope(ctx context.Context, set stats.RecordSet, restricted bool) (stats.Scope, *fleet.Query, error) {
+// services of their fleet view and, once readStats asks, the operation
+// records of the namespaces they may list operations in; an open host sees
+// its fleet's services and no operation record.
+func (s *Server) statsScope(ctx context.Context, restricted bool) (stats.Scope, *fleet.Query, error) {
 	var full, view *fleet.Query
 	if s.opts.Fleet != nil {
 		var err error
@@ -233,13 +248,6 @@ func (s *Server) statsScope(ctx context.Context, set stats.RecordSet, restricted
 			narrowed = nil
 		}
 		sc.Place, sc.Names = stats.FleetPlacement(full, narrowed), stats.VisibleNames(view)
-	}
-	if s.opts.View != nil && s.opts.OperationAccess != nil {
-		visible, err := s.opts.OperationAccess(ctx, stats.OperationNamespaces(set))
-		if err != nil {
-			return stats.Scope{}, nil, Refuse(http.StatusServiceUnavailable, "PermissionCheckFailed", "checking your Kubernetes permissions failed: "+err.Error())
-		}
-		sc.OperationVisible = visible
 	}
 	return sc, view, nil
 }
