@@ -389,6 +389,11 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 		"empty provider repo":      scoped(""),
 		// A tagged prefix could never match: the declared ref's tag is dropped first.
 		"tagged provider repo": scoped("ghcr.io/acme/platform/postgresql:16"),
+		// So could an uppercase prefix or one with an empty segment.
+		"trailing slash provider repo": scoped("ghcr.io/acme/platform/"),
+		"doubled slash provider repo":  scoped("ghcr.io//acme/platform"),
+		"leading slash provider repo":  scoped("/acme/platform"),
+		"uppercase provider repo":      scoped("ghcr.io/Acme/platform"),
 	}
 	// A directly-unreadable config file surfaces the read error.
 	if _, err := loadStructuredTrustStore(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {

@@ -146,10 +146,11 @@ func validateObservationKinds(kinds []string) error {
 }
 
 // validateProviderScope checks a key's allowedProviderRepos: each entry is a
-// bare registry/repo path with no tag (a tagged prefix could never match,
-// because the declared ref's tag is dropped before matching; a registry port
-// before the first "/" stays valid), and a scope requires a provider-scoped kind
-// to be granted, so it can never silently grant nothing.
+// bare, lowercase registry/repo path with no empty segment and no tag (a tagged
+// prefix could never match, because the declared ref's tag is dropped before
+// matching; a registry port before the first "/" stays valid), and a scope
+// requires a provider-scoped kind to be granted, so it can never silently grant
+// nothing.
 func validateProviderScope(k trustConfigKey) error {
 	for _, p := range k.AllowedProviderRepos {
 		if err := validateContractRepoPrefix("allowedProviderRepos", p); err != nil {
@@ -157,6 +158,11 @@ func validateProviderScope(k trustConfigKey) error {
 		}
 		if i := strings.LastIndex(p, "/"); strings.Contains(p[i+1:], ":") {
 			return fmt.Errorf("allowedProviderRepos entry %q must not carry a tag", p)
+		}
+		// A repository is lowercase and has no empty path segment, so an
+		// uppercase prefix or one with a trailing or doubled "/" could never match.
+		if p != strings.ToLower(p) || slices.Contains(strings.Split(p, "/"), "") {
+			return fmt.Errorf("allowedProviderRepos entry %q must be a lowercase repository path with no empty segment", p)
 		}
 	}
 	if len(k.AllowedProviderRepos) > 0 && !slices.ContainsFunc(evidenceingest.ProviderScopedKinds(), func(kind evidence.ObservationKind) bool {
