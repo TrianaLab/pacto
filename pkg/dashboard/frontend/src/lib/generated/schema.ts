@@ -2958,6 +2958,11 @@ export interface components {
              * @description Services that run nowhere, counted only when Pacto can see every target of the service
              */
             notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no visible target whose placement Pacto cannot see, never counted in notDeployed
+             */
+            placementUnknown: number;
             readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             revisions: number;

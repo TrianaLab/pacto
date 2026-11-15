@@ -891,9 +891,10 @@ type OwnerSummary struct {
 	Findings         SeverityTally   `json:"findings"`
 	// Health partitions the targets by what their health check reports.
 	Health OperationalHealthTally `json:"health"`
-	// NotDeployed, Knowledge, UnresolvedDependencies and UndeclaredDependencies
-	// are over the estate's services; Readiness is over its revisions.
+	// NotDeployed, PlacementUnknown, Knowledge, UnresolvedDependencies and
+	// UndeclaredDependencies are over the estate's services; Readiness is over its revisions.
 	NotDeployed            int            `json:"notDeployed" doc:"Services that run nowhere, counted only when Pacto can see every target of the service"`
+	PlacementUnknown       int            `json:"placementUnknown" doc:"Services with no visible target whose placement Pacto cannot see, never counted in notDeployed"`
 	Knowledge              KnowledgeTally `json:"knowledge"`
 	Readiness              ReadinessTally `json:"readiness"`
 	UnresolvedDependencies int            `json:"unresolvedDependencies" doc:"Distinct declared dependencies of the services that resolve to no known service"`
@@ -913,8 +914,9 @@ func (q *Query) restsOnStale(s *ServiceRecord) bool {
 // dimension: whether it runs nowhere, what its contract leaves out and its
 // unresolved and undeclared dependencies, by the service page's own rules.
 func (o *OwnerSummary) addService(q *Query, s *ServiceRecord) {
-	runsNowhere, _ := q.notDeployed(s)
+	runsNowhere, known := q.notDeployed(s)
 	o.NotDeployed += b2i(runsNowhere)
+	o.PlacementUnknown += b2i(!known)
 	o.Knowledge.add(q.serviceKnowledge(s))
 	var deps ServiceSummary
 	q.tallyServiceEdges(&deps, s.Key)

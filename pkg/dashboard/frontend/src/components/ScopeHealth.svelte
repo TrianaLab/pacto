@@ -58,11 +58,12 @@
     </ul>
   {/if}
 </div>
-<!-- Runs nowhere counts only services whose every target Pacto can see; the rest are in
-     "cannot tell", never in runs nowhere. -->
+<!-- Runs nowhere counts only services whose every target Pacto can see; the rest are
+     "placement unknown", never in runs nowhere. That count is plain text: no list
+     filter selects placement unknown alone (gap=unknown holds every unknown cause). -->
 <p class="sh-facts t-body-2" data-testid="scope-facts">
   {@render cnt(nowhere, gapUrl('not-deployed'))} {nowhere === 1 ? 'runs' : 'run'} nowhere
-  {#if k.unknown} · Pacto cannot tell for {@render cnt(k.unknown, gapUrl('unknown'))}{/if}
+  {#if summary.placementUnknown} · placement unknown for {formatCount(summary.placementUnknown)}{/if}
   · readiness {formatCount(r.passing ?? 0)} passing, {formatCount(r.belowThreshold ?? 0)} below, {formatCount(r.expired ?? 0)} expired, {formatCount(r.notDeclared ?? 0)} not declared
   · {formatCount(summary.unresolvedDependencies ?? 0)} unresolved and {formatCount(summary.undeclaredDependencies ?? 0)} undeclared dependencies
 </p>

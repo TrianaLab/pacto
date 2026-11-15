@@ -218,7 +218,7 @@ describe('owner and domain pages: health, knowledge and the facts line', () => {
     services: 6, revisions: 6, targets: 4, invalidRevisions: 0, compliance: { compliant: 2, staleCompliant: 1 }, links: {}, evidence: {}, findings: {},
     health: { available: 2, unavailable: 1, unknown: 1, notObserved: 0 },
     knowledge: { services: 6, described: 2, withGaps: 3, unknown: 1, gaps: { noSummary: 2, noDomain: 0, noInterfaceDocs: 1, noReadiness: 0, notDeployed: 1, unverifiedCapability: 0 } },
-    notDeployed: 1, readiness: { passing: 3, belowThreshold: 1, expired: 0, notDeclared: 2 }, unresolvedDependencies: 2, undeclaredDependencies: 1,
+    notDeployed: 1, placementUnknown: 1, readiness: { passing: 3, belowThreshold: 1, expired: 0, notDeclared: 2 }, unresolvedDependencies: 2, undeclaredDependencies: 1,
   };
   const previews = { services: empty, owners: empty, deployments: empty, revisions: empty, attention: empty };
 
@@ -233,8 +233,8 @@ describe('owner and domain pages: health, knowledge and the facts line', () => {
     expect(gaps).toEqual(['#/fleet/services?gap=no-summary&businessDomain=commerce', '#/fleet/services?gap=no-interface-docs&businessDomain=commerce', '#/fleet/services?gap=not-deployed&businessDomain=commerce']);
     const facts = target.querySelector('[data-testid="scope-facts"]') as HTMLElement;
     expect(facts.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      '1 runs nowhere · Pacto cannot tell for 1 · readiness 3 passing, 1 below, 0 expired, 2 not declared · 2 unresolved and 1 undeclared dependencies');
-    expect(hrefs(facts, 'a')).toEqual(['#/fleet/services?gap=not-deployed&businessDomain=commerce', '#/fleet/services?gap=unknown&businessDomain=commerce']);
+      '1 runs nowhere · placement unknown for 1 · readiness 3 passing, 1 below, 0 expired, 2 not declared · 2 unresolved and 1 undeclared dependencies');
+    expect(hrefs(facts, 'a')).toEqual(['#/fleet/services?gap=not-deployed&businessDomain=commerce']);
     done();
   });
 
@@ -246,8 +246,9 @@ describe('owner and domain pages: health, knowledge and the facts line', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="scope-facts"]')).toBeTruthy());
     const facts = target.querySelector('[data-testid="scope-facts"]') as HTMLElement;
     expect(facts.textContent).toContain('0 run nowhere');
+    expect(facts.textContent).toContain('placement unknown for 1');
     expect(hrefs(target, '[data-testid="scope-gaps"] a')[0]).toBe('#/fleet/services?ownerKey=team%3Apay&gap=no-summary');
-    expect(hrefs(facts, 'a')).toEqual(['#/fleet/services?ownerKey=team%3Apay&gap=unknown']);
+    expect(hrefs(facts, 'a')).toEqual([]);
     done();
   });
 });

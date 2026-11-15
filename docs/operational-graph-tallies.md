@@ -52,9 +52,10 @@ Each row of the overview's `byDomain` carries `services`, `targets`,
 non-compliant targets, then failing, unknown, unowned and services with gaps.
 
 An owner or domain page's summary adds `health`, `knowledge`, `readiness`,
-`notDeployed`, `unresolvedDependencies` (declared dependencies that resolve to
-no known service) and `undeclaredDependencies` (observed calls no contract
-declares).
+`notDeployed`, `placementUnknown` (services with no visible target whose
+placement Pacto cannot see, never counted in `notDeployed`),
+`unresolvedDependencies` (declared dependencies that resolve to no known
+service) and `undeclaredDependencies` (observed calls no contract declares).
 
 Owner and domain list rows carry `unknown`, `stale`, `failingHealth` and
 `withGaps` service counts beside `nonCompliant`, over the services an owner

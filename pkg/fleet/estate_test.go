@@ -184,6 +184,16 @@ func TestOwnerSummaryHealthAndKnowledge(t *testing.T) {
 	}
 }
 
+// A partial target source leaves placement unknown: never "runs nowhere",
+// counted apart as placement unknown.
+func TestOwnerSummaryPlacementUnknown(t *testing.T) {
+	partial := NewMemorySource("k8s", SourceKindKubernetes, &Collection{State: &SourceState{Status: SourcePartial}})
+	q := estateFleet(t, 0, []RawRevision{knowRev("a", inDomain("dormant")), knowRev("b", inDomain("dormant"))}, []RawTarget{runs("a")}, partial)
+	if sum := domainSummary(t, q, "dormant"); sum.NotDeployed != 0 || sum.PlacementUnknown != 1 {
+		t.Fatalf("notDeployed %d, placementUnknown %d, want 0 and 1", sum.NotDeployed, sum.PlacementUnknown)
+	}
+}
+
 func TestDomainDetailNeverObserved(t *testing.T) {
 	q := estateFleet(t, 0, []RawRevision{knowRev("a", inDomain("dormant")), knowRev("b", inDomain("dormant"))}, nil)
 	sum := domainSummary(t, q, "dormant")
