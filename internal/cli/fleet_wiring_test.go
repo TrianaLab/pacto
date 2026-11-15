@@ -712,7 +712,7 @@ func TestCacheLifecycle_NoCapabilityInventsNoSource(t *testing.T) {
 // reader sweeping the documented list reported a fleet with no Warning and no
 // Reference services in it.
 func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
-	search, _, err := newFleetCommand(app.NewService(nil, nil), viper.New()).Find([]string{"search"})
+	search, _, err := newFleetCommand(app.NewService(nil, nil), viper.New(), &runRecorder{}).Find([]string{"search"})
 	if err != nil {
 		t.Fatalf("find search subcommand: %v", err)
 	}

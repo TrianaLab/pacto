@@ -19,7 +19,7 @@ import (
 // cross-service operational view. It is deliberately distinct from `pacto graph`
 // (which is single-root: one service's transitive dependency tree). Fleet
 // commands operate over a snapshot composed from many sources.
-func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newFleetCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fleet",
 		Short: "Query the Pacto operational graph across many services",
@@ -34,7 +34,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetSearchCommand(svc, v))
 	cmd.AddCommand(newFleetGetCommand(svc, v))
 	cmd.AddCommand(newFleetGraphCommand(svc, v))
-	cmd.AddCommand(newFleetStatusCommand(svc, v))
+	cmd.AddCommand(newFleetStatusCommand(svc, v, rec))
 	cmd.AddCommand(newFleetSnapshotCommand(svc, v))
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
@@ -359,7 +359,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Report services and targets needing attention",
@@ -375,9 +375,13 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 			res := q.Status(statusQueryFromCmd(cmd))
-			return printFleetStatus(cmd, res, v.GetString(outputFormatKey))
+			// The print result is the exit code; the coverage record never is.
+			err = printFleetStatus(cmd, res, v.GetString(outputFormatKey))
+			recordCoverage(cmd, rec, q)
+			return err
 		},
 	}
+	addCoverageFlags(cmd)
 	cmd.Flags().Bool("needs-attention", false, "report every attention category")
 	cmd.Flags().Bool("non-compliant", false, "report non-compliant targets")
 	cmd.Flags().Bool("unknown", false, "report targets with unknown compliance")

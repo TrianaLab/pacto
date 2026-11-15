@@ -1269,6 +1269,8 @@ pacto fleet status [flags]
       --needs-attention[=true|false]        report every attention category
       --non-compliant[=true|false]          report non-compliant targets
       --stale[=true|false]                  report targets with stale evidence
+      --stats-file string                   also write the coverage run record to this file, for pacto stats publish in another job; never read from PACTO_STATS_FILE
+      --stats-registry string               also write a coverage run record to this stats repository (unsigned statistics); never read from PACTO_STATS_REGISTRY
       --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
       --unknown[=true|false]                report targets with unknown compliance
       --unowned[=true|false]                report services with no declared owner

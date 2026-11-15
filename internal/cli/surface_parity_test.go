@@ -108,6 +108,8 @@ func fleetRows() []surfaceRow {
 		[]surfaceRow{{"fleet search --label", "pacto_fleet_search.label", "", whySearchRoute}},
 		alike("fleet status", "pacto_fleet_status", "", whyStatusRoute, "golden-path-deployed", "invalid", "lifecycle", "limit", "missing-readiness", "needs-attention",
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
+		alike("fleet status", "", "", "a coverage run record is a statistic a scheduled CLI job writes; MCP and the dashboard record nothing",
+			"stats-file", "stats-registry"),
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
 			{"fleet overview", "pacto_fleet_overview", "GET /api/fleet/overview", ""},

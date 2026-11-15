@@ -134,3 +134,20 @@ func TestRestrictedHidesCoverageRecords(t *testing.T) {
 		t.Fatal("a scope that places every name shows coverage history")
 	}
 }
+
+// A snapshot taken within the second a record is written must not land after
+// its recordedAt, which is whole seconds, or Parse rejects the record.
+func TestCoverageOfSnapshotIsWholeSeconds(t *testing.T) {
+	at := fleetNow.Add(700 * time.Millisecond)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return at }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := CoverageOf(fleet.NewQuery(snap))
+	if !c.SnapshotAsOf.Equal(fleetNow) {
+		t.Fatalf("snapshotAsOf %s, want %s", c.SnapshotAsOf, fleetNow)
+	}
+	if _, err := runrecord.Encode(runrecord.CoverageRecord(c, "dev", at)); err != nil {
+		t.Fatal(err)
+	}
+}

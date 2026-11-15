@@ -60,9 +60,6 @@ var deadCodeAllowlist = map[string]string{
 	"integrations/kubernetes/api/v1alpha1.MaxRuntimeListenersPerPod":   runtimeBoundsV6,
 	"integrations/kubernetes/api/v1alpha1.MaxRuntimeConnectionsPerPod": runtimeBoundsV6,
 
-	"pkg/runrecord.CoverageRecord":   "caller lands in P2 of the same PR (#503)",
-	"pkg/runrecord/stats.CoverageOf": "caller lands in P2 of the same PR (#503)",
-
 	"pkg/signing.GetHashAlgorithm":    sigstoreKeypair,
 	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,

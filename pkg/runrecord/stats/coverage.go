@@ -9,7 +9,8 @@ import (
 
 // CoverageOf is the coverage of q's snapshot: the one derivation the coverage
 // writer and the dashboard's current value share. The knowledge tally is
-// copied verbatim, never re-derived, and an empty snapshot is partial.
+// copied verbatim, never re-derived, and an empty snapshot is partial. The
+// snapshot time is whole seconds, like the recordedAt it must not follow.
 func CoverageOf(q *fleet.Query) runrecord.Coverage {
 	ov := q.Overview()
 	s, k := ov.Summary, ov.Summary.Knowledge
@@ -21,7 +22,7 @@ func CoverageOf(q *fleet.Query) runrecord.Coverage {
 		Links: runrecord.CoverageLinks{
 			Exact: s.ExactTargetLinks, Inferred: s.InferredTargetLinks, Ambiguous: s.AmbiguousTargetLinks, Unresolved: s.UnresolvedTargetLinks,
 		},
-		SnapshotAsOf: ov.Meta.AsOf.UTC(), Completeness: string(ov.Meta.Completeness),
+		SnapshotAsOf: ov.Meta.AsOf.UTC().Truncate(time.Second), Completeness: string(ov.Meta.Completeness),
 	}
 	if ov.Meta.Completeness == fleet.CompletenessEmpty {
 		c.Completeness = string(fleet.CompletenessPartial)
