@@ -23,7 +23,7 @@ func TestHistoryAtNamesTheSignedRevision(t *testing.T) {
 		t.Fatalf("at = %+v, %v", a, err)
 	}
 	s := a.Stages[0]
-	if s.State != delivery.AtKnown || s.Digest != dlA || s.Record != r2 || s.Revision != paymentsKey() || a.Completeness != "complete" {
+	if s.State != delivery.AtKnown || s.Digest != dlA || s.Record != r2 || s.Revision != paymentsKey() || s.Version != "1.0.0" || a.Completeness != "complete" {
 		t.Fatalf("stage at = %+v (%+v)", s, a)
 	}
 	// The walk answers the same; before any record the Stage is unknown.

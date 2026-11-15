@@ -470,7 +470,7 @@ func historySchema() map[string]any {
 		"correlation_id": {Type: "string", Description: "Only changes with exactly this correlation id; it narrows the timeline too"},
 		"service":        {Type: "string", Description: "Without a stage: only the Stages of this service"},
 		"domain":         {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
-		"at": {Type: "string", Description: "RFC 3339 time, or a duration before now such as 2h: answer which revision each Stage ran at " +
+		"at": {Type: "string", Description: "Past RFC 3339 time, or a duration before now such as 2h: answer which revision each Stage ran at " +
 			"that time instead of listing changes; it takes no since, until, cause or correlation_id"},
 	}, nil)
 }
@@ -530,9 +530,10 @@ func historyAtTool(ctx context.Context, api DeliveryAPI, a historyArgs, now time
 	if a.Since != "" || a.Until != "" || a.Cause != "" || a.CorrelationID != "" {
 		return errorResult(errors.New("at says what each Stage ran at one time; it takes no since, until, cause or correlation_id")), nil, nil
 	}
-	t, err := when("at", a.At, now)
+	t, err := delivery.ParseAt(a.At, now)
 	switch {
 	case err != nil:
+		err = fmt.Errorf("at %w", err)
 	case a.Domain != "" && a.Service == "":
 		err = errors.New("domain needs service")
 	case a.Stage != "" && a.Service != "":

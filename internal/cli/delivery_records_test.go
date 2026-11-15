@@ -250,6 +250,8 @@ func TestHistoryAtText(t *testing.T) {
 			"prod/payments-prod is unknown: no record before this time", "complete for 0 of 1 Stages", "partial"}},
 		{"json", []string{"history", "--all", "--at", "1s", "--service", "payments", "--trust", trust}, false, []string{`"stages"`, `"state": "known"`}},
 		{"text", append([]string{"history", "--at", "soon"}, stage...), true, []string{"--at takes an RFC 3339 time"}},
+		{"text", append([]string{"history", "--at", ""}, stage...), true, []string{"--at takes an RFC 3339 time"}},
+		{"text", append([]string{"history", "--at", "2099-01-01T00:00:00Z"}, stage...), true, []string{"--at is in the future"}},
 		{"text", []string{"history", "--stage", "missing", "-n", "prod", "--at", "1s"}, true, nil},
 		{"text", []string{"history", "--stage", "payments-prod", "--at", "1s", "--service", "payments"}, true, []string{"--service and --domain need --all"}},
 	})

@@ -525,7 +525,7 @@ func (d *Delivery) describeOn(ctx context.Context, on ...stageDigests) map[strin
 	revs := delivery.DescribeAll(ctx, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] }, d.Describe)
 	read := make(map[string]delivery.Described, len(ask))
 	for i, dg := range ask {
-		read[dg] = delivery.DescribedOf(revs[i], "")
+		read[dg] = delivery.DescribedOf(revs[i], bundleVersion(revs[i]))
 	}
 	return read
 }

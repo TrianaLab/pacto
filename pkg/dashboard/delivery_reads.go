@@ -935,8 +935,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	return out, nil
 }
 
-// historyAtQuery reads the at query parameter as --since reads its value
-// (delivery.ParseWhen). It refuses the change filters with it: they would
+// historyAtQuery reads the at query parameter as --at reads its value
+// (delivery.ParseAt). It refuses the change filters with it: they would
 // drop the moves the answer reads.
 func historyAtQuery(in *historyInput) (time.Time, error) {
 	if in.At == "" {
@@ -945,7 +945,7 @@ func historyAtQuery(in *historyInput) (time.Time, error) {
 	if in.Since != "" || in.Until != "" || in.Timed || in.Cause != "" || in.CorrelationID != "" {
 		return time.Time{}, huma.Error400BadRequest("at says what each Stage ran at one time; it takes no since, until, timed, cause or correlationID")
 	}
-	t, err := delivery.ParseWhen(in.At, time.Now())
+	t, err := delivery.ParseAt(in.At, time.Now())
 	if err != nil {
 		return t, huma.Error400BadRequest("at " + err.Error())
 	}

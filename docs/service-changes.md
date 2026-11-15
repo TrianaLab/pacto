@@ -78,8 +78,8 @@ pacto delivery history --all --service payments --at 24h --trust recorder.pub
 
 `--reached` reads the times with your cluster credentials; `reached: true` on
 a stdio `pacto_fleet_entity` does the same, and any other MCP server answers
-`times: not-read`. `--at` takes a time like `--since`, with `--stage` or
-`--all`, and takes no `--since`, `--until`, `--cause` or `--correlation-id`;
+`times: not-read`. `--at` takes a past time like `--since`, refuses an empty
+or future one, works with `--stage` or `--all`, and takes no `--since`, `--until`, `--cause` or `--correlation-id`;
 `at` in `pacto_delivery_history` follows the same rules. The answer is
 `partial` whenever a namespace could not be read.
 

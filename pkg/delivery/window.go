@@ -89,6 +89,21 @@ func ParseWhen(v string, now time.Time) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("takes an RFC 3339 time or a duration before now, such as 2h: %q", v)
 }
 
+// ParseAt reads the time an as-of question asks about, as ParseWhen reads
+// it, on every surface. It refuses an empty value, which would ask about the
+// zero time, and a time after now: no record says what runs after it was
+// read.
+func ParseAt(v string, now time.Time) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, errors.New("takes an RFC 3339 time or a duration before now, such as 2h")
+	}
+	t, err := ParseWhen(v, now)
+	if err == nil && t.After(now) {
+		err = fmt.Errorf("is in the future; history answers only past times: %q", v)
+	}
+	return t, err
+}
+
 // CheckWindow refuses a window that ends before it starts: it would drop every
 // timed change and read as nothing changed.
 func CheckWindow(since, until time.Time) error {

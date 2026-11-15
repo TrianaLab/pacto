@@ -45,7 +45,7 @@ func TestHistoryAt(t *testing.T) {
 	ss = atStages(h)
 	expect(t, len(ss) == 3 && ss[0]["state"] == "unknown" && ss[0]["reason"] == "no record before this time" &&
 		page(h["at"])["completeness"] == "partial", "unknown before any record: %v", h["at"])
-	for _, q := range []string{"at=soon", "at=1h&since=2026-11-01T00:00:00Z", "at=1h&until=2026-11-01T00:00:00Z", "at=1h&timed=true",
+	for _, q := range []string{"at=soon", "at=2099-01-01T00:00:00Z", "at=1h&since=2026-11-01T00:00:00Z", "at=1h&until=2026-11-01T00:00:00Z", "at=1h&timed=true",
 		"at=1h&cause=x", "at=1h&correlationID=INC-1"} {
 		code, body := call(t, http.MethodGet, base+"/api/delivery/history?"+q, nil)
 		expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "at "), "%s: %d %v", q, code, body)

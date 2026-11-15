@@ -656,6 +656,7 @@ func TestDeliveryHistoryAtArg(t *testing.T) {
 		{"it takes no since", map[string]any{"at": "1h", "since": "2h"}},
 		{"it takes no since", map[string]any{"at": "1h", "cause": "x"}},
 		{"at takes an RFC 3339 time", map[string]any{"at": "soon"}},
+		{"at is in the future", map[string]any{"at": "2099-01-01T00:00:00Z"}},
 		{"domain needs service", map[string]any{"at": "1h", "domain": "d"}},
 		{"service filters the walk", map[string]any{"at": "1h", "stage": "s", "service": "p"}},
 	} {

@@ -682,9 +682,10 @@ func historyAt(cmd *cobra.Command, v *viper.Viper, c *app.Delivery, ns, stage st
 			return fmt.Errorf("--at says what each Stage ran at one time; it takes no --%s", f)
 		}
 	}
-	t, err := whenFlag(cmd, "at", c.Now())
+	at, _ := cmd.Flags().GetString("at")
+	t, err := delivery.ParseAt(at, c.Now())
 	if err != nil {
-		return err
+		return fmt.Errorf("--at %w", err)
 	}
 	_, _, of, err := historyFilters(cmd, all, c.Now())
 	if err != nil {
