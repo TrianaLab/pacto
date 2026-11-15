@@ -83,7 +83,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -110,7 +110,6 @@ func fleetRows() []surfaceRow {
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges"),
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
-			{"fleet status --lifecycle", "pacto_fleet_status.lifecycle", "", whyStatusRoute},
 			{"", "", "GET /api/fleet/overview", "the CLI has no overview command and MCP has no overview tool yet (#460 adds pacto_fleet_overview)"},
 			{"fleet snapshot", "", "GET /api/fleet/snapshot", "MCP serves the snapshot only through the fleet tools' answers"},
 			{"fleet reconcile --traces", "", "", "reconcile compares one local trace file with the local contracts; it reads no fleet source"},
@@ -150,7 +149,6 @@ func impactRows() []surfaceRow {
 			{"impact --removed", "", "", "pacto_impact.event and the dashboard's body.event take removed as a value"},
 			{"impact --regressed", "", "", "pacto_impact.event and the dashboard's body.event take regressed as a value"},
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
-			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as the event flag's value, offering:<name>"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
 		},
@@ -289,6 +287,21 @@ func statsRows() []surfaceRow {
 	)
 }
 
+// publishRows map pacto publish. Its stdio twins, pacto_publish and
+// pacto_publish_plan, are outside the composed server the harness reads, and
+// --propose is the promote pacto_delivery_operation_propose and
+// POST /api/delivery/operations make, with the same on-behalf-of and correlation id.
+func publishRows() []surfaceRow {
+	const why = "pacto_publish and pacto_publish_plan take path and revision on pacto mcp --publish over stdio; the dashboard publishes nothing"
+	const whyPropose = "publish proposes the promote itself; MCP and the dashboard propose it as a separate step (pacto_delivery_operation_propose, POST /api/delivery/operations)"
+	return slices.Concat(
+		alike("publish", "", "", why, "path", "plan", "revision"),
+		alike("publish", "", "", whyPropose, "propose", "on-behalf-of", "correlation-id", "propose-timeout"),
+		alike("publish", "", "", "overrides the CLI applies to the local contract before publishing; pacto_publish publishes the contract as it is", "set", "values"),
+		alike("publish", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs", "stats-context", "stats-file", "stats-registry"),
+	)
+}
+
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
@@ -297,7 +310,7 @@ var parityCommands = []string{
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
 	"delivery caller", "delivery inbox", "delivery environments", "delivery autonomy", "delivery published", "delivery refusals",
-	"impact", "init", "validate", "explain", "stats",
+	"impact", "init", "validate", "explain", "stats", "publish",
 }
 
 // surfaces is what the three surfaces expose at HEAD.

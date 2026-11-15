@@ -49,6 +49,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
+	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
+	"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
