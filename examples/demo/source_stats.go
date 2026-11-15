@@ -15,8 +15,9 @@ import (
 // run records placed before now, plus the weekly coverage trend ending at
 // coverage when one is given. It generates once, so the numbers hold still
 // for a session, and lists each record as a registry read would: under its
-// service's anchor tag, keyed by the digest of its encoding.
-func demoStats(now time.Time, coverage *runrecord.Coverage) (func(context.Context) (stats.RecordSet, error), error) {
+// service's anchor tag, keyed by the digest of its encoding. A read naming
+// services lists only their anchors, as a registry read of named anchors does.
+func demoStats(now time.Time, coverage *runrecord.Coverage) (func(context.Context, []string) (stats.RecordSet, error), error) {
 	records, err := story.RunRecords(now, story.StatsServices())
 	if err != nil {
 		return nil, err
@@ -33,5 +34,20 @@ func demoStats(now time.Time, coverage *runrecord.Coverage) (func(context.Contex
 		sum := sha256.Sum256(data)
 		set.Entries = append(set.Entries, stats.Entry{Record: r, Digest: "sha256:" + hex.EncodeToString(sum[:]), Anchor: runrecord.AnchorTag(r.Service)})
 	}
-	return func(context.Context) (stats.RecordSet, error) { return set, nil }, nil
+	return func(_ context.Context, services []string) (stats.RecordSet, error) {
+		if services == nil {
+			return set, nil
+		}
+		anchors := map[string]bool{}
+		for _, s := range services {
+			anchors[runrecord.AnchorTag(s)] = true
+		}
+		var named stats.RecordSet
+		for _, e := range set.Entries {
+			if anchors[e.Anchor] {
+				named.Entries = append(named.Entries, e)
+			}
+		}
+		return named, nil
+	}, nil
 }

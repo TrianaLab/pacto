@@ -29,7 +29,7 @@ func TestMetricsStepMatchesRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := port(context.Background())
+	set, err := port(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

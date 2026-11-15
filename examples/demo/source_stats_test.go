@@ -32,9 +32,21 @@ func TestDemoStatsServesTheStory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			set, err := port(context.Background())
+			set, err := port(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
+			}
+			named, err := port(context.Background(), []string{want[0].Service})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(named.Entries) == 0 {
+				t.Fatalf("a read naming %q lists nothing", want[0].Service)
+			}
+			for _, e := range named.Entries {
+				if e.Anchor != runrecord.AnchorTag(want[0].Service) {
+					t.Fatalf("a read naming %q lists anchor %q", want[0].Service, e.Anchor)
+				}
 			}
 			if len(set.Entries) != len(want)+tc.extra {
 				t.Fatalf("entries = %d, want %d", len(set.Entries), len(want)+tc.extra)
