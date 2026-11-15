@@ -16,58 +16,58 @@ cloud.google.com/go/compute/metadata v0.10.0: Apache-2.0, text 2
   source https://proxy.golang.org/cloud.google.com/go/compute/metadata/@v/v0.10.0.zip
 cloud.google.com/go/iam v1.14.0: Apache-2.0, text 2
   source https://proxy.golang.org/cloud.google.com/go/iam/@v/v1.14.0.zip
-cloud.google.com/go/kms v1.33.0: Apache-2.0, text 2
-  source https://proxy.golang.org/cloud.google.com/go/kms/@v/v1.33.0.zip
-cloud.google.com/go/longrunning v1.2.0: Apache-2.0, text 2
-  source https://proxy.golang.org/cloud.google.com/go/longrunning/@v/v1.2.0.zip
-github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1: MIT, text 3
-  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/azcore/@v/v1.23.1.zip
-github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1: MIT, text 3
-  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/azidentity/@v/v1.14.1.zip
-github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0: MIT, text 3
-  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/internal/@v/v1.12.0.zip
+cloud.google.com/go/kms v1.36.1: Apache-2.0, text 2
+  source https://proxy.golang.org/cloud.google.com/go/kms/@v/v1.36.1.zip
+cloud.google.com/go/longrunning v1.3.0: Apache-2.0, text 2
+  source https://proxy.golang.org/cloud.google.com/go/longrunning/@v/v1.3.0.zip
+github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3: MIT, text 3
+  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/azcore/@v/v1.23.3.zip
+github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0: MIT, text 3
+  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/azidentity/@v/v1.15.0.zip
+github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0: MIT, text 3
+  source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/internal/@v/v1.13.0.zip
 github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0: MIT, text 4
   source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/security/keyvault/azkeys/@v/v1.5.0.zip
 github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0: MIT, text 4
   source https://proxy.golang.org/github.com/!azure/azure-sdk-for-go/sdk/security/keyvault/internal/@v/v1.2.0.zip
-github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0: MIT, text 5
-  source https://proxy.golang.org/github.com/!azure!a!d/microsoft-authentication-library-for-go/@v/v1.8.0.zip
+github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1: MIT, text 5
+  source https://proxy.golang.org/github.com/!azure!a!d/microsoft-authentication-library-for-go/@v/v1.10.1.zip
 github.com/Masterminds/semver/v3 v3.5.0: MIT, text 6
   source https://proxy.golang.org/github.com/!masterminds/semver/v3/@v/v3.5.0.zip
 github.com/ProtonMail/go-crypto v1.4.1: BSD, text 7
   source https://proxy.golang.org/github.com/!proton!mail/go-crypto/@v/v1.4.1.zip
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2: MIT, text 8
   source https://proxy.golang.org/github.com/asaskevich/govalidator/@v/v0.0.0-20230301143203-a9d515a09cc2.zip
-github.com/aws/aws-sdk-go-v2 v1.47.3: Apache-2.0, text 9
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/@v/v1.47.3.zip
-github.com/aws/aws-sdk-go-v2/config v1.33.9: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/config/@v/v1.33.9.zip
-github.com/aws/aws-sdk-go-v2/credentials v1.20.9: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/credentials/@v/v1.20.9.zip
-github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/feature/ec2/imds/@v/v1.20.3.zip
-github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/configsources/@v/v1.5.6.zip
-github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2/@v/v2.8.6.zip
-github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/v4a/@v/v1.5.6.zip
-github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.21: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding/@v/v1.13.21.zip
-github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url/@v/v1.14.6.zip
-github.com/aws/aws-sdk-go-v2/service/kms v1.61.4: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/kms/@v/v1.61.4.zip
-github.com/aws/aws-sdk-go-v2/service/signin v1.10.4: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/signin/@v/v1.10.4.zip
-github.com/aws/aws-sdk-go-v2/service/sso v1.38.4: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/sso/@v/v1.38.4.zip
-github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.4: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/ssooidc/@v/v1.43.4.zip
-github.com/aws/aws-sdk-go-v2/service/sts v1.51.4: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/sts/@v/v1.51.4.zip
-github.com/aws/smithy-go v1.28.5: Apache-2.0, text 10
-  source https://proxy.golang.org/github.com/aws/smithy-go/@v/v1.28.5.zip
+github.com/aws/aws-sdk-go-v2 v1.47.5: Apache-2.0, text 9
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/@v/v1.47.5.zip
+github.com/aws/aws-sdk-go-v2/config v1.33.12: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/config/@v/v1.33.12.zip
+github.com/aws/aws-sdk-go-v2/credentials v1.20.12: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/credentials/@v/v1.20.12.zip
+github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.5: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/feature/ec2/imds/@v/v1.20.5.zip
+github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.8: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/configsources/@v/v1.5.8.zip
+github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.8: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2/@v/v2.8.8.zip
+github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.8: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/internal/v4a/@v/v1.5.8.zip
+github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.23: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding/@v/v1.13.23.zip
+github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.8: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url/@v/v1.14.8.zip
+github.com/aws/aws-sdk-go-v2/service/kms v1.62.2: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/kms/@v/v1.62.2.zip
+github.com/aws/aws-sdk-go-v2/service/signin v1.12.0: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/signin/@v/v1.12.0.zip
+github.com/aws/aws-sdk-go-v2/service/sso v1.39.0: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/sso/@v/v1.39.0.zip
+github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.0: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/ssooidc/@v/v1.44.0.zip
+github.com/aws/aws-sdk-go-v2/service/sts v1.51.6: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/aws/aws-sdk-go-v2/service/sts/@v/v1.51.6.zip
+github.com/aws/smithy-go v1.28.7: Apache-2.0, text 10
+  source https://proxy.golang.org/github.com/aws/smithy-go/@v/v1.28.7.zip
 github.com/beorn7/perks v1.0.1: MIT, text 11
   source https://proxy.golang.org/github.com/beorn7/perks/@v/v1.0.1.zip
 github.com/cenkalti/backoff/v4 v4.3.0: MIT, text 12
@@ -168,10 +168,10 @@ github.com/google/s2a-go v0.1.11: Apache-2.0, text 2
   source https://proxy.golang.org/github.com/google/s2a-go/@v/v0.1.11.zip
 github.com/google/uuid v1.6.0: BSD, text 33
   source https://proxy.golang.org/github.com/google/uuid/@v/v1.6.0.zip
-github.com/googleapis/enterprise-certificate-proxy v0.3.23: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/googleapis/enterprise-certificate-proxy/@v/v0.3.23.zip
-github.com/googleapis/gax-go/v2 v2.26.2: BSD, text 34
-  source https://proxy.golang.org/github.com/googleapis/gax-go/v2/@v/v2.26.2.zip
+github.com/googleapis/enterprise-certificate-proxy v0.3.24: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/googleapis/enterprise-certificate-proxy/@v/v0.3.24.zip
+github.com/googleapis/gax-go/v2 v2.27.0: BSD, text 34
+  source https://proxy.golang.org/github.com/googleapis/gax-go/v2/@v/v2.27.0.zip
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0: BSD, text 35
   source https://proxy.golang.org/github.com/grpc-ecosystem/grpc-gateway/v2/@v/v2.32.0.zip
 github.com/hashicorp/errwrap v1.1.0: MPL-2.0, text 36
@@ -226,8 +226,8 @@ github.com/opencontainers/go-digest v1.0.0: Apache-2.0, text 50
   source https://proxy.golang.org/github.com/opencontainers/go-digest/@v/v1.0.0.zip
 github.com/opencontainers/image-spec v1.1.1: Apache-2.0, text 51
   source https://proxy.golang.org/github.com/opencontainers/image-spec/@v/v1.1.1.zip
-github.com/pandatix/go-abnf v0.5.3: MIT, text 52
-  source https://proxy.golang.org/github.com/pandatix/go-abnf/@v/v0.5.3.zip
+github.com/pandatix/go-abnf v0.5.5: MIT, text 52
+  source https://proxy.golang.org/github.com/pandatix/go-abnf/@v/v0.5.5.zip
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c: BSD, text 53
   source https://proxy.golang.org/github.com/pkg/browser/@v/v0.0.0-20240102092130-5ac0b6a4141c.zip
 github.com/pkg/errors v0.9.1: BSD, text 54
@@ -238,8 +238,8 @@ github.com/prometheus/client_golang v1.25.0: Apache-2.0, text 56
   source https://proxy.golang.org/github.com/prometheus/client_golang/@v/v1.25.0.zip
 github.com/prometheus/client_model v0.6.3: Apache-2.0, text 57
   source https://proxy.golang.org/github.com/prometheus/client_model/@v/v0.6.3.zip
-github.com/prometheus/common v0.73.1: Apache-2.0, text 58
-  source https://proxy.golang.org/github.com/prometheus/common/@v/v0.73.1.zip
+github.com/prometheus/common v0.74.0: Apache-2.0, text 58
+  source https://proxy.golang.org/github.com/prometheus/common/@v/v0.74.0.zip
 github.com/prometheus/procfs v0.22.0: Apache-2.0, text 59
   source https://proxy.golang.org/github.com/prometheus/procfs/@v/v0.22.0.zip
 github.com/ryanuber/go-glob v1.0.0: MIT, text 60
@@ -262,14 +262,14 @@ github.com/sigstore/sigstore v1.11.3: Apache-2.0, text 2
   source https://proxy.golang.org/github.com/sigstore/sigstore/@v/v1.11.3.zip
 github.com/sigstore/sigstore-go v1.4.0: Apache-2.0, text 2
   source https://proxy.golang.org/github.com/sigstore/sigstore-go/@v/v1.4.0.zip
-github.com/sigstore/sigstore/pkg/signature/kms/aws v1.11.1: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/aws/@v/v1.11.1.zip
-github.com/sigstore/sigstore/pkg/signature/kms/azure v1.11.1: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/azure/@v/v1.11.1.zip
-github.com/sigstore/sigstore/pkg/signature/kms/gcp v1.11.1: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/gcp/@v/v1.11.1.zip
-github.com/sigstore/sigstore/pkg/signature/kms/hashivault v1.11.1: Apache-2.0, text 2
-  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/hashivault/@v/v1.11.1.zip
+github.com/sigstore/sigstore/pkg/signature/kms/aws v1.11.3: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/aws/@v/v1.11.3.zip
+github.com/sigstore/sigstore/pkg/signature/kms/azure v1.11.3: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/azure/@v/v1.11.3.zip
+github.com/sigstore/sigstore/pkg/signature/kms/gcp v1.11.3: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/gcp/@v/v1.11.3.zip
+github.com/sigstore/sigstore/pkg/signature/kms/hashivault v1.11.3: Apache-2.0, text 2
+  source https://proxy.golang.org/github.com/sigstore/sigstore/pkg/signature/kms/hashivault/@v/v1.11.3.zip
 github.com/sigstore/timestamp-authority/v2 v2.2.0: Apache-2.0, text 2
   source https://proxy.golang.org/github.com/sigstore/timestamp-authority/v2/@v/v2.2.0.zip
 github.com/sirupsen/logrus v1.10.1: MIT, text 63
@@ -308,8 +308,8 @@ go.uber.org/multierr v1.11.0: MIT, text 70
   source https://proxy.golang.org/go.uber.org/multierr/@v/v1.11.0.zip
 go.uber.org/zap v1.28.0: MIT, text 71
   source https://proxy.golang.org/go.uber.org/zap/@v/v1.28.0.zip
-go.yaml.in/yaml/v2 v2.4.4: Apache-2.0, text 72
-  source https://proxy.golang.org/go.yaml.in/yaml/v2/@v/v2.4.4.zip
+go.yaml.in/yaml/v2 v2.4.5: Apache-2.0, text 72
+  source https://proxy.golang.org/go.yaml.in/yaml/v2/@v/v2.4.5.zip
 go.yaml.in/yaml/v3 v3.0.5: Apache-2.0, text 73
   source https://proxy.golang.org/go.yaml.in/yaml/v3/@v/v3.0.5.zip
 golang.org/x/crypto v0.58.0: BSD, text 1
@@ -318,28 +318,28 @@ golang.org/x/mod v0.42.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/mod/@v/v0.42.0.zip
 golang.org/x/net v0.62.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/net/@v/v0.62.0.zip
-golang.org/x/oauth2 v0.37.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.zip
-golang.org/x/sync v0.24.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/sync/@v/v0.24.0.zip
-golang.org/x/sys v0.49.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/sys/@v/v0.49.0.zip
-golang.org/x/term v0.47.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/term/@v/v0.47.0.zip
+golang.org/x/oauth2 v0.38.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/oauth2/@v/v0.38.0.zip
+golang.org/x/sync v0.25.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/sync/@v/v0.25.0.zip
+golang.org/x/sys v0.50.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/sys/@v/v0.50.0.zip
+golang.org/x/term v0.48.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/term/@v/v0.48.0.zip
 golang.org/x/text v0.43.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/text/@v/v0.43.0.zip
 golang.org/x/time v0.16.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/time/@v/v0.16.0.zip
 gomodules.xyz/jsonpatch/v2 v2.4.0: Apache-2.0, text 27
   source https://proxy.golang.org/gomodules.xyz/jsonpatch/v2/@v/v2.4.0.zip
-google.golang.org/api v0.305.0: BSD, text 74
-  source https://proxy.golang.org/google.golang.org/api/@v/v0.305.0.zip
-google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d: Apache-2.0, text 2
-  source https://proxy.golang.org/google.golang.org/genproto/@v/v0.0.0-20260715232425-e75dac1f907d.zip
+google.golang.org/api v0.310.0: BSD, text 74
+  source https://proxy.golang.org/google.golang.org/api/@v/v0.310.0.zip
+google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941: Apache-2.0, text 2
+  source https://proxy.golang.org/google.golang.org/genproto/@v/v0.0.0-20261012220534-4341edf3f941.zip
 google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941: Apache-2.0, text 2
   source https://proxy.golang.org/google.golang.org/genproto/googleapis/api/@v/v0.0.0-20261012220534-4341edf3f941.zip
-google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8: Apache-2.0, text 2
-  source https://proxy.golang.org/google.golang.org/genproto/googleapis/rpc/@v/v0.0.0-20261005182115-fad411399dd8.zip
+google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b: Apache-2.0, text 2
+  source https://proxy.golang.org/google.golang.org/genproto/googleapis/rpc/@v/v0.0.0-20261019180522-ce908d29299b.zip
 google.golang.org/grpc v1.84.0: Apache-2.0, text 75
   source https://proxy.golang.org/google.golang.org/grpc/@v/v1.84.0.zip
 google.golang.org/protobuf v1.36.12: BSD, text 76
