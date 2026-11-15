@@ -173,3 +173,17 @@ func TestAttentionCategoryOrderHasProvisioning(t *testing.T) {
 		t.Errorf("provisioning is not right after invalid: %v", cats)
 	}
 }
+
+func TestProvisioningAttentionSortedAndCountedOnOverview(t *testing.T) {
+	staging := func(r *RawProvisioning) { r.Environment = "staging" }
+	q := NewQuery(provisioningSnap(t, 0, mailFleet(notifier("1.0.0", false, "staging", "production")),
+		[]RawProvisioning{mailReport(failed, staging), mailReport(failed)}))
+	items := provisioningItems(t, q)
+	if len(items) != 2 || items[0].Label != "notifier: email-provider in production is Failed" ||
+		items[1].Label != "notifier: email-provider in staging is Failed" {
+		t.Fatalf("items = %+v", items)
+	}
+	if got := q.servicesNeedingAttention(); got != 1 {
+		t.Errorf("servicesNeedingAttention = %d, want notifier only", got)
+	}
+}

@@ -830,7 +830,8 @@ func (q *Query) servicesNeedingAttention() int {
 }
 
 // markDependencyAttention marks the consumers of an unresolved or out-of-range
-// declared dependency and of a deprecated or past-sunset provider.
+// declared dependency, of a deprecated or past-sunset provider and of a
+// resource that failed to provision or reports stale.
 func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
@@ -840,6 +841,9 @@ func (q *Query) markDependencyAttention(need map[ServiceKey]bool) {
 		}
 	}
 	for _, it := range q.lifecycleAttention() {
+		need[ServiceKey(it.Service)] = true
+	}
+	for _, it := range q.provisioningAttention() {
 		need[ServiceKey(it.Service)] = true
 	}
 }
