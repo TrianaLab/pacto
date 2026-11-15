@@ -538,7 +538,7 @@ pacto delivery plan [flags]
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for plan
-      --on-behalf-of string                                         the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -564,7 +564,7 @@ pacto delivery propose [flags]
   -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
-      --on-behalf-of string                                         the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
@@ -922,6 +922,32 @@ pacto evidence sign <evidence.json> [flags]
       --ttl duration              validity window; 0 disables expiry (default 24h0m0s)
 ```
 
+### `pacto evidence usage`
+
+Writes an EvidenceSet that reports how much of the resource a consumer's configuration reference or dependency asked for is used, and what it costs. Sign it with pacto evidence sign and post it with pacto evidence send; the signing key needs ResourceUsage in allowedObservationKinds. Pacto never sums or converts the figures. The subject defaults to &lt;repository&gt;/<environment or default>/usage/&lt;kind&gt;/&lt;name&gt;, so a usage report never replaces the resource's provisioning report. Prints the EvidenceSet JSON.
+
+```
+pacto evidence usage [flags]
+```
+
+**Flags:**
+
+```
+      --collector string       collector id recorded as provenance (defaults to pacto)
+      --configuration string   consumer configuration (with a ref) that asked for the resource
+      --contract string        consumer contract revision: oci://<repo>@sha256:<digest>
+      --cost string            cost as amount:CURRENCY:period, such as 212.40:USD:P30D (ISO 4217 code, ISO 8601 period from P1D to P1Y)
+      --dependency string      consumer dependency that asked for the resource
+      --environment string     consumer environment the resource serves
+      --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
+  -h, --help[=true|false]      help for usage
+      --metric stringArray     a measured quantity as name=value[:unit], such as storage-used=31:Gi (repeatable, at most 16)
+      --observed-at string     observation timestamp (RFC3339; defaults to now)
+      --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no figures (default "Observed")
+      --provider string        provider slug (lowercase letters, digits and hyphens)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/usage/<kind>/<name>)
+```
+
 ### `pacto evidence verify`
 
 Decodes an envelope and verifies its signature, freshness and trust against a --trust public-key file or directory of &lt;keyId&gt;.pub files. Exits non-zero when verification fails.
@@ -983,7 +1009,7 @@ pacto fleet [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for fleet
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
@@ -997,7 +1023,7 @@ pacto fleet [flags]
 
 ### `pacto fleet attention`
 
-Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract.
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.
 
 ```
 pacto fleet attention [flags]
@@ -1039,22 +1065,25 @@ pacto fleet entities [text] [flags]
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
+      --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
+      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
+      --lifecycle string                 offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
-      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
+      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace
       --service string                   this service and its revisions and targets, by service key
-      --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first)
+      --sort string                      order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)
       --source string                    entities read from this fleet source, by source key
-      --source-health string             sources by health (available, partial, stale, unavailable)
+      --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out
@@ -1141,6 +1170,20 @@ pacto fleet neighborhood <service> [flags]
       --views string        comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
 ```
 
+### `pacto fleet overview`
+
+Summarizes the organization in one answer: target compliance (with how many compliant targets rest on stale evidence), operational health, the knowledge gaps the contracts leave, ownership, evaluation coverage, the business domains and where to look next. A target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell; unknown is never a pass.
+
+```
+pacto fleet overview [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for overview
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).
@@ -1208,7 +1251,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -1220,6 +1263,7 @@ pacto fleet status [flags]
       --golden-path-deployed[=true|false]   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
   -h, --help[=true|false]                   help for status
       --invalid[=true|false]                report structurally invalid contracts
+      --lifecycle[=true|false]              report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)
       --limit int                           maximum results (0 = 200)
       --missing-readiness[=true|false]      report revisions without a readiness assessment
       --needs-attention[=true|false]        report every attention category
@@ -1318,7 +1362,7 @@ Composes a semantic contract diff (old→new) with the operational graph to answ
 
 When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
 
-With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
+With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
@@ -1345,6 +1389,9 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
   pacto impact --unavailable redis --local .
   pacto impact --removed postgresql --local . --target-state targets.yaml
 
+  # What breaks if every provider of the postgresql offering becomes unavailable
+  pacto impact --unavailable offering:postgresql --local .
+
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
@@ -1354,7 +1401,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
 ```
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration              mark target evidence older than this as stale (0 disables)
+      --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
@@ -1367,14 +1414,14 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --old-set stringArray             set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray          values file to merge into the old contract (can be repeated)
       --regressed string                what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures
-      --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed
+      --removed string                  what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering
       --root stringArray                contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --stats-context string            comma-separated context to include in the run record: repository, run-url, environment=<name>; nothing is included unless named
       --stats-file string               write the run record to this file for pacto stats publish, replacing the record it holds, so give each command its own file; default $PACTO_STATS_FILE
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
-      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
 ```
 
 ---
@@ -1663,11 +1710,11 @@ pacto mcp [bundle-ref] [flags]
       --exchange-audience string      with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --fleet[=true|false]            expose read-only operational-graph (fleet) query tools
-      --freshness duration            mark target evidence older than this as stale (0 disables)
+      --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for mcp
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
@@ -1834,8 +1881,9 @@ pacto publish [dir] [flags]
 **Flags:**
 
 ```
+      --correlation-id string      with --propose, an id that ties the promote to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
   -h, --help[=true|false]          help for publish
-      --on-behalf-of string        with --propose, the person an agent acts for (asserted, not verified); required when an agent proposes, never a service account, and that person may not approve the change
+      --on-behalf-of string        with --propose, the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account, and that person may not approve the change
   -p, --path string                path to contract directory, the same as [dir] (default: current directory)
       --plan[=true|false]          show what is missing and what refuses it; change nothing
       --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
@@ -1965,7 +2013,7 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ## `pacto stats`
 
-Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is unknown, never 0. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
+Total the run records in a stats repository for a time window, as text or JSON. Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. Every answer says how many records were read, how many could not be read and which bound cut the read; a rate with nothing to take it over is marked unknown. With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.
 
 ```
 pacto stats [flags]
@@ -1985,7 +2033,7 @@ pacto stats [flags]
       --by string                  group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
@@ -1995,16 +2043,16 @@ pacto stats [flags]
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --service string             total only the run records of this service
+      --service string             total only the run records of this service: the contract's service.name
       --since string               start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
       --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-      --until string               end of the window: 30d, 12h, a date or RFC 3339 (default now)
+      --until string               end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
 
 ### `pacto stats publish`
 
-Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
+Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. Operation records are written only by the delivery promoter and are refused. Every file is tried; the command fails when any of them could not be read, parsed or published. The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.
 
 ```
 pacto stats publish <file...> [flags]
@@ -2045,7 +2093,7 @@ pacto tui [flags]
 ```
       --cache[=true|false]         include every bundle in the local OCI cache as an offline baseline revision
       --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration         mark target evidence older than this as stale (0 disables)
+      --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for tui
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])

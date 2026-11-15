@@ -168,10 +168,11 @@ func TestMCPStatsSignedInIsRestricted(t *testing.T) {
 	expect(t, !isErr, "pacto_stats: %s", text)
 	var st stats.Stats
 	expect(t, json.Unmarshal([]byte(text), &st) == nil, "decode: %s", text)
-	expect(t, st.Hidden.Present && st.Completeness == fleet.CompletenessPartial && st.RecordsRead == 1 && st.Runs == 1, "answer = %s", text)
+	// Only the anchors of the services in the view are read, so the hidden
+	// vault records are never listed and nothing hints at them.
+	expect(t, !st.Hidden.Present && st.Completeness == fleet.CompletenessPartial && st.RecordsRead == 1 && st.Runs == 1, "answer = %s", text)
 	expect(t, len(st.Groups) == 1 && st.Groups[0].Label == "orders", "groups = %+v", st.Groups)
 	expect(t, !strings.Contains(text, "vault") && !strings.Contains(text, runrecord.AnchorTag("vault")), "the hidden service is named: %s", text)
-	expect(t, strings.Contains(text, stats.LimitationOutsideView), "no outside-view limitation: %s", text)
 }
 
 func TestRestrictedServiceFilterHiddenIsNotFound(t *testing.T) {
@@ -243,6 +244,7 @@ func signedInRemoteStats(t *testing.T) (h http.Handler, reviews map[string][]str
 	opA, opB := recordAs(t, "operation.golden.json", "orders"), recordAs(t, "operation.golden.json", "orders")
 	opA.ID, opA.Environment, opA.Stage = "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a", &runrecord.StageRef{Namespace: "prod-a", Name: "prod-a", Cluster: opA.Stage.Cluster}
 	opB.ID, opB.Environment, opB.Stage = "0f6c2a1e-5b7d-4c3a-9e2f-00000000000b", "prod-b", &runrecord.StageRef{Namespace: "prod-b", Name: "prod-b", Cluster: opB.Stage.Cluster}
+	opA.ServiceDomain, opB.ServiceDomain = "", "" // orders is in the default domain
 	path := statsRegistryOf(t, true, opA, opB)
 	var mu sync.Mutex
 	reviews = map[string][]string{}
@@ -315,4 +317,13 @@ func TestMCPStatsSignedInNeverUsesServerCredentials(t *testing.T) {
 	remoteStatsText(t, h)
 	expect(t, len(reviews["process-token"]) == 0, "the server's own client was reviewed: %v", reviews["process-token"])
 	expect(t, len(reviews["for-the-cluster"]) == 2, "the caller's own client reviews each snapshot namespace once: %v", reviews)
+}
+
+// A fleet key the snapshot cannot resolve to a service.name is an error,
+// never a confident empty answer read from an anchor that holds nothing.
+func TestMCPStatsUnknownFleetKeyIsAnError(t *testing.T) {
+	path := statsRegistry(t, allFixtures...)
+	s := statsMCPSession(t, map[string]string{"transport": "stdio", "stats-read-registry": path})
+	text, isErr := callText(t, s, "pacto_stats", map[string]any{"service": "nowhere/orders"})
+	expect(t, isErr && strings.Contains(text, "nowhere/orders"), "answer = %s", text)
 }

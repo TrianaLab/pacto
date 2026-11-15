@@ -330,9 +330,10 @@ stats_audit() {
   jq -s -e 'any(.[]; (.type == "rollback" or (.type == "promote" and .outcome == "Failed"))
     and .stage.namespace != null and .environment != null and .actorClass != null and .to != null)' "$tmp"/stats/*.json >/dev/null \
     || fail "no run record of a rollback or a failed promote names its Stage namespace, environment, actor class and target"
-  # The run's people and agents: no record names any of them.
-  named="$(grep -El '"(alice|carol|ops|agent-a|agent-b)"|serviceaccount:agents' "$tmp"/stats/*.json | wc -l | tr -d ' ')"
-  [ "$named" = 0 ] || fail "$named run records name a user of the run"
+  # The run's people and agents: no record names any of them. grep exits 1
+  # when nothing matches, which pipefail would turn into a silent exit.
+  named="$(grep -El '"(alice|carol|ops|agent-a|agent-b)"|serviceaccount:agents' "$tmp"/stats/*.json || true)"
+  [ -z "$named" ] || fail "run records name a user of the run: $named"
   pod="$(kubectl -n "$DNS" get pods -l app.kubernetes.io/component=delivery-promoter -o jsonpath='{.items[0].metadata.name}')"
   metrics="$(kubectl get --raw "/api/v1/namespaces/${DNS}/pods/${pod}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
   ! grep -Eq '^pacto_delivery_stats_dropped_total\{reason="publish-failed"\} [1-9]' <<<"$metrics" \

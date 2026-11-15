@@ -935,6 +935,8 @@ type StatusQuery struct {
 	// UnsatisfiedRanges reports declared dependencies whose provider is in the
 	// fleet at a version outside the consumer's compatibility range.
 	UnsatisfiedRanges bool
+	// Lifecycle reports services that use a deprecated or past-sunset provider.
+	Lifecycle bool
 	// Unowned reports services no source knows an owner for.
 	Unowned bool
 	// Undeclared reports runtime calls no contract declares and callers with no
@@ -979,9 +981,16 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryReadiness:    sq.MissingReadiness,
 		categoryUnresolved:   sq.UnresolvedDeps,
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
+		categoryLifecycle:    sq.Lifecycle,
 		categoryUndeclared:   sq.Undeclared,
 		categoryUnowned:      sq.Unowned,
 		categoryGoldenPath:   sq.GoldenPathDeployed,
+		// No flag selects provisioning alone: NeedsAttention and the empty
+		// query include it, so Status stays a projection of collectAttention.
+		categoryProvisioning: false,
+		// Nor does any flag select health or knowledge alone, for the same reason.
+		categoryHealth:    false,
+		categoryKnowledge: false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

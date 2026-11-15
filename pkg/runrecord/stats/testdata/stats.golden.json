@@ -8,7 +8,7 @@
   "provenance": "unsigned statistics",
   "recordsRead": 6,
   "runs": 5,
-  "distinctChanges": 2,
+  "distinctChanges": 1,
   "skipped": {
     "malformed": 1,
     "oversized": 0,
@@ -22,7 +22,7 @@
   "limitations": [
     {
       "code": "RUN_RECORDS_SKIPPED",
-      "message": "1 records could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number"
+      "message": "1 record could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number"
     }
   ],
   "by": "service",
@@ -36,7 +36,7 @@
       "unknown": 1
     },
     "gates": {
-      "clear": 1,
+      "clear": 0,
       "blocked": 1,
       "unverified": 0
     },
@@ -85,7 +85,7 @@
           "unknown": 1
         },
         "gates": {
-          "clear": 1,
+          "clear": 0,
           "blocked": 1,
           "unverified": 0
         },

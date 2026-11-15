@@ -33,6 +33,7 @@ func rec(kind, newRev string, at time.Time) runrecord.Record {
 func gated(r runrecord.Record, verdict string, blocking, unknown int) runrecord.Record {
 	r.Gate = &runrecord.Gate{Verdict: verdict}
 	r.Consumers = &runrecord.Consumers{Blocking: blocking, Unknown: unknown}
+	r.Completeness = string(fleet.CompletenessComplete)
 	return r
 }
 
@@ -150,6 +151,64 @@ func TestAggregateConsumersProtectedSumsBlocking(t *testing.T) {
 	}
 }
 
+// A blocked change judged on a partial snapshot may have missed consumers:
+// the count is a lower bound and the answer says so.
+func TestAggregateConsumersFromPartialSnapshot(t *testing.T) {
+	a := gated(rec(runrecord.KindImpact, "sha256:a", hoursAgo(2)), runrecord.VerdictBlocked, 2, 0)
+	b := gated(rec(runrecord.KindImpact, "sha256:b", hoursAgo(2)), runrecord.VerdictBlocked, 2, 0)
+	b.Completeness = string(fleet.CompletenessPartial)
+	st := agg(set(a, b))
+	if st.Totals.ConsumersProtected != (Protected{Count: 4, Partial: 1}) || st.Completeness != fleet.CompletenessPartial || !hasLimitation(st, LimitationConsumersPartial) {
+		t.Fatalf("answer = %+v", st)
+	}
+	if st := agg(set(a)); st.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("complete snapshot = %+v", st)
+	}
+}
+
+// A publish record names versions and its impact names digests: the change
+// counts once, and the publish run counts in runs only.
+func TestAggregatePublishCountsInRunsOnly(t *testing.T) {
+	impact := gated(rec(runrecord.KindImpact, "sha256:new", hoursAgo(3)), runrecord.VerdictClear, 0, 0)
+	pub := rec(runrecord.KindPublish, "1.3.0", hoursAgo(2))
+	pub.OldRevision = "1.2.0"
+	st := agg(set(impact, pub))
+	if st.DistinctChanges != 1 || st.Runs != 2 || st.Totals.Gates != (Gates{Clear: 1}) {
+		t.Fatalf("changes %d runs %d gates %+v", st.DistinctChanges, st.Runs, st.Totals.Gates)
+	}
+}
+
+// A repository the tag scan did not find is said apart from an empty window.
+func TestAggregateRepositoryMissing(t *testing.T) {
+	st := agg(RecordSet{RepositoryMissing: true})
+	if st.Completeness != fleet.CompletenessEmpty || len(st.Limitations) != 1 || st.Limitations[0].Code != LimitationRepositoryMissing {
+		t.Fatalf("answer = %+v", st.Limitations)
+	}
+}
+
+// A cut read says the services after the cut were not read at all; only an
+// unrestricted reader learns how many.
+func TestAggregateTruncatedSaysUnreadServices(t *testing.T) {
+	cut := set(rec(runrecord.KindDiff, "sha256:new", hoursAgo(1)))
+	cut.Truncated, cut.TruncatedAnchor = "more than 3 run records", runrecord.AnchorTag("orders")
+	place := func(string) (Placement, bool) { return Placement{}, true }
+	for unread, want := range map[int]string{
+		0: "the read was cut at more than 3 run records while listing the records of orders; records past the bound are left out of every number",
+		1: "the read was cut at more than 3 run records while listing the records of orders; 1 service after it was not read at all; records past the bound are left out of every number",
+		4: "the read was cut at more than 3 run records while listing the records of orders; 4 services after it were not read at all; records past the bound are left out of every number",
+	} {
+		cut.UnreadAnchors = unread
+		if st := agg(cut); st.Limitations[0].Message != want {
+			t.Fatalf("unread %d = %q", unread, st.Limitations[0].Message)
+		}
+	}
+	cut.UnreadAnchors = 4 // the map above leaves whichever count it ranged last
+	st := Aggregate(cut, Query{Window: aggWindow}, Scope{Restricted: true, Place: place}, aggNow)
+	if m := st.Limitations[0].Message; !strings.Contains(m, "; services after it were not read at all") || strings.ContainsAny(m[strings.Index(m, ";"):], "0123456789") {
+		t.Fatalf("restricted = %q", m)
+	}
+}
+
 func TestAggregateWindowFilters(t *testing.T) {
 	w := Window{Since: hoursAgo(10), Until: hoursAgo(5)}
 	atSince := rec(runrecord.KindDiff, "sha256:since", w.Since)
@@ -198,6 +257,11 @@ func TestAggregateSkippedOrTruncatedIsPartial(t *testing.T) {
 	if st.Completeness != fleet.CompletenessPartial || st.Skipped != (Skipped{Oversized: 1, Unreadable: 2}) ||
 		st.Limitations[0].Message != "3 records could not be read: 0 malformed, 1 oversized, 2 unreadable; they are left out of every number" {
 		t.Fatalf("skipped = %+v", st)
+	}
+	one := set(r)
+	one.Skipped = map[string]Skipped{"pacto-stats-a": {Malformed: 1}}
+	if st := agg(one); st.Limitations[0].Message != "1 record could not be read: 1 malformed, 0 oversized, 0 unreadable; they are left out of every number" {
+		t.Fatalf("one skipped = %+v", st.Limitations)
 	}
 	truncated := set(r)
 	truncated.Truncated = "more than 3 run records"

@@ -48,17 +48,47 @@ type Scope struct {
 	NoDelivery string
 	// Snapshot is the fleet snapshot owner and domain are resolved from.
 	Snapshot *Attribution
+	// Names are the service names in a restricted caller's view. A
+	// restricted read reads only their anchors, and a skipped record counts
+	// under the anchor of a name Place accepts.
+	Names []string
 }
 
-// FleetPlacement places a service with full, the unrestricted snapshot. A
-// name the snapshot does not know or cannot tell apart is unplaced. With a
-// view, the resolved service must also be in it, so a bare name never lands
-// on a visible service when the snapshot holds a hidden one of that name.
+// VisibleNames is the sorted, unique service names view holds.
+func VisibleNames(view *fleet.Query) []string {
+	var names []string
+	// ponytail: read-only walk of the shared snapshot; bounded by its size.
+	for _, s := range view.SnapshotForSerialization().Services {
+		names = append(names, s.Name)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// FleetPlacement places a service, a bare name or a service key, with full,
+// the unrestricted snapshot. A name the snapshot does not know is unplaced,
+// and so is a bare name more than one service carries, even when one of them
+// is the default-domain service whose key is that name: run records name
+// services by their bare name only. With a view, the resolved service must
+// also be in it, so a bare name never lands on a visible service when the
+// snapshot holds a hidden one of that name.
 func FleetPlacement(full, view *fleet.Query) func(string) (Placement, bool) {
+	var named map[string]int
 	return memoize(func(name string) (Placement, bool) {
 		sv, err := full.GetService(name)
 		if err != nil {
 			return Placement{}, false
+		}
+		if domain, _ := fleet.ParseServiceKey(fleet.ServiceKey(name)); domain == "" {
+			if named == nil {
+				named = map[string]int{}
+				for _, s := range full.SnapshotForSerialization().Services {
+					named[s.Name]++
+				}
+			}
+			if named[sv.Service.Name] > 1 {
+				return Placement{}, false
+			}
 		}
 		if view != nil {
 			if _, err := view.GetService(string(sv.Service.Key)); err != nil {
@@ -100,9 +130,18 @@ func (sc Scope) place(service string) (Placement, bool) {
 	return sc.Place(service)
 }
 
+// recordService is the service r names for placement: an operation record
+// that carries its service's domain names the service key, else the bare name.
+func recordService(r runrecord.Record) string {
+	if r.Kind == runrecord.KindOperation && r.ServiceDomain != "" {
+		return string(fleet.NewServiceKeyDomain(r.ServiceDomain, r.Service))
+	}
+	return r.Service
+}
+
 // sees reports whether a restricted caller may see r.
 func (sc Scope) sees(r runrecord.Record) bool {
-	if _, ok := sc.place(r.Service); !ok {
+	if _, ok := sc.place(recordService(r)); !ok {
 		return false
 	}
 	if r.Kind != runrecord.KindOperation {
@@ -116,9 +155,9 @@ func (sc Scope) sees(r runrecord.Record) bool {
 }
 
 // visibleEntries keeps the entries the caller may see and sums the skipped
-// counts of the anchors it may see: those of the visible entries' services
-// and of service, the filter, when the caller can place it. outside says
-// whether anything was left out; it is never a count.
+// counts of the anchors it may see: those of the visible entries' services,
+// of the names in its view and of service, the filter, that Place accepts.
+// outside says whether anything was left out; it is never a count.
 func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside bool) {
 	anchors := map[string]bool{}
 	for _, e := range entries {
@@ -132,8 +171,10 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 			anchors[runrecord.AnchorTag(r.Service)] = true
 		}
 	}
-	if _, ok := sc.place(service); ok && service != "" {
-		anchors[runrecord.AnchorTag(service)] = true
+	for _, name := range append([]string{service}, sc.Names...) {
+		if _, ok := sc.place(name); ok && name != "" {
+			anchors[runrecord.AnchorTag(name)] = true
+		}
 	}
 	for anchor, s := range skipped {
 		if sc.Restricted && !anchors[anchor] {
@@ -160,7 +201,7 @@ func truncatedService(anchor string, visible []Entry) string {
 func groupKey(r runrecord.Record, by string, sc Scope) (key, label string) {
 	switch by {
 	case "owner", "domain":
-		p, ok := sc.place(r.Service)
+		p, ok := sc.place(recordService(r))
 		switch {
 		case !ok || by == "domain" && p.DomainUnknown:
 			return keyUnknown, "unknown"
@@ -205,7 +246,7 @@ func groups(entries, publishes []Entry, by string, sc Scope) []Group {
 	// Every comparison runs whatever order the map yields, so coverage
 	// never depends on it.
 	unnamed := func(g Group) int {
-		if strings.HasPrefix(g.Key, "(") {
+		if g.Key == keyUnknown || g.Key == keyUnowned || g.Key == keyNone {
 			return 1
 		}
 		return 0

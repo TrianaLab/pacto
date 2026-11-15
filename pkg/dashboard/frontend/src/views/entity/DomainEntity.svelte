@@ -8,6 +8,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import ScopeHealth from '../../components/ScopeHealth.svelte';
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
   import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
@@ -23,7 +24,7 @@
   // Every entity on this page is in this domain, so "domain <name>" on each row is the
   // same word again and is dropped from the previews.
   const local = (items) => (items ?? []).map((r) => (r?.businessDomain ? { ...r, businessDomain: undefined } : r));
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ businessDomain: key, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ businessDomain: key, category, ...extra }));
   const ownership = $derived(ownershipSegments(d.ownership,
     ownershipHrefs((ownership) => fleetServicesUrl({ businessDomain: key, ownership }))));
 </script>
@@ -39,6 +40,7 @@
     </p>
     <!-- Service compliance is the figure above (one carrier per fact, L3). -->
     <PostureBars summary={sum} {attentionUrl} compliance={false} empty="Nothing running has been seen for the services in this domain yet." />
+    <ScopeHealth summary={sum} filter={{ businessDomain: key }} noun="in this domain" />
     <DistributionBar
       title="Declared ownership"
       description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."

@@ -484,6 +484,14 @@ func TestInbox(t *testing.T) {
 	f.caller.Class = delivery.ClassBreakGlass
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, names(inbox["held"]) == "anyone:accept-unknown", "break-glass sees what only it can resolve: %v", inbox["held"])
+	// ...unless an agent named break-glass as the person it acts for, under any spelling.
+	for i := range f.ops {
+		if f.ops[i].Metadata.Name == "anyone" {
+			f.ops[i].Spec.OnBehalfOf = &delivery.Principal{User: " " + strings.ToUpper(f.caller.User)}
+		}
+	}
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 0, "the named person is not asked: %v", inbox["held"])
 }
 
 func TestEnvironments(t *testing.T) {

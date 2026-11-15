@@ -152,7 +152,9 @@ type EntityRef struct {
 	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 	// Owner is who a SERVICE reference's revisions name, set only on list answers:
 	// the owner's label when they agree on one, "N owners claim it" when they do
-	// not, and empty when none declares an owner.
+	// not, "declared by contacts only" for one owner that names no team or
+	// DRI, and empty when none declares an owner. On an OFFERING list row it is
+	// the same over every provider's revisions.
 	Owner string `json:"owner,omitempty"`
 	// Targets counts what a SERVICE reference runs on; Services counts the services
 	// an OWNER reference's revisions claim. Both are set only on list answers.
@@ -177,6 +179,43 @@ type EntityRef struct {
 	// that names an owner names this one alone. It is the denominator of the
 	// owner's non-compliant rate (see [EntityRef.RateBase]).
 	Owned int `json:"owned,omitempty"`
+	// Unknown, Stale, FailingHealth and WithGaps count, like NonCompliant, the
+	// services of an OWNER or DOMAIN list row (owned outright for an owner) whose
+	// compliance is unknown, that run a target on stale evidence, that run a
+	// target failing its health check and that leave knowledge out.
+	Unknown       int `json:"unknown,omitempty"`
+	Stale         int `json:"stale,omitempty"`
+	FailingHealth int `json:"failingHealth,omitempty"`
+	WithGaps      int `json:"withGaps,omitempty"`
+	// Lifecycle, HiddenProviders, Availability, AvailabilityProvenance,
+	// Consumers, HiddenConsumers, FailedRequests and TargetsUnknown are set only on
+	// OFFERING list answers.
+	//
+	// Lifecycle is the worst lifecycle over the providers' current revisions:
+	// each provider's newest revision a target runs, else its newest readable
+	// one. It is unknown when a provider has no such revision (observed only),
+	// the revision a target runs is unreadable or the viewer may not see a
+	// provider.
+	Lifecycle string `json:"lifecycle,omitempty" enum:"supported,deprecated,sunset,unknown"`
+	// HiddenProviders counts the providers the viewer may not see: Owner,
+	// Consumers and FailedRequests then speak only for the visible ones.
+	HiddenProviders int `json:"hiddenProviders,omitempty"`
+	// Availability is the offering's availability roll-up (see [Availability]),
+	// and AvailabilityProvenance the provenance of the environment that sets
+	// its worst state: observed, inferred or unknown.
+	Availability           AvailabilityState `json:"availability,omitempty" enum:"available,degraded,unavailable,unknown"`
+	AvailabilityProvenance string            `json:"availabilityProvenance,omitempty" enum:"observed,inferred,unknown"`
+	// Consumers counts the distinct services with a declared use of any
+	// provider; HiddenConsumers the consumers the viewer may not see, which
+	// makes Consumers and FailedRequests lower bounds.
+	Consumers       int `json:"consumers,omitempty"`
+	HiddenConsumers int `json:"hiddenConsumers,omitempty"`
+	// FailedRequests counts the distinct consumers with a failed provisioning
+	// request of any provider.
+	FailedRequests int `json:"failedRequests,omitempty"`
+	// TargetsUnknown says the viewer cannot see every target of a provider, or
+	// a target source is incomplete: Targets is then 0 and means unknown.
+	TargetsUnknown bool `json:"targetsUnknown,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY
@@ -353,6 +392,41 @@ func (q *Query) UsesOf(provider ServiceKey) ([]OfferingUse, []Limitation) {
 	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Key == provider }, "", true)
 }
 
+// HiddenProviders counts, in a restricted snapshot, the providers of
+// offering the viewer may not see. They are never named.
+func (q *Query) HiddenProviders(offering string) int { return q.snap.hiddenProviders[offering] }
+
+// HiddenDependentsOf counts, in a restricted snapshot, the distinct hidden
+// services that depend on or call any of keys. They are never named.
+func (q *Query) HiddenDependentsOf(keys []ServiceKey) int {
+	seen := map[ServiceKey]bool{}
+	for _, k := range keys {
+		for d := range q.snap.hiddenDependents[k] {
+			seen[d] = true
+		}
+	}
+	return len(seen)
+}
+
+// HiddenReferrersOf counts, in a restricted snapshot, the distinct hidden
+// services that reference the policy of any of keys and depend on or call
+// none of them, so with [Query.HiddenDependentsOf] each hidden service is
+// counted once. They are never named.
+func (q *Query) HiddenReferrersOf(keys []ServiceKey) int {
+	seen := map[ServiceKey]bool{}
+	for _, k := range keys {
+		for d := range q.snap.hiddenReferrers[k] {
+			seen[d] = true
+		}
+	}
+	for _, k := range keys {
+		for d := range q.snap.hiddenDependents[k] {
+			delete(seen, d)
+		}
+	}
+	return len(seen)
+}
+
 // TemplatesReferencing are the golden paths whose revisions reference
 // provider through a resolved policy reference, sorted. A golden path runs
 // nowhere, so impact lists them to review and never counts them as consumers.
@@ -377,6 +451,12 @@ func domainEntityRef(name string) EntityRef {
 // whose membership has the given provenance.
 func offeringEntityRef(name, provenance string) EntityRef {
 	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name, OfferingProvenance: provenance}
+}
+
+// OfferingRef is the route-neutral reference to the platform offering name
+// in snap, for callers outside the package.
+func OfferingRef(snap *FleetSnapshot, name string) EntityRef {
+	return offeringEntityRef(name, offeringProvenance(snap, name))
 }
 
 // offeringProvenance is ProvenanceDeclared when any provider of the offering
@@ -426,17 +506,26 @@ type OverviewSummary struct {
 	// visual from a lossy copy has to render the shortfall as an unnamed remainder —
 	// which is how a Warning or Reference target, correctly named on the targets list,
 	// became a grey "Unclassified" slice on the landing page.
-	CompliantTargets          int `json:"compliantTargets"`
-	NonCompliantTargets       int `json:"nonCompliantTargets"`
-	UnknownTargets            int `json:"unknownTargets"`
-	WarningTargets            int `json:"warningTargets"`
-	InvalidTargets            int `json:"invalidTargets"`
-	ReferenceTargets          int `json:"referenceTargets"`
-	NotEvaluatedTargets       int `json:"notEvaluatedTargets"`
-	OtherComplianceTargets    int `json:"otherComplianceTargets"`
-	StaleTargets              int `json:"staleTargets"`
-	UnresolvedRelationships   int `json:"unresolvedRelationships"`
-	UnsatisfiedRanges         int `json:"unsatisfiedRanges"`
+	CompliantTargets       int `json:"compliantTargets"`
+	NonCompliantTargets    int `json:"nonCompliantTargets"`
+	UnknownTargets         int `json:"unknownTargets"`
+	WarningTargets         int `json:"warningTargets"`
+	InvalidTargets         int `json:"invalidTargets"`
+	ReferenceTargets       int `json:"referenceTargets"`
+	NotEvaluatedTargets    int `json:"notEvaluatedTargets"`
+	OtherComplianceTargets int `json:"otherComplianceTargets"`
+	StaleTargets           int `json:"staleTargets"`
+	// StaleCompliantTargets is, of CompliantTargets, how many rest on stale
+	// evidence: a subset, never subtracted from it.
+	StaleCompliantTargets int `json:"staleCompliantTargets" doc:"Of the compliant targets, how many rest on stale evidence; a subset, never subtracted"`
+	// OperationalHealth partitions the complete target population, the same
+	// whole as Targets, by what each target's declared health check reports.
+	OperationalHealth       OperationalHealthTally `json:"operationalHealth"`
+	UnresolvedRelationships int                    `json:"unresolvedRelationships"`
+	UnsatisfiedRanges       int                    `json:"unsatisfiedRanges"`
+	// LifecycleConsumers counts distinct services that use a deprecated or
+	// past-sunset provider (the lifecycle attention items).
+	LifecycleConsumers        int `json:"lifecycleConsumers"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
 	UncontractedCallers       int `json:"uncontractedCallers"`
 	DegradedSources           int `json:"degradedSources"`
@@ -453,6 +542,13 @@ type OverviewSummary struct {
 	// is not the target population.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
+	// Knowledge partitions the services that are no golden path by what their
+	// contracts leave out, and KnowledgeItems is how many `knowledge` attention
+	// items that raises (the tile's count). Coverage sums the assertion coverage
+	// the sources report over the complete target population.
+	Knowledge      KnowledgeTally     `json:"knowledge"`
+	KnowledgeItems int                `json:"knowledgeItems"`
+	Coverage       EvaluationCoverage `json:"coverage"`
 	// Evidence is the fleet's freshness envelope: the third orthogonal question a
 	// service page already answers ("how recently did we look"), at fleet scale and
 	// over the same complete target population. Evidence.Stale equals StaleTargets by
@@ -472,21 +568,28 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit. Domains counts the named domains only.
 	ByDomain []DomainTally `json:"byDomain"`
 	Domains  int           `json:"domains"`
+	// lifecycleSeverity grades the lifecycle tile like its worst item.
+	lifecycleSeverity string
 }
 
 // DomainTally counts the services of one business domain, the targets they run
-// on, how many of those targets are broken, unknown or stale, and how many of the
-// services no source knows an owner for. An empty Domain is the No domain row, or
-// the Unknown domain row when DomainUnknown is set.
+// on, how many of those targets are broken, failing their health check, unknown
+// or stale, and how many of the services declare no owner, have an owner Pacto
+// cannot read, run nowhere or leave knowledge out. An empty Domain is the No
+// domain row, or the Unknown domain row when DomainUnknown is set.
 type DomainTally struct {
 	Domain        string `json:"domain"`
 	DomainUnknown bool   `json:"domainUnknown,omitempty"`
 	Services      int    `json:"services"`
 	Targets       int    `json:"targets"`
 	NonCompliant  int    `json:"nonCompliant"`
+	FailingHealth int    `json:"failingHealth" doc:"Targets whose health check answered and reports it is failing"`
 	Unknown       int    `json:"unknown"`
 	Stale         int    `json:"stale"`
-	Unowned       int    `json:"unowned"`
+	Unowned       int    `json:"unowned" doc:"Services that declare no owner; an owner Pacto cannot read is ownerUnknown"`
+	OwnerUnknown  int    `json:"ownerUnknown" doc:"Services with no owner claim whose contract Pacto cannot read"`
+	NotDeployed   int    `json:"notDeployed" doc:"Services that run nowhere, counted only when Pacto can see every target of the service"`
+	WithGaps      int    `json:"withGaps" doc:"Services with at least one knowledge gap"`
 }
 
 // tallyDomains fills ByDomain and Domains from every service that is not a
@@ -508,13 +611,17 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 			by[k] = dt
 		}
 		dt.Services++
-		if n, _ := q.ownershipState(s); n == 0 {
-			dt.Unowned++
-		}
+		b, _ := q.ownershipBucket(s)
+		dt.Unowned += b2i(b == OwnershipUnowned)
+		dt.OwnerUnknown += b2i(b == OwnershipUnknown)
+		runsNowhere, _ := q.notDeployed(s)
+		dt.NotDeployed += b2i(runsNowhere)
+		dt.WithGaps += b2i(q.withGaps(s))
 		for _, tk := range s.Targets {
 			t := q.snap.Targets[tk]
 			dt.Targets++
 			dt.NonCompliant += b2i(t.Compliance == StatusNonCompliant)
+			dt.FailingHealth += b2i(failingHealth(t))
 			dt.Unknown += b2i(t.Compliance == StatusUnknown)
 			dt.Stale += b2i(t.Stale)
 		}
@@ -532,8 +639,9 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 		named = append(named, *dt)
 	}
 	slices.SortFunc(named, func(a, b DomainTally) int {
-		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown),
-			cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(a.Domain, b.Domain))
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.FailingHealth, a.FailingHealth),
+			cmp.Compare(b.Unknown, a.Unknown), cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(b.WithGaps, a.WithGaps),
+			cmp.Compare(a.Domain, b.Domain))
 	})
 	sum.ByDomain, sum.Domains, _ = boundSlice(named, overviewScopeLimit-len(tail))
 	sum.ByDomain = append(sum.ByDomain, tail...)
@@ -600,8 +708,8 @@ const (
 	EntryPointAttention EntryPointView = "attention"
 	// EntryPointServices: the services list.
 	EntryPointServices EntryPointView = "services"
-	// EntryPointOverview: the overview page.
-	EntryPointOverview EntryPointView = "overview"
+	// EntryPointSources: the sources list, filtered by source health in Category.
+	EntryPointSources EntryPointView = "sources"
 )
 
 // EntryPoint is a suggested navigational starting point described route-neutrally
@@ -613,6 +721,9 @@ type EntryPoint struct {
 	View        EntryPointView `json:"view"`
 	Category    string         `json:"category,omitempty"`
 	Count       int            `json:"count,omitempty"`
+	// ItemCount is set on the lead "Services needing attention" tile only: the
+	// number of attention items its Count services hold, so the tile can say both.
+	ItemCount int `json:"itemCount,omitempty"`
 	// Severity grades the category the same way the attention items inside it are
 	// graded. Without it every entry point rendered in one tone, so the overview
 	// presented a confirmed drift and a missing readiness gate as equally urgent and
@@ -657,7 +768,9 @@ func (q *Query) Overview() *Overview {
 		}
 		sum.Services++
 		q.addOwnership(&sum.Ownership, s)
+		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
+	sum.KnowledgeItems = len(q.knowledgeAttention())
 
 	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {
@@ -675,7 +788,9 @@ func (q *Query) Overview() *Overview {
 	var comp ComplianceTally
 	for _, t := range q.snap.Targets {
 		link.add(t)
-		comp.add(t.Compliance)
+		comp.addStale(t.Compliance, t.Stale)
+		sum.OperationalHealth.add(q.targetHealth(t))
+		sum.Coverage.add(t)
 		sum.Evidence.add(t)
 		if t.Stale {
 			sum.StaleTargets++
@@ -693,22 +808,26 @@ func (q *Query) Overview() *Overview {
 	sum.UnknownTargets, sum.WarningTargets = comp.Unknown, comp.Warning
 	sum.InvalidTargets, sum.ReferenceTargets = comp.Invalid, comp.Reference
 	sum.NotEvaluatedTargets, sum.OtherComplianceTargets = comp.NotEvaluated, comp.Other
+	sum.StaleCompliantTargets = comp.StaleCompliant
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 	q.tallyScopes(sum)
 	q.tallyDomains(sum)
 
-	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
-	// A constant, valid filter never errors; ignore it deliberately. The attention
-	// preview carries the TRUE matched total (al.Total), not the 10-item page size.
-	al, _ := q.Attention(AttentionFilter{Limit: overviewAttentionLimit})
+	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
+	// The lead tile and the attention preview read ONE collection, so the tile
+	// counts exactly the services of the list it opens. The preview carries the
+	// TRUE matched total (al.Total), not the 10-item page size.
+	items := q.collectAttention()
+	sum.ServicesNeedingAttention = q.servicesNeedingAttention(items)
+	al := q.attentionList(items, AttentionFilter{Limit: overviewAttentionLimit})
 	ov.Attention = attentionPreviewFromList(al)
 	// The recent-evidence preview carries the TRUE recent count (== sum.RecentEvidence),
 	// not merely the first overviewEvidenceLimit sliced off it.
 	sortEvidenceDesc(recent)
 	it, total, trunc := boundSlice(recent, overviewEvidenceLimit)
 	ov.RecentEvidence = EvidencePreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
-	ov.EntryPoints = entryPoints(sum)
+	ov.EntryPoints = entryPoints(sum, al.Total)
 	return ov
 }
 
@@ -780,42 +899,25 @@ func (q *Query) recentEvidence(t *TargetRecord) (EvidenceItem, bool) {
 	return EvidenceItem{Target: targetEntityRef(t), At: copyTime(t.EvidenceAt)}, true
 }
 
-// servicesNeedingAttention counts distinct real services that have any attention
-// signal: a target that is non-compliant, unknown or stale; an invalid revision;
-// or an unresolved declared dependency. A golden path is no service.
-func (q *Query) servicesNeedingAttention() int {
+// servicesNeedingAttention counts the distinct real services the attention
+// items name, so the lead tile counts exactly the services of the list it opens.
+// A golden path is no service.
+func (q *Query) servicesNeedingAttention(items []AttentionItem) int {
 	need := map[ServiceKey]bool{}
-	for _, t := range q.snap.Targets {
-		if t.Compliance == StatusNonCompliant || t.Compliance == StatusUnknown || t.Stale {
-			need[t.ServiceKey] = true
+	for i := range items {
+		if k := ServiceKey(items[i].Service); q.populationService(k) {
+			need[k] = true
 		}
 	}
-	for _, r := range q.snap.Revisions {
-		if r.validated && !r.Valid {
-			need[r.ServiceKey] = true
-		}
-	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		// Dependencies only: unresolved and out-of-range attention judges dependencies.
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
-			need[rel.FromService] = true
-		}
-	}
-	n := 0
-	for k := range need {
-		if q.populationService(k) {
-			n++
-		}
-	}
-	return n
+	return len(need)
 }
 
 // entryPoints builds the suggested navigational entry points, one per non-zero
-// summary category, each with a canonical route.
-func entryPoints(sum *OverviewSummary) []EntryPoint {
+// summary category, each with a canonical route. items is the unfiltered
+// attention total the lead tile's services hold.
+func entryPoints(sum *OverviewSummary, items int) []EntryPoint {
 	candidates := []EntryPoint{
-		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention, Severity: severityWarning},
+		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, ItemCount: items, View: EntryPointAttention, Severity: severityWarning},
 		// "Not compliant", not "Non-compliant": the Overview shows this tile directly
 		// above the triage chips and status badges that name the very same state, and a
 		// hyphenated spelling beside the two-word one reads as two different states
@@ -823,16 +925,19 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		// Each Severity below is the SAME grade the attention items in that category
 		// carry (see attentionItems), so a tile and the rows it opens agree.
 		{Label: "Operational targets not compliant", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant, Severity: severityError},
+		{Label: "Operational targets failing their health check", Count: sum.OperationalHealth.Unavailable, View: EntryPointAttention, Category: categoryHealth, Severity: severityWarning},
 		{Label: "Operational targets with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale, Severity: severityWarning},
 		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown, Severity: severityWarning},
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
 		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
+		{Label: "Services using a deprecated provider", Count: sum.LifecycleConsumers, View: EntryPointAttention, Category: categoryLifecycle, Severity: sum.lifecycleSeverity},
 		// One tile for both kinds of undeclared item, so it opens a list of exactly
 		// Count rows; graded like its most severe item.
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
+		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
-		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
+		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointSources, Category: SourceHealthIncomplete, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
 	for _, ep := range candidates {
@@ -863,12 +968,27 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,undeclared,golden-path,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
 	NextStep string `json:"nextStep,omitempty"`
+	// NextAction is NextStep as an operation an existing tool makes, set in the
+	// same statement. It is inferred from the item's code: a suggestion that
+	// grants nothing.
+	NextAction *NextAction `json:"nextAction,omitempty" doc:"NextStep as an operation an existing tool makes. Pacto infers it from the item's code; it grants nothing, and the edit decides"`
 }
+
+// NextAction names the operation that fixes an attention item: a verb and the
+// tool that performs it. Only contract edits are named; the caller's own
+// permissions still decide whether the edit happens.
+type NextAction struct {
+	Verb string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
+	Tool string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
+}
+
+// editContract is the action of every item whose next step is a contract edit.
+func editContract() *NextAction { return &NextAction{Verb: "edit-contract", Tool: "pacto_edit"} }
 
 // Attention categories (stable, used for filtering and for overview entry points).
 const (
@@ -876,9 +996,11 @@ const (
 	categoryUnknown      = "unknown"
 	categoryStale        = "stale"
 	categoryInvalid      = "invalid"
+	categoryProvisioning = "provisioning"
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
+	categoryLifecycle    = "lifecycle"
 	categoryUndeclared   = "undeclared"
 	categoryUnowned      = "unowned"
 	categoryGoldenPath   = "golden-path"
@@ -977,7 +1099,11 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 			return nil, err
 		}
 	}
-	items := q.collectAttention()
+	return q.attentionList(q.collectAttention(), f), nil
+}
+
+// attentionList filters, sorts and pages already collected attention items.
+func (q *Query) attentionList(items []AttentionItem, f AttentionFilter) *AttentionList {
 	filtered := items[:0:0]
 	for _, it := range items {
 		if q.attentionMatches(it, f) {
@@ -990,7 +1116,7 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		Severities: attentionSeverities(filtered), Categories: attentionCategories(filtered),
-	}, nil
+	}
 }
 
 // attentionSeverities and attentionCategories tally the COMPLETE filtered attention
@@ -1015,7 +1141,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "undeclared", "golden-path", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1052,7 +1178,11 @@ func (q *Query) collectAttention() []AttentionItem {
 	for _, r := range q.snap.Revisions {
 		items = append(items, q.revisionAttention(r)...)
 	}
+	items = append(items, q.healthAttention()...)
 	items = append(items, q.unresolvedAttention()...)
+	items = append(items, q.lifecycleAttention()...)
+	items = append(items, q.provisioningAttention()...)
+	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
@@ -1067,7 +1197,7 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 	for _, rel := range q.observedOnly("") {
 		from, to := q.snap.Services[rel.FromService].Name, q.snap.Services[rel.ToService].Name
 		out = append(out, AttentionItem{
-			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to,
+			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to, NextAction: editContract(),
 			Severity: severityWarning, Code: string(finding.CodeDependencyUndeclared), Category: categoryUndeclared,
 			Summary:  "Runtime call with no declared dependency",
 			Reason:   "observed calls from " + from + " to " + to + ", and no contract revision of " + from + " declares " + to,
@@ -1095,27 +1225,21 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 
 // unownedAttention reports each service no source knows an owner for (no revision
 // declares one and no observing source reports one), by the same rule as the
-// ownership tally, so its total is OverviewSummary.Ownership.Unowned.
+// ownership tally, so its total is OverviewSummary.Ownership.Unowned. A service
+// whose contract Pacto cannot read is no part of it: unreadable is not ownerless,
+// and it is one `knowledge` item instead (see [Query.knowledgeAttention]).
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if n, _ := q.ownershipState(s); n != 0 {
+		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned {
 			continue
 		}
-		it := AttentionItem{
-			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
+		out = append(out, AttentionItem{
+			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name, NextAction: editContract(),
 			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
 			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
 			NextStep: "Declare service.owner in the contract",
-		}
-		// Unreadable is not ownerless: say what Pacto cannot tell, never that the
-		// contract lacks an owner block it may well have.
-		if q.ownershipUnknown(s) {
-			it.Summary = "Owner unknown: no contract of this service could be read"
-			it.Reason = "Pacto could not read any contract revision of this service, so it cannot tell whether an owner is declared"
-			it.NextStep = "Make a contract revision of this service readable"
-		}
-		out = append(out, it)
+		})
 	}
 	return out
 }
@@ -1132,10 +1256,11 @@ func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
 			Source: t.Source, NextStep: "Open the findings for this operational target",
 		})
 	case StatusUnknown:
+		code, reason := q.dominantUnknown(t)
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
-			Severity: severityWarning, Code: "UNKNOWN", Category: categoryUnknown,
-			Summary: "Compliance of this operational target is unknown", Reason: "compliance is unknown because evidence is insufficient",
+			Severity: severityWarning, Code: code, Category: categoryUnknown,
+			Summary: "Compliance of this operational target is unknown", Reason: reason,
 			Source: t.Source, NextStep: "Check the evidence source for this operational target",
 		})
 	}
@@ -1156,7 +1281,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 	if r.validated && !r.Valid {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
-			Severity: severityError, Code: "INVALID_CONTRACT", Category: categoryInvalid,
+			Severity: severityError, Code: "INVALID_CONTRACT", Category: categoryInvalid, NextAction: editContract(),
 			Summary: "Revision contract is invalid", Reason: "the contract is structurally invalid",
 			Source: r.Source, NextStep: "Open the revision and fix the contract",
 		})
@@ -1164,7 +1289,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 	if r.Readiness == nil {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
-			Severity: severityInfo, Code: "MISSING_READINESS", Category: categoryReadiness,
+			Severity: severityInfo, Code: "MISSING_READINESS", Category: categoryReadiness, NextAction: editContract(),
 			Summary: "Revision has no readiness assessment", Reason: "the revision declares no readiness assessment",
 			Source: r.Source, NextStep: "Add a readiness assessment",
 		})
@@ -1201,6 +1326,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 			item.Summary = "Dependency version is outside the accepted range"
 			item.Reason = svc.Name + " accepts " + rel.To + " " + rel.Compatibility + ", but the fleet holds " + rel.To + " " + strings.Join(versions, ", ")
 			item.NextStep = "Ship a version of " + rel.To + " inside the range, or widen the range in " + svc.Name + "'s contract"
+			item.NextAction = editContract()
 		default:
 			continue
 		}

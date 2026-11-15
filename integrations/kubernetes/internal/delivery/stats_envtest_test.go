@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -87,7 +88,7 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 	}))
 	t.Cleanup(func() { close(release); srv.Close() })
 	host := strings.TrimPrefix(srv.URL, "http://")
-	em := runstats.New(host+"/stats", nil, []string{host}, "cid", "test")
+	em := hangingEmitter(t, host)
 	runCtx, stop := context.WithCancel(ctx)
 	t.Cleanup(stop) // runs before the server cleanup: cleanups run last-in first-out
 	go func() { _ = em.Run(runCtx) }()
@@ -101,8 +102,9 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 	}
 
 	// Fill the queue: the worker holds the first record in a hung publish,
-	// then emit until the queue refuses one.
-	filler := &dv1.Operation{ObjectMeta: metav1.ObjectMeta{Namespace: ns, UID: types.UID("0f6c2a1e-5b7d-4c3a-9e2f-1a2b3c4d5e6f")},
+	// then emit until the queue refuses one. Fillers spread over namespaces,
+	// so none reaches the per-namespace cap and ns has room.
+	filler := &dv1.Operation{ObjectMeta: metav1.ObjectMeta{Namespace: "fill", UID: types.UID("0f6c2a1e-5b7d-4c3a-9e2f-1a2b3c4d5e6f")},
 		Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "a", Facet: delivery.FacetPointer},
 		Status: delivery.OperationStatus{Outcome: delivery.Succeeded, Times: delivery.Times{Finished: "2026-11-13T09:05:00Z"},
 			Policy: &delivery.StageSpec{Service: delivery.ServiceRef{Name: "payments"}, Environment: "prod"}}}
@@ -114,7 +116,8 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 	}
 	full := func() float64 { return testutil.ToFloat64(runstats.Dropped.WithLabelValues("queue-full")) }
 	noStage := func() float64 { return testutil.ToFloat64(runstats.Dropped.WithLabelValues("no-stage")) }
-	for before := full(); full() == before; {
+	for i, before := 0, full(); full() == before; i++ {
+		filler.Namespace = fmt.Sprintf("fill-%d", i%16)
 		em.Emit(filler)
 	}
 
@@ -171,6 +174,16 @@ func TestStatsOutageChangesNoOutcomeOrTiming(t *testing.T) {
 	if got := noStage() - noStageBefore; got != 0 {
 		t.Fatalf("no record may count as no-stage, got %v", got)
 	}
+}
+
+// hangingEmitter publishes to host, with a publish that hangs until cleanup
+// however slow the runner.
+func hangingEmitter(t *testing.T, host string) *runstats.Emitter {
+	t.Helper()
+	em, err := runstats.New(host+"/stats", nil, []string{host}, "cid", "test")
+	must(t, err)
+	em.PublishTimeout = time.Hour
+	return em
 }
 
 // must fails the test on err; the perfenvtest build uses it too.

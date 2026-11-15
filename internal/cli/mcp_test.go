@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
@@ -516,6 +518,47 @@ func TestMCPImpactSignedInRefusesLocalRefs(t *testing.T) {
 	}
 }
 
+// TestMCPImpactSignedInEditIsUnknown: the edit's impact asks the provider
+// about local directories, which an untrusted provider refuses, so the edit
+// answers with impact unknown rather than with an empty impact.
+func TestMCPImpactSignedInEditIsUnknown(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "orders")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: orders\n  version: \"1.0.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{
+		{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "orders", Version: "1.0.0"}}}, Domain: "reg.example", Digest: "sha256:o"},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil }
+	server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps())}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_edit", Arguments: map[string]any{"path": dir, "version": "1.1.0", "dry_run": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := res.Content[0].(*mcpsdk.TextContent).Text
+	if strings.Contains(text, `"impact"`) || !strings.Contains(text, "pass oci:// references") || !strings.Contains(text, "is not known") {
+		t.Fatalf("an untrusted provider's edit:\n%s", text)
+	}
+}
+
 // viewSnapshot is a caller's view: orders is visible with a digest-pinned
 // ResolvedRef, and a local-source revision has a path for its ResolvedRef.
 func viewSnapshot() *fleet.FleetSnapshot {
@@ -744,6 +787,8 @@ func TestMCPHTTPStartupSaysSchemaOnly(t *testing.T) {
 	expect(t, !strings.Contains(stderr.String(), schemaOnlyLine), "no contract tools, no line: %s", stderr.String())
 	// Remote delivery serves per request and offers only pacto_schema too.
 	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	// Never the ambient kubeconfig: CI has none.
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
 	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
 	dcmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = dcmd.Flags().Set("delivery", "true")
@@ -758,4 +803,27 @@ func mustNewMCP(version string, a pactomcp.Authoring, m pactomcp.Modes) *mcpsdk.
 		panic(err)
 	}
 	return s
+}
+
+// TestMCPFleetOptionsLocalDefault: stdio scans the working directory's bundles
+// by default; over HTTP the server scans none unless --local names a root.
+func TestMCPFleetOptionsLocalDefault(t *testing.T) {
+	for _, tc := range []struct {
+		flags map[string]string
+		want  []string
+	}{
+		{map[string]string{}, []string{"."}},
+		{map[string]string{"transport": "http"}, nil},
+		{map[string]string{"transport": "http", "local": "bundles"}, []string{"bundles"}},
+	} {
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
+		for k, v := range tc.flags {
+			if err := cmd.Flags().Set(k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := mcpFleetOptions(cmd).LocalRoots; !slices.Equal(got, tc.want) {
+			t.Errorf("%v: local roots %q, want %q", tc.flags, got, tc.want)
+		}
+	}
 }

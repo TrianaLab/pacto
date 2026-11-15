@@ -101,14 +101,19 @@ func parityQueries(revision string) []parityQuery {
 		{"revision", []string{"fleet", "entity", "revision", revision}, "pacto_fleet_entity", map[string]any{"kind": "revision", "key": revision}, "/api/fleet/entities/revision?key=" + url.QueryEscape(revision)},
 		{"offering postgresql", []string{"fleet", "entity", "offering", "postgresql"}, "pacto_fleet_entity", map[string]any{"kind": "offering", "key": "postgresql"}, "/api/fleet/entities/offering?key=postgresql"},
 		{"attention", []string{"fleet", "attention"}, "pacto_fleet_attention", map[string]any{}, "/api/fleet/attention"},
+		{"overview", []string{"fleet", "overview"}, "pacto_fleet_overview", map[string]any{}, "/api/fleet/overview"},
 		// The dashboard route walks expected alone without views, while the CLI and
 		// MCP walk expected and observed: every surface names its views here.
 		{"neighborhood app", []string{"fleet", "neighborhood", "app", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&views=expected,observed"},
 		{"sources unavailable", []string{"fleet", "entities", "--source-health", "unavailable"}, "pacto_fleet_entities", map[string]any{"source_health": "unavailable"}, "/api/fleet/entities?kinds=source&sourceHealth=unavailable"},
+		{"sources incomplete", []string{"fleet", "entities", "--source-health", "incomplete"}, "pacto_fleet_entities", map[string]any{"source_health": "incomplete"}, "/api/fleet/entities?kinds=source&sourceHealth=incomplete"},
 		{"revisions of app", []string{"fleet", "entities", "--kind", "revision", "--service", "app"}, "pacto_fleet_entities", map[string]any{"kind": "revision", "service": "app"}, "/api/fleet/entities?kinds=revision&service=app"},
 		{"app with no kind", []string{"fleet", "entities", "--service", "app"}, "pacto_fleet_entities", map[string]any{"service": "app"}, "/api/fleet/entities?service=app"},
 		{"stale attention", []string{"fleet", "attention", "--stale-only"}, "pacto_fleet_attention", map[string]any{"stale_only": true}, "/api/fleet/attention?staleOnly=true"},
 		{"neighborhood bounded", []string{"fleet", "neighborhood", "app", "--max-edges", "1", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "max_edges": 1, "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&maxEdges=1&views=expected,observed"},
+		{"offerings failed first", []string{"fleet", "entities", "--kind", "offering", "--sort", "failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "sort": "failed"}, "/api/fleet/entities?kinds=offering&sort=failed"},
+		{"offerings with a failed request", []string{"fleet", "entities", "--kind", "offering", "--failed"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "failed": true}, "/api/fleet/entities?kinds=offering&failed=true"},
+		{"deprecated offerings", []string{"fleet", "entities", "--kind", "offering", "--lifecycle", "deprecated"}, "pacto_fleet_entities", map[string]any{"kind": "offering", "lifecycle": "deprecated"}, "/api/fleet/entities?kinds=offering&lifecycle=deprecated"},
 		{"versions postgresql", []string{"fleet", "versions", "postgresql"}, "pacto_fleet_versions", map[string]any{"offering": "postgresql"}, "/api/fleet/versions?offering=postgresql"},
 	}
 }
@@ -257,6 +262,10 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	for _, want := range []string{`"completeness": "partial"`, `"SOURCE_UNAVAILABLE"`, `"unknown": 1`} {
 		expect(t, strings.Contains(services, want), "the fixture lacks %s: %s", want, services)
 	}
+	// AttentionItem.nextAction is compared above with the rest of the answer:
+	// the fixture must hold one for the comparison to mean anything.
+	attention := cliJSON(t, flags, "fleet", "attention")
+	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
 }
 
 // aliceView narrows a fleet to the prod and staging namespaces: one Viewer
@@ -309,6 +318,10 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 		sameOnSurfaces(t, q.name+" for alice", map[string]string{"mcp": m, "dashboard": dashBody})
 		expect(t, !strings.Contains(m, "lonely") && !strings.Contains(dashBody, "lonely"), "%s names the hidden service: %s", q.name, m)
 	}
+	// The view narrows nextAction with its item: alice still reads the actions
+	// of what she sees, and lonely's unowned action is gone with lonely.
+	attention, _ := callText(t, session, "pacto_fleet_attention", map[string]any{})
+	expect(t, strings.Contains(attention, `"edit-contract"`) && !strings.Contains(attention, "UNOWNED_SERVICE"), "alice's attention: %s", attention)
 	services, _ := callText(t, session, "pacto_fleet_entities", map[string]any{"kind": "service"})
 	expect(t, strings.Contains(services, fleet.LimitationHiddenByPermissions), "the view says it hid something: %s", services)
 

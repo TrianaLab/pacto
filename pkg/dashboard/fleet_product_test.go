@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,9 +110,10 @@ func TestProductEndpoints_Serve(t *testing.T) {
 
 // The inventory axes are only usable if they survive the wire: a query param the
 // transport accepts but never forwards returns the UNFILTERED list, which reads as
-// "every service is in this state". payment-service declares no owner and no
-// readiness, so each axis must include it under one value and exclude it under
-// another — a forwarding bug fails at least one half.
+// "every service is in this state". payment-service's only contract is invalid
+// (so its owner is unknown, never unowned) and declares no readiness, so each
+// axis must include it under one value and exclude it under another — a
+// forwarding bug fails at least one half.
 func TestProductEntities_OwnershipAndReadinessFiltersReachTheQuery(t *testing.T) {
 	q := demoFleetQuery(t)
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
@@ -121,7 +123,8 @@ func TestProductEntities_OwnershipAndReadinessFiltersReachTheQuery(t *testing.T)
 		query string
 		want  int
 	}{
-		{"kinds=service&ownership=unowned", 1},
+		{"kinds=service&ownership=unknown", 1},
+		{"kinds=service&ownership=unowned", 0},
 		{"kinds=service&ownership=consistent", 0},
 		{"kinds=revision&readiness=not-declared", 1},
 		{"kinds=revision&readiness=passing", 0},
@@ -136,12 +139,66 @@ func TestProductEntities_OwnershipAndReadinessFiltersReachTheQuery(t *testing.T)
 	// The aggregate travels with the list, over the whole match rather than the page.
 	var all fleet.EntityList
 	getJSON(t, base+"/api/fleet/entities?kinds=service", http.StatusOK, &all)
-	if all.Aggregate.Matched != all.Total || all.Aggregate.Ownership.Unowned != 1 {
-		t.Errorf("aggregate = %+v, want the whole match with one unowned service", all.Aggregate)
+	if all.Aggregate.Matched != all.Total || all.Aggregate.Ownership.Unknown != 1 {
+		t.Errorf("aggregate = %+v, want the whole match with one owner-unknown service", all.Aggregate)
 	}
 	// A value outside the enum is a typed 422, never a silently unfiltered page.
 	expectStatus(t, base+"/api/fleet/entities?ownership=orphaned", http.StatusUnprocessableEntity)
 	expectStatus(t, base+"/api/fleet/entities?readiness=green", http.StatusUnprocessableEntity)
+}
+
+// TestFleetEntitiesGapParam: the gap and ownership=unknown values survive the
+// wire, the aggregate's knowledge counts the filtered population and a value
+// outside the enum is a typed 422.
+func TestFleetEntitiesGapParam(t *testing.T) {
+	q := demoFleetQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	matched := 0
+	for _, gap := range fleet.GapFilterValues() {
+		var list fleet.EntityList
+		getJSON(t, base+"/api/fleet/entities?kinds=service&gap="+gap, http.StatusOK, &list)
+		k := list.Aggregate.Knowledge
+		counted := map[string]int{
+			fleet.GapNoSummary: k.Gaps.NoSummary, fleet.GapNoDomain: k.Gaps.NoDomain, fleet.GapNoInterfaceDocs: k.Gaps.NoInterfaceDocs,
+			fleet.GapNoReadiness: k.Gaps.NoReadiness, fleet.GapNotDeployed: k.Gaps.NotDeployed,
+			fleet.GapUnverifiedCapability: k.Gaps.UnverifiedCapability, fleet.GapUnknown: k.Unknown,
+		}[gap]
+		if counted != list.Total {
+			t.Errorf("gap=%s = %d, aggregate %+v", gap, list.Total, k)
+		}
+		matched += list.Total
+	}
+	if matched == 0 {
+		t.Error("no gap value matched the fixture's service: the param never reached the query")
+	}
+	var all fleet.EntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=service&ownership=unknown", http.StatusOK, &all)
+	if all.Total != all.Aggregate.Ownership.Unknown {
+		t.Errorf("ownership=unknown = %d, aggregate %+v", all.Total, all.Aggregate.Ownership)
+	}
+	expectStatus(t, base+"/api/fleet/entities?gap=bogus", http.StatusUnprocessableEntity)
+}
+
+// TestFleetEntitiesSourceHealthIncomplete: sourceHealth=incomplete reaches the
+// query over the wire and lists every partial, stale or unavailable source.
+func TestFleetEntitiesSourceHealthIncomplete(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{}),
+		fleet.NewMemorySource("old", "oci", &fleet.Collection{State: &fleet.SourceState{Status: fleet.SourceStale}}),
+		fleet.NewFailingSource("down", "oci", errors.New("unreachable")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	var list fleet.EntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=source&sourceHealth=incomplete", http.StatusOK, &list)
+	if list.Total != 2 {
+		t.Errorf("incomplete sources = %+v", list.Entities)
+	}
+	expectStatus(t, base+"/api/fleet/entities?sourceHealth=broken", http.StatusUnprocessableEntity)
 }
 
 // TestProductNeighborhood_CombinedProvenanceOverWire proves the combined

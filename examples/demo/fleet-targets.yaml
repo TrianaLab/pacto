@@ -7,9 +7,10 @@
 #
 # It exercises: a compliant target, a non-compliant target (confirmed drift, one
 # finding of it recorded from the kernel by the node agent), an
-# unknown target (insufficient evidence) and stale targets (old evidence). Under
-# --freshness 24h, all three timestamped targets read as stale; fraud-service is
-# the oldest by design. The source itself is marked available; a second,
+# unknown target (insufficient evidence), a target whose health check answered
+# and reports it is failing (HEALTH_FAILING, compliance Unknown) and stale
+# targets (old evidence). Under the default 24h freshness window, every
+# timestamped target reads as stale; fraud-service is the oldest by design. The source itself is marked available; a second,
 # unreachable environment is modeled separately so partial completeness is visible.
 #
 # This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed
@@ -19,14 +20,21 @@
 # resources consumers request. catalog-service 1.3.0 requests its database by
 # configuration reference, and the adapter last reported it Ready in production.
 # orders-service depends on postgresql, and the adapter could not observe that
-# resource (outcome Insufficient), so its status is Unknown. Each entry names the
-# consumer revision by its content digest, the digest `pacto fleet --local` gives
-# its bundle directory. File entries are unsigned, and every surface says so.
-# Both reports carry the same fixed date as the targets, so they read the same
-# on every run: older than the provisioning window (24h), catalog-service's
-# database reads Unknown with reportedPhase Ready, which is the freshness rule at
-# work. A wider --freshness, such as 100000h, shows it Ready. The in-browser demo
-# dates the same reports 30 minutes before it loads, so it shows them current.
+# resource (outcome Insufficient), so its status is Unknown. The adapter could
+# not provision ticketing-service 1.2.0's postgresql-ha database in staging, so
+# that request reads Failed. Each entry names the consumer revision by its
+# content digest, the digest `pacto fleet --local` gives its bundle directory.
+# File entries are unsigned, and every surface says so. All four reports carry
+# the same fixed date as the targets, so they read the same on every run:
+# older than the provisioning window (24h), catalog-service's database reads
+# Unknown with reportedPhase Ready, which is the freshness rule at work. A
+# wider --freshness, such as 100000h, shows it Ready. notification-worker
+# 1.0.0 depends on email-provider, a service that declares no offering, and the
+# mail adapter reported that resource Failed. Under the provisioning window the
+# CLI reads it as a stale Failed report (Unknown, PROVISIONING_STALE); a
+# --freshness that covers the date shows it Failed (PROVISIONING_FAILED). The
+# in-browser demo dates the same reports 30 minutes before it loads, so it shows
+# them current, and notification-worker's resource Failed.
 schemaVersion: pacto.dev/fleet-targets/v2
 targets:
   - scope: production-eu
@@ -136,6 +144,80 @@ targets:
     evidenceAt: 2026-07-29T09:40:00Z
     labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: canary }
 
+  # gift-cards' health check answered and reports it is failing: an observed
+  # problem, counted as failing apart from the unknown targets. Compliance
+  # stays Unknown, since a failing check neither satisfies nor contradicts it.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: commerce/gift-cards
+    service: gift-cards
+    resolvedRef: oci://ghcr.io/trianalab/pacto/gift-cards:0.1.0
+    compliance: Unknown
+    coverage: { evaluated: 2, required: 3 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu }
+    findings:
+      - code: HEALTH_FAILING
+        severity: unknown
+        category: Inconclusive
+        subjectKind: capability
+        subjectName: health
+        message: capability "health" answered but reports it is not healthy
+
+  # The postgresql offering has two providers. postgresql runs 16.1.0 in
+  # production and in staging, where its evidence is the oldest of the
+  # offering's; postgresql-ha runs in production only. ticketing-service 1.2.0
+  # in staging reports it cannot reach postgresql-ha, so with no postgresql-ha
+  # target there, the consumer report is what says it is unavailable (inferred).
+  # Availability reads only fresh evidence, so under a short freshness window
+  # every one of these reads unknown; the in-browser demo dates them current.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: data/postgresql
+    service: postgresql
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
+
+  - scope: staging
+    kind: kubernetes-workload
+    name: data/postgresql
+    service: postgresql
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-20T08:00:00Z
+    labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
+
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: data/postgresql-ha
+    service: postgresql-ha
+    resolvedRef: oci://ghcr.io/trianalab/pacto/postgresql-ha:1.0.0
+    compliance: Compliant
+    coverage: { evaluated: 2, required: 2 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
+
+  - scope: staging
+    kind: kubernetes-workload
+    name: support/ticketing-service
+    service: ticketing-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/ticketing-service:1.2.0
+    compliance: NonCompliant
+    coverage: { evaluated: 4, required: 4 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: staging, region: eu, delivery.pacto.trianalab.io/environment: staging }
+    findings:
+      - code: DEPENDENCY_UNREACHABLE
+        severity: error
+        category: RuntimeDrift
+        subjectKind: dependency
+        subjectName: postgresql-ha
+        message: dependency "postgresql-ha" is unreachable
+
 provisioning:
   - service: catalog-service
     digest: sha256:32b570087a9cd70b16772e9cb5d3cbc1a6aea6fc31b1c021d9d848c10424b518
@@ -154,6 +236,53 @@ provisioning:
     outcome: Insufficient
     producer: platform-adapter
     observedAt: 2026-07-29T09:40:00Z
+  - service: notification-worker
+    digest: sha256:03978604c856d024541bef040d2d409290d6a225cdc71b8a53c2f70afe9c4d3e
+    kind: dependency
+    name: email-provider
+    provider: mail-adapter
+    externalRef: senders/notifications
+    phase: Failed
+    producer: mail-adapter
+    observedAt: 2026-07-29T09:40:00Z
+  # The platform adapter could not provision ticketing-service 1.2.0's
+  # postgresql-ha database in staging: the offering's one failed request.
+  - service: ticketing-service
+    digest: sha256:501814592279d10aa10c96b6556407372f241818e18cd94c9bf471f5a63aed38
+    kind: dependency
+    name: postgresql-ha
+    environment: staging
+    provider: platform-db
+    externalRef: databases/ticketing-staging
+    phase: Failed
+    producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
+
+# The usage list (schema v2) is what the platform adapter reports about the usage
+# and cost of catalog-service 1.3.0's database in production. The file is
+# unsigned and older than the provisioning window, so the CLI demo reads that
+# usage unknown and keeps the figures apart as reported, never as current. The
+# in-browser demo carries the same report signed and fresh, standing in for the
+# Evidence Server, and shows the figures as reported.
+usage:
+  - service: catalog-service
+    digest: sha256:32b570087a9cd70b16772e9cb5d3cbc1a6aea6fc31b1c021d9d848c10424b518
+    kind: configuration
+    name: database
+    environment: production
+    provider: platform-db
+    externalRef: databases/catalog-production
+    metrics:
+      - name: storage-used
+        value: 31
+        unit: Gi
+    cost:
+      amount: "212.40"
+      currency: USD
+      period: P30D
+    producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
+
 
 state:
   status: available

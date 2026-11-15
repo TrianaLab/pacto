@@ -153,3 +153,17 @@ export function locationText(f: { file?: string; line?: number; column?: number 
   if (!f.file) return '';
   return f.file + (f.line ? `:${f.line}${f.column ? `:${f.column}` : ''}` : '');
 }
+
+const SUCCESSOR: Record<string, { label: string; tone: Tone }> = {
+  satisfied: { label: 'accepts successor', tone: 'ok' },
+  unsatisfied: { label: 'excludes successor', tone: 'warn' },
+  unknown: { label: 'successor unknown', tone: 'neutral' },
+};
+/**
+ * Whether a range accepts a provider's successor; an unresolved successor is never accepted.
+ * `what` names another target revision, such as the provider's latest supported one.
+ */
+export function successorBadge(status: string | null | undefined, range = '', what = 'successor'): { label: string; tone: Tone; title: string } | null {
+  const b = status ? SUCCESSOR[status] ?? SUCCESSOR.unknown : null;
+  return b && { ...b, label: b.label.replace('successor', what), title: range ? `Range ${range}` : 'No range declared' };
+}

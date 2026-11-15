@@ -112,7 +112,7 @@ func TestOverview_Counts(t *testing.T) {
 	s := ov.Summary
 	checks := map[string]struct{ got, want int }{
 		"services":                  {s.Services, 5},
-		"servicesNeedingAttention":  {s.ServicesNeedingAttention, 4},
+		"servicesNeedingAttention":  {s.ServicesNeedingAttention, 5},
 		"invalidRevisions":          {s.InvalidRevisions, 1},
 		"exactTargetLinks":          {s.ExactTargetLinks, 2},
 		"inferredTargetLinks":       {s.InferredTargetLinks, 1},
@@ -208,8 +208,8 @@ func TestOverview_EntryPointSeverityMatchesItsItems(t *testing.T) {
 			t.Errorf("entry point %q carries no severity", ep.Label)
 			continue
 		}
-		if ep.Category == "" {
-			continue // uncategorised doorways span every grade
+		if ep.Category == "" || ep.View != EntryPointAttention {
+			continue // uncategorised doorways span every grade; sources carry no items
 		}
 		page, err := q.Attention(AttentionFilter{Category: ep.Category, Limit: 1000})
 		if err != nil {
@@ -250,8 +250,10 @@ func TestAttention_AllAndOrdering(t *testing.T) {
 	if list.Meta.SchemaVersion != ProductSchemaVersion {
 		t.Errorf("schema version = %q", list.Meta.SchemaVersion)
 	}
-	if list.Total != 8 {
-		t.Fatalf("total attention = %d, want 8 (items: %+v)", list.Total, codesOf(list.Items))
+	// 8 plus 9 knowledge items: no summary and no domain on each of the four
+	// readable services, and the service whose only contract is invalid.
+	if list.Total != 17 {
+		t.Fatalf("total attention = %d, want 17 (items: %+v)", list.Total, codesOf(list.Items))
 	}
 	// Errors lead, info trails.
 	if list.Items[0].Severity != severityError {
@@ -280,11 +282,12 @@ func TestAttention_Filters(t *testing.T) {
 		{"kind revision", AttentionFilter{Kind: string(KindRevision)}, 2}, // invalid + missing readiness
 		{"kind target", AttentionFilter{Kind: string(KindTarget)}, 4},
 		{"severity error", AttentionFilter{Severity: severityError}, 2},
-		{"severity info", AttentionFilter{Severity: severityInfo}, 1},
-		{"service beta", AttentionFilter{Service: "beta"}, 3}, // beta-app twice + beta calls alpha undeclared
+		{"severity info", AttentionFilter{Severity: severityInfo}, 10}, // missing readiness + 9 knowledge items
+		{"category knowledge", AttentionFilter{Category: categoryKnowledge}, 9},
+		{"service beta", AttentionFilter{Service: "beta"}, 5}, // beta-app twice + beta calls alpha undeclared + no summary + no domain
 		{"stale only", AttentionFilter{StaleOnly: true}, 2},
-		{"owner team-a", AttentionFilter{Owner: "team-a"}, 2},                   // alpha: unresolved dep + stale alpha-ancient
-		{"status NonCompliant", AttentionFilter{Status: StatusNonCompliant}, 3}, // beta-app is non-compliant AND stale; beta (non-compliant) calls alpha undeclared
+		{"owner team-a", AttentionFilter{Owner: "team-a"}, 4},                   // alpha: unresolved dep + stale alpha-ancient + no summary + no domain
+		{"status NonCompliant", AttentionFilter{Status: StatusNonCompliant}, 5}, // beta-app is non-compliant AND stale; beta (non-compliant) calls alpha undeclared; beta's two knowledge items
 		{"key miss", AttentionFilter{Key: "does-not-exist"}, 0},
 		{"source local", AttentionFilter{Source: "local"}, 6}, // all but the unresolved-dep item (no source)
 	}
@@ -313,7 +316,7 @@ func TestAttention_LimitBounds(t *testing.T) {
 	if !list.Truncated {
 		t.Error("a limited attention page over its total must report truncation")
 	}
-	if list.Total != 8 {
+	if list.Total != 17 {
 		t.Errorf("total must reflect pre-limit size, got %d", list.Total)
 	}
 }

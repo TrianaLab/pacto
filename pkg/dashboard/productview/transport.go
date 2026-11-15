@@ -632,9 +632,19 @@ func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 // both navigable.
 type ProductOfferingUse struct {
 	fleet.OfferingUse
-	Consumer     ProductRef                  `json:"consumer"`
-	Provider     ProductRef                  `json:"provider"`
-	Provisioning []ProductProvisioningStatus `json:"provisioning,omitempty"`
+	Consumer      ProductRef                      `json:"consumer"`
+	Provider      ProductRef                      `json:"provider"`
+	Provisioning  []ProductProvisioningStatus     `json:"provisioning,omitempty"`
+	ProviderOwner *ProductOwnership               `json:"providerOwner,omitempty"`
+	Requested     []ProductRequestedConfiguration `json:"requested,omitempty"`
+}
+
+// ProductRequestedConfiguration is a requested configuration whose provider
+// revision is navigable.
+type ProductRequestedConfiguration struct {
+	fleet.RequestedConfiguration
+	Revision         *ProductRef `json:"revision,omitempty"`
+	ConsumerRevision *ProductRef `json:"consumerRevision,omitempty"`
 }
 
 // ProductProvisioningStatus is a provisioning status whose consumer revision is
@@ -654,7 +664,10 @@ type ProductOfferingUsesPreview struct {
 func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview {
 	items := make([]ProductOfferingUse, len(p.Items))
 	for i, u := range p.Items {
-		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider)}
+		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider), ProviderOwner: productOwnership(u.ProviderOwner)}
+		for _, r := range u.Requested {
+			items[i].Requested = append(items[i].Requested, ProductRequestedConfiguration{RequestedConfiguration: r, Revision: RefPtr(r.Revision), ConsumerRevision: RefPtr(r.ConsumerRevision)})
+		}
 		for _, st := range u.Provisioning {
 			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})
 		}
@@ -686,6 +699,44 @@ type ProductOfferingProvider struct {
 	Versions        ProductProviderVersions      `json:"versions"`
 	Policies        ProductPoliciesPreview       `json:"policies"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
+	Availability    ProductAvailability          `json:"availability"`
+	Successor       *ProductSuccessorInfo        `json:"successor,omitempty"`
+	LatestSupported *ProductRef                  `json:"latestSupported,omitempty"`
+}
+
+// ProductSuccessorInfo is a provider's navigable successor.
+type ProductSuccessorInfo struct {
+	fleet.SuccessorInfo
+	Revision *ProductRef `json:"revision,omitempty"`
+}
+
+func productSuccessor(s *fleet.SuccessorInfo) *ProductSuccessorInfo {
+	if s == nil {
+		return nil
+	}
+	return &ProductSuccessorInfo{SuccessorInfo: *s, Revision: RefPtr(s.Revision)}
+}
+
+// ProductEnvironmentAvailability is a capability's navigable state in one
+// environment.
+type ProductEnvironmentAvailability struct {
+	fleet.EnvironmentAvailability
+	Unreachable []ProductRef `json:"unreachable,omitempty"`
+	Providers   []ProductRef `json:"providers,omitempty"`
+}
+
+// ProductAvailability is a capability's navigable availability.
+type ProductAvailability struct {
+	fleet.Availability
+	ByEnvironment []ProductEnvironmentAvailability `json:"byEnvironment"`
+}
+
+func productAvailability(a fleet.Availability) ProductAvailability {
+	envs := make([]ProductEnvironmentAvailability, len(a.ByEnvironment))
+	for i, e := range a.ByEnvironment {
+		envs[i] = ProductEnvironmentAvailability{EnvironmentAvailability: e, Unreachable: Refs(e.Unreachable), Providers: Refs(e.Providers)}
+	}
+	return ProductAvailability{Availability: a, ByEnvironment: envs}
 }
 
 // ProductProviderVersion is one navigable version of an offering provider.
@@ -700,6 +751,7 @@ type ProductProviderVersions struct {
 	fleet.ProviderVersionsPreview
 	Items            []ProductProviderVersion `json:"items"`
 	LatestCompatible *ProductRef              `json:"latestCompatible,omitempty"`
+	Successor        *ProductSuccessorInfo    `json:"successor,omitempty"`
 }
 
 func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVersions {
@@ -707,7 +759,7 @@ func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVer
 	for i, v := range p.Items {
 		items[i] = ProductProviderVersion{ProviderVersion: v, Revision: Ref(v.Revision)}
 	}
-	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible)}
+	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible), Successor: productSuccessor(p.Successor)}
 }
 
 // ProductOfferingProviderVersions is one navigable provider's versions.
@@ -744,8 +796,33 @@ type ProductOfferingProvidersPreview struct {
 // ProductOfferingDetail is the navigable offering-kind detail payload.
 type ProductOfferingDetail struct {
 	fleet.OfferingDetailData
-	Providers ProductOfferingProvidersPreview `json:"providers"`
-	Consumers ProductOfferingUsesPreview      `json:"consumers"`
+	Providers    ProductOfferingProvidersPreview `json:"providers"`
+	Consumers    ProductOfferingUsesPreview      `json:"consumers"`
+	Availability ProductAvailability             `json:"availability"`
+	// ObservedConsumers is the navigable preview of observed consumers.
+	ObservedConsumers ProductObservedConsumersPreview `json:"observedConsumers"`
+}
+
+// ProductObservedConsumer is an observed consumer with a navigable provider
+// and, for a contracted service, a navigable consumer.
+type ProductObservedConsumer struct {
+	fleet.ObservedConsumer
+	Consumer *ProductRef `json:"consumer,omitempty"`
+	Provider ProductRef  `json:"provider"`
+}
+
+// ProductObservedConsumersPreview is a navigable preview of observed consumers.
+type ProductObservedConsumersPreview struct {
+	fleet.ObservedConsumersPreview
+	Items []ProductObservedConsumer `json:"items"`
+}
+
+func productObservedConsumers(p fleet.ObservedConsumersPreview) ProductObservedConsumersPreview {
+	items := make([]ProductObservedConsumer, len(p.Items))
+	for i, c := range p.Items {
+		items[i] = ProductObservedConsumer{ObservedConsumer: c, Consumer: RefPtr(c.Consumer), Provider: Ref(c.Provider)}
+	}
+	return ProductObservedConsumersPreview{ObservedConsumersPreview: p, Items: items}
 }
 
 func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail {
@@ -759,12 +836,17 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 			Versions:         productProviderVersions(p.Versions),
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
+			Availability:     productAvailability(p.Availability),
+			Successor:        productSuccessor(p.Successor),
+			LatestSupported:  RefPtr(p.LatestSupported),
 		}
 	}
 	return &ProductOfferingDetail{
 		OfferingDetailData: *d,
 		Providers:          ProductOfferingProvidersPreview{OfferingProvidersPreview: d.Providers, Items: items},
 		Consumers:          productOfferingUses(d.Consumers),
+		Availability:       productAvailability(d.Availability),
+		ObservedConsumers:  productObservedConsumers(d.ObservedConsumers),
 	}
 }
 

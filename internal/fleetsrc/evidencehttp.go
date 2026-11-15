@@ -1,12 +1,15 @@
 package fleetsrc
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
@@ -73,14 +76,18 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	// already imports this package -- and only this direction is importable, since
 	// pkg/evidenceingest may not reach internal.
 	var body evidenceingest.TargetsResponse
+	var data bytes.Buffer // the raw body, which usageRecords reads again
 	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
-	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
+	if err := strictjson.Decode(io.TeeReader(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &data), &body); err != nil {
 		return nil, err
 	}
-	// v3 is v2 plus provisioning records, which a v2 body never carries.
-	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion && body.SchemaVersion != evidenceingest.TargetsSchemaVersionProvisioning {
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q or %q", url, body.SchemaVersion,
-			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning)
+	// v3 is v2 plus provisioning records and v4 is v3 plus usage records,
+	// which an older body never carries.
+	switch body.SchemaVersion {
+	case evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage:
+	default:
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q, %q or %q", url, body.SchemaVersion,
+			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage)
 	}
 
 	col := &fleet.Collection{}
@@ -134,6 +141,9 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 
+	usage, lims := s.usageRecords(data.Bytes(), body.Usage)
+	col.Usage, col.Limitations = usage, append(col.Limitations, lims...)
+
 	// An unreadable subject, an invalid published artifact or a truncated response
 	// means the contribution is incomplete: surface the limitation so downstream
 	// answers carry the honesty rather than presenting a full-looking graph.
@@ -171,4 +181,38 @@ func evidenceDegraded(body evidenceingest.TargetsResponse) (bool, string) {
 		return true, "evidence source response was truncated"
 	}
 	return false, ""
+}
+
+// usageRecords maps the body's usage DTOs to verified raw records. The strict
+// decode does not require keys, so data is read again for each record's raw
+// metrics: one holding a metric with no value would read as a measured zero,
+// and is dropped with a counted limitation instead.
+func (s *EvidenceHTTPSource) usageRecords(data []byte, dtos []evidenceingest.UsageDTO) ([]fleet.RawUsage, []fleet.Limitation) {
+	var raw struct {
+		Usage []json.RawMessage `json:"usage"`
+	}
+	_ = json.Unmarshal(data, &raw) // the strict decode already accepted data
+	var out []fleet.RawUsage
+	valueless := 0
+	for i, u := range dtos {
+		if i < len(raw.Usage) && evidence.CheckMetricValues(raw.Usage[i]) != nil {
+			valueless++
+			continue
+		}
+		digest := u.Digest
+		if digest == "" {
+			digest = digestFromRef(u.ContractRef)
+		}
+		acceptedAt := u.AcceptedAt
+		out = append(out, fleet.RawUsage{
+			Service: u.Service, Domain: u.Domain, Digest: digest, Kind: u.Kind, Name: u.Name, Environment: u.Environment,
+			Provider: u.Provider, ExternalRef: u.ExternalRef, Metrics: u.Metrics, Cost: u.Cost, Outcome: u.Outcome,
+			Producer: u.Producer, ProducerKeyID: u.ProducerKeyID, ObservedAt: u.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
+		})
+	}
+	if valueless == 0 {
+		return out, nil
+	}
+	return out, []fleet.Limitation{{Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+		Message: fmt.Sprintf("%d usage records hold a metric with no value and were dropped", valueless)}}
 }

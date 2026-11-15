@@ -118,8 +118,8 @@ func (c *envCounts) metrics(lt LeadTime) EnvironmentMetrics {
 }
 
 // environmentMetrics counts the operation entries per environment, joining
-// lead times against publishes, alphabetically.
-func environmentMetrics(entries, publishes []Entry) []EnvironmentMetrics {
+// lead times against history, alphabetically.
+func environmentMetrics(entries, history []Entry) []EnvironmentMetrics {
 	byEnv := map[string]*envCounts{}
 	var ops []Entry
 	for _, e := range entries {
@@ -138,7 +138,7 @@ func environmentMetrics(entries, publishes []Entry) []EnvironmentMetrics {
 		}
 		c.add(e.Record)
 	}
-	lts := leadTimes(ops, publishes)
+	lts := leadTimes(ops, history)
 	var out []EnvironmentMetrics
 	for _, env := range slices.SortedFunc(maps.Keys(byEnv), fleet.NaturalCompare) {
 		lt, ok := lts[env]
@@ -151,18 +151,26 @@ func environmentMetrics(entries, publishes []Entry) []EnvironmentMetrics {
 }
 
 // leadTimes joins, per environment, the first Succeeded and Verified promote
-// of each digest per Stage to the newest publish record of the same service
+// of each digest per Stage to the earliest publish record of the same service
 // with that deploy digest, else with the operation's contract as its bundle
-// digest. A promotion that joins nothing, or would lead by a negative or
-// unparsable time, is unjoined. This is the only D7-specific function.
-func leadTimes(ops, publishes []Entry) map[string]LeadTime {
-	pub := publishIndex(publishes)
+// digest. history is every visible record, in the window or before it: a
+// promote among ops counts only when no earlier one in history promoted its
+// digest to its Stage, and a publish rerun never moves the start. A promotion
+// that joins nothing, or would lead by a negative or unparsable time, is
+// unjoined. This is the only D7-specific function.
+func leadTimes(ops, history []Entry) map[string]LeadTime {
+	pub, first := publishIndex(history), firstPromotes(history)
 	type acc struct {
 		leads    []int64
 		unjoined int
 	}
 	byEnv := map[string]*acc{}
-	for _, r := range firstPromotes(ops) {
+	for _, e := range ops {
+		r := e.Record
+		key, ok := promoteKey(r)
+		if !ok || key != "" && first[key] != r.ID {
+			continue
+		}
 		env, _, _ := environmentOf(r)
 		a := byEnv[env]
 		if a == nil {
@@ -183,13 +191,19 @@ func leadTimes(ops, publishes []Entry) map[string]LeadTime {
 	return out
 }
 
-func publishIndex(publishes []Entry) map[string]time.Time {
+// publishIndex is the earliest recordedAt of a publish record per service and
+// digest: the publish that produced the digest, not a rerun that found it
+// already pushed.
+func publishIndex(history []Entry) map[string]time.Time {
 	pub := map[string]time.Time{}
-	for _, e := range publishes {
+	for _, e := range history {
 		r := e.Record
+		if r.Kind != runrecord.KindPublish {
+			continue
+		}
 		for kind, d := range map[string]string{"deploy": r.DeployDigest, "bundle": r.BundleDigest} {
 			k := r.Service + "|" + kind + "|" + d
-			if t, ok := pub[k]; d != "" && (!ok || r.RecordedAt.After(t)) {
+			if t, ok := pub[k]; d != "" && (!ok || r.RecordedAt.Before(t)) {
 				pub[k] = r.RecordedAt
 			}
 		}
@@ -197,27 +211,38 @@ func publishIndex(publishes []Entry) map[string]time.Time {
 	return pub
 }
 
-// firstPromotes keeps the earliest Succeeded and Verified promote per Stage
-// and digest. A promote naming no digest stands alone.
-func firstPromotes(ops []Entry) []runrecord.Record {
-	first := map[string]runrecord.Record{}
-	var alone []runrecord.Record
-	for _, e := range ops {
-		r := e.Record
-		if r.Type != opPromote || r.Outcome != string(delivery.Succeeded) || r.Verification != string(delivery.Verified) {
+// promoteKey is the Stage and digest of a Succeeded and Verified promote; ok
+// is false for any other record, and the key is empty for a promote naming
+// no digest, which stands alone.
+func promoteKey(r runrecord.Record) (string, bool) {
+	if r.Kind != runrecord.KindOperation || r.Type != opPromote || r.Outcome != string(delivery.Succeeded) || r.Verification != string(delivery.Verified) {
+		return "", false
+	}
+	digest := r.To + "|" + r.Contract
+	if digest == "|" {
+		return "", true
+	}
+	stage := "//"
+	if st := r.Stage; st != nil {
+		stage = st.Namespace + "/" + st.Name + "/" + st.Cluster
+	}
+	return stage + "|" + digest, true
+}
+
+// firstPromotes is the record id of the earliest Succeeded and Verified
+// promote per Stage and digest.
+func firstPromotes(history []Entry) map[string]string {
+	first, at := map[string]string{}, map[string]time.Time{}
+	for _, e := range history {
+		key, ok := promoteKey(e.Record)
+		if !ok || key == "" {
 			continue
 		}
-		digest := r.To + "|" + r.Contract
-		if digest == "|" {
-			alone = append(alone, r)
-			continue
-		}
-		key := r.Stage.Namespace + "/" + r.Stage.Name + "/" + r.Stage.Cluster + "|" + digest
-		if f, ok := first[key]; !ok || recordTime(r).Before(recordTime(f)) {
-			first[key] = r
+		if t, seen := at[key]; !seen || recordTime(e.Record).Before(t) {
+			first[key], at[key] = e.Record.ID, recordTime(e.Record)
 		}
 	}
-	return append(alone, slices.Collect(maps.Values(first))...)
+	return first
 }
 
 func promotionLead(r runrecord.Record, pub map[string]time.Time) (int64, bool) {

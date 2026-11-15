@@ -20,7 +20,7 @@
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
-  import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
+  import ResourceList from '../../components/ResourceList.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
   import ServiceRevisionsFigure from '../../components/figure/ServiceRevisionsFigure.svelte';
   import GoldenPathFigure from '../../components/figure/GoldenPathFigure.svelte';
@@ -32,6 +32,8 @@
   import { dropService, inService } from '../../lib/identityContext.ts';
   import { api } from '../../lib/api.ts';
   import { miraServiceLink } from '../../lib/delivery.ts';
+  import { scrollToSection } from '../../lib/motion.ts';
+  import { formatCount, countOf } from '../../lib/format.ts';
 
   // The principal operational service page. It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
@@ -109,7 +111,7 @@
   // Drill-downs from the posture bars stay scoped to THIS service, by canonical key.
   // Sending a service page's "3 non-compliant" to the fleet-wide backlog would answer
   // a question the user did not ask and lose the three rows they clicked for.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ service: key, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ service: key, category, ...extra }));
   // Drift rows are only worth a line each when they are non-zero; a service with no
   // declared dependencies should not be told about seven kinds of zero. Each row links
   // to where its dependencies are listed: the attention item when one exists, else the
@@ -156,6 +158,15 @@
   const requested = $derived([...new Set((gp?.requirements?.items ?? []).map((u) => u.offering || u.provider?.label || u.provider?.key).filter(Boolean))]);
   const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
   const hiddenReqs = $derived(gp?.hiddenRequirements ?? 0);
+  // Resources: providers the viewer may not see are counted from this service's own
+  // declarations and reports, so the number is a lower bound.
+  const hiddenProviders = $derived(d.hiddenProviders ?? 0);
+  // Configuration entries a resource row already shows as a request: listed by name only.
+  // Only a request the current revision declares folds its Configuration entry: another
+  // revision's request leaves the current values shown where they are.
+  const resourceEntries = $derived(new Set((used.items ?? []).flatMap((u) => (u.requested ?? [])
+    .filter((r) => r.consumerRevision?.key && r.consumerRevision.key === d.currentRevision?.key).map((r) => r.entry))));
+  const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
 </script>
 
 <div class="svc-entity">
@@ -211,25 +222,9 @@
         <EntityLink ref={{ kind: 'offering', key: provides, label: provides }} showStatus={false} showKind={false} />
       </div>
     {/if}
-    <div class="se-fact" data-testid="service-offerings-used">
-      <span class="se-k">Platform offerings used</span>
-      {#if (used.items ?? []).length}
-        <ul class="se-chips">
-          {#each used.items as u, ui (`${u.offering}:${u.provider?.key}:${u.via}:${ui}`)}
-            <li class="se-use">
-              <a class="se-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a>
-              <span class="se-note">from {u.provider?.label ?? u.provider?.key}</span>
-              {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
-              <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
-              <ProvisioningBadges statuses={u.provisioning ?? []} />
-            </li>
-          {/each}
-          {#if used.truncated}<li class="se-note">+{(used.total ?? 0) - (used.count ?? 0)} more</li>{/if}
-        </ul>
-      {:else}
-        <span class="se-none">None resolved</span>
-        <span class="se-note">Unresolved references are not counted</span>
-      {/if}
+    <div class="se-fact" data-testid="service-resources-fact">
+      <span class="se-k">Resources</span>
+      <button type="button" class="se-jump" onclick={() => scrollToSection('sec-resources')}>{formatCount(used.total ?? 0)}{(used.phases?.failed ?? 0) > 0 ? `, ${formatCount(used.phases.failed)} failed ${used.phases.failed === 1 ? 'request' : 'requests'}` : ''}{hiddenProviders > 0 ? `, at least ${formatCount(hiddenProviders)} you may not see` : ''}</button>
     </div>
     <div class="se-fact" data-testid="service-capabilities">
       <span class="se-k">Declared capabilities</span>
@@ -462,6 +457,18 @@
     {/if}
   </div>
 
+  <!-- What this service consumes: one row per provider it uses, joining the request its
+       contract declares with what the provider reports. The hidden count and the footer
+       sit outside the section so they show whatever the count. -->
+  <PreviewSection title="Resources" total={used.total ?? 0} count={used.count ?? 0} truncated={used.truncated}
+    empty="No resource you can see. References that are not digest-pinned or locked are not counted." emptyBody={hiddenProviders > 0 ? hiddenProvidersNote : null}
+    help="Requests are declared in the contract and phases are observed from provider reports. A resource's phase is not this service's health. The pacto CLI entity command lists every resource of this service.">
+    <ResourceList uses={used.items ?? []} service={self} miraHref={miraFor === self ? miraHref : ''} />
+  </PreviewSection>
+  {#snippet hiddenProvidersNote()}<p class="se-hidden t-body-2" data-testid="hidden-providers">At least {countOf(hiddenProviders, 'resource')} from providers you may not see.</p>{/snippet}
+  {#if hiddenProviders > 0 && (used.count ?? 0) > 0}{@render hiddenProvidersNote()}{/if}
+  <p class="se-hidden t-body-2" data-testid="resources-footer">Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it. <a href={DOCS} target="_blank" rel="noopener noreferrer">Provision infrastructure through contracts</a></p>
+
   <!-- Inventory: WHAT this service is made of. It answers a navigation question, not an
        operational one, so it comes after the summary and the findings.
        The two lists a reader almost always wants -- what is running, and which revisions
@@ -586,7 +593,7 @@
     <div class="se-wrap" data-testid="service-configuration">
       <PreviewSection title="Configuration" total={d.configurations?.total ?? 0} count={d.configurations?.count ?? 0} truncated={d.configurations?.truncated} empty={current ? "This service's current revision declares no configuration." : 'No known revision.'}>
         {#if current}<p class="se-from t-body-2">From <EntityLink ref={current} showStatus={false} showKind={false} /></p>{/if}
-        <ConfigurationList items={d.configurations?.items ?? []} />
+        <ConfigurationList items={d.configurations?.items ?? []} {resourceEntries} />
       </PreviewSection>
     </div>
   </div>
@@ -616,7 +623,8 @@
   .se-chip { display: inline-block; font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-xs); color: var(--c-text); background: var(--c-surface-inset); border: 1px solid var(--c-border); text-decoration: none; overflow-wrap: anywhere; }
   .se-chip:hover { color: var(--c-accent); border-color: var(--c-accent); }
   .se-note { color: var(--c-text-3); font-size: var(--text-xs); }
-  .se-use { display: inline-flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; }
+  .se-jump { padding: 0; border: none; background: none; color: var(--c-accent); font: inherit; cursor: pointer; text-decoration: underline; }
+  @media (pointer: coarse) { .se-jump { min-block-size: 44px; } }
   .se-none { color: var(--c-text-3); }
   .se-wrap { display: contents; }
   .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }

@@ -95,6 +95,15 @@ func TestFleetEntitiesToolPagingAndErrors(t *testing.T) {
 	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
 	}
+	sort := fleetEntitiesTool().InputSchema.(map[string]any)["properties"].(map[string]any)["sort"].(map[string]any)
+	if got := enumStrings(t, sort); !slices.Contains(got, fleet.SortFailed) || !slices.Contains(got, fleet.SortConsumers) || !slices.Contains(got, fleet.SortGaps) {
+		t.Errorf("sort enum = %v", got)
+	}
+	for _, order := range []string{fleet.SortFailed, fleet.SortConsumers} {
+		if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "offering", "sort": order}); res.IsError {
+			t.Errorf("sort=%s is refused", order)
+		}
+	}
 }
 
 func TestFleetEntityTool(t *testing.T) {
@@ -194,14 +203,17 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 			t.Errorf("fleetInstructions lack %q", want)
 		}
 	}
-	// The neighbourhood and Mira sentences come after the existing text, which
-	// stays unchanged.
+	// The neighbourhood, Mira and overview sentences come after the existing
+	// text, which stays unchanged.
 	const appended = "pacto_fleet_attention for what needs attention, most severe first. " +
+		"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
+		"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
 		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
 		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
 		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +
-		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them. " +
-		"A Mira read with no spans is unknown, never healthy."
+		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+		"resource's utilization and cost too, unless a resource carries reported consumption. " +
+		"A Mira read with no spans is unknown, never healthy. " + overviewInstructions
 	if !strings.HasPrefix(fleetInstructions, "Pacto also exposes READ-ONLY fleet tools over the operational graph: ") || !strings.HasSuffix(fleetInstructions, appended) {
 		t.Errorf("fleetInstructions must keep their text and end with the neighbourhood sentences:\n%s", fleetInstructions)
 	}

@@ -152,3 +152,11 @@ func TestImpactArgsRefuseUnknownEvent(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestImpactToolSaysServiceIsOfferingName: an agent reading .service on an
+// offering answer is told it holds the offering's name.
+func TestImpactToolSaysServiceIsOfferingName(t *testing.T) {
+	if d := impactTool().Description; !strings.Contains(d, "'service' then holds the offering's name, the same as 'event.offering'") {
+		t.Errorf("description = %s", d)
+	}
+}

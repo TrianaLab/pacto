@@ -102,8 +102,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, deliveryMode, publishMode); err != nil {
 				return err
 			}
-			if !fleetMode && cmd.Flags().Changed("dashboard-url") {
-				return errDashboardURLNeedsFleet
+			if err := checkFleetOnlyFlags(cmd, fleetMode); err != nil {
+				return err
 			}
 			if publishMode && s.transport != "stdio" {
 				return errPublishOverHTTP
@@ -155,6 +155,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
+	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set")
 	// The rest are the fleet source flags, from the one declaration `pacto fleet`
 	// uses, and they apply in --fleet mode only.
 	addFleetSourceFlags(cmd.Flags())
@@ -213,7 +214,7 @@ func mcpModes(cmd *cobra.Command, svc *app.Service, version string, args []strin
 // run on the command's lifetime context, never a request's, so a cancelled call
 // cannot abort the build other sessions wait on.
 func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.FleetMode, error) {
-	fopts := fleetOptions(cmd)
+	fopts := mcpFleetOptions(cmd)
 	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, fopts)
 	}, fleetRefreshInterval, time.Now)
@@ -231,6 +232,17 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
 		Stats: mcpStatsProvider(cmd, svc, transport == "stdio"),
 	}}, nil
+}
+
+// mcpFleetOptions is fleetOptions for the fleet server. Over HTTP every caller
+// reads the snapshot as this process, so the server scans the working
+// directory's bundles only when --local says so; stdio keeps `--local .`.
+func mcpFleetOptions(cmd *cobra.Command) app.FleetOptions {
+	fopts := fleetOptions(cmd)
+	if transport, _ := cmd.Flags().GetString("transport"); transport != "stdio" && !cmd.Flags().Changed("local") {
+		fopts.LocalRoots = nil
+	}
+	return fopts
 }
 
 // mcpFleetSource builds the first snapshot (its error fails startup) and
@@ -271,6 +283,23 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 
 // errDashboardURLNeedsFleet: only the fleet tools answer with entities to link.
 var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only the fleet tools link answers to a dashboard")
+
+// errStatsRegistryNeedsFleet: pacto_stats registers on the fleet server only.
+var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet: pacto_stats is a fleet tool")
+
+// checkFleetOnlyFlags refuses a flag only the fleet tools read when the
+// server has none, so it is never silently ignored.
+func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
+	switch {
+	case fleetMode:
+		return nil
+	case cmd.Flags().Changed("dashboard-url"):
+		return errDashboardURLNeedsFleet
+	case cmd.Flags().Changed("stats-read-registry"):
+		return errStatsRegistryNeedsFleet
+	}
+	return nil
+}
 
 // checkMCPMode rejects --root or --publish beside any other mode: each
 // selects a server of its own, so honouring one and dropping the rest would
@@ -450,7 +479,7 @@ func buildBundleMode(cmd *cobra.Command, svc *app.Service, version, ref string) 
 // delivery: over HTTP every caller would read them as this process.
 // Extracted so the wiring is directly testable.
 func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing, trusted bool) func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
-	fopts := fleetOptions(cmd)
+	fopts := mcpFleetOptions(cmd)
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, req pactomcp.ImpactRequest) (*impact.Result, error) {
 		req, err := refuseUntrustedImpact(req, trusted, snap)
 		if err != nil {
@@ -471,7 +500,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, d deps, addMissing,
 			}
 			return svc.ImpactEventOnSnapshot(ctx, opts, snap)
 		}
-		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
+		opts := app.ImpactOptions{OldPath: req.OldRef, NewPath: req.NewRef, Domain: req.Domain, Fleet: fopts, IncludeObserved: req.IncludeObserved, Traces: traces}
 		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
@@ -630,10 +659,13 @@ func mcpStatsProvider(cmd *cobra.Command, svc *app.Service, trusted bool) pactom
 		if err != nil {
 			return nil, err
 		}
+		if q.Service, err = statsService(q.Service, full); err != nil {
+			return nil, err
+		}
 		r := app.StatsRequest{Registry: repo, Query: q, Scope: scope, Now: now}
 		// A signed-in caller's own exchanged client reviews the operation
 		// records; without one there is no delivery, never the server's.
-		if act := reviewedFrom(ctx).delivery; scope.Restricted && act != nil {
+		if act := reviewedFrom(ctx).own; scope.Restricted && act != nil {
 			r.Scope.NoDelivery, r.OperationAccess = "", operationAccess(act, full)
 		}
 		return svc.Stats(ctx, r)
@@ -656,5 +688,5 @@ func mcpStatsScope(full, view *fleet.Query, service string) (stats.Scope, error)
 			return stats.Scope{}, &fleet.NotFoundError{Kind: "service", ID: service}
 		}
 	}
-	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution}, nil
+	return stats.Scope{Restricted: true, Place: place, NoDelivery: mcpNoDelivery, Snapshot: attribution, Names: stats.VisibleNames(view)}, nil
 }

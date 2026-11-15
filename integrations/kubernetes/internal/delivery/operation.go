@@ -253,6 +253,9 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			return reconcile.Result{}, err
 		}
 		if cur.Predicted == delivery.PredictRejected {
+			// The record and explain name the gate that failed, not the
+			// first plan's passing verdicts.
+			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(cur)})
 		}
 		if !delivery.StillPasses(*op.Status.Plan, cur) {

@@ -12,7 +12,8 @@ import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
   changeSegments, verdictSegments, confidenceSegments, outcomeSegments, segmentTotal,
   COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel, signatureSegments, signatureState,
-  ownershipSegments, readinessSegments, canonicalRank, type Segment,
+  ownershipSegments, ownershipHrefs, readinessSegments, canonicalRank, type Segment,
+  healthSegments, knowledgeSegments, KNOWLEDGE_GAPS,
 } from './distributions.ts';
 import { statusLabel } from './format.ts';
 
@@ -59,6 +60,8 @@ describe('complianceSegments', () => {
       ['compliance', complianceSegments({})], ['link', linkSegments({})], ['severity', severitySegments({})],
       ['evidence', evidenceSegments({})], ['change', changeSegments({})], ['signature', signatureSegments({})],
       ['ownership', ownershipSegments({})], ['readiness', readinessSegments({})],
+      ['health', healthSegments({ degraded: 1 })], ['knowledge', knowledgeSegments({})],
+      ['stale compliance', complianceSegments({ compliant: 2, staleCompliant: 1 })],
       ['verdict', verdictSegments([{ key: 'incompatible' }, { key: 'unknown' }, { key: 'compatible' }])],
     ];
     for (const [name, segs] of builders) {
@@ -243,5 +246,62 @@ describe('signatureState', () => {
     expect(signatureState(null).label).toBe('Not checked');
     expect(signatureState({ status: 'brand-new' }).tone).toBe('neutral');
     expect(signatureState({ status: 'unsigned' }).tone).toBe('warn');
+  });
+});
+
+describe('ownershipSegments', () => {
+  // Unreadable is never ownerless: Owner unknown is its own hatched bucket, and it
+  // links to the ownership=unknown list it counts.
+  it('draws owner unknown as the unknown hatch with its own link', () => {
+    const segs = ownershipSegments({ unowned: 1, unknown: 2 }, ownershipHrefs((o) => `#/fleet/services?ownership=${o}`));
+    const unknown = segs.find((x) => x.label === 'Owner unknown');
+    expect(unknown).toMatchObject({ value: 2, tone: 'neutral', hatch: true, href: '#/fleet/services?ownership=unknown' });
+    expect(segs.find((x) => x.label === 'No declared owner')?.value).toBe(1);
+  });
+});
+
+describe('stale compliant evidence', () => {
+  // D4: a Compliant verdict on old evidence stays Compliant, drawn hatched apart.
+  it('splits Compliant into fresh and a hatched stale segment that still add up', () => {
+    const s = complianceSegments({ compliant: 5, staleCompliant: 2, unknown: 1 }, { staleCompliant: '#/fleet/attention?category=stale' });
+    const stale = s.find((x) => x.label === 'Compliant, evidence stale');
+    expect(stale).toMatchObject({ value: 2, tone: 'neutral', hatch: true, href: '#/fleet/attention?category=stale' });
+    expect(s.find((x) => x.label === 'Compliant')?.value).toBe(3);
+    expect(segmentTotal(s)).toBe(6);
+    expect(s.indexOf(stale!)).toBe(s.findIndex((x) => x.label === 'Compliant') - 1);
+  });
+
+  it('adds no segment when no compliant target is stale', () => {
+    expect(complianceSegments({ compliant: 5 }).map((x) => x.label)).not.toContain('Compliant, evidence stale');
+  });
+});
+
+describe('healthSegments', () => {
+  it('names failing, unknown, healthy and not observed apart, unknown hatched', () => {
+    const s = healthSegments({ available: 4, unavailable: 2, unknown: 3, notObserved: 1 }, { unavailable: '#/fleet/attention?category=health' });
+    expect(s.map((x) => [x.label, x.value, x.tone, !!x.hatch])).toEqual([
+      ['Failing', 2, 'warn', false], ['Unknown', 3, 'neutral', true], ['Healthy', 4, 'ok', false], ['Not observed', 1, 'neutral', false],
+    ]);
+    expect(s[0].href).toBe('#/fleet/attention?category=health');
+    expect(s[2].href).toBeUndefined();
+  });
+
+  it('draws Degraded only when a source reports it', () => {
+    expect(healthSegments({}).map((x) => x.label)).not.toContain('Degraded');
+    expect(healthSegments({ degraded: 1 }).map((x) => x.label)).toContain('Degraded');
+  });
+});
+
+describe('knowledgeSegments', () => {
+  it('partitions the services into unknown (hatched), fully described and with gaps', () => {
+    const s = knowledgeSegments({ services: 10, described: 3, withGaps: 6, unknown: 1 }, { unknown: '#/fleet/services?gap=unknown' });
+    expect(s.map((x) => [x.label, x.value, x.tone, !!x.hatch])).toEqual([
+      ['Unknown', 1, 'neutral', true], ['Fully described', 3, 'ok', false], ['With gaps', 6, 'info', false],
+    ]);
+    expect(s[0].href).toBe('#/fleet/services?gap=unknown');
+  });
+
+  it('lists every gap kind once, with its filter value', () => {
+    expect(KNOWLEDGE_GAPS.map((g) => g.value)).toEqual(['no-summary', 'no-domain', 'no-interface-docs', 'no-readiness', 'not-deployed', 'unverified-capability']);
   });
 });

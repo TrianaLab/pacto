@@ -231,7 +231,9 @@ nav:
   - Reference:
       - Ladder reference: autonomy-reference.md
       - Operational graph reference: operational-graph-reference.md
+      - Operational graph tallies: operational-graph-tallies.md
       - Platform offerings reference: platform-offerings.md
+      - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
       - MCP reference:
           - MCP reference: mcp-reference.md
@@ -272,6 +274,7 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
+      - Provider reports: provider-reports.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference

@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -52,8 +53,20 @@ func promote() *dv1.Operation {
 }
 
 func newEmitter(publish func(context.Context, runrecord.Record) error) *Emitter {
-	e := New("unused.example/stats", nil, nil, "cluster-1", "test")
+	e, err := New("unused.example/stats", nil, nil, "cluster-1", "test")
+	if err != nil {
+		panic(err) // a constant that parses
+	}
 	e.publish = publish
+	return e
+}
+
+func mustNew(t *testing.T, path string) *Emitter {
+	t.Helper()
+	e, err := New(path, nil, nil, "cluster-1", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return e
 }
 
@@ -78,19 +91,43 @@ func statsRegistry(t *testing.T, unsupported bool) string {
 	return strings.TrimPrefix(srv.URL, "http://") + "/acme/pacto-stats"
 }
 
+// tokenRegistry is statsRegistry behind an anonymous bearer-token exchange,
+// counting each token it issues.
+func tokenRegistry(t *testing.T, tokens *atomic.Int32) string {
+	t.Helper()
+	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.URL.Path == "/token":
+			tokens.Add(1)
+			_, _ = io.WriteString(w, `{"token":"tok"}`)
+		case req.Header.Get("Authorization") != "Bearer tok":
+			w.Header().Set("WWW-Authenticate", `Bearer realm="`+srv.URL+`/token",service="test",scope="repository:acme/pacto-stats:pull,push"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			inner.ServeHTTP(w, req)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://") + "/acme/pacto-stats"
+}
+
 // publishAndDrain emits op through a real emitter on path and runs the worker
 // until its publish returns.
-func publishAndDrain(t *testing.T, path string, op *dv1.Operation) {
+func publishAndDrain(t *testing.T, path string, ops ...*dv1.Operation) {
 	t.Helper()
-	e := New(path, nil, nil, "cluster-1", "test")
+	e := mustNew(t, path)
 	var calls atomic.Int32
 	real := e.publish
 	e.publish = func(ctx context.Context, r runrecord.Record) error {
 		defer calls.Add(1)
 		return real(ctx, r)
 	}
-	e.Emit(op)
-	runUntilEmpty(t, t.Context(), e, &calls, 1)
+	for _, op := range ops {
+		e.Emit(op)
+	}
+	runUntilEmpty(t, t.Context(), e, &calls, int32(len(ops)))
 }
 
 func referrers(t *testing.T, path string) []ocispec.Descriptor {
@@ -201,8 +238,10 @@ func TestEmitNeverBlocks(t *testing.T) {
 func TestEmitDropsWhenQueueFull(t *testing.T) {
 	Dropped.Reset()
 	e := newEmitter(nil)
-	for range queueSize + 5 {
-		e.Emit(promote())
+	for i := range queueSize + 5 {
+		op := promote()
+		op.Namespace = fmt.Sprintf("team-%d", i%8)
+		e.Emit(op)
 	}
 	if v := testutil.ToFloat64(Dropped.WithLabelValues("queue-full")); v != 5 {
 		t.Fatalf("queue-full = %v", v)
@@ -244,20 +283,85 @@ func TestEmitPublishFailureCountsAndNeverRetries(t *testing.T) {
 	}
 }
 
-func TestNewOpenFailureCounted(t *testing.T) {
-	Dropped.Reset()
-	e := New("UPPER/Case", nil, nil, "cluster-1", "test")
-	var calls atomic.Int32
-	real := e.publish
-	e.publish = func(ctx context.Context, r runrecord.Record) error {
-		defer calls.Add(1)
-		return real(ctx, r)
+func TestNewRefusesABadRepository(t *testing.T) {
+	for _, path := range []string{"UPPER/Case", "https://ghcr.io/acme/stats", "ghcr.io/acme/stats:v1",
+		"ghcr.io/acme/stats@sha256:" + strings.Repeat("0", 64)} {
+		if _, err := New(path, nil, nil, "cluster-1", "test"); err == nil {
+			t.Errorf("New(%q) must fail at startup", path)
+		}
 	}
-	var lines []string
+}
+
+func TestNewExportsEveryReasonAtZero(t *testing.T) {
+	Dropped.Reset()
+	newEmitter(nil)
+	if n := testutil.CollectAndCount(Dropped); n != len(dropReasons) {
+		t.Fatalf("series = %d, want %d", n, len(dropReasons))
+	}
+	for _, r := range dropReasons {
+		if v := testutil.ToFloat64(Dropped.WithLabelValues(r)); v != 0 {
+			t.Fatalf("%s = %v", r, v)
+		}
+	}
+}
+
+// TestNewReusesTheRepository: the token a record's publish fetched serves
+// the next record, so one burst costs one token exchange, not one per record.
+func TestNewReusesTheRepository(t *testing.T) {
+	Dropped.Reset()
+	var one, three atomic.Int32
+	publishAndDrain(t, tokenRegistry(t, &one), promote())
+	ops := []*dv1.Operation{promote(), promote(), promote()}
+	for i, op := range ops {
+		op.UID = types.UID(fmt.Sprintf("%d"+testUID[1:], i))
+	}
+	publishAndDrain(t, tokenRegistry(t, &three), ops...)
+	if one.Load() == 0 || three.Load() != one.Load() {
+		t.Fatalf("tokens: %d for one record, %d for three", one.Load(), three.Load())
+	}
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")); v != 0 {
+		t.Fatalf("publish-failed = %v", v)
+	}
+}
+
+func TestEmitCapsOneNamespace(t *testing.T) {
+	Dropped.Reset()
+	var published []string
+	var calls atomic.Int32
+	e := newEmitter(func(_ context.Context, r runrecord.Record) error {
+		published = append(published, r.Stage.Namespace)
+		calls.Add(1)
+		return nil
+	})
+	for range namespaceCap + 3 {
+		e.Emit(promote())
+	}
+	other := promote()
+	other.Namespace = "payments"
+	e.Emit(other)
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("namespace-full")); v != 3 {
+		t.Fatalf("namespace-full = %v", v)
+	}
+	runUntilEmpty(t, t.Context(), e, &calls, namespaceCap+1)
+	if len(published) != namespaceCap+1 || published[len(published)-1] != "payments" {
+		t.Fatalf("published %d, last %v", len(published), published[len(published)-1:])
+	}
+	if len(e.perNS) != 0 {
+		t.Fatalf("dequeued records must release their namespace slots: %v", e.perNS)
+	}
+}
+
+func TestEmitAfterStopCountsShutdown(t *testing.T) {
+	Dropped.Reset()
+	e := newEmitter(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := e.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
 	e.Emit(promote())
-	runUntilEmpty(t, logged(&lines), e, &calls, 1)
-	if testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")) != 1 || len(lines) != 1 {
-		t.Fatalf("publish-failed %v, log %q", testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")), lines)
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("shutdown")); v != 1 || len(e.q) != 0 {
+		t.Fatalf("shutdown = %v, queued %d", v, len(e.q))
 	}
 }
 
@@ -309,5 +413,46 @@ func TestRunCountsQueuedOnShutdown(t *testing.T) {
 	}
 	if len(lines) != 1 || !strings.Contains(lines[0], "run records not published at shutdown") || !strings.Contains(lines[0], `"count"=3`) {
 		t.Fatalf("log = %q", lines)
+	}
+}
+
+func TestRunCountsInFlightAtShutdownAsPublishFailed(t *testing.T) {
+	Dropped.Reset()
+	started := make(chan struct{})
+	e := newEmitter(func(ctx context.Context, _ runrecord.Record) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- e.Run(ctx) }()
+	e.Emit(promote())
+	<-started
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")); v != 1 {
+		t.Fatalf("publish-failed = %v", v)
+	}
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("shutdown")); v != 0 {
+		t.Fatalf("shutdown = %v", v)
+	}
+}
+
+func TestPublishTimeoutBoundsAPublish(t *testing.T) {
+	Dropped.Reset()
+	var calls atomic.Int32
+	e := newEmitter(func(ctx context.Context, _ runrecord.Record) error {
+		defer calls.Add(1)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	e.PublishTimeout = 10 * time.Millisecond
+	e.Emit(promote())
+	runUntilEmpty(t, t.Context(), e, &calls, 1)
+	if v := testutil.ToFloat64(Dropped.WithLabelValues("publish-failed")); v != 1 {
+		t.Fatalf("publish-failed = %v", v)
 	}
 }

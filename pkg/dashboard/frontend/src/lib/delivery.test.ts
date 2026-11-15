@@ -5,11 +5,21 @@ import {
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
-  causeText, historyWindow, windowSince,
+  causeText, historyWindow, windowSince, samePerson,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
 } from './router.ts';
+
+describe('samePerson', () => {
+  it('ignores case and padding, and never matches an empty name', () => {
+    expect(samePerson('dana@example.com', ' Dana@Example.com ')).toBe(true);
+    expect(samePerson('dana', 'carol')).toBe(false);
+    expect(samePerson('', '')).toBe(false);
+    expect(samePerson(undefined, undefined)).toBe(false);
+    expect(samePerson('dana', undefined)).toBe(false);
+  });
+});
 
 describe('delivery labels', () => {
   it('names types, decisions and predictions in plain words', () => {

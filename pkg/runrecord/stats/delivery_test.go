@@ -214,7 +214,8 @@ func TestLeadTimeUnjoinedIsUnknown(t *testing.T) {
 func TestLeadTimeUnparsableFinishedAtIsUnjoined(t *testing.T) {
 	p := verifiedTo(digest('d'), hoursAgo(1))
 	p.FinishedAt = "yesterday"
-	lt := leadTimes([]Entry{{Record: p}}, []Entry{{Record: published("orders", digest('d'), "", hoursAgo(2))}})
+	ops := []Entry{{Record: p}}
+	lt := leadTimes(ops, append(ops, Entry{Record: published("orders", digest('d'), "", hoursAgo(2))}))
 	if lt["production"] != (LeadTime{Unjoined: 1, Unknown: true}) {
 		t.Fatalf("lead time = %+v", lt)
 	}
@@ -238,9 +239,24 @@ func TestLeadTimeNeverJoinsOtherServicePublish(t *testing.T) {
 	}
 }
 
-func TestLeadTimeUsesNewestPublishOfDigest(t *testing.T) {
+// A publish rerun finds the digest already pushed and records it again: the
+// lead time still starts at the publish that produced it, whether the rerun
+// lands before or after the promotion.
+func TestLeadTimeUsesEarliestPublishOfDigest(t *testing.T) {
 	assertLead(t, leadOf(t, published("orders", digest('d'), "", hoursAgo(5)), published("orders", digest('d'), "", hoursAgo(3)),
-		verifiedTo(digest('d'), hoursAgo(1))), 7200, 7200, 1, 0)
+		verifiedTo(digest('d'), hoursAgo(1))), 14400, 14400, 1, 0)
+	assertLead(t, leadOf(t, published("orders", digest('d'), "", hoursAgo(5)), verifiedTo(digest('d'), hoursAgo(3)),
+		published("orders", digest('d'), "", hoursAgo(1))), 7200, 7200, 1, 0)
+}
+
+// A digest first promoted before the window and promoted again in it (after
+// a rollback) has no first promotion in the window, so no lead time.
+func TestLeadTimeFirstPromoteBeforeWindow(t *testing.T) {
+	before := aggWindow.Since.Add(-time.Hour)
+	lt := leadOf(t, published("orders", digest('d'), "", before.Add(-24*time.Hour)), verifiedTo(digest('d'), before), verifiedTo(digest('d'), hoursAgo(2)))
+	if lt != (LeadTime{Unknown: true}) {
+		t.Fatalf("lead time = %+v", lt)
+	}
 }
 
 func TestLeadTimePercentiles(t *testing.T) {
@@ -257,5 +273,13 @@ func TestLeadTimePercentiles(t *testing.T) {
 	}
 	if percentile(nil, 50) != nil || *percentile([]int64{1, 2, 3}, 50) != *secs(2) {
 		t.Fatal("percentile")
+	}
+}
+
+// A promote naming neither to nor contract can join no publish: each one is
+// unjoined on its own, never merged into one first promotion per Stage.
+func TestLeadTimePromoteWithoutDigestIsUnjoined(t *testing.T) {
+	if lt := leadOf(t, published("orders", digest('d'), digest('b'), hoursAgo(5)), verifiedTo("", hoursAgo(2)), verifiedTo("", hoursAgo(1))); lt != (LeadTime{Unjoined: 2, Unknown: true}) {
+		t.Fatalf("lead time = %+v", lt)
 	}
 }

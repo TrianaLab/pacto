@@ -353,8 +353,9 @@ func TestRemoteFleetNeedsExchange(t *testing.T) {
 	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"), "no cluster")
 	// The first snapshot still fails startup.
 	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
-	// (remoteCmd runs on a cancelled context, so the build fails).
-	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c"),
+	// (remoteCmd runs on a cancelled context, so the build of the local
+	// source, which HTTP reads only when named, fails).
+	wantErr(t, remoteCmd(t, d, "--fleet", "-t", "http", "--auth-issuer", "https://idp", "--resource", "https://m/mcp", "--exchange-client-id", "c", "--local", "."),
 		"context canceled")
 }
 
@@ -420,10 +421,10 @@ func TestRemoteDeliveryPassesAssertedOnBehalfOf(t *testing.T) {
 	expect(t, strings.Contains(body, `\"onBehalfOf\": {\n        \"user\": \"erin\"`) &&
 		strings.Contains(body, `\"user\": \"system:serviceaccount:agents:bot\"`), "asserted on_behalf_of: %s", body)
 	// Without the argument nothing fills it in: not the token, not the review,
-	// so the agent's proposal is refused for naming nobody.
+	// so the agent's propose is refused for naming nobody.
 	body = propose(`"namespace":"prod","stage":"payments-prod","to":"` + cliB + `"`)
-	expect(t, strings.Contains(body, "must name the person it acts for") && !strings.Contains(body, "agent@example.com"),
-		"no derived on_behalf_of: %s", body)
+	expect(t, strings.Contains(body, "an agent must name the person it acts for") && !strings.Contains(body, `\"onBehalfOf\": {`) &&
+		!strings.Contains(body, "agent@example.com"), "no derived on_behalf_of: %s", body)
 }
 
 // loopbackServe is a loopback HTTP server without an issuer, as mcpRemote

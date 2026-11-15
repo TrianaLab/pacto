@@ -26,7 +26,7 @@
   // attention item). declaredIn: the revision whose owner block the service takes, where
   // its contacts are shown; contacts are never copied onto a service.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
-  const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.";
+  const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
 
 {#if !ownership?.declared}
@@ -46,7 +46,7 @@
   </span>
 {/if}
 {#if ownership?.declared && declaredIn}
-  <span class="of-note" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
+  <span class="of-note of-in" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
 {/if}
 
 <style>
@@ -55,4 +55,7 @@
   /* Quieter than the value it qualifies: the fact is that ownership WAS declared, and
      the missing identity is why this row is text rather than a link. */
   .of-note { color: var(--c-text-3); font-size: var(--text-xs); }
+  /* "Declared in" and its revision link wrap as two boxes with a clear gap, never as
+     one run of text the link breaks in the middle of. */
+  .of-in { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-inline-size: 0; }
 </style>

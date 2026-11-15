@@ -22,8 +22,13 @@ import (
 // ImpactOptions configures blast-radius analysis of a change from an old to a new
 // contract revision, projected onto a fleet snapshot assembled from Fleet.
 type ImpactOptions struct {
-	OldPath      string
-	NewPath      string
+	OldPath string
+	NewPath string
+	// Domain qualifies the changed service when NewPath cannot: a local path
+	// names no registry, so a caller that knows the service's fleet domain
+	// (an edit of a checkout of ghcr.io/acme/orders) passes ghcr.io/acme.
+	// Empty derives the domain from NewPath.
+	Domain       string
 	OldOverrides override.Overrides
 	NewOverrides override.Overrides
 	Fleet        FleetOptions
@@ -88,7 +93,7 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 // impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
 func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
 	var err error
-	domain := revisionDomain(opts.NewPath)
+	domain := opts.domain()
 	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
 	if added {
 		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
@@ -111,6 +116,15 @@ func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap
 	}
 	res.NewRevisionAdded = added
 	return res, nil
+}
+
+// domain is the changed service's fleet domain: Domain when set, else the
+// domain of the reference that resolved the new revision.
+func (o ImpactOptions) domain() string {
+	if o.Domain != "" {
+		return o.Domain
+	}
+	return revisionDomain(o.NewPath)
 }
 
 func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {
@@ -137,7 +151,7 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:          revisionDomain(opts.NewPath),
+			Domain:          opts.domain(),
 			IncludeObserved: opts.IncludeObserved,
 			ObservedEdges:   observed,
 		}), nil
@@ -179,10 +193,12 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
 	ev := opts.Event
-	if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
-		ev.Service = string(view.Service.Key)
-	} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
-		return nil, err
+	if ev.Service != "" { // an offering event names none: impact resolves its providers
+		if view, err := fleet.NewQuery(snap).GetService(ev.Service); err == nil {
+			ev.Service = string(view.Service.Key)
+		} else if amb := (*fleet.AmbiguousError)(nil); errors.As(err, &amb) {
+			return nil, err
+		}
 	}
 	var reg *impact.Regression
 	if ev.Kind == impact.EventRegressed && opts.ReadRegression != nil {
@@ -194,17 +210,28 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 }
 
 // ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
-// service key, and for regressed the revision after the last "@".
+// service key, and for regressed the revision after the last "@". For
+// unavailable and removed, offering:<name> names every provider of an offering.
 func ParseEventFlag(kind, value string) (impact.Event, error) {
 	ev := impact.Event{Kind: kind, Service: value}
+	name, offering := strings.CutPrefix(value, offeringPrefix)
 	switch kind {
 	case impact.EventRegressed:
+		if offering {
+			return impact.Event{}, errors.New("--regressed names one service: a regression belongs to one revision")
+		}
 		i := strings.LastIndex(value, "@")
 		if i <= 0 || i == len(value)-1 {
 			return impact.Event{}, fmt.Errorf("--regressed takes <service>@<revision>, got %q", value)
 		}
 		ev.Service, ev.Revision = value[:i], value[i+1:]
 	case impact.EventUnavailable, impact.EventRemoved:
+		if offering {
+			if name == "" || strings.Contains(name, "@") {
+				return impact.Event{}, fmt.Errorf("--%s offering: takes an offering name, got %q", kind, value)
+			}
+			return impact.Event{Kind: kind, Offering: name}, nil
+		}
 		if value == "" || strings.Contains(value, "@") {
 			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
 		}
@@ -213,6 +240,9 @@ func ParseEventFlag(kind, value string) (impact.Event, error) {
 	}
 	return ev, nil
 }
+
+// offeringPrefix marks an event flag value that names an offering.
+const offeringPrefix = "offering:"
 
 // refuseHidden keeps a raw-ref impact request from reading a service the
 // caller's permissions hide. The refs resolve with this process's registry

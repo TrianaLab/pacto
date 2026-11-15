@@ -85,12 +85,12 @@ func yankLine(c *Context, sel Selection) string {
 	argv := yankArgv(c, sel)
 	quoted := make([]string, len(argv))
 	for i, tok := range argv {
-		quoted[i] = shellQuote(tok)
+		quoted[i] = ShellQuote(tok)
 	}
 	return strings.Join(quoted, " ")
 }
 
-// shellQuote renders tok as exactly one POSIX shell word. A token made only of
+// ShellQuote renders tok as exactly one POSIX shell word. A token made only of
 // characters the shell reads literally is returned unchanged, so the ordinary
 // line stays as readable as it was; anything else is single-quoted, with an
 // inner quote spelled the only way single quotes allow.
@@ -99,7 +99,7 @@ func yankLine(c *Context, sel Selection) string {
 // still a newline, and several terminals submit a pasted line the moment they
 // see one, so there is no rendering of a control character that is both honest
 // and safe.
-func shellQuote(tok string) string {
+func ShellQuote(tok string) string {
 	tok = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return -1

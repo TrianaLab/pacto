@@ -248,12 +248,14 @@ YAML
 }
 
 # mcp TOKEN METHOD PARAMS — one JSON-RPC call to the remote MCP server; prints
-# the JSON answer (the server is stateless: no initialize needed).
+# the JSON answer once (the server is stateless: no initialize needed). The `t`
+# ends the cycle after a stripped SSE data line, which now starts with `{` and
+# would otherwise print twice.
 mcp() {
   local auth=(); [ -n "$1" ] && auth=(-H "Authorization: Bearer $1")
   curl -s "${auth[@]}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
     -H 'Mcp-Protocol-Version: 2025-06-18' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n 's/^data: //p;/^{/p'
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n -e 's/^data: //p' -e t -e '/^{/p'
 }
 # tool TOKEN NAME ARGS — one tool call's text answer; a refusal prints as
 # "ERROR: <text>".
@@ -400,7 +402,13 @@ identity_mcp_composed() {
   frank_names() { frank_entities | jq -c '[.entities[] | select(.kind=="service") | .label] | sort' 2>/dev/null; }
   sees_open() { [ "$(frank_names)" = '["rbac-open-svc"]' ]; }
   # The server rebuilds its snapshot when a call arrives 30s after the last.
-  eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_entities | head -c 600)"
+  # On failure, the entities and sources, not the first bytes of meta.
+  frank_brief() {
+    local raw; raw="$(frank_entities)"
+    jq -c '{total, entities: [.entities[] | {kind, key, label, targets}], limitations: [.meta.limitations[]?.code],
+      sources: [.meta.sources[] | {id, kind, status, revisionCount, targetCount}]}' <<<"$raw" 2>/dev/null || head -c 3000 <<<"$raw"
+  }
+  eventually 40 sees_open || fail "frank does not see exactly rbac-open-svc over MCP: $(frank_brief)"
   out="$(frank_entities)"
   jq -e '(.meta.limitations // []) | map(.code) | index("HIDDEN_BY_PERMISSIONS") != null' <<<"$out" >/dev/null \
     || fail "frank's fleet answer does not say services are hidden: ${out:0:600}"

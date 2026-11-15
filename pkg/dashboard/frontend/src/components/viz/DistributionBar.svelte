@@ -299,13 +299,14 @@
   .dist-item.dim { opacity: 0.45; }
   .dist-bar-warn .dist-seg { opacity: 0.55; }
   .dist-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
-  /* Rows of one height, whether an item is a link (a touch target) or plain text. */
-  .dist-item { min-height: var(--touch-min); align-items: center; }
   .dist-item, .dist-item a {
     display: flex; align-items: baseline; gap: var(--sp-2);
     font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
   }
-  .dist-item a { min-height: var(--touch-min); align-items: center; }
+  /* Rows of one height, whether an item is a link (a touch target) or plain text, with
+     the text centred in both: after the shared rule, so baseline never wins and puts a
+     plain item's text at the top while a link's sits in the middle. */
+  .dist-item, .dist-item a { min-height: var(--touch-min); align-items: center; }
   .dist-item a:hover .dist-label, .dist-item a:focus-visible .dist-label { text-decoration: underline; }
   .dist-swatch {
     width: 10px; height: 10px; border-radius: 2px; flex: none;

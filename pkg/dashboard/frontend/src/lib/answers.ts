@@ -88,5 +88,28 @@ export function revisionAnswer(r: RevisionFacts = {}): { tone: 'err' | 'warn' | 
 export function problemPhrase(category: string | undefined, n: number): string {
   if (category === 'non-compliant') return `${plural(n, 'running target breaks its', 'running targets break their')} contract`;
   if (category === 'invalid') return `${plural(n, 'revision is', 'revisions are')} invalid`;
+  if (category === 'health') return `${plural(n, 'running target fails its', 'running targets fail their')} health check`;
   return '';
+}
+
+/** The caption under the Operational health bar, from the same tally the bar draws. */
+export function healthCaption(t: { available?: number; degraded?: number; unavailable?: number; unknown?: number; notObserved?: number } = {}): string {
+  const parts = [
+    t.unavailable ? `${plural(t.unavailable, 'target fails its', 'targets fail their')} health check` : '',
+    t.degraded ? `${plural(t.degraded, 'target reports', 'targets report')} degraded health` : '',
+    t.unknown ? `Pacto cannot tell the health of ${plural(t.unknown, 'target', 'targets')}` : '',
+    t.available ? `${plural(t.available, 'target is', 'targets are')} healthy` : '',
+    t.notObserved ? `${plural(t.notObserved, 'target declares', 'targets declare')} no health check` : '',
+  ].filter(Boolean);
+  return parts.length ? `${cap(joinAnd(parts))}.` : '';
+}
+
+/** The caption under the Knowledge bar, from the same tally the bar draws. */
+export function knowledgeCaption(k: { described?: number; withGaps?: number; unknown?: number } = {}): string {
+  const parts = [
+    k.withGaps ? `${plural(k.withGaps, 'service leaves', 'services leave')} something out of the contract` : '',
+    k.unknown ? `Pacto cannot tell for ${plural(k.unknown, 'service', 'services')}` : '',
+    k.described ? `${plural(k.described, 'service is', 'services are')} fully described` : '',
+  ].filter(Boolean);
+  return parts.length ? `${cap(joinAnd(parts))}.` : '';
 }

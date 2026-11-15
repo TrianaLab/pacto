@@ -109,7 +109,7 @@ describe('service page: owner fact', () => {
     expect(text(f)).not.toContain('No declared owner');
     const a = f.querySelector('a[href]')!;
     expect(a.getAttribute('href')).toBe(unowned);
-    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.");
+    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.");
     done();
   });
 
@@ -450,22 +450,27 @@ describe('service page: platform offerings', () => {
   const pg = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
   const cfg = ref('service', 'ghcr.io/acme/platform-app-config', 'platform-app-config');
 
-  it('links each offering the service uses, with its provider and range', async () => {
+  const res = (t: HTMLElement) => t.querySelector('[data-testid="service-resources"]') as HTMLElement | null;
+  const section = (t: HTMLElement) => target(t, 'Resources');
+  const target = (t: HTMLElement, title: string) => Array.from(t.querySelectorAll('[data-testid="preview-section"]'))
+    .find((s) => s.querySelector('h2')?.textContent === title) as HTMLElement;
+  const FOOTER = "Resize or delete runs in the provider's tools. pacto_edit refuses a request the provider's schema rejects, and pacto validate and push fail on it.";
+
+  it('lists each resource the service uses, with its provider, offering and range', async () => {
     const used = preview([
       { offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'dependency', compatibility: '^16.0.0', rangeStatus: 'satisfied' },
       { offering: 'shared-config', consumer: ref('service', KEY, 'payments'), provider: cfg, via: 'configuration_reference' },
-    ]);
-    const { target, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
-    const f = fact(target, 'service-offerings-used');
-    expect(text(f)).toContain('Platform offerings used');
-    expect(hrefs(f)).toEqual(['#/fleet/offerings/postgresql', '#/fleet/offerings/shared-config']);
-    expect(text(f)).toContain('from postgresql');
+    ], { phases: { failed: 0 } });
+    const { target: t, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
+    const f = res(t);
+    expect(hrefs(f)).toEqual(expect.arrayContaining(['#/fleet/offerings/postgresql', '#/fleet/offerings/shared-config']));
     expect(f?.querySelector('.tone-ok')?.textContent).toBe('satisfied');
     expect(f?.querySelector('[data-testid="provisioning-badge"]')).toBeNull();
+    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 2');
     done();
   });
 
-  it('shows what providers report and the provider lifecycle on each offering used', async () => {
+  it('shows what providers report and the provider lifecycle on each resource', async () => {
     const used = preview([
       { offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
         providerLifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' },
@@ -473,21 +478,88 @@ describe('service page: platform offerings', () => {
           { environment: 'production', phase: 'Failed', provenance: 'observed', verified: true, producer: 'adapter', source: 'evidence', asOf: '2026-11-04T09:00:00Z' },
           { environment: 'staging', phase: 'Unknown', provenance: 'observed', verified: false, stale: true, reportedPhase: 'Ready' },
         ] },
-    ]);
-    const { target, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
-    const f = fact(target, 'service-offerings-used')!;
+    ], { phases: { failed: 1 } });
+    const { target: t, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
+    const f = res(t)!;
     const tags = Array.from(f.querySelectorAll('[data-testid="provisioning-badge"] .tag'));
-    expect(tags.map((t) => t.textContent)).toEqual(['production: Failed', 'staging: Unknown']);
+    expect(tags.map((x) => x.textContent)).toEqual(['production: Failed', 'staging: Unknown']);
     expect(tags[0].classList.contains('tone-err')).toBe(true);
-    expect(tags[1].getAttribute('title')).toBe('Unknown: last reported Ready, stale');
+    expect(text(f)).toContain('Unknown: last reported Ready, stale');
     expect(text(f)).toContain('Deprecated');
+    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 1, 1 failed request');
     done();
   });
 
-  it('says None resolved when the service uses no offering', async () => {
-    const { target, done } = await render(detail());
-    expect(text(fact(target, 'service-offerings-used'))).toContain('None resolved');
-    expect(text(fact(target, 'service-offerings-used'))).toContain('Unresolved references are not counted');
+  it('never says None when the service uses no resource, and keeps the footer', async () => {
+    const { target: t, done } = await render(detail());
+    const s = section(t);
+    expect(text(s)).toContain('No resource you can see. References that are not digest-pinned or locked are not counted.');
+    expect(text(s)).not.toContain('None');
+    expect(t.querySelector('[data-testid="hidden-providers"]')).toBeNull();
+    expect(text(fact(t, 'resources-footer'))).toContain(FOOTER);
+    expect(fact(t, 'resources-footer')?.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/provision-infrastructure/');
+    done();
+  });
+
+  it('leads with the hidden count when every resource is from a provider the viewer may not see', async () => {
+    const { target: t, done } = await render(detail({ consumedOfferings: preview([]), hiddenProviders: 2 }));
+    const s = section(t);
+    expect(text(s)).not.toContain('None');
+    expect(text(s.querySelector('[data-testid="hidden-providers"]'))).toBe('At least 2 resources from providers you may not see.');
+    expect(t.querySelectorAll('[data-testid="hidden-providers"]').length).toBe(1);
+    // The header fact never reads a confident zero while providers are hidden.
+    expect(text(fact(t, 'service-resources-fact'))).toBe('Resources 0, at least 2 you may not see');
+    expect(text(fact(t, 'resources-footer'))).toContain(FOOTER);
+    done();
+  });
+
+  it('says Showing N of M once when the list is cut short', async () => {
+    const items = Array.from({ length: 3 }, (_, i) => ({ offering: '', consumer: ref('service', KEY, 'payments'), provider: ref('service', `p${i}`), via: 'dependency' }));
+    const { target: t, done } = await render(detail({ consumedOfferings: preview(items, { total: 40, truncated: true }) }));
+    expect(section(t).querySelectorAll('[data-testid="preview-more"]').length).toBe(1);
+    expect(text(section(t).querySelector('[data-testid="preview-more"]'))).toBe('Showing 3 of 40.');
+    done();
+  });
+
+  it('jumps to the section without touching the route', async () => {
+    const { target: t, done } = await render(detail());
+    const before = location.hash;
+    const el = t.querySelector('#sec-resources') as HTMLElement;
+    const spy = vi.fn();
+    el.scrollIntoView = spy;
+    (fact(t, 'service-resources-fact')!.querySelector('button') as HTMLButtonElement).click();
+    expect(spy).toHaveBeenCalled();
+    expect(location.hash).toBe(before);
+    done();
+  });
+
+  it('lists a configuration entry a resource requests by name only, with a jump to Resources', async () => {
+    const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
+      requested: [{ entry: 'database', provenance: 'declared', consumerRevision: rev('1'), values: preview([{ key: 'size', value: 'medium' }], { scanned: 1 }) }] }]);
+    const configurations = preview([
+      { name: 'database', ref: 'oci://ghcr.io/acme/postgresql:16.1.0', resolution: { service: pg }, values: preview([{ key: 'size', value: 'medium' }]) },
+      { name: 'main', schema: 'configuration/schema.json' },
+    ]);
+    const { target: t, done } = await render(detail({ consumedOfferings: used, configurations, currentRevision: rev('1') }));
+    const cfgs = fact(t, 'service-configuration')!;
+    expect(text(cfgs.querySelector('[data-testid="configuration-resource"]'))).toBe('database Requested from postgresql, see Resources');
+    expect(cfgs.querySelectorAll('[data-testid="configuration-resource"]').length).toBe(1);
+    expect(cfgs.querySelectorAll('.kv-table').length).toBe(0);
+    expect(text(section(t).querySelector('[data-testid="preview-count"]'))).toBe('1 of 1');
+    done();
+  });
+
+  it('keeps the current entry whole when another revision makes the request', async () => {
+    const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
+      requested: [{ entry: 'database', provenance: 'declared', consumerRevision: rev('2'), values: preview([{ key: 'size', value: 'large' }], { scanned: 1 }) }] }]);
+    const configurations = preview([
+      { name: 'database', ref: 'oci://ghcr.io/acme/postgresql:16.1.0', resolution: { service: pg }, values: preview([{ key: 'size', value: 'small' }]) },
+    ]);
+    const { target: t, done } = await render(detail({ consumedOfferings: used, configurations, currentRevision: rev('1') }));
+    const cfgs = fact(t, 'service-configuration')!;
+    expect(cfgs.querySelector('[data-testid="configuration-resource"]')).toBeNull();
+    expect(text(cfgs)).toContain('small');
+    expect(text(res(t))).toContain('declared by payments 2');
     done();
   });
 
@@ -501,8 +573,8 @@ describe('service page: platform offerings', () => {
     const link = row.querySelector('[data-testid="inferred-offering"]') as HTMLAnchorElement;
     expect(link.textContent).toBe('may be the redis offering');
     expect(link.getAttribute('href')).toBe('#/fleet/offerings/redis');
-    expect(text(fact(target, 'service-offerings-used'))).toContain('None resolved');
-    expect(hrefs(fact(target, 'service-offerings-used'))).not.toContain('#/fleet/offerings/redis');
+    expect(text(target.querySelector('#sec-resources'))).toContain('No resource you can see.');
+    expect(hrefs(target.querySelector('#sec-resources'))).not.toContain('#/fleet/offerings/redis');
     done();
   });
 
@@ -538,6 +610,28 @@ describe('service page: open in Mira', () => {
     expect(a.getAttribute('rel')).toBe('noopener noreferrer');
     expect(a.getAttribute('target')).toBe('_blank');
     expect(text(a)).toBe('Open in Mira');
+    done();
+  });
+
+  it('gives Resources no Mira link when the name is not unique', async () => {
+    entitiesFn.mockResolvedValue({ entities: [svc('domain-a'), svc('domain-b')], truncated: false });
+    const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: ref('service', 'postgresql'), via: 'dependency',
+      consumption: [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage' }] }]);
+    const { target, done } = await render(detail({ consumedOfferings: used }), { miraURL: 'https://mira.example' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    await Promise.resolve(); flushSync();
+    expect(target.querySelector('[data-testid="resource-usage"]')).toBeTruthy();
+    expect(target.querySelector('[data-testid="resource-mira-link"]')).toBeNull();
+    done();
+  });
+
+  it('links Mira from Resources when the name is unique', async () => {
+    entitiesFn.mockResolvedValue({ entities: [svc('domain-a')], truncated: false });
+    const used = preview([{ offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: ref('service', 'postgresql'), via: 'dependency',
+      consumption: [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage' }] }]);
+    const { target, done } = await render(detail({ consumedOfferings: used }), { miraURL: 'https://mira.example' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="resource-mira-link"]')).toBeTruthy());
+    expect(text(target.querySelector('[data-testid="resource-mira-link"]'))).toBe('Open payments in Mira');
     done();
   });
 

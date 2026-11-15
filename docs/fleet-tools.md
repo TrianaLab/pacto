@@ -55,6 +55,26 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 - the MCP tools take `template` and `created_from`, and the dashboard lists
   golden paths on its Golden paths page.
 
+[Platform offerings](platform-offerings.md) answer the same questions on
+every surface:
+
+- `pacto fleet entities --kind offering --lifecycle deprecated` (or `sunset`)
+  lists offerings by the worst provider version in use, so the demo lists
+  postgresql, and services by their newest revision; `--failed` keeps
+  offerings with a failed provisioning request. The
+  `pacto_fleet_entities` tool takes `lifecycle` and `failed`, and the
+  dashboard API takes the same query parameters;
+- `pacto fleet entity offering <slug>` and `pacto_fleet_entity` add each
+  provider's [availability](offering-availability.md#is-an-offering-available),
+  `successor` and `latestSupported`, the offering's availability roll-up and
+  its `observedConsumers`;
+- `pacto fleet versions <offering>` and `pacto_fleet_versions` add each
+  provider's `successor` and, with a range, whether the range accepts it in
+  `successorRange`;
+- `pacto fleet status --lifecycle` and the `lifecycle` argument of
+  `pacto_fleet_status` report services that use a deprecated or past-sunset
+  provider.
+
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
 1 of 1 service(s):
@@ -72,6 +92,35 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+## The organization in one answer
+
+`pacto fleet overview` prints the answer the dashboard overview draws: target
+compliance with its stale Compliant subset, operational health, knowledge
+gaps, ownership, evaluation coverage, the business domains and where to look
+next. The MCP tool `pacto_fleet_overview` returns the same answer. Run on the
+demo fixture, abridged:
+
+```console
+$ pacto fleet overview --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml
+asOf 2026-11-15T04:41:58+01:00  completeness complete
+Targets 9: compliant 5 (5 stale) · not compliant 1 · unknown 3
+Health: healthy 0 · failing 1 · unknown 2 · not observed 6
+Owners: 34 declared · 3 disputed · 0 none declared · 0 unknown
+Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
+```
+
+Failing means a target's own health check reports it is not healthy, and
+unknown means Pacto cannot tell. [Organizational health and
+knowledge](operational-graph.md#organizational-health-and-knowledge) explains
+each count, and the [tallies reference](operational-graph-tallies.md) lists
+every field. The CLI lists each incomplete source by name in the answer, and
+the dashboard's Incomplete sources entry point opens the same sources.
+
+`pacto fleet`, `pacto mcp --fleet` and `pacto tui` mark target evidence older
+than 24 hours as stale by default, the window the dashboard uses.
+`--freshness 0` skips the check; the answer then carries the
+`FRESHNESS_NOT_EVALUATED` limitation and the CLI prints it as a note.
+
 ## One question, three surfaces
 
 A person and an agent ask the same question in the same words. Each row names
@@ -88,7 +137,7 @@ the note says where that answer lives instead.
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
-| What does the overview show? | - | - | `GET /api/fleet/overview` | Dashboard only |
+| How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |
 | What is this service or target? | `pacto fleet get` | `pacto_fleet_get` | `GET /api/fleet/service`, `GET /api/fleet/target` | |
 | What is this service's dependency tree? | `pacto fleet graph` | `pacto_fleet_graph` | `GET /api/fleet/services/{name}/graph` | |
 | Why does Pacto say this? | `pacto fleet explain` | `pacto_fleet_explain` | - | The dashboard explains on its entity pages |
@@ -152,16 +201,16 @@ pacto tui
 # a populated screen from the committed demo fixture
 pacto tui --local examples/demo/bundles \
   --target-state examples/demo/fleet-targets.yaml \
-  --traces examples/demo/traces.json --freshness 24h
+  --traces examples/demo/traces.json
 
 # the same demo with no clone at all, straight out of the registry
 pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""
 ```
 
 The second command needs a clone and a paste from the repository root; it opens
-on 37 services, a golden path and 4 operational targets. The third needs nothing on disk:
+on 38 services, a golden path and 4 operational targets. The third needs nothing on disk:
 `--root` follows the published contract's dependency declarations and pulls 12 of
-the demo's 38 services out of `ghcr.io`, and `--local ""` switches off the default
+the demo's 39 services out of `ghcr.io`, and `--local ""` switches off the default
 directory scan. A registry has no record of where anything runs, so every
 service reads `NotEvaluated` until you add the `--target-state` fixture.
 

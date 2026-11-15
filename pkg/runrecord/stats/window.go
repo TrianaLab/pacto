@@ -17,25 +17,27 @@ const maxDays = 36500
 // Window is the time range an answer covers.
 type Window struct {
 	Since time.Time `json:"since" doc:"Start of the window, inclusive, UTC"`
-	Until time.Time `json:"until" doc:"End of the window, UTC"`
+	Until time.Time `json:"until" doc:"End of the window, exclusive, UTC"`
 }
 
 // ParseWindow reads since and until. Each is empty, a number of days (30d),
 // a Go duration (12h), a date (2006-01-02, UTC midnight) or an RFC 3339 time.
+// The window holds since and stops before until, so a date until leaves out
+// that day.
 // A relative value counts back from now. An empty since is now minus
 // [DefaultWindow]; an empty until is now.
 func ParseWindow(since, until string, now time.Time) (Window, error) {
 	now = now.UTC()
-	s, err := parseBound("--since", since, now, now.Add(-DefaultWindow))
+	s, err := parseBound("since", since, now, now.Add(-DefaultWindow))
 	if err != nil {
 		return Window{}, err
 	}
-	u, err := parseBound("--until", until, now, now)
+	u, err := parseBound("until", until, now, now)
 	if err != nil {
 		return Window{}, err
 	}
 	if !u.After(s) {
-		return Window{}, errors.New("--until must be after --since")
+		return Window{}, errors.New("until must be after since")
 	}
 	return Window{Since: s, Until: u}, nil
 }

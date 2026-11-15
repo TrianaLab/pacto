@@ -17,8 +17,8 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
-![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
-![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+![The demo's fleet overview: "Is anything wrong?" for forty-five services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: "Is anything wrong?" for forty-five services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
 The sidebar groups the pages: **Overview** and **Needs attention** first,
 then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
@@ -30,7 +30,7 @@ phone, **Menu** in the top bar opens the same list.
 
 ## What to look at
 
-- **Fleet overview**: forty-four made-up services and who calls whom: the
+- **Fleet overview**: forty-five made-up services and who calls whom: the
   services of the [CLI tour](demo-tour.md), two from a partner registry (a
   second domain) and the services of the delivery story. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data

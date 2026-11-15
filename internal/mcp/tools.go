@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -110,7 +111,7 @@ type createArgs struct {
 	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler(init Initializer) mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandlerFor[createArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		if args.From != "" {
 			return createFromPath(ctx, args, init)
@@ -149,6 +150,7 @@ func createHandler(init Initializer) mcpsdk.ToolHandlerFor[createArgs, any] {
 		if err != nil {
 			return nil, nil, err
 		}
+		result.Chain = promoteChain(result.Summary.Name, result.Summary.Version, filepath.Dir(result.Path), served)
 		res, err := jsonResult(result)
 		return res, nil, err
 	}
@@ -284,7 +286,9 @@ func editTool() *mcpsdk.Tool {
 			"Validates the result before writing; when the edit adds configuration references or environments or sets environment values, " +
 			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
 			"and a reference the service depends on (values for it, a 2.4 contract or a ranged dependency on the same repository) that cannot be resolved fails the edit; any other unresolvable reference is a warning. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
-			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
+			"The result lists the changes made and warnings, such as an owner that is not a bare team name. " +
+			"Dry run or not, it also carries impact (who the edit affects, from the fleet snapshot, absent when this session has none), " +
+			"chain (the steps that carry the edit to running: publish, then a promote on each Stage, naming a tool only when this session serves it) and executor (who acts on the published revision).",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 			"name":                         {Type: "string", Description: "New service name"},
@@ -351,7 +355,7 @@ type editArgs struct {
 	DryRun                    bool    `json:"dry_run"`
 }
 
-func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
+func editHandler(validate Validator, opts EditOptions) mcpsdk.ToolHandlerFor[editArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args editArgs) (*mcpsdk.CallToolResult, any, error) {
 		input := EditInput{
 			Path:                      args.Path,
@@ -389,7 +393,7 @@ func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
 			return nil, nil, err
 		}
 
-		result, err := Edit(ctx, validate, input)
+		result, err := Edit(ctx, validate, opts, input)
 		if err != nil {
 			return nil, nil, err
 		}

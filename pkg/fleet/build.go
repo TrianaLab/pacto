@@ -55,6 +55,11 @@ type BuildOptions struct {
 	// Concurrency bounds simultaneous source Collect calls. Defaults to
 	// min(8, len(sources)).
 	Concurrency int
+	// DiscloseUncheckedFreshness, when FreshnessWindow is zero, adds the
+	// LimitationFreshnessNotEvaluated snapshot limitation so every answer says
+	// evidence age was not checked. The delivery planner leaves it false because
+	// impact applies its own 24h rule.
+	DiscloseUncheckedFreshness bool
 }
 
 // Build composes an immutable [FleetSnapshot] from the given sources. It calls
@@ -143,8 +148,15 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
+	matchUsage(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
+	if opts.DiscloseUncheckedFreshness && opts.FreshnessWindow == 0 && len(snap.Targets) > 0 {
+		snap.Limitations = append(snap.Limitations, Limitation{
+			Code:    LimitationFreshnessNotEvaluated,
+			Message: "evidence age was not checked (--freshness 0), so no target is marked stale; stale counts read 0 because they were not computed",
+		})
+	}
 	sortSnapshot(snap)
 	snap.SnapshotID = computeSnapshotID(snap)
 	return snap, nil
@@ -266,6 +278,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		targetCount++
 	}
 	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
+	recordProblems = append(recordProblems, ingestUsage(snap, src, col.Usage, now)...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -306,6 +319,11 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	}
 	if len(existing.Tools) == 0 {
 		existing.Tools = add.Tools
+	}
+	// A contribution that read the bundle names the documents it read; one
+	// without files read none, so it never stands for "unreadable".
+	if len(existing.SpecsRead) == 0 {
+		existing.SpecsRead = add.SpecsRead
 	}
 	if len(existing.Skills) == 0 {
 		existing.Skills = add.Skills
@@ -921,10 +939,12 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead
 		if it.Err != nil {
 			continue
 		}
+		// Every read interface is recorded even past the tool cap: only the
+		// tools are bounded, so a later document never reads as unread.
 		specsRead = append(specsRead, it.Interface.Name)
 		for _, tool := range it.Tools {
 			if len(out) >= maxToolsPerRevision {
-				return out, specsRead
+				break
 			}
 			summary := tool.Summary
 			if summary == "" {
@@ -1506,7 +1526,7 @@ func readableRevision(r *ContractRevision) bool {
 func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	var conflict []string
 	s.Offering, s.OfferingProvenance, conflict = offeringOf(snap, s)
-	s.Summary = summaryOf(snap, s)
+	s.Summary, s.SummaryUnknown = summaryOf(snap, s)
 	return offeringConflict(s.Name, conflict)
 }
 
@@ -1544,11 +1564,12 @@ func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (offering, provenance str
 	return v, provenance, conflict
 }
 
-// summaryOf is a service's one-line summary, empty when its sources disagree.
-func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
-	v, _, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
+// summaryOf is a service's one-line summary and whether Pacto cannot tell it:
+// empty and unknown when its sources disagree or nothing was read.
+func summaryOf(snap *FleetSnapshot, s *ServiceRecord) (string, bool) {
+	v, unknown, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
 		func(t *TargetRecord) []string { return t.reportedSummaries }, nil)
-	return v
+	return v, unknown
 }
 
 // validSummary is service.summary's rule in the contract schema: one line of at
@@ -2422,6 +2443,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 	sortRelationships(snap.templateEdges)
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
 	sortProvisioning(snap.Provisioning)
+	sortUsage(snap.Usage)
 	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })

@@ -11,9 +11,8 @@
   // proposal carries the plan's intent digest, so anything that moved since is
   // refused with a fresh plan instead of acting on a stale one.
   // `preview` is a plan already made (the Why card's): shown, never proposed from here.
-  // `correlation` prefills the ticket or incident id and `onBehalfOf` the
-  // person an agent acts for; both are sent on propose only.
-  let { request, toVersion = '', miraURL = '', onClose = undefined, preview = null, correlation = '', onBehalfOf = '' } = $props();
+  // `correlation` prefills the ticket or incident id, sent on propose only.
+  let { request, toVersion = '', miraURL = '', onClose = undefined, preview = null, correlation = '' } = $props();
 
   // The bound fields a person types after the plan: when the server proves
   // one of them alone explains a PlanStale, nothing else moved.
@@ -25,8 +24,7 @@
   let reason = $state('');
   // svelte-ignore state_referenced_locally
   let correlationId = $state(correlation);
-  // svelte-ignore state_referenced_locally
-  let behalf = $state(onBehalfOf);
+  let behalf = $state('');
   const agent = $derived(session.caller?.class === 'agent');
   let busy = $state(false);
   let refusal = $state(null);

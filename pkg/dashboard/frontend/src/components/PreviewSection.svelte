@@ -139,7 +139,9 @@
 {/if}
 
 <style>
-  .ps-clipped { max-height: 22rem; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+  /* Positioned, so absolutely placed descendants (visually hidden text) are clipped too
+     instead of laying out below the fold and lengthening the page. */
+  .ps-clipped { position: relative; max-height: 22rem; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
   .ps-all { margin-top: var(--sp-2); }
   .ps { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   /* Tone is a left edge, not a fill: a section that needs attention has to be findable

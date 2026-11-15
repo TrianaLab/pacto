@@ -42,4 +42,10 @@ type RecordSet struct {
 	Truncated string
 	// TruncatedAnchor is the anchor tag whose listing was cut, when one was.
 	TruncatedAnchor string
+	// UnreadAnchors counts the anchors after the cut that were not read at
+	// all.
+	UnreadAnchors int
+	// RepositoryMissing is true when the tag scan found no repository: it
+	// does not exist or nothing was published to it yet.
+	RepositoryMissing bool
 }

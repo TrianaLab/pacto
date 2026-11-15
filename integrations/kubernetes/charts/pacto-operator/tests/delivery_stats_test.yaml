@@ -121,6 +121,22 @@ tests:
       - failedTemplate:
           errorPattern: "delivery.stats.registryCredentials.secretName needs delivery.stats.repository"
 
+  - it: refuses a stats repository given as a URL
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.stats.repository: https://ghcr.io/acme/pacto-stats
+    asserts:
+      - failedTemplate:
+          errorPattern: "delivery.stats.repository: Does not match pattern"
+
+  - it: refuses a stats repository with a tag
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.stats.repository: ghcr.io/acme/pacto-stats:latest
+    asserts:
+      - failedTemplate:
+          errorPattern: "delivery.stats.repository: Does not match pattern"
+
   - it: the recorder gets no stats flag or mount
     template: templates/delivery/recorder.yaml
     set:
@@ -142,6 +158,11 @@ tests:
           content: --stats-docker-config=/etc/pacto/stats-registry
       - notContains:
           path: spec.template.spec.volumes
+          content:
+            name: stats-registry
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: stats-registry
           any: true

@@ -117,8 +117,8 @@ func TestRangeUnsatisfiedExplainAndOverview(t *testing.T) {
 	}
 
 	ov := q.Overview()
-	if ov.Summary.UnsatisfiedRanges != 1 || ov.Summary.ServicesNeedingAttention != 1 {
-		t.Errorf("summary = %d unsatisfied, %d needing attention; want 1 and 1", ov.Summary.UnsatisfiedRanges, ov.Summary.ServicesNeedingAttention)
+	if ov.Summary.UnsatisfiedRanges != 1 || ov.Summary.ServicesNeedingAttention != 9 {
+		t.Errorf("summary = %d unsatisfied, %d needing attention; want 1 and 9", ov.Summary.UnsatisfiedRanges, ov.Summary.ServicesNeedingAttention)
 	}
 	var tile bool
 	for _, ep := range ov.EntryPoints {

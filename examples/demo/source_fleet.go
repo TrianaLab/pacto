@@ -117,6 +117,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
+		Usage:        demoUsage(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -276,6 +277,16 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Coverage: cov(2, 2), EvidenceAt: at(older), ReconciledAt: at(older),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "audit-log", fleet.TargetEnvironmentLabel: story.Prod}),
 			ObservedRuntime: map[string]any{"schedule": "*/15 * * * *", "lastSuccessful": older.Format(time.RFC3339)}},
+		// checkout 1.9.0 in the story's test environment, the one story workload the
+		// cluster reports: its target page offers what its delivery Stage allows.
+		{Scope: "test", Kind: "Deployment", Name: "checkout", Service: "checkout", Domain: story.Domain, Compliance: fleet.StatusCompliant,
+			ResolvedRef: "oci://" + story.Domain + "/checkout:1.9.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: map[string]string{"app.kubernetes.io/name": "checkout", fleet.TargetEnvironmentLabel: story.Test}},
+		// payments in the story's prod, back on 2.3.0 after the CHG-2041 incident: the
+		// delivery tour plans an undo from its target page under that ticket.
+		{Scope: story.Prod, Kind: "Deployment", Name: "payments", Service: "payments", Domain: story.Domain, Compliance: fleet.StatusCompliant,
+			ResolvedRef: "oci://" + story.Domain + "/payments:2.3.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: map[string]string{"app.kubernetes.io/name": "payments", fleet.TargetEnvironmentLabel: story.Prod}},
 		// The synthetic catalog and logistics domains. fulfillment-service running in
 		// prod is what makes inventory-service 3.0.0, which stops promising the dedupe
 		// window fulfillment-service requires, a blocked change rather than an
@@ -310,15 +321,52 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},
 		{Scope: "staging", Kind: "Deployment", Name: "search-indexer", Service: "search-indexer", Compliance: fleet.StatusUnknown,
 			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "search-indexer"}},
+		// Fresh evidence and a health check that answered and reports it is
+		// failing: an observed operational problem, kept apart from the targets
+		// Pacto cannot see. Compliance stays Unknown (HEALTH_FAILING is Family 2).
+		{Scope: "prod", Kind: "Deployment", Name: "gift-cards", Service: "gift-cards", Compliance: fleet.StatusUnknown,
+			ResolvedRef: demoRegistry + "gift-cards:0.1.0", Coverage: cov(2, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "gift-cards"}),
+			Findings: []finding.Finding{
+				{Code: finding.CodeHealthFailing, Severity: finding.SeverityUnknown, Category: finding.CategoryInconclusive,
+					Subject: finding.SubjectRef{Kind: "capability", Name: "health"}, Message: `capability "health" answered but reports it is not healthy`},
+			}},
+		// The postgresql offering's two providers, the same facts
+		// fleet-targets.yaml carries. postgresql serves production with fresh
+		// evidence (available) and staging only with stale evidence (unknown);
+		// postgresql-ha runs in production only. ticketing-service 1.2.0 in
+		// staging reports it cannot reach postgresql-ha, so postgresql-ha reads
+		// unavailable there (inferred) while the offering reads unknown: an
+		// unknown provider may be available, so it outranks a confirmed outage.
+		{Scope: "prod", Kind: "StatefulSet", Name: "postgresql", Service: "postgresql", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql:16.1.0", Coverage: cov(2, 2), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "postgresql", fleet.TargetEnvironmentLabel: "production"})},
+		{Scope: "staging", Kind: "StatefulSet", Name: "postgresql", Service: "postgresql", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql:16.1.0", Coverage: cov(2, 2), EvidenceAt: at(stale), ReconciledAt: at(stale),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "postgresql", fleet.TargetEnvironmentLabel: "staging"}},
+		{Scope: "prod", Kind: "StatefulSet", Name: "postgresql-ha", Service: "postgresql-ha", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "postgresql-ha:1.0.0", Coverage: cov(2, 2), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "postgresql-ha", fleet.TargetEnvironmentLabel: "production"})},
+		{Scope: "staging", Kind: "Deployment", Name: "ticketing-service", Service: "ticketing-service", Compliance: fleet.StatusNonCompliant,
+			ResolvedRef: demoRegistry + "ticketing-service:1.2.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "ticketing-service", fleet.TargetEnvironmentLabel: "staging"},
+			Findings: []finding.Finding{
+				{Code: finding.CodeDependencyUnreachable, Severity: finding.SeverityError, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "dependency", Name: "postgresql-ha"}, Message: `dependency "postgresql-ha" is unreachable`},
+			}},
 	}
 }
 
-// demoProvisioning is what a platform adapter reports about the resources two
-// consumers asked for, the same two reports examples/demo/fleet-targets.yaml
-// carries: catalog-service 1.3.0's database is Ready in production, and the
+// demoProvisioning is what provider adapters report about the resources four
+// consumers asked for, the same four reports examples/demo/fleet-targets.yaml
+// carries: catalog-service 1.3.0's database is Ready in production, the
 // adapter could not observe orders-service's postgresql, so that use reads
-// Unknown. Neither is signed, and the dashboard says so. They are dated off the
-// demo clock, so they stay current; the file's fixed date reads stale instead.
+// Unknown, the mail adapter failed to provision notification-worker 1.0.0's
+// email-provider, a provider that declares no offering, so the resource reads
+// Failed and raises PROVISIONING_FAILED, and the platform adapter could not
+// provision ticketing-service 1.2.0's postgresql-ha database in staging, so
+// that request reads Failed. None is signed, and the dashboard says so. They
+// are dated off the demo clock, so they stay current; the file's fixed date
+// reads stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
 	return []fleet.RawProvisioning{
@@ -327,6 +375,38 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
 		{Service: "orders-service", Digest: demoDigest(src, "orders-service", "1.2.1"), Kind: "dependency", Name: "postgresql",
 			Outcome: string(evidence.Insufficient), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "ticketing-service", Digest: demoDigest(src, "ticketing-service", "1.2.0"), Kind: "dependency", Name: "postgresql-ha",
+			Environment: "staging", Provider: "platform-db", ExternalRef: "databases/ticketing-staging", Phase: string(evidence.PhaseFailed),
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications", Phase: string(evidence.PhaseFailed),
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ObservedAt: at},
+	}
+}
+
+// demoUsage is what the platform adapter reports about the usage and cost of
+// catalog-service 1.3.0's database in production. It is marked Verified because
+// the WASM demo stands in for the Evidence Server, which accepts only signed
+// usage reports from a key granted ResourceUsage, so the dashboard shows the
+// figures as reported. examples/demo/fleet-targets.yaml carries the same report
+// unsigned, so the CLI demo reads the same resource's usage unknown. The mail
+// adapter's last usage report on notification-worker's email-provider is
+// signed but two days old, older than the demo's freshness window, so its
+// figures read unknown and stay apart as reported, never as current.
+func demoUsage(src *EmbedSource) []fleet.RawUsage {
+	at := demoNow().Add(-30 * time.Minute)
+	old := demoNow().Add(-48 * time.Hour)
+	return []fleet.RawUsage{
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications",
+			Metrics: []evidence.UsageMetric{{Name: "emails-sent", Value: 120000}},
+			Cost:    &evidence.UsageCost{Amount: "48.00", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ProducerKeyID: "demo-mail-adapter", ObservedAt: old, Verified: true},
+		{Service: "catalog-service", Digest: demoDigest(src, "catalog-service", "1.3.0"), Kind: "configuration", Name: "database",
+			Environment: "production", Provider: "platform-db", ExternalRef: "databases/catalog-production",
+			Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}},
+			Cost:    &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ProducerKeyID: "demo-platform-adapter", ObservedAt: at, Verified: true},
 	}
 }
 
@@ -363,12 +443,16 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 // demoObservedEdges are embedded observed caller→provider edges Build folds into
 // the snapshot as domain-qualified observed relationships. audit-log is observed
 // calling payments-service WITHOUT declaring it — an observed-only (shadow)
-// dependency; orders-service→payments-service corroborates a declared dependency.
+// dependency; orders-service→payments-service corroborates a declared dependency;
+// reporting-api reads postgresql directly without declaring any use of the
+// offering, so the postgresql page lists it as an undeclared caller.
 // They surface in the Operational Graph's Observed layer and, when include-observed
 // is enabled, in impact.
 func demoObservedEdges() []fleet.ObservedEdge {
 	return []fleet.ObservedEdge{
 		{From: "audit-log", To: "payments-service", Count: 12},
 		{From: "orders-service", To: "payments-service", Count: 340},
+		// Seen 20 minutes before the demo loaded, so the page reads it as current.
+		{From: "reporting-api", To: "postgresql", Count: 57, FirstSeen: demoNow().Add(-6 * time.Hour), LastSeen: demoNow().Add(-20 * time.Minute)},
 	}
 }

@@ -25,7 +25,7 @@ func newStatsCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 		Long: "Total the run records in a stats repository for a time window, as text or JSON. " +
 			"Run records are unsigned statistics about Pacto runs: nothing that decides ever reads them, and this command only reads. " +
 			"Every answer says how many records were read, how many could not be read and which bound cut the read; " +
-			"a rate with nothing to take it over is unknown, never 0. " +
+			"a rate with nothing to take it over is marked unknown. " +
 			"With --by owner or --by domain, owner and domain are inferred from the fleet snapshot the fleet source flags build.",
 		Example: `  pacto stats --registry ghcr.io/acme/pacto-stats
   pacto stats --since 7d --by environment --output-format json
@@ -36,9 +36,9 @@ func newStatsCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd.PersistentFlags().String("registry", "", "stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)")
 	f := cmd.Flags()
 	f.String("since", "", "start of the window: 30d, 12h, a date or RFC 3339 (default 30d)")
-	f.String("until", "", "end of the window: 30d, 12h, a date or RFC 3339 (default now)")
+	f.String("until", "", "end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)")
 	f.String("by", "", "group the numbers by "+strings.Join(stats.GroupBy, ", "))
-	f.String("service", "", "total only the run records of this service")
+	f.String("service", "", "total only the run records of this service: the contract's service.name")
 	f.StringArray("kind", nil, "total only run records of this kind: "+strings.Join(statsKinds, ", ")+" (repeatable)")
 	addFleetSourceFlags(f)
 	_ = cmd.RegisterFlagCompletionFunc("by", staticCompletions(stats.GroupBy...))
@@ -52,6 +52,7 @@ func newStatsPublishCommand(d deps) *cobra.Command {
 		Use:   "publish <file...>",
 		Short: "Publish run record files to a stats registry",
 		Long: "Publish run record files, written by --stats-file, to a stats repository as unsigned statistics. " +
+			"Operation records are written only by the delivery promoter and are refused. " +
 			"Every file is tried; the command fails when any of them could not be read, parsed or published. " +
 			"The publishing job vouches for the files with its own credentials: never publish files from untrusted (fork) jobs into a repository others read.",
 		Args: cobra.MinimumNArgs(1),
@@ -84,6 +85,11 @@ func publishRecordFile(cmd *cobra.Command, d deps, repo, file string) (string, e
 	r, err := readRecordFile(file)
 	if err != nil {
 		return "", err
+	}
+	// An operation record's id is a Kubernetes UID, which the id check below
+	// can never match: say why it is refused.
+	if r.Kind == runrecord.KindOperation {
+		return "", errors.New("operation records are written only by the delivery promoter")
 	}
 	// Parse never recomputes the id, so a forged one would merge or split
 	// distinct-change counts.

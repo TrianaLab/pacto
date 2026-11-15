@@ -3,12 +3,12 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, deliveryInboxUrl, deliveryAutonomyUrl, deliveryPublishUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
-  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, offerLabel, offerRequest, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
+  import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
   import EnvMark from './figure/EnvMark.svelte';
   import ProposePanel from './ProposePanel.svelte';
-  import UndoPanel from './UndoPanel.svelte';
+  import StageOffers from './StageOffers.svelte';
   import VerdictList from './VerdictList.svelte';
   import PreviewSection from './PreviewSection.svelte';
   import DeliveryBadges from './DeliveryBadges.svelte';
@@ -68,17 +68,10 @@
     api.deliveryProgress(r.namespace, r.stage).then((d) => { whys[k] = { data: d }; }, (err) => { whys[k] = { error: err }; });
   }
 
-  // One panel at a time under the Stage it acts on. Offers only describe: the
-  // panel plans, then proposes with the caller's own identity, and admission decides.
+  // One panel at a time under the Stage it acts on (StageOffers, one per row, shares it).
   let acting = $state(null);
   let checksOpen = $state({});
-  let opener = null;
   const keyOf = (r) => `${r.namespace}/${r.stage}`;
-  function act(e, r, o) {
-    opener = e.currentTarget;
-    acting = { key: keyOf(r), offer: o, ...offerRequest(r, o) };
-  }
-  function close() { acting = null; opener?.focus(); }
   const ready = (r) => !!r.ready && !r.ready.startsWith('True');
 </script>
 
@@ -199,27 +192,7 @@
             <p class="t-meta" role="status">Asking the cluster why</p>
           {/if}
         </details>
-        {#if r.offers?.length}
-          <div class="sd-offers">
-            {#each r.offers as o (o.action + (o.operation ?? ''))}
-              <div class="sd-offer">
-                <button type="button" class="btn btn-sm" data-testid="service-delivery-offer" disabled={!o.available}
-                  aria-label={`${offerLabel(o.action)} ${service} in ${r.environment}`} title={o.reason}
-                  onclick={(e) => act(e, r, o)}>{offerLabel(o.action)}</button>
-                {#if !o.available}<span class="t-meta">{offerLabel(o.action)}: {o.reason}</span>{/if}
-              </div>
-            {/each}
-          </div>
-        {/if}
-        {#if acting?.key === keyOf(r)}
-          {#key acting}
-            {#if acting.offer.action === 'undo'}
-              <UndoPanel namespace={r.namespace} stage={r.stage} name={acting.offer.operation} onClose={close} />
-            {:else}
-              <ProposePanel request={acting.request} toVersion={acting.version} onClose={close} />
-            {/if}
-          {/key}
-        {/if}
+        <StageOffers rows={[r]} {service} bind:acting />
       </div>
     </div>
   {/each}
@@ -242,9 +215,6 @@
   .sd-mono { font-family: var(--font-mono); }
   .sd-warn { color: var(--c-warn); }
   .sd-check summary { cursor: pointer; }
-  .sd-offers { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
-  .sd-offer { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1); min-inline-size: 0; }
-  @media (pointer: coarse) { .sd-offer .btn { min-block-size: 44px; min-inline-size: 44px; } }
   .sd-nodomain { border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: 0 var(--sp-1); }
   .sd-links { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0 0; }
   .sd-why summary { cursor: pointer; }

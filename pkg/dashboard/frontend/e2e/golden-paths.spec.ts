@@ -61,8 +61,12 @@ test.describe('WASM demo — golden paths', () => {
     const origin = page.getByTestId('service-origin');
     await expect(origin).toContainText('Created from', { timeout: T });
     await expect(origin).toContainText('declared');
+    // The deployed step says what the engine established, read from the engine rather
+    // than guessed: the demo runs gift-cards in prod, so it reads its target count.
+    const step = await page.evaluate(async () => ((await (await fetch('/api/fleet/entities/service?key=gift-cards')).json())
+      .service.creation as Array<{ step: string; status: string }>).find((c) => c.step === 'deployed'));
     const deployed = page.getByTestId('creation-status').locator('li[data-step="deployed"]');
-    await expect(deployed).toContainText('Unknown');
+    await expect(deployed).toContainText(step?.status === 'done' ? 'Done' : 'Unknown');
     await axeClean(page);
   });
 });

@@ -106,52 +106,11 @@ pinned as `oci://...@sha256:<digest>`, which must also be one of the server's
 
 ---
 
-## Provisioning reports
+## Provider reports
 
-A provider adapter reports the state of a resource with the
-`ResourceProvisioned` observation kind. The report is about the consumer's
-contract revision, and its observation subject is the consumer's
-`configuration` or `dependency` that asked for the resource. Decoding rejects
-any key beyond these four:
-
-| Key | Meaning |
-|-----|---------|
-| `provider` | A lowercase slug of at most 63 bytes naming the provider. Pacto keeps no list of providers. |
-| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. Viewers of the consumer see it; a URL with credentials is rejected. |
-| `phase` | `Requested`, `Provisioning`, `Ready`, `Failed` or `Deleting`. |
-| `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
-
-Any other outcome carries no payload; the observation's
-`subject.environment` names its environment. `pacto evidence
-provisioned` writes the EvidenceSet; sign and send it like any other:
-
-```bash
-pacto evidence provisioned \
-  --contract oci://registry.example.com/acme/orders@sha256:<digest> \
-  --configuration database --environment production \
-  --provider my-platform --phase Ready \
-  --external-ref databases/orders-production > report.json
-```
-
-The subject defaults to `<repository>/<environment or default>/<kind>/<name>`,
-one per resource: the server keeps the latest report per producer and subject.
-
-The server accepts a provisioning report only when:
-
-- its key lists `ResourceProvisioned` in
-  [`allowedObservationKinds`](#trust-store-and-trust-config);
-- the EvidenceSet carries only `ResourceProvisioned` observations;
-- its subject starts with the consumer's repository path, so the key's
-  `allowedSubjects` globs scope which consumers it reports for;
-- each observation names a configuration reference or a dependency the
-  consumer declares, in an environment it declares;
-- it is dated no more than five minutes after the server accepted it.
-
-The server evaluates no compliance findings for a provisioning report and
-lists it under `provisioning` on the targets endpoint, never as a target. The
-[operational graph](platform-offerings.md#provisioning-status) joins it onto
-the offering's uses. A v2 target-state file carries the same reports unsigned,
-for tests and demos.
+A provider adapter reports the phase of a resource a consumer asked for with
+`ResourceProvisioned`, and its usage and cost with `ResourceUsage`. Both kinds
+need a key granted them by name. See [Provider reports](provider-reports.md).
 
 ---
 
@@ -163,7 +122,8 @@ for tests and demos.
 | `pacto evidence sign` | producer | Wrap an `EvidenceSet` in a signed envelope. Reads the EvidenceSet JSON, validates it, wraps it and signs with `--key`, `--key-id`, `--producer`, `--sequence`. Default `--ttl 24h`; `--ttl 0` disables expiry. |
 | `pacto evidence send` | producer | Report a signed envelope outbound to an ingestion endpoint. POSTs to `POST /api/evidence/v1/envelopes`. |
 | `pacto evidence verify` | either | Verify a signed envelope against a trust store. Checks signature, freshness, producer authorization and trust. Exits non-zero on failure. |
-| `pacto evidence provisioned` | producer | Write an EvidenceSet with one `ResourceProvisioned` observation about a consumer revision (`--contract`), its `--configuration` or `--dependency`, `--environment`, `--provider`, `--phase` and `--external-ref`. See [Provisioning reports](#provisioning-reports). |
+| `pacto evidence provisioned` | producer | Write an EvidenceSet with one `ResourceProvisioned` observation about a consumer revision (`--contract`), its `--configuration` or `--dependency`, `--environment`, `--provider`, `--phase` and `--external-ref`. See [Provisioning reports](provider-reports.md#provisioning-reports). |
+| `pacto evidence usage` | producer | Write an EvidenceSet with one `ResourceUsage` observation: the `--metric` figures and `--cost` of the resource a consumer revision asked for. See [Usage reports](provider-reports.md#usage-reports). |
 | `pacto evidence serve` | platform | Run the ingestion endpoint. Loads trust store from `--trust`, resolves every `--subject` (at least one required), verifies and evaluates envelopes and publishes results to the registry as OCI 1.1 referrers. Listens on `127.0.0.1:8686` or `--listen-address`. |
 
 ---
@@ -244,13 +204,13 @@ Beside `status`, the `health` block carries the counts that say which half of a 
 
 ## Trust store and trust config
 
-A trust store is a single `.pub` file or a directory of `.pub` files (base64 Ed25519 public keys). The filename binds the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer `producerId`, while a bare `<keyId>.pub` authorizes it for the producer whose id equals the key id.
+A trust store is a single `.pub` file or a directory of `.pub` files (base64 Ed25519 public keys). The filename binds the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer `producerId`, while a bare `<keyId>.pub` binds the producer whose id equals the key id.
 
-**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. After the signature checks out, the envelope's `producer.id` must match the key's bound producer, or it is rejected, so a trusted key cannot sign as another producer.
+**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. The envelope's `producer.id` must then match the key's bound producer, so a trusted key cannot sign as another producer.
 
 **Rotation.** Add a new `<producerId>__<newKeyId>.pub`, sign with the new `keyId` and remove the old entry. The producer identity survives the key change.
 
-**Structured trust configuration** for per-key subject and contract-repository allowlists:
+**Structured trust configuration** for per-key allowlists:
 
 ```yaml
 apiVersion: pacto.dev/evidence-trust/v1
@@ -261,12 +221,28 @@ keys:
     allowedSubjects: [payments-*]                  # path.Match globs; empty = any
     allowedContractRepos: [registry.example.com/acme/contracts]  # prefixes; empty = any
     allowedObservationKinds: [ResourceProvisioned]  # empty = every kind except ResourceProvisioned
+    allowedProviderRepos: [ghcr.io/acme/platform/postgresql]  # prefixes of provider repositories; empty = any provider
 ```
 
 An empty `allowedObservationKinds` withholds `ResourceProvisioned`, so a
 team's runtime key cannot mark its own resources Ready. Give a provider adapter
 its own key that lists it. A key that lists only `ResourceProvisioned` cannot
 send an empty EvidenceSet.
+
+`allowedProviderRepos` scopes a provisioning or usage key to its providers (Pacto core
+4.5.0 or later):
+
+- The Evidence Server accepts a report only when the consumer's declared configuration or
+  dependency ref names a repository under one of the prefixes, and refuses any
+  other with HTTP 403 and the code `provider_not_allowed`.
+- A scope requires `ResourceProvisioned` or `ResourceUsage` in `allowedObservationKinds`.
+- The server logs a warning at startup for every provisioning or usage key with no scope.
+- The scope applies to reports accepted after the change. Reports already
+  accepted stay until a newer report replaces them or they pass the
+  provisioning window, so after narrowing a key have the right adapter report
+  again.
+- `pacto evidence verify` holds no consumer contract, so it checks the
+  signature, producer, subject and kind only.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 

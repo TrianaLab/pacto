@@ -215,7 +215,7 @@ func TestEvaluate_NegativesAfterTheWindow(t *testing.T) {
 }
 
 func TestEvaluate_InconclusiveProbes(t *testing.T) {
-	health := 503
+	health := 501
 	port := server(t, &health)
 	var got []Result
 	target := Target{Name: "t", Contract: "./svc", Match: Selector{Unit: "svc.service"}, Host: "127.0.0.1", Interfaces: map[string]int32{"api": port},
@@ -360,8 +360,9 @@ func TestSink_PublishRunAndContracts(t *testing.T) {
 	}
 }
 
-// A 5xx or no answer neither confirms nor refutes an absence: it leaves the health window as it was, and only
-// a positive closes it, as in the operator.
+// A 501 or no answer neither confirms nor refutes an absence: it leaves the health window as it was. Only an
+// answer closes it, as in the operator: a 2xx (present) or a 5xx other than 501 (present and failing,
+// TestObserveHealth5xxClosesWindow).
 func TestEvaluate_HealthWindowSurvivesInconclusiveAnswers(t *testing.T) {
 	health := 404
 	port := server(t, &health)
@@ -382,8 +383,8 @@ func TestEvaluate_HealthWindowSurvivesInconclusiveAnswers(t *testing.T) {
 	if obs := at(0, 404); obs.Outcome != evidence.Insufficient || s.windows[key] != now {
 		t.Fatalf("404 opens the window: %+v %v", obs, s.windows)
 	}
-	if obs := at(30*time.Second, 503); obs.Outcome != evidence.Insufficient || s.windows[key] != now {
-		t.Fatalf("503 keeps the window: %+v %v", obs, s.windows)
+	if obs := at(30*time.Second, 501); obs.Outcome != evidence.Insufficient || s.windows[key] != now {
+		t.Fatalf("501 keeps the window: %+v %v", obs, s.windows)
 	}
 	if got[0].Evidence.Source != "pacto-run" || outcomes(t, got[0])["api"].Provenance.Collector != "pacto-run+ebpf" {
 		t.Fatalf("names: %+v", got[0].Evidence)
@@ -583,5 +584,72 @@ func TestEvaluate_BindingStart(t *testing.T) {
 	s.Evaluate(context.Background(), snap)
 	if d, _ := outcomes(t, got[0])["db"].GetDependencyObservation(); !d.Reachable {
 		t.Fatalf("db after start = %+v", outcomes(t, got[0])["db"])
+	}
+}
+
+// healthRound probes a health endpoint answering code once and returns the health observation and result.
+func healthRound(t *testing.T, s *Sink, got *[]Result, port int32, health *int, code int, at time.Duration) (evidence.Observation, Result) {
+	t.Helper()
+	*health = code
+	s.Now = func() time.Time { return now.Add(at) }
+	snap := unitSnapshot(port, true)
+	snap.LastPublished = now.Add(at)
+	s.Evaluate(context.Background(), snap)
+	return outcomes(t, (*got)[0])["health"], (*got)[0]
+}
+
+func healthSink(t *testing.T) (*Sink, *[]Result, int32, *int) {
+	t.Helper()
+	health := 200
+	port := server(t, &health)
+	target := Target{Name: "t", Contract: "./svc", Match: Selector{Unit: "svc.service"}, Host: "127.0.0.1",
+		Interfaces: map[string]int32{"api": port}}
+	got := &[]Result{}
+	return newSink(t, []Target{target}, got), got, port, &health
+}
+
+func hasFinding(r Result, code finding.Code) bool {
+	for _, f := range r.Findings {
+		if f.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestObserveHealth5xxFailing(t *testing.T) {
+	for _, code := range []int{500, 502, 503, 504} {
+		s, got, port, health := healthSink(t)
+		obs, res := healthRound(t, s, got, port, health, code, 0)
+		p, err := obs.GetCapabilityObservation()
+		if err != nil || !p.Present || p.Healthy == nil || *p.Healthy {
+			t.Errorf("%d: want present and failing, got %+v %v", code, obs, err)
+		}
+		if !hasFinding(res, finding.CodeHealthFailing) || res.Status != finding.StatusUnknown {
+			t.Errorf("%d: want HEALTH_FAILING and Unknown, got %s %+v", code, res.Status, res.Findings)
+		}
+	}
+}
+
+func TestObserveHealth501Insufficient(t *testing.T) {
+	for _, code := range []int{501, 405} {
+		s, got, port, health := healthSink(t)
+		if obs, _ := healthRound(t, s, got, port, health, code, 0); obs.Outcome != evidence.Insufficient {
+			t.Errorf("%d: want Insufficient, got %+v", code, obs)
+		}
+	}
+}
+
+func TestObserveHealth5xxClosesWindow(t *testing.T) {
+	s, got, port, health := healthSink(t)
+	const key = "t/capability/health"
+	if obs, _ := healthRound(t, s, got, port, health, 404, 0); obs.Outcome != evidence.Insufficient || s.windows[key] != now {
+		t.Fatalf("404 opens the window: %+v %v", obs, s.windows)
+	}
+	if obs, _ := healthRound(t, s, got, port, health, 503, 30*time.Second); obs.Outcome != evidence.Observed {
+		t.Fatalf("503 is an answer: %+v", obs)
+	}
+	if _, open := s.windows[key]; open {
+		t.Fatal("a failing answer did not close the window")
 	}
 }

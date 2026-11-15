@@ -105,6 +105,11 @@
         {#if isEvent}
           <dt>Question</dt>
           <dd>What happens if {eventPhrase(impact)}?</dd>
+          {#if impact.providers?.length}
+            <!-- An offering event names every provider it asked about (#464). -->
+            <dt>Providers</dt>
+            <dd class="if-providers" data-testid="impact-providers">{#each impact.providers as p (p.key)}<EntityLink ref={p} showStatus={false} showKind={false} />{/each}</dd>
+          {/if}
         {:else}
           <dt>Change</dt>
           <dd><bdi>{m.service}</bdi> <span class="mono">{m.from} → {m.to}</span></dd>
@@ -156,3 +161,8 @@
     {#if isEvent}<b>{m.lead}</b>: {m.caption}{:else}<b>If this revision is published</b>, {m.caption}{/if}{#if m.figRef}{' '}<span class="fig-ref">{m.figRef}</span>{/if}
   {/snippet}
 </Figure>
+
+<style>
+  /* Up to 25 providers wrap in full, never past the card. */
+  .if-providers { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); min-width: 0; }
+</style>

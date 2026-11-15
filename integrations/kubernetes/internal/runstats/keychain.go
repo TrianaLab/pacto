@@ -9,6 +9,7 @@ package runstats
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,13 +29,28 @@ func Keychain(dir string, fallback authn.Keychain) authn.Keychain {
 	return dirKeychain{file: filepath.Join(dir, "config.json"), fallback: fallback}
 }
 
+// CheckDockerConfig refuses a non-empty dir with no config.json, so a
+// misplaced Secret mount stops the promoter at startup instead of pushing
+// every record with the fallback credentials. Keychain still falls back at
+// run time, while a rotated Secret is replaced.
+func CheckDockerConfig(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.json")); err != nil {
+		return fmt.Errorf("stats docker config: %w", err)
+	}
+	return nil
+}
+
 type dirKeychain struct {
 	file     string
 	fallback authn.Keychain
 }
 
 // Resolve reads the file on every call, so a rotated Secret takes effect on
-// the next record. A missing, malformed or undecodable entry falls back.
+// the next record. A missing, malformed or undecodable entry falls back; a
+// listed host with no credentials is anonymous.
 func (k dirKeychain) Resolve(res authn.Resource) (authn.Authenticator, error) {
 	var cfg struct {
 		Auths map[string]json.RawMessage `json:"auths"`

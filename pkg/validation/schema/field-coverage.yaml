@@ -2382,34 +2382,41 @@ fields:
     runtime: partial
     evidence: CapabilityObserved from a health probe or a metrics scrape on the bound endpoint
     rule: an absent endpoint contradicts
-    outcomes: Compliant; CAPABILITY_ABSENT (error); OBSERVATION_UNSUPPORTED when unbound; extensions listed under
-      coverage.unverified; DUPLICATE_CAPABILITY statically
+    outcomes: Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and
+      reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified;
+      DUPLICATE_CAPABILITY statically
     limitations: extension capabilities have no evaluator
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown
       - pkg/validation/crossfield_test.go:TestValidateCapabilities_DuplicateStandard
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/invalid
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      - tests/acceptance/kind/runtime-conformance.sh:health-failing
       - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
     platforms:
       kubernetes:
         evidence: partial
-        reason: 'health probe or metrics scrape on the bound endpoint'
+        reason: 'health probe or metrics scrape on the bound endpoint; a 5xx or a failing readiness probe reports HEALTH_FAILING'
       agent:
         evidence: partial
-        reason: 'health probe or metrics scrape at the target''s host and bound port; metrics has no reliable negative'
+        reason: 'health probe or metrics scrape at the target''s host and bound port; a health 5xx reports HEALTH_FAILING;
+          metrics has no reliable negative'
         tests:
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
+        - internal/runtimewatch/evalsink/sink_test.go:TestObserveHealth5xxFailing
       run:
         evidence: partial
-        reason: 'health probe or metrics scrape on --host at the bound port; metrics has no reliable negative'
+        reason: 'health probe or metrics scrape on --host at the bound port; a health 5xx reports HEALTH_FAILING; metrics
+          has no reliable negative'
         tests:
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+        - internal/runtimewatch/evalsink/sink_test.go:TestObserveHealth5xxFailing
         - internal/cli/run_internal_test.go:TestRunCommand_Unprivileged
   capabilities[].type:
     meaning: Kind of capability.
@@ -2427,38 +2434,46 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/invalid
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      - tests/acceptance/kind/runtime-conformance.sh:health-failing
       - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
     platforms:
       kubernetes:
         evidence: partial
-        reason: 'health: absence confirmed by a 404; metrics: presence only'
+        reason: 'health: absence confirmed by a 404, a 5xx or a failing readiness probe reports HEALTH_FAILING; metrics:
+          presence only'
       agent:
         evidence: partial
-        reason: 'health: absence confirmed by a 404; metrics: presence only'
+        reason: 'health: absence confirmed by a 404, a 5xx reports HEALTH_FAILING; metrics: presence only'
         tests:
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_InconclusiveProbes
+        - internal/runtimewatch/evalsink/sink_test.go:TestObserveHealth5xxFailing
+        - internal/runtimewatch/evalsink/sink_test.go:TestObserveHealth5xxClosesWindow
       run:
         evidence: partial
-        reason: 'health: absence confirmed by a 404; metrics: presence only'
+        reason: 'health: absence confirmed by a 404, a 5xx reports HEALTH_FAILING; metrics: presence only'
         tests:
         - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
+        - internal/runtimewatch/evalsink/sink_test.go:TestObserveHealth5xxFailing
     values:
       health:
         meaning: A health endpoint.
         runtime: verified
         evidence: CapabilityObservation.Present
         rule: 'tier A: an active probe of binding.path answers; tier B (probing off): an httpGet readiness probe on the bound
-          port whose path equals binding.path, with ready endpoints'
-        outcomes: Compliant, CAPABILITY_ABSENT or EVIDENCE_INSUFFICIENT
+          port whose path equals binding.path, with ready endpoints. A 5xx other than 501, or that readiness probe with no
+          ready endpoint, reports HEALTH_FAILING: the check answered and reports it is not healthy'
+        outcomes: Compliant, CAPABILITY_ABSENT, HEALTH_FAILING (compliance Unknown) or EVIDENCE_INSUFFICIENT
         limitations: tier B infers health from the readiness probe instead of calling it
         tests:
           unit:
           - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          - pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=health
           e2e:
           - tests/acceptance/kind/runtime-conformance.sh:health-capability
+          - tests/acceptance/kind/runtime-conformance.sh:health-failing
       metrics:
         meaning: A Prometheus metrics endpoint.
         runtime: partial

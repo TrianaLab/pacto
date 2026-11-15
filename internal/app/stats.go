@@ -50,13 +50,7 @@ func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, er
 	if err != nil {
 		return nil, fmt.Errorf("reading run records from %s: %w", req.Registry, err)
 	}
-	var anchors []string
-	if req.Query.Service != "" {
-		anchors = []string{runrecord.AnchorTag(req.Query.Service)}
-	}
-	readCtx, cancel := context.WithTimeout(ctx, statsReadTimeout)
-	defer cancel()
-	set, err := registry.Read(readCtx, repo, anchors)
+	set, err := s.readStats(ctx, repo, req)
 	if err != nil {
 		return nil, statsReadError(req, err)
 	}
@@ -73,12 +67,34 @@ func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, er
 	return st, nil
 }
 
+// readStats reads the anchor of the filtered service, else, for a restricted
+// caller, only the anchors of the services in its view, so hidden records are
+// never listed or charged against the bounds; else every anchor.
+func (s *Service) readStats(ctx context.Context, repo *remote.Repository, req StatsRequest) (stats.RecordSet, error) {
+	var anchors []string
+	switch {
+	case req.Query.Service != "":
+		anchors = []string{runrecord.AnchorTag(req.Query.Service)}
+	case req.Scope.Restricted:
+		if len(req.Scope.Names) == 0 {
+			return stats.RecordSet{}, nil
+		}
+		for _, name := range req.Scope.Names {
+			anchors = append(anchors, runrecord.AnchorTag(name))
+		}
+	}
+	readCtx, cancel := context.WithTimeout(ctx, statsReadTimeout)
+	defer cancel()
+	return registry.Read(readCtx, repo, anchors)
+}
+
 // statsReadError says which repository a read failed on. A restricted caller
-// never learns which anchor failed: its tag hashes a service name.
+// learns nothing else unless the deadline or a cancel caused it: a registry
+// error can carry a request URL, and an anchor tag in it hashes a service
+// name.
 func statsReadError(req StatsRequest, err error) error {
-	var anchor *registry.AnchorError
-	if req.Scope.Restricted && errors.As(err, &anchor) {
-		return fmt.Errorf("reading run records from %s failed for one service", req.Registry)
+	if req.Scope.Restricted && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("reading run records from %s failed", req.Registry)
 	}
 	return fmt.Errorf("reading run records from %s: %w", req.Registry, err)
 }

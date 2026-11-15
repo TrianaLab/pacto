@@ -140,7 +140,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved', 'out-of-range', 'undeclared', 'golden-path', 'unowned',
+  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -149,15 +149,67 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'unknown': return 'Compliance unknown';
     case 'stale': return 'Stale evidence';
     case 'invalid': return 'Invalid contract';
+    case 'health': return 'Health check failing';
+    case 'provisioning': return 'Resource provisioning';
     case 'readiness': return 'Readiness gate';
     case 'unresolved': return 'Unresolved revision';
     case 'out-of-range': return 'Version out of range';
+    case 'lifecycle': return 'Deprecated provider';
     case 'undeclared': return 'Undeclared dependency';
     case 'golden-path': return 'Golden path running';
+    case 'knowledge': return 'Knowledge gap';
     case 'unowned': return 'No declared owner';
     default: return c || 'Other';
   }
 }
+
+/** The cause each attention code names (pkg/fleet/health.go and knowledge.go). */
+const ATTENTION_CAUSES: Record<string, string> = {
+  COLLECTION_FAILED: 'The collector failed to read the evidence',
+  HEALTH_FAILING: 'The health check is failing',
+  EVIDENCE_STALE: "The evidence is older than the source's freshness window",
+  OBSERVATION_UNSUPPORTED: 'This cannot be observed in this environment',
+  EVIDENCE_INSUFFICIENT: 'The evidence cannot confirm or contradict the contract',
+  EVIDENCE_MISSING: 'No evidence was collected',
+  CONTRACT_UNREADABLE: 'No contract of this service could be read',
+  INTERFACE_DOCS_UNREAD: 'The interface documents the contract names could not be read',
+  SUMMARY_UNKNOWN: 'Sources report different summaries or none could be read',
+  DOMAIN_UNKNOWN: 'Sources report different business domains or none could be read',
+  PLACEMENT_UNKNOWN: 'Pacto cannot see every place this service runs',
+  NO_SUMMARY: 'The contract declares no summary',
+  NO_DOMAIN: 'The contract declares no business domain',
+  NO_INTERFACE_DOCS: 'An interface declares no document',
+  NOT_DEPLOYED: 'No source reports an operational target of this service',
+  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
+};
+/** attentionCause words an attention item's code, or returns the code itself. */
+export function attentionCause(code: string | undefined): string {
+  return (code && ATTENTION_CAUSES[code]) || code || '';
+}
+
+/** The words of a next action verb (#472's AttentionItem.nextAction). */
+const NEXT_ACTION_VERBS: Record<string, string> = {
+  'edit-contract': 'edit the contract',
+  'plan-rollback': 'plan a rollback',
+};
+/** nextActionWords says a next action as words only: it is advice, never a control. */
+export function nextActionWords(a: { verb?: string; tool?: string; environment?: string } | null | undefined): string {
+  if (!a?.verb) return '';
+  const verb = NEXT_ACTION_VERBS[a.verb] ?? a.verb;
+  return `Fix: ${verb}${a.environment ? ` in ${a.environment}` : ''}${a.tool ? ` with ${a.tool}` : ''}`;
+}
+
+// ── knowledge gaps ───────────────────────────────────────────────────────────
+/** The words for each `gap` filter value (pkg/fleet/knowledge.go). */
+export const GAP_WORDS: Record<string, string> = {
+  'no-summary': 'No summary',
+  'no-domain': 'No domain',
+  'no-interface-docs': 'No interface document',
+  'no-readiness': 'No readiness assessment',
+  'not-deployed': 'Runs nowhere',
+  'unverified-capability': 'Unverified extension capability',
+  unknown: 'Pacto cannot tell',
+};
 
 // ── business domain and target environment ──────────────────────────────────
 /** The businessDomain filter values for the services with no domain and for those
@@ -218,13 +270,17 @@ export function severityTone(s: string | undefined): Tone {
   }
 }
 
-/** Entry points worth a tile or a chip on the overview: drops the one that links back
- *  to the overview and the uncategorised attention one (the lead tile's own number).
- *  Errors and any grade this build cannot read lead; warning and info follow. */
+/** Entry points worth a tile or a chip on the overview: drops the uncategorised
+ *  attention one (the lead tile's own number).
+ *  Errors, any grade this build cannot read and failing health checks lead; the
+ *  other warning and info entries follow. */
 export function splitEntryPoints<T extends { view?: string; category?: string; severity?: string }>(eps: T[] = []): { lead: T[]; secondary: T[] } {
-  const shown = eps.filter((ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category));
+  const shown = eps.filter((ep) => !(ep.view === 'attention' && !ep.category));
   const milder = (ep: T) => ep.severity === 'warning' || ep.severity === 'info';
-  return { lead: shown.filter((ep) => !milder(ep)), secondary: shown.filter(milder) };
+  // A failing health check is an observed problem, so it leads whatever its grade:
+  // under "Not broken, worth a look" it would read as not broken.
+  const leads = (ep: T) => !milder(ep) || ep.category === 'health';
+  return { lead: shown.filter(leads), secondary: shown.filter((ep) => !leads(ep)) };
 }
 
 // ── source health ────────────────────────────────────────────────────────────
@@ -234,6 +290,8 @@ export function sourceHealthLabel(status: string | undefined): string {
     case 'partial': return 'Partial';
     case 'stale': return 'Stale';
     case 'unavailable': return 'Unavailable';
+    // A filter value, never a status: partial, stale or unavailable.
+    case 'incomplete': return 'Incomplete';
     default: return status || 'Unknown';
   }
 }
