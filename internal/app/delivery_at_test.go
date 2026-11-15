@@ -23,9 +23,10 @@ func TestHistoryAtNamesTheSignedRevision(t *testing.T) {
 		t.Fatalf("at = %+v, %v", a, err)
 	}
 	s := a.Stages[0]
-	if s.State != delivery.AtKnown || s.Digest != dlA || s.Record != r2 || s.Revision != paymentsKey() || s.Version != "1.0.0" || a.Completeness != "complete" {
+	if s.State != delivery.AtKnown || s.Digest != dlA || s.Record != r2 || s.Revision != paymentsKey() || a.Completeness != "complete" {
 		t.Fatalf("stage at = %+v (%+v)", s, a)
 	}
+	expectVersion(t, s, "1.0.0")
 	// The walk answers the same; before any record the Stage is unknown.
 	a, err = e.d.HistoryAt(ctx, "", delivery.ServiceRef{Name: "payments"}, "", time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil || len(a.Stages) != 1 || a.Stages[0].State != delivery.AtUnknown || a.Completeness != "partial" {
@@ -62,5 +63,13 @@ func TestAtForbiddenNamespacePartial(t *testing.T) {
 	}
 	if a.Completeness != "partial" || len(a.Unreadable) != 1 || !strings.Contains(a.Unreadable[0], "test") || !strings.Contains(a.Note, "others were not read") {
 		t.Fatalf("a refused namespace makes the answer partial: %+v", a)
+	}
+}
+
+// expectVersion fails t unless s names version, read from the bundle its digest carries.
+func expectVersion(t *testing.T, s delivery.StageAt, version string) {
+	t.Helper()
+	if s.Version != version {
+		t.Fatalf("version = %q, want %q", s.Version, version)
 	}
 }
