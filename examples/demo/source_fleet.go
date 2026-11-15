@@ -243,6 +243,14 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 				{Code: finding.CodeInterfaceAbsent, Severity: finding.SeverityError, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "interface", Name: "http"}, Message: "nothing listens on the declared http interface",
 					EvidenceRefs: []finding.EvidenceRef{{Source: "k8s", ObservedAt: older.Format(time.RFC3339), Collector: "k8s-observer+ebpf", DetectedAt: older.Format(time.RFC3339)}}},
 			}},
+		// A staging copy still runs 1.1.0 (team/commerce) while production runs
+		// 1.2.0 (commerce-team): one service disputed by what runs, the
+		// OWNER_CONFLICT the demo keeps, where payments-service and api-gateway
+		// only handed over to a new owner.
+		{Scope: "staging-eu", Kind: "Deployment", Name: "orders-service", Service: "orders-service",
+			ResolvedRef: demoRegistry + "orders-service:1.1.0", Compliance: fleet.StatusUnknown,
+			Coverage: cov(2, 5), EvidenceAt: at(older), ReconciledAt: at(older),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "orders-service"}},
 		{Scope: "prod", Kind: "Deployment", Name: "auth-service", Service: "auth-service", Compliance: fleet.StatusUnknown,
 			Coverage: cov(1, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "auth-service"}),

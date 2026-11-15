@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,8 @@ const (
 )
 
 type fakeDeliveryRegistry struct {
+	// mu guards hosts: describes run in parallel.
+	mu         sync.Mutex
 	hosts      []string
 	resolveErr error
 	// tag is the digest a tag resolves to; empty resolves to dlB.
@@ -110,7 +113,12 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 			"username": user, "groups": gs, "extra": extra}}}}, nil
 	})
 	reg := &fakeDeliveryRegistry{}
-	d := &Delivery{Dynamic: c, Registry: func(hosts ...string) DeliveryRegistry { reg.hosts = hosts; return reg },
+	d := &Delivery{Dynamic: c, Registry: func(hosts ...string) DeliveryRegistry {
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		reg.hosts = hosts
+		return reg
+	},
 		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}}, Now: func() time.Time { return time.Unix(1_800_000_000, 0) }}
 	return d, c, reg
 }

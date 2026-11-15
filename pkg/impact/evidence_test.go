@@ -89,6 +89,17 @@ func TestOwnerKeyDistinguishesSameDisplay(t *testing.T) {
 	}
 }
 
+// TestImpactOwnerAfterTransfer: a consumer whose revisions hand over from one
+// team to another is reported under its new owner.
+func TestImpactOwnerAfterTransfer(t *testing.T) {
+	v1 := fleet.RawRevision{Bundle: mkBundle(svcContract("shop", "1.0.0", contract.Owner{Team: "old-team"}, authDep))}
+	v2 := fleet.RawRevision{Bundle: mkBundle(svcContract("shop", "2.0.0", contract.Owner{Team: "new-team"}, authDep))}
+	res := analyzeAuth(evidenceSnap(t, []fleet.RawRevision{v1, v2}, nil), Options{})
+	if c := consumerNamed(t, res, "shop"); c.OwnerKey != "team:new-team" {
+		t.Errorf("consumer owner key = %q, want team:new-team", c.OwnerKey)
+	}
+}
+
 func TestChangedOwnerKey(t *testing.T) {
 	res := analyzeAuth(evidenceSnap(t, nil, nil), Options{})
 	if res.ChangedOwnerKey != "team:platform" {

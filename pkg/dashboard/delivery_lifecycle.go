@@ -70,6 +70,8 @@ func (s *Server) deliveryLifecycle(ctx context.Context, in *lifecycleInput) (*li
 	}
 	out := &lifecycleOutput{}
 	out.Body.Lifecycle = lc
+	// The one Described not built through delivery.DescribedOf: the lifecycle
+	// already carries the version and the contract, and no delivery.Revision.
 	described := map[string]delivery.Described{r.Digest: {Version: lc.Version, Contract: r.ContractRef}}
 	on := digestsOn{&delivery.StageObject{Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: in.Service, Domain: in.Domain}}}, []string{r.Digest}}
 	out.Body.Labels = Labels{Versions: versionsIn(nil, described), Revisions: s.revisionLabels(ctx, described, on)}

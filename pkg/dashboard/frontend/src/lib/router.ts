@@ -269,8 +269,12 @@ function parseFleet(path: string, query: string): Route {
     // correlationID is the ticket or incident id an investigation carries into the
     // operations its page plans (the same key the delivery history filters by).
     const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
-    const correlationID = new URLSearchParams(query).get('correlationID');
-    if (correlationID) params.correlationID = correlationID;
+    // A service page also keeps its Changes section's filter, page and scroll target.
+    const qs = new URLSearchParams(query);
+    for (const k of ['correlationID', ...(ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section'] : [])]) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
     return { view: 'fleet-entity', params };
   }
 
@@ -279,7 +283,7 @@ function parseFleet(path: string, query: string): Route {
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID', 'at'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
@@ -581,6 +585,13 @@ export function fleetEntityListUrl(kind: string, opts: {
 export function fleetEntityUrl(kind: string, key: string): string {
   const plural = KIND_PLURAL[kind] ?? 'services';
   return `#/fleet/${plural}/${encodeURIComponent(key)}`;
+}
+
+// serviceChangesUrl is a service page with its Changes section's state: the kind filter,
+// the page and section=changes to scroll to it. The section is a query param,
+// never a second `#` inside the hash.
+export function serviceChangesUrl(key: string, opts: { changesKind?: string; changesOffset?: number; changesLimit?: number; section?: 'changes' } = {}): string {
+  return pagedHash(fleetEntityUrl('service', key), { changesKind: opts.changesKind, changesOffset: opts.changesOffset, changesLimit: opts.changesLimit, section: opts.section });
 }
 
 // fleetGraphDiscoveryUrl is the search-first graph landing (no focus). It never

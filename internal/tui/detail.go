@@ -176,7 +176,7 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 		b.WriteString(safeText(fleet.StagesHint(service)) + "\n")
 	}
 	renderResources(b, s)
-	if h := s.EnvironmentHistory; h.Total > 0 || h.Gaps > 0 {
+	if h := s.Changes; h.Total > 0 || h.Gaps > 0 {
 		section(b, h.Heading())
 		for _, l := range h.Lines() {
 			b.WriteString(safeText(l) + "\n")

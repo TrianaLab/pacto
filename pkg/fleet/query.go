@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -413,16 +414,19 @@ func (q *Query) matchOwnerKey(s *ServiceRecord, key string) bool {
 
 // ownerClaims is THE ownership question, asked once and answered the same way by
 // every surface that filters, aggregates or drills down by owner: a service is
-// associated with an owner when AT LEAST ONE of its revisions declares one that
-// satisfies pred. Ownership is authored per revision; ServiceRecord.Owner is only
-// the summary deriveOwner reads off the lowest-keyed revision, so asking it
-// instead answers a different question — it hands a service the two teams
-// dispute to whichever of them the revision key order happened to favour, and
-// hides it from the other. "Consistently owned by x" is this predicate plus
-// OwnershipConsistent, never a narrower reading of the predicate itself.
+// associated with an owner when one of the revisions of its CURRENT claims
+// ([currentOwnerRevisions]: the newest version that declares an owner and the
+// revisions its targets run now) declares one that satisfies pred. So owner=x
+// lists exactly the services the ownership ranking counts under x, and a team
+// that handed a service over no longer finds it under its name (its owner page
+// still lists the revisions it declared). ServiceRecord.Owner is only the
+// summary deriveOwner reads off the newest revision; asking it instead would
+// hand a service two teams dispute now to one of them and hide it from the
+// other. "Consistently owned by x" is this predicate plus OwnershipConsistent,
+// never a narrower reading of the predicate itself.
 func (q *Query) ownerClaims(s *ServiceRecord, pred func(contract.Owner) bool) bool {
-	return s != nil && q.anyRevision(s, func(r *ContractRevision) bool {
-		return r != nil && pred(r.Owner)
+	return s != nil && slices.ContainsFunc(currentOwnerRevisions(q.snap, s), func(r *ContractRevision) bool {
+		return pred(r.Owner)
 	})
 }
 

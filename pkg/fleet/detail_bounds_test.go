@@ -17,18 +17,18 @@ import (
 // structures: ownership conflicts, readiness checks, observed runtime, and the owner-attention
 // / service-relationship double-truncation.
 
-// A service with more than MaxDetailPreview differently-owned revisions yields a
-// bounded conflicts preview with an honest total/count/truncated.
+// A service with more than MaxDetailPreview differently-owned revisions of one
+// version yields a bounded conflicts preview with an honest total/count/truncated.
 func TestServiceOwnershipConflictsBounded(t *testing.T) {
 	over := MaxDetailPreview + 5
-	revs := make([]*ContractRevision, over)
-	for i := range revs {
-		revs[i] = &ContractRevision{
-			Key:   RevisionKey(fmt.Sprintf("svc@%d", i)),
-			Owner: contract.Owner{Team: fmt.Sprintf("team-%d", i)},
-		}
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{}}
+	s := &ServiceRecord{Key: "svc", Owner: contract.Owner{Team: "svc-owner"}}
+	for i := range over {
+		k := RevisionKey(fmt.Sprintf("svc@%d", i))
+		snap.Revisions[k] = &ContractRevision{Key: k, ServiceKey: "svc", Version: "1.0.0", Owner: contract.Owner{Team: fmt.Sprintf("team-%d", i)}}
+		s.Revisions = append(s.Revisions, k)
 	}
-	info := serviceOwnership(&ServiceRecord{Key: "svc", Owner: contract.Owner{Team: "svc-owner"}}, revs)
+	info := serviceOwnership(snap, s)
 	c := info.Conflicts
 	if c.Total != over || c.Count != MaxDetailPreview || !c.Truncated || len(c.Items) != MaxDetailPreview {
 		t.Errorf("conflicts preview = {total:%d count:%d trunc:%v items:%d}, want total=%d count=%d trunc=true",

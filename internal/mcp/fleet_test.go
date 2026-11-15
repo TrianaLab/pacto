@@ -828,11 +828,11 @@ func TestFleetEntitiesEnvironmentArg(t *testing.T) {
 	}
 }
 
-// The entity tool names the service fields that carry environment provenance,
-// and says the history is no timeline.
-func TestFleetEntityToolNamesEnvironmentFields(t *testing.T) {
+// The entity tool names the service fields that carry environment provenance
+// and the changes, in version order timed only from delivery history when reached is asked.
+func TestFleetEntityDescriptionNamesChanges(t *testing.T) {
 	d := fleetEntityTool().Description
-	for _, want := range []string{"'placement'", "'environmentHistory'", "never a timeline", "'gaps'", "inferred or unknown"} {
+	for _, want := range []string{"'placement'", "'changes'", "version order", "'provenance'", "'previous'", "'reached'", "'times'", "is signed", "'gaps'", "inferred or unknown"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %s", want)
 		}

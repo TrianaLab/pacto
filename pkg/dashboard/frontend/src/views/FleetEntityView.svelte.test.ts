@@ -377,10 +377,13 @@ describe('FleetEntityView — rich service page (D)', () => {
       declared: true,
       ref: ref('owner', 'team-a'),
       conflicts: { total: 3, count: 1, truncated: true, items: [`domain-a/payments@${digest}: team-b`] },
+      conflictReason: 'targets of payments run revisions that declare different owners',
     };
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Ownership conflict'));
+    // The banner says why, from the answer's own reason.
+    expect(target.querySelector('.se-conflicts-head')?.textContent).toContain('Targets of payments run revisions that declare different owners:');
     const rows = Array.from(target.querySelectorAll('.se-conflict-list li'));
     expect(rows[0].textContent).toBe('domain-a/payments@673e8f73673e…: team-b');
     expect(rows[0].getAttribute('title')).toContain(digest); // exact key still available
@@ -397,6 +400,8 @@ describe('FleetEntityView — rich service page (D)', () => {
     expect(text).toMatch(/Showing 2 of 5/);      // truncation is explicit, not hidden
     expect(text).toContain('Ownership conflict'); // conflicting revision owners surfaced
     expect(text).toContain('contract drift');     // attributed finding
+    // The page's shared detail fetch never asks for reached times (a caller-scoped delivery read).
+    expect(detailFn.mock.calls[0]).toEqual(['service', 'domain-a/payments']);
     // a revision row links via the canonical href
     const link = Array.from(target.querySelectorAll('a.entity-link')).find((a) => a.getAttribute('href')?.includes('/fleet/revisions/')) as HTMLAnchorElement;
     expect(link).toBeTruthy();

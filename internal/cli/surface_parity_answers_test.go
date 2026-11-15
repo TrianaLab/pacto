@@ -48,6 +48,9 @@ func parityFixture(t *testing.T) []string {
 	}
 	write("postgresql", "  name: postgresql\n  version: \"16.1.0\"\n  offering: postgresql\n  owner:\n    team: infra-data\n")
 	write("app", "  name: app\n  version: \"1.0.0\"\n  owner:\n    team: shop\ndependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/acme/postgresql\n    required: true\n    compatibility: ^16.0.0\n")
+	// An older app revision with no dependency, so app's changes hold one
+	// declared change every surface must carry.
+	write("app-0.9", "  name: app\n  version: \"0.9.0\"\n  owner:\n    team: shop\n")
 	write("lonely", "  name: lonely\n  version: \"1.0.0\"\n")
 	traces := filepath.Join(t.TempDir(), "traces.json")
 	mustWriteFile(t, traces, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"app"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"lonely"}}]}]}]}]}`)
@@ -262,6 +265,10 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	for _, want := range []string{`"completeness": "partial"`, `"SOURCE_UNAVAILABLE"`, `"unknown": 1`} {
 		expect(t, strings.Contains(services, want), "the fixture lacks %s: %s", want, services)
 	}
+	// The service answer's changes are compared above: the fixture must hold
+	// one beyond the oldest revision's present events.
+	app := cliJSON(t, flags, "fleet", "entity", "service", "app")
+	expect(t, strings.Contains(app, `"kind": "dependency"`) && strings.Contains(app, `"change": "added"`), "the fixture has no dependency change: %s", app)
 	// AttentionItem.nextAction is compared above with the rest of the answer:
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
@@ -318,6 +325,8 @@ func TestSurfaceParityRestrictedView(t *testing.T) {
 		sameOnSurfaces(t, q.name+" for alice", map[string]string{"mcp": m, "dashboard": dashBody})
 		expect(t, !strings.Contains(m, "lonely") && !strings.Contains(dashBody, "lonely"), "%s names the hidden service: %s", q.name, m)
 	}
+	// Changes are built from the revisions alice may read: app's survive the view.
+	expect(t, strings.Contains(text, `"changes"`) && strings.Contains(text, `"kind": "dependency"`), "alice's app lacks its changes: %s", text)
 	// The view narrows nextAction with its item: alice still reads the actions
 	// of what she sees, and lonely's unowned action is gone with lonely.
 	attention, _ := callText(t, session, "pacto_fleet_attention", map[string]any{})

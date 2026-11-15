@@ -19,7 +19,6 @@ const group = (environment: string, over = {}) => ({ environment, targets: 0, de
   declaration: decl(environment), owner: { provenance: 'inferred', owner: 'web-team', reason: 'the environment declares no owner; the service owner is shown' }, ...over });
 const placement = (items: unknown[], over = {}) => ({ total: items.length, count: items.length, truncated: false, items,
   currentRevision: rev('1.1.0'), differences: [], differencesTotal: 0, ...over });
-const history = (items: unknown[] = [], over = {}) => ({ total: items.length, count: items.length, truncated: false, items, gaps: 0, completeness: 'complete', ...over });
 const stage = (environment: string, over = {}) => ({ namespace: environment, stage: 'storefront-web', service: 'storefront-web', environment, state: 'verified', ...over });
 
 let cleanup: (() => void) | null = null;
@@ -27,7 +26,7 @@ afterEach(() => { cleanup?.(); cleanup = null; });
 function render(props: Record<string, unknown>) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const c = mount(ServiceEnvironments, { target, props: { asOf: ASOF, completeness: 'complete', service: 'storefront-web', history: history(), ...props } });
+  const c = mount(ServiceEnvironments, { target, props: { asOf: ASOF, completeness: 'complete', service: 'storefront-web', ...props } });
   flushSync();
   cleanup = () => { unmount(c); target.remove(); };
   return target;
@@ -125,28 +124,6 @@ describe('ServiceEnvironments', () => {
     for (const r of d.querySelectorAll('[data-testid="difference-row"]')) expect(r.children).toHaveLength(2);
   });
 
-  it('HistoryGapsStated', () => {
-    const t = render({ placement: placement([group('production')]), history: history([], { gaps: 2 }) });
-    expect(text(t.querySelector('[data-testid="environment-history"]'))).toContain('2 revisions could not be read; changes across them are unknown');
-  });
-
-  it('HistoryPartialAndTimeNotRecorded', () => {
-    const t = render({ placement: placement([group('production')]), history: history([
-      { change: 'removed', environment: 'pr-482', revision: rev('1.2.0'), previous: rev('1.1.0') },
-      { change: 'changed', environment: 'staging', fields: ['lifetime', 'owner'], revision: rev('1.2.0') },
-      { change: 'added', environment: 'pr-482', revision: rev('1.1.0') },
-      { change: 'present', environment: 'production', revision: rev('1.0.0') },
-    ], { completeness: 'partial', completenessReason: 'you may not see every revision of this service' }) });
-    const h = t.querySelector('[data-testid="environment-history"]')!;
-    expect(text(h)).toContain('Changes between versions (version order)');
-    const items = [...h.querySelectorAll('[data-testid="environment-event"]')];
-    expect(items).toHaveLength(4);
-    for (const i of items) expect(text(i)).toContain('time not recorded');
-    expect(text(items[3])).toContain('declared since at least 1.0.0');
-    expect(text(items[1])).toContain('staging lifetime and owner changed in 1.2.0');
-    expect(text(h)).toContain('you may not see every revision of this service');
-  });
-
   it('TargetsIncompleteNeverBareZero', () => {
     const t = render({ placement: placement([group('production', { targetsComplete: false, targetsReason: 'you may not see every target of this service' })]) });
     const c = text(cell(t, 'production', 'observed'));
@@ -205,10 +182,8 @@ describe('ServiceEnvironments', () => {
   });
 
   it('RefsUseHref', () => {
-    const t = render({ placement: placement([group('production', { targets: 1, revisions: [rev('1.1.0')], revisionsTotal: 1 })]),
-      history: history([{ change: 'present', environment: 'production', revision: rev('1.0.0') }]) });
+    const t = render({ placement: placement([group('production', { targets: 1, revisions: [rev('1.1.0')], revisionsTotal: 1 })]) });
     expect(cell(t, 'production', 'observed')?.querySelector('a[href="#/fleet/revisions/storefront-web%401.1.0"]')).not.toBeNull();
-    expect(t.querySelector('[data-testid="environment-event"] a')?.getAttribute('href')).toBe('#/fleet/revisions/storefront-web%401.0.0');
   });
 
   it('TruncatedTextHasTitle', () => {
@@ -220,33 +195,29 @@ describe('ServiceEnvironments', () => {
     expect(d.querySelector('[data-testid="difference-row"] code[title]')?.getAttribute('title')).toBe(JSON.stringify('x'.repeat(200)));
   });
 
-  it('NeverClipsDifferencesHistoryOrFooterBehindAFade', () => {
+  it('NeverClipsDifferencesOrFooterBehindAFade', () => {
     for (const n of [9, 200]) {
       const names = Array.from({ length: n }, (_, i) => `env-${i}`);
       const t = render({ placement: placement(names.map((e) => group(e)), {
-        differences: [{ configuration: 'web', path: 'replicas', values: { 'env-0': 1, 'env-1': 2 } }], differencesTotal: 1 }),
-        history: history([{ change: 'added', environment: 'env-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+        differences: [{ configuration: 'web', path: 'replicas', values: { 'env-0': 1, 'env-1': 2 } }], differencesTotal: 1 }) });
       expect(t.querySelector('.ps-clipped')).toBeNull();
       expect(t.querySelector('[data-testid="preview-show-all"]')).toBeNull();
-      for (const id of ['environment-differences', 'environment-history', 'environments-footer']) expect(t.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+      for (const id of ['environment-differences', 'environment-changes-link', 'environments-footer']) expect(t.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
       const showAll = [...t.querySelectorAll('button')].filter((b) => /Show all/.test(b.textContent ?? ''));
       expect(showAll.map(text)).toEqual(n > 25 ? [`Show all ${n} environments`] : []);
       cleanup?.();
     }
   });
 
-  it('EmptyPlacementStillShowsStagesHistoryAndFooter', () => {
-    const t = render({ placement: placement([]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')],
-      history: history([{ change: 'removed', environment: 'pr-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+  it('EmptyPlacementStillShowsStagesAndFooter', () => {
+    const t = render({ placement: placement([]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')] });
     expect(text(row(t, 'prod'))).toContain('Stage only: not declared by 1.1.0');
     expect(text(t.querySelector('[data-testid="preview-count"]'))).toBe('1 of 1');
-    expect(t.querySelector('[data-testid="environment-history"]')).not.toBeNull();
+    expect(t.querySelector('[data-testid="environment-changes-link"]')).not.toBeNull();
     expect(t.querySelector('[data-testid="environments-footer"]')).not.toBeNull();
     cleanup?.();
-    const e = render({ placement: placement([]), completeness: 'partial',
-      history: history([{ change: 'removed', environment: 'pr-1', revision: rev('1.1.0'), previous: rev('1.0.0') }]) });
+    const e = render({ placement: placement([]), completeness: 'partial' });
     expect(text(e.querySelector('[data-testid="environments-empty"]'))).toContain('no target you can see reports one; this answer is partial');
-    expect(text(e.querySelector('[data-testid="environment-history"]'))).toContain('pr-1 removed in 1.1.0');
     expect(text(e.querySelector('[data-testid="environments-footer"]'))).toBe('As of 2026-11-12 10:00 UTC, partial');
   });
 
@@ -254,24 +225,6 @@ describe('ServiceEnvironments', () => {
     const t = render({ placement: placement([group('staging'), group('production')]), stagesState: 'served', stagesCompleteness: 'complete', stageRows: [stage('prod')] });
     expect(t.querySelectorAll('[data-testid="service-environment"]')).toHaveLength(3);
     expect(text(t.querySelector('[data-testid="preview-count"]'))).toBe('3 of 3');
-  });
-
-  it('HistoryCappedWithShowAll', () => {
-    const events = Array.from({ length: 30 }, (_, i) => ({ change: 'added', environment: `pr-${i}`, revision: rev(`1.${i + 1}.0`), previous: rev(`1.${i}.0`) }));
-    const t = render({ placement: placement([group('production')]), history: history(events) });
-    const h = t.querySelector('[data-testid="environment-history"]')!;
-    expect(h.querySelectorAll('[data-testid="environment-event"]')).toHaveLength(25);
-    const btn = [...h.querySelectorAll('button')].find((b) => /Show all 30 changes/.test(b.textContent ?? ''))!;
-    btn.click();
-    flushSync();
-    expect(h.querySelectorAll('[data-testid="environment-event"]')).toHaveLength(30);
-  });
-
-  it('HistoryNamesTheRevisionComparedWith', () => {
-    const t = render({ placement: placement([group('production')]), history: history([{ change: 'added', environment: 'pr-482', revision: rev('1.3.0'), previous: rev('1.0.0') }]) });
-    const e = t.querySelector('[data-testid="environment-event"]')!;
-    expect(text(e)).toContain('pr-482 added in 1.3.0 compared with 1.0.0');
-    expect(e.querySelectorAll('a')[1]?.getAttribute('href')).toBe('#/fleet/revisions/storefront-web%401.0.0');
   });
 
   it('UnlabelledGroupStageCellReadsUnknown', () => {
@@ -283,5 +236,11 @@ describe('ServiceEnvironments', () => {
   it('states the answer time and completeness in its footer', () => {
     const t = render({ placement: placement([group('production')]), completeness: 'partial' });
     expect(text(t.querySelector('[data-testid="environments-footer"]'))).toBe('As of 2026-11-12 10:00 UTC, partial');
+  });
+
+  it('links its changes to the Changes section filtered to environments', () => {
+    const t = render({ placement: placement([group('production')]) });
+    const a = t.querySelector('[data-testid="environment-changes-link"]')!;
+    expect(a.getAttribute('href')).toBe('#/fleet/services/storefront-web?changesKind=environment&section=changes');
   });
 });

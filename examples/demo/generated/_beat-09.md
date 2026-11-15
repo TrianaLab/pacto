@@ -21,12 +21,13 @@ Affected consumers (5):
   orders-service               direct     confidence=unknown      compat=incompatible owner=commerce-team
     path: orders-service > payments-service  provenance: declared+observed  via: dependency,observed
     evidence: target production-eu/kubernetes-workload/commerce%2Forders-service stale
+    evidence: target staging-eu/kubernetes-workload/commerce-staging%2Forders-service stale
     evidence: observed-call traces file no observation window
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
     path: pacto-demo > frontend > api-gateway > payments-service  provenance: inferred  via: -
 By outcome: 2 incompatible, 3 unknown, 0 compatible
 Most affected owners: platform-foundations 2 (1 incompatible), commerce-team 1 (1 incompatible), frontend-team 1, platform-foundations-security 1
-Active targets (3): [production-eu/kubernetes-workload/commerce%2Forders-service production-eu/kubernetes-workload/payments%2Fpayments-service production-eu/kubernetes-workload/platform%2Faudit-log]
+Active targets (4): [production-eu/kubernetes-workload/commerce%2Forders-service production-eu/kubernetes-workload/payments%2Fpayments-service production-eu/kubernetes-workload/platform%2Faudit-log staging-eu/kubernetes-workload/commerce-staging%2Forders-service]
 Release gate: blocked
 breaking changes affect consumers that do not accept payments-service 2.0.1: orders-service was last seen on a target more than 24h before asOf
 ```

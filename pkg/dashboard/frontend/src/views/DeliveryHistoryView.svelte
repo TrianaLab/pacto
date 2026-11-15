@@ -3,10 +3,10 @@
   import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
+  import { deliveryChangeUrl, deliveryHistoryUrl, fleetEntityUrl, fleetChangesUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, sentence,
     verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS,
-    causeText, HISTORY_WINDOWS, historyWindow, windowSince } from '../lib/delivery.ts';
+    causeText, HISTORY_WINDOWS, historyWindow, windowSince, impactText } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
@@ -25,6 +25,7 @@
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import HistoryFigure from '../components/figure/HistoryFigure.svelte';
+  import HistoryAt from '../components/HistoryAt.svelte';
 
   // What happened on each Stage: from its signed records where the recorder
   // runs, otherwise from the changes still in the cluster. Every history says
@@ -37,7 +38,9 @@
   // column's link) keeps only the changes timed inside, so the list is the count.
   // cause (any case, part of the reason, operation or check) and correlationID
   // (exact) narrow the changes and the timeline, never the Stages.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', cause = '', correlationID = '', refreshTick = 0, miraURL = '' } = $props();
+  // at (RFC 3339 or a duration before now) also asks what each Stage ran then, from
+  // signed records; it takes none of the window, cause or correlation filters.
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', cause = '', correlationID = '', at = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
   // The exact service filter narrows every Stage; one Stage is already one.
@@ -46,11 +49,11 @@
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage, {
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined, timed: timed ? true : undefined,
-    cause: cause || undefined, correlationID: correlationID || undefined,
+    cause: cause || undefined, correlationID: correlationID || undefined, at: at || undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}`);
+  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}`);
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
   // Every link on the page keeps the cause and correlation filters.
   const by = $derived({ cause, correlationID });
   const filtered = $derived(!!(q || cause || correlationID));
@@ -67,7 +70,7 @@
   const histories = $derived(data?.histories ?? []);
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
-  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, ...by, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, ...by, at, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
 
   // The filter form: cause and correlation commit on submit; a window commits when
   // chosen, clears a timeline slice (until and timed) and keeps the rest.
@@ -82,7 +85,30 @@
   function pickWindow(e) {
     location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since: windowSince(e.currentTarget.value), ...by });
   }
+  // As of: the time asked, shown and picked in UTC (the server's answer names it
+  // when at was a duration). The field is a draft the reader commits with Ask, as
+  // cause and correlation commit on submit: a date field changes on each digit
+  // typed, and an answer arriving mid-entry would overwrite it. A committed time
+  // drops the filters at cannot take; a future one is refused, so the field stops
+  // at now.
+  const atValue = $derived(/^\d{4}-\d\d-\d\dT\d\d:\d\d/.exec(data?.at?.at || at)?.[0] ?? '');
+  let atDraft = $state(untrack(() => atValue));
+  $effect(() => { atDraft = atValue; });
+  const atMax = new Date().toISOString().slice(0, 16);
+  function askAt(e) {
+    e.preventDefault();
+    location.hash = deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, at: atDraft ? `${atDraft}:00Z` : undefined });
+  }
   const version = (d) => versionLabel(d, data?.versions);
+  // A digest's fleet revision, when this dashboard's fleet holds it; a revision key
+  // is its service key, an @ and the digest.
+  const revisionOf = (d) => (d ? data?.revisions?.[d] : undefined);
+  const serviceOf = (rev) => rev.slice(0, rev.lastIndexOf('@'));
+  // Today's analysis of a move: only when both sides are revisions of one service.
+  const analyse = (en) => {
+    const [o, n] = [revisionOf(en.from), revisionOf(en.to)];
+    return o && n && serviceOf(o) === serviceOf(n) ? fleetChangesUrl(serviceOf(n), { old: o, new: n }) : '';
+  };
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
   const move = (en) => `${side(en, en.from) || '–'} → ${side(en, en.to) || '–'}`;
@@ -138,8 +164,12 @@
   const tlProblems = $derived(one && histories[0] ? (histories[0].problemCount ?? histories[0].problems?.length ?? 0) + (histories[0].unreadableCount ?? histories[0].unreadable?.length ?? 0) : 0);
   // A column opens the changes it counts (T3): those timed in its slice. The last
   // column of a window that ends now is left open, so a change at the end stays in it.
-  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1', ...by });
-  const figQuestion = $derived(`What happened ${since || until ? 'in this window' : 'in the last 24 hours'}${one ? ' on this Stage' : ''}, and where is the record missing?`);
+  // As of ends the window at that time (the server sets until to at), never now; at
+  // stays off the slice link, which the server would refuse with since.
+  const endsNow = $derived(!until && !at);
+  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: endsNow && u === timeline?.end ? undefined : u, timed: '1', ...by });
+  const figWhen = $derived(at ? `in the 24 hours before ${timeLabel(data?.at?.at || timeline?.end || at)}` : since || until ? 'in this window' : 'in the last 24 hours');
+  const figQuestion = $derived(`What happened ${figWhen}${one ? ' on this Stage' : ''}, and where is the record missing?`);
 
   const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
   // The page's answer. Every Stage: what needs a look on this page. One Stage:
@@ -231,6 +261,9 @@
 <!-- A line read from an Operation's status has no record: its applied time, cause and correlation are not signed. -->
 {#snippet unsigned(en)}{#if !en.record}{' '}<span class="t-meta hv-unsigned" title="Read from the Operation's status: its applied time, cause and correlation are not in a signed record">from status, not signed</span>{/if}{/snippet}
 
+<!-- One side of a move: its version, linked to its revision when this dashboard's fleet holds it. -->
+{#snippet side2(d)}{#if revisionOf(d)}<a href={fleetEntityUrl('revision', revisionOf(d))}>{version(d)}</a>{:else}{version(d) || '–'}{/if}{/snippet}
+
 {#snippet undoCell(h, en)}
   {@const uo = undoOf(h, en)}
   {#if uo?.available}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>
@@ -257,7 +290,7 @@
   {#if windowText}
     <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, ...by })}>Show all changes</a></p>
   {/if}
-  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until, timed: tm, ...by })} testid="history-filter"
+  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until, timed: tm, ...by, at })} testid="history-filter"
     label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
     placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
   <form class="hv-filters" role="search" aria-label="Filter changes by cause, correlation id and window" onsubmit={filterBy} data-testid="history-filters">
@@ -273,6 +306,13 @@
     </label>
     {#if cause || correlationID}<a class="hv-link t-body-2" href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm })}>Clear cause and correlation</a>{/if}
   </form>
+  <form class="hv-filters" aria-label="Ask what each Stage ran at a time" onsubmit={askAt} data-testid="history-at-form">
+    <label class="hv-field"><span class="t-meta">As of (UTC)</span>
+      <input class="input" type="datetime-local" bind:value={atDraft} max={atMax} data-testid="history-at-input" />
+    </label>
+    <button type="submit" class="btn" data-testid="history-at-ask">Ask</button>
+    {#if at}<a class="hv-link t-body-2" href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show now</a>{/if}
+  </form>
 
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
@@ -280,7 +320,8 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={!until} question={figQuestion} problems={tlProblems} />{/if}
+    {#if data.at}<HistoryAt answer={data.at} />{/if}
+    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={endsNow} question={figQuestion} problems={tlProblems} />{/if}
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited only on an Unknown check (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how to fix</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
@@ -302,7 +343,7 @@
                   <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
                 </th></tr>
               {/if}
-              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm, ...by })}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm, ...by, at })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
@@ -395,7 +436,7 @@
                             onclick={() => { unfolded[runKey(h, i)] = !runOpen; }}>{runOpen ? 'Fold' : `${formatCount(run - 1)} more`}</button>{/if}
                         </div>
                       </td>
-                      <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{move(en)}</span></td>
+                      <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{#if en.type === AUTONOMY_TYPE}{move(en)}{:else}{@render side2(en.from)} → {@render side2(en.to)}{/if}</span></td>
                       <td data-label="Asked by"><div class="hv-asked">{#if en.actor}<Person user={en.actor} people={data.people} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</div></td>
                       <td data-label="Decided by" data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}<ul class="hv-deciders">{#each deciders(en) as a, j (j)}<li><Person user={a.by} people={data.people} /> <span class="badge badge-neutral">{decisionLabel(a.decision)}</span></li>{/each}</ul>{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td data-label="How it ended" data-testid="history-end">
@@ -404,6 +445,10 @@
                           {#if en.verification}{' '}<span>{verificationLabel(en.verification)}</span>{/if}
                           <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
                           {#if reason}{' '}<span class="hv-reason" tabindex="0"><DigestText text={reason} {known} /></span>{/if}
+                          {#if en.impact}
+                            <span class="hv-impact" title={`Gate ${en.impact.gate}${en.record ? `, record ${en.record}` : ''}`} data-testid="history-impact">{impactText(h.verified, en)}</span>
+                            {#if analyse(en)}<a class="hv-link" href={analyse(en)} aria-label={`Analyse against today's graph: ${version(en.from)} to ${version(en.to)}`} data-testid="history-analyse">Analyse against today's graph</a>{/if}
+                          {/if}
                         </div>
                       </td>
                       <td data-label="When">{@render when(en)}</td>
@@ -474,6 +519,7 @@
   .hv-nowrap { white-space: nowrap; }
   .hv-mono { font-family: var(--font-mono); }
   .hv-unsigned { color: var(--c-text-2); }
+  .hv-impact { color: var(--c-text-2); overflow-wrap: anywhere; }
   /* Cause, correlation and window side by side, wrapping on a narrow page. */
   .hv-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3); }
   .hv-field { display: flex; flex-direction: column; gap: var(--sp-1); flex: 1 1 14rem; min-width: 0; max-width: 24rem; }

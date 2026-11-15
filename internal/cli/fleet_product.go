@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -49,7 +51,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
+	f.String("ownership", "", "how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
 	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
@@ -145,11 +147,14 @@ func addTemplateFlag(f *pflag.FlagSet) {
 	f.Lookup("template").NoOptDefVal = fleet.TemplateOnly
 }
 
-func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
-	return &cobra.Command{
+func newFleetEntityCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "entity <kind> <key>",
 		Short: "Inspect one service, revision, target, owner, source, business domain or offering",
-		Args:  cobra.ExactArgs(2),
+		Long: "Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's " +
+			"revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by " +
+			"content, so their changes match no delivery record.",
+		Args: cobra.ExactArgs(2),
 		// The kind is a closed vocabulary; the key lives in a snapshot too
 		// expensive to build at the prompt.
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -159,6 +164,14 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			reached, _ := cmd.Flags().GetBool("reached")
+			if reached {
+				// A trust config that cannot be read is the caller's error,
+				// never a missing cluster.
+				if _, err := deliveryTrust(trustPath(cmd)); err != nil {
+					return err
+				}
+			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
 				return err
@@ -167,8 +180,34 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if reached && res.Service != nil {
+				attachReached(cmd, d)(cmd.Context(), q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
+			}
 			return printFleetEntity(cmd, res, v.GetString(outputFormatKey))
 		},
+	}
+	cmd.Flags().Bool("reached", false, "read when each change reached a Stage from signed delivery records, with your cluster credentials")
+	cmd.Flags().String("trust", "", "with --reached: the trust config delivery records are verified with (default $"+trustEnv+")")
+	return cmd
+}
+
+// attachReached attaches to a service's changes when each reached its
+// Stages, read with the ambient cluster credentials; with no cluster to read
+// from, or a trust config it cannot read, it says which and reads nothing.
+func attachReached(cmd *cobra.Command, d deps) pactomcp.ReachedReader {
+	return func(ctx context.Context, q *fleet.Query, service fleet.ServiceKey, h *fleet.ChangeHistoryPreview) {
+		dyn, err := d.newDynamic()
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "no cluster to read delivery from: "+err.Error(), nil)
+			return
+		}
+		c, _, err := deliveryClientFor(cmd, d, dyn)
+		if err != nil {
+			q.AttachReached(h, nil, fleet.TimesNotRead, "the delivery trust config could not be read: "+err.Error(), nil)
+			return
+		}
+		a := c.Reached(ctx, service)
+		q.AttachReached(h, a.ByContract, a.Times, a.Reason, a.Unreadable)
 	}
 }
 
@@ -394,7 +433,7 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
 			printPlacement(w, res.Entity.Label, res.Service.Placement, res.Meta.Completeness)
-			printEnvironmentHistory(w, res.Service.EnvironmentHistory)
+			printChanges(w, res.Service.Changes)
 		}
 		if res.Revision != nil {
 			printRevisionPlace(w, res.Revision)
@@ -804,9 +843,12 @@ func printPlacement(w io.Writer, service string, p fleet.PlacementPreview, c fle
 	_, _ = fmt.Fprintln(w, fleet.StagesHint(service))
 }
 
-// printEnvironmentHistory prints how a service's declared environments
-// changed across its revisions, or nothing when there is nothing to say.
-func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
+// changesFooter says where a change comes from and when it has a time.
+const changesFooter = "Declared, read from contract revisions; a time is read from delivery history with --reached, and each says how it is known."
+
+// printChanges prints every declared change across a service's revisions, or
+// nothing when there is nothing to say.
+func printChanges(w io.Writer, h fleet.ChangeHistoryPreview) {
 	if h.Total == 0 && h.Gaps == 0 {
 		return
 	}
@@ -814,6 +856,7 @@ func printEnvironmentHistory(w io.Writer, h fleet.EnvironmentHistoryPreview) {
 	for _, l := range h.Lines() {
 		_, _ = fmt.Fprintln(w, l)
 	}
+	_, _ = fmt.Fprintln(w, changesFooter)
 }
 
 // provisioningText renders one provisioning status: its phase, (unsigned) for

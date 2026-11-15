@@ -182,9 +182,11 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 //
 // Ownership is authored per revision (`service.owner` in the contract), so a
 // service's ownership is a property of its revisions agreeing rather than of one
-// field somebody set. A service is Consistent when every revision that declares an
-// owner declares the SAME one; a revision that declares none is silence, not a
-// contradiction. "The same one" is [ownerClaimSet]'s identity — the canonical owner
+// field somebody set. A service is Consistent when every revision of its current
+// claims (see [currentOwnerRevisions]: the newest version that declares an owner
+// and the revisions its targets run now) declares the SAME one; a revision that
+// declares none is silence, not a contradiction, and an older version that names
+// another owner is a handover, not a dispute. "The same one" is [ownerClaimSet]'s identity — the canonical owner
 // key, the one the product routes by — so a team declared with two different DRIs
 // is one owner. Both this tally and the OWNER_CONFLICT limitation [deriveOwner]
 // raises count through that set, so they can never disagree.
@@ -192,7 +194,7 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 // Conflicting is never folded into Unowned. "Two teams claim this" and "nobody
 // claims this" are different answers to "who do I page", and they need opposite
 // fixes. Neither is folded into Consistent either: ServiceRecord.Owner is only a
-// documented summary (the lowest-keyed revision's owner), so counting a conflicted
+// documented summary (the newest revision's owner), so counting a conflicted
 // service as owned would present that tie-break as agreement.
 type OwnershipTally struct {
 	Consistent  int `json:"consistent"`
@@ -370,7 +372,7 @@ type EntityAggregate struct {
 	// >= len(ByOwner), and the difference is the ranking tail.
 	RankedOwners int `json:"rankedOwners,omitempty"`
 	// DistinctOwners is every canonical owner identity the matched services declare,
-	// including owners that appear ONLY on services their revisions disagree about.
+	// including owners that appear ONLY on services whose current owners disagree.
 	// It is therefore >= RankedOwners and is the honest answer to "how many owners
 	// are in this population" — an owner in a dispute is still an owner, and counting
 	// only the rankable ones would erase exactly the owners a reader is looking for.
@@ -545,8 +547,8 @@ func typeFacet(counts map[string]int) ([]TypeCount, int) {
 }
 
 // ownerClaimsOf collects the DISTINCT owners known for a service, under the
-// canonical owner identity the product routes by (see [ownerClaimSet]): its
-// revisions' owners, else the owners its observing sources report
+// canonical owner identity the product routes by (see [ownerClaimSet]): the
+// owners of its current claims, else the owners its observing sources report
 // ([serviceOwnerClaims], the rule deriveOwner applies). One walk answers three
 // questions that must never disagree: how the service is partitioned, which owner
 // it ranks under, and which owners are present at all.
@@ -555,7 +557,7 @@ func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
 }
 
 // ownershipState classifies a service's declared ownership: how many DISTINCT
-// owners its revisions declare, and the canonical owner KEY when they declare
+// owners its current claims hold, and the canonical owner KEY when they declare
 // exactly one. The count is the classification (0 unowned, 1 consistent, more
 // conflicting); the key is only for ranking and linking, and it is empty for an
 // owner that carries contacts but neither a team nor a DRI. Such a service is

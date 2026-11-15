@@ -78,6 +78,13 @@ artifact, so it reads nothing. Whenever delivery cannot be read in full, the
 answer carries a `DELIVERY_EVIDENCE_UNAVAILABLE` limitation with the reason. An
 unread Stage never reads as "no failure recorded".
 
+Two answers about one change differ in time. A delivery record carries the
+`pacto.impact` verdict signed when the change shipped: the impact recorded at
+the time, shown in `pacto delivery history` and on Delivery history. An
+impact answer projects the change onto today's graph, so its consumers may
+differ from the recorded ones. Pacto never rebuilds a past graph; see
+[a service's changes](service-changes.md#recorded-impact-and-todays-graph).
+
 ## From an agent
 
 The `pacto_impact` MCP tool takes `event` (`unavailable`, `removed` or

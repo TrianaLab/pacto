@@ -10,6 +10,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
   import ServiceEnvironments from '../../components/ServiceEnvironments.svelte';
+  import ServiceChanges from '../../components/ServiceChanges.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -46,7 +47,7 @@
   // the service's COMPLETE target / revision / edge populations. It is deliberately not
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
-  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '' } = $props();
+  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {} } = $props();
   const d = $derived(detail.service ?? {});
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
@@ -259,7 +260,7 @@
     <div class="se-conflicts" role="status">
       <div class="se-conflicts-head">
         <strong>Ownership conflict.</strong>
-        <span>These revisions declare an owner other than {d.ownership.owner || 'the service owner'}:</span>
+        <span>{d.ownership.conflictReason ? `${d.ownership.conflictReason[0].toUpperCase()}${d.ownership.conflictReason.slice(1)}:` : 'Owners disagree:'}</span>
       </div>
       <ul class="se-conflict-list">
         {#each d.ownership.conflicts.items as c}<li title={c}>{abbreviateDigests(dropService(c, self))}</li>{/each}
@@ -487,8 +488,13 @@
   {/if}
 
   <div class="se-wrap" data-testid="service-environments">
-    <ServiceEnvironments placement={d.placement ?? null} history={d.environmentHistory ?? null} stageRows={deliveryRows} stagesState={deliveryListing}
+    <ServiceEnvironments placement={d.placement ?? null} stageRows={deliveryRows} stagesState={deliveryListing}
       stagesCompleteness={deliveryCompleteness} asOf={detail.meta?.asOf ?? ''} completeness={detail.meta?.completeness ?? ''} service={key} />
+  </div>
+
+  <div class="se-wrap">
+    <ServiceChanges changes={d.changes ?? null} service={key} label={self} {deliveryState} {refreshTick}
+      kind={changesQuery.kind ?? ''} offset={changesQuery.offset ?? ''} limit={changesQuery.limit ?? ''} section={changesQuery.section ?? ''} />
   </div>
 
   <div class="se-wrap" data-testid="service-delivery">

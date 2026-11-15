@@ -377,13 +377,15 @@ export function installScaleFixture(): void {
       if (typeof doc.autoPromote === 'string') doc.autoPromote = longName(doc.autoPromote || 'auto');
     }
     // A service's environments: long environment names, owners, reasons and version
-    // labels (keys and hrefs stay the engine's). storefront-web holds 200 environments,
-    // 200 differences and 200 history events, so the section is drawn at fleet scale.
+    // labels (keys and hrefs stay the engine's). storefront-web holds 200 environments
+    // and 200 differences, so the section is drawn at fleet scale. The plain and the
+    // reached=true request both answer here (matched on the pathname).
     if (route === '/api/fleet/entities/service') {
       const svc = doc.service as Record<string, unknown> | undefined;
       const pl = svc?.placement as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
-      const hist = svc?.environmentHistory as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
-      if (pl && hist && (doc.entity as { key?: string } | undefined)?.key === 'storefront-web') {
+      const changes = svc?.changes as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
+      const entityKey = (doc.entity as { key?: string } | undefined)?.key;
+      if (pl && entityKey === 'storefront-web') {
         const tpl = (pl.items ?? []).find((it) => it.declaration) ?? {};
         const names = Array.from({ length: 200 }, (_, i) => `env-${i}`);
         pl.items = names.map((n, i) => ({ ...tpl, environment: n, targetsComplete: i % 4 !== 0, targetsReason: i % 4 ? undefined : 'reason-targets',
@@ -395,10 +397,27 @@ export function installScaleFixture(): void {
         pl.differences = Array.from({ length: 200 }, (_, i) => ({ configuration: `config-${i % 5}`, path: `spec.path-${i}`,
           values: Object.fromEntries(names.slice(i % 190, (i % 190) + 4).map((n, j) => [n, j ? `value-${i}-${j}` : { nested: `value-${i}` }])) }));
         pl.differencesTotal = 240;
-        const rev = (hist.items ?? [])[0]?.revision ?? pl.currentRevision;
-        hist.items = Array.from({ length: 200 }, (_, i) => ({ change: ['added', 'removed', 'changed', 'present'][i % 4], environment: names[i],
-          fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined, revision: rev }));
-        hist.total = 200; hist.count = 200; hist.truncated = false; hist.gaps = 3; hist.completeness = 'partial'; hist.completenessReason = 'reason-history';
+      }
+      // Changes at scale (#459): 200 events across every kind with long subjects and
+      // values, three reached Stages each with long names, three gaps, partial, and
+      // capped: 350 held, the 200 newest shown.
+      if (changes && entityKey === 'storefront-web') {
+        const first = (changes.items ?? [])[0];
+        const rev = first?.revision ?? pl?.currentRevision;
+        const prev = first?.previous ?? rev;
+        const kinds = ['owner', 'domain', 'offering', 'dependency', 'lifecycle', 'environment', 'finding'];
+        changes.items = Array.from({ length: 200 }, (_, i) => ({ kind: kinds[i % 7], change: ['added', 'removed', 'changed', 'present'][i % 4],
+          subject: i % 7 >= 3 ? longName(`subject-${i}`) : undefined, fields: i % 4 === 2 ? ['file', 'lifetime', 'expires', 'owner'] : undefined,
+          from: i % 4 === 3 ? undefined : longName(`from-value-${i}`), to: longName(`to-value-${i}`), revision: rev, previous: i % 4 === 3 ? undefined : prev,
+          provenance: 'declared', source: i % 7 === 6 ? 'validation' : 'contract',
+          reached: [0, 1, 2].map((j) => ({ namespace: longName(`namespace-${j}`), stage: longName(`stage-${j}`), environment: longName(`environment-${j}`),
+            at: '2026-11-10T14:02:00Z', record: j === 2 ? undefined : `rec-${i}-${j}`, verified: j === 0, fromStatus: j === 2 })) }));
+        Object.assign(changes, { total: 350, count: 200, truncated: true, gaps: 3, completeness: 'partial', completenessReason: longName('reason-changes'), times: 'read' });
+      }
+      // A caller who may not list Stages: every line reads "time hidden".
+      if (changes && entityKey === 'notification-worker') {
+        Object.assign(changes, { times: 'hidden', timesReason: longName('stages.delivery.pacto.trianalab.io is forbidden: User cannot list resource stages in API group delivery.pacto.trianalab.io at the cluster scope') });
+        for (const e of changes.items ?? []) delete e.reached;
       }
       // Resources at scale (#468), on orders-service only so catalog-service stays the
       // realistic case: 40 uses with long provider labels, long configuration keys and
@@ -457,8 +476,8 @@ export function installScaleFixture(): void {
         df.configuration = longName(String(df.configuration)); df.path = longName(String(df.path));
         df.values = Object.fromEntries(Object.entries(df.values as Record<string, unknown>).map(([k, v]) => [longName(k), typeof v === 'string' ? longName(v) : v]));
       }
-      for (const e of hist?.items ?? []) e.environment = longName(String(e.environment));
-      if (typeof hist?.completenessReason === 'string') hist.completenessReason = longName(hist.completenessReason);
+      for (const e of changes?.items ?? []) for (const k of ['subject', 'from', 'to']) if (typeof e[k] === 'string' && e[k]) e[k] = longName(e[k] as string);
+      if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
     const lengthenEnv = (d: Record<string, unknown> | undefined) => {
@@ -495,6 +514,24 @@ export function installScaleFixture(): void {
           o.reason = longName(`undo-${o.operation}`);
           if (i % 2) o.available = false;
         });
+      }
+      // Every record line carries a pacto.impact verdict with a long message (#459), and
+      // every digest a long fleet revision, so the impact line, its analyse link and the
+      // revision links show at their longest. Digests stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        ((h.entries as Record<string, unknown>[] | undefined) ?? []).forEach((en, i) => {
+          if (en.record) en.impact = { gate: 'pacto.impact', phase: 'pre', result: i % 2 ? 'Fail' : 'Pass', message: longName(`impact-${en.operation ?? i}`) };
+        });
+      }
+      const revs = (doc.revisions as Record<string, string> | undefined) ?? {};
+      for (const d of Object.keys((doc.versions as Record<string, string> | undefined) ?? {})) revs[d] ??= `${longName('registry.example/story/payments')}@${d}`;
+      doc.revisions = revs;
+      // As of at its longest: long Stage, service, owner, domain and reason names, and
+      // namespaces that could not be read.
+      const at = doc.at as { stages?: Record<string, unknown>[]; unreadable?: string[] } | undefined;
+      if (at) {
+        for (const st of at.stages ?? []) for (const k of ['stage', 'service', 'owner', 'businessDomain', 'reason', 'version']) if (typeof st[k] === 'string' && st[k]) st[k] = longName(st[k] as string);
+        at.unreadable = [longName('staging-eu-west-partner-feed'), longName('compliance-archive')];
       }
     }
     // One record at its longest: many verdicts with long messages and citations.
@@ -694,7 +731,14 @@ export function installScaleFixture(): void {
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
-    try { amend(method, path, doc, body); } catch (e) { console.error('scale fixture', path, e); return res; }
+    try { amend(method, path, doc, body); } catch (e) {
+      // An override that throws would leave the route unscaled and the gate green:
+      // layoutProblems reports it.
+      console.error('scale fixture', path, e);
+      const w = window as unknown as { __pactoScaleErrors?: string[] };
+      (w.__pactoScaleErrors ??= []).push(`scale fixture ${path}: ${e}`);
+      return res;
+    }
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -716,7 +760,7 @@ export async function gateMode(page: Page): Promise<void> {
  */
 export async function layoutProblems(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const out: string[] = [];
+    const out: string[] = [...((window as unknown as { __pactoScaleErrors?: string[] }).__pactoScaleErrors ?? [])];
     const root = document.querySelector('#app') ?? document.body;
     const say = (el: Element | null) => {
       if (!el) return '?';
@@ -1136,6 +1180,33 @@ const serviceEnvironments = (hash: string) => async (page: Page) => {
   await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
+/**
+ * changesRoute opens a route that scrolls to the Changes section, with reduced motion
+ * so the scroll is instant, and returns to the top once it has run: the gate reads
+ * from the top.
+ */
+const changesRoute = async (page: Page, hash: string, ready: () => Promise<void>) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`/${hash}`);
+  await ready();
+  await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 5_000 }).catch(() => {});
+  // A wheel is the reader driving: it cancels the route's scroll restore.
+  await page.mouse.wheel(0, -1);
+  await page.evaluate(() => window.scrollTo(0, 0));
+};
+
+/** Opens a service page at its Changes section and waits for one change row. */
+const serviceChanges = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-row"]').first()).toBeVisible({ timeout: 30_000 }));
+
+/** Opens a service page with its Changes filtered to one kind and waits for the count. */
+const serviceChangesFiltered = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-changes-filtered"]')).toBeVisible({ timeout: 30_000 }));
+
+/** Opens a service page whose change times are hidden and waits for that text. */
+const serviceChangesHidden = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-reached"]', { hasText: 'time hidden' }).first()).toBeVisible({ timeout: 30_000 }));
+
 /** Opens a service page and waits for its Resources section (#468). */
 const serviceResources = (hash: string) => async (page: Page) => {
   await page.goto(`/${hash}`);
@@ -1300,6 +1371,34 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: 'delivery history with impact',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('[data-testid="history-impact"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of, one Stage',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments&at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of unknown',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=2000-01-01T00%3A00%3A00Z');
+      await expect(page.locator('[data-testid="history-at-row"]', { hasText: 'no record before this time' }).first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     name: 'history, every Stage, filtered by correlation id',
     hash: '#/delivery/history?correlationID=CHG-2041',
   },
@@ -1329,6 +1428,9 @@ export const ROUTES: Route[] = [
   },
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
+  { name: 'service changes', open: serviceChanges('#/fleet/services/storefront-web?section=changes') },
+  { name: 'service changes filtered', open: serviceChangesFiltered('#/fleet/services/storefront-web?changesKind=owner') },
+  { name: 'service changes times hidden', open: serviceChangesHidden('#/fleet/services/notification-worker?section=changes') },
   { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
   {
     // Expanded, so every card (usage figures included) is laid out where the gate looks,

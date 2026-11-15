@@ -298,23 +298,33 @@ func TestEntityDetail_ChainRevisionAndService(t *testing.T) {
 }
 
 func TestServiceOwnership(t *testing.T) {
-	s := &ServiceRecord{Key: "svc", Owner: contract.Owner{Team: "team-x"}}
+	// Two revisions of one version name different teams: a conflict that holds
+	// now, listing both; a revision with no owner is silence.
 	revs := []*ContractRevision{
-		{Key: "svc@1", Owner: contract.Owner{Team: "team-x"}}, // matches: no conflict
-		{Key: "svc@2", Owner: contract.Owner{Team: "team-y"}}, // conflict
-		{Key: "svc@3"}, // empty owner: skipped
+		{Key: "svc@1", ServiceKey: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "team-x"}},
+		{Key: "svc@2", ServiceKey: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "team-y"}},
+		{Key: "svc@3", ServiceKey: "svc", Version: "1.0.0"},
 	}
-	info := serviceOwnership(s, revs)
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{}}
+	s := &ServiceRecord{Key: "svc", Name: "svc", Owner: contract.Owner{Team: "team-x"}}
+	for _, r := range revs {
+		snap.Revisions[r.Key] = r
+		s.Revisions = append(s.Revisions, r.Key)
+	}
+	info := serviceOwnership(snap, s)
 	if info.Owner != "team-x" || info.Ref == nil {
 		t.Fatalf("owner info = %+v", info)
 	}
-	if info.Conflicts.Total != 1 || info.Conflicts.Count != 1 || info.Conflicts.Truncated ||
-		len(info.Conflicts.Items) != 1 || !strings.Contains(info.Conflicts.Items[0], "team-y") {
+	if info.Conflicts.Total != 2 || info.Conflicts.Count != 2 || info.Conflicts.Truncated ||
+		!strings.Contains(info.Conflicts.Items[0], "team-x") || !strings.Contains(info.Conflicts.Items[1], "team-y") {
 		t.Errorf("conflicts = %+v", info.Conflicts)
 	}
+	if info.ConflictReason != "two revisions of svc 1.0.0 declare different owners" {
+		t.Errorf("reason = %q", info.ConflictReason)
+	}
 
-	empty := serviceOwnership(&ServiceRecord{Key: "svc2"}, nil)
-	if empty.Owner != "" || empty.Ref != nil {
+	empty := serviceOwnership(&FleetSnapshot{}, &ServiceRecord{Key: "svc2"})
+	if empty.Owner != "" || empty.Ref != nil || empty.Conflicts.Total != 0 || empty.ConflictReason != "" {
 		t.Errorf("ownerless service must have no owner ref: %+v", empty)
 	}
 }

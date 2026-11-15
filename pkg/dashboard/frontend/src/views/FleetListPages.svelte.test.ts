@@ -137,7 +137,7 @@ describe('FleetOwnersView (G)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
     // The buckets are the backend's 40 services, not the 2 owner rows below them.
     expect(legend(target)).toEqual([
-      ['Revisions name different owners', '2', '#/fleet/services?ownership=conflicting'],
+      ['Owners disagree', '2', '#/fleet/services?ownership=conflicting'],
       ['No declared owner', '4', '#/fleet/services?ownership=unowned'],
       ['One declared owner', '34', '#/fleet/services?ownership=consistent'],
     ]);
@@ -168,7 +168,7 @@ describe('FleetOwnersView (G)', () => {
     const note = bars[0].querySelector('.hb-scope')?.textContent || '';
     expect(note).toContain('Top 2 of 5 named owners by service count.');
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
-    expect(note).toContain('Services with no declared owner, or whose revisions name different owners, appear in no row here.');
+    expect(note).toContain('Services with no declared owner, or whose owners disagree, appear in no row here.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -386,7 +386,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     ]);
     // 5 + 2 + 1 == 8 of 10: the missing two are a bucket, not rounding.
     expect(rows).toEqual([
-      ['Revisions name different owners', '2', '(20% of 10)'],
+      ['Owners disagree', '2', '(20% of 10)'],
       ['No declared owner', '1', '(10% of 10)'],
       ['One declared owner', '5', '(50% of 10)'],
       ['Unclassified', '2', '(20% of 10)'],
@@ -421,7 +421,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Still shares of 8 -- the denominator was not quietly moved to make them fit --
     // and no Unclassified slice was invented to pad a bar that is already too full.
     expect(rows).toEqual([
-      ['Revisions name different owners', '(38% of 8)'],
+      ['Owners disagree', '(38% of 8)'],
       ['No declared owner', '(13% of 8)'],
       ['One declared owner', '(75% of 8)'],
     ]);

@@ -2011,24 +2011,24 @@ func TestDeriveOwner_SameOwnerNoConflict(t *testing.T) {
 	}
 }
 
-func TestDeriveOwner_Conflict(t *testing.T) {
-	// Differing owners across revisions → OWNER_CONFLICT; the summary owner is
-	// deterministically the newest revision's owner.
+func TestDeriveOwner_Handover(t *testing.T) {
+	// Differing owners across sequential versions with no target are a handover,
+	// not an OWNER_CONFLICT; the summary owner is the newest revision's owner.
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
 		"svc@a": {Key: "svc@a", Service: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "old-team"}},
 		"svc@b": {Key: "svc@b", Service: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "new-team"}},
 	}}
 	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@b", "svc@a"}}
 	lim := deriveOwner(snap, s)
-	if len(lim) != 1 || lim[0].Code != LimitationOwnerConflict || lim[0].Source != "fleet" {
-		t.Fatalf("differing owners → OWNER_CONFLICT from fleet, got %+v", lim)
+	if len(lim) != 0 {
+		t.Fatalf("a handover raised %+v", lim)
 	}
 	if s.Owner.Team != "new-team" {
 		t.Errorf("owner summary should be the newest revision's owner (new-team), got %+v", s.Owner)
 	}
 }
 
-func TestBuild_OwnerConflictSurfaced(t *testing.T) {
+func TestBuild_OwnerHandoverNotSurfaced(t *testing.T) {
 	c1 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "t1"}}}
 	c2 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "t2"}}}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
@@ -2038,8 +2038,8 @@ func TestBuild_OwnerConflictSurfaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasLimitation(snap.Limitations, LimitationOwnerConflict) {
-		t.Errorf("conflicting per-revision owners should surface OWNER_CONFLICT: %+v", snap.Limitations)
+	if hasLimitation(snap.Limitations, LimitationOwnerConflict) {
+		t.Errorf("a sequential owner change surfaced OWNER_CONFLICT: %+v", snap.Limitations)
 	}
 }
 
@@ -2059,8 +2059,8 @@ func TestDeriveOwnerPrefersTheNewestRevision(t *testing.T) {
 		t.Errorf("Owner.Team = %q, want %q — the owner must come from the newest "+
 			"revision, not the lowest-hashing one", s.Owner.Team, "new-team")
 	}
-	if len(lims) != 1 || lims[0].Code != LimitationOwnerConflict {
-		t.Errorf("limitations = %v, want one OWNER_CONFLICT", lims)
+	if len(lims) != 0 {
+		t.Errorf("limitations = %v, want none: an older version's owner is a handover", lims)
 	}
 }
 

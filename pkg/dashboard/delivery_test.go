@@ -38,6 +38,8 @@ type fakeDelivery struct {
 	// the contract reference its artifact names.
 	owner    string
 	contract string
+	// businessDomain is the service.domain dRun's contract declares.
+	businessDomain string
 	// source is the source revision dRun's artifact carries.
 	source    string
 	callerErr error
@@ -217,7 +219,7 @@ func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, digest string) delivery.Revision {
 	if digest == dRun {
 		return delivery.Revision{Digest: digest, ContractRef: cmp.Or(f.contract, "oci://r/payments@sha256:c"), SourceRevision: f.source,
-			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0", Owner: contract.Owner{Team: f.owner}}}}}
+			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0", Owner: contract.Owner{Team: f.owner}, Domain: f.businessDomain}}}}
 	}
 	if v, ok := f.known[digest]; ok {
 		return delivery.Revision{Digest: digest, Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Version: v}}}}
@@ -1308,13 +1310,25 @@ func TestListingJSONUnchanged(t *testing.T) {
 	}
 }
 
+// TestDescribedAllUsesDescribedOf: the dashboard describes a digest as the
+// CLI does, owner key and business domain included.
+func TestDescribedAllUsesDescribedOf(t *testing.T) {
+	st := stage("prod", "payments", "payments", delivery.StageStatus{})
+	f := &fakeDelivery{owner: "team-payments", businessDomain: "billing", source: "abc"}
+	got := describedAll(context.Background(), f, nil, digestsOn{&st, []string{dRun}})
+	want := delivery.DescribedOf(f.Describe(context.Background(), &st, dRun), "1.0.0")
+	if got[dRun] != want || want.OwnerKey == "" || want.BusinessDomain != "billing" || want.Service != "payments" {
+		t.Fatalf("described = %+v, want %+v", got[dRun], want)
+	}
+}
+
 // TestDescribedKeepsContractWithoutVersion: an artifact that names a
 // contract whose bundle could not be read keeps its entry, with why.
 func TestDescribedKeepsContractWithoutVersion(t *testing.T) {
 	st := stage("prod", "payments", "payments", delivery.StageStatus{})
 	f := &fakeDelivery{owner: "team-payments"}
 	got := describedAll(context.Background(), f, nil, digestsOn{&st, []string{dRun, "sha256:unreadable", "advise"}})
-	if got[dRun] != (delivery.Described{Version: "1.0.0", Team: "team-payments", Contract: "oci://r/payments@sha256:c"}) {
+	if d := got[dRun]; d.Version != "1.0.0" || d.Team != "team-payments" || d.Contract != "oci://r/payments@sha256:c" {
 		t.Errorf("dRun %+v", got[dRun])
 	}
 	if r, ok := got["sha256:unreadable"]; !ok || r.Version != "" || r.Err != "registry down" {

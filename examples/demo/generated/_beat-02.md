@@ -25,7 +25,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   inventory-service            NotEvaluated owner=catalog-team   domain=fulfillment  offering=-            revs=4 targets=0
   loyalty-service              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   notification-worker          Unknown      owner=commerce-team  domain=-            offering=-            revs=1 targets=1
-  orders-service               NonCompliant owner=commerce-team  domain=commerce     offering=-            revs=4 targets=1
+  orders-service               NonCompliant owner=commerce-team  domain=commerce     offering=-            revs=4 targets=2
   pacto-demo                   NotEvaluated owner=platform-foundations domain=-            offering=-            revs=1 targets=0
   payments-service             Compliant    owner=payments-team  domain=payments     offering=-            revs=7 targets=1
   platform-app-config          NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0

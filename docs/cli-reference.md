@@ -469,6 +469,7 @@ pacto delivery history [flags]
 
 ```
       --all[=true|false]        walk every Stage in the namespace given with -n, or in every namespace you can list
+      --at string               what each Stage ran at this RFC 3339 time, or this long before now, from its signed records; with --stage or --all
       --cause string            only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too
       --correlation-id string   only changes with exactly this correlation id; it narrows the timeline too
       --domain string           with --service, its registry domain; a Stage that names none matches any
@@ -1076,7 +1077,7 @@ pacto fleet entities [text] [flags]
       --offset int                       result offset for paging
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
-      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
+      --ownership string                 how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace
@@ -1091,7 +1092,7 @@ pacto fleet entities [text] [flags]
 
 ### `pacto fleet entity`
 
-Inspect one service, revision, target, owner, source, business domain or offering
+Inspect one entity. For a service, --reached also reads, with your cluster credentials, when each change's revision first reached each Stage you may read, from delivery history. A --local fleet keys revisions by content, so their changes match no delivery record.
 
 ```
 pacto fleet entity <kind> <key> [flags]
@@ -1100,7 +1101,9 @@ pacto fleet entity <kind> <key> [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]   help for entity
+  -h, --help[=true|false]      help for entity
+      --reached[=true|false]   read when each change reached a Stage from signed delivery records, with your cluster credentials
+      --trust string           with --reached: the trust config delivery records are verified with (default $PACTO_DELIVERY_TRUST)
 ```
 
 ### `pacto fleet explain`

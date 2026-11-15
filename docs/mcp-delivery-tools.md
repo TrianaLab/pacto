@@ -68,6 +68,13 @@ and `PlanStale` names the one that differs when it can tell.
 
 `pacto_delivery_history` takes `since` and `until` (an RFC 3339 time or a
 duration such as `2h`), `cause`, `correlation_id` and, without a `stage`,
-`service` and `domain`.
+`service` and `domain`. Each line carries `impact`, the `pacto.impact`
+verdict its record signed, and the answer's `revisions` map each artifact
+digest to its revision key. `at` (same time forms, without `since`, `until`,
+`cause` or `correlation_id`) answers which revision each Stage ran at that
+time instead, with each Stage `known`, `partial` or `unknown`.
+`pacto_delivery_blame` adds the digest's `revision`. Every revision key on
+these tools is derived from the contract's digest and name, not checked
+against a fleet.
 [Status, progress and lifecycle](integrations/kubernetes/delivery-status.md)
 covers the status, lifecycle and record tools.

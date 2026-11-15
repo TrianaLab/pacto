@@ -113,7 +113,7 @@ export interface paths {
         };
         /**
          * What happened
-         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read.
+         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read. With at, it also says which revision each Stage on the page ran at that time, from its signed records: known, partial or unknown, and partial as a whole when a namespace was not read or other pages remain.
          */
         get: operations["delivery-history"];
         put?: never;
@@ -1325,6 +1325,23 @@ export interface components {
             name: string;
             note?: string;
         };
+        "Delivery.AtAnswer": {
+            /** @description When the records were read */
+            asOf: string;
+            /** @description The time asked about, RFC 3339 */
+            at: string;
+            /**
+             * @description complete only when every Stage is known, every namespace was read and no other page of Stages remains
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description How many Stages were read and what was not */
+            note: string;
+            /** @description Each Stage read, with what it ran at the time */
+            stages: components["schemas"]["Delivery.StageAt"][] | null;
+            /** @description The namespaces or Stages that could not be read, and why */
+            unreadable?: string[] | null;
+        };
         "Delivery.AutonomyPolicy": {
             /** Format: int64 */
             proposeAfter?: number;
@@ -1410,6 +1427,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */
@@ -1454,6 +1473,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */
@@ -1716,6 +1737,41 @@ export interface components {
         "Delivery.ServiceRef": {
             domain?: string;
             name: string;
+        };
+        "Delivery.StageAt": {
+            /** @description The business domain the artifact's contract declares */
+            businessDomain?: string;
+            /** @description The artifact digest the Stage ran, from the newest recorded move at or before the time */
+            digest?: string;
+            /** @description The registry domain the Stage names for its service, empty for the default */
+            domain?: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The owner the artifact's contract declares */
+            owner?: string;
+            /** @description The key of that owner */
+            ownerKey?: string;
+            /** @description Why the state is not known */
+            reason?: string;
+            /** @description The record of that move */
+            record?: string;
+            /** @description The fleet revision key of the artifact. On the CLI and MCP it is derived from the contract's digest and name, not checked against a fleet; on the dashboard it is the revision this dashboard's fleet holds */
+            revision?: string;
+            /** @description The service the Stage delivers */
+            service?: string;
+            /** @description When that move reached the Stage */
+            since?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /**
+             * @description known: a signed record names what ran and nothing after it is missing or unsigned; partial: a record names it but a later move may be missing, is not signed or the signatures were not checked; unknown: no record before this time, or the Stage could not be read
+             * @enum {string}
+             */
+            state: "known" | "partial" | "unknown";
+            /** @description The version the artifact's contract declares, when it could be read */
+            version?: string;
         };
         "Delivery.StageNow": {
             autoHold?: boolean;
@@ -2186,6 +2242,24 @@ export interface components {
             binding?: components["schemas"]["Fleet.CapabilityBindingSummary"];
             ref?: string;
             type?: string;
+        };
+        "Fleet.ChangeReach": {
+            /** @description When the move that brought the revision reached the Stage (applied, else finished), RFC 3339 */
+            at: string;
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description The move was read from an Operation's status or an unrecordable record: nothing signed it */
+            fromStatus?: boolean;
+            /** @description The pacto.impact verdict the record carries; signed only when verified */
+            impact?: components["schemas"]["Fleet.RecordedVerdict"];
+            /** @description The Stage's namespace */
+            namespace: string;
+            /** @description The delivery record of the move; empty when it was read from an Operation's status */
+            record?: string;
+            /** @description The Stage's name */
+            stage: string;
+            /** @description The record's signature was checked against a trust config: a signed move */
+            verified: boolean;
         };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
@@ -3259,6 +3333,17 @@ export interface components {
             /** Format: int64 */
             passing: number;
         };
+        "Fleet.RecordedVerdict": {
+            /** @description The gate that judged */
+            gate: string;
+            /** @description Why */
+            message?: string;
+            /**
+             * @description What it said
+             * @enum {string}
+             */
+            result: "Pass" | "Fail" | "Unknown";
+        };
         "Fleet.ReferrersPreview": {
             /** Format: int64 */
             count: number;
@@ -3768,6 +3853,8 @@ export interface components {
         };
         HistoryOutputBody: {
             asOf: string;
+            /** @description With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess */
+            at?: components["schemas"]["Delivery.AtAnswer"];
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
@@ -4386,6 +4473,71 @@ export interface components {
              */
             total: number;
         };
+        ProductChangeEvent: {
+            /**
+             * @description present: declared by the oldest revision this answer holds, or the first after one it could not read (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
+             * @enum {string}
+             */
+            change: "present" | "added" | "removed" | "changed";
+            /** @description changed: which declared fields changed */
+            fields?: string[] | null;
+            /** @description The value before the change, as the previous revision declares it; for a finding, its severity or the readiness "score N/M" (score and minimum) */
+            from?: string;
+            /**
+             * @description What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding
+             * @enum {string}
+             */
+            kind: "owner" | "domain" | "offering" | "dependency" | "lifecycle" | "environment" | "finding";
+            /** @description The revision it was compared with: the change happened after it, at or before revision */
+            previous?: components["schemas"]["ProductRef"];
+            /**
+             * @description declared: read from immutable contract revisions
+             * @enum {string}
+             */
+            provenance: "declared";
+            /** @description With reached: when the revision first reached each Stage the caller may read, at most one per Stage, from delivery records */
+            reached?: components["schemas"]["Fleet.ChangeReach"][] | null;
+            /** @description The first revision this answer holds that shows the change */
+            revision: components["schemas"]["ProductRef"];
+            /**
+             * @description contract: an edit the contract declares; validation: a result of Pacto's own check of the revision
+             * @enum {string}
+             */
+            source: "contract" | "validation";
+            /** @description The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle */
+            subject?: string;
+            /** @description The value after the change, as the revision declares it */
+            to?: string;
+        };
+        ProductChangeHistoryPreview: {
+            /**
+             * @description partial when this view or a source holds only some of the service's revisions, a revision could not be read, two revisions of one version disagree, validation ran different checks on two revisions compared, or two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            completenessReason?: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Revisions whose contract could not be read; no change is reported across them, the next readable revision reads present, and the answer is partial
+             */
+            gaps: number;
+            /** @description Newest first, in version order, not a timeline */
+            items: components["schemas"]["ProductChangeEvent"][] | null;
+            /**
+             * @description Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed, a Stage history that may lack earlier moves, an artifact that could not be read, or a local revision no record can name), hidden (the caller may not list Stages)
+             * @enum {string}
+             */
+            times: "not-read" | "read" | "partial" | "hidden";
+            /** @description Why the times were not read in full */
+            timesReason?: string;
+            /** @description partial: the namespaces or Stages not read, the Stages whose history may lack earlier moves and the artifacts that could not be read, each with why */
+            timesUnreadable?: string[] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductConfigurationSummary: {
             configuration?: string;
             content?: components["schemas"]["Fleet.SchemaContent"];
@@ -4521,40 +4673,6 @@ export interface components {
             /** @description Targets of the provider the viewer may not see are not counted */
             targetsHidden?: boolean;
             unreachable?: components["schemas"]["ProductRef"][] | null;
-        };
-        ProductEnvironmentEvent: {
-            /**
-             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
-             * @enum {string}
-             */
-            change: "present" | "added" | "removed" | "changed";
-            environment: string;
-            /** @description changed: which declared fields changed (file, lifetime, expires, owner) */
-            fields?: string[] | null;
-            /** @description The revision it was compared with */
-            previous?: components["schemas"]["ProductRef"];
-            /** @description The revision that made the change */
-            revision: components["schemas"]["ProductRef"];
-        };
-        ProductEnvironmentHistoryPreview: {
-            /**
-             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
-             * @enum {string}
-             */
-            completeness: "complete" | "partial";
-            completenessReason?: string;
-            /** Format: int64 */
-            count: number;
-            /**
-             * Format: int64
-             * @description Revisions whose contract could not be read; no change is reported across them
-             */
-            gaps: number;
-            /** @description Newest first. Differences between consecutive versions in version order, not a timeline. Declared changes read from the revisions; value changes are pacto diff's */
-            items: components["schemas"]["ProductEnvironmentEvent"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
         };
         ProductEnvironmentOwner: {
             owner?: string;
@@ -4911,6 +5029,8 @@ export interface components {
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
+            /** @description Why the owners disagree: targets run revisions that declare different owners, or two revisions of one version do. Empty when they agree */
+            conflictReason?: string;
             conflicts: components["schemas"]["Fleet.StringsPreview"];
             contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
@@ -5155,6 +5275,8 @@ export interface components {
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
+            /** @description Every declared change across the service's revisions, in version order (declared; times only from signed delivery records) */
+            changes: components["schemas"]["ProductChangeHistoryPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;
@@ -5164,8 +5286,6 @@ export interface components {
             dependentsStatus: components["schemas"]["Fleet.ComplianceTally"];
             deployments: components["schemas"]["ProductRefPreview"];
             domain?: string;
-            /** @description How the service's declared environments changed across its revisions (declared) */
-            environmentHistory: components["schemas"]["ProductEnvironmentHistoryPreview"];
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             /** Format: int64 */
@@ -6287,6 +6407,8 @@ export interface operations {
                 cause?: string;
                 /** @description Keep only changes with exactly this correlation id. It narrows the timeline too */
                 correlationID?: string;
+                /** @description RFC 3339 time, or a duration before now such as 2h: also say which revision each Stage on this page ran at that time, from its signed records (see at in the answer); the histories keep only changes at or before it. It takes no since, until, timed, cause or correlationID */
+                at?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */
@@ -7441,7 +7563,7 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
-                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
+                /** @description Declared-ownership filter for service entities; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
                 ownership?: "consistent" | "conflicting" | "unowned" | "unidentified" | "unknown";
                 /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge */
                 gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";
@@ -7501,6 +7623,8 @@ export interface operations {
             query: {
                 /** @description Canonical entity key (a slash-bearing key is transported safely as a query param) */
                 key: string;
+                /** @description For a service: also read, as you, when each change reached a Stage, from delivery history (changes.times says how) */
+                reached?: boolean;
             };
             header?: never;
             path: {

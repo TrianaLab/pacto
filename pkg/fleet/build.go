@@ -1612,7 +1612,8 @@ func validBusinessDomain(d string) bool {
 
 // deriveOwner sets a deterministic owner SUMMARY for a service — the owner
 // declared by its NEWEST revision that declares one — and reports an
-// OWNER_CONFLICT limitation when revisions disagree. Per-revision ownership is
+// OWNER_CONFLICT limitation when its current claims disagree (see
+// [serviceOwnerClaims]): an older version's owner is a handover, not a dispute. Per-revision ownership is
 // always retained on the revisions themselves; the service field is only a
 // documented summary, not the authority.
 //
@@ -1644,26 +1645,55 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	return ownerConflict(snap, s)
 }
 
-// ownerConflict is the OWNER_CONFLICT limitation for a service whose contracts
-// declare different owners, nil when they agree.
+// ownerConflict is the OWNER_CONFLICT limitation for a service whose current
+// owner claims disagree (see [serviceOwnerClaims]), nil when they agree. Its
+// message is [conflictReason], so it names why.
 func ownerConflict(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
-		return []Limitation{{
-			Code: LimitationOwnerConflict, Source: "fleet",
-			Message: "the contracts of " + s.Name + " declare different owners; the service owner is a summary (see the owner on each revision or target)",
-		}}
+		return []Limitation{{Code: LimitationOwnerConflict, Source: "fleet", Message: conflictReason(snap, s)}}
 	}
 	return nil
 }
 
-// serviceOwnerClaims is the DISTINCT owners known for a service: the owners its
-// revisions declare or, when none does, the owners its observing sources read from
-// the contracts its targets run. deriveOwner and every ownership answer of the
-// query count through it, so an owner the operator reports is never "unowned".
+// conflictReason says why the current claims of a service disagree: two
+// revisions of its newest owned version declare different owners, or its
+// targets run revisions that do. A target link contributes when the revision it
+// runs declares an owner the newest version does not; when any contributing
+// link is a tag correlation the reason says so, since only an exact link may be
+// presented as authoritative. Called on a restricted snapshot, it reads only the
+// targets that view holds.
+func conflictReason(snap *FleetSnapshot, s *ServiceRecord) string {
+	newest := newestOwnerRevision(snap, s)
+	var base ownerClaimSet
+	for _, r := range sameVersionRevisions(snap, s, newest) {
+		base.add(r.Owner)
+	}
+	if base.len() > 1 {
+		return "two revisions of " + s.Name + " " + newest.Version + " declare different owners"
+	}
+	for _, tk := range s.Targets {
+		t := snap.Targets[tk]
+		if t.RevisionMatch != revisionMatchInferred {
+			continue
+		}
+		if r := snap.Revisions[t.ContractRevision]; r != nil && !r.Owner.IsEmpty() && !base.has(r.Owner) {
+			return "targets of " + s.Name + " are linked by tag (inferred) to revisions that declare different owners"
+		}
+	}
+	return "targets of " + s.Name + " run revisions that declare different owners"
+}
+
+// serviceOwnerClaims is the DISTINCT owners a service holds NOW: the owners of
+// [currentOwnerRevisions] or, when no revision declares one, the owners its
+// observing sources read from the contracts its targets run. An older version's
+// owner that nothing runs any more is history (a handover), not a claim.
+// deriveOwner and every ownership answer of the query count through it, so an
+// owner the operator reports is never "unowned" and a handover is never a
+// conflict.
 func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 	var claims ownerClaimSet
-	for _, rk := range s.Revisions {
-		claims.add(snap.Revisions[rk].Owner)
+	for _, r := range currentOwnerRevisions(snap, s) {
+		claims.add(r.Owner)
 	}
 	if claims.len() == 0 {
 		for _, tk := range s.Targets {
@@ -1673,8 +1703,57 @@ func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 	return claims
 }
 
-// ownerClaimSet accumulates the DISTINCT owners a service's revisions declare,
-// under the one identity the product routes by.
+// currentOwnerRevisions is the revisions of a service whose owners are its
+// current claims, in [lessRevisionChrono] order: the newest revision that
+// declares an owner, every other revision of that version that declares one,
+// and every revision a target of the service is linked to now (exact or
+// inferred) that declares one.
+func currentOwnerRevisions(snap *FleetSnapshot, s *ServiceRecord) []*ContractRevision {
+	out := sameVersionRevisions(snap, s, newestOwnerRevision(snap, s))
+	for _, tk := range s.Targets {
+		if r := snap.Revisions[snap.Targets[tk].ContractRevision]; r != nil && r.ServiceKey == s.Key && !r.Owner.IsEmpty() && !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b *ContractRevision) int {
+		if lessRevisionChrono(a, b) {
+			return -1
+		}
+		return 1
+	})
+	return out
+}
+
+// sameVersionRevisions is the revisions of s with newest's version that
+// declare an owner; nil when newest is nil.
+func sameVersionRevisions(snap *FleetSnapshot, s *ServiceRecord, newest *ContractRevision) []*ContractRevision {
+	if newest == nil {
+		return nil
+	}
+	var out []*ContractRevision
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil && r.Version == newest.Version && !r.Owner.IsEmpty() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// newestOwnerRevision is the newest revision (see [lessRevisionChrono]) of s
+// that declares an owner, the one [deriveOwner] takes the service owner from;
+// nil when none does.
+func newestOwnerRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
+	var newest *ContractRevision
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r != nil && !r.Owner.IsEmpty() && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	return newest
+}
+
+// ownerClaimSet accumulates the DISTINCT owners of a service's current claims
+// (see [serviceOwnerClaims]), under the one identity the product routes by.
 //
 // That identity is the canonical owner KEY ([contract.Owner.KeyString]) — the
 // namespace the name was declared in plus the name — and not the whole structured
@@ -1703,6 +1782,14 @@ func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
 type ownerClaimSet struct {
 	keys    []string
 	keyless []contract.Owner
+}
+
+// has reports whether o is already one of the claims, by the identity add uses.
+func (c *ownerClaimSet) has(o contract.Owner) bool {
+	if k := o.KeyString(); k != "" {
+		return containsStr(c.keys, k)
+	}
+	return ownerSeen(c.keyless, o)
 }
 
 func (c *ownerClaimSet) add(o contract.Owner) {

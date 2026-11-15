@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { lifecycleWords as W, typeLabel, timeLabel, sentence, andList, verificationLabel, checkText, shortDigest } from '../lib/delivery.ts';
+  import { lifecycleWords as W, typeLabel, timeLabel, sentence, andList, verificationLabel, checkText, shortDigest, impactText } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
   import RecordPanel from './RecordPanel.svelte';
 
@@ -82,6 +82,7 @@
                     {#if ev.applied || ev.finished}<time datetime={ev.applied || ev.finished}>{timeLabel(ev.applied || ev.finished)}</time>{/if}
                     <!-- A line read from an Operation's status has no record: its time and cause are not signed. -->
                     {#if ev.verification}<span>{verificationLabel(ev.verification)}</span>{/if}
+                    {#if ev.impact}<span class="lc-impact" title={`Gate ${ev.impact.gate}`} data-testid="lifecycle-impact">{impactText(st.recordsVerified, ev)}</span>{/if}
                     {#if ev.record}<span>record <bdi class="lc-mono" title={ev.record}>{shortDigest(ev.record)}</bdi></span><button type="button" class="btn btn-sm" aria-label={`Read record ${ev.record}`} aria-expanded={reading === recKey(st, ev.record)} onclick={() => { reading = reading === recKey(st, ev.record) ? '' : recKey(st, ev.record); }}>Read</button>{:else}<span class="lc-unsigned">from status, not signed</span>{/if}
                   </li>
                   {#if ev.record && reading === recKey(st, ev.record)}
@@ -113,4 +114,5 @@
   .lc-body { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
   .lc-mono { font-family: var(--font-mono); }
   .lc-unsigned { border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: 0 var(--sp-1); }
+  .lc-impact { overflow-wrap: anywhere; }
 </style>

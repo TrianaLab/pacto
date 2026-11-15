@@ -242,6 +242,7 @@ nav:
       - Run record reference: run-record-reference.md
       - Dashboard reference:
           - The service page: dashboard-service-page.md
+          - A service's changes and history: service-changes.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
           - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
           - Dashboard container: dashboard-docker.md

@@ -673,26 +673,26 @@ func TestRenderServiceEnvironments(t *testing.T) {
 	}
 }
 
-func TestRenderServiceEnvironmentHistory(t *testing.T) {
+func TestRenderServiceChanges(t *testing.T) {
 	rev := fleet.EntityRef{Kind: fleet.KindRevision, Label: "svc 1.1.0\x1b[31m"}
 	var b strings.Builder
-	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.EnvironmentEvent{
-		{Environment: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
-		{Environment: "dev", Change: "present", Revision: rev},
+	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{Changes: fleet.ChangeHistoryPreview{Total: 2, Count: 2, Gaps: 1, Items: []fleet.ChangeEvent{
+		{Kind: "environment", Subject: "prod", Change: "changed", Fields: []string{"owner"}, Revision: rev},
+		{Kind: "owner", Change: "present", To: "team:web", Revision: rev},
 	}}}, fleet.CompletenessComplete)
 	out := b.String()
-	for _, want := range []string{"Environment history, version order (2 of 2, 1 revision(s) unread)", "changed prod (owner)  time not recorded", "dev declared since at least svc 1.1.0"} {
+	for _, want := range []string{"Changes, version order (2 of 2, 1 revision(s) unread)", "environment prod changed (owner)  time not read", "owner team:web declared since at least svc 1.1.0"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("history lacks %q:\n%s", want, out)
+			t.Errorf("changes lack %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not recorded") != 2 {
-		t.Errorf("history lines:\n%q", out)
+	if strings.Contains(out, "\x1b[31m") || strings.Count(out, "time not read") != 2 {
+		t.Errorf("change lines:\n%q", out)
 	}
 	b.Reset()
 	renderServiceDetail(&b, "web", &fleet.ServiceDetailData{}, fleet.CompletenessComplete)
-	if strings.Contains(b.String(), "Environment history") {
-		t.Errorf("no history, no section:\n%s", b.String())
+	if strings.Contains(b.String(), "Changes") {
+		t.Errorf("no changes, no section:\n%s", b.String())
 	}
 }
 

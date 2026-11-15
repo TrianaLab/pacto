@@ -122,6 +122,8 @@ func fleetDetailRows() []surfaceRow {
 		[]surfaceRow{
 			{"fleet entity <kind>", "pacto_fleet_entity.kind", "GET /api/fleet/entities/{kind}?kind", ""},
 			{"fleet entity <key>", "pacto_fleet_entity.key", "GET /api/fleet/entities/{kind}?key", ""},
+			{"fleet entity --reached", "pacto_fleet_entity.reached", "GET /api/fleet/entities/{kind}?reached", ""},
+			{"fleet entity --trust", "", "", whyAtServerStart},
 			{"fleet versions <offering>", "pacto_fleet_versions.offering", "GET /api/fleet/versions?offering", ""},
 			{"fleet get [service]", "pacto_fleet_get.service", "GET /api/fleet/service?key", ""},
 			{"fleet get --target", "pacto_fleet_get.target", "GET /api/fleet/target?key", ""},
@@ -191,7 +193,7 @@ func deliveryRows() []surfaceRow {
 			{"delivery describe <type>", "pacto_delivery_operation_types.type", "", "the dashboard's propose panel lists the types it offers"},
 		},
 		alike("delivery status", "pacto_delivery_status", "", "the dashboard shows a service's Stages on the environments board (GET /api/delivery/environments?service)", "domain", "service"),
-		alike("delivery history", "pacto_delivery_history", "GET /api/delivery/history", "", "cause", "domain", "service", "since", "stage", "until"),
+		alike("delivery history", "pacto_delivery_history", "GET /api/delivery/history", "", "at", "cause", "domain", "service", "since", "stage", "until"),
 		alike("", "", "GET /api/delivery/history", whyDashboardPage, "limit", "offset", "q", "timed"),
 		alike("delivery blame", "pacto_delivery_blame", "GET /api/delivery/blame", "", "digest", "stage"),
 		alike("delivery candidates", "pacto_delivery_candidates", "", "the dashboard lists candidates in its propose panel through plan", "stage"),

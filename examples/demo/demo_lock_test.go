@@ -488,27 +488,32 @@ func TestDemoStorefrontEnvironments(t *testing.T) {
 	}
 }
 
-// TestDemoEnvironmentHistory: 1.1.0 adds staging, production and preview,
-// 1.3.0 gives them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1
-// retires pr-482 again.
-func TestDemoEnvironmentHistory(t *testing.T) {
-	h := cliStorefront(t).EnvironmentHistory
-	find := func(env, change, version string) *fleet.EnvironmentEvent {
-		for i, e := range h.Items {
-			if e.Environment == env && e.Change == change && e.Revision.Version == version {
-				return &h.Items[i]
+// TestDemoChanges: 1.1.0 adds staging, production and preview, 1.3.0 gives
+// them lifetimes, an expiry and an owner and adds pr-482, and 1.3.1 retires
+// pr-482 again.
+func TestDemoChanges(t *testing.T) {
+	var envs []fleet.ChangeEvent
+	for _, e := range cliStorefront(t).Changes.Items {
+		if e.Kind == "environment" && e.Change != "present" {
+			envs = append(envs, e)
+		}
+	}
+	find := func(env, change, version string) *fleet.ChangeEvent {
+		for i, e := range envs {
+			if e.Subject == env && e.Change == change && e.Revision.Version == version {
+				return &envs[i]
 			}
 		}
 		return nil
 	}
 	if find("staging", "added", "1.1.0") == nil || find("pr-482", "added", "1.3.0") == nil || find("pr-482", "removed", "1.3.1") == nil {
-		t.Errorf("history %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", h.Items)
+		t.Errorf("changes %+v, want staging added in 1.1.0, pr-482 added in 1.3.0 and removed in 1.3.1", envs)
 	}
 	if e := find("staging", "changed", "1.3.0"); e == nil || !slices.Contains(e.Fields, "owner") || !slices.Contains(e.Fields, "lifetime") {
 		t.Errorf("staging change in 1.3.0 = %+v, want lifetime and owner", e)
 	}
-	if len(h.Items) != 8 {
-		t.Errorf("history %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", h.Items)
+	if len(envs) != 8 {
+		t.Errorf("changes %+v, want three added in 1.1.0, three changed and pr-482 added in 1.3.0 and pr-482 retired in 1.3.1", envs)
 	}
 }
 

@@ -312,12 +312,12 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 				Owner: fleet.EnvironmentOwner{Owner: "team-a", Ref: &fleet.EntityRef{Kind: fleet.KindOwner, Key: "team:team-a"}, Provenance: "declared"}},
 			{Environment: "preview", Owner: fleet.EnvironmentOwner{Provenance: "unknown", Reason: "r"}},
 		}},
-		EnvironmentHistory: fleet.EnvironmentHistoryPreview{Total: 2, Count: 2, Items: []fleet.EnvironmentEvent{
-			{Environment: "prod", Change: "added", Revision: rev, Previous: &rev}, {Environment: "dev", Change: "present", Revision: rev},
+		Changes: fleet.ChangeHistoryPreview{Total: 2, Count: 2, Items: []fleet.ChangeEvent{
+			{Kind: "environment", Subject: "prod", Change: "added", Revision: rev, Previous: &rev}, {Kind: "environment", Subject: "dev", Change: "present", Revision: rev},
 		}},
 	})
 	checkProductPlacement(t, d.Placement)
-	checkProductEnvironmentHistory(t, d.EnvironmentHistory)
+	checkProductChanges(t, d.Changes)
 	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
 		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
 	}
@@ -334,12 +334,12 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 	}
 }
 
-// checkProductEnvironmentHistory asserts the hrefs of the environment history
-// built in TestProductServiceDetail_NewRefsHref.
-func checkProductEnvironmentHistory(t *testing.T, h ProductEnvironmentHistoryPreview) {
+// checkProductChanges asserts the hrefs of the changes built in
+// TestProductServiceDetail_NewRefsHref.
+func checkProductChanges(t *testing.T, h ProductChangeHistoryPreview) {
 	t.Helper()
 	if h.Total != 2 || len(h.Items) != 2 || h.Items[0].Revision.Href == "" || h.Items[0].Previous == nil || h.Items[0].Previous.Href == "" || h.Items[1].Previous != nil {
-		t.Errorf("environment history = %+v", h)
+		t.Errorf("changes = %+v", h)
 	}
 }
 
@@ -538,5 +538,24 @@ func TestProductOfferingUseRefsHaveHrefs(t *testing.T) {
 	}
 	if none := productOfferingUses(fleet.OfferingUsesPreview{Items: []fleet.OfferingUse{{Consumer: svc, Provider: svc}}}).Items[0]; none.ProviderOwner != nil || none.Requested != nil {
 		t.Errorf("a bare use = %+v", none)
+	}
+}
+
+// TestProductChangesHrefs: every change's revision and the revision it was
+// compared with carry a canonical href; the oldest compares with nothing.
+func TestProductChangesHrefs(t *testing.T) {
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
+	d := toProductServiceDetail(&fleet.ServiceDetailData{
+		Changes: fleet.ChangeHistoryPreview{Total: 2, Count: 2, Items: []fleet.ChangeEvent{
+			{Kind: "owner", Change: "changed", From: "team:a", To: "team:b", Revision: rev, Previous: &rev, Provenance: "declared", Source: "contract"},
+			{Kind: "owner", Change: "present", To: "team:a", Revision: rev, Provenance: "declared", Source: "contract"},
+		}},
+	})
+	h := d.Changes
+	if h.Total != 2 || len(h.Items) != 2 || h.Items[0].Revision.Href == "" || h.Items[0].Previous == nil || h.Items[0].Previous.Href == "" || h.Items[1].Previous != nil {
+		t.Errorf("changes = %+v", h)
+	}
+	if h.Items[0].From != "team:a" || h.Items[0].Provenance != "declared" {
+		t.Errorf("event fields = %+v", h.Items[0].ChangeEvent)
 	}
 }

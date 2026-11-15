@@ -513,7 +513,8 @@
     />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
-      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
+      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''}
+        changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
     {/key}
   {:else if route.view === 'fleet-attention'}
     <FleetAttentionView

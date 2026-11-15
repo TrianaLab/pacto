@@ -134,7 +134,7 @@ describe('DistributionBar', () => {
   it('refuses to hide an over-count by widening its own denominator', () => {
     const over = [
       { label: 'One declared owner', value: 6, tone: 'ok' },
-      { label: 'Revisions name different owners', value: 3, tone: 'err' },
+      { label: 'Owners disagree', value: 3, tone: 'err' },
       { label: 'No declared owner', value: 1, tone: 'warn' },
     ];
     comp = mount(DistributionBar, { target, props: { title: 'Declared ownership', segments: over, total: 8 } });

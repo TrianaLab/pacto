@@ -1,0 +1,65 @@
+package dashboard
+
+import (
+	"context"
+	"slices"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+)
+
+// attachReached attaches to h when each change of service svc reached its
+// Stages, read as the caller (deliveryFor): what the caller may not list
+// decides hidden or partial, never the number of changes. Nothing it reads
+// is cached.
+// ponytail: every Stage of the service is read at once; page them as the
+// history route does if a service ever has hundreds of Stages.
+func (s *Server) attachReached(ctx context.Context, q *fleet.Query, svc fleet.ServiceKey, h *fleet.ChangeHistoryPreview) {
+	if s.opts.Delivery == nil {
+		q.AttachReached(h, nil, fleet.TimesNotRead, "this host has no cluster to read delivery from", nil)
+		return
+	}
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		q.AttachReached(h, nil, fleet.TimesNotRead, err.Error(), nil)
+		return
+	}
+	stages, _, l, err := s.lists(ctx, api, false)
+	switch {
+	case forbidden(err):
+		q.AttachReached(h, nil, fleet.TimesHidden, err.Error(), nil)
+		return
+	case err != nil:
+		q.AttachReached(h, nil, fleet.TimesNotRead, "delivery could not be read: "+err.Error(), nil)
+		return
+	case !l.everywhere && len(l.listed) == 0:
+		// Refused everywhere it asked, or allowed in no namespace at all: an
+		// empty list here is a refusal, never "no record".
+		q.AttachReached(h, nil, fleet.TimesHidden, "you may not list Stages in any namespace", nil)
+		return
+	}
+	domain, name := fleet.ParseServiceKey(svc)
+	stages = slices.DeleteFunc(stages, func(st delivery.StageObject) bool { return !delivery.OfService(st, name, domain) })
+	hs, on, unreadable := readHistories(ctx, api, stages)
+	unreadable = append(slices.Clone(l.Unreadable), unreadable...)
+	read := describedAll(ctx, api, nil, on...)
+	// A partial listing always names what it did not read (l.Unreadable).
+	byContract, doubts := delivery.Arrivals(hs, delivery.ContractOf(read))
+	times, reason, unreadable := fleet.ReachedTimes(unreadable, doubts)
+	q.AttachReached(h, byContract, times, reason, unreadable)
+}
+
+// readHistories reads each of stages' histories and the digests each names
+// on its Stage; a Stage whose history cannot be read is named in unreadable.
+func readHistories(ctx context.Context, api DeliveryAPI, stages []delivery.StageObject) (out []delivery.StageHistory, on []digestsOn, unreadable []string) {
+	hs, errs := historiesOf(ctx, api, stages, true)
+	for i, h := range hs {
+		if errs[i] != nil {
+			unreadable = append(unreadable, stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name+": "+errs[i].Error())
+			continue
+		}
+		out = append(out, delivery.StageHistory{Namespace: stages[i].Metadata.Namespace, History: *h})
+		on = append(on, digestsOn{stage: &stages[i], digests: delivery.HistoryDigests(*h)})
+	}
+	return out, on, unreadable
+}

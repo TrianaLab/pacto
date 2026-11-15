@@ -6,8 +6,8 @@
   import EnvMark from './figure/EnvMark.svelte';
   import { environmentBadge, lifetimeBadge, expiryText, ownerLabel } from '../lib/behavior.ts';
   import { PHASE_WORDS, phaseTone, readyTone } from '../lib/provisioning.ts';
-  import { timeLabel, andList } from '../lib/delivery.ts';
-  import { fleetEntityListUrl, deliveryHistoryUrl, hashForHref } from '../lib/router.ts';
+  import { timeLabel } from '../lib/delivery.ts';
+  import { fleetEntityListUrl, deliveryHistoryUrl, hashForHref, serviceChangesUrl } from '../lib/router.ts';
   import { cap } from '../lib/cap.svelte.ts';
 
   // A service's environments on its page (#467): one row per environment the current
@@ -19,9 +19,9 @@
   // an expiry is inferred against `asOf`, a hidden target qualifies its count and an
   // untracked environment shows no zeros.
   // `service` is the canonical service key the target list filters by.
-  /** @type {{ placement?: import('../lib/api.ts').ProductPlacementPreview | null, history?: import('../lib/api.ts').EnvironmentHistory | null,
+  /** @type {{ placement?: import('../lib/api.ts').ProductPlacementPreview | null,
    *   stageRows?: import('../lib/api.ts').EnvironmentRow[], stagesState?: string, stagesCompleteness?: string, asOf?: string, completeness?: string, service?: string }} */
-  let { placement = null, history = null, stageRows = [], stagesState = '', stagesCompleteness = '', asOf = '', completeness = '', service = '' } = $props();
+  let { placement = null, stageRows = [], stagesState = '', stagesCompleteness = '', asOf = '', completeness = '', service = '' } = $props();
 
   const items = $derived(placement?.items ?? []);
   const current = $derived(placement?.currentRevision?.version || placement?.currentRevision?.label || 'the current revision');
@@ -40,12 +40,8 @@
   const BUCKETS = ['ready', 'failed', 'provisioning', 'requested', 'deleting', 'unknown'];
   const phaseOf = (k) => k[0].toUpperCase() + k.slice(1);
   const tallyTotal = (t) => BUCKETS.reduce((n, k) => n + (t?.[k] ?? 0), 0);
-  /** @type {Record<string, string>} */
-  const EVENT = { added: 'added in', removed: 'removed in', changed: 'changed in' };
-  const events = $derived(history?.items ?? []);
   const groups = cap(25);
   const paths = cap(10);
-  const hist = cap(25);
   // Stage-only rows count too, so the heading never lists more rows than it counts.
   const rowCount = $derived(items.length + stageOnly.length);
 </script>
@@ -58,7 +54,7 @@
   </span>
 {/snippet}
 
-<!-- clip={false}: the rows cap themselves (Show all below), and the differences, history
+<!-- clip={false}: the rows cap themselves (Show all below), and the differences
      and the asOf/completeness line under them must never hide behind the section's fade. -->
 <PreviewSection title="Environments" count={rowCount} total={(placement?.total ?? items.length) + stageOnly.length} clip={false} {emptyBody}
   help="Each environment the current revision declares or a target you can see reports: its declaration, the targets observed there, provisioning and Stages.">
@@ -199,30 +195,7 @@
     </section>
   {/if}
 
-  {#if history}
-    <section class="sv-sub" data-testid="environment-history" aria-labelledby="sv-hist-h">
-      <h3 id="sv-hist-h" class="t-subsection-title">Changes between versions (version order)</h3>
-      {#if events.length}
-        <ul class="sv-events">
-          {#each hist.slice(events) as e, i (i)}
-            <li class="sv-line" data-testid="environment-event">
-              <bdi class="sv-env" title={e.environment}>{e.environment}</bdi>
-              <span>{e.change === 'present' ? 'declared since at least' : `${e.fields?.length ? `${andList(e.fields, 4)} ` : ''}${EVENT[e.change] ?? e.change}`}</span>
-              <a href={hashForHref(e.revision.href)}><bdi>{e.revision.version || e.revision.label}</bdi></a>
-              {#if e.previous}<span class="t-meta">compared with</span>{' '}<a href={hashForHref(e.previous.href)}><bdi>{e.previous.version || e.previous.label}</bdi></a>{/if}
-              <span class="t-meta">time not recorded</span>
-            </li>
-          {/each}
-        </ul>
-        <ShowAll cap={hist} total={events.length} noun="changes" />
-        {#if history.truncated}<p class="t-meta">{history.total - history.count} more</p>{/if}
-      {:else}
-        <p class="t-meta">No declared environment changed between the versions Pacto holds.</p>
-      {/if}
-      {#if history.gaps > 0}<p class="t-meta sv-warn">{history.gaps} {history.gaps === 1 ? 'revision' : 'revisions'} could not be read; changes across them are unknown</p>{/if}
-      {#if history.completeness === 'partial'}<p class="t-meta">{history.completenessReason || 'Pacto holds only some revisions of this service.'}</p>{/if}
-    </section>
-  {/if}
+  <p class="t-meta sv-foot"><a href={serviceChangesUrl(service, { changesKind: 'environment', section: 'changes' })} data-testid="environment-changes-link">Environment changes</a> across the versions Pacto holds</p>
 
   <p class="t-meta sv-foot" data-testid="environments-footer">As of {timeLabel(asOf) || 'unknown'}, {completeness || 'completeness unknown'}</p>
 {/snippet}
@@ -253,9 +226,7 @@
   .sv-diff-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--sp-3); padding: 2px 0; border-block-end: 1px solid var(--c-border); min-inline-size: 0; overflow-wrap: anywhere; }
   @container (min-width: 36rem) { .sv-diff-row { grid-template-columns: minmax(14ch, 1fr) minmax(16ch, 2fr); } }
   .sv-diff-row code, .sv-diff-h code { overflow-wrap: anywhere; min-inline-size: 0; }
-  .sv-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
-  .sv-env { font-weight: 600; }
   .sv-foot { margin: var(--sp-3) 0 0; }
   .sv-empty { margin: 0; }
-  @media (pointer: coarse) { .sv-row a, .sv-events a { display: inline-flex; align-items: center; min-block-size: 44px; } }
+  @media (pointer: coarse) { .sv-row a, .sv-foot a { display: inline-flex; align-items: center; min-block-size: 44px; } }
 </style>

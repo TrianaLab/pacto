@@ -25,9 +25,9 @@ describe('postureAnswer', () => {
     expect(postureAnswer({ targets: 1, revisions: 3, revisionsInUse: 0, compliance: { unknown: 1 } }, true, 2)).toEqual({
       tone: 'warn',
       lead: 'Needs a look.',
-      rest: '1 running target has unknown compliance, no running target matches a known revision and 2 revisions name a different owner.',
+      rest: '1 running target has unknown compliance, no running target matches a known revision and owners disagree.',
     });
-    expect(postureAnswer({ targets: 1, compliance: { nonCompliant: 1 } }, false, 1).rest).toBe('1 running target breaks its contract and 1 revision names a different owner.');
+    expect(postureAnswer({ targets: 1, compliance: { nonCompliant: 1 } }, false, 1).rest).toBe('1 running target breaks its contract and owners disagree.');
   });
   it('says nothing runs when nothing runs', () => {
     expect(postureAnswer({ targets: 0 }).lead).toBe('Nothing running yet.');

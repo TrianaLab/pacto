@@ -12,7 +12,7 @@ queries, so an agent and a person asking the same question get the same answer.
 | Which services depend on payments? | `pacto_fleet_graph` with `direction=dependents`; each node carries `provenance` | `pacto fleet graph payments-service --direction dependents` | Operational graph |
 | What is unhealthy right now? | `pacto_fleet_attention` with `severity=error` | `pacto fleet attention --severity error` | Needs attention |
 | Which services have undocumented dependencies? | `pacto_fleet_attention` with `category=undeclared` | `pacto fleet attention --category undeclared` | The Overview tile "Undeclared runtime dependencies observed" |
-| What changed in the last 24 hours? | Not yet ([#459](https://github.com/TrianaLab/pacto/issues/459)) | Not yet | Not yet |
+| What changed in this service, and when? | `pacto_fleet_entity` with `kind=service` (its `changes`; `reached: true` on a stdio server adds when each change reached a Stage), `pacto_delivery_history` with `at` for what each Stage ran at a past time | `pacto fleet entity service <key> --reached`, `pacto delivery history --all --at 24h` | The service page's Changes section, Delivery history's As of |
 | Which infrastructure capabilities are available? | `pacto_fleet_entities` with `kind=offering`, `pacto_fleet_entity` with `kind=offering` | `pacto fleet entities --kind offering` | Offerings |
 | Which services does this deployment affect? | `pacto_impact` with `event=regressed`, `service` and `revision` (an artifact digest cites delivery's recorded failures), or old and new refs for a contract change | `pacto impact --regressed <service>@<digest>`, `pacto impact <old> <new>` | Change analysis |
 | What breaks if payments goes down? | `pacto_impact` with `event=unavailable` and `service` | `pacto impact --unavailable payments-service` | Change analysis, What if this service… |
@@ -54,11 +54,15 @@ call no contract declares is listed under the `undeclared` attention category
 as `DEPENDENCY_UNDECLARED`, and a caller with no contract as
 `UNCONTRACTED_CALLER`.
 
-## Not yet
+## Changes and their time
 
-One question needs data Pacto does not hold today: **changes in the last 24
-hours** need a history of snapshots
-([#459](https://github.com/TrianaLab/pacto/issues/459)).
+A service's `changes` list each declared change between the revisions Pacto
+holds, in version order. A change carries a time only when a signed delivery
+record shows when its revision reached a Stage; otherwise it reads "time not
+recorded", or "time hidden" when you may not read delivery. A delivery history
+line carries the `pacto.impact` verdict its record signed at the time. To see
+who that change reaches today, run `pacto_impact` on the same two revisions:
+that answer is against today's graph.
 
 For runtime health and incidents, [Investigate a problem with
 Mira](investigate-a-problem.md) pairs these answers with Mira's signals.

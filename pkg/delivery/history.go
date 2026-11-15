@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -110,6 +111,7 @@ func RecordEntry(r StoredRecord) HistoryEntry {
 			e.Pointer = &ptr
 		}
 	}
+	e.Impact = impactOf(p.Verdicts)
 	switch {
 	case p.Unrecordable != nil:
 		e.Reason = "Unrecordable: " + p.Unrecordable.Check + ": " + p.Unrecordable.Message
@@ -117,6 +119,18 @@ func RecordEntry(r StoredRecord) HistoryEntry {
 		e.Reason = fmt.Sprintf("Gap: the operation with local seq %d was gone before it was recorded", p.Gap.Seq)
 	}
 	return e
+}
+
+// impactOf is a copy of the pacto.impact verdict among verdicts; nil when
+// none is there.
+func impactOf(verdicts []Verdict) *Verdict {
+	i := slices.IndexFunc(verdicts, func(v Verdict) bool { return v.Gate == GateImpact })
+	if i < 0 {
+		return nil
+	}
+	v := verdicts[i]
+	v.Citation = maps.Clone(v.Citation)
+	return &v
 }
 
 // appliedFrom is when a recorded change reached its Stage: the start of the

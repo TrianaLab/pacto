@@ -19,7 +19,7 @@ import (
 // cross-service operational view. It is deliberately distinct from `pacto graph`
 // (which is single-root: one service's transitive dependency tree). Fleet
 // commands operate over a snapshot composed from many sources.
-func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newFleetCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fleet",
 		Short: "Query the Pacto operational graph across many services",
@@ -39,7 +39,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
 	cmd.AddCommand(newFleetEntitiesCommand(svc, v))
-	cmd.AddCommand(newFleetEntityCommand(svc, v))
+	cmd.AddCommand(newFleetEntityCommand(svc, v, d))
 	cmd.AddCommand(newFleetAttentionCommand(svc, v))
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))

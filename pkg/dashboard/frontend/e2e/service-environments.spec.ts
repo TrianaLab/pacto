@@ -28,14 +28,18 @@ test('a service page shows each environment with what is declared, observed and 
   await expect(env('production').locator('[data-cell="declared"]')).toContainText('(service owner, inferred)');
 
   await expect(section.getByTestId('environment-differences').getByTestId('difference-row').filter({ hasText: 'pr-482' }).first()).toBeVisible();
-  const history = section.getByTestId('environment-history');
+  // The section links to its environment changes, which the Changes section lists.
+  await section.getByTestId('environment-changes-link').click();
+  await expect(page).toHaveURL(/\?changesKind=environment&section=changes$/);
+  const changes = page.getByTestId('service-changes');
+  const row = (text: string) => changes.getByTestId('service-change-row').filter({ hasText: text });
   // 1.0.0 declares no environments, so 1.1.0 adds them; nothing reads declared since at least here.
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'staging added in' }).getByRole('link', { name: '1.1.0' })).toBeVisible();
+  await expect(row('staging added').getByRole('link', { name: '1.1.0', exact: true })).toBeVisible({ timeout: T });
   // 1.3.0 adds pr-482 and gives staging a lifetime and an owner; 1.3.1 retires pr-482.
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 added in' }).getByRole('link', { name: '1.3.0' })).toBeVisible();
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'staging lifetime and owner changed in' }).getByRole('link', { name: '1.3.0' })).toBeVisible();
-  await expect(history.getByTestId('environment-event').filter({ hasText: 'pr-482 removed in' }).getByRole('link', { name: '1.3.1' })).toBeVisible();
-  await expect(history.getByTestId('environment-event').first()).toContainText('time not recorded');
+  await expect(row('pr-482 added').getByRole('link', { name: '1.3.0', exact: true })).toBeVisible();
+  await expect(row('staging lifetime and owner changed').getByRole('link', { name: '1.3.0', exact: true })).toBeVisible();
+  await expect(row('pr-482 removed').getByRole('link', { name: '1.3.1', exact: true })).toBeVisible();
+  await expect(changes.getByTestId('service-change-reached').first()).toContainText('time not recorded', { timeout: T });
   await audit(page, 'service environments');
 });
 

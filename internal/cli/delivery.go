@@ -111,15 +111,20 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	return deliveryClientFor(cmd, d, dyn)
 }
 
-// deliveryClientFor builds the delivery client over dyn.
-func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
-	ns, _ := cmd.Flags().GetString("namespace")
-	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+// trustPath is the trust config --trust, else --delivery-trust, names.
+func trustPath(cmd *cobra.Command) string {
 	path, _ := cmd.Flags().GetString("trust")
 	if path == "" {
 		path, _ = cmd.Flags().GetString("delivery-trust")
 	}
-	trust, err := deliveryTrust(path)
+	return path
+}
+
+// deliveryClientFor builds the delivery client over dyn.
+func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
+	ns, _ := cmd.Flags().GetString("namespace")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+	trust, err := deliveryTrust(trustPath(cmd))
 	if err != nil {
 		return nil, "", err
 	}
@@ -615,6 +620,9 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cmd.Flags().Changed("at") {
+				return historyAt(cmd, v, c, ns, stage, all)
+			}
 			since, until, of, err := historyFilters(cmd, all, c.Now())
 			if err != nil {
 				return err
@@ -636,7 +644,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 					out := cmd.OutOrStdout()
 					for _, h := range hs.Histories {
 						_, _ = fmt.Fprintf(out, "== %s/%s\n", h.Namespace, h.Stage.Name)
-						printHistory(out, &h.History)
+						printHistory(out, &h.History, hs.Revisions)
 					}
 					printTimeline(out, hs.Timeline)
 					printAnswerNotes(out, nil, hs.Unreadable)
@@ -644,15 +652,15 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 					return nil
 				}, nil)
 			}
-			h, err := c.History(cmd.Context(), ns, stage)
+			h, err := c.HistoryWithRevisions(cmd.Context(), ns, stage)
 			if err != nil {
 				return err
 			}
-			*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
+			*h.History = delivery.FilterEntries(delivery.WindowEntries(*h.History, since, until), f)
 			start, end := delivery.TimelineWindow(since, until, c.Now())
 			h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
-				printHistory(cmd.OutOrStdout(), h)
+				printHistory(cmd.OutOrStdout(), h.History, h.Revisions)
 				printTimeline(cmd.OutOrStdout(), h.Timeline)
 				return nil
 			}, nil)
@@ -666,7 +674,64 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("domain", "", "with --service, its registry domain; a Stage that names none matches any")
 	cmd.Flags().String("cause", "", "only changes whose cause (reason, operation or cited verdict) names this text, ignoring case; it narrows the timeline too")
 	cmd.Flags().String("correlation-id", "", "only changes with exactly this correlation id; it narrows the timeline too")
+	cmd.Flags().String("at", "", "what each Stage ran at this RFC 3339 time, or this long before now, from its signed records; with --stage or --all")
 	return cmd
+}
+
+// historyAt answers history --at: which artifact each Stage ran at that
+// time, from its signed records. The change filters narrow a list of
+// changes, which --at does not print, so they are refused with it.
+func historyAt(cmd *cobra.Command, v *viper.Viper, c *app.Delivery, ns, stage string, all bool) error {
+	for _, f := range []string{"since", "until", "cause", "correlation-id"} {
+		if cmd.Flags().Changed(f) {
+			return fmt.Errorf("--at says what each Stage ran at one time; it takes no --%s", f)
+		}
+	}
+	at, _ := cmd.Flags().GetString("at")
+	t, err := delivery.ParseAt(at, c.Now())
+	if err != nil {
+		return fmt.Errorf("--at %w", err)
+	}
+	_, _, of, err := historyFilters(cmd, all, c.Now())
+	if err != nil {
+		return err
+	}
+	a, err := c.HistoryAt(cmd.Context(), ns, of, stage, t)
+	if err != nil {
+		return err
+	}
+	return formatResult(cmd, v.GetString(outputFormatKey), a, func() error {
+		printAt(cmd.OutOrStdout(), a)
+		return nil
+	}, nil)
+}
+
+// printAt prints what each Stage ran at a time as a table, then why each
+// Stage not known is not.
+func printAt(out io.Writer, a *delivery.AtAnswer) {
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "STAGE\tSERVICE\tVERSION\tREVISION (DERIVED)\tOWNER\tDOMAIN\tSINCE\tSTATE")
+	known, derived := 0, false
+	for _, s := range a.Stages {
+		_, _ = fmt.Fprintf(w, "%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Namespace, s.Stage, cmp.Or(s.Service, "-"), cmp.Or(s.Version, "-"),
+			cmp.Or(s.Revision, "-"), cmp.Or(s.Owner, "-"), cmp.Or(s.BusinessDomain, "-"), cmp.Or(s.Since, "-"), s.State)
+		if s.State == delivery.AtKnown {
+			known++
+		}
+		derived = derived || s.Revision != ""
+	}
+	_ = w.Flush()
+	for _, s := range a.Stages {
+		if s.Reason != "" {
+			_, _ = fmt.Fprintf(out, "%s/%s is %s: %s\n", s.Namespace, s.Stage, s.State, s.Reason)
+		}
+	}
+	if derived {
+		_, _ = fmt.Fprintln(out, "revisions are derived from each artifact's contract digest and name, not checked against a fleet")
+	}
+	printAnswerNotes(out, nil, a.Unreadable)
+	_, _ = fmt.Fprintf(out, "As of %s (from signed records; complete for %d of %d Stages); read %s, %s: %s\n",
+		a.At, known, len(a.Stages), a.AsOf, a.Completeness, a.Note)
 }
 
 // entryFilter reads --cause and --correlation-id.
@@ -722,21 +787,26 @@ func stageOrAll(cmd *cobra.Command, ns *string) (string, bool, error) {
 	return stage, all, nil
 }
 
-func printHistory(out io.Writer, h *delivery.History) {
+// printHistory prints h as a table; revisions are the derived revision keys
+// of the digests it names.
+func printHistory(out io.Writer, h *delivery.History, revisions map[string]string) {
 	printStageNow(out, h.Stage)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
+	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tREVISION (DERIVED)\tACTOR\tRESULT\tIMPACT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
 	unsigned := false
 	for _, e := range h.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
-			orNone([]string{e.To}), actorCell(e), cmp.Or(result, string(e.Phase)), cmp.Or(e.Applied, "-"), causeCell(e.Cause),
-			cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
+			orNone([]string{e.To}), revisionCell(e, revisions), actorCell(e), cmp.Or(result, string(e.Phase)), impactCell(*h, e),
+			cmp.Or(e.Applied, "-"), causeCell(e.Cause), cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
 		unsigned = unsigned || e.Record == ""
 	}
 	_ = w.Flush()
 	if unsigned {
 		_, _ = fmt.Fprintln(out, "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed")
+	}
+	if len(revisions) > 0 {
+		_, _ = fmt.Fprintln(out, "revisions are derived from each artifact's contract digest and name, not checked against a fleet")
 	}
 	printAnswerNotes(out, h.Problems, h.Unreadable)
 	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
@@ -790,6 +860,28 @@ func causeCell(c *delivery.Cause) string {
 	return "-"
 }
 
+// revisionCell is the derived revision key of the digest a line moved the
+// Stage to, else of its to; "-" when none is known.
+func revisionCell(e delivery.HistoryEntry, revisions map[string]string) string {
+	to := e.To
+	if e.Pointer != nil {
+		to = e.Pointer.After
+	}
+	return cmp.Or(revisions[to], "-")
+}
+
+// impactCell is the pacto.impact verdict a line's record holds, marked
+// unverified unless the line is a signed move; "-" when it holds none.
+func impactCell(h delivery.History, e delivery.HistoryEntry) string {
+	switch {
+	case e.Impact == nil:
+		return "-"
+	case !delivery.SignedMove(h, e):
+		return string(e.Impact.Result) + " (unverified)"
+	}
+	return string(e.Impact.Result)
+}
+
 // recordCell is a history line's record: its id, "unverified" for a record
 // the recorder wrote that could not be verified, or "-".
 func recordCell(e delivery.HistoryEntry) string {
@@ -820,13 +912,16 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 			}
 			stage, _ := cmd.Flags().GetString("stage")
 			digest, _ := cmd.Flags().GetString("digest")
-			b, err := c.Blame(cmd.Context(), ns, stage, digest)
+			b, err := c.BlameWithRevision(cmd.Context(), ns, stage, digest)
 			if err != nil {
 				return err
 			}
 			return formatResult(cmd, v.GetString(outputFormatKey), b, func() error {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "version:   %s\n", orNone([]string{b.Digest}))
+				if b.Revision != "" {
+					_, _ = fmt.Fprintf(w, "revision (derived): %s\n", b.Revision)
+				}
 				if e := b.Change; e != nil {
 					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), shortRecord(e.Record))
 					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, e.ActorClass)
