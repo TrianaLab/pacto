@@ -69,6 +69,7 @@ with 1.1.0 to see a change analysed.
 The Metrics page totals the run records the demo's seed published to its own
 registry, as unsigned statistics. They are CI records only (diffs, impact checks
 and publishes), because the Compose demo runs no delivery.
+[Measure what Pacto does](../measure-what-pacto-does.md) explains recording.
 
 ### The cold start, step by step
 

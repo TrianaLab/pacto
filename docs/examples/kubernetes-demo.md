@@ -115,8 +115,9 @@ statistics: every `pacto publish` of the story, every operation of the promoter
 (the chart sets `--set delivery.stats.repository=...`) and a history older than
 the story that `up` seeds with `tests/acceptance/kind/storystats` for the
 services the cluster runs. Signed in, you count only the records your RBAC lets
-you see, and no coverage history. The
-[run record reference](../run-record-reference.md) lists every field.
+you see, and no coverage history.
+[Measure what Pacto does](../measure-what-pacto-does.md) explains recording and
+the [run record reference](../run-record-reference.md) lists every field.
 
 ## Another cluster and Argo CD
 
