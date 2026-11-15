@@ -607,7 +607,7 @@
     skip: function () { clickWhenReady(PLAN_UNDO); }
   }, {
     title: "Act from what you found",
-    text: "Press Plan this rollback: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
+    text: "Press Plan this roll back: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
     hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
     target: [PLAN_THIS, TICKET],
     wait: "Waiting for the plan to carry the ticket.",

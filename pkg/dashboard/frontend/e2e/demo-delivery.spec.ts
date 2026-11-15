@@ -88,14 +88,21 @@ async function playTour(page: Page, reload: boolean) {
   // The gated moments, one action each, skipped: Skip performs the action, and the
   // step either moves on by itself or holds on its result until Continue.
   await expect(text).toContainText('press Promote on payments 3.0.0');
+  let plannedUndo = false;
   for (let i = 0; i < 30 && !((await text.textContent()) ?? '').includes('History reads every step back'); i++) {
     const before = await text.textContent();
+    // Planned while 3.0.0 runs, the target page's undo rolls back the promote under investigation.
+    if (before?.includes('Press Plan this roll back')) {
+      await expect(page.getByTestId('undo-panel')).toContainText(/Undo payments-promote-\d+ Roll back/, { timeout: T });
+      plannedUndo = true;
+    }
     await page.getByTestId('demo-tour-skip').click();
     await expect
       .poll(async () => (await text.textContent()) !== before || (await next.isVisible()), { timeout: T })
       .toBe(true);
     if ((await text.textContent()) === before) await next.click();
   }
+  expect(plannedUndo).toBe(true);
   await expect(text).toContainText('History reads every step back');
   await next.click();
 
