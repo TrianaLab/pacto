@@ -93,11 +93,11 @@ func (c *envCounts) add(r runrecord.Record) {
 	if isFailed(r) {
 		c.failed++
 	}
-	switch delivery.Verification(r.Verification) {
-	case delivery.Unverified:
+	if isVerificationFailed(r) {
 		c.vf++
-		c.vs++
-	case delivery.Verified:
+	}
+	switch delivery.Verification(r.Verification) {
+	case delivery.Unverified, delivery.Verified:
 		c.vs++
 	case delivery.AcceptedUnknown:
 		c.m.AcceptedUnknown++
