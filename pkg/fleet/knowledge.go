@@ -36,21 +36,23 @@ const (
 	causeContractUnreadable  = "CONTRACT_UNREADABLE"
 	causeInterfaceDocsUnread = "INTERFACE_DOCS_UNREAD"
 	causeSummaryUnknown      = "SUMMARY_UNKNOWN"
+	causeDomainUnknown       = "DOMAIN_UNKNOWN"
 	causePlacementUnknown    = "PLACEMENT_UNKNOWN"
 )
 
 // KnowledgeTally partitions the services that are no golden path by what their
 // contracts leave out: Described + WithGaps + Unknown == Services. A service is
-// Described only when its current contract and the documents it names were read
-// and nothing is missing; Unknown when Pacto cannot tell (an unreadable contract
-// or document, conflicting summaries, or placement it cannot see), never folded
-// into Described. Gaps counts services per kind: a service with two gaps counts
+// Described only when its current contract and the OpenAPI documents it names
+// were read (Pacto reads no gRPC or AsyncAPI document) and nothing is missing;
+// Unknown when Pacto cannot tell (an unreadable contract or OpenAPI document,
+// conflicting summaries or business domains, or placement it cannot see),
+// never folded into Described. Gaps counts services per kind: a service with two gaps counts
 // in two kinds and once in WithGaps.
 type KnowledgeTally struct {
 	Services  int           `json:"services" doc:"Services that are no golden path; the whole the other three partition"`
-	Described int           `json:"described" doc:"Services whose contract and interface documents were read and leave nothing out"`
+	Described int           `json:"described" doc:"Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read"`
 	WithGaps  int           `json:"withGaps" doc:"Services with at least one knowledge gap"`
-	Unknown   int           `json:"unknown" doc:"Services whose knowledge Pacto cannot judge: an unreadable contract or interface document, conflicting summaries or placement it cannot see"`
+	Unknown   int           `json:"unknown" doc:"Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see"`
 	Gaps      KnowledgeGaps `json:"gaps"`
 }
 
@@ -60,7 +62,7 @@ type KnowledgeGaps struct {
 	NoDomain             int `json:"noDomain" doc:"Services with no business domain"`
 	NoInterfaceDocs      int `json:"noInterfaceDocs" doc:"Services whose current revision declares an interface with no document"`
 	NoReadiness          int `json:"noReadiness" doc:"Services whose current revision carries no readiness assessment"`
-	NotDeployed          int `json:"notDeployed" doc:"Services that run nowhere, counted only when every source reporting operational targets is complete"`
+	NotDeployed          int `json:"notDeployed" doc:"Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete"`
 	UnverifiedCapability int `json:"unverifiedCapability" doc:"Services whose current revision declares an extension capability no evaluator verifies"`
 }
 
@@ -134,13 +136,13 @@ func (q *Query) currentRevision(s *ServiceRecord) *ContractRevision {
 
 // notDeployed reports whether the service runs nowhere and whether Pacto can
 // know: a service with a visible target runs somewhere, and one with none runs
-// nowhere only when the view hid none of its targets and every source that
-// reports targets is complete. Every not-deployed count calls it.
+// nowhere only when the view hid none of its targets, at least one source
+// reports targets and every such source is complete. Every not-deployed count calls it.
 func (q *Query) notDeployed(s *ServiceRecord) (yes, known bool) {
 	if len(s.Targets) > 0 {
 		return false, true
 	}
-	known = !q.snap.targetsHidden[s.Key] && targetPlacementKnown(q.snap)
+	known = !q.snap.targetsHidden[s.Key] && hasTargetSource(q.snap) && targetPlacementKnown(q.snap)
 	return known, known
 }
 
@@ -157,6 +159,8 @@ func (q *Query) serviceKnowledge(s *ServiceRecord) (gaps []string, cause string)
 		return nil, causeInterfaceDocsUnread
 	case s.SummaryUnknown:
 		return nil, causeSummaryUnknown
+	case s.BusinessDomainUnknown:
+		return nil, causeDomainUnknown
 	}
 	runsNowhere, known := q.notDeployed(s)
 	if !known {
@@ -218,10 +222,12 @@ var knowledgeItems = map[string]knowledgeItem{
 		"Make a contract revision of this service readable"},
 	causeInterfaceDocsUnread: {"Interface document unread", "the contract declares interface documents Pacto could not read",
 		"Make the interface documents the contract names readable in its bundle"},
+	causeDomainUnknown: {"Business domain unknown", "its sources report different business domains or none could be read",
+		"Declare service.domain in the contract"},
 	causeSummaryUnknown: {"Summary unknown", "its sources report different summaries or none could be read",
 		"Declare service.summary in the contract"},
 	causePlacementUnknown: {"Placement unknown", "Pacto cannot see every place this service runs",
-		"Restore the incomplete target sources, or ask for a view that covers them"},
+		"Restore or add the sources that report targets (Kubernetes, an Evidence Server or a target state), or ask for a view that covers them"},
 }
 
 // contractUnreadAlone words an unread current revision of a service whose

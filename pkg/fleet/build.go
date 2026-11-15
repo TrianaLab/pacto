@@ -937,10 +937,12 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead
 		if it.Err != nil {
 			continue
 		}
+		// Every read interface is recorded even past the tool cap: only the
+		// tools are bounded, so a later document never reads as unread.
 		specsRead = append(specsRead, it.Interface.Name)
 		for _, tool := range it.Tools {
 			if len(out) >= maxToolsPerRevision {
-				return out, specsRead
+				break
 			}
 			summary := tool.Summary
 			if summary == "" {

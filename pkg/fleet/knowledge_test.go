@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -26,6 +27,12 @@ func knowRev(name string, mut func(*contract.Contract, *contract.Bundle)) RawRev
 // runs is a target of name that links to knowRev(name) by digest.
 func runs(name string) RawTarget {
 	return RawTarget{Scope: "prod", Kind: "k8s", Name: name + "-app", Service: name, Digest: "sha256:" + name}
+}
+
+// emptyTargetSource is a complete target source that reports no target, so a
+// service with no target runs nowhere instead of placement unknown.
+func emptyTargetSource() Source {
+	return NewMemorySource("ts", SourceKindTargetState, &Collection{})
 }
 
 func knowledgeFleet(t *testing.T, revs []RawRevision, targets []RawTarget, extra ...Source) *Query {
@@ -83,7 +90,7 @@ func TestKnowledgeGapsPerKind(t *testing.T) {
 			if tc.deployed {
 				targets = []RawTarget{runs("pay")}
 			}
-			q := knowledgeFleet(t, []RawRevision{knowRev("pay", tc.mut)}, targets)
+			q := knowledgeFleet(t, []RawRevision{knowRev("pay", tc.mut)}, targets, emptyTargetSource())
 			if gaps, cause := knowledgeOf(t, q, "pay"); !slices.Equal(gaps, tc.want) || cause != "" {
 				t.Fatalf("gaps = %v, cause %q, want %v", gaps, cause, tc.want)
 			}
@@ -207,7 +214,7 @@ func TestPartialTargetSourceNotDeployedIsUnknown(t *testing.T) {
 
 func TestRestrictedServiceWithHiddenTargetsIsNotNotDeployed(t *testing.T) {
 	shop := knowRev("shop", func(c *contract.Contract, _ *contract.Bundle) { c.Service.Offering = "storage" })
-	q := knowledgeFleet(t, []RawRevision{shop}, nil)
+	q := knowledgeFleet(t, []RawRevision{shop}, nil, emptyTargetSource())
 	if gaps, _ := knowledgeOf(t, q, "shop"); !slices.Equal(gaps, []string{GapNotDeployed}) {
 		t.Fatalf("unrestricted gaps = %v", gaps)
 	}
@@ -267,7 +274,7 @@ func TestKnowledgeTileMatchesList(t *testing.T) {
 }
 
 func TestStatusIncludesKnowledge(t *testing.T) {
-	q := knowledgeFleet(t, []RawRevision{knowRev("idle", nil)}, nil)
+	q := knowledgeFleet(t, []RawRevision{knowRev("idle", nil)}, nil, emptyTargetSource())
 	l := attentionOf(t, q, AttentionFilter{})
 	st := q.Status(StatusQuery{Limit: 1000})
 	if st.Total != l.Total || !slices.ContainsFunc(st.Items, func(it StatusItem) bool { return it.Code == "NOT_DEPLOYED" }) {
@@ -449,5 +456,59 @@ func TestGapFilterValues(t *testing.T) {
 		if !validGap(v) {
 			t.Errorf("%q is a filter value the filter rejects", v)
 		}
+	}
+}
+
+// TestKnowledgeConflictingDomainIsNotDescribed: a readable revision declaring
+// no domain whose targets report different domains is Unknown, never Described.
+func TestKnowledgeConflictingDomainIsNotDescribed(t *testing.T) {
+	a, b := runs("pay"), runs("pay")
+	b.Name = "pay-2"
+	a.BusinessDomain, b.BusinessDomain = "payments", "commerce"
+	q := knowledgeFleet(t, []RawRevision{knowRev("pay", func(c *contract.Contract, _ *contract.Bundle) { c.Service.Domain = "" })}, []RawTarget{a, b})
+	if gaps, cause := knowledgeOf(t, q, "pay"); cause != causeDomainUnknown || gaps != nil {
+		t.Fatalf("gaps %v, cause %q", gaps, cause)
+	}
+	if k := q.Overview().Summary.Knowledge; k.Described != 0 || k.Unknown != 1 {
+		t.Fatalf("knowledge = %+v", k)
+	}
+}
+
+// TestNoTargetSourceNotDeployedIsUnknown: with no source that reports targets,
+// Pacto looked at no runtime, so a service with no target is placement unknown.
+func TestNoTargetSourceNotDeployedIsUnknown(t *testing.T) {
+	q := knowledgeFleet(t, []RawRevision{knowRev("pay", nil)}, nil)
+	if gaps, cause := knowledgeOf(t, q, "pay"); cause != causePlacementUnknown || gaps != nil {
+		t.Fatalf("gaps %v, cause %q", gaps, cause)
+	}
+	q = knowledgeFleet(t, []RawRevision{knowRev("pay", nil)}, nil, emptyTargetSource())
+	if gaps, cause := knowledgeOf(t, q, "pay"); cause != "" || !slices.Equal(gaps, []string{GapNotDeployed}) {
+		t.Fatalf("with a complete target source: gaps %v, cause %q", gaps, cause)
+	}
+}
+
+// TestKnowledgeToolCapKeepsSpecsRead: an interface after one that fills the
+// tool cap is still recorded as read.
+func TestKnowledgeToolCapKeepsSpecsRead(t *testing.T) {
+	var paths []string
+	for i := range maxToolsPerRevision + 1 {
+		paths = append(paths, fmt.Sprintf(`"/p%d": {"get": {"operationId": "op%d", "responses": {"200": {"description": "ok"}}}}`, i, i))
+	}
+	big := `{"openapi": "3.1.0", "info": {"title": "Big", "version": "1.0.0"}, "paths": {` + strings.Join(paths, ",") + `}}`
+	fsys := fstest.MapFS{"big.json": {Data: []byte(big)}, "small.json": {Data: []byte(smallOpenAPI)}}
+	rev := knowRev("pay", func(c *contract.Contract, b *contract.Bundle) {
+		c.Interfaces = []contract.Interface{
+			{Name: "big", Type: contract.InterfaceTypeOpenAPI, Ref: "big.json"},
+			{Name: "small", Type: contract.InterfaceTypeOpenAPI, Ref: "small.json"},
+		}
+		b.FS = fsys
+	})
+	q := knowledgeFleet(t, []RawRevision{rev}, []RawTarget{runs("pay")})
+	if gaps, cause := knowledgeOf(t, q, "pay"); cause != "" || gaps != nil {
+		t.Fatalf("gaps %v, cause %q", gaps, cause)
+	}
+	r := q.snap.Revisions[q.snap.Services[q.snap.Targets[NewTargetKey("prod", "k8s", "pay-app")].ServiceKey].Revisions[0]]
+	if !slices.Equal(r.SpecsRead, []string{"big", "small"}) || len(r.Tools) != maxToolsPerRevision {
+		t.Fatalf("specsRead %v, %d tools", r.SpecsRead, len(r.Tools))
 	}
 }

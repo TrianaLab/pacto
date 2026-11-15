@@ -67,7 +67,7 @@ func domainRow(t *testing.T, q *Query, domain string) DomainTally {
 
 func TestDomainTallyCountsServicesWithoutTargets(t *testing.T) {
 	revs := []RawRevision{knowRev("a", inDomain("dormant")), knowRev("b", inDomain("dormant"))}
-	got := domainRow(t, estateFleet(t, 0, revs, nil), "dormant")
+	got := domainRow(t, estateFleet(t, 0, revs, nil, emptyTargetSource()), "dormant")
 	if got.Services != 2 || got.NotDeployed != 2 || got.Targets != 0 {
 		t.Fatalf("dormant = %+v, want 2 services that run nowhere", got)
 	}
@@ -195,7 +195,7 @@ func TestOwnerSummaryPlacementUnknown(t *testing.T) {
 }
 
 func TestDomainDetailNeverObserved(t *testing.T) {
-	q := estateFleet(t, 0, []RawRevision{knowRev("a", inDomain("dormant")), knowRev("b", inDomain("dormant"))}, nil)
+	q := estateFleet(t, 0, []RawRevision{knowRev("a", inDomain("dormant")), knowRev("b", inDomain("dormant"))}, nil, emptyTargetSource())
 	sum := domainSummary(t, q, "dormant")
 	if sum.Services != 2 || sum.NotDeployed != 2 || sum.Knowledge.Gaps.NotDeployed != 2 || sum.Readiness.Passing != 2 {
 		t.Fatalf("dormant summary = %+v, want two services that run nowhere", sum)

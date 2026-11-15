@@ -94,7 +94,7 @@ sidebar badge counts only items above `info`.
 | `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
 | `golden-path` | `GOLDEN_PATH_DEPLOYED` | warning |
 | `readiness` | `MISSING_READINESS` | info |
-| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN` or `PLACEMENT_UNKNOWN` | info |
+| `knowledge` | the gap: `NO_SUMMARY`, `NO_DOMAIN`, `NO_INTERFACE_DOCS`, `NOT_DEPLOYED` or `UNVERIFIED_CAPABILITY`; or the cause of an unknown service: `CONTRACT_UNREADABLE`, `INTERFACE_DOCS_UNREAD`, `SUMMARY_UNKNOWN`, `DOMAIN_UNKNOWN` or `PLACEMENT_UNKNOWN` | info |
 | `unowned` | `UNOWNED_SERVICE` | info |
 
 A revision with no readiness assessment raises a `readiness` item, so
