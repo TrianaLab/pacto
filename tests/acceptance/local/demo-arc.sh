@@ -43,7 +43,7 @@ go build -o "$BIN" "$ROOT/cmd/pacto"
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"
-assert_contains "$OUT" "38 of 38 service(s):" "every demo service is in the snapshot"
+assert_contains "$OUT" "39 of 39 service(s):" "every demo service is in the snapshot"
 assert_contains "$OUT" "payments-service" "the service the arc changes is present"
 
 echo "== beat 2: five states at once =="
