@@ -941,9 +941,8 @@ type AttentionItem struct {
 // tool that performs it. Only contract edits are named; the caller's own
 // permissions still decide whether the edit happens.
 type NextAction struct {
-	Verb        string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
-	Tool        string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
-	Environment string `json:"environment,omitempty" doc:"The environment the operation acts in; empty for a contract edit"`
+	Verb string `json:"verb" enum:"edit-contract" doc:"The operation: edit-contract changes the contract of the item's service"`
+	Tool string `json:"tool" enum:"pacto_edit" doc:"The MCP tool that performs the operation"`
 }
 
 // editContract is the action of every item whose next step is a contract edit.

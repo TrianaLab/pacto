@@ -2612,8 +2612,6 @@ export interface components {
             sourcesTruncated?: boolean;
         };
         "Fleet.NextAction": {
-            /** @description The environment the operation acts in; empty for a contract edit */
-            environment?: string;
             /**
              * @description The MCP tool that performs the operation
              * @enum {string}
