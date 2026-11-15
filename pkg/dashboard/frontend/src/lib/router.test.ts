@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, metricsUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -798,5 +798,22 @@ describe('offerings list routes', () => {
     for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
       expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&text=a`).params).toEqual({ text: 'a' });
     }
+  });
+});
+
+describe('metrics route', () => {
+  it('parses #/metrics and round-trips its window, metric, environment and both page offsets', () => {
+    expect(parseHash('#/metrics')).toEqual({ view: 'metrics', params: {} });
+    expect(metricsUrl()).toBe('#/metrics');
+    const url = metricsUrl({ window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', servicesOffset: '100' });
+    expect(url).toBe('#/metrics?window=7d&metric=leadTime&environment=prod&offset=25&servicesOffset=100');
+    expect(parseHash(url)).toEqual({
+      view: 'metrics', params: { window: '7d', metric: 'leadTime', environment: 'prod', offset: '25', servicesOffset: '100' },
+    });
+    expect(parseHash('#/metrics?other=1').params).toEqual({});
+  });
+
+  it('is never redirected on a Fleet host', () => {
+    expect(legacyRedirectTarget('#/metrics?window=7d')).toBeNull();
   });
 });

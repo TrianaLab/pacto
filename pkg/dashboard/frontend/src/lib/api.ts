@@ -55,6 +55,8 @@ export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
+export type ProductStats = JSON200<'get-stats'>;
+export type ProductStatsRecords = JSON200<'get-stats-records'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -467,6 +469,12 @@ export const api = {
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
     productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
+
+  // ── Metrics: Pacto's outcomes over time, read from the stats repository. ──
+  stats: (query: operations['get-stats']['parameters']['query'] = {}): Promise<ProductStats> =>
+    unwrap(client.GET('/api/stats', { params: { query } })),
+  statsRecords: (query: operations['get-stats-records']['parameters']['query']): Promise<ProductStatsRecords> =>
+    unwrap(client.GET('/api/stats/records', { params: { query } })),
 
   // ── Session: who the dashboard acts as and how people sign in. ──
   /** The identity mode and the signed-in person, as the API server names them. */

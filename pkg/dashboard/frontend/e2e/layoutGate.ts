@@ -106,6 +106,7 @@ export function installScaleFixture(): void {
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
+    if (route === '/api/capabilities') doc.stats = statsMode() !== 'off';
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
@@ -664,8 +665,32 @@ export function installScaleFixture(): void {
     b.stage = shortOf(b.stage);
     return JSON.stringify(b);
   };
+  // The Metrics page's answers (#493). The demo has no stats repository, so
+  // `sessionStorage['fixture.stats']` picks the state, read on every call: `off` serves
+  // none, `none` a window without run records, unset a recorded one.
+  const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
+  const statsEnvelope = (empty: boolean) => {
+    const until = new Date(), since = new Date(until.getTime() - 30 * 86_400_000);
+    return {
+      asOf: until.toISOString(), window: { since: since.toISOString(), until: until.toISOString() }, registry: 'ghcr.io/acme/pacto-stats',
+      recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'complete', provenance: 'unsigned statistics', truncated: '',
+      skipped: { malformed: 0, oversized: 0, unreadable: 0 }, hidden: { present: false },
+      limitations: empty ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }] : [],
+    };
+  };
+  const statsAnswer = (route: string): Record<string, unknown> => {
+    const empty = statsMode() === 'none';
+    if (route === '/api/stats/records') return { ...statsEnvelope(empty), items: [], total: 0 };
+    return { ...statsEnvelope(empty), runs: empty ? 0 : 1180, distinctChanges: empty ? 0 : 860, environmentOrder: 'name',
+      environments: [], services: [], servicesTotal: 0, buckets: [] };
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
+    const route = path.split('?')[0];
+    if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records')) {
+      if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route)) };
+    }
     if (flags.__pactoStalePropose && method === 'POST' && path === '/api/delivery/operations' && body) {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
@@ -1179,6 +1204,19 @@ const planOpened = async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
 };
 
+/**
+ * Opens Metrics in one fixture state. A real navigation (the path changes), so the app
+ * asks for its capabilities again: a bare hash change keeps the ones it already has.
+ * The state's own heading must show, so a variant that fell back to another fails.
+ */
+const METRICS_HEADING: Record<string, string> = { off: 'Metrics are off', none: 'No run records in this window' };
+const openMetrics = (mode: string) => async (page: Page) => {
+  await page.evaluate((m) => sessionStorage.setItem('fixture.stats', m), mode);
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  await expect(page.getByRole('heading', { name: METRICS_HEADING[mode] })).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -1454,6 +1492,8 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
+  { name: 'metrics off', open: openMetrics('off') },
+  { name: 'metrics no records', open: openMetrics('none') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

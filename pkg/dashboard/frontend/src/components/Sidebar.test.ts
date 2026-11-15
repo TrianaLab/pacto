@@ -246,3 +246,13 @@ describe('Sidebar — items', () => {
     side()!.dispatchEvent(new Event('pointerover', { bubbles: true })); // not an item: nothing to place
   });
 });
+
+describe('Sidebar — Metrics', () => {
+  it.each([[1600, 'open'], [1280, 'rail']])('names Metrics at %ipx (%s)', (w) => {
+    render(w, { view: 'metrics' });
+    const link = target.querySelector('a[href="#/metrics"]') as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('aria-current')).toBe('page');
+    expect(link.textContent?.trim() || link.getAttribute('aria-label')).toContain('Metrics');
+  });
+});
