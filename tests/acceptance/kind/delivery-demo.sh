@@ -567,6 +567,12 @@ cmd_up() {
     --serviceaccount=agents:pay-agent --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-operator-delivery-approver \
     --group=team-payments --group=team-orders --group=team-checkout --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # contract-readers (dave) may read contracts and nothing of delivery: the
+  # dashboard shows them the fleet with every delivery time hidden.
+  kubectl create clusterrole demo-contract-reader --verb=get,list,watch --resource=pactos.pacto.trianalab.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-contract-readers --clusterrole=demo-contract-reader --group=contract-readers \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   agent_kubeconfig
   timed "wait for Dex and Keycloak" identity_up
   timed "the dashboard and the remote MCP server" servers
