@@ -211,10 +211,14 @@ appears once a provider reports on it. Each row carries:
 | `providerOwner`, `providerAvailability` | Who owns the provider and whether it answers where it runs, apart from this resource's phase | declared, observed |
 | `requested` | The configuration entry, provider revision and values the service asks for, on the configuration-reference row only | declared |
 | `provisioning` | The phase per environment, with the adapter, signed or unsigned and the report time | observed |
-| `consumption` | `not-reported` with a reason: no provider reports usage or cost to Pacto | observed |
+| `consumption` | Usage and cost per environment: `reported` with the provider's `figures`, `unknown` with a reason, or `not-reported` | observed |
 
-The CLI prints the same facts in its Resources block. For live utilization and
-cost, ask [Mira](investigate-a-problem.md): with Mira configured, the
+The CLI prints the same facts in its Resources block. A provider adapter
+reports usage and cost with [usage reports](provider-reports.md#usage-reports).
+A figure reads `reported` only from one signed, fresh report about the
+service's current revision that no other report contradicts; anything else
+reads `unknown`, and its figures stay apart under `reported`. For live
+utilization, ask [Mira](investigate-a-problem.md): with Mira configured, the
 dashboard links the service to it, and the MCP instructions point at Mira's
 `query_metric`.
 

@@ -108,7 +108,7 @@ other versions. An OCI-sourced fleet lists what the registry holds, and
 ## Provisioning status
 
 A provider adapter reports the state of a resource a consumer asked for as
-[`ResourceProvisioned`](evidence.md#provisioning-reports) evidence: a signed
+[`ResourceProvisioned`](provider-reports.md#provisioning-reports) evidence: a signed
 EvidenceSet through an Evidence Server, or an unsigned report in a v2
 target-state file. Each report names the consumer revision by digest, the
 configuration reference or dependency that asked and the environment. Pacto
