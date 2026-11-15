@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -78,4 +79,30 @@ func TestChangesFindingSkipsUnvalidated(t *testing.T) {
 	q = twoRevisions()
 	validated(q, "v1.0.0", fnd("A", finding.SeverityError, "", ""))
 	checkChanges(t, only(svcChanges(q), "finding"), nil)
+}
+
+// A stage that ran on one revision only raises findings the other could not:
+// they are unknown, never resolved or new, and the answer says so.
+func TestChangesFindingNeedsTheSameStages(t *testing.T) {
+	for name, after := range map[string][]ValidationStage{
+		"skipped":    {{Name: "cross-field", Status: "fail"}, {Name: "policy", Status: "skip", Reason: "cross-field failed"}},
+		"unverified": {{Name: "cross-field", Status: "pass"}, {Name: "policy", Status: "skip", Reason: "could not verify", Unverified: true}},
+	} {
+		q := twoRevisions()
+		validated(q, "v1.0.0", fnd("P1", finding.SeverityWarning, "", "")).Stages = []ValidationStage{{Name: "cross-field", Status: "pass"}, {Name: "policy", Status: "pass"}}
+		validated(q, "v2.0.0").Stages = after
+		h := svcChanges(q)
+		checkChanges(t, only(h, "finding"), nil)
+		if h.Completeness != "partial" || !strings.Contains(h.CompletenessReason, "validation did not run the same checks on 1 pair(s)") {
+			t.Errorf("%s: %q %q", name, h.Completeness, h.CompletenessReason)
+		}
+	}
+}
+
+// A stage skipped for having nothing to check ran: its findings compare.
+func TestChangesFindingNothingToCheckCompares(t *testing.T) {
+	q := twoRevisions()
+	validated(q, "v1.0.0").Stages = []ValidationStage{{Name: "configuration-refs", Status: "skip", Reason: "no configuration references"}}
+	validated(q, "v2.0.0", fnd("C", finding.SeverityError, "", "")).Stages = []ValidationStage{{Name: "configuration-refs", Status: "fail"}}
+	checkChanges(t, only(svcChanges(q), "finding"), []string{"v2.0.0 finding C added  ->error v1.0.0"})
 }

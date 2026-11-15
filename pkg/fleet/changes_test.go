@@ -218,7 +218,7 @@ func TestWalkRevisionPairsGaps(t *testing.T) {
 	})
 	// The oldest is unread, so the first readable one reads as the oldest;
 	// v1.4.0 breaks the comparison to v1.5.0, which is compared with nothing.
-	if gaps != 2 || !slices.Equal(pairs, []string{"->v1.1.0", "v1.1.0>v1.2.0", "v1.2.0>v1.3.0"}) {
+	if gaps != 2 || !slices.Equal(pairs, []string{"->v1.1.0", "v1.1.0>v1.2.0", "v1.2.0>v1.3.0", "->v1.5.0"}) {
 		t.Errorf("gaps %d pairs %q", gaps, pairs)
 	}
 	pairs = nil
@@ -266,9 +266,39 @@ func TestChangesOldestIsPresent(t *testing.T) {
 // event and breaks the comparison across it.
 func TestChangesGapBreaksComparison(t *testing.T) {
 	h := svcChanges(changesQuery([]string{"v1.0.0", "v1.1.0", "v1.2.0"}, []*contract.Contract{owned("a"), nil, owned("b")}))
-	checkChanges(t, changeText(h), []string{"v1.0.0 owner  present  ->team:a -"})
+	// The revision after the gap still says what it declares; the answer is
+	// partial, since what changed across the gap is unknown.
+	checkChanges(t, changeText(h), []string{"v1.2.0 owner  present  ->team:b -", "v1.0.0 owner  present  ->team:a -"})
 	if h.Gaps != 1 || !strings.Contains(h.Heading(), "1 revision(s) unread") {
 		t.Errorf("gaps %d heading %q", h.Gaps, h.Heading())
+	}
+	if h.Completeness != "partial" || !strings.Contains(h.CompletenessReason, "1 revision(s) could not be read; changes across them are unknown") {
+		t.Errorf("completeness %q %q", h.Completeness, h.CompletenessReason)
+	}
+}
+
+// Two revisions of one version have no order: when they disagree, no
+// direction is reported between them; when they agree, nothing is.
+func TestChangesSameVersionNoDirection(t *testing.T) {
+	q := changesQuery([]string{"v1.0.0"}, []*contract.Contract{owned("a")})
+	for k, team := range map[RevisionKey]string{"svc@sha256:1a": "a", "svc@sha256:9f": "b"} {
+		q.snap.Revisions[k] = &ContractRevision{Key: k, Service: "svc", ServiceKey: "svc", Version: "v1.2.0", Contract: owned(team)}
+	}
+	q.snap.Services["svc"].Revisions = []RevisionKey{"svc@v1.0.0", "svc@sha256:1a", "svc@sha256:9f"}
+	h := svcChanges(q)
+	for _, e := range h.Items {
+		if e.Previous != nil && e.Previous.Version == e.Revision.Version {
+			t.Errorf("directional event between one version's revisions: %+v", e)
+		}
+	}
+	if h.Completeness != "partial" || !strings.Contains(h.CompletenessReason, "1 version(s) are held as revisions that disagree") {
+		t.Errorf("completeness %q %q", h.Completeness, h.CompletenessReason)
+	}
+	// Two identical copies of one version are one version.
+	q.snap.Revisions["svc@sha256:9f"].Contract = owned("a")
+	q.snap.Revisions["svc@sha256:1a"].Contract = owned("a")
+	if h := svcChanges(q); strings.Contains(h.CompletenessReason, "disagree") {
+		t.Errorf("identical copies: %q", h.CompletenessReason)
 	}
 }
 

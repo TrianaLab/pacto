@@ -19,7 +19,7 @@ import (
 type ChangeEvent struct {
 	Kind       string        `json:"kind" enum:"owner,domain,offering,dependency,lifecycle,environment,finding" doc:"What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding"`
 	Subject    string        `json:"subject,omitempty" doc:"The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle"`
-	Change     string        `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum"`
+	Change     string        `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds, or the first after one it could not read (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum"`
 	Fields     []string      `json:"fields,omitempty" doc:"changed: which declared fields changed"`
 	From       string        `json:"from,omitempty" doc:"The value before the change, as the previous revision declares it; for a finding, its severity or the readiness \"score N/M\" (score and minimum)"`
 	To         string        `json:"to,omitempty" doc:"The value after the change, as the revision declares it"`
@@ -57,8 +57,8 @@ type ChangeHistoryPreview struct {
 	Count              int           `json:"count"`
 	Truncated          bool          `json:"truncated"`
 	Items              []ChangeEvent `json:"items" doc:"Newest first, in version order, not a timeline"`
-	Gaps               int           `json:"gaps" doc:"Revisions whose contract could not be read; no change is reported across them"`
-	Completeness       string        `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held"`
+	Gaps               int           `json:"gaps" doc:"Revisions whose contract could not be read; no change is reported across them, the next readable revision reads present, and the answer is partial"`
+	Completeness       string        `json:"completeness" enum:"complete,partial" doc:"partial when this view or a source holds only some of the service's revisions, a revision could not be read, two revisions of one version disagree, validation ran different checks on two revisions compared, or two versions are compared: no source lists every version, so a change is placed between the versions held"`
 	CompletenessReason string        `json:"completenessReason,omitempty"`
 	Times              string        `json:"times" enum:"not-read,read,partial,hidden" doc:"Whether delivery records were read for the times: not-read (not asked, or no delivery to read), read (every Stage the caller may list), partial (some namespaces refused or not listed, a Stage history that may lack earlier moves, an artifact that could not be read, or a local revision no record can name), hidden (the caller may not list Stages)"`
 	TimesReason        string        `json:"timesReason,omitempty" doc:"Why the times were not read in full"`
@@ -73,11 +73,11 @@ var changeKindOrder = []string{"owner", "domain", "offering", "dependency", "lif
 // diff's.
 var changeEnvironmentFields = []string{"file", "lifetime", "expires", "owner"}
 
-// walkRevisionPairs sorts recs in version order and calls visit with the
-// oldest readable revision (prev nil) and with every readable revision whose
-// previous one is readable. An unread revision counts as a gap and breaks the
-// comparison across it: a revision after a gap is compared with nothing and
-// only becomes the previous of the next one.
+// walkRevisionPairs sorts recs in version order and calls visit with every
+// readable revision and the readable one before it. An unread revision
+// counts as a gap and breaks the comparison across it: the oldest readable
+// revision and each one after a gap are compared with nothing (prev nil), so
+// what they declare still reads as present.
 func walkRevisionPairs(recs []*ContractRevision, visit func(prev, r *ContractRevision)) (gaps int) {
 	slices.SortFunc(recs, func(a, b *ContractRevision) int {
 		if lessRevisionChrono(a, b) {
@@ -86,17 +86,14 @@ func walkRevisionPairs(recs []*ContractRevision, visit func(prev, r *ContractRev
 		return 1
 	})
 	var prev *ContractRevision
-	first := true
 	for _, r := range recs {
 		if r.Contract == nil {
 			gaps++
 			prev = nil
 			continue
 		}
-		if prev != nil || first {
-			visit(prev, r)
-		}
-		prev, first = r, false
+		visit(prev, r)
+		prev = r
 	}
 	return gaps
 }
@@ -133,28 +130,64 @@ const historyPartialReason = "this view or a source holds only some of the servi
 // ones may be missing.
 const versionsHeldReason = "the sources hold only some versions; a change is placed between the versions held"
 
-// historyCompleteness is partial when the view or a source holds only some
-// revisions, or when more than one revision was compared.
-func historyCompleteness(partial bool, groups int) (string, string) {
-	switch {
-	case partial:
-		return string(CompletenessPartial), historyPartialReason
-	case groups > 1:
-		return string(CompletenessPartial), versionsHeldReason
-	}
-	return string(CompletenessComplete), ""
+// historyBreaks is what left changes unreported between revisions held.
+type historyBreaks struct {
+	// gaps is the revisions that could not be read; ties the versions held
+	// as revisions that disagree, which no version order can place; checks
+	// the pairs whose validation did not run the same stages.
+	gaps, ties, checks int
 }
 
-// serviceChanges is the declared change history of s's revisions in q.
+// historyCompleteness is partial when the view or a source holds only some
+// revisions, when something left a change unreported (b), or when more than
+// one revision was compared; each reason is named.
+func historyCompleteness(partial bool, groups int, b historyBreaks) (string, string) {
+	var why []string
+	if partial {
+		why = append(why, historyPartialReason)
+	}
+	if b.gaps > 0 {
+		why = append(why, fmt.Sprintf("%d revision(s) could not be read; changes across them are unknown", b.gaps))
+	}
+	if b.ties > 0 {
+		why = append(why, fmt.Sprintf("%d version(s) are held as revisions that disagree; no change is reported between them", b.ties))
+	}
+	if b.checks > 0 {
+		why = append(why, fmt.Sprintf("validation did not run the same checks on %d pair(s) of revisions; no finding change is reported between them", b.checks))
+	}
+	if groups > 1 {
+		why = append(why, versionsHeldReason)
+	}
+	if len(why) == 0 {
+		return string(CompletenessComplete), ""
+	}
+	return string(CompletenessPartial), strings.Join(why, "; ")
+}
+
+// serviceChanges is the declared change history of s's revisions in q. Two
+// revisions of one version have no order between them: when they disagree,
+// no change is reported between them, never a direction their keys decide.
 func (q *Query) serviceChanges(s *ServiceRecord) ChangeHistoryPreview {
 	var groups [][]ChangeEvent
+	var b historyBreaks
 	h := ChangeHistoryPreview{}
-	h.Gaps = walkRevisionPairs(q.revisionRecords(serviceRevisions(q.snap, s)), func(prev, r *ContractRevision) {
-		groups = append(groups, revisionChanges(prev, r))
+	b.gaps = walkRevisionPairs(q.revisionRecords(serviceRevisions(q.snap, s)), func(prev, r *ContractRevision) {
+		evs, checked := revisionChanges(prev, r)
+		if prev != nil && prev.Version == r.Version {
+			if len(evs) > 0 || !checked {
+				b.ties++
+			}
+			return
+		}
+		if !checked {
+			b.checks++
+		}
+		groups = append(groups, evs)
 	})
+	h.Gaps = b.gaps
 	h.Items, h.Total, h.Truncated = boundSlice(newestFirst(groups), MaxDetailPreview)
 	h.Count = len(h.Items)
-	h.Completeness, h.CompletenessReason = historyCompleteness(q.revisionsPartial(s), len(groups))
+	h.Completeness, h.CompletenessReason = historyCompleteness(q.revisionsPartial(s), len(groups), b)
 	h.Times, h.TimesReason = TimesNotRead, "ask with reached to read delivery records"
 	return h
 }
@@ -218,14 +251,18 @@ func ReachedTimes(unreadable, doubts []string) (times, reason string, names []st
 }
 
 // revisionChanges is every declared change r makes to prev, or what r
-// declares when there is no prev, sorted by kind then subject.
-func revisionChanges(prev, r *ContractRevision) []ChangeEvent {
-	var out []ChangeEvent
+// declares when there is no prev, sorted by kind then subject; checked is
+// false when validation ran different stages on them, so their findings were
+// not compared (findingEvents).
+func revisionChanges(prev, r *ContractRevision) (out []ChangeEvent, checked bool) {
+	checked = true
 	if prev == nil {
 		out = presentEvents(r.Contract)
 	} else {
+		var fs []ChangeEvent
 		out = append(diffEvents(context.Background(), prev, r), dependencyEvents(prev.Contract, r.Contract)...)
-		out = append(out, findingEvents(prev, r)...)
+		fs, checked = findingEvents(prev, r)
+		out = append(out, fs...)
 	}
 	ref := revisionEntityRef(r)
 	var prevRef *EntityRef
@@ -246,7 +283,7 @@ func revisionChanges(prev, r *ContractRevision) []ChangeEvent {
 		}
 		return NaturalCompare(a.Subject, b.Subject)
 	})
-	return out
+	return out, checked
 }
 
 // presentEvents is the owner, domain and environments the oldest revision
@@ -456,10 +493,16 @@ func changedDependency(o, n contract.Dependency) (ChangeEvent, bool) {
 // findingEvents is the validation findings that appeared in r or resolved
 // since prev, keyed by code and subject, plus one readiness event when the
 // score crosses the minimum. Nothing when either revision was never
-// validated: an unvalidated revision holds no findings to compare.
-func findingEvents(prev, r *ContractRevision) []ChangeEvent {
+// validated: an unvalidated revision holds no findings to compare. Nothing
+// either, and checked false, when validation did not run the same stages on
+// both: a finding a stage that did not run would raise is unknown, never
+// resolved or new.
+func findingEvents(prev, r *ContractRevision) (_ []ChangeEvent, checked bool) {
 	if len(prev.Stages) == 0 || len(r.Stages) == 0 {
-		return nil
+		return nil, true
+	}
+	if !slices.Equal(stagesNotRun(prev.Stages), stagesNotRun(r.Stages)) {
+		return nil, false
 	}
 	before, after := findingSet(prev.Validation), findingSet(r.Validation)
 	var out []ChangeEvent
@@ -475,6 +518,21 @@ func findingEvents(prev, r *ContractRevision) []ChangeEvent {
 	}
 	if o, n := prev.Readiness, r.Readiness; o != nil && n != nil && (o.Score >= o.MinScore) != (n.Score >= n.MinScore) {
 		out = append(out, ChangeEvent{Kind: "finding", Subject: "readiness", Change: "changed", From: scoreString(o), To: scoreString(n), Source: "validation"})
+	}
+	return out, true
+}
+
+// stagesNotRun is the names of the validation stages whose findings are
+// unknown, in order: skipped after an earlier stage failed, or unverified. A
+// stage skipped for having nothing to check ran and found nothing.
+func stagesNotRun(stages []ValidationStage) []string {
+	var out []string
+	failed := false
+	for _, s := range stages {
+		if s.Status == "skip" && (failed || s.Unverified) {
+			out = append(out, s.Name)
+		}
+		failed = failed || s.Status == "fail"
 	}
 	return out
 }

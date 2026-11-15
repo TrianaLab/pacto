@@ -3,18 +3,18 @@ package cli_test
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 )
 
 // TestFleetEntityDemoFindingChanges: the demo revisions that differ in
 // validation list the findings each one introduced, labelled validation.
+// storefront-web 1.1.0 could not verify its environment values, so no
+// environment finding is compared across it and the answer says so.
 func TestFleetEntityDemoFindingChanges(t *testing.T) {
 	for svc, want := range map[string][]string{
 		"catalog-service": {"1.3.0 added DEPENDENCY_SERVICE_DEPRECATED ->error 1.2.1"},
-		"storefront-web": {
-			"1.2.0 added ENVIRONMENT_VALUES_INVALID ->error 1.1.0",
-			"1.1.0 added ENVIRONMENT_VALUES_UNVERIFIED ->warning 1.0.0",
-		},
+		"storefront-web":  nil,
 	} {
 		out, _, err := execFleet(t, "fleet", "entity", "service", svc, "--local", demoBundles, "--output-format", "json")
 		if err != nil {
@@ -23,7 +23,8 @@ func TestFleetEntityDemoFindingChanges(t *testing.T) {
 		var res struct {
 			Service struct {
 				Changes struct {
-					Items []struct {
+					CompletenessReason string
+					Items              []struct {
 						Kind, Change, Subject, From, To, Source, Provenance string
 						Revision                                            struct{ Version string }
 						Previous                                            struct{ Version string }
@@ -46,6 +47,9 @@ func TestFleetEntityDemoFindingChanges(t *testing.T) {
 		}
 		if !slices.Equal(got, want) {
 			t.Errorf("%s finding changes = %q, want %q", svc, got, want)
+		}
+		if want == nil && !strings.Contains(res.Service.Changes.CompletenessReason, "validation did not run the same checks") {
+			t.Errorf("%s reason %q", svc, res.Service.Changes.CompletenessReason)
 		}
 	}
 }

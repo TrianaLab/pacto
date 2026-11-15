@@ -4403,7 +4403,7 @@ export interface components {
         };
         ProductChangeEvent: {
             /**
-             * @description present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
+             * @description present: declared by the oldest revision this answer holds, or the first after one it could not read (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
              * @enum {string}
              */
             change: "present" | "added" | "removed" | "changed";
@@ -4439,7 +4439,7 @@ export interface components {
         };
         ProductChangeHistoryPreview: {
             /**
-             * @description partial when this view or a source holds only some of the service's revisions, or when two versions are compared: no source lists every version, so a change is placed between the versions held
+             * @description partial when this view or a source holds only some of the service's revisions, a revision could not be read, two revisions of one version disagree, validation ran different checks on two revisions compared, or two versions are compared: no source lists every version, so a change is placed between the versions held
              * @enum {string}
              */
             completeness: "complete" | "partial";
@@ -4448,7 +4448,7 @@ export interface components {
             count: number;
             /**
              * Format: int64
-             * @description Revisions whose contract could not be read; no change is reported across them
+             * @description Revisions whose contract could not be read; no change is reported across them, the next readable revision reads present, and the answer is partial
              */
             gaps: number;
             /** @description Newest first, in version order, not a timeline */

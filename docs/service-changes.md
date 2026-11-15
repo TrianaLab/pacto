@@ -23,7 +23,11 @@ ownership conflict.
 Version order is the order Pacto reads from the versions themselves. No source
 lists every version, so a change happened after the revision it was compared
 with and at or before the revision that shows it. A revision Pacto could not
-read is counted, and no change is reported across it.
+read is counted, no change is reported across it, and the next revision lists
+what it declares. Two revisions of one version that disagree have no order,
+so no change is reported between them. A finding is compared only when
+validation ran the same checks on both revisions. Each of these makes the
+answer partial and says why.
 
 ## When a change reached a Stage
 
