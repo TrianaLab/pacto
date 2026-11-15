@@ -109,7 +109,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -228,8 +228,33 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
+      // Every category holds items, so each bar and its label are drawn at scale.
       const cats = doc.categories as { count: number }[] | undefined;
-      if (cats) { const parts = split(2400, cats.map((c) => c.count)); cats.forEach((c, i) => { c.count = parts[i]; }); }
+      if (cats) { const parts = split(2400, cats.map((c) => c.count || 1)); cats.forEach((c, i) => { c.count = parts[i] || 1; }); }
+      // Each item's cause and next action at their longest: the code chip, the reason and
+      // the words of #472's nextAction must wrap inside the row.
+      for (const it of (doc.items as Record<string, unknown>[] | undefined) ?? []) {
+        it.code = `${String(it.code || 'UNKNOWN')}_${'OBSERVATION_UNSUPPORTED_'.repeat(3)}CAUSE`;
+        it.reason = longName(String(it.reason || 'reason'));
+        it.nextAction = { verb: 'edit-contract', tool: 'pacto_edit', environment: longName('production-environment') };
+      }
+    }
+    // Owner and domain rows with every count four digits.
+    if (route === '/api/fleet/entities' && ['owner', 'domain'].includes(q.get('kinds') || '')) {
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => Object.assign(r, { unknown: 1400 + i, stale: 1250 + i, failingHealth: 1100 + i, withGaps: 1900 + i }));
+    }
+    // The owner and domain pages: their health, knowledge and facts line at fleet scale.
+    if (route === '/api/fleet/entities/owner' || route === '/api/fleet/entities/domain') {
+      const sum = ((doc.owner ?? doc.domain) as Record<string, unknown> | undefined)?.summary as Record<string, unknown> | undefined;
+      if (sum) {
+        Object.assign(sum, {
+          targets: 9000, health: { available: 5200, degraded: 0, unavailable: 1180, unknown: 1820, notObserved: 800 },
+          knowledge: { services: 5000, described: 1100, withGaps: 3400, unknown: 500,
+            gaps: { noSummary: 2900, noDomain: 1400, noInterfaceDocs: 1200, noReadiness: 3100, notDeployed: 1050, unverifiedCapability: 1010 } },
+          notDeployed: 1050, readiness: { passing: 2100, belowThreshold: 1300, expired: 1100, notDeclared: 3100 },
+          unresolvedDependencies: 1200, undeclaredDependencies: 1400,
+        });
+      }
     }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
@@ -1095,6 +1120,13 @@ export const ROUTES: Route[] = [
   { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   { name: 'attention', list: true, hash: '#/fleet/attention' },
+  { name: 'attention health category', list: true, hash: '#/fleet/attention?category=health' },
+  { name: 'attention knowledge category', list: true, hash: '#/fleet/attention?category=knowledge' },
+  { name: 'services with a knowledge gap', list: true, hash: '#/fleet/services?gap=no-summary' },
+  { name: 'services whose owner is unknown', list: true, hash: '#/fleet/services?ownership=unknown' },
+  { name: 'incomplete sources', list: true, hash: '#/fleet/sources?sourceHealth=incomplete' },
+  { name: 'domains by health', list: true, hash: '#/fleet/domains?sort=health' },
+  { name: 'owners by gaps', list: true, hash: '#/fleet/owners?sort=gaps' },
   { name: 'attention lifecycle', list: true, hash: '#/fleet/attention?category=lifecycle' },
   { name: 'graph discovery', hash: '#/fleet/graph' },
   { name: 'graph focused', hash: '#/fleet/graph/service/payments-service' },

@@ -163,6 +163,41 @@ export function attentionCategoryLabel(c: string | undefined): string {
   }
 }
 
+/** The cause each attention code names (pkg/fleet/health.go and knowledge.go). */
+const ATTENTION_CAUSES: Record<string, string> = {
+  COLLECTION_FAILED: 'The collector failed to read the evidence',
+  HEALTH_FAILING: 'The health check is failing',
+  EVIDENCE_STALE: "The evidence is older than the source's freshness window",
+  OBSERVATION_UNSUPPORTED: 'This cannot be observed in this environment',
+  EVIDENCE_INSUFFICIENT: 'The evidence cannot confirm or contradict the contract',
+  EVIDENCE_MISSING: 'No evidence was ever collected',
+  CONTRACT_UNREADABLE: 'No contract of this service could be read',
+  INTERFACE_DOCS_UNREAD: 'The interface documents the contract names could not be read',
+  SUMMARY_UNKNOWN: 'Sources report different summaries or none could be read',
+  PLACEMENT_UNKNOWN: 'Pacto cannot see every place this service runs',
+  NO_SUMMARY: 'The contract declares no summary',
+  NO_DOMAIN: 'The contract declares no business domain',
+  NO_INTERFACE_DOCS: 'An interface declares no document',
+  NOT_DEPLOYED: 'No source reports an operational target of this service',
+  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
+};
+/** attentionCause words an attention item's code, or returns the code itself. */
+export function attentionCause(code: string | undefined): string {
+  return (code && ATTENTION_CAUSES[code]) || code || '';
+}
+
+/** The words of a next action verb (#472's AttentionItem.nextAction). */
+const NEXT_ACTION_VERBS: Record<string, string> = {
+  'edit-contract': 'edit the contract',
+  'plan-rollback': 'plan a rollback',
+};
+/** nextActionWords says a next action as words only: it is advice, never a control. */
+export function nextActionWords(a: { verb?: string; tool?: string; environment?: string } | null | undefined): string {
+  if (!a?.verb) return '';
+  const verb = NEXT_ACTION_VERBS[a.verb] ?? a.verb;
+  return `Fix: ${verb}${a.environment ? ` in ${a.environment}` : ''}${a.tool ? ` with ${a.tool}` : ''}`;
+}
+
 // ── knowledge gaps ───────────────────────────────────────────────────────────
 /** The words for each `gap` filter value (pkg/fleet/knowledge.go). */
 export const GAP_WORDS: Record<string, string> = {

@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import {
-    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel,
+    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel, attentionCause, nextActionWords,
   } from '../lib/entityLabels.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
@@ -146,7 +146,7 @@
   // filter link so the chart is a triage control, not a picture. Unknown compliance is
   // the neutral hatch, never warn: an open question is not a warning (SPEC 2.2).
   const CATEGORY_TONE = {
-    'non-compliant': 'err', invalid: 'err', unknown: 'neutral', stale: 'warn',
+    'non-compliant': 'err', invalid: 'err', health: 'warn', provisioning: 'warn', unknown: 'neutral', stale: 'warn',
     unresolved: 'warn', 'out-of-range': 'warn', lifecycle: 'warn', undeclared: 'warn', 'golden-path': 'warn', readiness: 'info', knowledge: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
@@ -330,6 +330,7 @@
              transition would make every row count in this file read one page behind. -->
         <li
           class="attn-item pl-row sev-{it.severity}"
+          data-testid="attention-item"
           class:is-alarm={it === alarmItem}
           data-motion
           in:fly|global={entrances[i]}
@@ -342,8 +343,17 @@
             <!-- The source sits inside the summary so the two wrap as one: on its own it
                  dropped to a line of its own under a long service name. -->
             <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}</span>
+            <!-- The cause, as the code a CLI or an agent reads; the title words it. A
+                 plain span: it is a label, not a control. -->
+            {#if it.code}<span class="attn-code" title={attentionCause(it.code)}><bdi>{it.code}</bdi>{#if attentionCause(it.code) !== it.code}<span class="visually-hidden">: {attentionCause(it.code)}</span>{/if}</span>{/if}
           </div>
-          {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
+          {#if showNext(i) || it.nextAction}
+            <div class="attn-side">
+              {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
+              <!-- Words only: every navigable or delivery affordance for it is #472's slot. -->
+              {#if it.nextAction}<span class="attn-action">{nextActionWords(it.nextAction)}</span>{/if}
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -375,7 +385,7 @@
   }
   @media (max-width: 40rem) {
     .attn-item { grid-template-columns: minmax(0, 1fr); }
-    .attn-next { text-align: left; }
+    .attn-next, .attn-action { text-align: left; }
   }
   /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
      slot accent, and one stripe cannot mean both "clickable" and "this one is an error".
@@ -402,6 +412,10 @@
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
   .attn-src { color: var(--c-text-3); font-size: var(--text-xs); white-space: nowrap; }
+  /* A long code breaks at its underscores rather than widening the row. */
+  .attn-code { min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--c-text-3); font-family: var(--font-mono); font-size: var(--text-xs); }
+  .attn-side { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+  .attn-action { min-width: 0; overflow-wrap: anywhere; color: var(--c-text-2); font-size: var(--text-xs); text-align: right; }
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */

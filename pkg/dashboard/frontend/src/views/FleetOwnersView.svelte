@@ -82,7 +82,7 @@
   function removeChip(key) { location.hash = urlWith({ [key]: key === 'nc' ? false : '' }); }
   // An owner's non-compliant count is of the services it owns outright, so its link
   // lists exactly those, as the rank figure's lanes do.
-  const ncHref = (ref) => fleetServicesUrl({ ownerKey: ref.key, ownership: 'consistent', status: 'NonCompliant' });
+  const statusHref = (ref, status) => fleetServicesUrl({ ownerKey: ref.key, ownership: 'consistent', status });
 
   // The ownership picture above the inventory.
   //
@@ -247,7 +247,7 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <GroupTable kind="owner" entities={list.entities} {order} {sortHref} {ncHref} testid="owner-list" />
+    <GroupTable kind="owner" entities={list.entities} {order} {sortHref} {statusHref} testid="owner-list" />
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />
   {/if}
 </div>

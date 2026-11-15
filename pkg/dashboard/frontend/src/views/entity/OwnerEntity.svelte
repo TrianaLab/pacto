@@ -5,6 +5,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import ScopeHealth from '../../components/ScopeHealth.svelte';
   import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
   // The owner page: the owner-scoped operational posture, bounded
@@ -49,6 +50,7 @@
       compliance={false}
       empty="Nothing running has been seen for these services yet."
     />
+    <ScopeHealth summary={sum} filter={{ ownerKey: owner }} noun="of this owner" />
   </section>
 
   <div class="oe-grid">

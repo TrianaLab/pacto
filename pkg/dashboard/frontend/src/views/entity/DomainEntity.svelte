@@ -8,6 +8,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import ScopeHealth from '../../components/ScopeHealth.svelte';
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
   import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
@@ -39,6 +40,7 @@
     </p>
     <!-- Service compliance is the figure above (one carrier per fact, L3). -->
     <PostureBars summary={sum} {attentionUrl} compliance={false} empty="Nothing running has been seen for the services in this domain yet." />
+    <ScopeHealth summary={sum} filter={{ businessDomain: key }} noun="in this domain" />
     <DistributionBar
       title="Declared ownership"
       description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."
