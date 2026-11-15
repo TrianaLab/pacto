@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
 import { installScaleFixture, layoutProblems, loaded, toggleSidebar } from './layoutGate';
 
-// Browser acceptance for the Metrics page (#493 S4). The demo has no stats repository, so
-// every test installs the scale fixture and picks its state through
+// Browser acceptance for the Metrics page (#493 S4). The fixture replaces the demo's own run
+// records (#493 S5), so every test installs the scale fixture and picks its state through
 // `sessionStorage['fixture.stats']` before the first load: `off` serves no repository,
 // `restricted` a narrow signed-in view and unset a recorded window. Playwright shards by
 // test, so each test sets its own state and depends on no other.

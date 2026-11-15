@@ -665,7 +665,7 @@ export function installScaleFixture(): void {
     b.stage = shortOf(b.stage);
     return JSON.stringify(b);
   };
-  // The Metrics page's answers (#493). The demo has no stats repository, so
+  // The Metrics page's answers (#493). The fixture replaces the demo's own run records, so
   // `sessionStorage['fixture.stats']` picks the state, read on every call: `off` serves
   // none, `none` a window without run records, unset a recorded one, and `engine` leaves
   // /api/stats, /api/stats/records and the stats capability to the engine (the browser

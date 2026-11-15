@@ -201,7 +201,7 @@ test.describe('document structure on every canonical Fleet route', () => {
       ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
       ['Change analysis (unscoped)', '#/fleet/changes'],
       ['Change analysis (scoped)', `#/fleet/changes/${e(k.service)}`],
-      // The plain demo has no stats repository: the explainer.
+      // The plain demo serves its own run records (#493 S5).
       ['Metrics', '#/metrics'],
       // Last: the scale fixture answers for a stats repository from here on.
       ['Metrics (recorded)', '#/metrics'],
