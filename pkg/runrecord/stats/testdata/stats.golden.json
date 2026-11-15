@@ -6,7 +6,7 @@
   },
   "registry": "registry.example.com/acme/pacto-stats",
   "provenance": "unsigned statistics",
-  "recordsRead": 6,
+  "recordsRead": 7,
   "runs": 5,
   "distinctChanges": 1,
   "skipped": {
@@ -70,6 +70,25 @@
         }
       }
     ]
+  },
+  "coverage": {
+    "services": 4,
+    "uncontracted": 1,
+    "knowledge": {
+      "services": 4,
+      "described": 1,
+      "withGaps": 2,
+      "unknown": 1,
+      "notDeployed": 1
+    },
+    "links": {
+      "exact": 3,
+      "inferred": 0,
+      "ambiguous": 0,
+      "unresolved": 1
+    },
+    "snapshotAsOf": "2026-11-14T08:00:00Z",
+    "completeness": "partial"
   },
   "groups": [
     {

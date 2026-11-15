@@ -139,8 +139,13 @@ func recordService(r runrecord.Record) string {
 	return r.Service
 }
 
-// sees reports whether a restricted caller may see r.
+// sees reports whether a restricted caller may see r. A coverage record is
+// fleet-wide: it would tell the caller the size of a fleet they may only
+// partly read.
 func (sc Scope) sees(r runrecord.Record) bool {
+	if r.Kind == runrecord.KindCoverage {
+		return false
+	}
 	if _, ok := sc.place(recordService(r)); !ok {
 		return false
 	}

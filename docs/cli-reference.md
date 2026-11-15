@@ -2036,7 +2036,7 @@ pacto stats [flags]
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
+      --kind stringArray           total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)

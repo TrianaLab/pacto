@@ -109,22 +109,23 @@ type Group struct {
 
 // Stats is one answer.
 type Stats struct {
-	AsOf            time.Time          `json:"asOf" doc:"Time the answer was computed, UTC"`
-	Window          Window             `json:"window" doc:"Time range the answer covers"`
-	Registry        string             `json:"registry,omitempty" doc:"Stats repository read"`
-	Provenance      string             `json:"provenance" doc:"Always unsigned statistics: run records are never evidence"`
-	RecordsRead     int                `json:"recordsRead" doc:"Records read from the repository, in or out of the window; skipped records are counted apart"`
-	Runs            int                `json:"runs" doc:"Records in the window after retries of one record id count once"`
-	DistinctChanges int                `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only"`
-	Skipped         Skipped            `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
-	Truncated       string             `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
-	Hidden          Hidden             `json:"hidden" doc:"Whether records outside the caller's view exist"`
-	Completeness    fleet.Completeness `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
-	Limitations     []fleet.Limitation `json:"limitations" doc:"Why the answer is incomplete"`
-	By              string             `json:"by,omitempty" doc:"What the groups are by"`
-	Attribution     *Attribution       `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
-	Totals          *Metrics           `json:"totals,omitempty" doc:"Numbers over every record in the window; absent when there are none"`
-	Groups          []Group            `json:"groups,omitempty" doc:"Numbers per group"`
+	AsOf            time.Time           `json:"asOf" doc:"Time the answer was computed, UTC"`
+	Window          Window              `json:"window" doc:"Time range the answer covers"`
+	Registry        string              `json:"registry,omitempty" doc:"Stats repository read"`
+	Provenance      string              `json:"provenance" doc:"Always unsigned statistics: run records are never evidence"`
+	RecordsRead     int                 `json:"recordsRead" doc:"Records read from the repository, in or out of the window; skipped records are counted apart"`
+	Runs            int                 `json:"runs" doc:"Records in the window after retries of one record id count once"`
+	DistinctChanges int                 `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only"`
+	Skipped         Skipped             `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
+	Truncated       string              `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
+	Hidden          Hidden              `json:"hidden" doc:"Whether records outside the caller's view exist"`
+	Completeness    fleet.Completeness  `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
+	Limitations     []fleet.Limitation  `json:"limitations" doc:"Why the answer is incomplete"`
+	By              string              `json:"by,omitempty" doc:"What the groups are by"`
+	Attribution     *Attribution        `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
+	Totals          *Metrics            `json:"totals,omitempty" doc:"Numbers over every record in the window; absent when there are none"`
+	Coverage        *runrecord.Coverage `json:"coverage,omitempty" doc:"The newest coverage record in the window; a level, never a sum. Absent when the window holds none"`
+	Groups          []Group             `json:"groups,omitempty" doc:"Numbers per group"`
 }
 
 // Aggregate totals set for q at now, as sc lets the caller see it. It does
@@ -136,8 +137,8 @@ func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st.Skipped, st.Hidden.Present = skipped, outside
 	st.Skipped.Malformed += future
 	st.RecordsRead = len(current)
-	entries := dedupe(selectEntries(current, q))
-	st.Runs = len(entries)
+	entries, coverage := splitCoverage(dedupe(selectEntries(current, q)))
+	st.Runs, st.Coverage = len(entries), newestCoverage(coverage, q.Window.Until)
 	if len(entries) > 0 {
 		m, changes := metricsOf(entries, current)
 		st.Totals, st.DistinctChanges = &m, changes

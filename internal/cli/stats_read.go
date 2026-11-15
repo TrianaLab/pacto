@@ -20,7 +20,7 @@ import (
 var statsNow = time.Now
 
 // statsKinds is the --kind vocabulary: the run record kinds.
-var statsKinds = []string{runrecord.KindDiff, runrecord.KindImpact, runrecord.KindPublish, runrecord.KindOperation}
+var statsKinds = []string{runrecord.KindDiff, runrecord.KindImpact, runrecord.KindPublish, runrecord.KindOperation, runrecord.KindCoverage}
 
 // statsQuery checks and builds what a stats answer totals. Each kinds value
 // may hold several comma-separated kinds, so a repeated flag and one MCP

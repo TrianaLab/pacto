@@ -490,3 +490,18 @@ func TestAnchorErrorUnwraps(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestReadAcceptsCoverageAnchor(t *testing.T) {
+	repo := serveWith(t, testutil.ReferrersOptions{}, nil)
+	asOf := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC)
+	cov := runrecord.CoverageRecord(runrecord.Coverage{Services: 3, SnapshotAsOf: asOf, Completeness: "complete"}, "4.6.0", asOf.Add(time.Minute))
+	publish(t, repo, cov, runOf("payments", "b"))
+	set := mustRead(t, repo)
+	if got := services(set); !slices.Equal(got, []string{runrecord.CoverageService, "payments"}) || len(set.Skipped) != 0 {
+		t.Fatalf("services = %v, skipped %+v", got, set.Skipped)
+	}
+	one := mustRead(t, repo, runrecord.AnchorTag(runrecord.CoverageService))
+	if len(one.Entries) != 1 || one.Entries[0].Record.Coverage == nil || one.Entries[0].Record.Coverage.Services != 3 {
+		t.Fatalf("the coverage anchor read %+v", one)
+	}
+}

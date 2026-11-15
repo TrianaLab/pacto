@@ -81,14 +81,14 @@ tags in a shared repository. Publishing the same record again changes nothing.
 
 ## Fields
 
-Every record has `version`, `id`, `kind`, `service`, `outcome`, `pactoVersion`
-and `recordedAt`. The other keys appear only where the table says.
+Every record has `version`, `id`, `kind`, `service`, `pactoVersion` and
+`recordedAt`, and every record other than a coverage record has `outcome`. The other keys appear only where the table says.
 
 | Key | Type | Present | Holds |
 | --- | --- | --- | --- |
 | `version` | string | always | `pacto.trianalab.io/run-record/v1` |
 | `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it. On an `operation` record, the operation's Kubernetes UID |
-| `kind` | string | always | `diff`, `impact` or `publish`, or `operation` for an [operation record](#operation-records) |
+| `kind` | string | always | `diff`, `impact` or `publish`, `operation` for an [operation record](#operation-records) or `coverage` for a [coverage record](#coverage-records) |
 | `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
@@ -106,7 +106,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target |
 | `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was |
 | `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC at full precision, equal to the `asOf` of the impact answer |
-| `outcome` | string | always | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
+| `outcome` | string | except on a coverage record | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
 | `pactoVersion` | string | always | the Pacto release that wrote the record, for example `4.6.0` or `dev`. It is distinct from the contract's `pactoVersion` |
 | `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second |
 | `repository` | string | when named | see [context fields](#context-fields) |
@@ -162,6 +162,41 @@ never holds the keys below.
 
 `service` is the service the Stage declares. An operation record holds no
 actor, approver, note, message, citation or correlation id.
+
+### Coverage records
+
+`pacto fleet status` writes a `coverage` record of the fleet snapshot it read,
+only when `--stats-registry` or `--stats-file` is on its command line. A
+coverage record is fleet-wide: its `service` is always `_fleet`, a name no
+contract can declare. Its `id` is the hex SHA-256 of `coverage`, `_fleet`, an
+empty old revision and the snapshot's `snapshotAsOf`, so recording one snapshot
+twice counts once. It holds no `outcome`, none of the CI-only keys, no
+`environment` and none of the operation keys. Readers take the newest coverage
+record in a window and never sum them. A reader that may see only part of the
+fleet sees no coverage record.
+
+| Key | Type | Present | Holds |
+| --- | --- | --- | --- |
+| `coverage` | object | always | the snapshot's coverage counters |
+| `coverage.services` | integer | always | services that are no golden path |
+| `coverage.uncontracted` | integer | always | callers the fleet observed with no contract |
+| `coverage.knowledge` | object | when the snapshot carried a knowledge tally | absent means unknown, never 0 |
+| `coverage.knowledge.services` | integer | with `knowledge` | services the tally partitions: `described` + `withGaps` + `unknown` |
+| `coverage.knowledge.described` | integer | with `knowledge` | services whose contract and interface documents leave nothing out |
+| `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap |
+| `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge |
+| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here |
+| `coverage.links` | object | always | operational targets by how they link to a contract |
+| `coverage.links.exact` | integer | always | targets linked exactly |
+| `coverage.links.inferred` | integer | always | targets linked by inference |
+| `coverage.links.ambiguous` | integer | always | targets that match more than one contract |
+| `coverage.links.unresolved` | integer | always | targets that match no contract |
+| `coverage.snapshotAsOf` | string | always | the snapshot's time, RFC 3339 in UTC; never after `recordedAt` |
+| `coverage.completeness` | string | always | `complete` or `partial`; an empty snapshot is recorded as `partial` |
+
+The observed services are `knowledge.services` minus `knowledge.unknown` minus
+`knowledge.notDeployed`. Unknown services are shown beside them and never
+counted as observed.
 
 ### Impact gate codes
 

@@ -220,8 +220,8 @@ func TestStatsCommandRejectsBadBy(t *testing.T) {
 
 func TestStatsCommandRejectsBadKind(t *testing.T) {
 	path := statsRegistry(t)
-	_, _, err := statsCmd(t, "--registry", path, "--kind", "impact, ,coverage")
-	if err == nil || err.Error() != `unsupported kind "coverage": give one of diff, impact, publish, operation` {
+	_, _, err := statsCmd(t, "--registry", path, "--kind", "impact, ,validate")
+	if err == nil || err.Error() != `unsupported kind "validate": give one of diff, impact, publish, operation, coverage` {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -304,5 +304,22 @@ func TestStatsServiceResolvesFleetKey(t *testing.T) {
 	statsRegistry(t)
 	if _, _, err := statsCmd(t, "--registry", "r.example/s", "--service", "shop/orders"); err == nil || !strings.Contains(err.Error(), "fleet key") {
 		t.Fatalf("CLI key without a snapshot: %v", err)
+	}
+}
+
+func TestStatsCommandTextShowsCoverage(t *testing.T) {
+	path := statsRegistry(t, "impact-blocked.json", "coverage.golden.json")
+	out, _, err := statsCmd(t, "--registry", path)
+	if err != nil || !strings.Contains(out, "\ncoverage 12 services, 5 described, 8 observed, 3 unknown as of 2026-11-13T08:59:00Z (partial)\n") {
+		t.Fatalf("out = %q err = %v", out, err)
+	}
+	only, _, err := statsCmd(t, "--registry", path, "--kind", "coverage", "--output-format", "json")
+	if st := decodeStats(t, only); err != nil || st.Runs != 0 || st.Totals != nil || st.Coverage == nil || st.Coverage.Services != 12 {
+		t.Fatalf("--kind coverage = %s err = %v", only, err)
+	}
+	cov := fixtureRecord(t, "coverage.golden.json")
+	cov.Coverage.Knowledge = nil
+	if got := coverageText(cov.Coverage); !strings.Contains(got, "12 services, unknown described, unknown observed as of") || strings.Contains(got, " 0 ") {
+		t.Fatalf("a missing tally prints %q", got)
 	}
 }
