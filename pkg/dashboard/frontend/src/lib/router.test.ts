@@ -5,6 +5,7 @@ import {
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
   legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl, fleetOfferingsUrl, serviceChangesUrl,
+  deliveryHistoryUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -305,6 +306,13 @@ describe('parseHash — fleet product IA', () => {
     expect(parseHash('#/fleet/targets/prod/k8s/app')).toEqual({ view: 'fleet-entity', params: { kind: 'target', key: 'prod/k8s/app' } });
     expect(parseHash('#/fleet/owners/team-a')).toEqual({ view: 'fleet-entity', params: { kind: 'owner', key: 'team-a' } });
     expect(parseHash('#/fleet/sources/k8s')).toEqual({ view: 'fleet-entity', params: { kind: 'source', key: 'k8s' } });
+  });
+
+  it('restores the As of time of a delivery history', () => {
+    const at = '2026-11-10T14:02:00Z';
+    expect(deliveryHistoryUrl({ at })).toBe('#/delivery/history?at=2026-11-10T14%3A02%3A00Z');
+    expect(parseHash(deliveryHistoryUrl({ at })).params).toEqual({ at });
+    expect(parseHash(deliveryHistoryUrl({ namespace: 'prod', stage: 'pay', at: '2h' })).params).toEqual({ namespace: 'prod', stage: 'pay', at: '2h' });
   });
 
   it('reads correlationID on a fleet entity route', () => {

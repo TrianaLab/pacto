@@ -134,3 +134,40 @@ test('History: the payments prod steps read back from signed records that verify
   await expect(prod.getByRole('row').filter({ has: page.locator('td[data-label="Record"] button') }).first()).toBeVisible();
   await axe(page, 'history');
 });
+
+// The service the payments prod history names, from its revision link (#459): a
+// revision key is the service key, an @ and the digest.
+let paymentsService = '';
+let carolChanges = 0;
+
+test('History: carol reads the impact verdict prod/payments recorded and the revision of each version', async ({ page }) => {
+  await signIn(page, 'carol', '/#/delivery/history?namespace=prod&stage=payments');
+  const prod = page.getByRole('region', { name: 'History of prod/payments' });
+  await expect(prod.getByTestId('history-impact').first()).toContainText('Impact recorded', { timeout: T });
+  const rev = prod.locator('td[data-label="Version"] a[href^="#/fleet/revisions/"]').first();
+  await expect(rev).toBeVisible();
+  const key = decodeURIComponent((await rev.getAttribute('href'))!.slice('#/fleet/revisions/'.length));
+  paymentsService = key.slice(0, key.lastIndexOf('@'));
+  expect(paymentsService).not.toBe('');
+});
+
+test('History: the payments service page says when its changes reached a Stage, from signed records', async ({ page }) => {
+  expect(paymentsService, 'the history journey names the payments service').not.toBe('');
+  await signIn(page, 'carol', `/#/fleet/services/${encodeURIComponent(paymentsService)}?section=changes`);
+  const changes = page.getByTestId('service-changes');
+  await expect(changes.getByTestId('service-changes-caption')).not.toContainText('reading times', { timeout: T });
+  await expect(changes.locator('[data-testid="service-change-reached"] a').first()).toBeVisible({ timeout: T });
+  carolChanges = await changes.getByTestId('service-change-row').count();
+  expect(carolChanges).toBeGreaterThan(0);
+  await axe(page, 'service changes, as carol');
+});
+
+test('History: dave, who may read no Stage, sees the same changes with their times hidden', async ({ page }) => {
+  expect(carolChanges, 'the journey before counts carol\'s changes').toBeGreaterThan(0);
+  await signIn(page, 'dave', `/#/fleet/services/${encodeURIComponent(paymentsService)}?section=changes`);
+  const changes = page.getByTestId('service-changes');
+  await expect(changes.getByTestId('service-changes-caption')).not.toContainText('reading times', { timeout: T });
+  await expect(changes.getByTestId('service-change-reached').first()).toContainText(/time hidden|time not recorded in the Stages read/, { timeout: T });
+  await expect(changes.getByTestId('service-change-row')).toHaveCount(carolChanges);
+  await expect(changes.locator('[data-testid="service-change-reached"] a')).toHaveCount(0);
+});

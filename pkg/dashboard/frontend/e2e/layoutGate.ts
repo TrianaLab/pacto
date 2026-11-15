@@ -495,6 +495,24 @@ export function installScaleFixture(): void {
           if (i % 2) o.available = false;
         });
       }
+      // Every record line carries a pacto.impact verdict with a long message (#459), and
+      // every digest a long fleet revision, so the impact line, its analyse link and the
+      // revision links show at their longest. Digests stay the engine's.
+      for (const h of (doc.histories as Record<string, unknown>[] | undefined) ?? []) {
+        ((h.entries as Record<string, unknown>[] | undefined) ?? []).forEach((en, i) => {
+          if (en.record) en.impact = { gate: 'pacto.impact', phase: 'pre', result: i % 2 ? 'Fail' : 'Pass', message: longName(`impact-${en.operation ?? i}`) };
+        });
+      }
+      const revs = (doc.revisions as Record<string, string> | undefined) ?? {};
+      for (const d of Object.keys((doc.versions as Record<string, string> | undefined) ?? {})) revs[d] ??= `${longName('registry.example/story/payments')}@${d}`;
+      doc.revisions = revs;
+      // As of at its longest: long Stage, service, owner, domain and reason names, and
+      // namespaces that could not be read.
+      const at = doc.at as { stages?: Record<string, unknown>[]; unreadable?: string[] } | undefined;
+      if (at) {
+        for (const st of at.stages ?? []) for (const k of ['stage', 'service', 'owner', 'businessDomain', 'reason', 'version']) if (typeof st[k] === 'string' && st[k]) st[k] = longName(st[k] as string);
+        at.unreadable = [longName('staging-eu-west-partner-feed'), longName('compliance-archive')];
+      }
     }
     // One record at its longest: many verdicts with long messages and citations.
     if (route === '/api/delivery/record') {
@@ -1321,6 +1339,27 @@ export const ROUTES: Route[] = [
       const [cause, corr] = await page.locator('[data-testid="history-filters"] input').all();
       await cause.fill('reconciliation-settlement-ledger-export-worker-eu-west-partner-feed-compliance-archive');
       await corr.fill('incident-2026-11-08-payments-prod-error-budget-burn-settlement-reconciliation-ledger-export');
+    },
+  },
+  {
+    name: 'delivery history with impact',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await expect(page.locator('[data-testid="history-impact"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=1m');
+      await expect(page.locator('[data-testid="history-at-row"]').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'delivery history as of unknown',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?at=2000-01-01T00%3A00%3A00Z');
+      await expect(page.locator('[data-testid="history-at-row"]', { hasText: 'no record before this time' }).first()).toBeVisible({ timeout: 30_000 });
     },
   },
   {

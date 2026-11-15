@@ -108,6 +108,18 @@ export function timeLabel(iso: string | undefined): string {
 }
 
 /**
+ * impactText is the pacto.impact verdict a history line's record carries, in
+ * words: recorded (and signed) only on a record line of a verified history,
+ * otherwise "signature not checked". A line without a verdict has none.
+ */
+export function impactText(verified: boolean | undefined, en: { record?: string; kind?: string; finished?: string; impact?: { result?: string; message?: string } | null }): string {
+  if (!en.impact) return '';
+  const head = verified && en.record && en.kind === 'operation'
+    ? `Impact recorded${en.finished ? ` ${timeLabel(en.finished)}` : ''}` : 'Impact recorded, signature not checked';
+  return `${head}: ${[en.impact.result, en.impact.message].filter(Boolean).join(' ')}`;
+}
+
+/**
  * sentence turns a server note into a sentence: capitalised, digests short, a
  * full stop. A note that starts with an identifier (k8s:pay/x, sha256:...)
  * keeps it as written.
