@@ -1,10 +1,12 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { metricsUrl, hashForHref, deliveryEnvironmentsUrl, deliveryHistoryUrl } from '../lib/router.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { andList, placedByName } from '../lib/delivery.ts';
-  import { tiles, trend, bucketLabel, caption, isDaily, windowDays, envTitle, hiddenLine, ratioText, duration, RATES, TRENDS, METRIC_LABEL } from '../lib/metrics.ts';
+  import { tiles, trend, caption, isDaily, windowDays, windowTotal, envTitle, hiddenLine, ratioText, duration, noCI, protectedText, coverageTrend, NO_CI, RATES, TRENDS, COVERAGE_SERIES, METRIC_LABEL } from '../lib/metrics.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
@@ -39,70 +41,46 @@
   const enabled = $derived(capabilities?.stats === true);
   const w = $derived(WINDOWS.some((o) => o.value === win) ? win : '');
   const int = (v) => Number.parseInt(v, 10) || undefined;
-  let data = $state(null);
-  let error = $state('');
-  let seq = 0;
+  const message = (e, fallback) => e?.message || fallback;
 
-  async function load() {
-    const mine = ++seq;
-    try {
-      const res = await api.stats({ window: w || undefined, servicesOffset: int(servicesOffset), servicesLimit: int(servicesLimit) });
-      if (mine !== seq) return;
-      data = res;
-      error = '';
-    } catch (e) {
-      if (mine !== seq) return;
-      error = e?.message || 'Reading the stats repository failed.';
-    }
-  }
-  function retry() { error = ''; data = null; load(); }
-
-  $effect(() => {
-    const _ = [w, servicesOffset, servicesLimit, refreshTick];
-    if (enabled) load();
-  });
+  // Both reads keep what is on screen while the next one loads (stale while revalidate): a
+  // poll or a page turn never collapses the page, and a failed poll keeps the numbers and
+  // says the refresh failed instead of blanking them.
+  const stats = createProductLoader(() => api.stats({ window: w || undefined, servicesOffset: int(servicesOffset), servicesLimit: int(servicesLimit) }));
+  const statsQuestion = $derived(`${w}@@${int(servicesOffset)}@@${int(servicesLimit)}`);
+  $effect(() => { if (enabled) stats.sync(`${statsQuestion}@@${refreshTick}`, statsQuestion, w); });
+  const statsAnswer = $derived(stats.answer(statsQuestion, w));
+  const data = $derived(statsAnswer.data);
+  const error = $derived(stats.error && !data ? message(stats.error, 'Reading the stats repository failed.') : '');
+  const refreshError = $derived(stats.error && data ? message(stats.error, 'Reading the stats repository failed.') : '');
+  function retry() { stats.refresh(); }
 
   // The records behind one number (?metric=), on the same URL as the number.
-  let rec = $state(null);
-  let recError = $state('');
-  let recSeq = 0;
-  async function loadRecords() {
-    const mine = ++recSeq;
-    rec = null;
-    recError = '';
-    try {
-      const res = await api.statsRecords({ window: w || undefined, metric, environment: environment || undefined, offset: int(offset), limit: int(limit) });
-      if (mine === recSeq) rec = res;
-    } catch (e) {
-      if (mine === recSeq) recError = e?.message || 'Reading the records failed.';
-    }
-  }
-  $effect(() => {
-    const _ = [w, metric, environment, offset, limit, refreshTick];
-    if (enabled && metric) loadRecords();
-  });
+  const records = createProductLoader(() => api.statsRecords({ window: w || undefined, metric, environment: environment || undefined, offset: int(offset), limit: int(limit) }));
+  const recQuestion = $derived(`${w}@@${metric}@@${environment}@@${int(offset)}@@${int(limit)}`);
+  const recFamily = $derived(`${w}@@${metric}@@${environment}`);
+  $effect(() => { if (enabled && metric) records.sync(`${recQuestion}@@${refreshTick}`, recQuestion, recFamily); });
+  const rec = $derived(records.answer(recQuestion, recFamily).data);
+  const recError = $derived(records.error && !rec ? message(records.error, 'Reading the records failed.') : '');
+  onDestroy(() => { stats.destroy(); records.destroy(); });
 
-  const noRecords = $derived((data?.limitations || []).find((l) => NO_RECORDS.includes(l.code)) ?? null);
-  const shownLimits = $derived((data?.limitations || []).filter((l) => !NO_RECORDS.includes(l.code) && l.code !== COVERAGE_HIDDEN));
+  // The explainer only for a window that is truly empty: when records were skipped, cut
+  // off or are outside the reader's view, the page says that instead of "recording is off".
+  const noRecords = $derived(data?.completeness === 'empty' ? (data.limitations || []).find((l) => NO_RECORDS.includes(l.code)) ?? null : null);
+  const shownLimits = $derived((data?.limitations || []).filter((l) => l.code !== COVERAGE_HIDDEN));
   const coverageHidden = $derived((data?.limitations || []).some((l) => l.code === COVERAGE_HIDDEN));
   const tileList = $derived(data ? tiles(data, w) : []);
   const daily = $derived(data ? isDaily(data) : false);
   const days = $derived(data ? windowDays(data) : 0);
   const charts = $derived(data ? TRENDS.map((t) => {
     const rows = trend(data, t.metric);
-    return { ...t, rows, caption: caption(t.title, rows, daily, days) };
+    return { ...t, rows, caption: caption(t.title, rows, daily, days, windowTotal(data, t.metric)) };
   }) : []);
   const envs = $derived(data?.environments ?? []);
   const byName = $derived(placedByName(envs));
   const hidden = $derived(data ? hiddenLine(data) : '');
   // Coverage history is fleet-wide: a reader who cannot see every service sees only now.
-  const coverageRows = $derived((data?.buckets ?? []).map((b) => {
-    const label = bucketLabel(b, daily);
-    const k = b.coverage?.knowledge;
-    if (!b.coverage) return { label, value: 0, unknown: 'no records' };
-    if (!k) return { label, value: 0, unknown: 'unknown' };
-    return { label, value: k.described, hatch: b.coverage.completeness !== 'complete' };
-  }));
+  const coverageCharts = $derived(data ? COVERAGE_SERIES.map((c) => ({ ...c, rows: coverageTrend(data, c.key) })) : []);
   const now = $derived(data?.coverageNow ?? null);
 
   const go = (q) => { location.hash = metricsUrl(q); };
@@ -166,9 +144,10 @@
   {:else}
     <section class="mx-content" data-testid="metrics-content" aria-label="Pacto outcomes">
       <div class="mx-head">
-        <Select label="Window" value={w || '30d'} options={WINDOWS} onchange={(e) => go({ window: e.currentTarget.value })} />
+        <Select label="Window" value={w || '30d'} options={WINDOWS} onchange={(e) => go({ window: e.currentTarget.value, metric, environment })} />
         <StatsStrip st={data} />
       </div>
+      {#if refreshError}<p role="alert" class="t-body-2" data-testid="metrics-refresh-error">Refreshing failed, so these numbers are from {formatDateTime(data.asOf)}: {refreshError}</p>{/if}
       {#if hidden}<p class="t-body-2 mx-hidden" data-testid="metrics-hidden">{hidden}</p>{/if}
       {#if shownLimits.length}<LimitationsList items={shownLimits} />{/if}
 
@@ -244,8 +223,9 @@
         {#each tileList as t (t.key)}
           <div class="mx-tile">
             <span class="t-label mx-tile-label" title={t.label}>{t.label}</span>
+            {#if t.sub}<bdi class="t-meta mx-tile-sub">{t.sub}</bdi>{/if}
             <span class="t-metric mx-tile-value">
-              {#if t.unknown}{@render unknownText(t.value)}{:else if t.href}<a href={t.href} data-lists={t.lists}>{t.value}</a>{:else}{t.value}{/if}
+              {#if t.unknown && t.href}<a href={t.href} data-lists={t.lists}>{@render unknownText(t.value)}</a>{:else if t.unknown}{@render unknownText(t.value)}{:else if t.href}<a href={t.href} data-lists={t.lists}>{t.value}</a>{:else}{t.value}{/if}
             </span>
             {#if t.detail}<span class="t-meta">{t.detail}</span>{/if}
           </div>
@@ -288,7 +268,7 @@
                     </th>
                     <td data-label="Operations">{formatCount(e.operations)}</td>
                     {#each RATES as r (r.metric)}
-                      <td data-label={r.label}>{@render count(ratioText(e[r.field]), countLink(r.metric, e[r.field].unknown ? 0 : e[r.field].count, e.environment), e[r.field].count)}</td>
+                      <td data-label={r.label}>{@render count(ratioText(e[r.field]), countLink(r.metric, e[r.field].count, e.environment), e[r.field].count)}</td>
                     {/each}
                     <td data-label="Lead time p50">{@render count(duration(e.leadTime.p50Seconds), '', 0)}</td>
                     <td data-label="Lead time p90">{@render count(duration(e.leadTime.p90Seconds), '', 0)}</td>
@@ -328,8 +308,10 @@
             <p class="t-body-2" data-testid="metrics-coverage-restricted">{COVERAGE_RESTRICTED}</p>
           {:else}
             <div class="mx-chart" data-fig data-testid="metrics-coverage-trend">
-              <HorizontalBars title={`Described services per ${daily ? 'day' : 'week'}`} items={coverageRows} />
-              <p class="t-meta mx-caption">The newest coverage snapshot of each {daily ? 'day' : 'week'}; a partial snapshot is hatched.</p>
+              {#each coverageCharts as c (c.key)}
+                <HorizontalBars title={`${c.title} per ${daily ? 'day' : 'week'}`} items={c.rows} />
+              {/each}
+              <p class="t-meta mx-caption">The newest coverage snapshot of each {daily ? 'day' : 'week'}; a partial snapshot is hatched, and so is every count of services Pacto cannot judge.</p>
               <StatsStrip st={data} />
             </div>
           {/if}
@@ -357,11 +339,16 @@
                         {#if s.note}<span class="t-meta">{s.note}</span>{/if}
                       </div>
                     </th>
-                    <td data-label="Breaking caught">{formatCount(m.breakingCaught.distinct)}</td>
-                    <td data-label="Blocked">{formatCount(m.gates.blocked)}</td>
-                    <td data-label="Clear">{formatCount(m.gates.clear)}</td>
-                    <td data-label="Unverified">{formatCount(m.gates.unverified)}</td>
-                    <td data-label="Consumers protected">{formatCount(m.consumersProtected.count)}</td>
+                    {#if noCI(m)}
+                      {#each ['Breaking caught', 'Blocked', 'Clear', 'Unverified', 'Consumers protected'] as l (l)}<td data-label={l}>{@render unknownText(NO_CI)}</td>{/each}
+                    {:else}
+                      {@const p = protectedText(m)}
+                      <td data-label="Breaking caught">{formatCount(m.breakingCaught.distinct)}</td>
+                      <td data-label="Blocked">{formatCount(m.gates.blocked)}</td>
+                      <td data-label="Clear">{formatCount(m.gates.clear)}</td>
+                      <td data-label="Unverified">{formatCount(m.gates.unverified)}</td>
+                      <td data-label="Consumers protected">{#if p.qualified}{@render unknownText(p.text)}{:else}{p.text}{/if}</td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
@@ -391,6 +378,8 @@
   .mx-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(24ch, 100%), 1fr)); gap: var(--sp-3); }
   .mx-tile { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .mx-tile-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The environment tells the lead-time tiles apart, so it wraps and is never clipped. */
+  .mx-tile-sub { min-width: 0; overflow-wrap: anywhere; }
   /* A rate ("12/1,200 (1%)") in the metric size is wider than a narrow tile: it wraps at its spaces. */
   .mx-tile-value { min-width: 0; overflow-wrap: anywhere; }
   .mx-tile-value a { display: inline-block; max-width: 100%; min-height: var(--touch-min); }

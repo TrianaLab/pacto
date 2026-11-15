@@ -12,7 +12,9 @@ import (
 
 // MetricNames is the closed list of numbers Behind can list the records of:
 //   - breaking: one record per change a diff or impact run classified BREAKING
-//   - protected: the blocked gate records whose consumers were held back
+//   - protected: the newest gate record of each blocked change, the same
+//     records as blocked; each carries the consumers it held back, where an
+//     impact run judged them
 //   - clear, blocked, unverified: the newest gate record of each change with
 //     that verdict
 //   - held, failed, rolledBack, verificationFailed: the operation records

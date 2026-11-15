@@ -65,13 +65,13 @@
             <a class="hb-inner" href={r.href}>
               <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
-              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || amount(r.value)}</span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || r.display || amount(r.value)}</span>
             </a>
           {:else}
             <span class="hb-inner">
               <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
-              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || amount(r.value)}</span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || r.display || amount(r.value)}</span>
             </span>
           {/if}
         </li>

@@ -4,7 +4,7 @@
  * does not have.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 import { ApiError } from '../lib/api.ts';
 
 const { statsFn, recordsFn } = vi.hoisted(() => ({ statsFn: vi.fn(), recordsFn: vi.fn() }));
@@ -91,9 +91,10 @@ const env = (environment: string, extra: Record<string, unknown> = {}) => ({
   environment, source: 'context', operations: 10, held: ratio(2, 10), failed: ratio(0, 10), rolledBack: ratio(0, 0),
   verificationFailed: ratio(1, 8), acceptedUnknown: 0, leadTime: { joined: 0, unjoined: 0, unknown: true }, upstream: [], ...extra,
 });
-const metrics = () => ({
-  breakingCaught: { distinct: 7, runs: 19 }, consumersProtected: { count: 12, unknown: 0 },
-  gates: { clear: 30, blocked: 4, unverified: 0 }, environments: [env('staging'), env('production')],
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+const metrics = (extra: Record<string, unknown> = {}): any => ({
+  changes: 20, breakingCaught: { distinct: 7, runs: 19 }, consumersProtected: { count: 12, unknown: 0 },
+  gates: { clear: 30, blocked: 4, unverified: 0 }, environments: [env('staging'), env('production')], ...extra,
 });
 const coverage = (knowledge: Record<string, number> | undefined) => ({
   services: 10, uncontracted: 2, knowledge, links: { exact: 5, inferred: 2, ambiguous: 1, unresolved: 0 },
@@ -268,4 +269,98 @@ describe('FleetMetricsView content', () => {
     expect(target.querySelector('[data-view-total]')?.getAttribute('data-testid')).toBe('metrics-records-pager');
     done();
   });
+
+  it('keeps the numbers and the open records on screen through a refresh, and says when one fails', async () => {
+    statsFn.mockResolvedValue(populated());
+    recordsFn.mockResolvedValue({ asOf: '2026-11-15T10:00:00Z', window: { since: '2026-10-16T10:00:00Z', until: '2026-11-15T10:00:00Z' }, provenance: 'unsigned statistics',
+      recordsRead: 1, skipped: { malformed: 0, oversized: 0, unreadable: 0 }, truncated: '', hidden: { present: false }, completeness: 'complete', limitations: [], total: 1,
+      items: [{ record: { id: 'a', kind: 'impact', service: 'payments', gate: { verdict: 'blocked' }, recordedAt: '2026-11-10T10:00:00Z', version: '1', pactoVersion: '4' } }] });
+    const props = $state({ capabilities: { fleet: true, stats: true }, refreshTick: 0, metric: 'blocked' });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetMetricsView, { target, props });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-record"]')).not.toBeNull());
+    let release = () => {};
+    recordsFn.mockReturnValueOnce(new Promise((r) => { release = () => r(undefined); }));
+    statsFn.mockRejectedValueOnce(new ApiError(503, 'registry down'));
+    props.refreshTick = 1;
+    flushSync();
+    // The poll in flight never collapses the records into a skeleton.
+    expect(target.querySelector('[data-testid="metrics-record"]')).not.toBeNull();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-refresh-error"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-content"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="metrics-error"]')).toBeNull();
+    release();
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
+  it('keeps the records panel open when the window changes', async () => {
+    statsFn.mockResolvedValue(populated());
+    recordsFn.mockResolvedValue({ total: 0, items: [], limitations: [], hidden: { present: false }, skipped: {}, completeness: 'complete', asOf: '2026-11-15T10:00:00Z', provenance: 'unsigned statistics' });
+    const { target, done } = mountView({ metric: 'failed', environment: 'prod-eu' });
+    await vi.waitFor(() => expect(target.querySelector('select')).not.toBeNull());
+    const select = target.querySelector('select') as HTMLSelectElement;
+    select.value = '90d';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/metrics?window=90d&metric=failed&environment=prod-eu');
+    location.hash = '';
+    done();
+  });
+
+  it('qualifies a lower-bound consumers count and draws a service with no CI record as unknown', async () => {
+    statsFn.mockResolvedValue(populated({ services: [
+      { label: 'payments', href: '/fleet/services/payments', metrics: metrics({ consumersProtected: { count: 3, unknown: 5, partial: 2 } }) },
+      { label: 'delivered', href: '/fleet/services/delivered', metrics: metrics({ changes: 0 }) },
+    ] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-service-row"]')).not.toBeNull());
+    const [qualified, noCi] = Array.from(target.querySelectorAll('[data-testid="metrics-service-row"]'));
+    const cell = qualified.querySelector('td[data-label="Consumers protected"]') as HTMLElement;
+    expect(cell.textContent?.trim()).toBe('3 or more, 5 unknown');
+    expect(cell.querySelector('.hatch')).not.toBeNull();
+    expect(noCi.querySelector('td[data-label="Breaking caught"]')?.textContent?.trim()).toBe('no CI records');
+    done();
+  });
+
+  it('puts a lead time environment on its own line', async () => {
+    statsFn.mockResolvedValue(populated());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.mx-tile-sub')).not.toBeNull());
+    const tile = target.querySelector('.mx-tile-sub')?.closest('.mx-tile') as HTMLElement;
+    expect(tile.querySelector('.mx-tile-label')?.textContent).toBe('Lead time p50');
+    expect(tile.querySelector('bdi.mx-tile-sub')?.textContent).toBe('staging');
+    done();
+  });
+
+  it('draws services, described, deployed and unknown over time', async () => {
+    statsFn.mockResolvedValue(populated());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull());
+    const titles = Array.from(target.querySelectorAll('[data-testid="metrics-coverage-trend"] .hb-title')).map((h) => h.textContent);
+    expect(titles).toEqual(['Services per week', 'Described services per week', 'Deployed services per week', 'Services Pacto cannot judge per week']);
+    done();
+  });
+});
+
+describe('FleetMetricsView zero that another limitation explains', () => {
+  for (const [name, limitation, extra] of [
+    ['records outside the view', { code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view' }, { hidden: { present: true } }],
+    ['skipped records', { code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be read' }, {}],
+    ['a cut read', { code: 'RUN_RECORDS_TRUNCATED', message: 'the read was cut at more than 1000 run records' }, { truncated: 'more than 1000 run records' }],
+  ] as const) {
+    it(`says ${name}, never that recording may be off`, async () => {
+      statsFn.mockResolvedValue(answer({ completeness: 'partial', ...extra,
+        limitations: [limitation, { code: 'NO_RUN_RECORDS', message: 'no run record you can count in this window' }] }));
+      const { target, done } = mountView();
+      await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-content"]')).not.toBeNull());
+      expect(target.querySelector('[data-testid="metrics-none"]')).toBeNull();
+      expect(target.textContent).toContain(limitation.message);
+      expect(target.textContent).toContain('no run record you can count in this window');
+      expect(target.textContent).not.toContain('recording may be off');
+      expect(target.querySelector('[data-testid="stats-strip"]')?.textContent).toContain('Partial');
+      if ('hidden' in extra) expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull();
+      done();
+    });
+  }
 });
