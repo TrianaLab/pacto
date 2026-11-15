@@ -28,6 +28,9 @@ const (
 	// LimitationRepositoryMissing replaces LimitationNoRecords when the stats
 	// repository itself was not found.
 	LimitationRepositoryMissing = "RUN_RECORDS_REPOSITORY_NOT_FOUND"
+	// LimitationOnlyCoverage replaces LimitationNoRecords when the window
+	// holds coverage records and no other run record.
+	LimitationOnlyCoverage = "NO_CI_OR_DELIVERY_RUN_RECORDS"
 	// LimitationConsumersPartial says a consumer count is a lower bound.
 	LimitationConsumersPartial = "CONSUMERS_FROM_PARTIAL_SNAPSHOT"
 )
@@ -48,12 +51,12 @@ type Query struct {
 type Ratio struct {
 	Count   int  `json:"count" doc:"Records that match"`
 	Of      int  `json:"of" doc:"Records the rate is taken over"`
-	Unknown bool `json:"unknown,omitempty" doc:"True when of is 0: there is nothing to take the rate over"`
+	Unknown bool `json:"unknown,omitempty" doc:"True when of is 0: there is nothing to take the rate over, though count still says how many records matched, such as a rollback with no succeeded promote in the window"`
 }
 
 func ratio(count, of int) Ratio {
 	if of == 0 {
-		return Ratio{Unknown: true}
+		return Ratio{Count: count, Unknown: true}
 	}
 	return Ratio{Count: count, Of: of}
 }
@@ -86,6 +89,7 @@ type Gates struct {
 
 // Metrics are the numbers of one group or of every record.
 type Metrics struct {
+	Changes            int                  `json:"changes" doc:"Distinct changes among the diff and impact runs; 0 means no CI run was recorded, so breakingCaught, consumersProtected and gates measured nothing and are unknown, never 0"`
 	BreakingCaught     Distinct             `json:"breakingCaught" doc:"Changes a diff or impact run classified BREAKING"`
 	ConsumersProtected Protected            `json:"consumersProtected" doc:"Consumers held back by changes whose newest gate is blocked; changes no impact run judged add nothing"`
 	Gates              Gates                `json:"gates" doc:"Changes by their newest gate verdict"`
@@ -109,50 +113,72 @@ type Group struct {
 
 // Stats is one answer.
 type Stats struct {
-	AsOf            time.Time          `json:"asOf" doc:"Time the answer was computed, UTC"`
-	Window          Window             `json:"window" doc:"Time range the answer covers"`
-	Registry        string             `json:"registry,omitempty" doc:"Stats repository read"`
-	Provenance      string             `json:"provenance" doc:"Always unsigned statistics: run records are never evidence"`
-	RecordsRead     int                `json:"recordsRead" doc:"Records read from the repository, in or out of the window; skipped records are counted apart"`
-	Runs            int                `json:"runs" doc:"Records in the window after retries of one record id count once"`
-	DistinctChanges int                `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only"`
-	Skipped         Skipped            `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
-	Truncated       string             `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
-	Hidden          Hidden             `json:"hidden" doc:"Whether records outside the caller's view exist"`
-	Completeness    fleet.Completeness `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
-	Limitations     []fleet.Limitation `json:"limitations" doc:"Why the answer is incomplete"`
-	By              string             `json:"by,omitempty" doc:"What the groups are by"`
-	Attribution     *Attribution       `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
-	Totals          *Metrics           `json:"totals,omitempty" doc:"Numbers over every record in the window; absent when there are none"`
-	Groups          []Group            `json:"groups,omitempty" doc:"Numbers per group"`
+	AsOf            time.Time           `json:"asOf" doc:"Time the answer was computed, UTC"`
+	Window          Window              `json:"window" doc:"Time range the answer covers"`
+	Registry        string              `json:"registry,omitempty" doc:"Stats repository read"`
+	Provenance      string              `json:"provenance" doc:"Always unsigned statistics: run records are never evidence"`
+	RecordsRead     int                 `json:"recordsRead" doc:"Records read from the repository, in or out of the window; skipped records are counted apart"`
+	Runs            int                 `json:"runs" doc:"Records in the window after retries of one record id count once"`
+	DistinctChanges int                 `json:"distinctChanges" doc:"Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only"`
+	Skipped         Skipped             `json:"skipped" doc:"Records that could not be counted; they are left out of every number"`
+	Truncated       string              `json:"truncated" doc:"The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole"`
+	Hidden          Hidden              `json:"hidden" doc:"Whether records outside the caller's view exist"`
+	Completeness    fleet.Completeness  `json:"completeness" enum:"complete,partial,empty" doc:"partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records"`
+	Limitations     []fleet.Limitation  `json:"limitations" doc:"Why the answer is incomplete"`
+	By              string              `json:"by,omitempty" doc:"What the groups are by"`
+	Attribution     *Attribution        `json:"attribution,omitempty" doc:"Where owner and domain came from, when grouping by them"`
+	Totals          *Metrics            `json:"totals,omitempty" doc:"Numbers over every record in the window; absent when there are none"`
+	Coverage        *runrecord.Coverage `json:"coverage,omitempty" doc:"The newest coverage record in the window; a level, never a sum. Absent when the window holds none"`
+	Groups          []Group             `json:"groups,omitempty" doc:"Numbers per group"`
 }
 
 // Aggregate totals set for q at now, as sc lets the caller see it. It does
 // no I/O.
 func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st := &Stats{AsOf: now.UTC(), Window: q.Window, Provenance: Provenance, By: q.By, Truncated: set.Truncated}
-	visible, skipped, outside := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
-	current, future := notFuture(visible, now)
-	st.Skipped, st.Hidden.Present = skipped, outside
-	st.Skipped.Malformed += future
-	st.RecordsRead = len(current)
-	entries := dedupe(selectEntries(current, q))
-	st.Runs = len(entries)
+	sel := selectRecords(set, q, sc, now)
+	st.Skipped, st.Hidden.Present = sel.skipped, sel.outside
+	st.RecordsRead = len(sel.history)
+	entries, coverage := splitCoverage(sel.inWindow)
+	st.Runs, st.Coverage = len(entries), newestCoverage(coverage, q.Window.Until)
 	if len(entries) > 0 {
-		m, changes := metricsOf(entries, current)
+		m, changes := metricsOf(entries, sel.history)
 		st.Totals, st.DistinctChanges = &m, changes
-		st.Groups = groups(entries, current, q.By, sc)
+		st.Groups = groups(entries, sel.history, q.By, sc)
 	}
 	if a := sc.Snapshot; a != nil && (q.By == "owner" || q.By == "domain") {
 		attr := *a
 		attr.Provenance = "inferred"
 		st.Attribution = &attr
 	}
-	st.Limitations, st.Completeness = limitations(st, set, sc, future, truncatedService(set.TruncatedAnchor, current))
+	st.Limitations, st.Completeness = limitations(st, set, sc, sel, truncatedService(set.TruncatedAnchor, sel.history))
 	if st.Totals != nil {
 		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
 	}
 	return st
+}
+
+// selection is what a query lets a caller count, shared by Aggregate and
+// Behind so both apply one visibility, window and dedupe.
+type selection struct {
+	// history is every visible record not dated in the future, in the
+	// window or before it, retries kept: lead times join against it.
+	history []Entry
+	// inWindow is history in the window and filters, one entry per id.
+	inWindow []Entry
+	skipped  Skipped
+	future   int
+	outside  bool
+	// coverageHidden says a restricted caller was kept from coverage records.
+	coverageHidden bool
+}
+
+func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
+	visible, skipped, outside, coverage := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	current, future := notFuture(visible, now)
+	skipped.Malformed += future
+	coverage = coverage || sc.Restricted && set.CoverageAnchor
+	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside, coverageHidden: coverage}
 }
 
 // metricsOf is the CI and delivery numbers of entries and their distinct
@@ -236,13 +262,7 @@ func isChangeKind(kind string) bool {
 
 // ciMetrics computes the CI numbers and counts the distinct changes.
 func ciMetrics(entries []Entry) (Metrics, int) {
-	changes := map[string][]Entry{}
-	for _, e := range entries {
-		if r := e.Record; isChangeKind(r.Kind) {
-			key := r.Service + "|" + r.OldRevision + "|" + r.NewRevision
-			changes[key] = append(changes[key], e)
-		}
-	}
+	changes := changesOf(entries)
 	var m Metrics
 	for _, recs := range changes {
 		if n := breakingRuns(recs); n > 0 {
@@ -251,7 +271,21 @@ func ciMetrics(entries []Entry) (Metrics, int) {
 		}
 		countGate(&m, newestGate(recs))
 	}
-	return m, len(changes)
+	m.Changes = len(changes)
+	return m, m.Changes
+}
+
+// changesOf groups the diff and impact entries by change (service, old
+// revision, new revision).
+func changesOf(entries []Entry) map[string][]Entry {
+	changes := map[string][]Entry{}
+	for _, e := range entries {
+		if r := e.Record; isChangeKind(r.Kind) {
+			key := r.Service + "|" + r.OldRevision + "|" + r.NewRevision
+			changes[key] = append(changes[key], e)
+		}
+	}
+	return changes
 }
 
 func breakingRuns(recs []Entry) int {
@@ -298,12 +332,14 @@ func countGate(m *Metrics, e *Entry) {
 	}
 }
 
-func limitations(st *Stats, set RecordSet, sc Scope, future int, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
+func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
 	for _, l := range []*fleet.Limitation{
-		skippedLimitation(st.Skipped, future),
+		skippedLimitation(st.Skipped, sel.future),
 		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
+		limitationIf(sc.Restricted && len(sc.Names) == 0 && st.Runs == 0 && !st.Hidden.Present, LimitationOutsideView, "your view of the fleet holds no service, so no run record is read for you"),
+		limitationIf(sel.coverageHidden, LimitationCoverageOutsideView, "coverage records count every service, so only a reader who can see every service sees them"),
 		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),
 		limitationIf(st.Totals != nil && st.Totals.ConsumersProtected.Partial > 0, LimitationConsumersPartial, "some blocked changes were judged on a partial fleet snapshot, so consumersProtected is a lower bound"),
@@ -316,18 +352,34 @@ func limitations(st *Stats, set RecordSet, sc Scope, future int, truncatedBy str
 	if len(lims) > 0 {
 		c = fleet.CompletenessPartial
 	}
-	switch {
-	case st.Runs == 0 && set.RepositoryMissing:
-		lims = append(lims, fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"})
-	case st.Runs == 0:
-		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"})
+	if l := noRunsLimitation(st, set, c == fleet.CompletenessPartial); l != nil {
+		lims = append(lims, *l)
 	}
-	if st.Runs == 0 {
-		if c == fleet.CompletenessComplete {
-			c = fleet.CompletenessEmpty
-		}
+	if st.Runs == 0 && st.Coverage == nil && c == fleet.CompletenessComplete {
+		c = fleet.CompletenessEmpty
 	}
 	return lims, c
+}
+
+// noRunsLimitation says why a window counts no run. When another limitation
+// already explains the zero (records skipped, cut off or outside the caller's
+// view), recording is never blamed.
+func noRunsLimitation(st *Stats, set RecordSet, explained bool) *fleet.Limitation {
+	switch {
+	case st.Runs > 0:
+		return nil
+	case st.Coverage != nil && explained:
+		return &fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run record you can count"}
+	case st.Coverage != nil:
+		// The window holds coverage, so it is not empty: only the CI and
+		// delivery numbers are missing.
+		return &fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run records: recording may be off for those jobs"}
+	case set.RepositoryMissing:
+		return &fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"}
+	case explained:
+		return &fleet.Limitation{Code: LimitationNoRecords, Message: "no run record you can count in this window"}
+	}
+	return &fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"}
 }
 
 func limitationIf(cond bool, code, message string) *fleet.Limitation {

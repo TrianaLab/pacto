@@ -171,7 +171,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
     expect(groups).toEqual([
       { label: '', items: ['overview', 'attention'] },
       { label: 'Organization', items: ['services', 'owners', 'domains', 'offerings', 'golden-paths'] },
-      { label: 'Change and delivery', items: ['changes'] },
+      { label: 'Change and delivery', items: ['changes', 'metrics'] },
       { label: 'System', items: ['graph', 'sources'] },
     ]);
     unmount(component); document.body.removeChild(target);
@@ -179,7 +179,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
 
   it('names every destination by its label, in sidebar order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Operational graph', 'Data sources']);
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Metrics', 'Operational graph', 'Data sources']);
   });
 
   it('offers the same list while capabilities are unknown, so a Fleet host never flashes the legacy bar', () => {

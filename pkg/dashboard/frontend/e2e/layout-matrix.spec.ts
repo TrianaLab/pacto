@@ -135,3 +135,19 @@ test('the Environments section at 200 environments keeps its differences, change
   }
   await expect(section.getByTestId('environments-footer')).toContainText(/^As of .*, (complete|partial)/);
 });
+
+// The Metrics fixture answers on the plain demo, which has no stats repository: the
+// metrics routes above draw the fixture's answers, never the engine's 404.
+test('the metrics fixture answers GET /api/stats on the plain demo', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await appReady(page);
+  const serve = (mode: string) => page.evaluate(async (m) => {
+    sessionStorage.setItem('fixture.stats', m);
+    const w = window as unknown as { __pactoServe: (method: string, path: string, body: string | null) => Promise<{ status: number; body: string }> };
+    const [stats, caps] = await Promise.all([w.__pactoServe('GET', '/api/stats', null), w.__pactoServe('GET', '/api/capabilities', null)]);
+    return { status: stats.status, stats: caps.status === 200 ? JSON.parse(caps.body).stats : null };
+  }, mode);
+  expect(await serve('')).toEqual({ status: 200, stats: true });
+  expect(await serve('none')).toEqual({ status: 200, stats: true });
+  expect(await serve('off')).toEqual({ status: 404, stats: false });
+});

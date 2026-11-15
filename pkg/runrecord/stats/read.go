@@ -48,4 +48,8 @@ type RecordSet struct {
 	// RepositoryMissing is true when the tag scan found no repository: it
 	// does not exist or nothing was published to it yet.
 	RepositoryMissing bool
+	// CoverageAnchor is true when a read of named anchors left out the
+	// coverage anchor and found it exists, or could not tell: a restricted
+	// caller is then told coverage is withheld, never that there is none.
+	CoverageAnchor bool
 }

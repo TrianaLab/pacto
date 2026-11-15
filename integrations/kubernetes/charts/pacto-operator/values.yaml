@@ -285,6 +285,9 @@ dashboard:
       key: trust.yaml
     # -- Mira's address, to link the health-check citations in delivery views
     miraURL: ""
+  stats:
+    # -- Stats repository the dashboard's Metrics page reads run records from, such as ghcr.io/acme/pacto-stats. Empty: the page explains how to turn recording on. Credentials come from dashboard.ociSecrets
+    registry: ""
   service:
     # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
     # The operator manages an internal ClusterIP Service (pacto-dashboard) for

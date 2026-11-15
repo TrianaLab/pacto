@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -861,5 +863,26 @@ func TestFleetAttentionToolDescribesProvisioning(t *testing.T) {
 	}
 	if !strings.Contains(fleetInstructions, "unless a resource carries reported consumption") {
 		t.Error("instructions lack the consumption clause in the Mira sentence")
+	}
+}
+
+// TestFleetStatusToolNeverRecords pins that pacto_fleet_status has no
+// run-record path: only pacto fleet status, with its own flag, writes coverage.
+func TestFleetStatusToolNeverRecords(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob: %v", err)
+	}
+	for _, f := range files {
+		if f == "stats.go" || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(src), "runrecord") {
+			t.Errorf("%s references runrecord; the fleet status tool must never record", f)
+		}
 	}
 }

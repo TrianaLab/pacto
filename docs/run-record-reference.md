@@ -3,9 +3,9 @@
 A run record is a small JSON document that `pacto diff`, `pacto impact` and
 `pacto publish` can leave behind in CI to count what Pacto catches. Records are
 unsigned statistics, never evidence: nothing in Pacto that validates, diffs,
-analyzes impact, publishes or delivers reads them. Only `pacto stats` and the
-read-only MCP tool `pacto_stats` read them back, to
-[total them](#the-stats-answer). Recording is opt-in and best effort. A problem with recording prints one
+analyzes impact, publishes or delivers reads them. Only `pacto stats`, the
+read-only MCP tool `pacto_stats` and the dashboard's Metrics page read them
+back, to [total them](#the-stats-answer). Recording is opt-in and best effort. A problem with recording prints one
 warning line on stderr, and the exit code and stdout stay the same as a run
 without recording. MCP tools never record. `pacto impact` event answers
 (`--unavailable`, `--removed` and `--regressed`) and `pacto publish --plan`
@@ -24,9 +24,12 @@ defaulted, and these settings are never read from `pacto.yaml`. Credentials and
 insecure registries come from the same settings every other registry command
 uses (`PACTO_INSECURE_REGISTRIES` lists registries reached over plain HTTP).
 An empty flag, such as `--stats-file=`, turns its environment variable off for
-that command. A file holds one record: `--stats-file` replaces the record a file
-already holds, with a warning, and writes an empty file like a missing one. It
-refuses to overwrite a file that holds something other than a run record.
+that command. A file holds one record. `--stats-file`:
+
+- replaces the record a file already holds, with a warning;
+- writes an empty file like a missing one;
+- refuses to overwrite a file that holds something other than a run record.
+
 `PACTO_STATS_FILE` applies to every recording command in the job, so give each
 command its own file with `--stats-file` when a job runs more than one.
 
@@ -81,14 +84,14 @@ tags in a shared repository. Publishing the same record again changes nothing.
 
 ## Fields
 
-Every record has `version`, `id`, `kind`, `service`, `outcome`, `pactoVersion`
-and `recordedAt`. The other keys appear only where the table says.
+Every record has `version`, `id`, `kind`, `service`, `pactoVersion` and
+`recordedAt`, and every record other than a coverage record has `outcome`. The other keys appear only where the table says.
 
 | Key | Type | Present | Holds |
 | --- | --- | --- | --- |
 | `version` | string | always | `pacto.trianalab.io/run-record/v1` |
 | `id` | string | always | `sha256:` and the hex SHA-256 of `kind`, `service`, `oldRevision` and `newRevision` joined by vertical bars: the distinct-change key, so reruns of one change share it. On an `operation` record, the operation's Kubernetes UID |
-| `kind` | string | always | `diff`, `impact` or `publish`, or `operation` for an [operation record](#operation-records) |
+| `kind` | string | always | `diff`, `impact` or `publish`, `operation` for an [operation record](#operation-records) or `coverage` for a [coverage record](#coverage-records) |
 | `service` | string | always | the contract's `service.name`; for `diff` and `impact`, the name in the new revision, so a renamed service records under its new name |
 | `oldRevision` | string | when known | `diff` and `impact`: the old bundle's digest. `publish`: the highest published version below this one |
 | `newRevision` | string | when known | `diff` and `impact`: the new bundle's digest. `publish`: the version being published |
@@ -106,7 +109,7 @@ and `recordedAt`. The other keys appear only where the table says.
 | `consumers.blocking` | integer | with `consumers` | consumers that hold the gate: incompatible and running on a known target |
 | `completeness` | string | `impact` | `complete`, `partial` or `empty`: how complete the snapshot behind the counts was |
 | `asOf` | string | `impact` | the snapshot's time, RFC 3339 in UTC at full precision, equal to the `asOf` of the impact answer |
-| `outcome` | string | always | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
+| `outcome` | string | except on a coverage record | `diff` and `impact`: `passed`, `failed` or `unverified`. `publish`: `published`, `unchanged`, `refused` or `failed` |
 | `pactoVersion` | string | always | the Pacto release that wrote the record, for example `4.6.0` or `dev`. It is distinct from the contract's `pactoVersion` |
 | `recordedAt` | string | always | when the record was written, RFC 3339 in UTC to the second |
 | `repository` | string | when named | see [context fields](#context-fields) |
@@ -162,6 +165,44 @@ never holds the keys below.
 
 `service` is the service the Stage declares. An operation record holds no
 actor, approver, note, message, citation or correlation id.
+
+### Coverage records
+
+`pacto fleet status` writes a `coverage` record of the fleet snapshot it read:
+
+- only when `--stats-registry` or `--stats-file` is on its command line; it
+  ignores `PACTO_STATS_REGISTRY` and `PACTO_STATS_FILE`;
+- best effort, like the other commands: a failure prints a warning and leaves
+  the exit code unchanged;
+- fleet-wide: its `service` is always `_fleet`, a name no contract can declare.
+  A run with `--namespace` writes none, and every scheduled run should read
+  the same sources, since readers take the newest record whatever read it;
+- with an `id` over `coverage`, `_fleet`, an empty old revision and the
+  snapshot's `snapshotAsOf`, so one snapshot recorded twice counts once;
+- with no `outcome`, CI-only key, `environment` or operation key;
+- read as a level: readers take the newest coverage record in a window and
+  never sum them;
+- hidden from a reader that may see only part of the fleet, and the answer
+  says so with `COVERAGE_OUTSIDE_YOUR_VIEW`.
+
+| Key | Type | Present | Holds |
+| --- | --- | --- | --- |
+| `coverage` | object | always | the snapshot's coverage counters |
+| `coverage.services` | integer | always | services that are no golden path |
+| `coverage.uncontracted` | integer | always | callers the fleet observed with no contract |
+| `coverage.knowledge` | object | when the snapshot carried a knowledge tally | absent means unknown, never 0 |
+| `coverage.knowledge.services` | integer | with `knowledge` | services the tally partitions: `described` + `withGaps` + `unknown` |
+| `coverage.knowledge.described` | integer | with `knowledge` | services whose contract and interface documents leave nothing out |
+| `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap |
+| `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge |
+| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here. The observed services are `knowledge.services` minus `knowledge.unknown` minus `knowledge.notDeployed`, with unknown services shown beside them |
+| `coverage.links` | object | always | operational targets by how they link to a contract |
+| `coverage.links.exact` | integer | always | targets linked exactly |
+| `coverage.links.inferred` | integer | always | targets linked by inference |
+| `coverage.links.ambiguous` | integer | always | targets that match more than one contract |
+| `coverage.links.unresolved` | integer | always | targets that match no contract |
+| `coverage.snapshotAsOf` | string | always | the snapshot's time, RFC 3339 in UTC; never after `recordedAt` |
+| `coverage.completeness` | string | always | `complete` or `partial`; an empty snapshot is recorded as `partial` |
 
 ### Impact gate codes
 
@@ -325,6 +366,7 @@ instead of a table of zeros.
 
 | Metric | Definition |
 | --- | --- |
+| `changes` | distinct changes among the `diff` and `impact` records; at zero no CI run was recorded, so `breakingCaught`, `consumersProtected` and `gates` measured nothing |
 | `breakingCaught` | `distinct`: changes with a `diff` or `impact` record classified `BREAKING`; `runs`: the records behind them, at most one per kind, since reruns of one change share an `id` |
 | `gates` | `clear`, `blocked` and `unverified`: changes by the verdict of their newest `impact` record that carries one |
 | `consumersProtected` | `count`: `consumers.blocking` summed over changes whose newest gate is `blocked`; `unknown`: `consumers.unknown` over the same changes; `partial`: how many of them were judged on a partial fleet snapshot, which makes `count` a lower bound. A change no impact run judged adds nothing |
@@ -338,17 +380,19 @@ instead of a table of zeros.
 | `environments.verificationFailed` | promote operations `Unverified`, of promote operations `Verified` or `Unverified` |
 | `environments.acceptedUnknown` | promote operations `AcceptedUnknown`, neither verified nor failed |
 | `environments.leadTime` | from the earliest publish record's `recordedAt` to the first `Succeeded` and `Verified` promote per Stage whose `to` is its deploy digest (else whose `contract` is its bundle digest), within one service. A publish rerun never moves the start, and a digest first promoted to a Stage before the window adds no lead time. It holds the nearest-rank `p50Seconds` and `p90Seconds` and the `joined` and `unjoined` promotion counts. A promotion whose `finishedAt` does not parse is unjoined. With nothing joined there is no percentile and `unknown` is `true` |
-| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and no rate is given |
+| a rate (`held`, `failed`, `rolledBack`, `verificationFailed`) | `count` and `of`; with `of` at zero, `unknown` is `true` and no rate is given, though `count` still says how many records matched |
 
 | Limitation code | Meaning |
 | --- | --- |
 | `RUN_RECORDS_SKIPPED` | some records could not be read, and the message says how many are dated in the future |
 | `RUN_RECORDS_TRUNCATED` | a bound cut the read; the message says how many services after the cut were not read at all |
-| `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs |
+| `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs. When another limitation explains the zero, the message says only that no record you can count is in the window |
 | `RUN_RECORDS_REPOSITORY_NOT_FOUND` | in place of `NO_RUN_RECORDS`: the stats repository does not exist or nothing was published to it yet |
+| `NO_CI_OR_DELIVERY_RUN_RECORDS` | in place of `NO_RUN_RECORDS`: the window holds coverage records and no other record, so the answer has a coverage level and no totals |
 | `CONSUMERS_FROM_PARTIAL_SNAPSHOT` | some blocked changes were judged on a partial fleet snapshot, so `consumersProtected` is a lower bound |
 | `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
-| `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number |
+| `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number, or your view holds no service, so no record is read for you |
+| `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist, or could not be checked, and are hidden from a reader who may see only part of the fleet |
 | `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
 | `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |
 

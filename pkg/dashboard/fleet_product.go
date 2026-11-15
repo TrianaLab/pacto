@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // registerProductOperations registers the product-oriented dashboard APIs. They
@@ -449,6 +450,9 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
+	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
+		return stats.RecordSet{}, errors.New("schema export only")
+	}
 }
 
 func parseViews(s string) []fleet.KnowledgeView {

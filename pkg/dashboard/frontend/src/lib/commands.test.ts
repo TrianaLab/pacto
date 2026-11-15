@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildCommands, flattenCommands } from './commands';
+import { metricsNavItem } from './nav';
 
 const services = [
   { name: 'payments-api', version: '1.2.0', owner: { team: 'team/payments' } },
@@ -109,5 +110,20 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
     const labels = (q: string, delivery: boolean) => buildCommands(q, services, true, delivery).flatMap((g) => g.items.map((i) => i.label));
     expect(labels('delivery', true)).toEqual(expect.arrayContaining(['Delivery inbox', 'Delivery history']));
     expect(labels('delivery', false)).not.toContain('Delivery inbox');
+  });
+
+  it('takes Metrics from the nav item, after the last delivery view and before Operational graph', () => {
+    const item = metricsNavItem();
+    for (const delivery of [false, true]) {
+      const views = buildCommands('', services, true, delivery).find((g) => g.label === 'Views')!.items;
+      const i = views.findIndex((v) => v.label === item.label);
+      expect(views[i]).toMatchObject({ label: item.label, href: item.href, hint: 'Change and delivery' });
+      expect(views[i - 1].label).toBe(delivery ? 'Delivery published' : 'Change analysis');
+      expect(views[i + 1].label).toBe('Operational graph');
+    }
+    for (const q of ['stats', 'lead time', 'trends']) {
+      expect(buildCommands(q, services, true).find((g) => g.label === 'Views')!.items.map((v) => v.label)).toContain('Metrics');
+    }
+    expect(buildCommands('metrics', services, false).find((g) => g.label === 'Views')).toBeUndefined();
   });
 });

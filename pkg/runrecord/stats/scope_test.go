@@ -384,7 +384,7 @@ func TestRestrictedHiddenIsPartial(t *testing.T) {
 func TestRestrictedHiddenLeftOutOfEveryMetric(t *testing.T) {
 	hidden := breaking(gated(of("billing", rec(runrecord.KindImpact, "sha256:new", hoursAgo(2))), runrecord.VerdictBlocked, 3, 2))
 	st := aggBy(set(hidden, diffOf("shop/orders")), "owner", restrictedScope(t))
-	if st.DistinctChanges != 1 || !reflect.DeepEqual(*st.Totals, Metrics{}) || len(st.Groups) != 1 || !reflect.DeepEqual(st.Groups[0].Metrics, Metrics{}) {
+	if st.DistinctChanges != 1 || !reflect.DeepEqual(*st.Totals, Metrics{Changes: 1}) || len(st.Groups) != 1 || !reflect.DeepEqual(st.Groups[0].Metrics, Metrics{Changes: 1}) {
 		t.Fatalf("answer = %+v", st)
 	}
 }
@@ -431,5 +431,19 @@ func TestGroupsSortOnlyUnnamedLast(t *testing.T) {
 	staging.Environment, beta.Environment = "staging", "(beta)"
 	if got := labels(aggBy(set(staging, beta, diffOf("c")), "environment", Scope{}).Groups); got != "(beta),staging,none" {
 		t.Fatalf("groups = %s", got)
+	}
+}
+
+func TestOperationNamespacesSortedUnique(t *testing.T) {
+	at := func(ns string) runrecord.Record {
+		r := op("promote", delivery.Succeeded, "", fleetNow)
+		r.Stage = &runrecord.StageRef{Namespace: ns, Name: "s"}
+		return r
+	}
+	noStage := op("promote", delivery.Succeeded, "", fleetNow)
+	noStage.Stage = nil
+	got := OperationNamespaces(set(at("b"), at("a"), at("b"), at(""), noStage, diffOf("orders")))
+	if !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("namespaces = %v", got)
 	}
 }

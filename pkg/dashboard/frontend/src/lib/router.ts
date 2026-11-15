@@ -26,7 +26,8 @@ export interface Route {
     | 'delivery-autonomy'     // /delivery/autonomy
     | 'delivery-change'       // /delivery/changes/:namespace/:name
     | 'delivery-history'      // /delivery/history[?namespace=&stage=]
-    | 'delivery-publish';     // /delivery/publish
+    | 'delivery-publish'      // /delivery/publish
+    | 'metrics';              // /metrics[?window=&metric=&environment=&offset=&limit=&servicesOffset=&servicesLimit=]
   params: Record<string, string>;
 }
 
@@ -111,6 +112,10 @@ export function parseHash(hash: string | null | undefined): Route {
   if (path === 'delivery' || path.startsWith('delivery/')) {
     return parseDelivery(path, query);
   }
+
+  // #/metrics: Pacto's outcomes over time. `offset` and `limit` page the records panel,
+  // `servicesOffset` and `servicesLimit` the services table.
+  if (path === 'metrics') return { view: 'metrics', params: pick(query, METRICS_QUERY) };
 
   // #/impact?svc=&old=&new=&observed=1 — the superseded standalone impact deep link.
   // It parses to the Change analysis workspace so an old bookmark still lands on the
@@ -280,6 +285,26 @@ function parseFleet(path: string, query: string): Route {
 
   // Unknown /fleet/* falls back to the overview, never a broken screen.
   return { view: 'fleet-overview', params: {} };
+}
+
+const METRICS_QUERY = ['window', 'metric', 'environment', 'offset', 'limit', 'servicesOffset', 'servicesLimit'] as const;
+
+function pick(query: string, keys: readonly string[]): Record<string, string> {
+  const params: Record<string, string> = {};
+  const qs = new URLSearchParams(query);
+  for (const k of keys) {
+    const v = qs.get(k);
+    if (v) params[k] = v;
+  }
+  return params;
+}
+
+// metricsUrl builds the Metrics route; every key is optional and empty ones are dropped.
+export function metricsUrl(q: Partial<Record<(typeof METRICS_QUERY)[number], string>> = {}): string {
+  const qs = new URLSearchParams();
+  for (const k of METRICS_QUERY) if (q[k]) qs.set(k, q[k]!);
+  const str = qs.toString();
+  return str ? `#/metrics?${str}` : '#/metrics';
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.

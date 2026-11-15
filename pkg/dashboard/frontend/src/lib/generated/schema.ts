@@ -872,6 +872,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pacto outcomes over time
+         * @description Unsigned statistics from the configured stats repository: the same totals as pacto stats, per day or week. Services outside the caller's view are counted in hidden.present and never named.
+         */
+        get: operations["get-stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The records behind a statistic
+         * @description The visible run records one number of /api/stats counts, newest first, with links to the services, revisions and change analyses they name.
+         */
+        get: operations["get-stats-records"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1034,6 +1074,8 @@ export interface components {
             miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
+            /** @description The Metrics page has a stats repository to read */
+            stats: boolean;
         };
         CapabilityAuth: {
             /** @description Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace */
@@ -5721,6 +5763,103 @@ export interface components {
             /** @description What could not be read, and why */
             unreadable?: string[] | null;
         };
+        "Runrecord.Consumers": {
+            /** Format: int64 */
+            blocking: number;
+            /** Format: int64 */
+            compatible: number;
+            /** Format: int64 */
+            incompatible: number;
+            /** Format: int64 */
+            unclassified: number;
+            /** Format: int64 */
+            unknown: number;
+        };
+        "Runrecord.Coverage": {
+            completeness: string;
+            knowledge?: components["schemas"]["Runrecord.CoverageKnowledge"];
+            links: components["schemas"]["Runrecord.CoverageLinks"];
+            /** Format: int64 */
+            services: number;
+            /** Format: date-time */
+            snapshotAsOf: string;
+            /** Format: int64 */
+            uncontracted: number;
+        };
+        "Runrecord.CoverageKnowledge": {
+            /** Format: int64 */
+            described: number;
+            /** Format: int64 */
+            notDeployed: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            withGaps: number;
+        };
+        "Runrecord.CoverageLinks": {
+            /** Format: int64 */
+            ambiguous: number;
+            /** Format: int64 */
+            exact: number;
+            /** Format: int64 */
+            inferred: number;
+            /** Format: int64 */
+            unresolved: number;
+        };
+        "Runrecord.Gate": {
+            reason?: string;
+            verdict: string;
+        };
+        "Runrecord.GateResult": {
+            gate: string;
+            phase: string;
+            result: string;
+        };
+        "Runrecord.Record": {
+            actorClass?: string;
+            /** Format: date-time */
+            asOf?: string;
+            bundleDigest?: string;
+            ciRunUrl?: string;
+            classification?: string;
+            completeness?: string;
+            consumers?: components["schemas"]["Runrecord.Consumers"];
+            contract?: string;
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            delegated?: boolean;
+            deployDigest?: string;
+            environment?: string;
+            finishedAt?: string;
+            from?: string;
+            gate?: components["schemas"]["Runrecord.Gate"];
+            gates?: components["schemas"]["Runrecord.GateResult"][] | null;
+            heldFor?: string;
+            id: string;
+            kind: string;
+            newRevision?: string;
+            oldRevision?: string;
+            outcome?: string;
+            pactoVersion: string;
+            reason?: string;
+            /** Format: date-time */
+            recordedAt: string;
+            repository?: string;
+            service: string;
+            serviceDomain?: string;
+            stage?: components["schemas"]["Runrecord.StageRef"];
+            startedAt?: string;
+            to?: string;
+            type?: string;
+            verification?: string;
+            version: string;
+        };
+        "Runrecord.StageRef": {
+            cluster: string;
+            name: string;
+            namespace: string;
+        };
         RuntimeDiffRow: {
             contractPath?: string;
             declaredValue: string;
@@ -5931,6 +6070,393 @@ export interface components {
             persistenceDurability?: string;
             persistenceScope?: string;
             type: string;
+        };
+        "Stats.Attribution": {
+            /**
+             * Format: date-time
+             * @description Time of the fleet snapshot
+             */
+            asOf: string;
+            /** @description True when the fleet snapshot is partial: a service it misses groups as unknown */
+            partial?: boolean;
+            /** @description Always inferred: resolved at read time from the current fleet snapshot */
+            provenance: string;
+            /** @description Fleet snapshot the attribution was resolved from */
+            snapshotId: string;
+        };
+        "Stats.Distinct": {
+            /**
+             * Format: int64
+             * @description Distinct changes (service, old revision, new revision)
+             */
+            distinct: number;
+            /**
+             * Format: int64
+             * @description Run records behind those changes
+             */
+            runs: number;
+        };
+        "Stats.EnvironmentMetrics": {
+            /**
+             * Format: int64
+             * @description Promote operations accepted with verification unknown; neither verified nor failed
+             */
+            acceptedUnknown: number;
+            /** @description Environment name */
+            environment: string;
+            /** @description Promote operations that ended Failed or Errored, of promote operations */
+            failed: components["schemas"]["Stats.Ratio"];
+            /** @description Promote operations that waited on a person, of promote operations */
+            held: components["schemas"]["Stats.Ratio"];
+            /** @description Time from the publish record to the first verified promotion of its digest per Stage */
+            leadTime: components["schemas"]["Stats.LeadTime"];
+            /**
+             * Format: int64
+             * @description Operations of every type in the window
+             */
+            operations: number;
+            /** @description Succeeded rollback operations, of Succeeded promote operations */
+            rolledBack: components["schemas"]["Stats.Ratio"];
+            /**
+             * @description Where the name came from: the record's environment (context) or, for an operation without one, its Stage name (stage)
+             * @enum {string}
+             */
+            source: "stage" | "context";
+            /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
+            verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        "Stats.Gates": {
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is blocked
+             */
+            blocked: number;
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is clear
+             */
+            clear: number;
+            /**
+             * Format: int64
+             * @description Changes whose newest gate verdict is unverified
+             */
+            unverified: number;
+        };
+        "Stats.Group": {
+            /** @description Group key */
+            key: string;
+            /** @description Group label */
+            label: string;
+            /** @description Numbers of the records in this group */
+            metrics: components["schemas"]["Stats.Metrics"];
+        };
+        "Stats.Hidden": {
+            /** @description True when run records name services outside the caller's view; they are left out of every number */
+            present: boolean;
+        };
+        "Stats.LeadTime": {
+            /**
+             * Format: int64
+             * @description Promotions joined to a publish record
+             */
+            joined: number;
+            /**
+             * Format: int64
+             * @description Median lead time in seconds, nearest rank; absent when none joined
+             */
+            p50Seconds?: number;
+            /**
+             * Format: int64
+             * @description 90th percentile lead time in seconds, nearest rank; absent when none joined
+             */
+            p90Seconds?: number;
+            /**
+             * Format: int64
+             * @description Promotions with no publish record of their digest; their lead time is unknown
+             */
+            unjoined: number;
+            /** @description True when no promotion joined */
+            unknown?: boolean;
+        };
+        "Stats.Metrics": {
+            /** @description Changes a diff or impact run classified BREAKING */
+            breakingCaught: components["schemas"]["Stats.Distinct"];
+            /**
+             * Format: int64
+             * @description Distinct changes among the diff and impact runs; 0 means no CI run was recorded, so breakingCaught, consumersProtected and gates measured nothing and are unknown, never 0
+             */
+            changes: number;
+            /** @description Consumers held back by changes whose newest gate is blocked; changes no impact run judged add nothing */
+            consumersProtected: components["schemas"]["Stats.Protected"];
+            /** @description Delivery numbers per environment, alphabetical */
+            environments?: components["schemas"]["Stats.EnvironmentMetrics"][] | null;
+            /** @description Changes by their newest gate verdict */
+            gates: components["schemas"]["Stats.Gates"];
+        };
+        "Stats.Protected": {
+            /**
+             * Format: int64
+             * @description Blocking consumers summed over changes whose newest gate is blocked
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Changes among them judged on a partial fleet snapshot; with any, count is a lower bound
+             */
+            partial?: number;
+            /**
+             * Format: int64
+             * @description Unknown consumers summed over the same changes
+             */
+            unknown: number;
+        };
+        "Stats.Ratio": {
+            /**
+             * Format: int64
+             * @description Records that match
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Records the rate is taken over
+             */
+            of: number;
+            /** @description True when of is 0: there is nothing to take the rate over, though count still says how many records matched, such as a rollback with no succeeded promote in the window */
+            unknown?: boolean;
+        };
+        "Stats.Skipped": {
+            /**
+             * Format: int64
+             * @description Records that are not a valid run record, are attached to another service's anchor or are dated in the future
+             */
+            malformed: number;
+            /**
+             * Format: int64
+             * @description Records whose manifest or layer is larger than the run-record size bound
+             */
+            oversized: number;
+            /**
+             * Format: int64
+             * @description Records the registry listed but would not serve
+             */
+            unreadable: number;
+        };
+        "Stats.Window": {
+            /**
+             * Format: date-time
+             * @description Start of the window, inclusive, UTC
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description End of the window, exclusive, UTC
+             */
+            until: string;
+        };
+        StatsAnswer: {
+            /**
+             * Format: date-time
+             * @description Time the answer was computed, UTC
+             */
+            asOf: string;
+            /** @description Where owner and domain came from, when grouping by them */
+            attribution?: components["schemas"]["Stats.Attribution"];
+            /** @description The window per day (7d) or week (30d, 90d), oldest first, aligned back from now */
+            buckets: components["schemas"]["StatsBucket"][] | null;
+            /** @description What the groups are by */
+            by?: string;
+            /**
+             * @description partial when a record was skipped, the read was cut, records are outside the caller's view or a blocked change was judged on a partial snapshot; empty when the window holds no records
+             * @enum {string}
+             */
+            completeness: "complete" | "partial" | "empty";
+            /** @description The newest coverage record in the window; a level, never a sum. Absent when the window holds none */
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            /** @description Coverage of the caller's current fleet snapshot; absent without a fleet */
+            coverageNow?: components["schemas"]["Runrecord.Coverage"];
+            /**
+             * Format: int64
+             * @description Distinct changes (service, old revision, new revision) among diff and impact runs in the window; publish runs name versions, so they are counted in runs only
+             */
+            distinctChanges: number;
+            /**
+             * @description stages: environments follow the Stages' upstream links; name: no Stage graph to order by
+             * @enum {string}
+             */
+            environmentOrder: "stages" | "name";
+            /** @description Delivery numbers per environment, in environmentOrder */
+            environments: components["schemas"]["StatsEnvironment"][] | null;
+            /** @description Numbers per group */
+            groups?: components["schemas"]["Stats.Group"][] | null;
+            /** @description Whether records outside the caller's view exist */
+            hidden: components["schemas"]["Stats.Hidden"];
+            /** @description Why the answer is incomplete */
+            limitations: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Always unsigned statistics: run records are never evidence */
+            provenance: string;
+            /**
+             * Format: int64
+             * @description Records read from the repository, in or out of the window; skipped records are counted apart
+             */
+            recordsRead: number;
+            /** @description Stats repository read */
+            registry?: string;
+            /**
+             * Format: int64
+             * @description Records in the window after retries of one record id count once
+             */
+            runs: number;
+            /** @description One page of per-service numbers */
+            services: components["schemas"]["StatsServiceRow"][] | null;
+            /**
+             * Format: int64
+             * @description Service rows across every page
+             */
+            servicesTotal: number;
+            /** @description Records that could not be counted; they are left out of every number */
+            skipped: components["schemas"]["Stats.Skipped"];
+            /** @description Numbers over every record in the window; absent when there are none */
+            totals?: components["schemas"]["Stats.Metrics"];
+            /** @description The bound that cut the read; services listed after the cut were not read at all. Empty when the read is whole */
+            truncated: string;
+            /** @description Time range the answer covers */
+            window: components["schemas"]["Stats.Window"];
+        };
+        StatsBucket: {
+            /** @description The newest coverage record in the bucket; absent when it holds none */
+            coverage?: components["schemas"]["Runrecord.Coverage"];
+            /**
+             * Format: int64
+             * @description Days the bucket spans
+             */
+            days: number;
+            /** @description Numbers of the bucket's records; absent when it holds none, which is no records, never 0 */
+            metrics?: components["schemas"]["Stats.Metrics"];
+            /** @description True when the bucket is shorter than the others: only the first one can be */
+            partial?: boolean;
+            /**
+             * Format: date-time
+             * @description Start of the bucket, inclusive, UTC
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description End of the bucket, exclusive, UTC
+             */
+            until: string;
+        };
+        StatsEnvironment: {
+            /**
+             * Format: int64
+             * @description Promote operations accepted with verification unknown; neither verified nor failed
+             */
+            acceptedUnknown: number;
+            /** @description A Stage here is on a cycle of upstream links, so the environment is placed by name */
+            cycle?: boolean;
+            /** @description Environment name */
+            environment: string;
+            /** @description Promote operations that ended Failed or Errored, of promote operations */
+            failed: components["schemas"]["Stats.Ratio"];
+            /** @description Promote operations that waited on a person, of promote operations */
+            held: components["schemas"]["Stats.Ratio"];
+            /** @description Time from the publish record to the first verified promotion of its digest per Stage */
+            leadTime: components["schemas"]["Stats.LeadTime"];
+            /**
+             * Format: int64
+             * @description Operations of every type in the window
+             */
+            operations: number;
+            /** @description Succeeded rollback operations, of Succeeded promote operations */
+            rolledBack: components["schemas"]["Stats.Ratio"];
+            /**
+             * @description Where the name came from: the record's environment (context) or, for an operation without one, its Stage name (stage)
+             * @enum {string}
+             */
+            source: "stage" | "context";
+            /** @description Different services order this environment both ways, so it is placed by name */
+            unordered?: boolean;
+            /** @description Environments whose Stages feed a Stage here, as candidates.upstreamStage declares */
+            upstream: string[] | null;
+            /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
+            verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        StatsLink: {
+            /** @description The dashboard route, without the leading # */
+            href: string;
+            /** @description What the link names */
+            label: string;
+        };
+        StatsRecordRow: {
+            /** @description Change analysis of a gated change */
+            change?: components["schemas"]["StatsLink"];
+            /** @description The new revision page, when the snapshot holds it */
+            newRevision?: components["schemas"]["StatsLink"];
+            /** @description Why a link is missing */
+            note?: string;
+            /** @description The old revision page, when the snapshot holds it */
+            oldRevision?: components["schemas"]["StatsLink"];
+            /** @description The run record */
+            record: components["schemas"]["Runrecord.Record"];
+            /** @description The service page; absent when the snapshot cannot resolve it */
+            service?: components["schemas"]["StatsLink"];
+            /** @description The Stage of an operation record */
+            stage?: components["schemas"]["StatsStage"];
+        };
+        StatsRecordsAnswer: {
+            /**
+             * Format: date-time
+             * @description Time the answer was computed, UTC
+             */
+            asOf: string;
+            /**
+             * @description How complete the numbers these records make are
+             * @enum {string}
+             */
+            completeness: "complete" | "partial" | "empty";
+            /** @description Whether records outside the caller's view exist */
+            hidden: components["schemas"]["Stats.Hidden"];
+            /** @description One page of records, newest first */
+            items: components["schemas"]["StatsRecordRow"][] | null;
+            /** @description Why the answer is incomplete */
+            limitations: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Always unsigned statistics: run records are never evidence */
+            provenance: string;
+            /**
+             * Format: int64
+             * @description Records read from the repository
+             */
+            recordsRead: number;
+            /** @description Stats repository read */
+            registry?: string;
+            /** @description Records that could not be counted */
+            skipped: components["schemas"]["Stats.Skipped"];
+            /**
+             * Format: int64
+             * @description Records behind the number across every page
+             */
+            total: number;
+            /** @description The bound that cut the read; empty when the read is whole */
+            truncated: string;
+            /** @description Time range the answer covers */
+            window: components["schemas"]["Stats.Window"];
+        };
+        StatsServiceRow: {
+            /** @description The service page; absent when the name resolves to no single service */
+            href?: string;
+            /** @description Service name, as the run records name it */
+            label: string;
+            /** @description Numbers of the service's records */
+            metrics: components["schemas"]["Stats.Metrics"];
+            /** @description Why there is no link */
+            note?: string;
+        };
+        StatsStage: {
+            /** @description The environment the Stage delivers to */
+            environment?: string;
+            /** @description Stage name */
+            name: string;
+            /** @description Stage namespace */
+            namespace: string;
         };
         UndoOutputBody: {
             command?: string;
@@ -8398,6 +8924,118 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-stats": {
+        parameters: {
+            query?: {
+                /** @description How far back the answer looks: daily buckets for 7d, weekly for 30d and 90d */
+                window?: "7d" | "30d" | "90d";
+                /** @description First service row to return */
+                servicesOffset?: number;
+                /** @description Service rows to return */
+                servicesLimit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsAnswer"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-stats-records": {
+        parameters: {
+            query: {
+                /** @description How far back the answer looks */
+                window?: "7d" | "30d" | "90d";
+                /** @description The number whose records to list */
+                metric: "breaking" | "protected" | "clear" | "blocked" | "unverified" | "held" | "failed" | "rolledBack" | "verificationFailed" | "leadTime" | "coverage";
+                /** @description Only the records that count under this environment; coverage ignores it */
+                environment?: string;
+                /** @description First record to return */
+                offset?: number;
+                /** @description Records to return */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsRecordsAnswer"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

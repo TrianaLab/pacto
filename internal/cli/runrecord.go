@@ -198,6 +198,32 @@ func (r *runRecorder) save(cmd *cobra.Command, rec **runrecord.Record, revs *rev
 	for _, msg := range warns {
 		_, _ = fmt.Fprintf(w, "pacto: warning: run record context: %s\n", msg)
 	}
+	r.write(cmd, out, reg, file)
+}
+
+// saveFlagsOnly writes and publishes rec to the targets named by
+// --stats-registry and --stats-file on this command line only, never by
+// PACTO_STATS_REGISTRY or PACTO_STATS_FILE. It keeps an id rec already carries.
+func (r *runRecorder) saveFlagsOnly(cmd *cobra.Command, rec *runrecord.Record) {
+	reg, file := flagTargets(cmd)
+	out := *rec
+	if out.ID == "" {
+		out.ID = runrecord.ExpectedID(out)
+	}
+	r.write(cmd, out, reg, file)
+}
+
+// flagTargets is where a flags-only record goes: the two flags, never the env.
+func flagTargets(cmd *cobra.Command) (registry, file string) {
+	registry, _ = cmd.Flags().GetString("stats-registry")
+	file, _ = cmd.Flags().GetString("stats-file")
+	return registry, file
+}
+
+// write encodes out, writes it to file and publishes it to reg, each when
+// set. Every problem is a warning on stderr.
+func (r *runRecorder) write(cmd *cobra.Command, out runrecord.Record, reg, file string) {
+	w := cmd.ErrOrStderr()
 	data, err := runrecord.Encode(out)
 	if file != "" {
 		var replaced *runrecord.Record

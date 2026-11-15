@@ -39,6 +39,7 @@
   const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
   const loadFleetGoldenPathsView = once(() => import('./views/FleetGoldenPathsView.svelte'));
+  const loadFleetMetricsView = once(() => import('./views/FleetMetricsView.svelte'));
   // Delivery views load on first use too: most visitors never open them.
   const loadDeliveryInboxView = once(() => import('./views/DeliveryInboxView.svelte'));
   const loadDeliveryEnvironmentsView = once(() => import('./views/DeliveryEnvironmentsView.svelte'));
@@ -487,6 +488,11 @@
     <LazyView load={loadFleetGoldenPathsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
+  {:else if route.view === 'metrics'}
+    <LazyView load={loadFleetMetricsView} {capabilities} window={route.params.window || ''}
+      metric={route.params.metric || ''} environment={route.params.environment || ''}
+      offset={route.params.offset || ''} limit={route.params.limit || ''}
+      servicesOffset={route.params.servicesOffset || ''} servicesLimit={route.params.servicesLimit || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
     <LazyView load={loadFleetSourcesView}
       text={route.params.text || ''}

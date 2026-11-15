@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"oras.land/oras-go/v2/registry/remote"
@@ -41,22 +40,30 @@ type StatsRequest struct {
 // Stats reads the run records of req.Registry within bounds and totals them
 // for req.Query as req.Scope lets the caller see them. It writes nothing.
 func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, error) {
-	env := s.env()
 	now := req.Now
 	if now.IsZero() {
-		now = env.now()
+		now = s.env().now()
 	}
-	repo, err := env.statsRepo(req.Registry)
-	if err != nil {
-		return nil, fmt.Errorf("reading run records from %s: %w", req.Registry, err)
+	var set stats.RecordSet
+	var err error
+	// The anchor of the filtered service, else, for a restricted caller, only
+	// the anchors of the services in its view, so hidden records are never
+	// listed or charged against the bounds; else every anchor.
+	switch {
+	case req.Query.Service != "":
+		set, err = s.ReadRunRecords(ctx, req.Registry, []string{req.Query.Service})
+	case req.Scope.Restricted && len(req.Scope.Names) == 0: // nothing in view to read
+	case req.Scope.Restricted:
+		set, err = s.ReadRunRecords(ctx, req.Registry, req.Scope.Names)
+	default:
+		set, err = s.ReadRunRecords(ctx, req.Registry, nil)
 	}
-	set, err := s.readStats(ctx, repo, req)
 	if err != nil {
 		return nil, statsReadError(req, err)
 	}
 	scope := req.Scope
 	if req.OperationAccess != nil {
-		visible, err := req.OperationAccess(ctx, operationNamespaces(set))
+		visible, err := req.OperationAccess(ctx, stats.OperationNamespaces(set))
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
@@ -67,21 +74,18 @@ func (s *Service) Stats(ctx context.Context, req StatsRequest) (*stats.Stats, er
 	return st, nil
 }
 
-// readStats reads the anchor of the filtered service, else, for a restricted
-// caller, only the anchors of the services in its view, so hidden records are
-// never listed or charged against the bounds; else every anchor.
-func (s *Service) readStats(ctx context.Context, repo *remote.Repository, req StatsRequest) (stats.RecordSet, error) {
+// ReadRunRecords reads, within bounds and the read timeout, the run records
+// of repository on the anchors of services, or on every anchor when services
+// is nil. It writes nothing, and its error is the registry's, unwrapped: the
+// caller decides what a reader may learn from it.
+func (s *Service) ReadRunRecords(ctx context.Context, repository string, services []string) (stats.RecordSet, error) {
+	repo, err := s.env().statsRepo(repository)
+	if err != nil {
+		return stats.RecordSet{}, err
+	}
 	var anchors []string
-	switch {
-	case req.Query.Service != "":
-		anchors = []string{runrecord.AnchorTag(req.Query.Service)}
-	case req.Scope.Restricted:
-		if len(req.Scope.Names) == 0 {
-			return stats.RecordSet{}, nil
-		}
-		for _, name := range req.Scope.Names {
-			anchors = append(anchors, runrecord.AnchorTag(name))
-		}
+	for _, name := range services {
+		anchors = append(anchors, runrecord.AnchorTag(name))
 	}
 	readCtx, cancel := context.WithTimeout(ctx, statsReadTimeout)
 	defer cancel()
@@ -97,17 +101,4 @@ func statsReadError(req StatsRequest, err error) error {
 		return fmt.Errorf("reading run records from %s failed", req.Registry)
 	}
 	return fmt.Errorf("reading run records from %s: %w", req.Registry, err)
-}
-
-// operationNamespaces is the sorted, unique Stage namespaces the operation
-// records of set name.
-func operationNamespaces(set stats.RecordSet) []string {
-	var out []string
-	for _, e := range set.Entries {
-		if e.Record.Kind == runrecord.KindOperation && e.Record.Stage != nil && e.Record.Stage.Namespace != "" {
-			out = append(out, e.Record.Stage.Namespace)
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out)
 }

@@ -67,3 +67,16 @@ func EntryPoint(view fleet.EntryPointView, category string) string {
 func routeEntity(kind, key string) string {
 	return Root + "/" + kind + "/" + url.PathEscape(key)
 }
+
+// Changes returns the Change analysis href for a service, with the old and
+// new revisions it restores; an empty revision is left out.
+func Changes(serviceKey fleet.ServiceKey, oldRev, newRev fleet.RevisionKey) string {
+	href, sep := Root+"/changes/"+url.PathEscape(string(serviceKey)), "?"
+	for _, p := range [][2]string{{"old", string(oldRev)}, {"new", string(newRev)}} {
+		if p[1] != "" {
+			href += sep + p[0] + "=" + url.QueryEscape(p[1])
+			sep = "&"
+		}
+	}
+	return href
+}

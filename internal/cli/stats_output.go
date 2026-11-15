@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
@@ -23,13 +24,17 @@ func printStats(cmd *cobra.Command, st *stats.Stats, format string) error {
 		if st.Totals == nil {
 			// No records is a sentence, never a table of zeros.
 			for _, l := range st.Limitations {
-				if l.Code == stats.LimitationNoRecords || l.Code == stats.LimitationRepositoryMissing {
+				switch l.Code {
+				case stats.LimitationNoRecords, stats.LimitationRepositoryMissing, stats.LimitationOnlyCoverage:
 					_, _ = fmt.Fprintln(w, l.Message)
 				}
 			}
 		} else {
 			printStatsGroups(w, st)
 			printStatsEnvironments(w, st.Totals.Environments)
+		}
+		if st.Coverage != nil {
+			_, _ = fmt.Fprintln(w, coverageText(st.Coverage))
 		}
 		warnPartial(cmd, fleet.Meta{AsOf: st.AsOf, Completeness: st.Completeness, Limitations: st.Limitations})
 		return nil
@@ -79,6 +84,18 @@ func printStatsEnvironments(w io.Writer, envs []stats.EnvironmentMetrics) {
 			leadText(e.LeadTime, e.LeadTime.P50Seconds), leadText(e.LeadTime, e.LeadTime.P90Seconds))
 	}
 	_ = tw.Flush()
+}
+
+// coverageText is the coverage line. A snapshot with no knowledge tally says
+// unknown, never 0, and unknown services never count as observed.
+func coverageText(c *runrecord.Coverage) string {
+	known, unknown := "unknown described, unknown observed", ""
+	if k := c.Knowledge; k != nil {
+		known = fmt.Sprintf("%d described, %d observed", k.Described, k.Services-k.Unknown-k.NotDeployed)
+		unknown = fmt.Sprintf(", %d unknown", k.Unknown)
+	}
+	return fmt.Sprintf("\ncoverage %d services, %s%s as of %s (%s)", c.Services, known, unknown,
+		c.SnapshotAsOf.Format(time.RFC3339), c.Completeness)
 }
 
 func ratioText(r stats.Ratio) string {

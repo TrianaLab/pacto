@@ -89,6 +89,9 @@ type Config struct {
 
 	// MiraURL, when set, turns the dashboard's Mira citations into links.
 	MiraURL string
+	// StatsRegistry, when set, is the stats repository the Metrics page reads
+	// run records from (PACTO_STATS_REGISTRY).
+	StatsRegistry string
 
 	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
 	// trust config the dashboard verifies delivery records with, so History

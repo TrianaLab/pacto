@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 // This file is the OpenAPI vocabulary spec: it proves the
@@ -188,6 +189,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductEdge", "serviceCorroboration", sortedSet("matched", "expected-not-observed", "insufficient")},
 		{"ProductNeighborhood", "direction", sortedSet("dependencies", "dependents", "both")},
 		{"ProductNeighborhood", "views", sortedSet("expected", "observed", "differences")},
+		{"StatsAnswer", "environmentOrder", sortedSet("stages", "name")},
 	}
 	for _, c := range cases {
 		got := schemaFieldEnum(t, doc, c.schema, c.field)
@@ -205,4 +207,48 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// queryParamEnum is the enum of a GET operation's query parameter, in order.
+func queryParamEnum(t *testing.T, doc map[string]any, path, name string) []string {
+	t.Helper()
+	paths, _ := doc["paths"].(map[string]any)
+	get, _ := paths[path].(map[string]any)["get"].(map[string]any)
+	params, _ := get["parameters"].([]any)
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		if pm["name"] != name || pm["in"] != "query" {
+			continue
+		}
+		schema, _ := pm["schema"].(map[string]any)
+		vals, _ := schema["enum"].([]any)
+		out := []string{}
+		for _, v := range vals {
+			out = append(out, v.(string))
+		}
+		return out
+	}
+	t.Fatalf("%s has no query parameter %s", path, name)
+	return nil
+}
+
+// TestStatsMetricEnumMatchesRunrecord pins the literal enum tags of the stats
+// query parameters to the Go lists they repeat.
+func TestStatsMetricEnumMatchesRunrecord(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := queryParamEnum(t, doc, "/api/stats/records", "metric"); !equalStrs(got, stats.MetricNames) {
+		t.Errorf("metric enum = %v, want stats.MetricNames %v", got, stats.MetricNames)
+	}
+	for _, path := range []string{"/api/stats", "/api/stats/records"} {
+		if got := queryParamEnum(t, doc, path, "window"); !equalStrs(got, []string{"7d", "30d", "90d"}) {
+			t.Errorf("%s window enum = %v", path, got)
+		}
+	}
 }

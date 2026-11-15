@@ -45,6 +45,19 @@ starts only when you allow that: `pacto dashboard --allow-anonymous`, or the
 chart value `dashboard.auth.allowAnonymous` (`true` by default, with a warning
 in the install notes).
 
+## Metrics
+
+The chart value `dashboard.stats.registry` names the stats repository the
+dashboard's Metrics page reads [run records](delivery-run-records.md) from,
+with the registry credentials in `dashboard.ociSecrets`. Signed in, you see
+the records of services in your view, and operation records only in the
+namespaces where you may list Operations. Coverage shows only its current
+value, computed from your view, and no history. Delivery-derived metrics (held, failed, rolled back, verification failed
+and lead time) need sign-in: a dashboard shared without sign-in leaves those
+records out of every number and shows none of them, and it hides services
+outside its fleet. A hidden service is never named or counted; the page says
+some records are outside your view.
+
 ## What the dashboard needs
 
 The operator's chart grants the dashboard's ServiceAccount create on

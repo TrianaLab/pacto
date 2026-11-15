@@ -18,7 +18,7 @@ func runFleetEntity(t *testing.T, d deps, args ...string) string {
 	t.Setenv(trustEnv, "")
 	v := viper.New()
 	v.Set(outputFormatKey, "text")
-	cmd := newFleetCommand(newTestService(t), v, d)
+	cmd := newFleetCommand(newTestService(t), v, d, &runRecorder{})
 	var out strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
@@ -50,7 +50,7 @@ func TestFleetEntityReachedNoClusterNotRead(t *testing.T) {
 // never reported as a missing cluster.
 func TestFleetEntityReachedBadTrustFails(t *testing.T) {
 	t.Setenv(trustEnv, "")
-	cmd := newFleetCommand(newTestService(t), viper.New(), deliveryDeps("alice", nil))
+	cmd := newFleetCommand(newTestService(t), viper.New(), deliveryDeps("alice", nil), &runRecorder{})
 	cmd.SetOut(&strings.Builder{})
 	cmd.SetErr(&strings.Builder{})
 	cmd.SetArgs([]string{"entity", "service", "payments-service", "--local", "../../examples/demo/bundles", "--reached", "--trust", "/nonexistent"})

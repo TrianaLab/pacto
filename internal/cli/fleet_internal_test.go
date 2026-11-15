@@ -37,7 +37,7 @@ func TestFleetOptionsIgnoresUndeclaredFlags(t *testing.T) {
 }
 
 func TestFleetFlagNamesMatchDeclaredFlags(t *testing.T) {
-	root := newFleetCommand(newTestService(t), viper.New(), deps{})
+	root := newFleetCommand(newTestService(t), viper.New(), deps{}, &runRecorder{})
 	for _, name := range fleetFlagNames() {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("fleetFlagNames lists %q but newFleetCommand does not declare it", name)

@@ -93,7 +93,7 @@ func publishRecordFile(cmd *cobra.Command, d deps, repo, file string) (string, e
 	}
 	// Parse never recomputes the id, so a forged one would merge or split
 	// distinct-change counts.
-	if r.ID != runrecord.ID(r.Kind, r.Service, r.OldRevision, r.NewRevision) {
+	if r.ID != runrecord.ExpectedID(r) {
 		return "", errors.New("id does not match its kind, service and revisions")
 	}
 	at, err := d.publishRunRecord(cmd.Context(), repo, r)

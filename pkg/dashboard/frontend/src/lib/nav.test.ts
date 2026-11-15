@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { navGroups, legacyNav, navCurrent, navCount, railCount, sourceHealth } from './nav';
+import { navGroups, legacyNav, navCurrent, navCount, railCount, sourceHealth, metricsNavItem } from './nav';
 import { buildCommands } from './commands';
 
 const find = (key: string, caps: unknown = { fleet: true, delivery: true }) =>
@@ -10,7 +10,7 @@ describe('navCurrent: the item a page belongs to agrees with its breadcrumb trai
     ['fleet-services', 'services'], ['fleet-owners', 'owners'], ['fleet-domains', 'domains'],
     ['fleet-offerings', 'offerings'], ['fleet-golden-paths', 'golden-paths'], ['fleet-sources', 'sources'],
     ['fleet-attention', 'attention'], ['fleet-overview', 'overview'], ['fleet', 'graph'], ['changes', 'changes'],
-    ['delivery-inbox', 'delivery'],
+    ['delivery-inbox', 'delivery'], ['metrics', 'metrics'],
   ])('%s is the page of %s', (view, key) => {
     const lit = navGroups({ fleet: true, delivery: true }).flatMap((g) => g.items).filter((i) => navCurrent(i, view, ''));
     expect(lit.map((i) => [i.key, navCurrent(i, view, '')])).toEqual([[key, 'page']]);
@@ -47,6 +47,15 @@ describe('navGroups', () => {
     expect(keys(null)).not.toContain('delivery');
     expect(keys({ fleet: true, delivery: false })).not.toContain('delivery');
     expect(keys({ fleet: true, delivery: true })).toContain('delivery');
+  });
+
+  it('always lists Metrics last in Change and delivery, after Delivery when the host serves it', () => {
+    const group = (caps: unknown) => navGroups(caps).find((g) => g.label === 'Change and delivery')!.items.map((i) => i.key);
+    expect(group(null)).toEqual(['changes', 'metrics']);
+    expect(group({ fleet: true, delivery: false, stats: false })).toEqual(['changes', 'metrics']);
+    expect(group({ fleet: true, delivery: true })).toEqual(['changes', 'delivery', 'metrics']);
+    expect(find('metrics')).toEqual(metricsNavItem());
+    expect(metricsNavItem()).toMatchObject({ label: 'Metrics', href: '#/metrics', views: ['metrics'], glyph: 'metrics' });
   });
 
   // The palette lists the sidebar's destinations first, in the same order.

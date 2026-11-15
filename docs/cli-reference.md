@@ -255,6 +255,7 @@ pacto dashboard [sources...] [flags]
       --port int                          port for the dashboard server (default 3000)
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
+      --stats-registry string             stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); a public repository is read anonymously, otherwise with the dashboard's registry credentials
       --token-login[=true|false]          let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
       --trace-source stringArray          named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
       --traces stringArray                OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
@@ -1272,6 +1273,8 @@ pacto fleet status [flags]
       --needs-attention[=true|false]        report every attention category
       --non-compliant[=true|false]          report non-compliant targets
       --stale[=true|false]                  report targets with stale evidence
+      --stats-file string                   also write the coverage run record to this file, for pacto stats publish in another job; never read from PACTO_STATS_FILE
+      --stats-registry string               also write a coverage run record of the whole fleet to this stats repository (unsigned statistics; none with --namespace); never read from PACTO_STATS_REGISTRY
       --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
       --unknown[=true|false]                report targets with unknown compliance
       --unowned[=true|false]                report services with no declared owner
@@ -2039,7 +2042,7 @@ pacto stats [flags]
       --freshness duration         mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]          help for stats
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
-      --kind stringArray           total only run records of this kind: diff, impact, publish, operation (repeatable)
+      --kind stringArray           total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
