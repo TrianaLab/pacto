@@ -55,7 +55,15 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, correlate, " +
 	"get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
 	"resource's utilization and cost too, unless a resource carries reported consumption. A Mira read " +
-	"with no spans is unknown, never healthy."
+	"with no spans is unknown, never healthy. " + overviewInstructions
+
+// overviewInstructions explain pacto_fleet_overview and the words its answer
+// uses for health and knowledge.
+const overviewInstructions = "Use pacto_fleet_overview first for organization-wide questions. A target's health is " +
+	"'failing' when its own health check reports it is not healthy (finding HEALTH_FAILING) and 'unknown' when " +
+	"Pacto cannot tell; neither changes compliance. Knowledge gaps are what the contracts leave out (no summary, " +
+	"no domain, no interface document, no readiness assessment, runs nowhere). Unknown is never a pass: report it " +
+	"as unknown."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
 // snapshot. It is asked once per call, so a long session follows a refreshing
@@ -145,6 +153,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetNeighborhoodHandler(q, link)
 	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
+	addFleetTool(server, fleetOverviewTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[struct{}, any] {
+		return fleetOverviewHandler(q, link)
+	})
 	addFleetTool(server, fleetRevisionDocumentTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
 		return fleetRevisionDocumentHandler(q, link)
 	})
@@ -715,6 +726,24 @@ func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[f
 			Kind: fleet.KindService, Key: a.Service, Direction: fleet.Direction(a.Direction),
 			Depth: a.Depth, Views: fleet.ParseViews(a.Views), MaxNodes: a.MaxNodes, MaxEdges: a.MaxEdges,
 		}))
+	}
+}
+
+func fleetOverviewTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_overview",
+		Description: "Summarize the organization in one call: target compliance (with how many compliant targets rest on " +
+			"stale evidence), operational health (healthy, failing, unknown, not observed), knowledge gaps per kind, " +
+			"ownership (declared, disputed, none declared, unknown), evaluation coverage, evidence freshness, per-domain " +
+			"and per-scope breakdowns and entry points. Failing means the target's own health check reports it is not " +
+			"healthy; unknown means Pacto cannot tell. Read-only.",
+		InputSchema: inputSchema(map[string]property{}, nil),
+	}
+}
+
+func fleetOverviewHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+	return func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
+		return productResult(link, productview.ToOverview)(q.Overview(), nil)
 	}
 }
 

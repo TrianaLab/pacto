@@ -418,3 +418,18 @@ func TestPrintResourcesFooter(t *testing.T) {
 		t.Errorf("footer:\n%s", out)
 	}
 }
+
+// TestOverviewPrinterEdges: a bucket with targets is named, a named domain
+// prints its name and an overview with no domain prints no table.
+func TestOverviewPrinterEdges(t *testing.T) {
+	if got := countSuffix(2, "warning"); got != " · warning 2" {
+		t.Errorf("countSuffix = %q", got)
+	}
+	if got := domainLabel(fleet.DomainTally{Domain: "shop"}); got != "shop" {
+		t.Errorf("domainLabel = %q", got)
+	}
+	var buf bytes.Buffer
+	if printOverviewDomains(&buf, nil); buf.Len() != 0 {
+		t.Errorf("no domain prints a table: %q", buf.String())
+	}
+}

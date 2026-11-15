@@ -381,6 +381,7 @@ var fleetToolNames = []string{
 	"pacto_fleet_status", "pacto_fleet_explain",
 	"pacto_fleet_entities", "pacto_fleet_entity", "pacto_fleet_attention",
 	"pacto_fleet_neighborhood", "pacto_fleet_versions", "pacto_fleet_revision_document",
+	"pacto_fleet_overview",
 }
 
 // --- SAFETY ----------------------------------------------------------------

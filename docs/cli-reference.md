@@ -1144,6 +1144,20 @@ pacto fleet neighborhood <service> [flags]
       --views string        comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
 ```
 
+### `pacto fleet overview`
+
+Summarizes the organization in one answer: target compliance (with how many compliant targets rest on stale evidence), operational health, the knowledge gaps the contracts leave, ownership, evaluation coverage, the business domains and where to look next. A target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell; unknown is never a pass.
+
+```
+pacto fleet overview [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for overview
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).

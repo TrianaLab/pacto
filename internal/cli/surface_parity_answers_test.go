@@ -101,6 +101,7 @@ func parityQueries(revision string) []parityQuery {
 		{"revision", []string{"fleet", "entity", "revision", revision}, "pacto_fleet_entity", map[string]any{"kind": "revision", "key": revision}, "/api/fleet/entities/revision?key=" + url.QueryEscape(revision)},
 		{"offering postgresql", []string{"fleet", "entity", "offering", "postgresql"}, "pacto_fleet_entity", map[string]any{"kind": "offering", "key": "postgresql"}, "/api/fleet/entities/offering?key=postgresql"},
 		{"attention", []string{"fleet", "attention"}, "pacto_fleet_attention", map[string]any{}, "/api/fleet/attention"},
+		{"overview", []string{"fleet", "overview"}, "pacto_fleet_overview", map[string]any{}, "/api/fleet/overview"},
 		// The dashboard route walks expected alone without views, while the CLI and
 		// MCP walk expected and observed: every surface names its views here.
 		{"neighborhood app", []string{"fleet", "neighborhood", "app", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&views=expected,observed"},

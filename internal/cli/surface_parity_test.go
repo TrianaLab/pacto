@@ -109,7 +109,7 @@ func fleetRows() []surfaceRow {
 			"non-compliant", "stale", "undeclared", "unknown", "unowned", "unresolved-deps", "unsatisfied-ranges", "lifecycle"),
 		[]surfaceRow{
 			{"fleet status", "pacto_fleet_status", "GET /api/fleet/status", ""},
-			{"", "", "GET /api/fleet/overview", "the CLI has no overview command and MCP has no overview tool yet (#460 adds pacto_fleet_overview)"},
+			{"fleet overview", "pacto_fleet_overview", "GET /api/fleet/overview", ""},
 			{"fleet snapshot", "", "GET /api/fleet/snapshot", "MCP serves the snapshot only through the fleet tools' answers"},
 			{"fleet reconcile --traces", "", "", "reconcile compares one local trace file with the local contracts; it reads no fleet source"},
 		},
@@ -279,7 +279,7 @@ func authoringRows() []surfaceRow {
 // parityCommands are the commands whose own flags the mapping covers.
 var parityCommands = []string{
 	"fleet entities", "fleet entity", "fleet attention", "fleet neighborhood", "fleet versions", "fleet search",
-	"fleet get", "fleet graph", "fleet status", "fleet explain", "fleet reconcile", "fleet snapshot",
+	"fleet get", "fleet graph", "fleet status", "fleet explain", "fleet reconcile", "fleet snapshot", "fleet overview",
 	"delivery", "delivery status", "delivery history", "delivery blame", "delivery lifecycle", "delivery candidates",
 	"delivery record get", "delivery record verify", "delivery get", "delivery explain", "delivery undo", "delivery plan",
 	"delivery propose", "delivery cancel", "delivery describe", "delivery types", "delivery approve",
