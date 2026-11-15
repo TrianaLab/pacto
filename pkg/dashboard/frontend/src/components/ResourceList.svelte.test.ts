@@ -124,13 +124,15 @@ describe('ResourceList', () => {
 
   it('keeps untrusted figures apart with the reason, never as current usage', () => {
     const { target, done } = render({ uses: withUsage([{ environment: 'production', state: 'unknown', provenance: 'observed',
-      reason: 'the usage report is not signed', reported: figures, source: 'target-state', verified: false, asOf: '2026-11-04T09:00:00Z' }]) });
+      reason: 'the usage report is not signed', reported: figures, source: 'target-state', verified: false, asOf: '2026-11-04T09:00:00Z',
+      revision: { kind: 'revision', key: 'orders@sha256:a', label: 'orders 1.3.0' } }]) });
     const row = target.querySelector('[data-testid="resource-usage-entry"]')!;
     expect(row.getAttribute('data-state')).toBe('unknown');
     expect(text(row)).toContain('Unknown: the usage report is not signed');
     expect(text(row)).toContain('reported, not trusted');
     expect(row.querySelector('.rl-figures.rl-untrusted')).toBeTruthy();
     expect(text(row)).toContain('unsigned');
+    expect(text(row)).toContain('about orders 1.3.0');
     expect(text(target.querySelector('[data-testid="resource-usage"]'))).not.toContain('Not reported:');
     done();
   });

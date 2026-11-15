@@ -342,10 +342,19 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 // the WASM demo stands in for the Evidence Server, which accepts only signed
 // usage reports from a key granted ResourceUsage, so the dashboard shows the
 // figures as reported. examples/demo/fleet-targets.yaml carries the same report
-// unsigned, so the CLI demo reads the same resource's usage unknown.
+// unsigned, so the CLI demo reads the same resource's usage unknown. The mail
+// adapter's last usage report on notification-worker's email-provider is
+// signed but two days old, older than the demo's freshness window, so its
+// figures read unknown and stay apart as reported, never as current.
 func demoUsage(src *EmbedSource) []fleet.RawUsage {
 	at := demoNow().Add(-30 * time.Minute)
+	old := demoNow().Add(-48 * time.Hour)
 	return []fleet.RawUsage{
+		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
+			Provider: "mail-adapter", ExternalRef: "senders/notifications",
+			Metrics: []evidence.UsageMetric{{Name: "emails-sent", Value: 120000}},
+			Cost:    &evidence.UsageCost{Amount: "48.00", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "mail-adapter", ProducerKeyID: "demo-mail-adapter", ObservedAt: old, Verified: true},
 		{Service: "catalog-service", Digest: demoDigest(src, "catalog-service", "1.3.0"), Kind: "configuration", Name: "database",
 			Environment: "production", Provider: "platform-db", ExternalRef: "databases/catalog-production",
 			Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}},

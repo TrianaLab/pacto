@@ -76,6 +76,15 @@ test.describe('WASM demo — resources a service consumes', () => {
     await expect(card).toContainText('no offering');
     await expect(card.getByTestId('resource-status').first()).toContainText('Failed');
     await expect(card.getByTestId('resource-status').first()).toContainText('adapter mail-adapter');
+    // Its signed usage report is two days old: unknown, the figures apart and never in the ok tone.
+    const usage = card.getByTestId('resource-usage-entry');
+    await expect(usage).toHaveAttribute('data-state', 'unknown');
+    await expect(usage).toContainText('Unknown: the last usage report is older than the provisioning window');
+    await expect(usage).toContainText('reported, not trusted');
+    await expect(usage.locator('.rl-figures.rl-untrusted dd', { hasText: /^48\.00 USD per P30D$/ })).toBeVisible();
+    await expect(usage.locator('.rl-figures:not(.rl-untrusted)')).toHaveCount(0);
+    await expect(usage.locator('.tone-ok')).toHaveCount(0);
+    await expect(usage).toContainText('reported by mail-adapter, signed');
     await expectAxeClean(page);
 
     await page.goto('/#/fleet/attention?category=provisioning');

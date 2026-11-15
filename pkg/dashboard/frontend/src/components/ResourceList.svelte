@@ -45,6 +45,7 @@
     c.producer ? `reported by ${c.producer}` : '',
     c.source ? (c.verified ? 'signed' : 'unsigned') : '',
     c.asOf ? `as of ${formatDateTime(c.asOf)}` : '',
+    c.revision?.label ? `about ${c.revision.label}` : '',
   ].filter(Boolean).join(', ');
 </script>
 
@@ -72,6 +73,7 @@
             <span class="rl-k">Requested (declared)</span>
             {#if r.revision}<EntityLink ref={r.revision} showStatus={false} showKind={false} />{/if}
             <span class="rl-note"><bdi>{r.entry}</bdi>{r.configuration ? `, configuration ${r.configuration}` : ''}</span>
+            {#if r.consumerRevision}<span class="rl-note">declared by</span><EntityLink ref={r.consumerRevision} showStatus={false} showKind={false} />{/if}
           </div>
           {#if (r.values?.items ?? []).length}
             <dl class="rl-values">

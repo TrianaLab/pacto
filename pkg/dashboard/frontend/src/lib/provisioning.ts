@@ -52,7 +52,7 @@ export function phaseLabel(st: ProvisioningStatus, now: number = Date.now()): st
   }
   const when = formatRelative(st.asOf, now);
   if (!st.verified) {
-    const via = st.sourceKind === 'target-state' ? 'target-state file' : `report through ${st.source || 'an unnamed source'}`;
+    const via = st.sourceKind?.startsWith('target-state') ? 'target-state file' : `report through ${st.source || 'an unnamed source'}`;
     return `${st.phase} (unsigned ${via}, ${when})`;
   }
   return `${st.phase} (reported by ${st.producer || 'an unnamed producer'} through ${st.source}, ${when})`;

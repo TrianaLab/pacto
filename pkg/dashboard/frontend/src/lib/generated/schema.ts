@@ -3061,6 +3061,7 @@ export interface components {
             provider?: string;
             reason?: string;
             reported?: components["schemas"]["Fleet.UsageFigures"];
+            revision?: components["schemas"]["Fleet.EntityRef"];
             source?: string;
             stale?: boolean;
             /** @enum {string} */
@@ -4787,6 +4788,7 @@ export interface components {
         };
         ProductRequestedConfiguration: {
             configuration?: string;
+            consumerRevision?: components["schemas"]["ProductRef"];
             entry: string;
             /** @enum {string} */
             provenance: "declared";

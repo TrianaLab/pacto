@@ -359,21 +359,24 @@ export function installScaleFixture(): void {
           { state: 'reported', figures: figures(2), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
           { state: 'unknown', reason: longName('the usage report is not signed'), reported: figures(3), source: 'target-state', verified: false, asOf: '2026-07-29T09:40:00Z' },
           { state: 'reported', figures: figures(16), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the providers that report usage for this resource disagree'), conflict: [longName('producer-a'), longName('producer-b')] },
         ];
+        const consumerRevision = { kind: 'revision', key: `orders-service@sha256:${'b'.repeat(64)}`, label: longName('orders-service 1.4.0'), href: `/fleet/revisions/${encodeURIComponent(`orders-service@sha256:${'b'.repeat(64)}`)}` };
         used.items = Array.from({ length: 40 }, (_, i) => {
           const key = `${pv.key}-r${i}`;
           return {
             ...base, offering: i % 3 === 2 ? '' : base.offering, via: i % 2 ? 'dependency' : 'configuration_reference',
             provider: { ...pv, key, label: longName(`resource-provider-${i}`), href: `${pv.href}-r${i}` },
             providerAvailability: { state: ['available', 'degraded', 'unavailable', 'unknown'][i % 4], byEnvironment: [], total: 0, asOf: '2026-11-10T08:00:00Z' },
-            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared',
+            requested: i % 2 ? undefined : [{ entry: longName(`entry-${i}`), configuration: longName(`configuration-${i}`), provenance: 'declared', consumerRevision,
               revision: { kind: 'revision', key: `${key}@sha256:${'a'.repeat(64)}`, label: longName(`resource-provider-${i} 16.1.0`), href: `/fleet/revisions/${encodeURIComponent(`${key}@sha256:${'a'.repeat(64)}`)}` },
               values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
             provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
               externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
             consumption: i % 4 === 3
               ? [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }]
-              : [0, 1, 2].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), provenance: 'observed' })),
+              : [0, 1, 2, 3].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), entry: longName(`entry-${i}`), provenance: 'observed',
+                revision: { kind: 'revision', key: consumerRevision.key, label: consumerRevision.label } })),
           };
         });
         used.total = 120; used.count = 40; used.truncated = true;
@@ -1185,7 +1188,17 @@ export const ROUTES: Route[] = [
   { name: 'service page, environments without Stages', open: serviceEnvironments('#/fleet/services/storefront-web') },
   { name: 'service page, environments beside Stages', open: serviceEnvironments('#/fleet/services/notification-worker') },
   { name: 'service page, resources', open: serviceResources('#/fleet/services/catalog-service') },
-  { name: 'service page, resources at scale', open: serviceResources('#/fleet/services/orders-service') },
+  {
+    // Expanded, so every card (usage figures included) is laid out where the gate looks,
+    // never below the preview's clip.
+    name: 'service page, resources at scale',
+    open: async (page) => {
+      await serviceResources('#/fleet/services/orders-service')(page);
+      await page.locator('#sec-resources [data-testid="preview-show-all"]').click();
+      await expect(page.locator('#sec-resources .ps-clipped')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the section into view; the gate reads from the top
+    },
+  },
   {
     name: 'service page, resources empty',
     open: async (page) => {
