@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { settle } from './ready';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
@@ -669,27 +669,115 @@ export function installScaleFixture(): void {
   // `sessionStorage['fixture.stats']` picks the state, read on every call: `off` serves
   // none, `none` a window without run records, unset a recorded one.
   const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
-  const statsEnvelope = (empty: boolean) => {
-    const until = new Date(), since = new Date(until.getTime() - 30 * 86_400_000);
+  // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
+  // no coverage history. Unset serves the scale case: 60 environments with forks, a
+  // cycle and an unordered one, 2,000 services paged, names of 60 to 200 characters and
+  // 3 skipped records. Every count the page links says how many records it opens, and
+  // /api/stats/records answers exactly that many (figureLinkTotals checks it).
+  const STATS_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
+  const ratio = (count: number, of: number) => (of ? { count, of } : { count: 0, of: 0, unknown: true });
+  const statsEnvName = (i: number) => longName(`stats-env-${i}`);
+  const STATS_ENVS = Array.from({ length: 60 }, (_, i) => {
+    const hot = i % 15 === 0; // only a few environments have something to list, so the link sweep stays short
+    return {
+      environment: statsEnvName(i), source: 'context', operations: 40 + i,
+      held: ratio(hot ? 3 : 0, 20), failed: ratio(hot ? 2 : 0, 20), rolledBack: i % 4 === 1 ? ratio(0, 0) : ratio(hot ? 1 : 0, 18),
+      verificationFailed: ratio(hot ? 1 : 0, 16), acceptedUnknown: i % 9,
+      leadTime: i % 3 ? { p50Seconds: 3_600 * (i + 1), p90Seconds: 9_000 * (i + 1), joined: 4, unjoined: 1 } : { joined: 0, unjoined: 2, unknown: true },
+      upstream: i === 0 ? [] : i % 10 === 5 ? [statsEnvName(i - 1), statsEnvName(i - 2)] : [statsEnvName(i - 1)],
+      ...(i === 58 ? { cycle: true } : {}), ...(i === 59 ? { unordered: true } : {}),
+    };
+  });
+  const STATS_GATES = { clear: 400, blocked: 37, unverified: 12 };
+  const statsTotal = (metric: string, env: string): number => {
+    const rate = ['held', 'failed', 'rolledBack', 'verificationFailed'].includes(metric) ? metric as 'held' : '';
+    if (rate) return STATS_ENVS.filter((e) => !env || e.environment === env).reduce((n, e) => n + e[rate].count, 0);
+    return ({ breaking: 37, protected: STATS_GATES.blocked, ...STATS_GATES } as Record<string, number>)[metric] ?? 8;
+  };
+  const coverageOf = (asOf: Date, partial: boolean) => ({
+    services: 2000, uncontracted: 14, knowledge: { services: 2000, described: 1240, withGaps: 560, unknown: 200, notDeployed: 90 },
+    links: { exact: 4100, inferred: 900, ambiguous: 40, unresolved: 12 }, snapshotAsOf: asOf.toISOString(), completeness: partial ? 'partial' : 'complete',
+  });
+  const statsEnvelope = (mode: string, query: string) => {
+    const empty = mode === 'none', restricted = mode === 'restricted';
+    const days = STATS_DAYS[new URLSearchParams(query).get('window') ?? ''] ?? 30;
+    const until = new Date(), since = new Date(until.getTime() - days * 86_400_000);
+    const limitations = empty
+      ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }]
+      : [{ code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be counted: 1 malformed and 2 unreadable' },
+          ...(restricted ? [{ code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view of the fleet and are left out of every number' }] : [])];
     return {
       asOf: until.toISOString(), window: { since: since.toISOString(), until: until.toISOString() }, registry: 'ghcr.io/acme/pacto-stats',
-      recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'complete', provenance: 'unsigned statistics', truncated: '',
-      skipped: { malformed: 0, oversized: 0, unreadable: 0 }, hidden: { present: false },
-      limitations: empty ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }] : [],
+      recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'partial', provenance: 'unsigned statistics', truncated: '',
+      skipped: empty ? { malformed: 0, oversized: 0, unreadable: 0 } : { malformed: 1, oversized: 0, unreadable: 2 }, hidden: { present: restricted }, limitations,
     };
   };
-  const statsAnswer = (route: string): Record<string, unknown> => {
-    const empty = statsMode() === 'none';
-    if (route === '/api/stats/records') return { ...statsEnvelope(empty), items: [], total: 0 };
-    return { ...statsEnvelope(empty), runs: empty ? 0 : 1180, distinctChanges: empty ? 0 : 860, environmentOrder: 'name',
-      environments: [], services: [], servicesTotal: 0, buckets: [] };
+  const statsBuckets = (since: Date, until: Date, restricted: boolean) => {
+    const size = (until.getTime() - since.getTime()) <= 7 * 86_400_000 ? 86_400_000 : 7 * 86_400_000;
+    const out: Record<string, unknown>[] = [];
+    for (let end = until.getTime(), i = 0; end > since.getTime(); end -= size, i++) {
+      const start = Math.max(since.getTime(), end - size);
+      const b: Record<string, unknown> = { since: new Date(start).toISOString(), until: new Date(end).toISOString(), days: Math.ceil((end - start) / 86_400_000) };
+      if (end - start < size) b.partial = true;
+      if (i !== 1) {
+        b.metrics = { breakingCaught: { distinct: 2 + (i % 5), runs: 5 + i }, consumersProtected: { count: 3 * (i % 4), unknown: i % 2, ...(i === 2 ? { partial: 1 } : {}) },
+          gates: { clear: 30 + i, blocked: 2 + (i % 3), unverified: i % 2 },
+          environments: [{ ...STATS_ENVS[0], held: i === 3 ? ratio(0, 0) : ratio(i % 3, 6) }] };
+      }
+      if (!restricted && i !== 0) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
+      out.push(b);
+    }
+    return out.reverse();
+  };
+  const statsServiceRow = (i: number) => {
+    const metrics = { breakingCaught: { distinct: i % 4, runs: i % 9 }, consumersProtected: { count: i % 13, unknown: 0 }, gates: { clear: i % 20, blocked: i % 3, unverified: i % 2 } };
+    if (i === 0) return { label: 'payments-service', href: '/fleet/services/payments-service', metrics };
+    return { label: longName(`stats-svc-${i}`), note: i % 7 === 3 ? 'ambiguous: more than one service has this name' : 'not in the current snapshot', metrics };
+  };
+  const statsRecord = (metric: string, env: string, n: number) => {
+    const digest = (k: string) => `sha256:${(hash(k).toString(16).padStart(8, '0')).repeat(8)}`;
+    const recordedAt = new Date(Date.now() - (n + 1) * 3_600_000).toISOString();
+    const id = `${metric}-${env}-${n}`;
+    if (['held', 'failed', 'rolledBack', 'verificationFailed', 'leadTime'].includes(metric)) {
+      const environment = env || STATS_ENVS[0].environment;
+      return { record: { id, version: '1', pactoVersion: '4', kind: 'operation', type: metric === 'rolledBack' ? 'rollback' : 'promote', outcome: metric === 'held' ? 'Held' : 'Failed',
+        service: n === 0 ? 'payments-service' : longName(`stats-svc-${n}`), environment, recordedAt },
+        stage: { namespace: longName('stats-team-namespace'), name: longName(`stats-stage-${n}`), environment },
+        ...(n === 0 ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' } } : { note: 'not in the current snapshot' }) };
+    }
+    if (metric === 'coverage') return { record: { id, version: '1', pactoVersion: '4', kind: 'coverage', service: '_fleet', recordedAt } };
+    const verdict = ['clear', 'unverified'].includes(metric) ? metric : 'blocked';
+    return { record: { id, version: '1', pactoVersion: '4', kind: 'impact', service: n === 0 ? 'payments-service' : longName(`stats-svc-${n}`), classification: 'BREAKING',
+      oldRevision: digest(`${id}-old`), newRevision: digest(`${id}-new`), gate: { verdict }, recordedAt },
+      ...(n === 0 ? { service: { label: 'payments-service', href: '/fleet/services/payments-service' } } : {}), note: 'not in the current snapshot' };
+  };
+  const statsAnswer = (route: string, query: string): Record<string, unknown> => {
+    const mode = statsMode(), q = new URLSearchParams(query);
+    const env = statsEnvelope(mode, query);
+    const offset = Math.max(0, Number(q.get('offset') ?? q.get('servicesOffset') ?? 0) || 0);
+    if (route === '/api/stats/records') {
+      const metric = q.get('metric') ?? '', environment = q.get('environment') ?? '';
+      const total = mode === 'none' ? 0 : statsTotal(metric, environment);
+      const limit = Math.min(100, Number(q.get('limit') ?? 25) || 25);
+      return { ...env, total, items: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, j) => statsRecord(metric, environment, offset + j)) };
+    }
+    if (mode === 'none') return { ...env, runs: 0, distinctChanges: 0, environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [] };
+    const sOffset = Math.max(0, Number(q.get('servicesOffset') ?? 0) || 0), sLimit = Math.min(100, Number(q.get('servicesLimit') ?? 25) || 25);
+    const restricted = mode === 'restricted';
+    return {
+      ...env, runs: 1180, distinctChanges: 860, environmentOrder: 'stages', environments: STATS_ENVS,
+      totals: { breakingCaught: { distinct: 37, runs: 90 }, consumersProtected: { count: 120, unknown: 4, partial: 1 }, gates: STATS_GATES, environments: STATS_ENVS },
+      services: Array.from({ length: Math.max(0, Math.min(sLimit, 2000 - sOffset)) }, (_, j) => statsServiceRow(sOffset + j)), servicesTotal: 2000,
+      buckets: statsBuckets(new Date(env.window.since), new Date(env.window.until), restricted),
+      coverageNow: restricted ? { ...coverageOf(new Date(), false), services: 300, knowledge: { services: 300, described: 200, withGaps: 60, unknown: 40, notDeployed: 12 } } : coverageOf(new Date(), true),
+    };
   };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
     if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records')) {
       if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
-      return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route)) };
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route, path.split('?')[1] ?? '')) };
     }
     if (flags.__pactoStalePropose && method === 'POST' && path === '/api/delivery/operations' && body) {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
@@ -1209,12 +1297,16 @@ const planOpened = async (page: Page) => {
  * asks for its capabilities again: a bare hash change keeps the ones it already has.
  * The state's own heading must show, so a variant that fell back to another fails.
  */
-const METRICS_HEADING: Record<string, string> = { off: 'Metrics are off', none: 'No run records in this window' };
+const METRICS_SHOWS: Record<string, (page: Page) => Locator> = {
+  off: (page) => page.getByRole('heading', { name: 'Metrics are off' }),
+  none: (page) => page.getByRole('heading', { name: 'No run records in this window' }),
+  restricted: (page) => page.getByTestId('metrics-hidden'),
+};
 const openMetrics = (mode: string) => async (page: Page) => {
   await page.evaluate((m) => sessionStorage.setItem('fixture.stats', m), mode);
   await page.goto('/index.html?fixture=1#/metrics');
   await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
-  await expect(page.getByRole('heading', { name: METRICS_HEADING[mode] })).toBeVisible({ timeout: 30_000 });
+  await expect(METRICS_SHOWS[mode](page)).toBeVisible({ timeout: 30_000 });
 };
 
 /** Opens a service created from a golden path, through the path's own created count. */
@@ -1494,6 +1586,9 @@ export const ROUTES: Route[] = [
   },
   { name: 'metrics off', open: openMetrics('off') },
   { name: 'metrics no records', open: openMetrics('none') },
+  { name: 'metrics', hash: '#/metrics' },
+  { name: 'metrics records', hash: '#/metrics?metric=blocked' },
+  { name: 'metrics restricted', open: openMetrics('restricted') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

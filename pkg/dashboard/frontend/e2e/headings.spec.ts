@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { DOC_ORIGIN } from './ports';
+import { installScaleFixture } from './layoutGate';
 
 /**
  * Exhaustive heading / landmark / page-title audit over EVERY canonical Fleet
@@ -202,10 +203,13 @@ test.describe('document structure on every canonical Fleet route', () => {
       ['Change analysis (scoped)', `#/fleet/changes/${e(k.service)}`],
       // The plain demo has no stats repository: the explainer.
       ['Metrics', '#/metrics'],
+      // Last: the scale fixture answers for a stats repository from here on.
+      ['Metrics (recorded)', '#/metrics'],
     ];
 
     const titles: string[] = [];
     for (const [label, hash] of routes) {
+      if (label === 'Metrics (recorded)') await page.addInitScript(installScaleFixture);
       await boot(page, hash);
       titles.push((await assertStructure(page, label)).title);
     }

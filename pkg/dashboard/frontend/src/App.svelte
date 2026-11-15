@@ -490,7 +490,9 @@
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'metrics'}
     <LazyView load={loadFleetMetricsView} {capabilities} window={route.params.window || ''}
-      servicesOffset={route.params.servicesOffset || ''} {refreshTick} />
+      metric={route.params.metric || ''} environment={route.params.environment || ''}
+      offset={route.params.offset || ''} limit={route.params.limit || ''}
+      servicesOffset={route.params.servicesOffset || ''} servicesLimit={route.params.servicesLimit || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
     <LazyView load={loadFleetSourcesView}
       text={route.params.text || ''}

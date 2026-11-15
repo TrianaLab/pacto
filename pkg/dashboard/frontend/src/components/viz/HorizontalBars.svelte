@@ -29,7 +29,11 @@
   // it silently broke the row-for-row alignment between two charts drawn over the same
   // population. The caller decides which rows exist; this draws the ones it is given.
   const rows = $derived(items);
-  const max = $derived(rows.reduce((m, i) => Math.max(m, i.value || 0), 0));
+  // A row with `unknown` (the reason, "no records") has no value at all: it draws a
+  // full hatched track, prints the reason where the number goes and stays out of the
+  // scale and out of the "every row is zero" line. Unknown is never drawn as 0.
+  const known = $derived(rows.filter((i) => !i.unknown));
+  const max = $derived(known.reduce((m, i) => Math.max(m, i.value || 0), 0));
   // A zero gets NO bar. The 2% floor exists so a small non-zero value stays visible, and
   // painting a stub for zero would say "a little" where the answer is "none".
   const width = (v) => (max > 0 && v > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
@@ -60,14 +64,14 @@
           {#if r.href}
             <a class="hb-inner" href={r.href}>
               <span class="hb-label" title={r.label}>{r.label}</span>
-              <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch} data-motion style="width: {width(r.value)}%"></span></span>
-              <span class="hb-value">{amount(r.value)}</span>
+              <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || amount(r.value)}</span>
             </a>
           {:else}
             <span class="hb-inner">
               <span class="hb-label" title={r.label}>{r.label}</span>
-              <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch} data-motion style="width: {width(r.value)}%"></span></span>
-              <span class="hb-value">{amount(r.value)}</span>
+              <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || amount(r.value)}</span>
             </span>
           {/if}
         </li>
@@ -75,7 +79,7 @@
     </ul>
     {#if max > 0}
       <p class="hb-scale">Bar length is relative to the largest value shown ({max}).</p>
-    {:else}
+    {:else if known.length}
       <p class="hb-scale">Every row here is zero, so no bar is drawn.</p>
     {/if}
   {/if}
@@ -106,6 +110,7 @@
   .hb-track { display: block; height: 10px; border-radius: var(--radius-xs); background: var(--c-surface-inset); border: 1px solid var(--c-border); }
   .hb-fill { display: block; height: 100%; background: var(--tone-c, var(--c-info)); transition: width var(--motion-reveal); }
   .hb-value { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
+  .hb-value.hb-unknown { font-weight: 400; font-style: italic; color: var(--c-text-2); }
   .hb-fill.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
