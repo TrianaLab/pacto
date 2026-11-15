@@ -660,6 +660,22 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --dashboard-mira-url=http://mira:4318
 
+  - it: should refuse a dashboard stats repository given as a URL
+    set:
+      dashboard.enabled: true
+      dashboard.stats.registry: https://ghcr.io/acme/pacto-stats
+    asserts:
+      - failedTemplate:
+          errorPattern: "dashboard.stats.registry: Does not match pattern"
+
+  - it: should refuse a dashboard stats repository with a tag
+    set:
+      dashboard.enabled: true
+      dashboard.stats.registry: ghcr.io/acme/pacto-stats:latest
+    asserts:
+      - failedTemplate:
+          errorPattern: "dashboard.stats.registry: Does not match pattern"
+
   - it: should name no stats repository by default
     set:
       dashboard.enabled: true
