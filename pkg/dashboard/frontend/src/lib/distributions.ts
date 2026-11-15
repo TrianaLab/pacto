@@ -210,6 +210,8 @@ export interface OwnershipTally {
   consistent?: number;
   conflicting?: number;
   unowned?: number;
+  /** No owner claim and no contract Pacto could read: unknown, never unowned. */
+  unknown?: number;
 }
 
 /** ReadinessTally as emitted by the Product API. Partitions a CONTRACT REVISION population. */
@@ -232,6 +234,8 @@ export interface ReadinessTally {
 export const OWNERSHIP_STATES: BucketState<keyof OwnershipTally>[] = [
   { value: 'conflicting', field: 'conflicting', label: 'Revisions name different owners', tone: 'err' },
   { value: 'unowned', field: 'unowned', label: 'No declared owner', tone: 'warn' },
+  // Unreadable is never ownerless: drawn as the unknown hatch.
+  { value: 'unknown', field: 'unknown', label: 'Owner unknown', tone: 'neutral', hatch: true },
   { value: 'consistent', field: 'consistent', label: 'One declared owner', tone: 'ok' },
 ];
 
@@ -240,7 +244,7 @@ export function ownershipSegments(t: OwnershipTally | undefined, hrefs: Record<s
 }
 
 /**
- * ownershipHrefs builds the drill-down for all three ownership buckets from one
+ * ownershipHrefs builds the drill-down for every ownership bucket from one
  * `ownership` URL builder — the counterpart of `statusHrefs`. Every bucket IS a real
  * filter, so unlike compliance there is nothing here to leave out.
  */

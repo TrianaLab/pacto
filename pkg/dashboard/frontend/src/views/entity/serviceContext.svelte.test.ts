@@ -109,7 +109,7 @@ describe('service page: owner fact', () => {
     expect(text(f)).not.toContain('No declared owner');
     const a = f.querySelector('a[href]')!;
     expect(a.getAttribute('href')).toBe(unowned);
-    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.");
+    expect(a.getAttribute('title')).toBe("Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.");
     done();
   });
 

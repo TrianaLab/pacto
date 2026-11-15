@@ -1040,6 +1040,7 @@ pacto fleet entities [text] [flags]
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
+      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
@@ -1049,7 +1050,7 @@ pacto fleet entities [text] [flags]
       --offset int                       result offset for paging
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
-      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
+      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown: no readable contract, unidentified: no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace

@@ -51,7 +51,8 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
+	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unknown: no readable contract, unidentified: no single canonical owner)")
+	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
@@ -72,7 +73,8 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
 	_ = cmd.RegisterFlagCompletionFunc("readiness", staticCompletions("passing", "below-threshold", "expired", "not-declared"))
 	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable"))
-	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("gap", staticCompletions(fleet.GapFilterValues()...))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
 	_ = cmd.RegisterFlagCompletionFunc("lifecycle", staticCompletions(fleet.LifecycleDeprecated, fleet.LifecycleSunset))
@@ -128,7 +130,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	failed, _ := cmd.Flags().GetBool("failed")
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),

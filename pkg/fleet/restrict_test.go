@@ -813,3 +813,42 @@ func TestRestrictedOverviewHealth(t *testing.T) {
 		}
 	}
 }
+
+func TestRestrictedKnowledgeAndOwnership(t *testing.T) {
+	read := fstest.MapFS{"interfaces/openapi.json": {Data: []byte(smallOpenAPI)}}
+	k := SourceKindKubernetes
+	shop, secret := runs("pay"), runs("secret")
+	shop.Kind, secret.Kind, secret.Scope = k, k, "secret"
+	q := knowledgeFleet(t, []RawRevision{
+		openapiRev("pay", read, false),
+		knowRev("secret", func(c *contract.Contract, _ *contract.Bundle) {
+			c.Service.Summary, c.Service.Owner = "", contract.Owner{}
+		}),
+	}, []RawTarget{shop, secret})
+	if sum := q.Overview().Summary; sum.Knowledge.WithGaps != 1 || sum.Ownership.Unowned != 1 {
+		t.Fatalf("unrestricted knowledge %+v, ownership %+v", sum.Knowledge, sum.Ownership)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	ov := r.Overview()
+	if ov.Summary.Knowledge != (KnowledgeTally{Services: 1, Described: 1}) || ov.Summary.Ownership != (OwnershipTally{Consistent: 1}) || ov.Summary.KnowledgeItems != 0 {
+		t.Fatalf("restricted knowledge %+v, ownership %+v, items %d", ov.Summary.Knowledge, ov.Summary.Ownership, ov.Summary.KnowledgeItems)
+	}
+	if !slices.ContainsFunc(ov.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("limitations = %+v, want HIDDEN_BY_PERMISSIONS", ov.Meta.Limitations)
+	}
+	// The restricted record and its JSON clone keep what serviceKnowledge reads.
+	var pay *ServiceRecord
+	for _, s := range r.snap.Services {
+		pay = s
+	}
+	rev := r.snap.Revisions[pay.Revisions[0]]
+	clone := cloneRevision(rev)
+	if !slices.Equal(clone.SpecsRead, []string{"http"}) || len(clone.Contract.Interfaces) != 1 {
+		t.Fatalf("clone specsRead %v, interfaces %v", clone.SpecsRead, clone.Contract.Interfaces)
+	}
+	g1, c1 := q.serviceKnowledge(q.snap.Services[pay.Key])
+	g2, c2 := r.serviceKnowledge(pay)
+	if !slices.Equal(g1, g2) || c1 != c2 {
+		t.Errorf("restricted knowledge %v/%q, unrestricted %v/%q", g2, c2, g1, c1)
+	}
+}

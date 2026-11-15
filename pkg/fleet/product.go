@@ -505,6 +505,13 @@ type OverviewSummary struct {
 	// is not the target population.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
+	// Knowledge partitions the services that are no golden path by what their
+	// contracts leave out, and KnowledgeItems is how many `knowledge` attention
+	// items that raises (the tile's count). Coverage sums the assertion coverage
+	// the sources report over the complete target population.
+	Knowledge      KnowledgeTally     `json:"knowledge"`
+	KnowledgeItems int                `json:"knowledgeItems"`
+	Coverage       EvaluationCoverage `json:"coverage"`
 	// Evidence is the fleet's freshness envelope: the third orthogonal question a
 	// service page already answers ("how recently did we look"), at fleet scale and
 	// over the same complete target population. Evidence.Stale equals StaleTargets by
@@ -562,7 +569,7 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 			by[k] = dt
 		}
 		dt.Services++
-		if n, _ := q.ownershipState(s); n == 0 {
+		if b, _ := q.ownershipBucket(s); b == OwnershipUnowned {
 			dt.Unowned++
 		}
 		for _, tk := range s.Targets {
@@ -711,7 +718,9 @@ func (q *Query) Overview() *Overview {
 		}
 		sum.Services++
 		q.addOwnership(&sum.Ownership, s)
+		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
+	sum.KnowledgeItems = len(q.knowledgeAttention())
 
 	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {
@@ -731,6 +740,7 @@ func (q *Query) Overview() *Overview {
 		link.add(t)
 		comp.add(t.Compliance)
 		sum.OperationalHealth.add(q.targetHealth(t))
+		sum.Coverage.add(t)
 		sum.Evidence.add(t)
 		if t.Stale {
 			sum.StaleTargets++
@@ -899,6 +909,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		// One tile for both kinds of undeclared item, so it opens a list of exactly
 		// Count rows; graded like its most severe item.
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
+		{Label: "Gaps in what the contracts say", Count: sum.KnowledgeItems, View: EntryPointAttention, Category: categoryKnowledge, Severity: severityInfo},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
@@ -931,7 +942,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,unowned"`
+	Category string `json:"category" enum:"non-compliant,invalid,health,provisioning,unknown,stale,unresolved,out-of-range,lifecycle,undeclared,golden-path,readiness,knowledge,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -1085,7 +1096,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range", "lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -1126,6 +1137,7 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.unresolvedAttention()...)
 	items = append(items, q.lifecycleAttention()...)
 	items = append(items, q.provisioningAttention()...)
+	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
 	items = append(items, q.deployedTemplateAttention()...)
@@ -1168,27 +1180,21 @@ func (q *Query) undeclaredAttention() []AttentionItem {
 
 // unownedAttention reports each service no source knows an owner for (no revision
 // declares one and no observing source reports one), by the same rule as the
-// ownership tally, so its total is OverviewSummary.Ownership.Unowned.
+// ownership tally, so its total is OverviewSummary.Ownership.Unowned. A service
+// whose contract Pacto cannot read is no part of it: unreadable is not ownerless,
+// and it is one `knowledge` item instead (see [Query.knowledgeAttention]).
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
-		if n, _ := q.ownershipState(s); n != 0 {
+		if b, _ := q.ownershipBucket(s); b != OwnershipUnowned {
 			continue
 		}
-		it := AttentionItem{
+		out = append(out, AttentionItem{
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
 			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
 			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
 			NextStep: "Declare service.owner in the contract",
-		}
-		// Unreadable is not ownerless: say what Pacto cannot tell, never that the
-		// contract lacks an owner block it may well have.
-		if q.ownershipUnknown(s) {
-			it.Summary = "Owner unknown: no contract of this service could be read"
-			it.Reason = "Pacto could not read any contract revision of this service, so it cannot tell whether an owner is declared"
-			it.NextStep = "Make a contract revision of this service readable"
-		}
-		out = append(out, it)
+		})
 	}
 	return out
 }

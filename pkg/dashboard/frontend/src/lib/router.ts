@@ -216,7 +216,8 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
+    // `gap` keeps the services whose contracts leave that knowledge out.
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'gap', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'phase', 'createdFrom', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -454,7 +455,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // target-only Entities filter and source was never wired into the Services list, so
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
+  text?: string; owner?: string; ownerKey?: string; ownership?: string; gap?: string; status?: string; domain?: string;
   businessDomain?: string; capability?: string; offering?: string; consumes?: string; phase?: string; createdFrom?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
@@ -469,6 +470,7 @@ export function fleetServicesUrl(opts: {
   // Who owns it (a name) and whether ownership is declared at all (a state) are two
   // different questions, and both are real Entities filters, so they compose.
   if (opts.ownership) qs.set('ownership', opts.ownership);
+  if (opts.gap) qs.set('gap', opts.gap);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
   if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);

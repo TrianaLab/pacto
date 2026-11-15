@@ -99,7 +99,8 @@ type fleetEntitiesInput struct {
 	Phase           string   `query:"phase" enum:"requested,provisioning,ready,failed,deleting,unknown" doc:"With consumes: keeps the consumers with a provisioning status of that offering in this phase (unknown: no phase a provider reported can be trusted)"`
 	Scope           string   `query:"scope"`
 	Status          string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
-	Ownership       string   `query:"ownership" enum:"consistent,conflicting,unowned,unidentified" doc:"Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone)"`
+	Ownership       string   `query:"ownership" enum:"consistent,conflicting,unowned,unidentified,unknown" doc:"Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read"`
+	Gap             string   `query:"gap" enum:"no-summary,no-domain,no-interface-docs,no-readiness,not-deployed,unverified-capability,unknown" doc:"Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge"`
 	Readiness       string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
 	SourceHealth    string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source          string   `query:"source"`
@@ -131,7 +132,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
 		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed,
-		Ownership: in.Ownership, Readiness: in.Readiness,
+		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {

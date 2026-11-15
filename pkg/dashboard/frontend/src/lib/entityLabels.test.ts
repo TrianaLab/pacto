@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   kindLabel, kindLabelPlural, linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
-  attentionCategoryLabel, ATTENTION_CATEGORIES,
+  attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthSentence,
   collectorLabel, seenBy,
@@ -226,5 +226,14 @@ describe('evidence collector in plain words', () => {
     expect(seenBy([{ collector: 'ebpf' }, { collector: 'k8s-observer' }, { collector: 'ebpf' }, {}])).toBe('kernel, Kubernetes');
     expect(seenBy([{}])).toBe('');
     expect(seenBy(undefined)).toBe('');
+  });
+});
+
+describe('GAP_WORDS', () => {
+  // Every gap filter value the backend publishes has words, so a chip never shows a slug.
+  it('names every backend gap value', () => {
+    const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
+    const gap = spec.paths['/api/fleet/entities'].get.parameters.find((p: { name: string }) => p.name === 'gap');
+    expect(Object.keys(GAP_WORDS)).toEqual(gap.schema.enum);
   });
 });

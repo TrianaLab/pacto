@@ -425,7 +425,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 		Description: "List services, owners, business domains or platform offerings, or the one kind named, with paging ('total', " +
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
-			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
+			"no declared owner (ownership=unknown: no contract Pacto could read, so it cannot tell), gap for services whose contracts " +
+			"leave something out (gap=unknown: Pacto cannot judge; aggregate.knowledge partitions the matched services) and sort=health for the least healthy first. template=only lists golden paths: " +
 			"starting points for pacto_create from; sort=created orders them by the services created from them. created_from lists the services created from one " +
 			"((none): no declared origin; (unresolved): an origin that resolves to no golden path), and over services aggregate.origins " +
 			"ranks golden paths by the services created from them and counts the rest, hidden services in a count of their own. Over services, the aggregate ranks owners " +
@@ -448,7 +449,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"consumes":          {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"phase":             {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
 			"environment":       {Type: "string", Description: "With kind=target, the targets in this environment; otherwise it needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
-			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unidentified is every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified}},
+			"ownership":         {Type: "string", Description: "How a service's revisions declare ownership; unknown is a service with no owner claim whose contract Pacto cannot read, unidentified every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified}},
+			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
@@ -481,6 +483,7 @@ type fleetEntitiesArgs struct {
 	Phase           string `json:"phase"`
 	Environment     string `json:"environment"`
 	Ownership       string `json:"ownership"`
+	Gap             string `json:"gap"`
 	Status          string `json:"status"`
 	Template        string `json:"template"`
 	CreatedFrom     string `json:"created_from"`
@@ -509,7 +512,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		f := fleet.EntityFilter{
 			Text: a.Text, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Gap: a.Gap, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,

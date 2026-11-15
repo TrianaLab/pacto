@@ -84,9 +84,14 @@ type EntityFilter struct {
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
 	// Ownership filters SERVICES by how their revisions declare ownership
-	// (consistent, conflicting, unowned) — see [OwnershipTally] for the rule. It is
-	// what turns "12 services have no declared owner" from a number into a list.
+	// (consistent, conflicting, unowned, unknown) — see [OwnershipTally] for the
+	// rule. It is what turns "12 services have no declared owner" from a number
+	// into a list.
 	Ownership string
+	// Gap keeps the SERVICES that are no golden path with this knowledge gap kind
+	// (see [KnowledgeTally]), or with GapUnknown those whose knowledge Pacto
+	// cannot judge.
+	Gap string
 	// Readiness filters CONTRACT REVISIONS by their declared readiness assessment
 	// (passing, below-threshold, expired, not-declared) — see [ReadinessTally]. It is
 	// a separate axis from Status: readiness is authored preparedness, compliance is
@@ -372,6 +377,9 @@ const (
 	OwnershipConsistent  = "consistent"
 	OwnershipConflicting = "conflicting"
 	OwnershipUnowned     = "unowned"
+	// OwnershipUnknown is a service with no owner claim whose contract Pacto
+	// cannot read: unreadable is never unowned.
+	OwnershipUnknown = "unknown"
 	// OwnershipUnidentified is every service with no single canonical owner:
 	// unowned, conflicting or owned by contacts alone. It is the union the
 	// non-compliant owner ranking counts as "no identified owner", not a fourth
@@ -389,7 +397,7 @@ const (
 
 func validOwnershipFilter(s string) bool {
 	switch s {
-	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned, OwnershipUnidentified:
+	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned, OwnershipUnknown, OwnershipUnidentified:
 		return true
 	default:
 		return false
@@ -414,7 +422,8 @@ func validateEntityFilter(f EntityFilter) error {
 		{"sourceKind", f.SourceKind, "not a source kind", validBusinessDomain},
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
-		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned, unidentified)", validOwnershipFilter},
+		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned, unidentified, unknown)", validOwnershipFilter},
+		{"gap", f.Gap, "not a knowledge gap (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability, unknown)", validGap},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
@@ -505,6 +514,7 @@ func validateFilterCombos(f EntityFilter) error {
 		// question is whether a service's revisions agree), and readiness is declared
 		// and assessed per REVISION. Each applies to exactly one kind.
 		{"ownership", f.Ownership, []EntityKind{KindService}},
+		{"gap", f.Gap, []EntityKind{KindService}},
 		{"readiness", f.Readiness, []EntityKind{KindRevision}},
 		{"lifecycle", f.Lifecycle, []EntityKind{KindService, KindOffering}},
 	} {
@@ -711,7 +721,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
-		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
+		q.matchServiceState(r, f) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
 		q.matchGoldenPath(r, f) &&
 		q.matchOrganization(r, f, x)
@@ -845,28 +855,26 @@ func (q *Query) serviceCapabilities(s *ServiceRecord) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
+// matchServiceState applies the ownership and knowledge-gap filters.
+func (q *Query) matchServiceState(r EntityRef, f EntityFilter) bool {
+	return (f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
+		(f.Gap == "" || q.matchGap(r, f.Gap))
+}
+
 // matchOwnershipState reports whether a SERVICE reference is in the requested
-// ownership state, bucketing it by the SAME rule [OwnershipTally.add] uses so a
-// filtered list and the distribution above it always agree. Any other kind never
-// matches, so an ownership filter on a mixed query narrows to services rather than
-// silently letting revisions through.
+// ownership state, bucketing it by the SAME rule [Query.ownershipBucket] the
+// tallies use so a filtered list and the distribution above it always agree.
+// Any other kind never matches, so an ownership filter on a mixed query narrows
+// to services rather than silently letting revisions through.
 func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
 	if r.Kind != KindService {
 		return false
 	}
-	n, key := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
-	var t OwnershipTally
-	t.add(n)
-	switch want {
-	case OwnershipUnidentified:
-		return n != 1 || key == ""
-	case OwnershipUnowned:
-		return t.Unowned == 1
-	case OwnershipConsistent:
-		return t.Consistent == 1
-	default:
-		return t.Conflicting == 1
+	bucket, key := q.ownershipBucket(q.snap.Services[ServiceKey(r.Key)])
+	if want == OwnershipUnidentified {
+		return bucket != OwnershipConsistent || key == ""
 	}
+	return bucket == want
 }
 
 // matchReadinessState reports whether a REVISION reference is in the requested

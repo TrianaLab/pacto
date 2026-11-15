@@ -457,6 +457,7 @@
       owner={route.params.owner || ''}
       ownerKey={route.params.ownerKey || ''}
       ownership={route.params.ownership || ''}
+      gap={route.params.gap || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
       businessDomain={route.params.businessDomain || ''}

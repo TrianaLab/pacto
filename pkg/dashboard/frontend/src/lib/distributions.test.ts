@@ -12,7 +12,7 @@ import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
   changeSegments, verdictSegments, confidenceSegments, outcomeSegments, segmentTotal,
   COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel, signatureSegments, signatureState,
-  ownershipSegments, readinessSegments, canonicalRank, type Segment,
+  ownershipSegments, ownershipHrefs, readinessSegments, canonicalRank, type Segment,
 } from './distributions.ts';
 import { statusLabel } from './format.ts';
 
@@ -243,5 +243,16 @@ describe('signatureState', () => {
     expect(signatureState(null).label).toBe('Not checked');
     expect(signatureState({ status: 'brand-new' }).tone).toBe('neutral');
     expect(signatureState({ status: 'unsigned' }).tone).toBe('warn');
+  });
+});
+
+describe('ownershipSegments', () => {
+  // Unreadable is never ownerless: Owner unknown is its own hatched bucket, and it
+  // links to the ownership=unknown list it counts.
+  it('draws owner unknown as the unknown hatch with its own link', () => {
+    const segs = ownershipSegments({ unowned: 1, unknown: 2 }, ownershipHrefs((o) => `#/fleet/services?ownership=${o}`));
+    const unknown = segs.find((x) => x.label === 'Owner unknown');
+    expect(unknown).toMatchObject({ value: 2, tone: 'neutral', hatch: true, href: '#/fleet/services?ownership=unknown' });
+    expect(segs.find((x) => x.label === 'No declared owner')?.value).toBe(1);
   });
 });

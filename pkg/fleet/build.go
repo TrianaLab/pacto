@@ -318,6 +318,11 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if len(existing.Tools) == 0 {
 		existing.Tools = add.Tools
 	}
+	// A contribution that read the bundle names the documents it read; one
+	// without files read none, so it never stands for "unreadable".
+	if len(existing.SpecsRead) == 0 {
+		existing.SpecsRead = add.SpecsRead
+	}
 	if len(existing.Skills) == 0 {
 		existing.Skills = add.Skills
 	}
@@ -1517,7 +1522,7 @@ func readableRevision(r *ContractRevision) bool {
 func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	var conflict []string
 	s.Offering, s.OfferingProvenance, conflict = offeringOf(snap, s)
-	s.Summary = summaryOf(snap, s)
+	s.Summary, s.SummaryUnknown = summaryOf(snap, s)
 	return offeringConflict(s.Name, conflict)
 }
 
@@ -1555,11 +1560,12 @@ func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (offering, provenance str
 	return v, provenance, conflict
 }
 
-// summaryOf is a service's one-line summary, empty when its sources disagree.
-func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
-	v, _, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
+// summaryOf is a service's one-line summary and whether Pacto cannot tell it:
+// empty and unknown when its sources disagree or nothing was read.
+func summaryOf(snap *FleetSnapshot, s *ServiceRecord) (string, bool) {
+	v, unknown, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
 		func(t *TargetRecord) []string { return t.reportedSummaries }, nil)
-	return v
+	return v, unknown
 }
 
 // validSummary is service.summary's rule in the contract schema: one line of at

@@ -140,7 +140,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'unowned',
+  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -157,10 +157,23 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'lifecycle': return 'Deprecated provider';
     case 'undeclared': return 'Undeclared dependency';
     case 'golden-path': return 'Golden path running';
+    case 'knowledge': return 'Knowledge gap';
     case 'unowned': return 'No declared owner';
     default: return c || 'Other';
   }
 }
+
+// ── knowledge gaps ───────────────────────────────────────────────────────────
+/** The words for each `gap` filter value (pkg/fleet/knowledge.go). */
+export const GAP_WORDS: Record<string, string> = {
+  'no-summary': 'No summary',
+  'no-domain': 'No domain',
+  'no-interface-docs': 'No interface document',
+  'no-readiness': 'No readiness assessment',
+  'not-deployed': 'Runs nowhere',
+  'unverified-capability': 'Unverified extension capability',
+  unknown: 'Pacto cannot tell',
+};
 
 // ── business domain and target environment ──────────────────────────────────
 /** The businessDomain filter values for the services with no domain and for those

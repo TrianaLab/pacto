@@ -576,7 +576,7 @@ func restrictBusinessDomain(out *FleetSnapshot, s *ServiceRecord) {
 // what out still holds, so a value only a hidden target reported never shows.
 func restrictOffering(out *FleetSnapshot, s *ServiceRecord) {
 	s.Offering, s.OfferingProvenance, _ = offeringOf(out, s)
-	s.Summary = summaryOf(out, s)
+	s.Summary, s.SummaryUnknown = summaryOf(out, s)
 }
 
 // recountSources recomputes each source's revision and target counts from

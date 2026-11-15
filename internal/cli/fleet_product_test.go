@@ -374,3 +374,18 @@ func TestFleetStatusLifecycleFlag(t *testing.T) {
 		t.Errorf("attention --category lifecycle = %v:\n%s", err, out)
 	}
 }
+
+func TestFleetEntitiesGapFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "no-summary", "--local", root)
+	if err != nil || !strings.Contains(out, "3 of 3 entit(ies):") {
+		t.Errorf("--gap no-summary = %v:\n%s", err, out)
+	}
+	out, _, err = execFleet(t, "fleet", "entities", "--kind", "service", "--ownership", "unknown", "--local", root)
+	if err != nil || !strings.HasPrefix(out, "0 of 0 entit(ies):") {
+		t.Errorf("--ownership unknown = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "bogus", "--local", root); err == nil {
+		t.Error("a bad --gap is an error")
+	}
+}

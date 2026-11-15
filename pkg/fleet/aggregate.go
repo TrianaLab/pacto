@@ -162,10 +162,12 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 }
 
 // OwnershipTally partitions a SERVICE population by how well ownership is
-// DECLARED on it: Consistent + Conflicting + Unowned == the population. A service
-// with no revision that declares an owner counts the owners its observing sources
-// read from the contracts its targets run (see [serviceOwnerClaims]), so Unowned
-// means no source knows an owner.
+// DECLARED on it: Consistent + Conflicting + Unowned + Unknown == the population.
+// A service with no revision that declares an owner counts the owners its
+// observing sources read from the contracts its targets run (see
+// [serviceOwnerClaims]), so Unowned means no source knows an owner of a contract
+// Pacto did read. Unknown is a service with no owner claim whose contract Pacto
+// cannot read at all: unreadable is never ownerless.
 //
 // Ownership is authored per revision (`service.owner` in the contract), so a
 // service's ownership is a property of its revisions agreeing rather than of one
@@ -184,26 +186,29 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 type OwnershipTally struct {
 	Consistent  int `json:"consistent"`
 	Conflicting int `json:"conflicting"`
-	Unowned     int `json:"unowned"`
+	Unowned     int `json:"unowned" doc:"Services whose read contracts declare no owner and no source reports one"`
+	Unknown     int `json:"unknown" doc:"Services with no owner claim whose contract Pacto cannot read, so it cannot tell whether an owner is declared"`
 }
 
-// add buckets one service by the number of DISTINCT canonical owners its revisions
-// claim. It is the only place 0/1/many is turned into a bucket: the overview
-// partition, the entity aggregate and the ownership search filter all call it, so
-// a filtered list can never disagree with the distribution printed above it.
-func (o *OwnershipTally) add(distinctOwners int) {
-	switch distinctOwners {
-	case 0:
-		o.Unowned++
-	case 1:
+// add counts one service in the bucket [Query.ownershipBucket] classified it
+// into. The overview partition, the entity aggregate and the ownership search
+// filter all classify through that one function, so a filtered list can never
+// disagree with the distribution printed above it.
+func (o *OwnershipTally) add(bucket string) {
+	switch bucket {
+	case OwnershipConsistent:
 		o.Consistent++
-	default:
+	case OwnershipConflicting:
 		o.Conflicting++
+	case OwnershipUnknown:
+		o.Unknown++
+	default:
+		o.Unowned++
 	}
 }
 
 // Total is the population the tally covers.
-func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned }
+func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned + o.Unknown }
 
 // ReadinessTally partitions a CONTRACT REVISION population by its declared
 // readiness assessment. The unit is always the revision: readiness is authored
@@ -319,6 +324,9 @@ type EntityAggregate struct {
 	// Ownership partitions Services; Readiness partitions Revisions.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
+	// Knowledge partitions the matched services that are no golden path by what
+	// their contracts leave out.
+	Knowledge KnowledgeTally `json:"knowledge"`
 	// ByOwner ranks the CONSISTENTLY OWNED matched services by canonical owner,
 	// largest first, bounded to maxOwnerRanking. It is not a partition of Services
 	// and does not pretend to be: Ownership.Conflicting and Ownership.Unowned are
@@ -549,13 +557,30 @@ func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, ownerKey s
 	return claims.len(), claims.soleKey()
 }
 
+// ownershipBucket classifies a service into its ownership bucket (one of the
+// Ownership* partition values) and returns the canonical owner key when it is
+// consistently owned. A service with no owner claim is OwnershipUnknown when
+// Pacto cannot read its contract, else OwnershipUnowned.
+func (q *Query) ownershipBucket(s *ServiceRecord) (bucket, key string) {
+	claims := q.ownerClaimsOf(s)
+	switch n := claims.len(); {
+	case n == 1:
+		return OwnershipConsistent, claims.soleKey()
+	case n > 1:
+		return OwnershipConflicting, ""
+	case q.ownershipUnknown(s):
+		return OwnershipUnknown, ""
+	}
+	return OwnershipUnowned, ""
+}
+
 // addOwnership buckets one service into the ownership partition and returns the
 // canonical key it is consistently owned by (empty when conflicted, unowned or
 // unidentified), so a caller ranking owners classifies by the SAME rule the
 // partition uses.
 func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
-	n, key := q.ownershipState(s)
-	o.add(n)
+	bucket, key := q.ownershipBucket(s)
+	o.add(bucket)
 	return key
 }
 
@@ -584,9 +609,11 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 			if s.Offering != "" {
 				provided[s.Offering]++
 			}
-			agg.tallyOwner(q.ownerClaimsOf(s), s, nc, byOwner, present)
+			bucket, _ := q.ownershipBucket(s)
+			agg.tallyOwner(q.ownerClaimsOf(s), bucket, s, nc, byOwner, present)
 			if !s.Template {
 				agg.Origins.tallyOrigin(byPath, s)
+				agg.Knowledge.add(q.serviceKnowledge(s))
 			}
 		case KindRevision:
 			agg.Revisions++
@@ -686,13 +713,13 @@ func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
 
 // tallyOwner buckets one service by its owner claims: the ownership partition, the
 // owner ranking and the non-compliant services no owner row can name.
-func (agg *EntityAggregate) tallyOwner(claims ownerClaimSet, s *ServiceRecord, nc bool, byOwner map[string]*OwnerCount, present map[string]bool) {
+func (agg *EntityAggregate) tallyOwner(claims ownerClaimSet, bucket string, s *ServiceRecord, nc bool, byOwner map[string]*OwnerCount, present map[string]bool) {
 	// Every canonical owner the service names is present in the population,
 	// including the two sides of a dispute — neither of which can rank.
 	for _, k := range claims.keys {
 		present[k] = true
 	}
-	agg.Ownership.add(claims.len())
+	agg.Ownership.add(bucket)
 	key := claims.soleKey()
 	if nc && (claims.len() != 1 || key == "") {
 		agg.NonCompliantUnidentified++

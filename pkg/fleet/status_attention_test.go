@@ -74,8 +74,8 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 	}
 	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t), lifecycleRangeFleet(t)}
 	for _, c := range AttentionCategoriesList() {
-		if c == categoryProvisioning || c == categoryHealth {
-			continue // no flag selects either alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth
+		if c == categoryProvisioning || c == categoryHealth || c == categoryKnowledge {
+			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge
 		}
 		set, ok := flag[c]
 		if !ok {
@@ -130,11 +130,12 @@ func TestStatusReportsTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := NewQuery(snap)
-	res := q.Status(StatusQuery{})
+	// Readiness alone: every service also raises knowledge items.
+	res := q.Status(StatusQuery{MissingReadiness: true})
 	if len(res.Items) != DefaultStatusLimit || res.Total != 250 || !res.Truncated {
 		t.Errorf("default limit: items=%d total=%d truncated=%v", len(res.Items), res.Total, res.Truncated)
 	}
-	res = q.Status(StatusQuery{Limit: 300})
+	res = q.Status(StatusQuery{MissingReadiness: true, Limit: 300})
 	if len(res.Items) != 250 || res.Total != 250 || res.Truncated {
 		t.Errorf("limit 300: items=%d total=%d truncated=%v", len(res.Items), res.Total, res.Truncated)
 	}
