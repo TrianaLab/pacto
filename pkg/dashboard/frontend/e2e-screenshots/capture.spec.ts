@@ -80,8 +80,8 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/catalog-service', 'catalog-service'); await expect(p.locator('#sec-resources')).toBeVisible(); },
     element: '#sec-resources',
   },
-  // Metrics: the explainer on the plain demo, which records no run statistics.
-  { name: 'metrics', open: (p) => go(p, '/#/metrics', 'Metrics') },
+  // Metrics: the demo's own run records, generated from the payments story.
+  { name: 'metrics', open: async (p) => { await go(p, '/#/metrics', 'Metrics'); await expect(p.getByTestId('metrics-tiles')).toBeVisible(); } },
 ];
 
 async function finish(page: Page) {

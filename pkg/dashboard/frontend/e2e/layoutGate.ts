@@ -106,7 +106,7 @@ export function installScaleFixture(): void {
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
-    if (route === '/api/capabilities') doc.stats = statsMode() !== 'off';
+    if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
@@ -667,7 +667,9 @@ export function installScaleFixture(): void {
   };
   // The Metrics page's answers (#493). The demo has no stats repository, so
   // `sessionStorage['fixture.stats']` picks the state, read on every call: `off` serves
-  // none, `none` a window without run records, unset a recorded one.
+  // none, `none` a window without run records, unset a recorded one, and `engine` leaves
+  // /api/stats, /api/stats/records and the stats capability to the engine (the browser
+  // demo's own run records, #493 S5).
   const statsMode = () => { try { return sessionStorage.getItem('fixture.stats') ?? ''; } catch { return ''; } };
   // `restricted` serves what a signed-in reader with a narrow view gets: the hidden line,
   // no coverage history. Unset serves the scale case: 60 environments with forks, a
@@ -780,7 +782,7 @@ export function installScaleFixture(): void {
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
-    if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records')) {
+    if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records') && statsMode() !== 'engine') {
       if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
       return { status: 200, contentType: 'application/json', body: JSON.stringify(statsAnswer(route, path.split('?')[1] ?? '')) };
     }
@@ -1314,6 +1316,19 @@ const openMetrics = (mode: string) => async (page: Page) => {
   await expect(METRICS_SHOWS[mode](page)).toBeVisible({ timeout: 30_000 });
 };
 
+/**
+ * Opens Metrics over the browser demo's own run records (the fixture's `engine` mode),
+ * a real navigation like openMetrics, and waits for the populated tiles and checkout's
+ * prod-eu row, so an error page or the explainer cannot pass for the page.
+ */
+const demoMetrics = (hash: string) => async (page: Page) => {
+  await page.evaluate(() => sessionStorage.setItem('fixture.stats', 'engine'));
+  await page.goto(`/index.html?fixture=1${hash}`);
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="metrics-env-row"] th a[title="prod-eu"]')).toBeVisible({ timeout: 30_000 });
+};
+
 /** Opens a service created from a golden path, through the path's own created count. */
 const createdService = async (page: Page) => {
   await page.goto('/#/fleet/golden-paths');
@@ -1594,6 +1609,8 @@ export const ROUTES: Route[] = [
   { name: 'metrics', hash: '#/metrics' },
   { name: 'metrics records', hash: '#/metrics?metric=blocked' },
   { name: 'metrics restricted', open: openMetrics('restricted') },
+  { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
+  { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */
