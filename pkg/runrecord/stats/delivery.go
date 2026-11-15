@@ -77,25 +77,20 @@ type envCounts struct {
 
 func (c *envCounts) add(r runrecord.Record) {
 	c.m.Operations++
-	switch r.Type {
-	case opRollback:
-		if r.Outcome == string(delivery.Succeeded) {
-			c.rolled++
-		}
-	case opPromote:
-		c.addPromote(r)
+	if isRolledBack(r) {
+		c.rolled++
 	}
-}
-
-func (c *envCounts) addPromote(r runrecord.Record) {
+	if r.Type != opPromote {
+		return
+	}
 	c.promotes++
-	if d, ok := heldFor(r); ok && d > 0 {
+	if isHeld(r) {
 		c.held++
 	}
-	switch delivery.Outcome(r.Outcome) {
-	case delivery.Succeeded:
+	if r.Outcome == string(delivery.Succeeded) {
 		c.succeeded++
-	case delivery.Failed, delivery.Errored:
+	}
+	if isFailed(r) {
 		c.failed++
 	}
 	switch delivery.Verification(r.Verification) {
@@ -107,6 +102,31 @@ func (c *envCounts) addPromote(r runrecord.Record) {
 	case delivery.AcceptedUnknown:
 		c.m.AcceptedUnknown++
 	}
+}
+
+// The numerators of the rates, one definition each, shared by the counts and
+// by Behind.
+
+// isHeld is a promote that waited on a person.
+func isHeld(r runrecord.Record) bool {
+	d, ok := heldFor(r)
+	return r.Type == opPromote && ok && d > 0
+}
+
+// isFailed is a promote that ended Failed or Errored.
+func isFailed(r runrecord.Record) bool {
+	o := delivery.Outcome(r.Outcome)
+	return r.Type == opPromote && (o == delivery.Failed || o == delivery.Errored)
+}
+
+// isRolledBack is a Succeeded rollback.
+func isRolledBack(r runrecord.Record) bool {
+	return r.Type == opRollback && r.Outcome == string(delivery.Succeeded)
+}
+
+// isVerificationFailed is a promote whose verification is Unverified.
+func isVerificationFailed(r runrecord.Record) bool {
+	return r.Type == opPromote && r.Verification == string(delivery.Unverified)
 }
 
 func (c *envCounts) metrics(lt LeadTime) EnvironmentMetrics {
@@ -159,26 +179,20 @@ func environmentMetrics(entries, history []Entry) []EnvironmentMetrics {
 // that joins nothing, or would lead by a negative or unparsable time, is
 // unjoined. This is the only D7-specific function.
 func leadTimes(ops, history []Entry) map[string]LeadTime {
-	pub, first := publishIndex(history), firstPromotes(history)
 	type acc struct {
 		leads    []int64
 		unjoined int
 	}
 	byEnv := map[string]*acc{}
-	for _, e := range ops {
-		r := e.Record
-		key, ok := promoteKey(r)
-		if !ok || key != "" && first[key] != r.ID {
-			continue
-		}
-		env, _, _ := environmentOf(r)
+	for _, j := range joinPromotes(ops, history) {
+		env, _, _ := environmentOf(j.op.Record)
 		a := byEnv[env]
 		if a == nil {
 			a = &acc{}
 			byEnv[env] = a
 		}
-		if lead, ok := promotionLead(r, pub); ok {
-			a.leads = append(a.leads, lead)
+		if j.pub != nil {
+			a.leads = append(a.leads, j.lead)
 		} else {
 			a.unjoined++
 		}
@@ -191,20 +205,44 @@ func leadTimes(ops, history []Entry) map[string]LeadTime {
 	return out
 }
 
-// publishIndex is the earliest recordedAt of a publish record per service and
-// digest: the publish that produced the digest, not a rerun that found it
-// already pushed.
-func publishIndex(history []Entry) map[string]time.Time {
-	pub := map[string]time.Time{}
-	for _, e := range history {
-		r := e.Record
+// promoteJoin is a first promotion and the publish record it joined; pub is
+// nil when it joined none.
+type promoteJoin struct {
+	op   Entry
+	pub  *Entry
+	lead int64
+}
+
+// joinPromotes is the first promotions among ops, each joined to its publish
+// in history: the one join leadTimes and Behind share.
+func joinPromotes(ops, history []Entry) []promoteJoin {
+	pub, first := publishIndex(history), firstPromotes(history)
+	var out []promoteJoin
+	for _, e := range ops {
+		key, ok := promoteKey(e.Record)
+		if !ok || key != "" && first[key] != e.Record.ID {
+			continue
+		}
+		j := promoteJoin{op: e}
+		j.pub, j.lead = promotionLead(e.Record, pub)
+		out = append(out, j)
+	}
+	return out
+}
+
+// publishIndex is the earliest publish record per service and digest: the
+// publish that produced the digest, not a rerun that found it already pushed.
+func publishIndex(history []Entry) map[string]*Entry {
+	pub := map[string]*Entry{}
+	for i := range history {
+		r := history[i].Record
 		if r.Kind != runrecord.KindPublish {
 			continue
 		}
 		for kind, d := range map[string]string{"deploy": r.DeployDigest, "bundle": r.BundleDigest} {
 			k := r.Service + "|" + kind + "|" + d
-			if t, ok := pub[k]; d != "" && (!ok || r.RecordedAt.Before(t)) {
-				pub[k] = r.RecordedAt
+			if p, ok := pub[k]; d != "" && (!ok || r.RecordedAt.Before(p.Record.RecordedAt)) {
+				pub[k] = &history[i]
 			}
 		}
 	}
@@ -245,16 +283,18 @@ func firstPromotes(history []Entry) map[string]string {
 	return first
 }
 
-func promotionLead(r runrecord.Record, pub map[string]time.Time) (int64, bool) {
-	at, ok := pub[r.Service+"|deploy|"+r.To]
+// promotionLead is the publish r joins and its lead in seconds; nil when it
+// joins none or would lead by a negative or unparsable time.
+func promotionLead(r runrecord.Record, pub map[string]*Entry) (*Entry, int64) {
+	p, ok := pub[r.Service+"|deploy|"+r.To]
 	if !ok {
-		at, ok = pub[r.Service+"|bundle|"+r.Contract]
+		p, ok = pub[r.Service+"|bundle|"+r.Contract]
 	}
 	done, parsed := finishedAt(r)
-	if !ok || !parsed || done.Before(at) {
-		return 0, false
+	if !ok || !parsed || done.Before(p.Record.RecordedAt) {
+		return nil, 0
 	}
-	return int64(done.Sub(at) / time.Second), true
+	return p, int64(done.Sub(p.Record.RecordedAt) / time.Second)
 }
 
 // percentile is the nearest-rank p-th percentile of sorted, nil when empty.

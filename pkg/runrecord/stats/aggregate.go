@@ -132,28 +132,46 @@ type Stats struct {
 // no I/O.
 func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 	st := &Stats{AsOf: now.UTC(), Window: q.Window, Provenance: Provenance, By: q.By, Truncated: set.Truncated}
-	visible, skipped, outside := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
-	current, future := notFuture(visible, now)
-	st.Skipped, st.Hidden.Present = skipped, outside
-	st.Skipped.Malformed += future
-	st.RecordsRead = len(current)
-	entries, coverage := splitCoverage(dedupe(selectEntries(current, q)))
+	sel := selectRecords(set, q, sc, now)
+	st.Skipped, st.Hidden.Present = sel.skipped, sel.outside
+	st.RecordsRead = len(sel.history)
+	entries, coverage := splitCoverage(sel.inWindow)
 	st.Runs, st.Coverage = len(entries), newestCoverage(coverage, q.Window.Until)
 	if len(entries) > 0 {
-		m, changes := metricsOf(entries, current)
+		m, changes := metricsOf(entries, sel.history)
 		st.Totals, st.DistinctChanges = &m, changes
-		st.Groups = groups(entries, current, q.By, sc)
+		st.Groups = groups(entries, sel.history, q.By, sc)
 	}
 	if a := sc.Snapshot; a != nil && (q.By == "owner" || q.By == "domain") {
 		attr := *a
 		attr.Provenance = "inferred"
 		st.Attribution = &attr
 	}
-	st.Limitations, st.Completeness = limitations(st, set, sc, future, truncatedService(set.TruncatedAnchor, current))
+	st.Limitations, st.Completeness = limitations(st, set, sc, sel.future, truncatedService(set.TruncatedAnchor, sel.history))
 	if st.Totals != nil {
 		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
 	}
 	return st
+}
+
+// selection is what a query lets a caller count, shared by Aggregate and
+// Behind so both apply one visibility, window and dedupe.
+type selection struct {
+	// history is every visible record not dated in the future, in the
+	// window or before it, retries kept: lead times join against it.
+	history []Entry
+	// inWindow is history in the window and filters, one entry per id.
+	inWindow []Entry
+	skipped  Skipped
+	future   int
+	outside  bool
+}
+
+func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
+	visible, skipped, outside := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	current, future := notFuture(visible, now)
+	skipped.Malformed += future
+	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside}
 }
 
 // metricsOf is the CI and delivery numbers of entries and their distinct
@@ -237,13 +255,7 @@ func isChangeKind(kind string) bool {
 
 // ciMetrics computes the CI numbers and counts the distinct changes.
 func ciMetrics(entries []Entry) (Metrics, int) {
-	changes := map[string][]Entry{}
-	for _, e := range entries {
-		if r := e.Record; isChangeKind(r.Kind) {
-			key := r.Service + "|" + r.OldRevision + "|" + r.NewRevision
-			changes[key] = append(changes[key], e)
-		}
-	}
+	changes := changesOf(entries)
 	var m Metrics
 	for _, recs := range changes {
 		if n := breakingRuns(recs); n > 0 {
@@ -253,6 +265,19 @@ func ciMetrics(entries []Entry) (Metrics, int) {
 		countGate(&m, newestGate(recs))
 	}
 	return m, len(changes)
+}
+
+// changesOf groups the diff and impact entries by change (service, old
+// revision, new revision).
+func changesOf(entries []Entry) map[string][]Entry {
+	changes := map[string][]Entry{}
+	for _, e := range entries {
+		if r := e.Record; isChangeKind(r.Kind) {
+			key := r.Service + "|" + r.OldRevision + "|" + r.NewRevision
+			changes[key] = append(changes[key], e)
+		}
+	}
+	return changes
 }
 
 func breakingRuns(recs []Entry) int {
