@@ -263,6 +263,46 @@ func HistoryRecords(now time.Time, services []StatsService) ([]runrecord.Record,
 	return Records(now, services, historyEvents())
 }
 
+// coverageGrowth is each weekly coverage point's share of the newest
+// snapshot's known counters, in percent, oldest first: the fleet grew into
+// what it knows today.
+var coverageGrowth = [13]int{40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100}
+
+// CoverageRecords is the browser demo's coverage trend: one record a week for
+// 13 weeks, oldest first, the newest newest unchanged. Every older point
+// scales newest's known counters down along coverageGrowth, keeps the
+// knowledge tally adding up and is partial; a nil tally stays nil (unknown).
+func CoverageRecords(now time.Time, newest runrecord.Coverage) []runrecord.Record {
+	out := make([]runrecord.Record, 0, len(coverageGrowth))
+	last := len(coverageGrowth) - 1
+	for i, pct := range coverageGrowth[:last] {
+		at := now.Add(-time.Duration(last-i) * 7 * day).UTC().Truncate(time.Second)
+		out = append(out, runrecord.CoverageRecord(scaleCoverage(newest, pct, at), "dev", at))
+	}
+	return append(out, runrecord.CoverageRecord(newest, "dev", now))
+}
+
+// scaleCoverage is c's known counters at pct percent, snapshotted at at.
+// Unknown takes what the scaled counters leave of the tally's services, so
+// Described + WithGaps + Unknown == Services, and NotDeployed never exceeds
+// the services it is a part of.
+func scaleCoverage(c runrecord.Coverage, pct int, at time.Time) runrecord.Coverage {
+	scale := func(n int) int { return n * pct / 100 }
+	out := runrecord.Coverage{
+		Services: scale(c.Services), Uncontracted: c.Uncontracted,
+		Links: runrecord.CoverageLinks{Exact: scale(c.Links.Exact), Inferred: scale(c.Links.Inferred),
+			Ambiguous: scale(c.Links.Ambiguous), Unresolved: scale(c.Links.Unresolved)},
+		SnapshotAsOf: at, Completeness: "partial",
+	}
+	if k := c.Knowledge; k != nil {
+		s := runrecord.CoverageKnowledge{Services: scale(k.Services), Described: scale(k.Described), WithGaps: scale(k.WithGaps)}
+		s.Unknown = s.Services - s.Described - s.WithGaps
+		s.NotDeployed = min(scale(k.NotDeployed), s.Described+s.WithGaps)
+		out.Knowledge = &s
+	}
+	return out
+}
+
 const day = 24 * time.Hour
 
 func ago(days, hours int) time.Duration {

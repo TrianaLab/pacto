@@ -269,3 +269,70 @@ func TestHistoryRecordsUseOnlyHistoryDigests(t *testing.T) {
 		}
 	}
 }
+
+// TestRunRecordsCoverageWeekly: one coverage record a week for 13 weeks, the
+// newest the caller's snapshot unchanged, the older ones scaled down from it
+// with the knowledge tally still adding up.
+func TestRunRecordsCoverageWeekly(t *testing.T) {
+	now := Now.Add(400 * day)
+	newest := runrecord.Coverage{
+		Services: 9, Uncontracted: 2,
+		Knowledge:    &runrecord.CoverageKnowledge{Services: 9, Described: 5, WithGaps: 3, Unknown: 1, NotDeployed: 2},
+		Links:        runrecord.CoverageLinks{Exact: 7, Inferred: 3, Ambiguous: 1, Unresolved: 1},
+		SnapshotAsOf: now.Add(-time.Minute).Truncate(time.Second), Completeness: "complete",
+	}
+	recs := CoverageRecords(now, newest)
+	if len(recs) != 13 {
+		t.Fatalf("got %d coverage records, want 13", len(recs))
+	}
+	ids := map[string]bool{}
+	prev := -1
+	for i, r := range recs {
+		checkCoveragePoint(t, now, i, r)
+		ids[r.ID] = true
+		if k := r.Coverage.Knowledge; k.Described < prev {
+			t.Errorf("record %d described %d after %d", i, k.Described, prev)
+		}
+		prev = r.Coverage.Knowledge.Described
+	}
+	if len(ids) != 13 {
+		t.Errorf("got %d distinct ids, want 13", len(ids))
+	}
+	if got := *recs[12].Coverage; !reflect.DeepEqual(got, newest) {
+		t.Errorf("newest coverage = %+v, want %+v", got, newest)
+	}
+	if recs[0].Coverage.Knowledge.Described >= newest.Knowledge.Described {
+		t.Errorf("oldest described %d, want fewer than %d", recs[0].Coverage.Knowledge.Described, newest.Knowledge.Described)
+	}
+
+	newest.Knowledge = nil
+	for i, r := range CoverageRecords(now, newest) {
+		if r.Coverage.Knowledge != nil {
+			t.Errorf("record %d invents a knowledge tally: %+v", i, *r.Coverage.Knowledge)
+		}
+		if _, err := runrecord.Encode(r); err != nil {
+			t.Errorf("record %d: %v", i, err)
+		}
+	}
+}
+
+// checkCoveragePoint checks weekly coverage point i: valid, fleet-wide, a
+// week apart, its tally adding up and every older point partial.
+func checkCoveragePoint(t *testing.T, now time.Time, i int, r runrecord.Record) {
+	t.Helper()
+	if _, err := runrecord.Encode(r); err != nil {
+		t.Fatalf("record %d: %v", i, err)
+	}
+	if r.Service != runrecord.CoverageService || r.Kind != runrecord.KindCoverage {
+		t.Fatalf("record %d names %s/%s", i, r.Kind, r.Service)
+	}
+	if want := now.Add(-time.Duration(12-i) * 7 * day).UTC().Truncate(time.Second); !r.RecordedAt.Equal(want) {
+		t.Errorf("record %d recorded at %s, want %s", i, r.RecordedAt, want)
+	}
+	if k := r.Coverage.Knowledge; k.Described+k.WithGaps+k.Unknown != k.Services || k.Unknown < 0 || k.NotDeployed > k.Described+k.WithGaps {
+		t.Errorf("record %d tally does not add up: %+v", i, *k)
+	}
+	if i < 12 && r.Coverage.Completeness != "partial" {
+		t.Errorf("record %d completeness %q, want partial", i, r.Coverage.Completeness)
+	}
+}
