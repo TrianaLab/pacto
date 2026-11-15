@@ -58,7 +58,7 @@ changes a verdict or reason caused.
 The dashboard plans a change from the page where you found the problem:
 
 - A target page offers what you may do on the Stage that delivers its
-  environment, such as an undo.
+  environment, such as a promote or an undo of the change that Stage runs.
 - A revision page offers the promote of that revision's artifact, matched by
   its contract digest, so another artifact with the same version is never
   offered.

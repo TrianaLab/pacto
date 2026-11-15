@@ -372,9 +372,11 @@
   var NOTE = '[data-testid="decision-panel"] textarea';
   var APPROVE = '[data-testid="decide-approve"]';
   var RAISE_FRAUD = '[aria-label="Propose Advise for fraud in test"]';
-  // Acting from an investigation: the target page of payments in prod, opened under
-  // the incident's ticket, offers what the person may already do there.
+  // INCIDENT is the 2.4.0 incident's ticket. Acting from an investigation: the target
+  // page of payments in prod, opened under the ticket of the 3.0.0 investigation while
+  // 3.0.0 runs with its check Unknown, offers the undo of that promote.
   var INCIDENT = "CHG-2041";
+  var INVESTIGATION = "CHG-2077";
   var PLAN_UNDO = '[data-testid="target-delivery"] [data-testid="service-delivery-offer"][title^="Plan undo"]';
   var PLAN_THIS = '[data-testid="undo-panel"] .btn-primary';
   var TICKET = '[data-testid="propose-panel"] [data-testid="pp-correlation"]';
@@ -596,6 +598,23 @@
       decide("accept-unknown", NOTE_ACCEPT);
     }
   }, {
+    title: "Act from what you found",
+    text: "On this page of payments in prod, from ticket CHG-2077, 3.0.0 runs with its check still Unknown, so press Plan undo right here, where you found it.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    target: PLAN_UNDO,
+    wait: "Waiting for the undo plan to open.",
+    gate: function () { return !!q('[data-testid="undo-panel"]'); },
+    skip: function () { clickWhenReady(PLAN_UNDO); }
+  }, {
+    title: "Act from what you found",
+    text: "Press Plan this rollback: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
+    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    target: [PLAN_THIS, TICKET],
+    wait: "Waiting for the plan to carry the ticket.",
+    hold: true,
+    gate: function () { var t = q(TICKET); return !!t && t.value === INVESTIGATION; },
+    skip: function () { clickWhenReady(PLAN_THIS); }
+  }, {
     title: "Undo it",
     text: "Changed your mind? As Carol, press Roll back this change.",
     hash: changeHash,
@@ -620,23 +639,6 @@
       // its button live: close it, or "Done" sits next to a form asking to be pressed.
       clickOn('[data-testid="propose-panel"] .pp-btns button[type=button]');
     }
-  }, {
-    title: "Act from what you found",
-    text: "This page of payments in prod came from ticket CHG-2041, so press Plan undo right here, where you found the problem.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INCIDENT,
-    target: PLAN_UNDO,
-    wait: "Waiting for the undo plan to open.",
-    gate: function () { return !!q('[data-testid="undo-panel"]'); },
-    skip: function () { clickWhenReady(PLAN_UNDO); }
-  }, {
-    title: "Act from what you found",
-    text: "Press Plan this rollback: the plan already carries ticket CHG-2041 from the page address, and nothing is proposed until a person proposes it.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INCIDENT,
-    target: [PLAN_THIS, TICKET],
-    wait: "Waiting for the plan to carry the ticket.",
-    hold: true,
-    gate: function () { var t = q(TICKET); return !!t && t.value === INCIDENT; },
-    skip: function () { clickWhenReady(PLAN_THIS); }
   }, {
     title: "Every step is a signed record",
     text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
