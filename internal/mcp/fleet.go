@@ -514,7 +514,14 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
 			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
 			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
-			"comes from an unsigned target-state file. A golden path's service answer carries 'template': the " +
+			"comes from an unsigned target-state file. An offering answer carries 'adapters': the adapter slug, producer " +
+			"and signature of every current report on its requests (observed; the slug is free text the adapter picks and may " +
+			"be empty; the provider is the service that declares the offering), with 'conflicting' requests whose adapters " +
+			"disagree and 'unattributed' requests nobody reported on, and 'unresolvedUses' (inferred), declared references " +
+			"that may name a provider but did not resolve, each consumer counted once, hidden consumers included; when it " +
+			"is above 0 the answer is partial. 'phases.readyUnsigned' counts Ready statuses that are not signed; " +
+			"'phaseConsumers.readyUnsigned' counts consumers whose every Ready status is unsigned; only a signed Ready is " +
+			"positive. A golden path's service answer carries 'template': the " +
 			"plugins its service.template names, its requirements, the services created from it and the " +
 			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +

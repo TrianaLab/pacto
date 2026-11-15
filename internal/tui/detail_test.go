@@ -762,3 +762,30 @@ func TestRenderServiceResources(t *testing.T) {
 		t.Errorf("a non-offering resource says so:\n%s", b.String())
 	}
 }
+
+// An offering page names its adapters through safeText, says Unknown when
+// none reported and shows the unresolved uses.
+func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
+	render := func(o *fleet.OfferingDetailData) string {
+		return renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "scan"}, Offering: o})
+	}
+	out := render(&fleet.OfferingDetailData{
+		Adapters: fleet.OfferingAdaptersPreview{Total: 2, Count: 2, Unattributed: 1, Items: []fleet.OfferingAdapter{
+			{Provider: "scanner", Producer: "security-adapter", Verified: true, Environments: []string{"production"}, Phases: fleet.PhaseTally{Ready: 1}},
+			{Producer: "platform-adapter", Environments: []string{"default"}, Phases: fleet.PhaseTally{Unknown: 1}},
+		}},
+		UnresolvedUses: fleet.UnresolvedUses{Count: 1, Reason: "not pinned"},
+	})
+	for _, want := range []string{"Adapters (2)", "scanner by security-adapter, signed: production; 1 ready", "unnamed adapter by platform-adapter", "1 requests no adapter reports on", "1 may name a provider of this offering (inferred): not pinned"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
+	}
+	if out := render(&fleet.OfferingDetailData{}); !strings.Contains(out, "No adapter has reported. Provisioning status is Unknown.") || strings.Contains(out, "unresolved uses") {
+		t.Errorf("empty adapters:\n%s", out)
+	}
+	out = render(&fleet.OfferingDetailData{Adapters: fleet.OfferingAdaptersPreview{Total: 1, Count: 1, Items: []fleet.OfferingAdapter{{Provider: "evil\x1b[31m", Environments: []string{"default"}}}}})
+	if !strings.Contains(out, "evil^[[31m") {
+		t.Errorf("an adapter slug with an escape is not neutralized:\n%q", out)
+	}
+}

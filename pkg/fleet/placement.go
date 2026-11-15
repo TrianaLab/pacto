@@ -389,17 +389,33 @@ func (e EnvironmentPlacement) provisioningText() string {
 	if !e.ProvisioningTracked {
 		return "provisioning not tracked: " + e.ProvisioningReason
 	}
-	t := e.Provisioning
+	parts, total := e.Provisioning.parts()
+	return fmt.Sprintf("provisioning %s of %d", strings.Join(parts, ", "), total)
+}
+
+// parts renders the tally's non-zero buckets in track order, Ready with its
+// unsigned part, and their total.
+func (t PhaseTally) parts() ([]string, int) {
 	var parts []string
 	total := 0
 	for _, b := range []struct {
 		n    int
 		name string
-	}{{t.Requested, PhaseBucketRequested}, {t.Provisioning, PhaseBucketProvisioning}, {t.Ready, PhaseBucketReady}, {t.Failed, PhaseBucketFailed}, {t.Deleting, PhaseBucketDeleting}, {t.Unknown, PhaseBucketUnknown}} {
+	}{{t.Requested, PhaseBucketRequested}, {t.Provisioning, PhaseBucketProvisioning}, {t.Ready, PhaseBucketReady + t.UnsignedNote()}, {t.Failed, PhaseBucketFailed}, {t.Deleting, PhaseBucketDeleting}, {t.Unknown, PhaseBucketUnknown}} {
 		if b.n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", b.n, b.name))
 			total += b.n
 		}
 	}
-	return fmt.Sprintf("provisioning %s of %d", strings.Join(parts, ", "), total)
+	return parts, total
+}
+
+// UnsignedNote is what follows the Ready count: " (M unsigned)" when some
+// of it is unsigned, else nothing, so an unsigned Ready never reads as a
+// plain one.
+func (t PhaseTally) UnsignedNote() string {
+	if t.ReadyUnsigned == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d unsigned)", t.ReadyUnsigned)
 }

@@ -2,8 +2,10 @@ package fleet
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -116,4 +118,56 @@ func compareBool(a, b bool) int {
 	default:
 		return -1
 	}
+}
+
+// DisplayName is the adapter's slug, or "unnamed adapter" when its reports
+// name none, so no surface prints an empty name.
+func (a OfferingAdapter) DisplayName() string {
+	return cmp.Or(a.Provider, "unnamed adapter")
+}
+
+// Line renders one adapter: slug, producer, signature, environments, phases,
+// disagreements and the last report time.
+func (a OfferingAdapter) Line() string {
+	s := a.DisplayName()
+	if a.Producer != "" {
+		s += " by " + a.Producer
+	}
+	if a.Verified {
+		s += ", signed"
+	} else {
+		s += ", unsigned target-state file"
+	}
+	parts, _ := a.Phases.parts()
+	s += ": " + strings.Join(a.Environments, ", ") + "; " + strings.Join(parts, ", ")
+	if a.Disagrees > 0 {
+		s += fmt.Sprintf(", disagrees on %d", a.Disagrees)
+	}
+	if a.LastReportedAt != nil {
+		s += "; last reported " + a.LastReportedAt.UTC().Format(time.RFC3339)
+	}
+	return s
+}
+
+// Lines renders the preview: one line per adapter, what the bound left out,
+// the requests whose adapters disagree and the requests nobody reports on.
+// With no adapter it says the status is Unknown, never that there is none.
+func (p OfferingAdaptersPreview) Lines() []string {
+	lines := make([]string, 0, len(p.Items)+3)
+	for _, a := range p.Items {
+		lines = append(lines, a.Line())
+	}
+	if p.Truncated {
+		lines = append(lines, fmt.Sprintf("%d more", p.Total-p.Count))
+	}
+	if len(p.Items) == 0 {
+		lines = append(lines, "No adapter has reported. Provisioning status is Unknown.")
+	}
+	if p.Conflicting > 0 {
+		lines = append(lines, fmt.Sprintf("%d requests where adapters disagree, so their status is Unknown", p.Conflicting))
+	}
+	if p.Unattributed > 0 {
+		lines = append(lines, fmt.Sprintf("%d requests no adapter reports on", p.Unattributed))
+	}
+	return lines
 }

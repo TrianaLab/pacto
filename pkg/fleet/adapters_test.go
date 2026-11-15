@@ -168,3 +168,22 @@ func TestOfferingAdaptersEmptySlug(t *testing.T) {
 		t.Errorf("order %q, want %q", order, want)
 	}
 }
+
+func TestOfferingAdaptersLines(t *testing.T) {
+	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.FixedZone("x", 3600))
+	p := OfferingAdaptersPreview{Total: 3, Count: 2, Truncated: true, Conflicting: 1, Unattributed: 2, Items: []OfferingAdapter{
+		{Provider: "scanner", Producer: "security-adapter", Verified: true, Environments: []string{"production"}, Phases: PhaseTally{Ready: 1}, LastReportedAt: &at},
+		{Environments: []string{"default", "staging"}, Phases: PhaseTally{Ready: 1, ReadyUnsigned: 1, Unknown: 1}, Disagrees: 1},
+	}}
+	want := []string{
+		"scanner by security-adapter, signed: production; 1 ready; last reported 2026-11-01T09:00:00Z",
+		"unnamed adapter, unsigned target-state file: default, staging; 1 ready (1 unsigned), 1 unknown, disagrees on 1",
+		"1 more", "1 requests where adapters disagree, so their status is Unknown", "2 requests no adapter reports on",
+	}
+	if got := p.Lines(); !slices.Equal(got, want) {
+		t.Errorf("lines =\n%q\nwant\n%q", got, want)
+	}
+	if got := (OfferingAdaptersPreview{}).Lines(); !slices.Equal(got, []string{"No adapter has reported. Provisioning status is Unknown."}) {
+		t.Errorf("empty = %q", got)
+	}
+}

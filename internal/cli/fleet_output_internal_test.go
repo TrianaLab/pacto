@@ -454,3 +454,40 @@ func TestPrintResourcesFooter(t *testing.T) {
 		t.Errorf("footer:\n%s", out)
 	}
 }
+
+// TestPrintOfferingAdapters: signed and unsigned adapters, an unnamed one, a
+// disagreement, the bound, conflicting and unattributed requests, the empty
+// state, unresolved uses and the unsigned tallies.
+func TestPrintOfferingAdapters(t *testing.T) {
+	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	var buf bytes.Buffer
+	printOfferingText(&buf, &fleet.OfferingDetailData{
+		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "scan"}}},
+			Phases: fleet.PhaseTally{Ready: 3, ReadyUnsigned: 2}, PhaseConsumers: fleet.PhaseTally{Ready: 2, ReadyUnsigned: 1}},
+		Adapters: fleet.OfferingAdaptersPreview{Total: 4, Count: 3, Truncated: true, Conflicting: 1, Unattributed: 2, Items: []fleet.OfferingAdapter{
+			{Provider: "scanner", Producer: "security-adapter", Verified: true, Environments: []string{"production"}, Phases: fleet.PhaseTally{Ready: 1}, LastReportedAt: &at},
+			{Provider: "scanner", Producer: "security-adapter", Environments: []string{"default", "staging"}, Phases: fleet.PhaseTally{Ready: 1, ReadyUnsigned: 1, Unknown: 1}, Disagrees: 1},
+			{Producer: "platform-adapter", Environments: []string{"default"}, Phases: fleet.PhaseTally{Unknown: 1}},
+		}},
+		UnresolvedUses: fleet.UnresolvedUses{Count: 2, Reason: "not pinned", Provenance: fleet.ProvenanceInferred},
+	})
+	for _, want := range []string{
+		"Adapters (observed):\n",
+		"  scanner by security-adapter, signed: production; 1 ready; last reported 2026-11-01T10:00:00Z\n",
+		"  scanner by security-adapter, unsigned target-state file: default, staging; 1 ready (1 unsigned), 1 unknown, disagrees on 1\n",
+		"  unnamed adapter by platform-adapter, unsigned target-state file: default; 1 unknown\n",
+		"  1 more\n", "  1 requests where adapters disagree, so their status is Unknown\n", "  2 requests no adapter reports on\n",
+		"Unresolved uses (inferred): 2 may name a provider of this offering (not pinned)\n",
+		"  provisioning requests: 0 requested, 0 provisioning, 3 ready (2 unsigned), 0 failed",
+		"  consumers by phase: 0 requested, 0 provisioning, 2 ready (1 unsigned), 0 failed",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printOfferingText(&buf, &fleet.OfferingDetailData{})
+	if out := buf.String(); !strings.Contains(out, "Adapters (observed):\n  No adapter has reported. Provisioning status is Unknown.\n") || strings.Contains(out, "Unresolved uses") {
+		t.Errorf("empty adapters text:\n%s", out)
+	}
+}

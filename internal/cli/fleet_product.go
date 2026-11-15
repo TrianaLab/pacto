@@ -300,8 +300,8 @@ func printOfferingPhases(w io.Writer, a *fleet.EntityAggregate) {
 
 // phaseText renders a phase tally, every phase in pipeline order.
 func phaseText(p fleet.PhaseTally) string {
-	return fmt.Sprintf("%d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported",
-		p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
+	return fmt.Sprintf("%d requested, %d provisioning, %d ready%s, %d failed, %d deleting, %d not reported",
+		p.Requested, p.Provisioning, p.Ready, p.UnsignedNote(), p.Failed, p.Deleting, p.Unknown)
 }
 
 // printNonCompliantRanking renders who owns the matched non-compliant services and
@@ -493,6 +493,20 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
 	}
 	printObservedConsumers(w, o)
+	printOfferingAdapters(w, o)
+}
+
+// printOfferingAdapters renders who reports on the offering's requests
+// (observed) and how many declared uses may name one of its providers but
+// did not resolve (inferred).
+func printOfferingAdapters(w io.Writer, o *fleet.OfferingDetailData) {
+	_, _ = fmt.Fprintln(w, "Adapters (observed):")
+	for _, l := range o.Adapters.Lines() {
+		_, _ = fmt.Fprintln(w, "  "+l)
+	}
+	if u := o.UnresolvedUses; u.Count > 0 {
+		_, _ = fmt.Fprintf(w, "Unresolved uses (inferred): %d may name a provider of this offering (%s)\n", u.Count, u.Reason)
+	}
 }
 
 // printOfferingAvailability renders the offering roll-up, then one line per
