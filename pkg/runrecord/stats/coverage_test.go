@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -100,9 +101,21 @@ func TestCoverageInAggregateIsNewestNeverSummed(t *testing.T) {
 		t.Fatalf("a record before the window is the coverage: %+v", old.Coverage)
 	}
 	only := agg(set(coverageAt(10, hoursAgo(5))))
-	if only.Coverage == nil || only.Totals != nil || only.Runs != 0 || only.Completeness != fleet.CompletenessEmpty {
+	if only.Coverage == nil || only.Totals != nil || only.Runs != 0 || only.Completeness != fleet.CompletenessComplete {
 		t.Fatalf("coverage alone = %+v", only)
 	}
+	// Coverage alone is no empty window: only the CI and delivery records are missing.
+	if codes := limitationCodes(only.Limitations); !slices.Equal(codes, []string{LimitationOnlyCoverage}) {
+		t.Fatalf("coverage alone limitations = %q", codes)
+	}
+}
+
+func limitationCodes(ls []fleet.Limitation) []string {
+	var codes []string
+	for _, l := range ls {
+		codes = append(codes, l.Code)
+	}
+	return codes
 }
 
 func TestCoverageExcludedFromRunsAndGroups(t *testing.T) {
@@ -127,8 +140,11 @@ func TestRestrictedHidesCoverageRecords(t *testing.T) {
 	if st.Coverage != nil || st.RecordsRead != base.RecordsRead || st.Runs != base.Runs {
 		t.Fatalf("a restricted caller sees coverage: %+v", st)
 	}
-	if base.Hidden.Present || !st.Hidden.Present || st.Completeness != fleet.CompletenessPartial {
-		t.Fatalf("hidden coverage is not said: base %+v, with coverage %+v", base.Hidden, st.Hidden)
+	// Coverage names no service, so it is said apart from records that do.
+	got := limitationCodes(st.Limitations)
+	if st.Hidden.Present || st.Completeness != fleet.CompletenessPartial || !slices.Contains(got, LimitationCoverageOutsideView) ||
+		slices.Contains(got, LimitationOutsideView) || slices.Contains(limitationCodes(base.Limitations), LimitationCoverageOutsideView) {
+		t.Fatalf("hidden coverage is not said on its own: base %+v, with coverage %+v %+v", base.Limitations, st.Hidden, st.Limitations)
 	}
 	if open := Aggregate(set(coverageAt(10, hoursAgo(5))), Query{Window: aggWindow}, Scope{Restricted: true, Place: func(string) (Placement, bool) { return Placement{}, true }}, aggNow); open.Coverage != nil {
 		t.Fatal("a scope that places every name shows coverage history")

@@ -28,6 +28,9 @@ const (
 	// LimitationRepositoryMissing replaces LimitationNoRecords when the stats
 	// repository itself was not found.
 	LimitationRepositoryMissing = "RUN_RECORDS_REPOSITORY_NOT_FOUND"
+	// LimitationOnlyCoverage replaces LimitationNoRecords when the window
+	// holds coverage records and no other run record.
+	LimitationOnlyCoverage = "NO_CI_OR_DELIVERY_RUN_RECORDS"
 	// LimitationConsumersPartial says a consumer count is a lower bound.
 	LimitationConsumersPartial = "CONSUMERS_FROM_PARTIAL_SNAPSHOT"
 )
@@ -147,7 +150,7 @@ func Aggregate(set RecordSet, q Query, sc Scope, now time.Time) *Stats {
 		attr.Provenance = "inferred"
 		st.Attribution = &attr
 	}
-	st.Limitations, st.Completeness = limitations(st, set, sc, sel.future, truncatedService(set.TruncatedAnchor, sel.history))
+	st.Limitations, st.Completeness = limitations(st, set, sc, sel, truncatedService(set.TruncatedAnchor, sel.history))
 	if st.Totals != nil {
 		st.Limitations = append(st.Limitations, unjoinedLimitation(st.Totals.Environments)...)
 	}
@@ -165,13 +168,15 @@ type selection struct {
 	skipped  Skipped
 	future   int
 	outside  bool
+	// coverageHidden says a restricted caller was kept from coverage records.
+	coverageHidden bool
 }
 
 func selectRecords(set RecordSet, q Query, sc Scope, now time.Time) selection {
-	visible, skipped, outside := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
+	visible, skipped, outside, coverage := visibleEntries(set.Entries, set.Skipped, q.Service, sc)
 	current, future := notFuture(visible, now)
 	skipped.Malformed += future
-	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside}
+	return selection{history: current, inWindow: dedupe(selectEntries(current, q)), skipped: skipped, future: future, outside: outside, coverageHidden: coverage}
 }
 
 // metricsOf is the CI and delivery numbers of entries and their distinct
@@ -324,12 +329,13 @@ func countGate(m *Metrics, e *Entry) {
 	}
 }
 
-func limitations(st *Stats, set RecordSet, sc Scope, future int, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
+func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy string) ([]fleet.Limitation, fleet.Completeness) {
 	lims := []fleet.Limitation{}
 	for _, l := range []*fleet.Limitation{
-		skippedLimitation(st.Skipped, future),
+		skippedLimitation(st.Skipped, sel.future),
 		truncatedLimitation(st.Truncated, truncatedBy, set.UnreadAnchors, sc.Restricted),
 		limitationIf(st.Hidden.Present, LimitationOutsideView, "some run records name services outside your view of the fleet and are left out of every number"),
+		limitationIf(sel.coverageHidden, LimitationCoverageOutsideView, "coverage records count every service, so only a reader who can see every service sees them"),
 		limitationIf(sc.NoDelivery != "", LimitationDeliveryUnavailable, sc.NoDelivery),
 		limitationIf(st.Attribution != nil && st.Attribution.Partial, LimitationAttributionPartial, "the fleet snapshot owner and domain come from is partial; a service it misses groups as unknown"),
 		limitationIf(st.Totals != nil && st.Totals.ConsumersProtected.Partial > 0, LimitationConsumersPartial, "some blocked changes were judged on a partial fleet snapshot, so consumersProtected is a lower bound"),
@@ -343,15 +349,17 @@ func limitations(st *Stats, set RecordSet, sc Scope, future int, truncatedBy str
 		c = fleet.CompletenessPartial
 	}
 	switch {
+	case st.Runs == 0 && st.Coverage != nil:
+		// The window holds coverage, so it is not empty: only the CI and
+		// delivery numbers are missing.
+		lims = append(lims, fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run records: recording may be off for those jobs"})
 	case st.Runs == 0 && set.RepositoryMissing:
 		lims = append(lims, fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"})
 	case st.Runs == 0:
 		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"})
 	}
-	if st.Runs == 0 {
-		if c == fleet.CompletenessComplete {
-			c = fleet.CompletenessEmpty
-		}
+	if st.Runs == 0 && st.Coverage == nil && c == fleet.CompletenessComplete {
+		c = fleet.CompletenessEmpty
 	}
 	return lims, c
 }

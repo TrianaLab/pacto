@@ -180,7 +180,8 @@ actor, approver, note, message, citation or correlation id.
 - with no `outcome`, CI-only key, `environment` or operation key;
 - read as a level: readers take the newest coverage record in a window and
   never sum them;
-- hidden from a reader that may see only part of the fleet.
+- hidden from a reader that may see only part of the fleet, and the answer
+  says so with `COVERAGE_OUTSIDE_YOUR_VIEW`.
 
 | Key | Type | Present | Holds |
 | --- | --- | --- | --- |
@@ -384,9 +385,11 @@ instead of a table of zeros.
 | `RUN_RECORDS_TRUNCATED` | a bound cut the read; the message says how many services after the cut were not read at all |
 | `NO_RUN_RECORDS` | the window holds no records: recording may be off for these jobs |
 | `RUN_RECORDS_REPOSITORY_NOT_FOUND` | in place of `NO_RUN_RECORDS`: the stats repository does not exist or nothing was published to it yet |
+| `NO_CI_OR_DELIVERY_RUN_RECORDS` | in place of `NO_RUN_RECORDS`: the window holds coverage records and no other record, so the answer has a coverage level and no totals |
 | `CONSUMERS_FROM_PARTIAL_SNAPSHOT` | some blocked changes were judged on a partial fleet snapshot, so `consumersProtected` is a lower bound |
 | `LEAD_TIME_UNJOINED` | some promotions have no publish record with their digest, so their lead time is unknown; the answer stays complete |
 | `OUTSIDE_YOUR_VIEW` | some records name services outside your view and are left out of every number |
+| `COVERAGE_OUTSIDE_YOUR_VIEW` | coverage records exist and are hidden from a reader who may see only part of the fleet |
 | `DELIVERY_UNAVAILABLE_OVER_HTTP` | a signed-in HTTP caller whose identity the server could not exchange gets no operation records |
 | `ATTRIBUTION_PARTIAL` | the fleet snapshot owner and domain come from is partial |
 

@@ -33,6 +33,8 @@
   // recorded yet.
   const NO_RECORDS = ['NO_RUN_RECORDS', 'RUN_RECORDS_REPOSITORY_NOT_FOUND'];
   const COVERAGE_RESTRICTED = 'Coverage history counts every service, so it is shown to people who can read every service.';
+  // The coverage section says this one itself, so the limitations list leaves it out.
+  const COVERAGE_HIDDEN = 'COVERAGE_OUTSIDE_YOUR_VIEW';
 
   const enabled = $derived(capabilities?.stats === true);
   const w = $derived(WINDOWS.some((o) => o.value === win) ? win : '');
@@ -81,7 +83,8 @@
   });
 
   const noRecords = $derived((data?.limitations || []).find((l) => NO_RECORDS.includes(l.code)) ?? null);
-  const shownLimits = $derived((data?.limitations || []).filter((l) => !NO_RECORDS.includes(l.code)));
+  const shownLimits = $derived((data?.limitations || []).filter((l) => !NO_RECORDS.includes(l.code) && l.code !== COVERAGE_HIDDEN));
+  const coverageHidden = $derived((data?.limitations || []).some((l) => l.code === COVERAGE_HIDDEN));
   const tileList = $derived(data ? tiles(data, w) : []);
   const daily = $derived(data ? isDaily(data) : false);
   const days = $derived(data ? windowDays(data) : 0);
@@ -321,7 +324,7 @@
               <p class="t-meta">From the snapshot of {formatDateTime(now.snapshotAsOf)}, {now.completeness}.</p>
             </div>
           {/if}
-          {#if data.hidden?.present}
+          {#if coverageHidden}
             <p class="t-body-2" data-testid="metrics-coverage-restricted">{COVERAGE_RESTRICTED}</p>
           {:else}
             <div class="mx-chart" data-fig data-testid="metrics-coverage-trend">

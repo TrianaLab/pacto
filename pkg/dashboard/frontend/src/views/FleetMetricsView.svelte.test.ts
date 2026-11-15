@@ -70,6 +70,20 @@ describe('FleetMetricsView', () => {
     expect(none.textContent).toContain('--stats-registry');
     done();
   });
+
+  it('draws the coverage of a window that holds only coverage records, with no CI number', async () => {
+    const cov = { services: 4, uncontracted: 0, links: { exact: 1, inferred: 0, ambiguous: 0, unresolved: 0 }, snapshotAsOf: '2026-11-15T09:00:00Z', completeness: 'complete',
+      knowledge: { services: 4, described: 3, withGaps: 1, unknown: 0, notDeployed: 0 } };
+    statsFn.mockResolvedValue(answer({ recordsRead: 1, completeness: 'complete', coverage: cov,
+      buckets: [{ since: '2026-11-14T10:00:00Z', until: '2026-11-15T10:00:00Z', days: 1, coverage: cov }],
+      limitations: [{ code: 'NO_CI_OR_DELIVERY_RUN_RECORDS', message: 'the window holds coverage records and no CI or delivery run records' }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-content"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-none"]')).toBeNull();
+    expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull();
+    expect(target.textContent).toContain('no CI or delivery run records');
+    done();
+  });
 });
 
 const ratio = (count: number, of: number) => (of ? { count, of } : { count: 0, of: 0, unknown: true });
@@ -188,6 +202,7 @@ describe('FleetMetricsView content', () => {
 
   it('tells a restricted reader records are hidden and shows coverage now only', async () => {
     statsFn.mockResolvedValue(populated({ hidden: { present: true }, completeness: 'partial',
+      limitations: [{ code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service' }],
       buckets: populated().buckets.map((b: Record<string, unknown>) => ({ ...b, coverage: undefined })) }));
     const { target, done } = mountView();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
@@ -196,6 +211,15 @@ describe('FleetMetricsView content', () => {
     expect(target.querySelector('[data-testid="metrics-coverage-now"]')).not.toBeNull();
     expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')?.textContent).toContain('shown to people who can read every service');
     expect(target.querySelector('[data-testid="stats-strip"]')?.textContent).toContain('Partial');
+    done();
+  });
+
+  it('keeps the coverage trend for a reader who sees every service, even when records are hidden', async () => {
+    statsFn.mockResolvedValue(populated({ hidden: { present: true }, completeness: 'partial' }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')).toBeNull();
     done();
   });
 

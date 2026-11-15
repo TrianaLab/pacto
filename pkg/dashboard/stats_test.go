@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -381,6 +382,9 @@ func TestStatsRestrictedHidesCoverageHistory(t *testing.T) {
 		if bk.Coverage != nil {
 			t.Fatalf("a restricted bucket carries coverage: %+v", bk)
 		}
+	}
+	if !slices.ContainsFunc(b.Limitations, func(l fleet.Limitation) bool { return l.Code == stats.LimitationCoverageOutsideView }) {
+		t.Fatalf("withheld coverage is not said: %+v", b.Limitations)
 	}
 	restricted, _ := shopView(context.Background(), statsFleetQuery(t, false))
 	want := stats.CoverageOf(restricted)

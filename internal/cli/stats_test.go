@@ -317,6 +317,10 @@ func TestStatsCommandTextShowsCoverage(t *testing.T) {
 	if st := decodeStats(t, only); err != nil || st.Runs != 0 || st.Totals != nil || st.Coverage == nil || st.Coverage.Services != 12 {
 		t.Fatalf("--kind coverage = %s err = %v", only, err)
 	}
+	text, _, err := statsCmd(t, "--registry", path, "--kind", "coverage")
+	if err != nil || !strings.Contains(text, "no CI or delivery run records") || strings.Contains(text, "no run records in this window") {
+		t.Fatalf("--kind coverage text = %q err = %v", text, err)
+	}
 	cov := fixtureRecord(t, "coverage.golden.json")
 	cov.Coverage.Knowledge = nil
 	if got := coverageText(cov.Coverage); !strings.Contains(got, "12 services, unknown described, unknown observed as of") || strings.Contains(got, " 0 ") {

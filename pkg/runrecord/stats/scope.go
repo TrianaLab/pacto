@@ -14,6 +14,7 @@ const (
 	LimitationOutsideView         = "OUTSIDE_YOUR_VIEW"
 	LimitationDeliveryUnavailable = "DELIVERY_UNAVAILABLE_OVER_HTTP"
 	LimitationAttributionPartial  = "ATTRIBUTION_PARTIAL"
+	LimitationCoverageOutsideView = "COVERAGE_OUTSIDE_YOUR_VIEW"
 )
 
 // The keys of the groups no record value names. The parentheses keep them
@@ -139,13 +140,11 @@ func recordService(r runrecord.Record) string {
 	return r.Service
 }
 
-// sees reports whether a restricted caller may see r. A coverage record is
-// fleet-wide: it would tell the caller the size of a fleet they may only
-// partly read.
+// sees reports whether a restricted caller may see r, a record that names a
+// service. visibleEntries keeps every coverage record from a restricted
+// caller first: it is fleet-wide and would tell them the size of a fleet they
+// may only partly read.
 func (sc Scope) sees(r runrecord.Record) bool {
-	if r.Kind == runrecord.KindCoverage {
-		return false
-	}
 	if _, ok := sc.place(recordService(r)); !ok {
 		return false
 	}
@@ -162,13 +161,16 @@ func (sc Scope) sees(r runrecord.Record) bool {
 // visibleEntries keeps the entries the caller may see and sums the skipped
 // counts of the anchors it may see: those of the visible entries' services,
 // of the names in its view and of service, the filter, that Place accepts.
-// outside says whether anything was left out; it is never a count.
-func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside bool) {
+// outside says whether a record naming a service was left out, coverage
+// whether a fleet-wide coverage record was; neither is ever a count.
+func visibleEntries(entries []Entry, skipped map[string]Skipped, service string, sc Scope) (visible []Entry, visibleSkipped Skipped, outside, coverage bool) {
 	anchors := map[string]bool{}
 	for _, e := range entries {
 		r := e.Record
 		switch {
 		case sc.NoDelivery != "" && r.Kind == runrecord.KindOperation:
+		case sc.Restricted && r.Kind == runrecord.KindCoverage:
+			coverage = true
 		case sc.Restricted && !sc.sees(r):
 			outside = true
 		default:
@@ -188,7 +190,7 @@ func visibleEntries(entries []Entry, skipped map[string]Skipped, service string,
 		}
 		visibleSkipped = visibleSkipped.Add(s)
 	}
-	return visible, visibleSkipped, outside
+	return visible, visibleSkipped, outside, coverage
 }
 
 // truncatedService names the service whose listing was cut, when a visible

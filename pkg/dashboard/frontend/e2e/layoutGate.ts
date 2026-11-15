@@ -705,7 +705,8 @@ export function installScaleFixture(): void {
     const limitations = empty
       ? [{ code: 'NO_RUN_RECORDS', message: 'no run records in this window: recording may be off for these jobs, or the window holds none' }]
       : [{ code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be counted: 1 malformed and 2 unreadable' },
-          ...(restricted ? [{ code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view of the fleet and are left out of every number' }] : [])];
+          ...(restricted ? [{ code: 'OUTSIDE_YOUR_VIEW', message: 'some run records name services outside your view of the fleet and are left out of every number' },
+            { code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service, so only a reader who can see every service sees them' }] : [])];
     return {
       asOf: until.toISOString(), window: { since: since.toISOString(), until: until.toISOString() }, registry: 'ghcr.io/acme/pacto-stats',
       recordsRead: empty ? 0 : 1240, completeness: empty ? 'empty' : 'partial', provenance: 'unsigned statistics', truncated: '',
