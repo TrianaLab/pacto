@@ -407,7 +407,7 @@ func TestPrintResourcesConsumptionNotReported(t *testing.T) {
 	if strings.Count(out, want) != 2 {
 		t.Errorf("resources lack %q twice:\n%s", want, out)
 	}
-	if got := consumptionText(fleet.ResourceConsumption{State: "unknown", Reason: "stale"}); got != "    usage: unknown: stale" {
+	if got := "    " + (fleet.ResourceConsumption{State: "unknown", Reason: "stale"}).Text(); got != "    usage: unknown: stale" {
 		t.Errorf("other state = %q", got)
 	}
 }
@@ -423,7 +423,7 @@ func usageFigures() *fleet.UsageFigures {
 func TestPrintResourcesUsageReported(t *testing.T) {
 	c := fleet.ResourceConsumption{Environment: "production", State: "reported", Figures: usageFigures(), Producer: "platform-db", Verified: true, AsOf: &usageAt}
 	want := "    usage production: storage-used 31 Gi  connections 12.5  cost 212.40 USD/P30D  platform-db  signed  asOf 2026-11-01T09:00:00Z"
-	if got := consumptionText(c); got != want {
+	if got := "    " + c.Text(); got != want {
 		t.Errorf("reported =\n%q, want\n%q", got, want)
 	}
 }
@@ -441,7 +441,7 @@ func TestPrintResourcesUsageUnknown(t *testing.T) {
 		{"conflict", fleet.ResourceConsumption{State: "unknown", Reason: "disagree", Conflict: []string{"a", "b"}},
 			"    usage: unknown: disagree (a, b)"},
 	} {
-		if got := consumptionText(tc.c); got != tc.want {
+		if got := "    " + tc.c.Text(); got != tc.want {
 			t.Errorf("%s =\n%q, want\n%q", tc.name, got, tc.want)
 		}
 	}

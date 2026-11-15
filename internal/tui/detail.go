@@ -175,6 +175,7 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 		}
 		b.WriteString(safeText(fleet.StagesHint(service)) + "\n")
 	}
+	renderResources(b, s)
 	if h := s.EnvironmentHistory; h.Total > 0 || h.Gaps > 0 {
 		section(b, h.Heading())
 		for _, l := range h.Lines() {
@@ -192,6 +193,48 @@ func renderServiceDetail(b *strings.Builder, service string, s *fleet.ServiceDet
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
 		}
 	}
+}
+
+// renderResources writes the resources a service consumes, as the CLI prints
+// them: per use the provider, what the service requested (declared), each
+// environment's provisioning (observed) and what Pacto knows about usage.
+// Providers the viewer may not see are counted, never named.
+func renderResources(b *strings.Builder, s *fleet.ServiceDetailData) {
+	uses := s.ConsumedOfferings
+	if uses.Total == 0 && s.HiddenProviders == 0 {
+		return
+	}
+	section(b, fmt.Sprintf("Resources (%d)", uses.Total))
+	for _, u := range uses.Items {
+		offering := "no offering"
+		if u.Offering != "" {
+			offering = "offering " + u.Offering
+		}
+		fmt.Fprintf(b, "  %s (%s) via %s\n", safeText(u.Provider.Label), safeText(offering), safeText(u.Via))
+		if u.ProviderOwner != nil {
+			field(b, "owner", u.ProviderOwner.Owner)
+		}
+		lines := make([]string, 0, len(u.Requested)+len(u.Provisioning)+len(u.Consumption))
+		for _, r := range u.Requested {
+			lines = append(lines, r.Text())
+		}
+		for _, st := range u.Provisioning {
+			lines = append(lines, st.Text())
+		}
+		for _, c := range u.Consumption {
+			lines = append(lines, c.Text())
+		}
+		for _, l := range lines {
+			b.WriteString("    " + safeText(l) + "\n")
+		}
+	}
+	if uses.Truncated {
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", uses.Total-len(uses.Items))) + "\n")
+	}
+	if s.HiddenProviders > 0 {
+		fmt.Fprintf(b, "  at least %d resources from providers you may not see\n", s.HiddenProviders)
+	}
+	b.WriteString("  " + dimStyle.Render(fleet.ResourceActionsNote) + "\n")
 }
 
 // renderTemplateDetail writes a golden path's section: its signature, the
