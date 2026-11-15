@@ -268,9 +268,9 @@ func TestPrintHistoryColumns(t *testing.T) {
 		{Seq: 2, Operation: "op2", ActorClass: delivery.ClassController, Cause: &delivery.Cause{Verdict: &delivery.Verdict{Gate: "health", Result: delivery.Fail}}, Record: "rec-2"},
 		{Seq: 3, Operation: "op3", Actor: "bot", Cause: &delivery.Cause{Operation: "0123456789abcdef"}, Record: "rec-3"},
 		{Seq: 4, Operation: "op4", Cause: &delivery.Cause{}, Record: "rec-4"},
-	}})
+	}}, nil)
 	out := b.String()
-	if h := strings.Fields(strings.Split(out, "\n")[1]); strings.Join(h, " ") != "SEQ OPERATION TYPE TO ACTOR RESULT APPLIED CAUSE CORRELATION REASON RECORD" {
+	if h := strings.Fields(strings.Split(out, "\n")[1]); strings.Join(h, " ") != "SEQ OPERATION TYPE TO REVISION (DERIVED) ACTOR RESULT IMPACT APPLIED CAUSE CORRELATION REASON RECORD" {
 		t.Fatalf("columns = %v", h)
 	}
 	for _, w := range []string{
@@ -299,9 +299,39 @@ func TestPrintHistoryColumns(t *testing.T) {
 // carries an unsigned cause, correlation and applied time, and says so.
 func TestPrintHistoryMarksUnsigned(t *testing.T) {
 	var b strings.Builder
-	printHistory(&b, &delivery.History{Entries: []delivery.HistoryEntry{{Operation: "op1", Record: "rec-1"}, {Operation: "op2"}}})
+	printHistory(&b, &delivery.History{Entries: []delivery.HistoryEntry{{Operation: "op1", Record: "rec-1"}, {Operation: "op2"}}}, nil)
 	if !strings.Contains(b.String(), "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed") {
 		t.Fatalf("no unsigned footnote:\n%s", b.String())
+	}
+}
+
+// TestPrintHistoryRevisionAndImpact: every line names the derived revision
+// of the digest it moved to and the pacto.impact verdict its record holds,
+// unverified unless the line is a signed move.
+func TestPrintHistoryRevisionAndImpact(t *testing.T) {
+	const a, c = "sha256:aaaa", "sha256:cccc"
+	revs := map[string]string{a: "reg/pactos/payments@sha256:1111"}
+	entries := []delivery.HistoryEntry{
+		{Seq: 1, Operation: "ship", Kind: delivery.RecordOperation, Record: "rec-1", To: a, Pointer: &delivery.PointerChange{After: a},
+			Impact: &delivery.Verdict{Gate: delivery.GateImpact, Result: delivery.Fail}},
+		{Seq: 2, Operation: "live", To: c},
+	}
+	var b strings.Builder
+	printHistory(&b, &delivery.History{Verified: true, Entries: entries}, revs)
+	lines := strings.Split(b.String(), "\n")
+	if f := strings.Fields(lines[2]); !slices.Contains(f, revs[a]) || !slices.Contains(f, "Fail") || slices.Contains(f, "(unverified)") {
+		t.Fatalf("signed line = %v", f)
+	}
+	if f := strings.Fields(lines[3]); f[4] != "-" || f[7] != "-" {
+		t.Fatalf("a line with no key and no verdict = %v", f)
+	}
+	if !strings.Contains(b.String(), "revisions are derived from each artifact's contract digest and name, not checked against a fleet") {
+		t.Fatalf("no derived footnote:\n%s", b.String())
+	}
+	b.Reset()
+	printHistory(&b, &delivery.History{Entries: entries}, revs)
+	if !strings.Contains(b.String(), "Fail (unverified)") {
+		t.Fatalf("a record on an unverified history:\n%s", b.String())
 	}
 }
 

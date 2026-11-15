@@ -422,7 +422,9 @@ func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(
 // HistoryAll reads the history of every Stage in namespace, or in every
 // namespace the caller can list for "", keeping only the Stages of service
 // of when it names one.
-func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error) {
+// Revisions carries the derived revision key of every artifact digest the
+// histories name (delivery.RevisionKeyOf).
+func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.HistoriesAnswer, error) {
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout) // the walk counts against the audit's time
 	defer cancel()
 	w, err := d.auditStages(ctx, namespace, of)
@@ -434,7 +436,85 @@ func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery
 		out.Unreadable, out.Completeness = append(w.Forbidden, out.Unreadable...), "partial"
 		out.Note += "; the namespaces listed as unreadable were not read, so a change in them may still have happened"
 	}
-	return out, nil
+	byName := map[string]*delivery.StageObject{}
+	for i, st := range w.Stages {
+		byName[st.Metadata.Namespace+"/"+st.Metadata.Name] = &w.Stages[i]
+	}
+	var on []stageDigests
+	for _, h := range out.Histories {
+		on = append(on, stageDigests{byName[h.Namespace+"/"+h.Stage.Name], delivery.HistoryDigests(h.History)})
+	}
+	return &delivery.HistoriesAnswer{HistoryWalk: out, Revisions: d.revisionKeys(ctx, on...)}, nil
+}
+
+// HistoryWithRevisions is History with the derived revision key of every
+// artifact digest it names (delivery.RevisionKeyOf), as the CLI and MCP
+// answer it.
+func (d *Delivery) HistoryWithRevisions(ctx context.Context, ns, stage string) (*delivery.HistoryAnswer, error) {
+	st, err := d.Stage(ctx, ns, stage)
+	if err != nil {
+		return nil, err
+	}
+	h, err := d.HistoryOf(ctx, *st)
+	if err != nil {
+		return nil, err
+	}
+	return &delivery.HistoryAnswer{History: h, Revisions: d.revisionKeys(ctx, stageDigests{st, delivery.HistoryDigests(*h)})}, nil
+}
+
+// BlameWithRevision is Blame with the derived revision key of the digest it
+// blames (delivery.RevisionKeyOf), as the CLI and MCP answer it.
+func (d *Delivery) BlameWithRevision(ctx context.Context, ns, stage, digest string) (*delivery.BlameAnswer, error) {
+	st, err := d.Stage(ctx, ns, stage)
+	if err != nil {
+		return nil, err
+	}
+	b, err := d.blameOf(ctx, ns, stage, st, digest)
+	if err != nil {
+		return nil, err
+	}
+	return &delivery.BlameAnswer{Blame: b, Revision: d.revisionKeys(ctx, stageDigests{st, []string{b.Digest}})[b.Digest]}, nil
+}
+
+// stageDigests are artifact digests a Stage names.
+type stageDigests struct {
+	st      *delivery.StageObject
+	digests []string
+}
+
+// revisionKeys reads what each digest of on carries, delivery.DescribeParallel
+// at once, and keys it with delivery.RevisionKeyOf. A digest gets no key when
+// its artifact could not be read or any Stage naming it is of another service
+// than its contract: a key is never guessed.
+func (d *Delivery) revisionKeys(ctx context.Context, on ...stageDigests) map[string]string {
+	var ask []string
+	from := map[string]*delivery.StageObject{}
+	for _, o := range on {
+		for _, dg := range o.digests {
+			if _, seen := from[dg]; dg != "" && !seen {
+				ask, from[dg] = append(ask, dg), o.st
+			}
+		}
+	}
+	revs := delivery.DescribeAll(ctx, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] }, d.Describe)
+	read := map[string]delivery.Described{}
+	for i, dg := range ask {
+		read[dg] = delivery.DescribedOf(revs[i], "")
+	}
+	out, refused := map[string]string{}, map[string]bool{}
+	for _, o := range on {
+		for _, dg := range o.digests {
+			k := delivery.RevisionKeyOf(*o.st, read[dg])
+			refused[dg] = refused[dg] || k == ""
+			out[dg] = string(k)
+		}
+	}
+	for dg := range refused {
+		if refused[dg] {
+			delete(out, dg)
+		}
+	}
+	return out
 }
 
 // auditWalk is what a fleet audit's listing read: Stages, the Stages of the

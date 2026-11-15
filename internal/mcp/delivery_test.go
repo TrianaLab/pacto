@@ -67,18 +67,20 @@ func (s *stubDelivery) Explain(_ context.Context, ns, name string) (*delivery.Ex
 	return &delivery.Explanation{Operation: ns + "/" + name, Summary: "concluded Failed"}, nil
 }
 
-func (s *stubDelivery) History(_ context.Context, _, stage string) (*delivery.History, error) {
+func (s *stubDelivery) HistoryWithRevisions(_ context.Context, _, stage string) (*delivery.HistoryAnswer, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial", Entries: stubEntries()}, nil
+	return &delivery.HistoryAnswer{History: &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial", Entries: stubEntries()},
+		Revisions: map[string]string{"sha256:a": "payments@sha256:c"}}, nil
 }
 
-func (s *stubDelivery) Blame(_ context.Context, _, stage, digest string) (*delivery.Blame, error) {
+func (s *stubDelivery) BlameWithRevision(_ context.Context, _, stage, digest string) (*delivery.BlameAnswer, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &delivery.Blame{Stage: delivery.StageNow{Name: stage}, Digest: digest, Completeness: "complete"}, nil
+	return &delivery.BlameAnswer{Blame: &delivery.Blame{Stage: delivery.StageNow{Name: stage}, Digest: digest, Completeness: "complete"},
+		Revision: "payments@sha256:c"}, nil
 }
 
 func (s *stubDelivery) Undo(_ context.Context, ns, name, stage string) (*delivery.Undo, error) {
@@ -88,13 +90,13 @@ func (s *stubDelivery) Undo(_ context.Context, ns, name, stage string) (*deliver
 	return &delivery.Undo{Operation: ns + "/" + name, Kind: "rollback", Note: stage}, nil
 }
 
-func (s *stubDelivery) HistoryAll(_ context.Context, ns string, of delivery.ServiceRef) (*delivery.Histories, error) {
+func (s *stubDelivery) HistoryAll(_ context.Context, ns string, of delivery.ServiceRef) (*delivery.HistoriesAnswer, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	s.of = of
-	return &delivery.Histories{Completeness: "partial", Note: "ns=" + ns,
-		Histories: []delivery.StageHistory{{History: delivery.History{Entries: stubEntries()}}}}, nil
+	return &delivery.HistoriesAnswer{HistoryWalk: &delivery.Histories{Completeness: "partial", Note: "ns=" + ns,
+		Histories: []delivery.StageHistory{{History: delivery.History{Entries: stubEntries()}}}}}, nil
 }
 
 func (s *stubDelivery) VerifyAll(_ context.Context, ns string) (*delivery.StreamVerifications, error) {
@@ -597,5 +599,30 @@ func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
 		if !strings.Contains(deliveryInstructions, want) {
 			t.Errorf("deliveryInstructions lack %q", want)
 		}
+	}
+}
+
+// History lines name the recorded pacto.impact verdict, and history and
+// blame name each digest's derived revision key.
+func TestDeliveryHistoryDescribesImpactAndRevisions(t *testing.T) {
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}}})
+	tools := listTools(t, server)
+	for _, want := range []string{"impact", "signed only when the history is verified", "revisions", "derived from the contract's digest and name", "not checked against a fleet"} {
+		if !strings.Contains(tools["pacto_delivery_history"].Description, want) {
+			t.Errorf("history description lacks %q", want)
+		}
+	}
+	if d := tools["pacto_delivery_blame"].Description; !strings.Contains(d, "revision is the digest's fleet revision key, derived") {
+		t.Errorf("blame description = %s", d)
+	}
+	var h delivery.HistoryAnswer
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
+	if h.Revisions["sha256:a"] != "payments@sha256:c" {
+		t.Fatalf("history revisions = %v", h.Revisions)
+	}
+	var b delivery.BlameAnswer
+	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s"}), &b)
+	if b.Revision != "payments@sha256:c" {
+		t.Fatalf("blame revision = %q", b.Revision)
 	}
 }

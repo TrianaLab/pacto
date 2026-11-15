@@ -21,8 +21,10 @@ type DeliveryAPI interface {
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
 	Cancel(ctx context.Context, namespace, name string) error
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
-	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
-	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
+	// HistoryWithRevisions and BlameWithRevision carry the derived revision
+	// key of each digest they name.
+	HistoryWithRevisions(ctx context.Context, namespace, stage string) (*delivery.HistoryAnswer, error)
+	BlameWithRevision(ctx context.Context, namespace, stage, digest string) (*delivery.BlameAnswer, error)
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
 	VerifyRecords(ctx context.Context, namespace, stage string) (*delivery.StreamVerification, error)
 	Record(ctx context.Context, namespace, stage, id string) (*delivery.RecordView, error)
@@ -30,7 +32,7 @@ type DeliveryAPI interface {
 	// HistoryAll and VerifyAll walk every Stage in namespace, or in every
 	// namespace the caller can list for "".
 	// HistoryAll keeps only the Stages of service of when it names one.
-	HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error)
+	HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.HistoriesAnswer, error)
 	VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error)
 	// Status says where each Stage of one service stands, as the caller can
 	// see it, in promotion order.
@@ -166,7 +168,10 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 			"started; a change running across that time, or whose time is unknown, is always listed. Pass cause (text in the " +
 			"cause's reason, operation or cited verdict, ignoring case) or correlation_id (exact) to keep only the changes tied " +
 			"to an incident; both narrow the timeline too. A line with no record carries a cause read from the Operation, " +
-			"unsigned. Read-only." + noApprove,
+			"unsigned. A line from a record carries impact, the pacto.impact verdict that record holds: it is signed only when " +
+			"the history is verified, and a line read from an Operation's status has none. revisions maps each artifact digest " +
+			"named to its fleet revision key, derived from the contract's digest and name and not checked against a fleet; an " +
+			"artifact that could not be read, or whose contract names another service than the Stage, has none. Read-only." + noApprove,
 		InputSchema: historySchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 		return historyTool(ctx, api, a)
@@ -176,10 +181,12 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool) {
 		Annotations: readOnly(true),
 		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
 			"Stage to it, who asked, on whose behalf (asserted), why, who approved and what every gate said, from the records. " +
-			"No change with completeness partial means unknown, never nobody. Read-only." + noApprove,
+			"No change with completeness partial means unknown, never nobody. revision is the digest's fleet revision key, derived " +
+			"from the contract's digest and name and not checked against a fleet; it is empty when the artifact could not be read " +
+			"or names another service than the Stage. Read-only." + noApprove,
 		InputSchema: stageSchema("digest"),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
-		b, err := api.Blame(ctx, a.Namespace, a.Stage, a.Digest)
+		b, err := api.BlameWithRevision(ctx, a.Namespace, a.Stage, a.Digest)
 		return resultOrError(b, err)
 	})
 	addTool(server, &mcpsdk.Tool{
@@ -493,9 +500,9 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 	if a.Service != "" || a.Domain != "" {
 		return errorResult(errors.New("service filters the walk; leave stage empty")), nil, nil
 	}
-	h, err := api.History(ctx, a.Namespace, a.Stage)
+	h, err := api.HistoryWithRevisions(ctx, a.Namespace, a.Stage)
 	if err == nil {
-		*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
+		*h.History = delivery.FilterEntries(delivery.WindowEntries(*h.History, since, until), f)
 		start, end := delivery.TimelineWindow(since, until, now)
 		h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 	}

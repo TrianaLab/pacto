@@ -140,6 +140,8 @@ type HistoryEntry struct {
 	UnverifiedRecord string `json:"unverifiedRecord,omitempty"`
 	// Pointer is the move this operation made, when it moved the Stage.
 	Pointer *PointerChange `json:"pointer,omitempty"`
+	// Impact is the pacto.impact verdict the record carries for the change.
+	Impact *Verdict `json:"impact,omitempty" doc:"The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified"`
 	// Approvals are the people's decisions the operation consumed. It is
 	// always sent, null when there were none, so a reader can tell "no
 	// person decided" from "not said".

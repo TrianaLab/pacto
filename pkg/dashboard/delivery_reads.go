@@ -1116,12 +1116,7 @@ func describedAll(ctx context.Context, api DeliveryAPI, into map[string]delivery
 	}
 	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
-		r := revs[i]
-		desc := delivery.Described{Version: version(ctx, r), Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
-		if r.Bundle != nil {
-			desc.Team = r.Bundle.Contract.Service.Owner.DisplayString()
-		}
-		into[d] = desc
+		into[d] = delivery.DescribedOf(revs[i], version(ctx, revs[i]))
 	}
 	return into
 }

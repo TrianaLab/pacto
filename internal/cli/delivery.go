@@ -636,7 +636,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 					out := cmd.OutOrStdout()
 					for _, h := range hs.Histories {
 						_, _ = fmt.Fprintf(out, "== %s/%s\n", h.Namespace, h.Stage.Name)
-						printHistory(out, &h.History)
+						printHistory(out, &h.History, hs.Revisions)
 					}
 					printTimeline(out, hs.Timeline)
 					printAnswerNotes(out, nil, hs.Unreadable)
@@ -644,15 +644,15 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 					return nil
 				}, nil)
 			}
-			h, err := c.History(cmd.Context(), ns, stage)
+			h, err := c.HistoryWithRevisions(cmd.Context(), ns, stage)
 			if err != nil {
 				return err
 			}
-			*h = delivery.FilterEntries(delivery.WindowEntries(*h, since, until), f)
+			*h.History = delivery.FilterEntries(delivery.WindowEntries(*h.History, since, until), f)
 			start, end := delivery.TimelineWindow(since, until, c.Now())
 			h.Timeline = new(delivery.Timeline(h.Entries, start, end))
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
-				printHistory(cmd.OutOrStdout(), h)
+				printHistory(cmd.OutOrStdout(), h.History, h.Revisions)
 				printTimeline(cmd.OutOrStdout(), h.Timeline)
 				return nil
 			}, nil)
@@ -722,21 +722,26 @@ func stageOrAll(cmd *cobra.Command, ns *string) (string, bool, error) {
 	return stage, all, nil
 }
 
-func printHistory(out io.Writer, h *delivery.History) {
+// printHistory prints h as a table; revisions are the derived revision keys
+// of the digests it names.
+func printHistory(out io.Writer, h *delivery.History, revisions map[string]string) {
 	printStageNow(out, h.Stage)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
+	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tREVISION (DERIVED)\tACTOR\tRESULT\tIMPACT\tAPPLIED\tCAUSE\tCORRELATION\tREASON\tRECORD")
 	unsigned := false
 	for _, e := range h.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
-			orNone([]string{e.To}), actorCell(e), cmp.Or(result, string(e.Phase)), cmp.Or(e.Applied, "-"), causeCell(e.Cause),
-			cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
+			orNone([]string{e.To}), revisionCell(e, revisions), actorCell(e), cmp.Or(result, string(e.Phase)), impactCell(*h, e),
+			cmp.Or(e.Applied, "-"), causeCell(e.Cause), cmp.Or(e.CorrelationID, "-"), e.Reason, recordCell(e))
 		unsigned = unsigned || e.Record == ""
 	}
 	_ = w.Flush()
 	if unsigned {
 		_, _ = fmt.Fprintln(out, "lines with record - are read from the Operation's status: their cause, correlation and applied time are not signed")
+	}
+	if len(revisions) > 0 {
+		_, _ = fmt.Fprintln(out, "revisions are derived from each artifact's contract digest and name, not checked against a fleet")
 	}
 	printAnswerNotes(out, h.Problems, h.Unreadable)
 	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
@@ -790,6 +795,28 @@ func causeCell(c *delivery.Cause) string {
 	return "-"
 }
 
+// revisionCell is the derived revision key of the digest a line moved the
+// Stage to, else of its to; "-" when none is known.
+func revisionCell(e delivery.HistoryEntry, revisions map[string]string) string {
+	to := e.To
+	if e.Pointer != nil {
+		to = e.Pointer.After
+	}
+	return cmp.Or(revisions[to], "-")
+}
+
+// impactCell is the pacto.impact verdict a line's record holds, marked
+// unverified unless the line is a signed move; "-" when it holds none.
+func impactCell(h delivery.History, e delivery.HistoryEntry) string {
+	switch {
+	case e.Impact == nil:
+		return "-"
+	case !delivery.SignedMove(h, e):
+		return string(e.Impact.Result) + " (unverified)"
+	}
+	return string(e.Impact.Result)
+}
+
 // recordCell is a history line's record: its id, "unverified" for a record
 // the recorder wrote that could not be verified, or "-".
 func recordCell(e delivery.HistoryEntry) string {
@@ -820,13 +847,16 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 			}
 			stage, _ := cmd.Flags().GetString("stage")
 			digest, _ := cmd.Flags().GetString("digest")
-			b, err := c.Blame(cmd.Context(), ns, stage, digest)
+			b, err := c.BlameWithRevision(cmd.Context(), ns, stage, digest)
 			if err != nil {
 				return err
 			}
 			return formatResult(cmd, v.GetString(outputFormatKey), b, func() error {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "version:   %s\n", orNone([]string{b.Digest}))
+				if b.Revision != "" {
+					_, _ = fmt.Fprintf(w, "revision (derived): %s\n", b.Revision)
+				}
 				if e := b.Change; e != nil {
 					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), shortRecord(e.Record))
 					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, e.ActorClass)

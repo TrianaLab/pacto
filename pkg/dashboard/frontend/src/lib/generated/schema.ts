@@ -1410,6 +1410,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */
@@ -1454,6 +1456,8 @@ export interface components {
             correlationID?: string;
             finished?: string;
             from?: string;
+            /** @description The pacto.impact verdict the record carries for the change; empty on a line read from an Operation's status. It is signed only when the history is verified */
+            impact?: components["schemas"]["Delivery.Verdict"];
             kind?: string;
             operation: string;
             /** @description The Operation's uid, when known */

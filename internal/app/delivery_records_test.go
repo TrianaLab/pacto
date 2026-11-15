@@ -732,10 +732,10 @@ func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
 		return true, serviceStages(a.GetNamespace()), nil
 	})
 	ctx := context.Background()
-	if hs, err := e.d.HistoryAll(ctx, "", payments); err != nil || len(hs.Histories) != 3 || capped(hs) {
+	if hs, err := e.d.HistoryAll(ctx, "", payments); err != nil || len(hs.Histories) != 3 || capped(hs.HistoryWalk) {
 		t.Fatalf("cluster-wide walk for payments = %+v, %v", hs, err)
 	}
-	if hs, _ := e.d.HistoryAll(ctx, "", delivery.ServiceRef{}); !capped(hs) {
+	if hs, _ := e.d.HistoryAll(ctx, "", delivery.ServiceRef{}); !capped(hs.HistoryWalk) {
 		t.Fatalf("without a filter the walk is still bounded: %v", hs.Unreadable)
 	}
 	// Per namespace: the cluster-wide list and namespace b are forbidden.
@@ -750,7 +750,7 @@ func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
 		t.Fatalf("one namespace for payments = %d Stages, %d counted, %v", len(got), read.Load(), err)
 	}
 	hs, err := e.d.HistoryAll(ctx, "", payments)
-	if err != nil || len(hs.Histories) != 3 || capped(hs) || hs.Completeness != "partial" {
+	if err != nil || len(hs.Histories) != 3 || capped(hs.HistoryWalk) || hs.Completeness != "partial" {
 		t.Fatalf("per-namespace walk for payments = %+v, %v", hs, err)
 	}
 	if got := strings.Join(hs.Unreadable, "|"); !strings.Contains(got, "in b") {
@@ -964,5 +964,78 @@ func TestRecordNoAnchor(t *testing.T) {
 	_, err := d.Record(context.Background(), "prod", "payments-prod", "sha256:r")
 	if err == nil || err.Error() != "Stage prod/payments-prod has no records: the recorder has not written its stream anchor" {
 		t.Fatalf("record with no anchor: %v", err)
+	}
+}
+
+// paymentsKey is the derived revision key of dlA's contract.
+func paymentsKey() string {
+	var st delivery.StageObject
+	st.Spec.Service.Name = "payments"
+	return string(delivery.RevisionKeyOf(st, delivery.Described{Contract: "oci://reg/pactos/payments@" + dlC, Service: "payments"}))
+}
+
+func failOperations(c *dynamicfake.FakeDynamicClient) {
+	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("operations down")
+	})
+}
+
+func TestHistoryFillsRevisions(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	ctx := context.Background()
+	want := paymentsKey()
+	h, err := e.d.HistoryWithRevisions(ctx, "prod", "payments-prod")
+	if err != nil || want == "" || h.Revisions[dlA] != want || len(h.Entries) != 2 {
+		t.Fatalf("history = %+v, %v; want %s for %s", h, err, want, dlA)
+	}
+	// dlC's artifact names no contract: no key, never a guess.
+	if k, ok := h.Revisions[dlC]; ok {
+		t.Fatalf("an artifact with no contract got key %q", k)
+	}
+	hs, err := e.d.HistoryAll(ctx, "prod", delivery.ServiceRef{})
+	if err != nil || hs.Revisions[dlA] != want {
+		t.Fatalf("walk revisions = %v, %v", hs.Revisions, err)
+	}
+	if _, err := e.d.HistoryWithRevisions(ctx, "prod", "nope"); err == nil {
+		t.Fatal("a missing Stage has no history")
+	}
+	failOperations(e.c)
+	if _, err := e.d.HistoryWithRevisions(ctx, "prod", "payments-prod"); err == nil {
+		t.Fatal("unreadable operations fail the history")
+	}
+}
+
+// TestHistoryAllRevisionsMismatchedService: a digest any walked Stage of
+// another service names gets no key.
+func TestHistoryAllRevisionsMismatchedService(t *testing.T) {
+	orders := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "orders-prod", map[string]any{
+		"spec":   map[string]any{"service": map[string]any{"name": "orders"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"}},
+		"status": map[string]any{"pointer": dlA},
+	})
+	e := newRecordEnv(t, orders)
+	hs, err := e.d.HistoryAll(context.Background(), "prod", delivery.ServiceRef{})
+	if err != nil || len(hs.Histories) != 2 {
+		t.Fatalf("walk = %+v, %v", hs, err)
+	}
+	if k, ok := hs.Revisions[dlA]; ok {
+		t.Fatalf("a digest an orders Stage runs got the payments key %q", k)
+	}
+}
+
+func TestBlameRevision(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	ctx := context.Background()
+	b, err := e.d.BlameWithRevision(ctx, "prod", "payments-prod", "")
+	if err != nil || b.Digest != dlA || b.Revision != paymentsKey() {
+		t.Fatalf("blame = %+v, %v", b, err)
+	}
+	if _, err := e.d.BlameWithRevision(ctx, "prod", "nope", ""); err == nil {
+		t.Fatal("a missing Stage has no blame")
+	}
+	failOperations(e.c)
+	if _, err := e.d.BlameWithRevision(ctx, "prod", "payments-prod", ""); err == nil {
+		t.Fatal("unreadable operations fail the blame")
 	}
 }

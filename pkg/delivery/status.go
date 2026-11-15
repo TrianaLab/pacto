@@ -99,8 +99,19 @@ type Offer struct {
 // Described is what an artifact digest carries: its contract's version and
 // owner team, the contract it names, the source revision pacto publish
 // stamped on it (an annotation, not signed), and Err when it could not be
-// read.
-type Described struct{ Version, Team, Contract, Source, Err string }
+// read. Service, BusinessDomain and OwnerKey are the contract's service.name,
+// service.domain and owner key; all three are empty when it was not read.
+type Described struct{ Version, Team, Contract, Source, Err, Service, BusinessDomain, OwnerKey string }
+
+// DescribedOf is what r carries, with version the version to show for it.
+func DescribedOf(r Revision, version string) Described {
+	d := Described{Version: version, Contract: r.ContractRef, Source: r.SourceRevision, Err: r.Err}
+	if r.Bundle != nil && r.Bundle.Contract != nil {
+		s := r.Bundle.Contract.Service
+		d.Service, d.BusinessDomain, d.Team, d.OwnerKey = s.Name, s.Domain, s.Owner.DisplayString(), s.Owner.KeyString()
+	}
+	return d
+}
 
 // RowInput is what RowOf reads beside the Stage: its held operations (or
 // that they could not be read), the caller, what each digest carries, and
