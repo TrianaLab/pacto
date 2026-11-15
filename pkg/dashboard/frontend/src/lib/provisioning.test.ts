@@ -101,6 +101,6 @@ describe('adapterLine', () => {
       .toBe('scanner by security-adapter, unsigned target-state file: default, staging; disagrees on 2');
   });
   it('words an empty slug as unnamed adapter, never an empty string', () => {
-    expect(adapterLine(a({ provider: '', producer: undefined, environments: null }), NOW)).toBe('unnamed adapter by an unnamed producer, signed');
+    expect(adapterLine(a({ provider: '', producer: undefined, environments: null }), NOW)).toBe('unnamed adapter, signed');
   });
 });

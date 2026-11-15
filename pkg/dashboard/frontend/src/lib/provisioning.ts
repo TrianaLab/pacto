@@ -29,10 +29,11 @@ export function readyTone(ready: number, readyUnsigned = 0): 'ok' | 'info' {
 
 /**
  * One line that says who an adapter is and what it reports on, worded as the CLI's
- * adapter line: an empty slug reads "unnamed adapter", as OfferingAdapter.DisplayName() does.
+ * adapter line: an empty slug reads "unnamed adapter", as OfferingAdapter.DisplayName() does, and
+ * an empty producer is left out, as OfferingAdapter.Line() does.
  */
 export function adapterLine(a: OfferingAdapter, now: number = Date.now()): string {
-  const head = `${a.provider || 'unnamed adapter'} by ${a.producer || 'an unnamed producer'}, ${a.verified ? 'signed' : 'unsigned target-state file'}`;
+  const head = `${a.provider || 'unnamed adapter'}${a.producer ? ` by ${a.producer}` : ''}, ${a.verified ? 'signed' : 'unsigned target-state file'}`;
   const envs = a.environments ?? [];
   const tail = [
     a.disagrees > 0 ? `disagrees on ${a.disagrees}` : '',

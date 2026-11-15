@@ -172,7 +172,7 @@
         <li class="inset-card oe-adapter" data-testid="offering-adapter">
           <div class="oe-head" title={adapterLine(a)}>
             {#if a.provider}<bdi class="oe-name" title={a.provider}>{a.provider}</bdi>{:else}<span class="oe-unnamed">unnamed adapter</span>{/if}
-            <span class="oe-by">by <bdi class="oe-name" title={a.producer || 'an unnamed producer'}>{a.producer || 'an unnamed producer'}</bdi></span>
+            {#if a.producer}<span class="oe-by">by <bdi class="oe-name" title={a.producer}>{a.producer}</bdi></span>{/if}
             {#if a.verified}<IdentityBadge label="signed" tone="ok" title="Reported through signed evidence" describe />
             {:else}<IdentityBadge label="unsigned" tone="info" title="Reported through the unsigned target-state file" describe />{/if}
             <IdentityBadge label="observed" tone="info" title="Observed from the adapter's reports" describe />

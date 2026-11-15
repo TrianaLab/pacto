@@ -414,7 +414,7 @@ describe('adapters reporting', () => {
       adapters: { total: 3, count: 3, truncated: false, conflicting: 2, unattributed: 4, items: [
         adapter({}),
         adapter({ verified: false, environments: ['default', 'staging'], phases: tally({ ready: 1, readyUnsigned: 1, unknown: 2 }), disagrees: 2 }),
-        adapter({ provider: '', producer: 'platform-adapter', verified: false, environments: ['default'], phases: tally({ unknown: 1 }), lastReportedAt: undefined }),
+        adapter({ provider: '', producer: undefined, verified: false, environments: ['default'], phases: tally({ unknown: 1 }), lastReportedAt: undefined }),
       ] },
     }));
     const items = [...target.querySelectorAll('[data-testid="offering-adapter"]')] as HTMLElement[];
@@ -435,6 +435,9 @@ describe('adapters reporting', () => {
     expect([...items[1].querySelectorAll('.tag.tone-ok')]).toHaveLength(0);
     expect(text(items[2])).toContain('unnamed adapter');
     expect(items[2].querySelector('bdi.oe-name:empty')).toBeNull();
+    // A report with no producer leaves the producer out, as the CLI's adapter line does.
+    expect(items[2].querySelector('.oe-by')).toBeNull();
+    expect(items[2].querySelector('.oe-head')?.getAttribute('title')).toBe('unnamed adapter, unsigned target-state file: default');
     expect(text(target.querySelector('[data-testid="adapters-conflicting"]'))).toBe('2 requests where adapters disagree, so their status is Unknown');
     expect(text(target.querySelector('[data-testid="adapters-unattributed"]'))).toBe('4 requests no adapter reports on');
     // Every value that may be cut carries its full text.
