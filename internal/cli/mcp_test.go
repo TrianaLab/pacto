@@ -528,7 +528,13 @@ func TestMCPImpactSignedInEditIsUnknown(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: orders\n  version: \"1.0.0\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	src := func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(&fleet.FleetSnapshot{}), nil }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{
+		{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "orders", Version: "1.0.0"}}}, Domain: "reg.example", Digest: "sha256:o"},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil }
 	server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps())}}})
 	if err != nil {
 		t.Fatal(err)

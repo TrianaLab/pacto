@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -109,15 +112,35 @@ func instructionsFor(a Authoring, m Modes) string {
 func editOptions(m Modes) EditOptions {
 	opts := EditOptions{Served: servedBy(m)}
 	if f := m.Fleet; f != nil && f.Opts.Impact != nil {
-		opts.Impact = func(ctx context.Context, oldDir, newDir string) (*impact.Result, error) {
+		opts.Impact = func(ctx context.Context, service, oldDir, newDir string) (*impact.Result, error) {
 			q, err := viewQuery(ctx, nil, f.Src, f.Opts.View)
 			if err != nil {
 				return nil, err
 			}
-			return f.Opts.Impact(ctx, q.SnapshotForSerialization(), ImpactRequest{OldRef: oldDir, NewRef: newDir})
+			// A local directory names no registry: the edit keys the service
+			// the snapshot holds under that name, so its consumers are found
+			// where a registry or cluster source put them.
+			view, err := q.GetService(service)
+			if err != nil {
+				return nil, fmt.Errorf("the fleet snapshot cannot place %s: %w", service, err)
+			}
+			res, err := f.Opts.Impact(ctx, q.SnapshotForSerialization(), ImpactRequest{OldRef: oldDir, NewRef: newDir, Domain: view.Service.Domain})
+			if err != nil || heldVersion(view, res.OldVersion) {
+				return res, err
+			}
+			return unverified(res, "BASELINE_UNPUBLISHED", "the edit is compared with the contract on disk at "+res.OldVersion+
+				", a version the fleet holds no revision of, so consumers may run another revision"), nil
 		}
 	}
 	return opts
+}
+
+// heldVersion reports whether the fleet holds a revision of view's service at
+// version. ponytail: a version match, since a registry digest and a working
+// copy's content hash are never comparable; an edited copy that keeps a
+// published version still reads as held.
+func heldVersion(view *fleet.ServiceView, version string) bool {
+	return slices.ContainsFunc(view.Revisions, func(r *fleet.ContractRevision) bool { return r.Version == version })
 }
 
 // servedBy reports whether a server with modes m registers one of the tools

@@ -611,8 +611,7 @@ func needs21(m map[string]any, deps []DependencyInput) bool {
 // provider schema. A nil validate resolves configuration refs with no
 // resolver, so a ref the contract depends on fails closed with
 // CONFIG_REF_UNRESOLVED.
-func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir string, yamlBytes []byte, c *contract.Contract, files map[string][]byte, resolve bool) error {
-	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c, files)
+func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir string, bundleFS fstest.MapFS, yamlBytes []byte, c *contract.Contract, resolve bool) error {
 	result := validation.Validate(c, yamlBytes, bundleFS)
 	if result.IsValid() && resolve {
 		if validate == nil {
@@ -725,12 +724,13 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c, fromVersion)); err != nil {
+	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c, files)
+	if err := o.validateEdited(ctx, validate, dir, bundleFS, yamlBytes, c, needsResolve(input, c, fromVersion)); err != nil {
 		return nil, err
 	}
 
 	result := &EditResult{Path: pactoPath, Summary: summarizeContract(c), Changes: changes}
-	result.Impact, result.Chain, result.Executor = o.explain(ctx, opts, dir, o.buildBundleFSForValidation(dir, yamlBytes, c, files), c, input)
+	result.Impact, result.Chain, result.Executor = o.explain(ctx, opts, dir, bundleFS, c, input)
 	if input.Owner != nil {
 		result.Warnings = ownerWarnings(*input.Owner)
 	}

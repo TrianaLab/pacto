@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -149,7 +150,7 @@ func createHandler(init Initializer, served func(string) bool) mcpsdk.ToolHandle
 		if err != nil {
 			return nil, nil, err
 		}
-		result.Chain = promoteChain(result.Summary.Name, result.Summary.Version, served)
+		result.Chain = promoteChain(result.Summary.Name, result.Summary.Version, filepath.Dir(result.Path), served)
 		res, err := jsonResult(result)
 		return res, nil, err
 	}

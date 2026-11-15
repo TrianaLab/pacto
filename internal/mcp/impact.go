@@ -14,7 +14,10 @@ import (
 // ImpactRequest is one pacto_impact call: a contract change from OldRef to
 // NewRef, or, when Event is set, a what-if about one fleet service.
 type ImpactRequest struct {
-	OldRef, NewRef  string
+	OldRef, NewRef string
+	// Domain qualifies the changed service when NewRef is a local path that
+	// names no registry; empty derives it from NewRef.
+	Domain          string
 	IncludeObserved bool
 	TracesPath      string
 	Event           *impact.Event
