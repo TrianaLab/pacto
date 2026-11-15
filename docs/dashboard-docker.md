@@ -52,6 +52,7 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |
+| `PACTO_STATS_REGISTRY` | Stats repository the Metrics page reads; read anonymously when public, otherwise with the registry credentials. Delivery-derived metrics need sign-in | `""` (Metrics explains how to turn recording on) |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | The same input with a stable identity per file: **space-separated** `NAME=PATH` entries, where `NAME` is the Data Source name the API and UI show | `""` |
 | `PACTO_CACHE_DIR` | Directory the dashboard scans for cached OCI bundles (read side) | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
@@ -121,7 +122,8 @@ docker run -p 127.0.0.1:3000:3000 -e PACTO_DASHBOARD_ALLOW_ANONYMOUS=true \
 | Endpoint | Description |
 |---|---|
 | `GET /health` | Returns `{"status": "ok", "version": "..."}`. Use for liveness and readiness probes. |
-| `GET /metrics` | Returns `{"serviceCount": N, "sourceCount": N}`. |
+| `GET /metrics` | Returns `{"serviceCount": N, "sourceCount": N}`: counters of the running process. |
+| `GET /api/stats` | Pacto outcomes over a window, from the run records in `PACTO_STATS_REGISTRY`: the numbers the Metrics page draws, labelled unsigned statistics. |
 | `GET /openapi.json` | OpenAPI 3.1 specification (includes a server URL matching the bind address). Also served as `/openapi.yaml`, and downgraded to OpenAPI 3.0.3 at `/openapi-3.0.json`. |
 | `GET /docs` | Interactive API documentation. |
 
