@@ -135,7 +135,7 @@ export function installScaleFixture(): void {
         [r.availability, r.availabilityProvenance] = AV[i % AV.length];
         r.lifecycle = ['deprecated', 'sunset', 'supported', 'unknown'][i % 4];
         r.consumers = 1200 + i; r.failedRequests = i % 2 ? 0 : 340 + i;
-        if (i % 2) { r.hiddenConsumers = 1234; r.targetsUnknown = true; r.targets = 0; }
+        if (i % 2) { r.hiddenConsumers = 1234; r.hiddenProviders = 12; r.targetsUnknown = true; r.targets = 0; }
       });
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.

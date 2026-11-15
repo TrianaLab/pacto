@@ -63,11 +63,12 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(fig.locator('a[data-lists="1"]')).toHaveAttribute('href', /[?&]failed=1/);
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();
     const pg = page.getByTestId('offering-list').locator('tbody tr').filter({ has: page.locator(PG_ROW) });
-    // Two teams maintain a provider each, and the newest postgresql, 17.0.0, declares no lifecycle.
+    // Two teams maintain a provider each. The newest postgresql, 17.0.0, declares no lifecycle,
+    // but the ^16 consumers still reach the deprecated 16.1.0, so the row reads deprecated.
     await expect(pg.locator('[data-label="Owners"]')).toHaveText('2 owners claim it');
-    await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('supported');
-    // production is available and staging unknown: the row says how Pacto knows.
-    await expect(pg.locator('[data-label="Availability"]')).toContainText('observed');
+    await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('deprecated');
+    // production is available and staging unknown: the row reads unknown, never degraded.
+    await expect(pg.locator('[data-label="Availability"]')).toHaveText('unknown');
     await expect(pg.locator('[data-label="Failed"]')).toHaveText('1');
     await expect(pg.locator('[data-label="Observed targets"]')).not.toHaveText('0');
     await fig.locator('a[data-lists="1"]').click();
@@ -80,13 +81,16 @@ test.describe('WASM demo — platform offerings', () => {
     await audit(page, 'offerings list, failed filter');
   });
 
-  test('no demo offering is deprecated: the lifecycle filter narrows to none', async ({ page }) => {
+  test('postgresql is the deprecated offering: the lifecycle filter lists it alone', async ({ page }) => {
     await page.goto('/#/fleet/offerings');
     await expect(page.getByTestId('offering-list')).toBeVisible({ timeout: T });
     await page.getByLabel('Lifecycle').selectOption('deprecated');
     await expect(page).toHaveURL(/#\/fleet\/offerings\?lifecycle=deprecated$/);
     await expect(page.locator('.filter-chips')).toContainText('Deprecated');
-    await expect(page.getByTestId('offering-list')).toHaveCount(0, { timeout: T });
+    const rows = page.getByTestId('offering-list').locator('tbody tr');
+    await expect(rows).toHaveCount(1, { timeout: T });
+    await expect(rows.locator(PG_ROW)).toBeVisible();
+    await expect(rows.locator('[data-label="Lifecycle"] .badge-warn')).toHaveText('deprecated');
   });
 
   test('the postgresql page shows its providers, a consume snippet and its consumers', async ({ page }) => {

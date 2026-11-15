@@ -86,4 +86,14 @@ describe('OfferingAvailability', () => {
     expect(none.target.textContent).toBe('');
     none.done();
   });
+  it('says a provider whose targets are all hidden has no target the viewer may see, never that it is nowhere observed', () => {
+    const hidden = { state: 'unknown', asOf: '2026-11-04T10:00:00Z', total: 1, byEnvironment: [
+      { environment: '', state: 'unknown', provenance: 'unknown', reason: 'you may not see every target of this service', reporting: 0, targets: 0, targetsHidden: true },
+    ] };
+    const { target, done } = render({ availability: hidden, compact: true });
+    const row = target.querySelector('[data-testid="availability-env"]');
+    expect(text(row)).toContain('no target you may see');
+    expect(text(row)).not.toContain('nowhere observed');
+    done();
+  });
 });

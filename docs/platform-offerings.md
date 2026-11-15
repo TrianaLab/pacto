@@ -44,10 +44,15 @@ the operators observing its targets report it.
 Each offering row of `pacto fleet entities --kind offering`,
 `pacto_fleet_entities` and the dashboard's Offerings list carries:
 
-- `owner`: the providers' owner, or "2 owners claim it" when they disagree;
-- `lifecycle`: the worst lifecycle over the providers' current revisions
-  (`supported`, `deprecated` or `sunset`), `unknown` when a provider is
-  observed only or its current revision is unreadable;
+- `owner`: the providers' owner, "2 owners claim it" when they disagree or
+  "declared by contacts only" for one owner that names no team or DRI;
+- `lifecycle`: the worst lifecycle over the provider versions in use, the
+  ones consumers' ranges reach and targets run, else each provider's newest
+  revision (`supported`, `deprecated` or `sunset`); `unknown` when a provider
+  is observed only, its newest revision is unreadable or a provider is
+  hidden from the viewer;
+- `hiddenProviders`: under a restricted view, the providers the viewer may
+  not see, which `owner`, `consumers` and `failedRequests` leave out;
 - `availability` and `availabilityProvenance`: the offering's
   [availability](offering-availability.md#is-an-offering-available) roll-up and where its worst
   environment comes from;
@@ -59,7 +64,8 @@ Each offering row of `pacto fleet entities --kind offering`,
   incomplete. Pacto prints "observed targets unknown", never 0.
 
 The `lifecycle` filter (`deprecated` or `sunset`) and the `failed` filter
-narrow the list; `--sort failed` and `--sort consumers` order it. The
+narrow the list; `--sort failed` (the most consumers with a failed request
+first) and `--sort consumers` order it. The
 aggregate tallies every matched offering's provisioning statuses by phase in
 `offeringPhases` and `offeringPhaseConsumers`, and names the three offerings
 with the most failures in `failedByOffering`, where `services` counts the

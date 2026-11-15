@@ -380,8 +380,8 @@ See the [platform offerings reference](platform-offerings.md) and
 |---------------------|---------|
 | `available` | Fresh provider targets serve and no consumer reports the provider unreachable. |
 | `degraded` | Some provider targets report `INTERFACE_ABSENT`, or some consumer targets cannot reach it. |
-| `unavailable` | Every fresh provider target reports `INTERFACE_ABSENT`, or with no fresh provider target every consumer target that declares it cannot reach it. |
-| `unknown` | Targets are hidden, a target source is incomplete or no fresh evidence exists. |
+| `unavailable` | Every fresh provider target serves none of its interfaces, or with no fresh provider target every consumer target that declares it cannot reach it. |
+| `unknown` | Targets are hidden, a target source is incomplete, no fresh evidence exists or no interface was seen answering. |
 
 | Limitation | Raised when |
 |------------|-------------|

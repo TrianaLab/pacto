@@ -18,8 +18,9 @@
   const rows = $derived(availability?.byEnvironment ?? []);
   const total = $derived(availability?.total ?? rows.length);
   // The entry with no environment, no target and no report keeps the reason when nothing
-  // places the offering anywhere; unlabelled targets form the other unnamed group.
-  const envLabel = (e) => e.environment || (!e.targets && !(e.unreachable ?? []).length ? 'nowhere observed' : 'no environment label');
+  // places the offering anywhere, or when every target is hidden from the viewer;
+  // unlabelled targets form the other unnamed group.
+  const envLabel = (e) => e.environment || (!e.targets && !(e.unreachable ?? []).length ? (e.targetsHidden ? 'no target you may see' : 'nowhere observed') : 'no environment label');
 </script>
 
 {#snippet list()}

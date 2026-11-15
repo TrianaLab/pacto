@@ -59,8 +59,9 @@ consumer's [provisioning status](platform-offerings.md#provisioning-status).
 every surface:
 
 - `pacto fleet entities --kind offering --lifecycle deprecated` (or `sunset`)
-  lists offerings by their worst provider lifecycle, and services by their
-  own; `--failed` keeps offerings with a failed provisioning request. The
+  lists offerings by the worst provider version in use, so the demo lists
+  postgresql, and services by their newest revision; `--failed` keeps
+  offerings with a failed provisioning request. The
   `pacto_fleet_entities` tool takes `lifecycle` and `failed`, and the
   dashboard API takes the same query parameters;
 - `pacto fleet entity offering <slug>` and `pacto_fleet_entity` add each

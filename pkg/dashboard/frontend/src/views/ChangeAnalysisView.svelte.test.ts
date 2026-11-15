@@ -705,8 +705,10 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
     await new Promise((r) => setTimeout(r, 20));
     expect(impactFn).not.toHaveBeenCalled();
-    expect(target.textContent).toContain('Unknown event');
-    expect(target.textContent).toContain('Choose what happens to the offering and press Ask.');
+    // The dashboard knows a regression: it says a regression needs a service and links the providers.
+    expect(target.textContent).not.toContain('Unknown event');
+    expect(target.textContent).toContain('A regression belongs to one revision of one service');
+    expect(target.querySelector('[data-testid="changes-event-needs-service"] a')?.getAttribute('href')).toBe('#/fleet/services?offering=postgresql');
     unmount(component); document.body.removeChild(target);
   });
 
