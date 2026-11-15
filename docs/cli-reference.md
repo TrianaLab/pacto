@@ -1066,6 +1066,7 @@ pacto fleet entities [text] [flags]
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
+      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
       --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
@@ -1075,14 +1076,14 @@ pacto fleet entities [text] [flags]
       --offset int                       result offset for paging
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
-      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)
+      --ownership string                 how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
       --phase string                     with --consumes: only the consumers with a provisioning status of that offering in this phase
       --readiness string                 revisions by declared readiness (passing, below-threshold, expired, not-declared)
       --scope string                     targets in this scope, such as a namespace
       --service string                   this service and its revisions and targets, by service key
-      --sort string                      order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first) or consumers (offerings with the most declared consumers first)
+      --sort string                      order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)
       --source string                    entities read from this fleet source, by source key
-      --source-health string             sources by health (available, partial, stale, unavailable)
+      --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
       --template string[="only"]         golden paths only, or exclude to leave them out
@@ -1167,6 +1168,20 @@ pacto fleet neighborhood <service> [flags]
       --max-edges int       maximum edges (0 = 120, at most 1000)
       --max-nodes int       maximum services (0 = 60, at most 500)
       --views string        comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
+```
+
+### `pacto fleet overview`
+
+Summarizes the organization in one answer: target compliance (with how many compliant targets rest on stale evidence), operational health, the knowledge gaps the contracts leave, ownership, evaluation coverage, the business domains and where to look next. A target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell; unknown is never a pass.
+
+```
+pacto fleet overview [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for overview
 ```
 
 ### `pacto fleet reconcile`

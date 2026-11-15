@@ -92,7 +92,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     const sel = target.querySelector('select[aria-label="Filter by declared ownership"]') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value))
-      .toEqual(['', 'conflicting', 'unowned', 'consistent', 'unidentified']);
+      .toEqual(['', 'conflicting', 'unowned', 'unknown', 'consistent', 'unidentified']);
     sel.value = 'conflicting';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?owner=team-a&ownership=conflicting');

@@ -92,3 +92,24 @@ func TestImpactToolOfferingRegressedRefused(t *testing.T) {
 		t.Errorf("regressed offering = %s, want an error result", resultText(t, res))
 	}
 }
+
+// TestFleetEntitiesGapArg: gap keeps the services whose contracts leave that
+// out, ownership=unknown is accepted, and a bad gap is an error result.
+func TestFleetEntitiesGapArg(t *testing.T) {
+	q := deprecatedOfferingFleet(t)
+	call := func(args map[string]any) []string {
+		return listedKeys(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), args))
+	}
+	if got := call(map[string]any{"kind": "service", "gap": "no-summary"}); len(got) != 3 {
+		t.Errorf("gap=no-summary = %v, want all three services", got)
+	}
+	if got := call(map[string]any{"kind": "service", "gap": "unknown"}); len(got) != 0 {
+		t.Errorf("gap=unknown = %v, want none", got)
+	}
+	if got := call(map[string]any{"kind": "service", "ownership": "unknown"}); len(got) != 0 {
+		t.Errorf("ownership=unknown = %v, want none", got)
+	}
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"gap": "bogus"}); !res.IsError {
+		t.Errorf("gap=bogus = %s, want an error result", resultText(t, res))
+	}
+}

@@ -78,27 +78,35 @@ func TestAttentionNoActionOnNonCompliant(t *testing.T) {
 func TestAttentionNoActionOnUnknownOrStale(t *testing.T) {
 	seen := map[string]bool{}
 	for _, it := range allAttention(t) {
-		switch it.Code {
-		case "UNKNOWN", "STALE_EVIDENCE", "UNRESOLVED_DEPENDENCY":
-			seen[it.Code] = true
+		switch it.Category {
+		case categoryUnknown, categoryStale, categoryUnresolved:
+			seen[it.Category] = true
 			if it.NextAction != nil {
 				t.Errorf("%s %q carries %+v", it.Code, it.Label, it.NextAction)
 			}
 		}
 	}
-	for _, c := range []string{"UNKNOWN", "STALE_EVIDENCE", "UNRESOLVED_DEPENDENCY"} {
+	for _, c := range []string{categoryUnknown, categoryStale, categoryUnresolved} {
 		if !seen[c] {
 			t.Errorf("no %s item in the fixtures", c)
 		}
 	}
-	// The unowned item of a service with no readable contract is unknown too.
+	// A service with no readable contract raises a knowledge item, never an
+	// unowned one, and neither carries an action.
 	q := NewQuery(&FleetSnapshot{
 		Services:  map[ServiceKey]*ServiceRecord{"unread": {Key: "unread", Name: "unread", Revisions: []RevisionKey{"u@1"}}},
 		Revisions: map[RevisionKey]*ContractRevision{"u@1": {Key: "u@1", Service: "unread", ServiceKey: "unread"}},
 	})
-	for _, it := range attentionOf(t, q, AttentionFilter{Category: categoryUnowned}).Items {
+	if l := attentionOf(t, q, AttentionFilter{Category: categoryUnowned}); len(l.Items) != 0 {
+		t.Errorf("unreadable service raises unowned items %+v", l.Items)
+	}
+	k := attentionOf(t, q, AttentionFilter{Category: categoryKnowledge}).Items
+	if len(k) == 0 {
+		t.Error("unreadable service raises no knowledge item")
+	}
+	for _, it := range k {
 		if it.NextAction != nil {
-			t.Errorf("unreadable owner carries %+v", it.NextAction)
+			t.Errorf("unreadable service's knowledge item carries %+v", it.NextAction)
 		}
 	}
 }

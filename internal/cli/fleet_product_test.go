@@ -379,3 +379,31 @@ func TestFleetStatusLifecycleFlag(t *testing.T) {
 		t.Errorf("attention --category lifecycle = %v:\n%s", err, out)
 	}
 }
+
+func TestFleetEntitiesGapFlag(t *testing.T) {
+	root := writeDeprecatedOfferingFixture(t)
+	// Local bundles alone report no target, so placement is unknown: every
+	// service is unknown, never "runs nowhere", and the knowledge line says so.
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "unknown", "--local", root)
+	if err != nil || !strings.Contains(out, "3 of 3 entit(ies):") || !strings.Contains(out, "Knowledge: 3 services · 0 fully described · 0 with gaps") ||
+		!strings.Contains(out, "· 3 unknown") {
+		t.Errorf("--gap unknown = %v:\n%s", err, out)
+	}
+	out, _, err = execFleet(t, "fleet", "entities", "--kind", "service", "--ownership", "unknown", "--local", root)
+	if err != nil || !strings.HasPrefix(out, "0 of 0 entit(ies):") {
+		t.Errorf("--ownership unknown = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--kind", "service", "--gap", "bogus", "--local", root); err == nil {
+		t.Error("a bad --gap is an error")
+	}
+}
+
+// TestFleetEntitiesOwnerRowFacts: owner and domain rows print the counts the
+// health and gaps sorts order them by.
+func TestFleetEntitiesOwnerRowFacts(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--kind", "owner", "--sort", "gaps", "--local", root, "--target-state", ev)
+	if err != nil || !regexp.MustCompile(`services \d+  not compliant \d+  failing health \d+  unknown \d+  stale \d+  with gaps \d+`).MatchString(out) {
+		t.Errorf("owner rows lack their facts (err %v):\n%s", err, out)
+	}
+}

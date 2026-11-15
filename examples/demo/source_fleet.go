@@ -321,6 +321,16 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},
 		{Scope: "staging", Kind: "Deployment", Name: "search-indexer", Service: "search-indexer", Compliance: fleet.StatusUnknown,
 			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "search-indexer"}},
+		// Fresh evidence and a health check that answered and reports it is
+		// failing: an observed operational problem, kept apart from the targets
+		// Pacto cannot see. Compliance stays Unknown (HEALTH_FAILING is Family 2).
+		{Scope: "prod", Kind: "Deployment", Name: "gift-cards", Service: "gift-cards", Compliance: fleet.StatusUnknown,
+			ResolvedRef: demoRegistry + "gift-cards:0.1.0", Coverage: cov(2, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "gift-cards"}),
+			Findings: []finding.Finding{
+				{Code: finding.CodeHealthFailing, Severity: finding.SeverityUnknown, Category: finding.CategoryInconclusive,
+					Subject: finding.SubjectRef{Kind: "capability", Name: "health"}, Message: `capability "health" answered but reports it is not healthy`},
+			}},
 		// The postgresql offering's two providers, the same facts
 		// fleet-targets.yaml carries. postgresql serves production with fresh
 		// evidence (available) and staging only with stale evidence (unknown);

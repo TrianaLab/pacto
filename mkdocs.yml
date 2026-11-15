@@ -231,6 +231,7 @@ nav:
   - Reference:
       - Ladder reference: autonomy-reference.md
       - Operational graph reference: operational-graph-reference.md
+      - Operational graph tallies: operational-graph-tallies.md
       - Platform offerings reference: platform-offerings.md
       - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md

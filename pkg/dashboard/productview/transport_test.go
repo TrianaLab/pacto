@@ -249,7 +249,8 @@ func TestRouteBuilder(t *testing.T) {
 		{fleet.EntryPointAttention, "", "/fleet/attention"},
 		{fleet.EntryPointAttention, "non-compliant", "/fleet/attention?category=non-compliant"},
 		{fleet.EntryPointServices, "", "/fleet/services"},
-		{fleet.EntryPointOverview, "", "/fleet"},
+		{fleet.EntryPointSources, fleet.SourceHealthIncomplete, "/fleet/sources?sourceHealth=incomplete"},
+		{fleet.EntryPointView("bogus"), "", "/fleet"},
 	}
 	for _, c := range cases {
 		if got := EntryPoint(c.view, c.category); got != c.want {

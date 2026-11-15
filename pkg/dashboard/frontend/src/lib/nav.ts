@@ -113,6 +113,15 @@ export function navCurrent(item: NavItem, view: string, kind: string): 'page' | 
   return item.key === 'delivery' && view !== 'delivery-inbox' ? 'true' : 'page';
 }
 
+/**
+ * attentionBadge is the count the Attention badge shows: the items above info severity
+ * (AttentionPreview.actionable), so documentation gaps never inflate it. An older engine
+ * sends no `actionable`, and the full total stands in. null = not known.
+ */
+export function attentionBadge(a: { actionable?: number; total?: number } | null | undefined): number | null {
+  return a?.actionable ?? a?.total ?? null;
+}
+
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 
 /** A count in the 232px sidebar: 1.2K over 999, so a row never grows past its column. */

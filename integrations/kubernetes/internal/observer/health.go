@@ -151,7 +151,7 @@ func (o *Observer) handleHealthProbeResult(
 type tierB int
 
 const (
-	tierBNone       tierB = iota // no usable readiness probe on the declared path, or endpoints not mappable
+	tierBNone       tierB = iota // no usable readiness probe on the declared path, endpoints not mappable, or scaled to zero
 	tierBReady                   // the probe is declared and at least one endpoint is Ready
 	tierBNotReady                // the probe is declared and no endpoint is Ready
 	tierBUnreadable              // the probe is declared but the EndpointSlice read errored
@@ -197,6 +197,10 @@ func (o *Observer) checkReadinessProbeFallback(ctx context.Context, input Collec
 		// The Service vanished or its endpoints cannot be mapped to the port: no readiness verdict.
 		return tierBNone
 	case readyCount == 0:
+		if r := o.workload(ctx, input).snap.Replicas; r != nil && *r == 0 {
+			// Scaled to zero: no Pod ran the probe, so nothing answered and nothing is failing.
+			return tierBNone
+		}
 		return tierBNotReady
 	}
 	return tierBReady

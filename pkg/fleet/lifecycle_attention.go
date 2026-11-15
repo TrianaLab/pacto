@@ -10,7 +10,7 @@ import (
 // past-sunset provider, through a declared dependency or configuration
 // reference (validation's DependencyServiceWarnings scope; a policy only
 // constrains its contract). It is the one producer the attention list, Status,
-// the Overview tile and servicesNeedingAttention read. Per consumer, provider
+// the Overview tile and, through the list, servicesNeedingAttention read. Per consumer, provider
 // and kind of use the newest consumer revision speaks, as in
 // [Query.offeringUsesIn]; one item remains per consumer and provider, the worst.
 // A provider the viewer may not see carries no lifecycle (hideProvider), so no

@@ -101,10 +101,12 @@ func parityQueries(revision string) []parityQuery {
 		{"revision", []string{"fleet", "entity", "revision", revision}, "pacto_fleet_entity", map[string]any{"kind": "revision", "key": revision}, "/api/fleet/entities/revision?key=" + url.QueryEscape(revision)},
 		{"offering postgresql", []string{"fleet", "entity", "offering", "postgresql"}, "pacto_fleet_entity", map[string]any{"kind": "offering", "key": "postgresql"}, "/api/fleet/entities/offering?key=postgresql"},
 		{"attention", []string{"fleet", "attention"}, "pacto_fleet_attention", map[string]any{}, "/api/fleet/attention"},
+		{"overview", []string{"fleet", "overview"}, "pacto_fleet_overview", map[string]any{}, "/api/fleet/overview"},
 		// The dashboard route walks expected alone without views, while the CLI and
 		// MCP walk expected and observed: every surface names its views here.
 		{"neighborhood app", []string{"fleet", "neighborhood", "app", "--views", "expected,observed"}, "pacto_fleet_neighborhood", map[string]any{"service": "app", "views": "expected,observed"}, "/api/fleet/neighborhood?kind=service&key=app&views=expected,observed"},
 		{"sources unavailable", []string{"fleet", "entities", "--source-health", "unavailable"}, "pacto_fleet_entities", map[string]any{"source_health": "unavailable"}, "/api/fleet/entities?kinds=source&sourceHealth=unavailable"},
+		{"sources incomplete", []string{"fleet", "entities", "--source-health", "incomplete"}, "pacto_fleet_entities", map[string]any{"source_health": "incomplete"}, "/api/fleet/entities?kinds=source&sourceHealth=incomplete"},
 		{"revisions of app", []string{"fleet", "entities", "--kind", "revision", "--service", "app"}, "pacto_fleet_entities", map[string]any{"kind": "revision", "service": "app"}, "/api/fleet/entities?kinds=revision&service=app"},
 		{"app with no kind", []string{"fleet", "entities", "--service", "app"}, "pacto_fleet_entities", map[string]any{"service": "app"}, "/api/fleet/entities?service=app"},
 		{"stale attention", []string{"fleet", "attention", "--stale-only"}, "pacto_fleet_attention", map[string]any{"stale_only": true}, "/api/fleet/attention?staleOnly=true"},

@@ -1,10 +1,12 @@
 <script>
   import { fleetAttentionUrl } from '../../lib/router.ts';
+  import { attentionCategoryLabel } from '../../lib/entityLabels.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import SeverityBadge from '../../components/SeverityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import ScopeHealth from '../../components/ScopeHealth.svelte';
   import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
   // The owner page: the owner-scoped operational posture, bounded
@@ -30,7 +32,7 @@
   const owner = $derived(detail.entity?.key || detail.entity?.label || '');
   const attnHref = $derived(fleetAttentionUrl({ ownerKey: owner }));
   // Every posture bucket drills into THIS owner's backlog, not the fleet's.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ ownerKey: owner, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ ownerKey: owner, category, ...extra }));
 </script>
 
 <div class="owner-entity">
@@ -49,6 +51,7 @@
       compliance={false}
       empty="Nothing running has been seen for these services yet."
     />
+    <ScopeHealth summary={sum} filter={{ ownerKey: owner }} noun="of this owner" />
   </section>
 
   <div class="oe-grid">
@@ -68,7 +71,7 @@
       {#each d.attention?.items ?? [] as it, i (i)}
         <li class="oe-attn-row">
           <SeverityBadge severity={it.severity} />
-          <span class="oe-cat">{it.category}</span>
+          <span class="oe-cat">{attentionCategoryLabel(it.category)}</span>
           <EntityLink ref={it.entity} showStatus={false} />
           <span class="oe-sum">{it.summary || it.reason || it.label}</span>
         </li>

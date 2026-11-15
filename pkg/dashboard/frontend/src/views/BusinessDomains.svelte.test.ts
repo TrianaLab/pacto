@@ -89,6 +89,15 @@ describe('FleetDomainsView', () => {
     done();
   });
 
+  it('ranks domains by health on the server and keeps the order in the sort links', async () => {
+    entitiesFn.mockImplementation((o: { kinds?: string[] }) => Promise.resolve(o.kinds?.[0] === 'domain' ? listResp([domainRef('commerce', 2, 3)]) : listResp([])));
+    const { target, done } = mountView(FleetDomainsView, { sort: 'health' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="domain-list"] tbody tr')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['domain'], sort: 'health' }));
+    expect(target.querySelector('[data-testid="domain-list-rank-health"]')?.getAttribute('aria-current')).toBe('true');
+    done();
+  });
+
   it('says a count failed instead of dropping the row', async () => {
     entitiesFn.mockImplementation((o: { kinds?: string[] }) => (o.kinds?.[0] === 'domain'
       ? Promise.resolve(listResp([domainRef('commerce', 1, 1)]))
@@ -155,7 +164,7 @@ describe('FleetOverview — domain breakdown', () => {
         services: 5, revisions: 5, targets: 4, servicesNeedingAttention: 0,
         byScope: [{ scope: 'prod', targets: 4, nonCompliant: 1, unknown: 0, stale: 0 }, { scope: 'dev', targets: 0, nonCompliant: 0, unknown: 0, stale: 0 }], scopes: 2,
         byDomain: [
-          { domain: 'commerce', services: 3, targets: 4, nonCompliant: 1, unknown: 0, stale: 0, unowned: 1 },
+          { domain: 'commerce', services: 3, targets: 4, nonCompliant: 1, failingHealth: 2, unknown: 0, stale: 0, notDeployed: 1, withGaps: 2, unowned: 1, ownerUnknown: 1 },
           { domain: '', domainUnknown: true, services: 1, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 0 },
           { domain: '', services: 2, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 2 },
         ],
@@ -167,8 +176,31 @@ describe('FleetOverview — domain breakdown', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-by-domain"]')).toBeTruthy());
     expect(target.querySelector('[data-testid="overview-by-scope"] thead th')?.textContent).toBe('Scope');
     const table = target.querySelector('[data-testid="overview-by-domain"]') as HTMLElement;
-    expect(Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent))
-      .toEqual(['Domain', 'Services', 'Targets', 'Not compliant', 'Unknown', 'Stale', 'No owner']);
+    // Target counts sit under a Targets group; Services and No owner count services.
+    const [groups, units] = Array.from(table.querySelectorAll('thead tr'));
+    expect(Array.from(groups.querySelectorAll('th')).map((th) => [th.textContent, th.getAttribute('scope'), th.getAttribute('colspan')]))
+      .toEqual([['Domain', 'col', null], ['Services', 'col', null], ['Targets', 'colgroup', '5'], ['No owner', 'col', null]]);
+    expect(Array.from(units.querySelectorAll('th')).map((th) => th.textContent))
+      .toEqual(['Targets', 'Not compliant', 'Failing', 'Unknown', 'Stale']);
+    expect(table.querySelector('colgroup')?.innerHTML).not.toMatch(/width: \d+%/);
+    // Eight columns take the 56rem card threshold, never the 80ch + 23rem one that is wider
+    // than the overview's capped content column, so the table form shows on a desktop.
+    const frame = table.closest('.data-scroll');
+    expect(frame?.classList.contains('cq-cards')).toBe(true);
+    expect(frame?.classList.contains('cq-cards-xl')).toBe(false);
+    expect(table.querySelectorAll('colgroup col')).toHaveLength(8);
+    // The narrow form reads each cell's group and unit from its data-label.
+    expect(Array.from(table.querySelectorAll('tbody tr:first-child td')).map((td) => td.getAttribute('data-label'))).toEqual([
+      'Services', 'Targets: all', 'Targets: not compliant', 'Targets: failing', 'Targets: unknown', 'Targets: stale', 'Services: no owner',
+    ]);
+    // A non-zero count opens the list it counts, scoped to the domain.
+    const cellLinks = Array.from(table.querySelectorAll('tbody tr:first-child td a')).map((a) => a.getAttribute('href'));
+    expect(cellLinks).toEqual([
+      '#/fleet/services?businessDomain=commerce',
+      '#/fleet/attention?category=non-compliant&businessDomain=commerce',
+      '#/fleet/attention?category=health&businessDomain=commerce',
+      '#/fleet/services?ownership=unowned&businessDomain=commerce',
+    ]);
     const rows = table.querySelectorAll('tbody tr');
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/domains/commerce');
     const unknown = rows[1] as HTMLElement;
@@ -179,6 +211,46 @@ describe('FleetOverview — domain breakdown', () => {
     expect(none.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?businessDomain=%28none%29');
     expect(none.innerHTML).not.toMatch(/tone-ok|ov-ok/);
     expect(hrefs(target, 'a')).toContain('#/fleet/domains');
+    done();
+  });
+});
+
+describe('owner and domain pages: health, knowledge and the facts line', () => {
+  const summary = {
+    services: 6, revisions: 6, targets: 4, invalidRevisions: 0, compliance: { compliant: 2, staleCompliant: 1 }, links: {}, evidence: {}, findings: {},
+    health: { available: 2, unavailable: 1, unknown: 1, notObserved: 0 },
+    knowledge: { services: 6, described: 2, withGaps: 3, unknown: 1, gaps: { noSummary: 2, noDomain: 0, noInterfaceDocs: 1, noReadiness: 0, notDeployed: 1, unverifiedCapability: 0 } },
+    notDeployed: 1, placementUnknown: 1, readiness: { passing: 3, belowThreshold: 1, expired: 0, notDeclared: 2 }, unresolvedDependencies: 2, undeclaredDependencies: 1,
+  };
+  const previews = { services: empty, owners: empty, deployments: empty, revisions: empty, attention: empty };
+
+  it('the domain page draws health and knowledge and links each gap to its scoped list', async () => {
+    detailFn.mockResolvedValue({ meta, entity: { kind: 'domain', key: 'commerce', label: 'commerce', href: '/fleet/domains/commerce' }, domain: { summary, ownership: {}, ...previews } });
+    entitiesFn.mockResolvedValue(listResp([], { aggregate: { services: 6, serviceCompliance: {} } }));
+    const { target, done } = mountView(FleetEntityView, { kind: 'domain', entityKey: 'commerce' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="scope-health"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="scope-health"]')?.textContent).toContain('Failing');
+    expect(target.querySelector('[data-testid="scope-knowledge"]')?.textContent).toContain('With gaps');
+    const gaps = hrefs(target, '[data-testid="scope-gaps"] a');
+    expect(gaps).toEqual(['#/fleet/services?gap=no-summary&businessDomain=commerce', '#/fleet/services?gap=no-interface-docs&businessDomain=commerce', '#/fleet/services?gap=not-deployed&businessDomain=commerce']);
+    const facts = target.querySelector('[data-testid="scope-facts"]') as HTMLElement;
+    expect(facts.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '1 runs nowhere · placement unknown for 1 · readiness 3 passing, 1 below, 0 expired, 2 not declared · 2 unresolved and 1 undeclared dependencies');
+    expect(hrefs(facts, 'a')).toEqual(['#/fleet/services?gap=not-deployed&businessDomain=commerce']);
+    done();
+  });
+
+  it('the owner page scopes the same links to the owner key and never says runs nowhere for unknown placement', async () => {
+    const s = { ...summary, notDeployed: 0, knowledge: { ...summary.knowledge, gaps: { ...summary.knowledge.gaps, notDeployed: 0 } } };
+    detailFn.mockResolvedValue({ meta, entity: { kind: 'owner', key: 'team:pay', label: 'pay', href: '/fleet/owners/team:pay' }, owner: { summary: s, ...previews } });
+    entitiesFn.mockResolvedValue(listResp([], { aggregate: { services: 6, serviceCompliance: {} } }));
+    const { target, done } = mountView(FleetEntityView, { kind: 'owner', entityKey: 'team:pay' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="scope-facts"]')).toBeTruthy());
+    const facts = target.querySelector('[data-testid="scope-facts"]') as HTMLElement;
+    expect(facts.textContent).toContain('0 run nowhere');
+    expect(facts.textContent).toContain('placement unknown for 1');
+    expect(hrefs(target, '[data-testid="scope-gaps"] a')[0]).toBe('#/fleet/services?ownerKey=team%3Apay&gap=no-summary');
+    expect(hrefs(facts, 'a')).toEqual([]);
     done();
   });
 });

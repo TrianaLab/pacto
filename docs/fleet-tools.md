@@ -92,6 +92,35 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+## The organization in one answer
+
+`pacto fleet overview` prints the answer the dashboard overview draws: target
+compliance with its stale Compliant subset, operational health, knowledge
+gaps, ownership, evaluation coverage, the business domains and where to look
+next. The MCP tool `pacto_fleet_overview` returns the same answer. Run on the
+demo fixture, abridged:
+
+```console
+$ pacto fleet overview --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml
+asOf 2026-11-15T04:41:58+01:00  completeness complete
+Targets 9: compliant 5 (5 stale) · not compliant 1 · unknown 3
+Health: healthy 0 · failing 1 · unknown 2 · not observed 6
+Owners: 34 declared · 3 disputed · 0 none declared · 0 unknown
+Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
+```
+
+Failing means a target's own health check reports it is not healthy, and
+unknown means Pacto cannot tell. [Organizational health and
+knowledge](operational-graph.md#organizational-health-and-knowledge) explains
+each count, and the [tallies reference](operational-graph-tallies.md) lists
+every field. The CLI lists each incomplete source by name in the answer, and
+the dashboard's Incomplete sources entry point opens the same sources.
+
+`pacto fleet`, `pacto mcp --fleet` and `pacto tui` mark target evidence older
+than 24 hours as stale by default, the window the dashboard uses.
+`--freshness 0` skips the check; the answer then carries the
+`FRESHNESS_NOT_EVALUATED` limitation and the CLI prints it as a note.
+
 ## One question, three surfaces
 
 A person and an agent ask the same question in the same words. Each row names
@@ -108,7 +137,7 @@ the note says where that answer lives instead.
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
-| What does the overview show? | - | - | `GET /api/fleet/overview` | Dashboard only |
+| How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |
 | What is this service or target? | `pacto fleet get` | `pacto_fleet_get` | `GET /api/fleet/service`, `GET /api/fleet/target` | |
 | What is this service's dependency tree? | `pacto fleet graph` | `pacto_fleet_graph` | `GET /api/fleet/services/{name}/graph` | |
 | Why does Pacto say this? | `pacto fleet explain` | `pacto_fleet_explain` | - | The dashboard explains on its entity pages |

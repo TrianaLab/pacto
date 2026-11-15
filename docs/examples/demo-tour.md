@@ -48,7 +48,7 @@ Thirty-nine services are in the snapshot. Eleven carry the stories:
 | `shipping-rates` | logistics-team | a raised `compatibilityEpoch` |
 | `inventory-service` | catalog-team | stops promising a guarantee two consumers rely on |
 | `http-service` | platform | a golden path: the starting point for a new HTTP API |
-| `gift-cards` | checkout | a new service created from `http-service` |
+| `gift-cards` | checkout | a new service created from `http-service`, whose health check is failing |
 
 A target is one running deployment of a service. A readiness assessment is a
 dated list of claims in a contract, and a shadow consumer is a service seen
@@ -131,6 +131,16 @@ one exact contradiction. The contract declares the workload stateless and the
 observation found a persistent volume mounted. The contract declares an `http`
 interface and nothing listens on its port: `seen by k8s-observer+ebpf` says the
 node agent saw that in the kernel, and Kubernetes agreed.
+
+A failing health check differs:
+
+- `pacto fleet overview` counts the `gift-cards` target as failing: its health
+  check answered and reports it is not healthy (`HEALTH_FAILING`), so its
+  compliance stays `Unknown`. A target whose health Pacto cannot tell counts as
+  unknown, never as healthy.
+- The overview's Knowledge band counts what the contracts leave out, such as a
+  missing summary or a service that runs nowhere. See [Organizational health
+  and knowledge](../operational-graph.md#organizational-health-and-knowledge).
 
 ## Story 3: Check a change before you ship it
 

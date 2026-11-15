@@ -39,7 +39,7 @@
   const segments = $derived(complianceSegments(agg?.serviceCompliance, statusHrefs((status) => fleetServicesUrl({ ...filter, status }))));
   const span = $derived(spanLoader.data ?? null);
   const spanAll = $derived(isOwner ? fleetDomainsUrl({ ownerKey: filter.ownerKey }) : fleetOwnersUrl({ businessDomain: filter.businessDomain }));
-  const unidentified = $derived((agg?.ownership?.unowned ?? 0) + (agg?.ownership?.conflicting ?? 0) + (agg?.unidentifiedOwnership ?? 0));
+  const unidentified = $derived((agg?.ownership?.unowned ?? 0) + (agg?.ownership?.unknown ?? 0) + (agg?.ownership?.conflicting ?? 0) + (agg?.unidentifiedOwnership ?? 0));
 </script>
 
 {#if total > 0}

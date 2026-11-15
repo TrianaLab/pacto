@@ -537,3 +537,98 @@ describe('FleetOverview — the answer line', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetOverview — operational health and knowledge', () => {
+  beforeEach(() => { overviewFn.mockReset(); entitiesFn.mockReset(); });
+  const say = (t: HTMLElement) => t.querySelector('[data-testid="overview-answer"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+  function withHealth(over: Record<string, number> = {}) {
+    const o = baseOverview(false);
+    o.summary.operationalHealth = { available: 5, degraded: 0, unavailable: 0, unknown: 0, notObserved: 0, ...over };
+    o.summary.knowledge = { services: 3, described: 1, withGaps: 1, unknown: 1, gaps: { noSummary: 1, noDomain: 0, noInterfaceDocs: 0, noReadiness: 1, notDeployed: 1, unverifiedCapability: 0 } };
+    o.summary.coverage = { evaluated: 12, required: 20, reporting: 4, notReporting: 1 };
+    return o;
+  }
+
+  it('draws a health band over every target, failing linked to its triage, with a caption from the same tally', async () => {
+    overviewFn.mockResolvedValue(withHealth({ available: 2, unavailable: 1, unknown: 2 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-health')).toBeTruthy());
+    const band = target.querySelector('#sec-health') as HTMLElement;
+    expect(band.getAttribute('data-toc')).toBe('Operational health');
+    expect(band.textContent).toContain('All 5 operational targets');
+    expect(Array.from(band.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toContain('#/fleet/attention?category=health');
+    expect(band.querySelector('[data-testid="health-caption"]')?.textContent)
+      .toBe('1 target fails its health check, Pacto cannot tell the health of 2 targets and 2 targets are healthy.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('draws a knowledge band, one row per gap kind linking with gap=, and the coverage sentence', async () => {
+    overviewFn.mockResolvedValue(withHealth());
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-knowledge')).toBeTruthy());
+    const band = target.querySelector('#sec-knowledge') as HTMLElement;
+    const rows = Array.from(band.querySelectorAll('[data-testid="knowledge-gaps"] a'));
+    // Kinds no service has are not listed.
+    expect(rows.map((a) => [a.querySelector('.ov-gap-label')?.textContent, a.querySelector('.ov-gap-count')?.textContent, a.getAttribute('href')])).toEqual([
+      ['No summary', '1', '#/fleet/services?gap=no-summary'],
+      ['No readiness assessment', '1', '#/fleet/services?gap=no-readiness'],
+      ['Runs nowhere', '1', '#/fleet/services?gap=not-deployed'],
+    ]);
+    expect(Array.from(band.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toContain('#/fleet/services?gap=unknown');
+    expect(band.querySelector('[data-testid="knowledge-caption"]')?.textContent)
+      .toBe('1 service leaves something out of the contract, Pacto cannot tell for 1 service and 1 service is fully described.');
+    const cov = band.querySelector('[data-testid="coverage-sentence"]') as HTMLElement;
+    expect(cov.textContent?.replace(/\s+/g, ' ').trim()).toBe('12 of 20 required assertions evaluated on 4 targets; 1 reports no coverage.');
+    // No list filters targets by coverage, so the count is plain text, never a link to every target.
+    expect(cov.querySelector('a')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('draws the owner-unknown bucket hatched in the ownership bar', async () => {
+    const o = withHealth();
+    o.summary.ownership = { consistent: 1, conflicting: 0, unowned: 1, unknown: 1 };
+    overviewFn.mockResolvedValue(o);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-org')).toBeTruthy());
+    expect(Array.from(target.querySelectorAll('#sec-org a')).map((a) => a.getAttribute('href'))).toContain('#/fleet/services?ownership=unknown');
+    expect(target.querySelector('#sec-org')?.textContent).toContain('Owner unknown');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('never says all clear with a failing or an unknown health check', async () => {
+    overviewFn.mockResolvedValue(withHealth({ available: 4, unknown: 1 }));
+    let m = mountView();
+    await vi.waitFor(() => expect(say(m.target)).not.toBe(''));
+    expect(say(m.target)).toBe('Nothing broken found. Pacto cannot tell the health of 1 operational target.');
+    unmount(m.component); document.body.removeChild(m.target);
+
+    const failing = withHealth({ available: 4, unavailable: 1 });
+    failing.entryPoints.push({ label: 'Operational targets failing their health check', count: 1, view: 'attention', category: 'health', severity: 'warning', href: '/fleet/attention?category=health' });
+    failing.attention.total = 1;
+    overviewFn.mockResolvedValue(failing);
+    m = mountView();
+    await vi.waitFor(() => expect(say(m.target)).not.toBe(''));
+    expect(say(m.target)).toBe('Yes. 1 running target fails its health check.');
+    unmount(m.component); document.body.removeChild(m.target);
+
+    overviewFn.mockResolvedValue(withHealth());
+    m = mountView();
+    await vi.waitFor(() => expect(say(m.target)).toMatch(/all clear/i));
+    unmount(m.component); document.body.removeChild(m.target);
+  });
+
+  it('splits stale compliant targets off Compliant in the posture bar', async () => {
+    const o = withHealth();
+    o.summary.staleCompliantTargets = 2;
+    overviewFn.mockResolvedValue(o);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-posture')).toBeTruthy());
+    const posture = target.querySelector('#sec-posture') as HTMLElement;
+    expect(posture.textContent).toContain('Compliant, evidence stale');
+    // The segment opens the stale list narrowed to compliant targets: exactly what it counts.
+    const seg = Array.from(posture.querySelectorAll('a')).find((a) => (a.textContent || '').includes('Compliant, evidence stale'));
+    expect(seg?.getAttribute('href')).toBe('#/fleet/attention?category=stale&status=Compliant');
+    unmount(component); document.body.removeChild(target);
+  });
+});

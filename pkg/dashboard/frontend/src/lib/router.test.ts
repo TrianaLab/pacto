@@ -381,6 +381,11 @@ describe('parseHash — fleet product IA', () => {
     });
   });
 
+  it('carries the knowledge gap as route state', () => {
+    expect(fleetServicesUrl({ gap: 'no-summary', ownership: 'unknown' })).toBe('#/fleet/services?ownership=unknown&gap=no-summary');
+    expect(parseHash('#/fleet/services?gap=not-deployed')).toEqual({ view: 'fleet-services', params: { gap: 'not-deployed' } });
+  });
+
   // Owner SEARCH and owner IDENTITY are two questions, so they are two params and both
   // survive the round-trip. A canonical owner link carries `ownerKey`, which the
   // backend matches exactly: with only the free-text `owner`, a link built for owner

@@ -246,8 +246,11 @@ export function decideViewState(input: ViewStateInput): ViewState {
  * allClearAllowed gates any blanket "all clear / everything healthy" affordance on
  * COMPLETE knowledge with zero attention. Under partial/stale/unavailable/unknown
  * knowledge it returns false, so the caller shows "no attention items known" with a
- * visible incompleteness caveat instead of asserting health.
+ * visible incompleteness caveat instead of asserting health. An operational health
+ * tally with any failing or unknown target withholds it too.
  */
-export function allClearAllowed(knowledge: SnapshotKnowledge, attentionCount: number): boolean {
-  return !knowledge.incomplete && attentionCount <= 0;
+export function allClearAllowed(knowledge: SnapshotKnowledge, attentionCount: number, health?: { unavailable?: number; unknown?: number } | null): boolean {
+  // A failing health check is a problem and an unknown one a gap in what Pacto sees:
+  // either withholds the claim, whatever the attention count says.
+  return !knowledge.incomplete && attentionCount <= 0 && !(health?.unavailable || health?.unknown);
 }

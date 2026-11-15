@@ -49,11 +49,12 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
-	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unidentified: no single canonical owner)")
+	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned, unknown or unidentified; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
+	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	f.String("created-from", "", "services created from this golden path, by key; "+fleet.NoOrigin+" for no declared origin or "+fleet.UnresolvedOrigin+" for an origin that resolves to no golden path")
-	f.String("sort", "", "order: name, health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first) rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first) or consumers (offerings with the most declared consumers first)")
+	f.String("sort", "", "order: name, health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first)")
 	f.Bool("has-non-compliant", false, "owners and domains with at least one non-compliant service only")
 	f.String("lifecycle", "", "offerings whose worst provider lifecycle in use (the versions consumers reach and targets run), or services whose newest revision, is deprecated or sunset")
 	f.Bool("failed", false, "with --kind offering, offerings with at least one failed provisioning request")
@@ -64,17 +65,18 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("source", "", "entities read from this fleet source, by source key")
 	f.String("scope", "", "targets in this scope, such as a namespace")
 	f.String("readiness", "", "revisions by declared readiness (passing, below-threshold, expired, not-declared)")
-	f.String("source-health", "", "sources by health (available, partial, stale, unavailable)")
+	f.String("source-health", "", "sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.EntityKinds()...))
 	_ = cmd.RegisterFlagCompletionFunc("readiness", staticCompletions("passing", "below-threshold", "expired", "not-declared"))
-	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable"))
-	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("source-health", staticCompletions("available", "partial", "stale", "unavailable", "incomplete"))
+	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified))
+	_ = cmd.RegisterFlagCompletionFunc("gap", staticCompletions(fleet.GapFilterValues()...))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
 	_ = cmd.RegisterFlagCompletionFunc("lifecycle", staticCompletions(fleet.LifecycleDeprecated, fleet.LifecycleSunset))
-	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers))
+	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps))
 	return cmd
 }
 
@@ -126,7 +128,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	failed, _ := cmd.Flags().GetBool("failed")
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
@@ -262,9 +264,16 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 				kind = "golden path"
 			}
 			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
-			if e.Kind == fleet.KindOffering {
+			switch e.Kind {
+			case fleet.KindOffering:
 				_, _ = fmt.Fprintf(w, "              %s\n", offeringRowFacts(e))
+			case fleet.KindOwner, fleet.KindDomain:
+				_, _ = fmt.Fprintf(w, "              services %d  not compliant %d  failing health %d  unknown %d  stale %d  with gaps %d\n",
+					e.Services, e.NonCompliant, e.FailingHealth, e.Unknown, e.Stale, e.WithGaps)
 			}
+		}
+		if res.Aggregate.Knowledge.Services > 0 {
+			printOverviewKnowledge(w, res.Aggregate.Knowledge)
 		}
 		printOfferingPhases(w, &res.Aggregate)
 		printNonCompliantRanking(w, &res.Aggregate)

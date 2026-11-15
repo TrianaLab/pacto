@@ -1268,6 +1268,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		default:
 			claimed[r.ServiceKey] = true
 			revisions = append(revisions, revisionEntityRef(r))
+			sum.Readiness.add(r.Readiness)
 			// Read validity from the authoritative snapshot record: revisionStatus knows
 			// the difference between "validated and invalid" and "never validated".
 			if revisionStatus(r) == StatusInvalid {
@@ -1280,10 +1281,11 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
+		sum.addService(q, s)
 		for _, tk := range s.Targets {
 			if t := q.snap.Targets[tk]; t != nil {
 				deployments = append(deployments, targetEntityRef(t))
-				sum.addTarget(t)
+				sum.addTarget(q, t)
 			}
 		}
 	}
@@ -1331,20 +1333,23 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
+		sum.addService(q, s)
 		q.addOwnership(&ownership, s)
 		for _, k := range q.ownerClaimsOf(s).keys {
 			owners[k] = true
 		}
 		for _, rk := range s.Revisions {
+			r := q.snap.Revisions[rk]
 			sum.Revisions++
-			if revisionStatus(q.snap.Revisions[rk]) == StatusInvalid {
+			sum.Readiness.add(r.Readiness)
+			if revisionStatus(r) == StatusInvalid {
 				sum.InvalidRevisions++
 			}
 		}
 		for _, tk := range s.Targets {
 			t := q.snap.Targets[tk]
 			deployments = append(deployments, targetEntityRef(t))
-			sum.addTarget(t)
+			sum.addTarget(q, t)
 		}
 	}
 	if len(services) == 0 && paths == 0 {

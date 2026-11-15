@@ -7,9 +7,10 @@
 #
 # It exercises: a compliant target, a non-compliant target (confirmed drift, one
 # finding of it recorded from the kernel by the node agent), an
-# unknown target (insufficient evidence) and stale targets (old evidence). Under
-# the default 24h freshness window, all three timestamped targets read as stale;
-# fraud-service is the oldest by design. The source itself is marked available; a second,
+# unknown target (insufficient evidence), a target whose health check answered
+# and reports it is failing (HEALTH_FAILING, compliance Unknown) and stale
+# targets (old evidence). Under the default 24h freshness window, every
+# timestamped target reads as stale; fraud-service is the oldest by design. The source itself is marked available; a second,
 # unreachable environment is modeled separately so partial completeness is visible.
 #
 # This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed
@@ -142,6 +143,26 @@ targets:
     coverage: { evaluated: 4, required: 4 }
     evidenceAt: 2026-07-29T09:40:00Z
     labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: canary }
+
+  # gift-cards' health check answered and reports it is failing: an observed
+  # problem, counted as failing apart from the unknown targets. Compliance
+  # stays Unknown, since a failing check neither satisfies nor contradicts it.
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: commerce/gift-cards
+    service: gift-cards
+    resolvedRef: oci://ghcr.io/trianalab/pacto/gift-cards:0.1.0
+    compliance: Unknown
+    coverage: { evaluated: 2, required: 3 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    labels: { env: production, region: eu }
+    findings:
+      - code: HEALTH_FAILING
+        severity: unknown
+        category: Inconclusive
+        subjectKind: capability
+        subjectName: health
+        message: capability "health" answered but reports it is not healthy
 
   # The postgresql offering has two providers. postgresql runs 16.1.0 in
   # production and in staging, where its evidence is the oldest of the

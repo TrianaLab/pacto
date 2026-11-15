@@ -380,11 +380,21 @@ func targetPlacementKnown(s *FleetSnapshot) bool {
 	return id == ""
 }
 
+// hasTargetSource reports whether any source in s reports operational targets:
+// one of a target kind, or any that contributed a target. With none, Pacto
+// looked at no runtime and a missing target proves nothing.
+func hasTargetSource(s *FleetSnapshot) bool {
+	return len(s.Targets) > 0 || slices.ContainsFunc(s.Sources, func(src SourceState) bool { return slices.Contains(targetSourceKinds, src.Kind) })
+}
+
+// targetSourceKinds are the source kinds that report operational targets.
+var targetSourceKinds = []string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}
+
 // firstIncompleteTargetSource is the first source reporting operational
 // targets that is not available, and its status; "" when there is none.
 func firstIncompleteTargetSource(s *FleetSnapshot) (id, status string) {
 	for _, src := range s.Sources {
-		if src.Status != SourceAvailable && slices.Contains([]string{SourceKindKubernetes, SourceKindEvidenceHTTP, SourceKindTargetState}, src.Kind) {
+		if src.Status != SourceAvailable && slices.Contains(targetSourceKinds, src.Kind) {
 			return src.ID, string(src.Status)
 		}
 	}
@@ -626,7 +636,7 @@ func restrictBusinessDomain(out *FleetSnapshot, s *ServiceRecord) {
 // what out still holds, so a value only a hidden target reported never shows.
 func restrictOffering(out *FleetSnapshot, s *ServiceRecord) {
 	s.Offering, s.OfferingProvenance, _ = offeringOf(out, s)
-	s.Summary = summaryOf(out, s)
+	s.Summary, s.SummaryUnknown = summaryOf(out, s)
 }
 
 // recountSources recomputes each source's revision and target counts from

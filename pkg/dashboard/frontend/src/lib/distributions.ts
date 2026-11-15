@@ -71,6 +71,8 @@ export interface ComplianceTally {
   notEvaluated?: number;
   /** A status value this build does not know. Never a canonical state. */
   other?: number;
+  /** Of `compliant`, how many rest on stale evidence: a subset, never a bucket of its own. */
+  staleCompliant?: number;
 }
 
 /** LinkTally as emitted by the Product API (revision-match certainty). */
@@ -140,9 +142,79 @@ export function sourceSegments(t: SourceStateTally | undefined, url: (state: str
   return stateSegments(SOURCE_STATES, t, Object.fromEntries(SOURCE_STATES.map((s) => [s.field, url(s.value)])));
 }
 
+/**
+ * complianceSegments draws every compliance state. A Compliant verdict on stale
+ * evidence is split off Compliant into its own hatched segment just before it (href
+ * `hrefs.staleCompliant`), so old evidence never reads as a fresh pass; the two still
+ * add up to the backend's Compliant count.
+ */
 export function complianceSegments(t: ComplianceTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
-  return stateSegments(COMPLIANCE_STATES, t, hrefs);
+  const segs = stateSegments(COMPLIANCE_STATES, t, hrefs);
+  const stale = Math.min(n(t?.staleCompliant), n(t?.compliant));
+  if (!stale) return segs;
+  const i = segs.findIndex((x) => x.label === statusLabel('Compliant'));
+  segs[i] = { ...segs[i], value: segs[i].value - stale };
+  segs.splice(i, 0, { label: 'Compliant, evidence stale', value: stale, tone: 'neutral', hatch: true, href: hrefs.staleCompliant });
+  return segs;
 }
+
+/** OperationalHealthTally as emitted by the Product API. Partitions a TARGET population. */
+export interface OperationalHealthTally {
+  available?: number;
+  degraded?: number;
+  unavailable?: number;
+  unknown?: number;
+  notObserved?: number;
+}
+
+/**
+ * The health check of each operational target, answered on its own: Failing is an
+ * observed problem, Unknown means Pacto cannot tell, and neither changes compliance.
+ * Degraded is drawn only when a source reports it (none does yet). `hrefs` is keyed by
+ * tally field; the caller links `unavailable` to the health attention category.
+ */
+export function healthSegments(t: OperationalHealthTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
+  const h = t || {};
+  return [
+    { label: 'Failing', value: n(h.unavailable), tone: 'warn', href: hrefs.unavailable },
+    ...(n(h.degraded) ? [{ label: 'Degraded', value: n(h.degraded), tone: 'warn' as const, href: hrefs.degraded }] : []),
+    { label: 'Unknown', value: n(h.unknown), tone: 'neutral', hatch: true, href: hrefs.unknown },
+    { label: 'Healthy', value: n(h.available), tone: 'ok', href: hrefs.available },
+    { label: 'Not observed', value: n(h.notObserved), tone: 'neutral', href: hrefs.notObserved },
+  ];
+}
+
+/** KnowledgeTally as emitted by the Product API. Partitions the SERVICE population. */
+export interface KnowledgeTally {
+  services?: number;
+  described?: number;
+  withGaps?: number;
+  unknown?: number;
+  gaps?: Record<string, number | undefined>;
+}
+
+/**
+ * How much the contracts say, per service: fully described, with at least one gap, or
+ * unknown (a contract or document Pacto could not read). Gaps are info, never a fault.
+ */
+export function knowledgeSegments(t: KnowledgeTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
+  const k = t || {};
+  return [
+    { label: 'Unknown', value: n(k.unknown), tone: 'neutral', hatch: true, href: hrefs.unknown },
+    { label: 'Fully described', value: n(k.described), tone: 'ok', href: hrefs.described },
+    { label: 'With gaps', value: n(k.withGaps), tone: 'info', href: hrefs.withGaps },
+  ];
+}
+
+/** The knowledge gap kinds in the order always shown: tally field and `gap` filter value. */
+export const KNOWLEDGE_GAPS: { field: string; value: string }[] = [
+  { field: 'noSummary', value: 'no-summary' },
+  { field: 'noDomain', value: 'no-domain' },
+  { field: 'noInterfaceDocs', value: 'no-interface-docs' },
+  { field: 'noReadiness', value: 'no-readiness' },
+  { field: 'notDeployed', value: 'not-deployed' },
+  { field: 'unverifiedCapability', value: 'unverified-capability' },
+];
 
 /**
  * statusHrefs builds the drill-down for every compliance bucket that IS a real filter,
@@ -210,6 +282,8 @@ export interface OwnershipTally {
   consistent?: number;
   conflicting?: number;
   unowned?: number;
+  /** No owner claim and no contract Pacto could read: unknown, never unowned. */
+  unknown?: number;
 }
 
 /** ReadinessTally as emitted by the Product API. Partitions a CONTRACT REVISION population. */
@@ -232,6 +306,8 @@ export interface ReadinessTally {
 export const OWNERSHIP_STATES: BucketState<keyof OwnershipTally>[] = [
   { value: 'conflicting', field: 'conflicting', label: 'Revisions name different owners', tone: 'err' },
   { value: 'unowned', field: 'unowned', label: 'No declared owner', tone: 'warn' },
+  // Unreadable is never ownerless: drawn as the unknown hatch.
+  { value: 'unknown', field: 'unknown', label: 'Owner unknown', tone: 'neutral', hatch: true },
   { value: 'consistent', field: 'consistent', label: 'One declared owner', tone: 'ok' },
 ];
 
@@ -240,7 +316,7 @@ export function ownershipSegments(t: OwnershipTally | undefined, hrefs: Record<s
 }
 
 /**
- * ownershipHrefs builds the drill-down for all three ownership buckets from one
+ * ownershipHrefs builds the drill-down for every ownership bucket from one
  * `ownership` URL builder — the counterpart of `statusHrefs`. Every bucket IS a real
  * filter, so unlike compliance there is nothing here to leave out.
  */

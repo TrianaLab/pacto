@@ -348,6 +348,18 @@ describe('FleetAttentionView — the motion ration', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('renders one target\'s failing health check under two categories, instead of throwing on a duplicate key', async () => {
+    // A failing health check raises a health item and names the cause of the target's
+    // unknown compliance: same code, same entity, same label, two categories.
+    serve([
+      item('warning', 'prod/k8s/a', { code: 'HEALTH_FAILING', category: 'health', label: 'prod/k8s/a' }),
+      item('warning', 'prod/k8s/a', { code: 'HEALTH_FAILING', category: 'unknown', label: 'prod/k8s/a' }),
+    ]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(2));
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('says what the order means in the header', async () => {
     serve([item('error', 'a')], { errors: 1, warnings: 0, infos: 0 });
     const { target, component } = mountView({});
@@ -418,6 +430,64 @@ describe('FleetAttentionView — answer first, no repeated hints', () => {
     await vi.waitFor(() => expect(target.querySelectorAll('.hb-fill').length).toBe(2));
     const fills = Array.from(target.querySelectorAll('.hb-fill'));
     expect(fills.map((f) => f.classList.contains('hatch'))).toEqual([true, false]);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetAttentionView — every category and its cause', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+  const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  const respond = (items: any[], categories: any[] = []) => attentionFn.mockResolvedValue({
+    meta, total: items.length, offset: 0, limit: 25, count: items.length, truncated: false, categories, severities: { warnings: items.length }, items,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  const item = (code: string, extra: any = {}) => ({
+    severity: 'warning', category: 'unknown', code, reason: 'why', summary: `item ${code}`,
+    entity: { kind: 'target', key: `t-${code}`, label: `t-${code}`, href: `/fleet/targets/t-${code}` }, ...extra,
+  });
+
+  it('lists every category in the agreed order in the picker', async () => {
+    respond([]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('select[aria-label="Filter by category"]')).toBeTruthy());
+    const opts = Array.from(target.querySelectorAll('select[aria-label="Filter by category"] option')).map((o) => (o as HTMLOptionElement).value).filter(Boolean);
+    expect(opts).toEqual(['non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows each item code as a reason chip whose title names the cause', async () => {
+    respond([item('HEALTH_FAILING', { category: 'health' }), item('SOMETHING_NEW')]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="attention-item"]').length).toBe(2));
+    const chips = Array.from(target.querySelectorAll('[data-testid="attention-item"] .attn-code'));
+    expect(chips.map((c) => c.textContent?.replace(/:.*/, '').trim())).toEqual(['HEALTH_FAILING', 'SOMETHING_NEW']);
+    expect(chips[0].getAttribute('title')).toBe('The health check is failing');
+    // An unmapped code falls back to itself.
+    expect(chips[1].getAttribute('title')).toBe('SOMETHING_NEW');
+    expect(chips.every((c) => c.tagName === 'SPAN' && !c.closest('a'))).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('renders a next action as words, never as a link or a button', async () => {
+    respond([item('CAPABILITY_ABSENT', { category: 'non-compliant', nextStep: 'Open the target', nextAction: { verb: 'edit-contract', tool: 'pacto_edit' } }), item('EVIDENCE_MISSING')]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="attention-item"]').length).toBe(2));
+    const [withAction, without] = Array.from(target.querySelectorAll('[data-testid="attention-item"]'));
+    const action = withAction.querySelector('.attn-action') as HTMLElement;
+    expect(action.textContent?.replace(/\s+/g, ' ').trim()).toBe('Fix: edit the contract with pacto_edit');
+    expect(action.querySelector('a, button, [href], [role="button"]')).toBeNull();
+    expect(action.closest('a, button')).toBeNull();
+    expect(without.querySelector('.attn-action')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('tones the failing health check as a caution and knowledge gaps as info', async () => {
+    respond([item('X')], [{ category: 'health', count: 2 }, { category: 'provisioning', count: 1 }, { category: 'knowledge', count: 4 }]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.hb-row').length).toBe(3));
+    const tones = Array.from(target.querySelectorAll('.hb-row')).map((r) => Array.from(r.classList).find((c) => c.startsWith('tone-')));
+    expect(tones).toEqual(['tone-warn', 'tone-warn', 'tone-info']);
     unmount(component); document.body.removeChild(target);
   });
 });

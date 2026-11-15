@@ -218,16 +218,15 @@ describe('OperationalSummary', () => {
       { label: 'Operational targets not compliant', count: 2, view: 'attention', category: 'non-compliant', severity: 'error', href: '/fleet/attention?category=non-compliant' },
       { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', severity: 'warning', href: '/fleet/attention?category=stale' },
       { label: 'Undeclared runtime dependencies observed', count: 3, view: 'attention', category: 'undeclared', severity: 'info', href: '/fleet/attention?category=undeclared' },
-      // View "overview" means "this very page" -- its href is /fleet.
-      { label: 'Incomplete sources', count: 1, view: 'overview', severity: 'warning', href: '/fleet' },
+      // Incomplete sources opens the sources list filtered to the incomplete ones.
+      { label: 'Incomplete sources', count: 1, view: 'sources', category: 'incomplete', severity: 'warning', href: '/fleet/sources?sourceHealth=incomplete' },
     ],
     attentionTotal: 6,
   });
 
   // Every entry prints the backend's label verbatim, and only entry points that lead
   // somewhere else are rendered at all. The lead tile and the uncategorised entry point
-  // are the same measurement (two wordings, one number); the overview entry point links
-  // back to the page it is on, where the source health strip already shows what it counts.
+  // are the same measurement (two wordings, one number).
   //
   // Eight identical tiles made the reader redo the ranking the backend had already done,
   // so the backend's own grade now decides the treatment: errors share the grid with the
@@ -241,12 +240,29 @@ describe('OperationalSummary', () => {
     // Demoting the treatment must not delete the number: the milder entries keep their
     // exact count and stay one click away.
     const sec = Array.from(target.querySelectorAll('.op-secondary a.op-sec'));
-    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls']);
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls', 'incomplete sources']);
     expect(sec.map((n) => n.querySelector('.op-sec-label')?.getAttribute('title'))).toEqual([
       'Operational targets with stale evidence',
       'Undeclared runtime dependencies observed',
+      'Incomplete sources',
     ]);
-    expect(sec.map((n) => n.querySelector('.op-sec-count')?.textContent)).toEqual(['4', '3']);
+    expect(sec.map((n) => n.querySelector('.op-sec-count')?.textContent)).toEqual(['4', '3', '1']);
+    expect(sec[2].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=incomplete');
+  });
+
+  it('leads with failing health checks and keeps knowledge gaps a secondary chip', () => {
+    const p = summaryProps();
+    p.entryPoints.push(
+      { label: 'Operational targets failing their health check', count: 2, view: 'attention', category: 'health', severity: 'warning', href: '/fleet/attention?category=health' },
+      { label: 'Gaps in what the contracts say', count: 9, view: 'attention', category: 'knowledge', severity: 'info', href: '/fleet/attention?category=knowledge' },
+    );
+    comp = mount(OperationalSummary, { target, props: p });
+    const health = Array.from(target.querySelectorAll('.tile-grid a.tile')).find((t) => t.textContent?.includes('health check')) as HTMLAnchorElement;
+    expect(health.getAttribute('href')).toBe('#/fleet/attention?category=health');
+    const chip = Array.from(target.querySelectorAll('.op-secondary a.op-sec')).find((a) => a.textContent?.includes('knowledge gaps')) as HTMLElement;
+    expect(chip.querySelector('.op-sec-label')?.textContent).toBe('knowledge gaps');
+    expect(chip.querySelector('.op-sec-label')?.getAttribute('title')).toBe('Gaps in what the contracts say');
+    expect(target.querySelector('.op-secondary')?.textContent).not.toContain('health');
   });
 
   it('sends every entry to the backend href it arrived with', () => {
@@ -280,6 +296,18 @@ describe('OperationalSummary', () => {
     comp = mount(OperationalSummary, { target, props });
     const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('undeclared')) as HTMLElement;
     expect(entry.className).toContain('tone-ok');
+  });
+
+  // The subtitle counts the items the lead tile's services hold, read from the lead
+  // entry point; an engine without itemCount falls back to the attention total.
+  it('says how many items the lead tile services hold', () => {
+    const props = summaryProps();
+    props.entryPoints = props.entryPoints.map((ep) => (ep.category ? ep : { ...ep, itemCount: 1 }));
+    comp = mount(OperationalSummary, { target, props });
+    expect(target.querySelector('.tile-lead .tile-sub')?.textContent).toBe('1 attention item');
+    unmount(comp); comp = null;
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
+    expect(target.querySelector('.tile-lead .tile-sub')?.textContent).toBe('6 attention items');
   });
 
   // A grade a newer engine spells differently must not quietly become a footnote: only
@@ -457,6 +485,13 @@ describe('FindingList provenance', () => {
     const metas = [...target.querySelectorAll('.f-meta')].map((m) => m.textContent ?? '');
     expect(metas[0]).toContain('seen by: Kubernetes + kernel');
     expect(metas[1]).not.toContain('seen by');
+  });
+
+  it('names each finding by the code a CLI or an agent reads', () => {
+    comp = mount(FindingList, { target, props: { items: [{ code: 'HEALTH_FAILING', severity: 'unknown', message: 'm' }] } });
+    const code = target.querySelector('.f-meta .f-code');
+    expect(code?.textContent).toBe('HEALTH_FAILING');
+    expect(code?.querySelector('bdi')).not.toBeNull();
   });
 });
 

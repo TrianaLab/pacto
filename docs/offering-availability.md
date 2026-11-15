@@ -67,7 +67,7 @@ The offering page shows availability first, per environment.
 
 A consumer that reaches a deprecated or past-sunset provider through a
 dependency or a configuration reference gets one item in the `lifecycle`
-[attention category](operational-graph-reference.md#attention-categories), and
+[attention category](operational-graph-tallies.md#attention-categories), and
 the Overview tile Services using a deprecated provider opens them:
 
 | Code | Severity | When |

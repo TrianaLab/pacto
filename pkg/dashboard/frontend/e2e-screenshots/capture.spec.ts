@@ -49,6 +49,10 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
     element: '#sec-environments',
   },
+  // The overview's Operational health and Knowledge bands, each alone: the ownership and
+  // readiness band sits between them, so one shot would not hold both.
+  { name: 'overview-health', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-health' },
+  { name: 'overview-knowledge', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-knowledge' },
   // The Offerings list: where requests for platform offerings stand, then who maintains
   // each offering, its lifecycle, availability and failed requests.
   { name: 'offerings-list', open: (p) => go(p, '/#/fleet/offerings', 'Platform offerings') },

@@ -481,7 +481,7 @@ export interface paths {
         };
         /**
          * Operational overview
-         * @description A product-oriented summary: what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
+         * @description A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
          */
         get: operations["fleet-overview"];
         put?: never;
@@ -2200,6 +2200,11 @@ export interface components {
             other: number;
             /** Format: int64 */
             reference: number;
+            /**
+             * Format: int64
+             * @description Of compliant, how many rest on stale evidence; a subset, never subtracted from compliant
+             */
+            staleCompliant: number;
             /** Format: int64 */
             unknown: number;
             /** Format: int64 */
@@ -2335,8 +2340,23 @@ export interface components {
         "Fleet.DomainTally": {
             domain: string;
             domainUnknown?: boolean;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing
+             */
+            failingHealth: number;
             /** Format: int64 */
             nonCompliant: number;
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no owner claim whose contract Pacto cannot read
+             */
+            ownerUnknown: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -2345,8 +2365,16 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unknown: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services that declare no owner; an owner Pacto cannot read is ownerUnknown
+             */
             unowned: number;
+            /**
+             * Format: int64
+             * @description Services with at least one knowledge gap
+             */
+            withGaps: number;
         };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
@@ -2362,6 +2390,7 @@ export interface components {
             failedByOffering?: components["schemas"]["Fleet.TypeCount"][] | null;
             /** Format: int64 */
             failedOfferingsBeyond?: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -2402,6 +2431,7 @@ export interface components {
             /** Format: int64 */
             sources: number;
             targetCompliance: components["schemas"]["Fleet.ComplianceTally"];
+            targetHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             targets: number;
             /** Format: int64 */
@@ -2423,6 +2453,8 @@ export interface components {
             explanation?: string;
             /** Format: int64 */
             failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
             /** Format: int64 */
@@ -2450,13 +2482,19 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
             targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
         };
         "Fleet.EnvironmentAvailability": {
             /** @description The environment label of the targets; empty for targets with no label */
@@ -2529,6 +2567,28 @@ export interface components {
             truncated: boolean;
             /** Format: int64 */
             unverified: number;
+        };
+        "Fleet.EvaluationCoverage": {
+            /**
+             * Format: int64
+             * @description Assertions evaluated, summed over the targets that report coverage
+             */
+            evaluated: number;
+            /**
+             * Format: int64
+             * @description Targets whose source reported no coverage
+             */
+            notReporting: number;
+            /**
+             * Format: int64
+             * @description Targets whose source reported coverage
+             */
+            reporting: number;
+            /**
+             * Format: int64
+             * @description Assertions required, summed over the targets that report coverage
+             */
+            required: number;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -2625,6 +2685,61 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.KnowledgeGaps": {
+            /**
+             * Format: int64
+             * @description Services with no business domain
+             */
+            noDomain: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision declares an interface with no document
+             */
+            noInterfaceDocs: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision carries no readiness assessment
+             */
+            noReadiness: number;
+            /**
+             * Format: int64
+             * @description Services whose contract declares no summary
+             */
+            noSummary: number;
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services whose current revision declares an extension capability no evaluator verifies
+             */
+            unverifiedCapability: number;
+        };
+        "Fleet.KnowledgeTally": {
+            /**
+             * Format: int64
+             * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
+             */
+            described: number;
+            gaps: components["schemas"]["Fleet.KnowledgeGaps"];
+            /**
+             * Format: int64
+             * @description Services that are no golden path; the whole the other three partition
+             */
+            services: number;
+            /**
+             * Format: int64
+             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see
+             */
+            unknown: number;
+            /**
+             * Format: int64
+             * @description Services with at least one knowledge gap
+             */
+            withGaps: number;
+        };
         "Fleet.LicenseCount": {
             /** Format: int64 */
             count: number;
@@ -2718,6 +2833,33 @@ export interface components {
             lastSeen?: string;
             source: string;
         };
+        "Fleet.OperationalHealthTally": {
+            /**
+             * Format: int64
+             * @description Targets whose declared health check was evaluated on fresh evidence with no health finding
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description Targets reported as degraded; no source reports degradation yet, so it reads 0
+             */
+            degraded: number;
+            /**
+             * Format: int64
+             * @description Targets whose contract revision declares no health capability
+             */
+            notObserved: number;
+            /**
+             * Format: int64
+             * @description Targets whose health check answered and reports it is failing (HEALTH_FAILING)
+             */
+            unavailable: number;
+            /**
+             * Format: int64
+             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved, inferred (mutable tag) or quarantined revision link, or another finding on the health capability
+             */
+            unknown: number;
+        };
         "Fleet.OriginCount": {
             /** Format: int64 */
             nonCompliant: number;
@@ -2741,6 +2883,7 @@ export interface components {
             byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
+            coverage: components["schemas"]["Fleet.EvaluationCoverage"];
             /** Format: int64 */
             degradedSources: number;
             /** Format: int64 */
@@ -2758,6 +2901,9 @@ export interface components {
             invalidRevisions: number;
             /** Format: int64 */
             invalidTargets: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
+            /** Format: int64 */
+            knowledgeItems: number;
             /** Format: int64 */
             lifecycleConsumers: number;
             /** Format: int64 */
@@ -2766,6 +2912,7 @@ export interface components {
             notEvaluatedTargets: number;
             /** Format: int64 */
             observedOnlyRelationships: number;
+            operationalHealth: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             otherComplianceTargets: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
@@ -2782,6 +2929,11 @@ export interface components {
             services: number;
             /** Format: int64 */
             servicesNeedingAttention: number;
+            /**
+             * Format: int64
+             * @description Of the compliant targets, how many rest on stale evidence; a subset, never subtracted
+             */
+            staleCompliantTargets: number;
             /** Format: int64 */
             staleSources: number;
             /** Format: int64 */
@@ -2824,22 +2976,53 @@ export interface components {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             findings: components["schemas"]["Fleet.SeverityTally"];
+            health: components["schemas"]["Fleet.OperationalHealthTally"];
             /** Format: int64 */
             invalidRevisions: number;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
             links: components["schemas"]["Fleet.LinkTally"];
+            /**
+             * Format: int64
+             * @description Services that run nowhere, counted only when Pacto can see every target of the service
+             */
+            notDeployed: number;
+            /**
+             * Format: int64
+             * @description Services with no visible target whose placement Pacto cannot see, never counted in notDeployed
+             */
+            placementUnknown: number;
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
             targets: number;
+            /**
+             * Format: int64
+             * @description Observed calls of the services that no contract declares
+             */
+            undeclaredDependencies: number;
+            /**
+             * Format: int64
+             * @description Distinct declared dependencies of the services that resolve to no known service
+             */
+            unresolvedDependencies: number;
         };
         "Fleet.OwnershipTally": {
             /** Format: int64 */
             conflicting: number;
             /** Format: int64 */
             consistent: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Services with no owner claim whose contract Pacto cannot read, so it cannot tell whether an owner is declared
+             */
+            unknown: number;
+            /**
+             * Format: int64
+             * @description Services whose read contracts declare no owner and no source reports one
+             */
             unowned: number;
         };
         "Fleet.PathCount": {
@@ -3209,6 +3392,7 @@ export interface components {
             sources?: string[] | null;
             status?: string;
             summary?: string;
+            summaryUnknown?: boolean;
             targets?: string[] | null;
             template?: boolean;
         };
@@ -4047,7 +4231,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "provisioning" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -4079,6 +4263,8 @@ export interface components {
             truncated: boolean;
         };
         ProductAttentionPreview: {
+            /** Format: int64 */
+            actionable: number;
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttentionItem"][] | null;
@@ -4220,6 +4406,8 @@ export interface components {
             count?: number;
             description?: string;
             href: string;
+            /** Format: int64 */
+            itemCount?: number;
             label: string;
             /** @enum {string} */
             severity?: "error" | "warning" | "info";
@@ -4751,6 +4939,8 @@ export interface components {
             explanation?: string;
             /** Format: int64 */
             failedRequests?: number;
+            /** Format: int64 */
+            failingHealth?: number;
             /** Format: date-time */
             fetchedAt?: string;
             /** Format: int64 */
@@ -4779,13 +4969,19 @@ export interface components {
             services?: number;
             /** @enum {string} */
             signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
+            /** Format: int64 */
+            stale?: number;
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
             targetsUnknown?: boolean;
             template?: boolean;
+            /** Format: int64 */
+            unknown?: number;
             version?: string;
+            /** Format: int64 */
+            withGaps?: number;
         };
         ProductRefPreview: {
             /** Format: int64 */
@@ -7171,12 +7367,14 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
-                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting or contacts alone) */
-                ownership?: "consistent" | "conflicting" | "unowned" | "unidentified";
+                /** @description Declared-ownership filter for service entities; unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
+                ownership?: "consistent" | "conflicting" | "unowned" | "unidentified" | "unknown";
+                /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge */
+                gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";
                 /** @description Declared-readiness filter for contract revision entities */
                 readiness?: "passing" | "below-threshold" | "expired" | "not-declared";
-                /** @description Source-health filter for source entities */
-                sourceHealth?: "available" | "partial" | "stale" | "unavailable";
+                /** @description Source-health filter for source entities; incomplete matches partial, stale and unavailable */
+                sourceHealth?: "available" | "partial" | "stale" | "unavailable" | "incomplete";
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
@@ -7192,8 +7390,8 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

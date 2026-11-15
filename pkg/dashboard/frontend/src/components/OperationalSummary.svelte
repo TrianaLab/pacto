@@ -37,14 +37,18 @@
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
     'Incomplete sources': 'incomplete sources',
     'Services with no declared owner': 'services with no owner',
+    'Operational targets failing their health check': 'failing health checks',
+    'Gaps in what the contracts say': 'knowledge gaps',
   };
   const shortLabel = (label) => SHORT[label] ?? label;
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }
   // The lead tile is not rendered from an entry point but still has one, so its grade is
   // read from the same place rather than guessed here.
-  const leadSeverity = $derived(
-    entryPoints.find((ep) => ep.view === 'attention' && !ep.category)?.severity,
-  );
+  const leadEntry = $derived(entryPoints.find((ep) => ep.view === 'attention' && !ep.category));
+  const leadSeverity = $derived(leadEntry?.severity);
+  // The items the lead tile's services hold, from the same entry point; an older
+  // engine sends no itemCount, so the attention total stands in.
+  const leadItems = $derived(leadEntry?.itemCount ?? attentionTotal);
 </script>
 
 <div class="op-summary">
@@ -54,7 +58,7 @@
       <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
            tile and Title-leading labels on its siblings read as two kinds of thing. -->
       <span class="tile-label">Services need attention</span>
-      <span class="tile-sub">{formatCount(attentionTotal)} attention item{attentionTotal === 1 ? '' : 's'}</span>
+      <span class="tile-sub">{formatCount(leadItems)} attention item{leadItems === 1 ? '' : 's'}</span>
     </a>
     <!-- The observed-only tile used to be hand-written here, beside its own backend entry
          point -- so the same count reached the screen under two labels ("undeclared

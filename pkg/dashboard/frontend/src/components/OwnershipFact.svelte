@@ -26,7 +26,7 @@
   // attention item). declaredIn: the revision whose owner block the service takes, where
   // its contacts are shown; contacts are never copied onto a service.
   let { ownership, unownedHref = '', declaredIn = null } = $props();
-  const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.";
+  const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto counts it as owner unknown, never as unowned.";
 </script>
 
 {#if !ownership?.declared}

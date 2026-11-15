@@ -15,7 +15,7 @@
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
   import Sidebar from './components/Sidebar.svelte';
-  import { navGroups } from './lib/nav.ts';
+  import { navGroups, attentionBadge } from './lib/nav.ts';
   import LazyView from './components/LazyView.svelte';
   import DeliveryUnavailable from './components/DeliveryUnavailable.svelte';
   import EmptyState from './components/EmptyState.svelte';
@@ -148,7 +148,7 @@
         capabilities?.fleet === true ? Promise.resolve().then(() => api.fleetOverview()).catch(() => null) : Promise.resolve(null),
       ]);
       if (overview) {
-        navAttention = overview.attention?.total ?? null;
+        navAttention = attentionBadge(overview.attention);
         navSourceCounts = overview.meta?.sourceCounts ?? null;
       }
       // A failed services fetch means the backend is unreachable or erroring — not
@@ -457,6 +457,7 @@
       owner={route.params.owner || ''}
       ownerKey={route.params.ownerKey || ''}
       ownership={route.params.ownership || ''}
+      gap={route.params.gap || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
       businessDomain={route.params.businessDomain || ''}

@@ -452,15 +452,19 @@ type ServiceRecord struct {
 	// and Summary its one-line purpose (service.summary), derived like
 	// BusinessDomain (see deriveOffering). Both are exported so a detail answer
 	// cloned through JSON keeps them.
-	Offering  string            `json:"offering,omitempty"`
-	Summary   string            `json:"summary,omitempty"`
-	Name      string            `json:"name"`
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Revisions []RevisionKey     `json:"revisions,omitempty"`
-	Targets   []TargetKey       `json:"targets,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Status    string            `json:"status,omitempty"`
-	Sources   []string          `json:"sources,omitempty"`
+	Offering string `json:"offering,omitempty"`
+	Summary  string `json:"summary,omitempty"`
+	// SummaryUnknown says an empty Summary is not a known absence: the sources
+	// report different summaries, or no revision was read and no source reports
+	// one. Like BusinessDomainUnknown, unknown is never "declares none".
+	SummaryUnknown bool              `json:"summaryUnknown,omitempty"`
+	Name           string            `json:"name"`
+	Owner          contract.Owner    `json:"owner,omitzero"`
+	Revisions      []RevisionKey     `json:"revisions,omitempty"`
+	Targets        []TargetKey       `json:"targets,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Sources        []string          `json:"sources,omitempty"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`

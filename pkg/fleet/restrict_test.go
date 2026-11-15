@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
@@ -776,5 +778,104 @@ func TestRestrictCountsHiddenPolicyReferrers(t *testing.T) {
 	p := s.Services[NewServiceKey("policy")]
 	if p.HiddenDependents != 1 || p.HiddenPolicyReferrers != 1 {
 		t.Errorf("policy hidden dependents/referrers = %d/%d, want 1/1", p.HiddenDependents, p.HiddenPolicyReferrers)
+	}
+}
+
+// TestRestrictedOverviewHealth: a failing target in a hidden namespace is
+// neither counted in a visible bucket nor named.
+func TestRestrictedOverviewHealth(t *testing.T) {
+	k := SourceKindKubernetes
+	shop := probed("shop-ok", func(r *RawTarget) { r.Kind = k })
+	secret := probed("secret-down", func(r *RawTarget) {
+		r.Kind, r.Scope = k, "secret"
+		r.Compliance = StatusUnknown
+		r.Findings = []finding.Finding{healthFinding(finding.CodeHealthFailing, "down")}
+	})
+	q := healthFleet(t, time.Hour, shop, secret)
+	if q.Overview().Summary.OperationalHealth.Unavailable != 1 {
+		t.Fatal("unrestricted view must count the failing target")
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	ov := r.Overview()
+	if ov.Summary.OperationalHealth != (OperationalHealthTally{Available: 1}) {
+		t.Fatalf("restricted operationalHealth = %+v", ov.Summary.OperationalHealth)
+	}
+	l, _ := r.Attention(AttentionFilter{Category: categoryHealth})
+	if l.Total != 0 {
+		t.Fatalf("restricted health items = %+v", l.Items)
+	}
+	if !slices.ContainsFunc(ov.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("limitations = %+v, want HIDDEN_BY_PERMISSIONS", ov.Meta.Limitations)
+	}
+	for _, l := range ov.Meta.Limitations {
+		if strings.Contains(l.Message, "secret-down") {
+			t.Errorf("a limitation names the hidden target: %q", l.Message)
+		}
+	}
+}
+
+func TestRestrictedKnowledgeAndOwnership(t *testing.T) {
+	read := fstest.MapFS{"interfaces/openapi.json": {Data: []byte(smallOpenAPI)}}
+	k := SourceKindKubernetes
+	shop, secret := runs("pay"), runs("secret")
+	shop.Kind, secret.Kind, secret.Scope = k, k, "secret"
+	q := knowledgeFleet(t, []RawRevision{
+		openapiRev("pay", read, false),
+		knowRev("secret", func(c *contract.Contract, _ *contract.Bundle) {
+			c.Service.Summary, c.Service.Owner = "", contract.Owner{}
+		}),
+	}, []RawTarget{shop, secret})
+	if sum := q.Overview().Summary; sum.Knowledge.WithGaps != 1 || sum.Ownership.Unowned != 1 {
+		t.Fatalf("unrestricted knowledge %+v, ownership %+v", sum.Knowledge, sum.Ownership)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	ov := r.Overview()
+	if ov.Summary.Knowledge != (KnowledgeTally{Services: 1, Described: 1}) || ov.Summary.Ownership != (OwnershipTally{Consistent: 1}) || ov.Summary.KnowledgeItems != 0 {
+		t.Fatalf("restricted knowledge %+v, ownership %+v, items %d", ov.Summary.Knowledge, ov.Summary.Ownership, ov.Summary.KnowledgeItems)
+	}
+	if !slices.ContainsFunc(ov.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {
+		t.Errorf("limitations = %+v, want HIDDEN_BY_PERMISSIONS", ov.Meta.Limitations)
+	}
+	// The restricted record and its JSON clone keep what serviceKnowledge reads.
+	var pay *ServiceRecord
+	for _, s := range r.snap.Services {
+		pay = s
+	}
+	rev := r.snap.Revisions[pay.Revisions[0]]
+	clone := cloneRevision(rev)
+	if !slices.Equal(clone.SpecsRead, []string{"http"}) || len(clone.Contract.Interfaces) != 1 {
+		t.Fatalf("clone specsRead %v, interfaces %v", clone.SpecsRead, clone.Contract.Interfaces)
+	}
+	g1, c1 := q.serviceKnowledge(q.snap.Services[pay.Key])
+	g2, c2 := r.serviceKnowledge(pay)
+	if !slices.Equal(g1, g2) || c1 != c2 {
+		t.Errorf("restricted knowledge %v/%q, unrestricted %v/%q", g2, c2, g1, c1)
+	}
+}
+
+func TestRestrictedEstateCounts(t *testing.T) {
+	k := SourceKindKubernetes
+	pay, secret := ok("pay"), failing("secret")
+	pay.Kind, secret.Kind, secret.Scope = k, k, "secret"
+	q := estateFleet(t, 0, []RawRevision{knowRev("pay", nil), knowRev("secret", withHealth("payments"))}, []RawTarget{pay, secret})
+	if row := domainRow(t, q, "payments"); row.FailingHealth != 1 || row.Services != 2 {
+		t.Fatalf("unrestricted payments = %+v", row)
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	if row := domainRow(t, r, "payments"); row != (DomainTally{Domain: "payments", Services: 1, Targets: 1}) {
+		t.Errorf("restricted payments = %+v", row)
+	}
+	sum := domainSummary(t, r, "payments")
+	if sum.Services != 1 || sum.Health != (OperationalHealthTally{NotObserved: 1}) || sum.NotDeployed != 0 || sum.Knowledge.Services != 1 {
+		t.Errorf("restricted domain summary = %+v", sum)
+	}
+	for _, row := range rowsOf(t, r, KindDomain, SortHealth) {
+		if row.Key == "payments" && (row.Services != 1 || row.FailingHealth != 0 || row.Unknown != 0) {
+			t.Errorf("restricted domain row = %+v", row)
+		}
+	}
+	raw, _ := json.Marshal(r.Overview())
+	if strings.Contains(string(raw), "secret-app") {
+		t.Error("the restricted overview names the hidden target")
 	}
 }
