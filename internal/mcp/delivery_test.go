@@ -577,3 +577,19 @@ func TestDeliveryRequestArgsCorrelationID(t *testing.T) {
 		}
 	}
 }
+
+// TestDeliveryInstructionsNamePrincipalAndCorrelation: an agent learns before
+// it proposes that it must name a person and how to tie a change to an
+// incident.
+func TestDeliveryInstructionsNamePrincipalAndCorrelation(t *testing.T) {
+	for _, want := range []string{
+		"names the person it acts for in on_behalf_of, never itself, a service account or the promoter",
+		"that person may not approve the change, and planning needs no person",
+		"Pass correlation_id on plan and propose",
+		"it never changes the intent digest",
+	} {
+		if !strings.Contains(deliveryInstructions, want) {
+			t.Errorf("deliveryInstructions lack %q", want)
+		}
+	}
+}

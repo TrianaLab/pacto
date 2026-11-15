@@ -39,6 +39,7 @@ invocation registers.
 
 - **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. Over stdio `pacto_impact` resolves both refs with your credentials; when no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on). An HTTP server, whether its callers sign in or not, reads no `traces` path and accepts only `oci://` refs that name a revision in the caller's view, by requested ref, resolved ref or digest; it then reads that revision's own digest-pinned ref. A revision read without a recorded digest has no pinned ref, so it is refused. It also reads no delivery evidence: a `regressed` event over HTTP carries `DELIVERY_EVIDENCE_UNAVAILABLE`. Run `pacto mcp --fleet` over stdio to read them with your own credentials.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
+- **A `nextAction` is a suggestion.** An attention item whose fix is a contract edit names `edit-contract` and `pacto_edit` in `nextAction` ([attention categories](operational-graph-reference.md#attention-categories)); Pacto infers it from the item's code, and the edit itself decides.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
 - **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`; a failed rebuild keeps the last good snapshot.
@@ -134,6 +135,13 @@ server serves only `pacto_schema`.
 - `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
+
+### What an edit leads to
+
+- `pacto_edit` returns `impact`, `chain` and `executor`, with `dry_run` or without. `impact` is who the edit affects, analysed like `pacto_impact` from the contract on disk to the edited one: `classification`, `gate`, `gateReason`, `affected` (the consumer count), `owners`, `approvals`, `completeness`, `asOf`, `snapshotId` and `limitations`. `approvals` is inferred from the gate and always ends with the promote's own plan deciding. It is present only on a server that also serves `pacto_impact` (`pacto mcp --fleet` over stdio); when the session has no snapshot or the analysis fails, it is absent and the first `chain` step says who the edit affects is not known.
+- `chain`: the steps that carry the edit to running, in order: `pacto_impact` when impact is not known, then `pacto_publish_plan`, `pacto_publish` and `pacto_delivery_operation_plan`. Each step has `command` (the CLI form), `why` and `tool`. A step whose tool this session does not register leaves `tool` empty and its `why` says so.
+- `executor`: who acts on the published revision. For configuration references and environments it is the provider (an adapter or a GitOps tool); otherwise Flux or Argo applies the version a Stage points at.
+- `pacto_create` from intent-level inputs (without `pactify` or `from`) returns `chain` too, from publish on: no consumer declares a service that is not published yet. Neither tool runs a step of the chain.
 
 ### How `pacto_create` reads a description
 

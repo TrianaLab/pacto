@@ -49,6 +49,26 @@ before this rule existed, is refused: propose it again with `onBehalfOf`.
   person to the cluster, and none of the above applies
   ([limits](delivery-identity.md#limits)).
 
+## Delegate an operational task
+
+To hand an agent a task, such as "promote checkout 2.3.0 to production", run
+the agent under its own identity and have it name you. It plans, then proposes
+as itself with you in `onBehalfOf`, and ties the change to your ticket:
+
+```bash
+pacto delivery propose -n prod --stage checkout --type promote --to 2.3.0 \
+  --on-behalf-of alice@example.com --correlation-id CHG-2041 \
+  --reason "release 2.3.0" --intent-digest <digest from the plan>
+```
+
+Pacto keeps no task or delegation object: the Operation and its record are the
+trail. When the plan needs a person, the change is held in the **Inbox** of the
+team the approval floor names: the team that owns the service, or for a
+breaking change the consumer that would break. `pacto delivery inbox` and
+`pacto_delivery_inbox` list it there. A person in that team other than you
+decides it, because neither you nor the agent may approve it. The record names
+the agent as the actor and you as the person it said it acts for.
+
 ## Agents over the network
 
 ```bash

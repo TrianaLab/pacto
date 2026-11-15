@@ -65,7 +65,11 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"When a consumer running in the environment does not accept the new version, the plan's order.moveFirst names that " +
 	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
 	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
-	"service for you, and order.unknown says what it could not see." + checkedPass + noApprove
+	"service for you, and order.unknown says what it could not see. When an agent proposes, it names the person it acts for " +
+	"in on_behalf_of, never itself, a service account or the promoter: the name is asserted, that person may not approve " +
+	"the change, and planning needs no person. Pass correlation_id on plan and propose to tie a change to a ticket or " +
+	"incident; the rollback, freeze or step-down the promoter raises after it inherits the id, and it never changes the " +
+	"intent digest." + checkedPass + noApprove
 
 // registerDelivery adds the delivery tools. writes registers propose and
 // cancel; the command layer passes true only when the caller is not a human

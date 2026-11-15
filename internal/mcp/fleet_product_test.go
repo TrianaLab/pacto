@@ -206,6 +206,8 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 	// The neighbourhood and Mira sentences come after the existing text, which
 	// stays unchanged.
 	const appended = "pacto_fleet_attention for what needs attention, most severe first. " +
+		"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
+		"edit the contract, from pacto mcp --transport stdio); Pacto infers it from the item's code, and it grants nothing. " +
 		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
 		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
 		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +

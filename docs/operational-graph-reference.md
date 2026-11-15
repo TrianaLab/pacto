@@ -278,6 +278,15 @@ Attention items fall into these categories, worst first:
 The Overview tile "Undeclared runtime dependencies observed" opens both kinds
 of `undeclared` item.
 
+- `nextAction` names the operation that fixes an item and the tool that makes
+  it, `{"verb": "edit-contract", "tool": "pacto_edit"}`, on
+  `DEPENDENCY_UNDECLARED`, `UNOWNED_SERVICE` (when a contract could be read),
+  `INVALID_CONTRACT`, `MISSING_READINESS`, `DEPENDENCY_RANGE_UNSATISFIED`,
+  `GOLDEN_PATH_DEPLOYED` and a range that excludes a provider's successor.
+  Pacto infers it from the item's code, beside the `nextStep` prose. It grants
+  nothing, and an unknown, stale, unresolved or non-compliant item carries
+  none.
+
 ### Resolved dependencies and accepted ranges
 
 A declared dependency has two separate answers. `resolved: true` means a

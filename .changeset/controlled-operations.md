@@ -36,3 +36,14 @@ The dashboard's propose panel proposes the plan it shows when a reason or an
 on-behalf-of person is typed, with no false "Something changed" warning. Its delivery
 errors carry `differs`, the field that made a plan stale. The propose panel
 asks an agent who it acts for and takes a ticket or incident id.
+
+Fleet attention items whose fix is a contract edit carry `nextAction`
+(`{"verb": "edit-contract", "tool": "pacto_edit"}`), inferred from the item's
+code beside `nextStep`; it grants nothing, and unknown, stale, unresolved or
+non-compliant items carry none. `pacto_edit` returns `impact` (who the edit
+affects, from the session's fleet snapshot), `chain` (publish and promote,
+each with its tool and CLI command) and `executor` (who acts on the published
+revision), also on a dry run; `pacto_create` returns `chain`. The dashboard's
+target, revision and Change analysis pages offer **Plan…** for the operations
+the caller may take there, and a `correlationID` in the page URL fills the
+propose panel's ticket field.
