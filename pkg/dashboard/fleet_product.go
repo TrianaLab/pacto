@@ -27,7 +27,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-overview", Method: http.MethodGet, Path: "/api/fleet/overview",
 		Summary: "Operational overview", Tags: []string{"Fleet"},
-		Description: "A product-oriented summary: target compliance, operational health (healthy, failing, unknown, not observed), the knowledge gaps the contracts leave, ownership (declared, disputed, none declared, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.",
+		Description: "A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.",
 	}, s.fleetOverview)
 
 	huma.Register(api, huma.Operation{

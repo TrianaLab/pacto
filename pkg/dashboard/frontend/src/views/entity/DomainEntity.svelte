@@ -24,7 +24,7 @@
   // Every entity on this page is in this domain, so "domain <name>" on each row is the
   // same word again and is dropped from the previews.
   const local = (items) => (items ?? []).map((r) => (r?.businessDomain ? { ...r, businessDomain: undefined } : r));
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ businessDomain: key, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ businessDomain: key, category, ...extra }));
   const ownership = $derived(ownershipSegments(d.ownership,
     ownershipHrefs((ownership) => fleetServicesUrl({ businessDomain: key, ownership }))));
 </script>

@@ -481,7 +481,7 @@ export interface paths {
         };
         /**
          * Operational overview
-         * @description A product-oriented summary: target compliance, operational health (healthy, failing, unknown, not observed), the knowledge gaps the contracts leave, ownership (declared, disputed, none declared, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
+         * @description A product-oriented summary: target compliance, operational health (available, unavailable = failing, unknown, notObserved = no health capability declared, degraded), the knowledge gaps the contracts leave, ownership (consistent, conflicting, unowned, unknown), evaluation coverage, what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.
          */
         get: operations["fleet-overview"];
         put?: never;
@@ -2692,7 +2692,7 @@ export interface components {
             noSummary: number;
             /**
              * Format: int64
-             * @description Services that run nowhere, counted only when every source reporting operational targets is complete
+             * @description Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete
              */
             notDeployed: number;
             /**
@@ -2704,7 +2704,7 @@ export interface components {
         "Fleet.KnowledgeTally": {
             /**
              * Format: int64
-             * @description Services whose contract and interface documents were read and leave nothing out
+             * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
              */
             described: number;
             gaps: components["schemas"]["Fleet.KnowledgeGaps"];
@@ -2715,7 +2715,7 @@ export interface components {
             services: number;
             /**
              * Format: int64
-             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or interface document, conflicting summaries or placement it cannot see
+             * @description Services whose knowledge Pacto cannot judge: an unreadable contract or OpenAPI document, conflicting summaries or business domains, or placement it cannot see
              */
             unknown: number;
             /**
@@ -2828,7 +2828,7 @@ export interface components {
             unavailable: number;
             /**
              * Format: int64
-             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved or quarantined target, or another finding on the health capability
+             * @description Targets whose health Pacto cannot tell: no evaluation, stale or no evidence, an unresolved, inferred (mutable tag) or quarantined revision link, or another finding on the health capability
              */
             unknown: number;
         };

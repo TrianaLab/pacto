@@ -112,6 +112,16 @@ test.describe('WASM demo — organizational health', () => {
     await expect.poll(() => listTotal(page), { timeout: T }).toBe(n);
   });
 
+  test('Compliant, evidence stale opens the stale list narrowed to compliant targets, the same total', async ({ page }) => {
+    await overview(page);
+    const seg = legend(page, '#sec-posture', 'Compliant, evidence stale');
+    const n = num(await seg.locator('.dist-value').textContent());
+    expect(n).toBeGreaterThan(0);
+    await seg.locator('a').click();
+    await expect(page).toHaveURL(/#\/fleet\/attention\?category=stale&status=Compliant$/);
+    await expect.poll(() => listTotal(page), { timeout: T }).toBe(n);
+  });
+
   test('Domains ranked by health put a domain with a problem first', async ({ page }) => {
     await appReady(page, '/#/fleet/domains?sort=health');
     await page.addStyleTag({ content: WIDE_FONT });
@@ -132,4 +142,19 @@ test.describe('WASM demo — organizational health', () => {
     expect(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   });
+});
+
+// The overview Domains table must show as a table, not stacked cards, inside the capped
+// content column on every desktop width, in the default font and in Verdana.
+test.describe('WASM demo — overview domains table form', () => {
+  for (const width of [1440, 1920, 3440]) {
+    test(`is a table at ${width}px wide`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await overview(page);
+      const table = page.getByTestId('overview-by-domain');
+      await table.scrollIntoViewIfNeeded();
+      await expect.poll(() => table.evaluate((t) => getComputedStyle(t).display), { timeout: T }).toBe('table');
+      await expect(table.locator('thead th[scope="colgroup"]')).toBeVisible();
+    });
+  }
 });

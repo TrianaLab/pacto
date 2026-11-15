@@ -109,7 +109,7 @@
   // Drill-downs from the posture bars stay scoped to THIS service, by canonical key.
   // Sending a service page's "3 non-compliant" to the fleet-wide backlog would answer
   // a question the user did not ask and lose the three rows they clicked for.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ service: key, category }));
+  const attentionUrl = $derived((category, extra = {}) => fleetAttentionUrl({ service: key, category, ...extra }));
   // Drift rows are only worth a line each when they are non-zero; a service with no
   // declared dependencies should not be told about seven kinds of zero. Each row links
   // to where its dependencies are listed: the attention item when one exists, else the
