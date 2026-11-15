@@ -467,21 +467,13 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 // TestDemoOfferingRows: on the demo fleet, postgresql has two providers with
 // two owners. Its newest revision, 17.0.0, declares no lifecycle, but its
 // targets still run the deprecated 16.1.0, the provider's current revision, so
-// the row reads deprecated and postgresql is the only deprecated offering;
-// with no target the newest readable revision speaks and the row reads
-// supported. The services whose range stops at 16 still reach the deprecated
+// the row reads deprecated and postgresql is the only deprecated offering.
+// The services whose range stops at 16 still reach the deprecated
 // 16.1.0, and each gets one lifecycle item saying the successor is out of its
 // range. The clock is pinned before postgresql 16.1.0's sunset, so the answer
 // never ages.
 func TestDemoOfferingRows(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
-	bare, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if l, err := fleet.NewQuery(bare).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"}); err != nil || l.Total != 1 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
-		t.Errorf("postgresql offering with no target = %+v (%v)", l, err)
-	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now},
 		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
 	if err != nil {
@@ -509,6 +501,18 @@ func TestDemoOfferingRows(t *testing.T) {
 	}
 	if codes["orders-service"] != "SUCCESSOR_OUT_OF_RANGE" || codes["ticketing-service"] != "" {
 		t.Errorf("lifecycle items = %v, want orders-service out of range and ticketing-service, which reaches 17.0.0, silent", codes)
+	}
+}
+
+// TestDemoOfferingRowsNoTarget: with no target the newest readable postgresql
+// revision, 17.0.0, speaks, so the row reads supported.
+func TestDemoOfferingRowsNoTarget(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Text: "postgresql"}); err != nil || l.Total != 1 || l.Entities[0].Lifecycle != fleet.LifecycleSupported {
+		t.Errorf("postgresql offering with no target = %+v (%v)", l, err)
 	}
 }
 
