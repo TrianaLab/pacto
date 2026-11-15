@@ -1,6 +1,7 @@
 <script>
   import { fleetEntityUrl } from '../lib/router.ts';
   import { formatCount } from '../lib/format.ts';
+  import { formatDateTime } from '../lib/dateFormat.ts';
   import { phaseLabel } from '../lib/provisioning.ts';
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
@@ -28,6 +29,23 @@
     st.externalRef ?? '',
   ].filter(Boolean);
   const reasons = (u) => [...new Set((u.consumption ?? []).map((c) => c.reason).filter(Boolean))];
+  // Usage: a number reads as current only in figures (a signed, fresh, uncontested report);
+  // the raw figures of an untrusted report stay apart, labelled, in the neutral tone.
+  const notReported = (u) => (u.consumption ?? []).every((c) => c.state === 'not-reported');
+  const usageLabel = (c) => {
+    if (c.state === 'reported') return 'Reported (observed)';
+    if (c.state === 'not-reported') return 'Not reported';
+    return `Unknown: ${c.reason || 'no trusted report'}${c.conflict?.length ? ` (${c.conflict.join(', ')})` : ''}`;
+  };
+  const figureRows = (f) => [
+    ...(f.metrics ?? []).map((m) => [m.name, `${m.value} ${m.unit ?? ''}`.trim()]),
+    ...(f.cost ? [['cost', `${f.cost.amount} ${f.cost.currency} per ${f.cost.period}`]] : []),
+  ];
+  const usageBy = (c) => [
+    c.producer ? `reported by ${c.producer}` : '',
+    c.source ? (c.verified ? 'signed' : 'unsigned') : '',
+    c.asOf ? `as of ${formatDateTime(c.asOf)}` : '',
+  ].filter(Boolean).join(', ');
 </script>
 
 <ul class="rl" data-testid="service-resources">
@@ -90,10 +108,34 @@
         <OfferingUseFigure consumer={u.consumer?.label ?? service} request={pickedSt} useKey={`${u.consumer?.key}:${u.provider?.key}:${u.via}:${picked?.i}`} />
       {/if}
       {#if (u.consumption ?? []).length}
-        <div class="rl-row" data-testid="resource-usage">
-          <span class="rl-k">Usage</span>
-          <span class="rl-text">Not reported{#each reasons(u) as reason (reason)}: {reason}{/each}</span>
-          {#if miraHref}<a href={miraHref} target="_blank" rel="noopener noreferrer" data-testid="resource-mira-link">Open {service} in Mira</a>{/if}
+        <div class="rl-block" data-testid="resource-usage">
+          <div class="rl-row">
+            <span class="rl-k">Usage</span>
+            {#if notReported(u)}<span class="rl-text">Not reported{#each reasons(u) as reason (reason)}: {reason}{/each}</span>{/if}
+            {#if miraHref}<a href={miraHref} target="_blank" rel="noopener noreferrer" data-testid="resource-mira-link">Open {service} in Mira</a>{/if}
+          </div>
+          {#if !notReported(u)}
+            <ul class="rl-status">
+              {#each u.consumption as c, ci (`${c.environment ?? ''}:${c.entry ?? ''}:${ci}`)}
+                {@const f = c.figures ?? c.reported}
+                <li data-testid="resource-usage-entry" data-state={c.state}>
+                  <bdi class="rl-env" title={where(c)}>{where(c)}</bdi>
+                  <div class="rl-block">
+                    <span class="rl-text">{usageLabel(c)}</span>
+                    {#if f}
+                      {#if !c.figures}<span class="rl-note">reported, not trusted</span>{/if}
+                      <dl class="rl-figures" class:rl-untrusted={!c.figures}>
+                        {#each figureRows(f) as [k, v], fi (`${k}:${fi}`)}
+                          <dt><bdi title={k}>{k}</bdi></dt><dd><bdi title={v}>{v}</bdi></dd>
+                        {/each}
+                      </dl>
+                    {/if}
+                    {#if usageBy(c)}<span class="rl-note">{usageBy(c)}</span>{/if}
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </div>
       {/if}
     </li>
@@ -114,6 +156,11 @@
   .rl-values { display: grid; grid-template-columns: minmax(12ch, max-content) minmax(8ch, 1fr); gap: 2px var(--sp-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); min-inline-size: 0; }
   .rl-values dt, .rl-values dd { margin: 0; overflow-wrap: anywhere; min-inline-size: 0; }
   .rl-values dt { color: var(--c-text-2); }
+  /* Usage figures: metric and value tracks with floors; untrusted figures read quieter, never ok. */
+  .rl-figures { display: grid; grid-template-columns: minmax(14ch, max-content) minmax(10ch, 1fr); gap: 2px var(--sp-3); margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); min-inline-size: 0; }
+  .rl-figures dt, .rl-figures dd { margin: 0; overflow-wrap: anywhere; min-inline-size: 0; }
+  .rl-figures dt { color: var(--c-text-2); }
+  .rl-untrusted, .rl-untrusted dt { color: var(--c-text-3); }
   .rl-status { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); min-inline-size: 0; }
   /* Stacked by default; environment and status side by side once the card has room. */
   .rl-status li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px var(--sp-3); align-items: center; min-inline-size: 0; }

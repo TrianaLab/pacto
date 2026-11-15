@@ -27,7 +27,7 @@ async function expectAxeClean(page: Page) {
 }
 
 test.describe('WASM demo — resources a service consumes', () => {
-  test('catalog-service: the declared request, its Ready phase with provenance and usage not reported', async ({ page }) => {
+  test('catalog-service: the declared request, its Ready phase with provenance and signed usage', async ({ page }) => {
     const list = await openResources(page, 'catalog-service');
     const card = list.getByTestId('service-resource').filter({ has: page.getByTestId('resource-requested') });
     await expect(card).toHaveCount(1);
@@ -41,8 +41,14 @@ test.describe('WASM demo — resources a service consumes', () => {
     const prod = card.getByTestId('resource-status').filter({ hasText: 'production' });
     await expect(prod).toContainText('Ready');
     await expect(prod).toContainText('unsigned');
-    await expect(card.getByTestId('resource-usage')).toContainText('Usage');
-    await expect(card.getByTestId('resource-usage')).toContainText('Not reported');
+    // The WASM demo stands in for the Evidence Server: its usage report is signed and fresh.
+    const usage = card.getByTestId('resource-usage-entry').filter({ hasText: 'production' });
+    await expect(usage).toHaveAttribute('data-state', 'reported');
+    await expect(usage).toContainText('Reported (observed)');
+    await expect(usage.locator('dt', { hasText: /^storage-used$/ })).toBeVisible();
+    await expect(usage.locator('dd', { hasText: /^31 Gi$/ })).toBeVisible();
+    await expect(usage.locator('dd', { hasText: /^212\.40 USD per P30D$/ })).toBeVisible();
+    await expect(usage).toContainText('reported by platform-adapter, signed');
 
     // The rail opens from the badge and closes again.
     const badge = prod.locator('button[data-testid="provisioning-badge"]');
@@ -53,6 +59,14 @@ test.describe('WASM demo — resources a service consumes', () => {
     await expect(card.getByTestId('offering-use-figure')).toHaveCount(0);
 
     await expectAxeClean(page);
+  });
+
+  test('orders-service: usage not reported', async ({ page }) => {
+    const list = await openResources(page, 'orders-service');
+    const usage = list.getByTestId('resource-usage').first();
+    await expect(usage).toContainText('Usage');
+    await expect(usage).toContainText('Not reported');
+    await expect(list.getByTestId('resource-usage-entry')).toHaveCount(0);
   });
 
   test('notification-worker: a resource with no offering that failed, and its attention item', async ({ page }) => {

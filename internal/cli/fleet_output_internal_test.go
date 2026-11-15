@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -408,6 +409,41 @@ func TestPrintResourcesConsumptionNotReported(t *testing.T) {
 	}
 	if got := consumptionText(fleet.ResourceConsumption{State: "unknown", Reason: "stale"}); got != "    usage: unknown: stale" {
 		t.Errorf("other state = %q", got)
+	}
+}
+
+// usageAt is the time every usage fixture is as of.
+var usageAt = time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+
+func usageFigures() *fleet.UsageFigures {
+	return &fleet.UsageFigures{Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}, {Name: "connections", Value: 12.5}},
+		Cost: &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"}}
+}
+
+func TestPrintResourcesUsageReported(t *testing.T) {
+	c := fleet.ResourceConsumption{Environment: "production", State: "reported", Figures: usageFigures(), Producer: "platform-db", Verified: true, AsOf: &usageAt}
+	want := "    usage production: storage-used 31 Gi  connections 12.5  cost 212.40 USD/P30D  platform-db  signed  asOf 2026-11-01T09:00:00Z"
+	if got := consumptionText(c); got != want {
+		t.Errorf("reported =\n%q, want\n%q", got, want)
+	}
+}
+
+func TestPrintResourcesUsageUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		c    fleet.ResourceConsumption
+		want string
+	}{
+		{"unsigned", fleet.ResourceConsumption{State: "unknown", Reason: "the usage report is not signed", Reported: usageFigures(), Source: "target-state", AsOf: &usageAt},
+			"    usage: unknown: the usage report is not signed (reported storage-used 31 Gi  connections 12.5  cost 212.40 USD/P30D, unsigned, asOf 2026-11-01T09:00:00Z)"},
+		{"stale signed", fleet.ResourceConsumption{Environment: "staging", State: "unknown", Reason: "old", Reported: &fleet.UsageFigures{Cost: &evidence.UsageCost{Amount: "1", Currency: "EUR", Period: "P1M"}}, Source: "evidence", Verified: true},
+			"    usage staging: unknown: old (reported cost 1 EUR/P1M, signed)"},
+		{"conflict", fleet.ResourceConsumption{State: "unknown", Reason: "disagree", Conflict: []string{"a", "b"}},
+			"    usage: unknown: disagree (a, b)"},
+	} {
+		if got := consumptionText(tc.c); got != tc.want {
+			t.Errorf("%s =\n%q, want\n%q", tc.name, got, tc.want)
+		}
 	}
 }
 

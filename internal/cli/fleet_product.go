@@ -800,14 +800,51 @@ func consumptionText(c fleet.ResourceConsumption) string {
 	if c.Environment != "" {
 		where = " " + c.Environment
 	}
-	if c.State == "not-reported" {
+	switch {
+	case c.State == "not-reported":
 		return "    usage" + where + ": not reported by any provider; for live signals ask Mira (query_metric)"
+	case c.Figures != nil:
+		return "    usage" + where + ": " + strings.Join(append([]string{figuresText(c.Figures)}, usageProvenance(c)...), "  ")
 	}
 	s := "    usage" + where + ": " + c.State
 	if c.Reason != "" {
 		s += ": " + c.Reason
 	}
+	switch {
+	case c.Reported != nil:
+		s += " (" + strings.Join(append([]string{"reported " + figuresText(c.Reported)}, usageProvenance(c)...), ", ") + ")"
+	case len(c.Conflict) > 0:
+		s += " (" + strings.Join(c.Conflict, ", ") + ")"
+	}
 	return s
+}
+
+// figuresText renders a provider's usage figures as it reported them: each
+// metric with its unit, then the cost over its period. Nothing is summed.
+func figuresText(f *fleet.UsageFigures) string {
+	parts := make([]string, 0, len(f.Metrics)+1)
+	for _, m := range f.Metrics {
+		parts = append(parts, strings.TrimSpace(m.Name+" "+strconv.FormatFloat(m.Value, 'f', -1, 64)+" "+m.Unit))
+	}
+	if f.Cost != nil {
+		parts = append(parts, "cost "+f.Cost.Amount+" "+f.Cost.Currency+"/"+f.Cost.Period)
+	}
+	return strings.Join(parts, "  ")
+}
+
+// usageProvenance is who reported a usage figure: the producer when named,
+// signed or unsigned, and asOf.
+func usageProvenance(c fleet.ResourceConsumption) []string {
+	parts := []string{c.Producer}
+	if c.Verified {
+		parts = append(parts, "signed")
+	} else {
+		parts = append(parts, "unsigned")
+	}
+	if c.AsOf != nil {
+		parts = append(parts, "asOf "+c.AsOf.UTC().Format(time.RFC3339))
+	}
+	return slices.DeleteFunc(parts, func(s string) bool { return s == "" })
 }
 
 // printRevisionPlace renders where a revision stands in its service, how many

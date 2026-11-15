@@ -179,7 +179,7 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
+		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationUsageUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
@@ -189,12 +189,21 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 	}
 	var file struct {
 		Provisioning []map[string]any `yaml:"provisioning"`
+		Usage        []map[string]any `yaml:"usage"`
 	}
 	if err := yaml.Unmarshal(raw, &file); err != nil {
 		t.Fatal(err)
 	}
 	if len(file.Provisioning) == 0 || len(snap.Provisioning) != len(file.Provisioning) {
 		t.Errorf("provisioning records = %d, want every one of the file's %d reports kept", len(snap.Provisioning), len(file.Provisioning))
+	}
+	if len(file.Usage) == 0 || len(snap.Usage) != len(file.Usage) {
+		t.Errorf("usage records = %d, want every one of the file's %d reports kept", len(snap.Usage), len(file.Usage))
+	}
+	for _, u := range snap.Usage {
+		if u.Verified {
+			t.Errorf("usage report %s/%s reads signed; the file is unsigned", u.Service, u.Name)
+		}
 	}
 }
 
@@ -249,6 +258,32 @@ func TestDemoNonOfferingResourceStaleFailed(t *testing.T) {
 				t.Errorf("attention %+v, want %s for notification-worker", l.Items, tc.code)
 			}
 		})
+	}
+}
+
+// TestDemoUsageUnsignedIsUnknown: the CLI demo's usage report for
+// catalog-service's database is unsigned, so under any window the usage reads
+// unknown and its figures stay in reported, never in figures.
+func TestDemoUsageUnsignedIsUnknown(t *testing.T) {
+	for _, window := range []time.Duration{0, 100000 * time.Hour} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: window},
+			fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "catalog-service")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []fleet.ResourceConsumption
+		for _, u := range d.Service.ConsumedOfferings.Items {
+			if u.Via == fleet.RelationshipConfigRef {
+				got = append(got, u.Consumption...)
+			}
+		}
+		if len(got) != 1 || got[0].State != "unknown" || got[0].Figures != nil || got[0].Reported == nil || got[0].Environment != "production" {
+			t.Errorf("window %v: catalog-service consumption = %+v", window, got)
+		}
 	}
 }
 

@@ -117,6 +117,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
+		Usage:        demoUsage(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -333,6 +334,23 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 		{Service: "notification-worker", Digest: demoDigest(src, "notification-worker", "1.0.0"), Kind: "dependency", Name: "email-provider",
 			Provider: "mail-adapter", ExternalRef: "senders/notifications", Phase: string(evidence.PhaseFailed),
 			Outcome: string(evidence.Observed), Producer: "mail-adapter", ObservedAt: at},
+	}
+}
+
+// demoUsage is what the platform adapter reports about the usage and cost of
+// catalog-service 1.3.0's database in production. It is marked Verified because
+// the WASM demo stands in for the Evidence Server, which accepts only signed
+// usage reports from a key granted ResourceUsage, so the dashboard shows the
+// figures as reported. examples/demo/fleet-targets.yaml carries the same report
+// unsigned, so the CLI demo reads the same resource's usage unknown.
+func demoUsage(src *EmbedSource) []fleet.RawUsage {
+	at := demoNow().Add(-30 * time.Minute)
+	return []fleet.RawUsage{
+		{Service: "catalog-service", Digest: demoDigest(src, "catalog-service", "1.3.0"), Kind: "configuration", Name: "database",
+			Environment: "production", Provider: "platform-db", ExternalRef: "databases/catalog-production",
+			Metrics: []evidence.UsageMetric{{Name: "storage-used", Value: 31, Unit: "Gi"}},
+			Cost:    &evidence.UsageCost{Amount: "212.40", Currency: "USD", Period: "P30D"},
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ProducerKeyID: "demo-platform-adapter", ObservedAt: at, Verified: true},
 	}
 }
 

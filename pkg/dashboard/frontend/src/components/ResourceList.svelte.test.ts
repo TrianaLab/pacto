@@ -104,4 +104,47 @@ describe('ResourceList', () => {
     expect(a.getAttribute('rel')).toBe('noopener noreferrer');
     withMira.done();
   });
+
+  const figures = { metrics: [{ name: 'storage-used', value: 31, unit: 'Gi' }], cost: { amount: '212.40', currency: 'USD', period: 'P30D' } };
+  const withUsage = (consumption: unknown[]) => [{ ...catalog[0], consumption }];
+
+  it('shows reported figures with who reported them, signed and when', () => {
+    const { target, done } = render({ uses: withUsage([{ environment: 'production', state: 'reported', provenance: 'observed', figures,
+      producer: 'platform-db', source: 'evidence', verified: true, asOf: '2026-11-04T09:00:00Z' }]) });
+    const row = target.querySelector('[data-testid="resource-usage-entry"]')!;
+    expect(row.getAttribute('data-state')).toBe('reported');
+    expect(text(row)).toContain('production');
+    expect(text(row)).toContain('Reported (observed)');
+    expect(Array.from(row.querySelectorAll('dt')).map(text)).toEqual(['storage-used', 'cost']);
+    expect(Array.from(row.querySelectorAll('dd')).map(text)).toEqual(['31 Gi', '212.40 USD per P30D']);
+    expect(text(row)).toContain('reported by platform-db, signed, as of');
+    expect(text(row)).not.toContain('not trusted');
+    done();
+  });
+
+  it('keeps untrusted figures apart with the reason, never as current usage', () => {
+    const { target, done } = render({ uses: withUsage([{ environment: 'production', state: 'unknown', provenance: 'observed',
+      reason: 'the usage report is not signed', reported: figures, source: 'target-state', verified: false, asOf: '2026-11-04T09:00:00Z' }]) });
+    const row = target.querySelector('[data-testid="resource-usage-entry"]')!;
+    expect(row.getAttribute('data-state')).toBe('unknown');
+    expect(text(row)).toContain('Unknown: the usage report is not signed');
+    expect(text(row)).toContain('reported, not trusted');
+    expect(row.querySelector('.rl-figures.rl-untrusted')).toBeTruthy();
+    expect(text(row)).toContain('unsigned');
+    expect(text(target.querySelector('[data-testid="resource-usage"]'))).not.toContain('Not reported:');
+    done();
+  });
+
+  it('names the producers that disagree and shows no figure', () => {
+    const { target, done } = render({ uses: withUsage([
+      { environment: 'production', state: 'unknown', provenance: 'observed', reason: 'the providers that report usage for this resource disagree', conflict: ['a', 'b'] },
+      { environment: 'staging', state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto' },
+    ]) });
+    const rows = Array.from(target.querySelectorAll('[data-testid="resource-usage-entry"]'));
+    expect(text(rows[0])).toContain('Unknown: the providers that report usage for this resource disagree (a, b)');
+    expect(rows[0].querySelector('dl')).toBeNull();
+    expect(text(rows[1])).toContain('staging');
+    expect(text(rows[1])).toContain('Not reported');
+    done();
+  });
 });

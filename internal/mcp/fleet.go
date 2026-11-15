@@ -533,8 +533,11 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
 			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
 			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
-			"configuration_reference row only) and 'consumption' (not-reported with a reason: no provider reports " +
-			"usage or cost to Pacto). A resource's provisioning phase is its lifecycle, never the service's health. " +
+			"configuration_reference row only) and 'consumption' per environment: 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about the current revision gave them, with producer and asOf); " +
+			"'unknown' carries a 'reason' and, when a report exists but is unsigned, stale, about another revision or contradicted " +
+			"('conflict' names the producers), its raw numbers in 'reported', never to be quoted as current usage; " +
+			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
 			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
 			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{

@@ -341,7 +341,8 @@ export function installScaleFixture(): void {
       // Resources at scale (#468), on orders-service only so catalog-service stays the
       // realistic case: 40 uses with long provider labels, long configuration keys and
       // values, long external refs, three environments each (Failed, stale Unknown and
-      // unsigned Ready) and three providers the viewer may not see.
+      // unsigned Ready), usage reported, untrusted and with 16 long metrics, and three
+      // providers the viewer may not see.
       const used = svc?.consumedOfferings as Record<string, unknown> & { items?: Record<string, unknown>[] } | undefined;
       if (svc && used && (used.items ?? []).length && (doc.entity as { key?: string } | undefined)?.key === 'orders-service') {
         const base = (used.items ?? [])[0];
@@ -350,6 +351,14 @@ export function installScaleFixture(): void {
           { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
           { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
           { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
+        ];
+        // Usage per environment: reported, unknown with untrusted figures and long figures.
+        const figures = (n: number) => ({ metrics: Array.from({ length: n }, (_, m) => ({ name: longName(`storage-used-metric-${m}`), value: 123456789.123456, unit: 'GiB-month' })),
+          cost: { amount: '123456789012345.123456', currency: 'USD', period: 'P1Y' } });
+        const usage = [
+          { state: 'reported', figures: figures(2), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
+          { state: 'unknown', reason: longName('the usage report is not signed'), reported: figures(3), source: 'target-state', verified: false, asOf: '2026-07-29T09:40:00Z' },
+          { state: 'reported', figures: figures(16), producer: longName('platform-adapter'), source: 'evidence', verified: true, asOf: '2026-11-10T07:00:00Z' },
         ];
         used.items = Array.from({ length: 40 }, (_, i) => {
           const key = `${pv.key}-r${i}`;
@@ -362,7 +371,9 @@ export function installScaleFixture(): void {
               values: { total: 3, count: 3, scanned: 3, truncated: false, items: [0, 1, 2].map((k) => ({ key: longName(`spec.parameters.key-${i}-${k}`), value: longName(`value-${i}-${k}`) })) } }],
             provisioning: [0, 1, 2].map((e) => ({ ...phases[e], environment: longName(`production-${e}`), provenance: 'observed', provider: longName('crossplane-adapter'),
               externalRef: `${longName('databases/external-reference')}/${longName(`resource-${i}-${e}`)}` })),
-            consumption: [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }],
+            consumption: i % 4 === 3
+              ? [{ state: 'not-reported', provenance: 'observed', reason: 'no provider reports usage or cost for this resource to Pacto; ask Mira for live signals' }]
+              : [0, 1, 2].map((e) => ({ ...usage[e], environment: longName(`production-${e}`), provenance: 'observed' })),
           };
         });
         used.total = 120; used.count = 40; used.truncated = true;
