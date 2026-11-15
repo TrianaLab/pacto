@@ -352,27 +352,34 @@ func limitations(st *Stats, set RecordSet, sc Scope, sel selection, truncatedBy 
 	if len(lims) > 0 {
 		c = fleet.CompletenessPartial
 	}
-	// When another limitation already explains the zero (records skipped,
-	// cut off or outside the caller's view), recording is never blamed.
-	explained := c == fleet.CompletenessPartial
-	switch {
-	case st.Runs == 0 && st.Coverage != nil && explained:
-		lims = append(lims, fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run record you can count"})
-	case st.Runs == 0 && st.Coverage != nil:
-		// The window holds coverage, so it is not empty: only the CI and
-		// delivery numbers are missing.
-		lims = append(lims, fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run records: recording may be off for those jobs"})
-	case st.Runs == 0 && set.RepositoryMissing:
-		lims = append(lims, fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"})
-	case st.Runs == 0 && explained:
-		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run record you can count in this window"})
-	case st.Runs == 0:
-		lims = append(lims, fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"})
+	if l := noRunsLimitation(st, set, c == fleet.CompletenessPartial); l != nil {
+		lims = append(lims, *l)
 	}
 	if st.Runs == 0 && st.Coverage == nil && c == fleet.CompletenessComplete {
 		c = fleet.CompletenessEmpty
 	}
 	return lims, c
+}
+
+// noRunsLimitation says why a window counts no run. When another limitation
+// already explains the zero (records skipped, cut off or outside the caller's
+// view), recording is never blamed.
+func noRunsLimitation(st *Stats, set RecordSet, explained bool) *fleet.Limitation {
+	switch {
+	case st.Runs > 0:
+		return nil
+	case st.Coverage != nil && explained:
+		return &fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run record you can count"}
+	case st.Coverage != nil:
+		// The window holds coverage, so it is not empty: only the CI and
+		// delivery numbers are missing.
+		return &fleet.Limitation{Code: LimitationOnlyCoverage, Message: "the window holds coverage records and no CI or delivery run records: recording may be off for those jobs"}
+	case set.RepositoryMissing:
+		return &fleet.Limitation{Code: LimitationRepositoryMissing, Message: "the stats repository does not exist or holds no run records yet"}
+	case explained:
+		return &fleet.Limitation{Code: LimitationNoRecords, Message: "no run record you can count in this window"}
+	}
+	return &fleet.Limitation{Code: LimitationNoRecords, Message: "no run records in this window: recording may be off for these jobs, or the window holds none"}
 }
 
 func limitationIf(cond bool, code, message string) *fleet.Limitation {
