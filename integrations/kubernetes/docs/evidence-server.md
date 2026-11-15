@@ -170,7 +170,20 @@ keys:
     producerId: platform-adapter
     publicKeyFile: platform-adapter__adapter-2026.pub
     allowedObservationKinds: [ResourceProvisioned]
+    allowedProviderRepos: [ghcr.io/acme/platform/postgresql]
 ```
+
+Give each adapter its own key, scoped with `allowedProviderRepos` to the
+provider repositories it serves. A report is in scope when the consumer's
+declared configuration or dependency ref names a repository under one of the
+prefixes, so the PostgreSQL adapter above can never mark a Redis cache Ready.
+The server refuses a report outside the scope with HTTP 403 and the code
+`provider_not_allowed`, and logs a startup warning for every provisioning key
+with no scope. Reports accepted before a key is narrowed stay until a newer
+report replaces them or they pass the provisioning window, so have the right
+adapter report again. The field needs Pacto core 4.5.0 or later; older servers
+refuse the config. The unsigned target-state file has no keys, so the scope
+cannot protect it.
 
 ```bash
 kubectl create secret generic pacto-evidence-trust \

@@ -357,8 +357,10 @@ evidence:
     # (apiVersion pacto.dev/evidence-trust/v1, a .yaml or .yml key). When set,
     # the Evidence Server starts with that file, so each key can carry subject,
     # contract-repository and observation-kind allowlists: a provisioning
-    # adapter needs allowedObservationKinds [ResourceProvisioned]. Its
-    # publicKeyFile entries name other keys of the same Secret. Empty trusts
+    # adapter needs allowedObservationKinds [ResourceProvisioned], and
+    # allowedProviderRepos scopes a provisioning adapter to the provider
+    # repositories it serves. Its publicKeyFile entries name other keys of the
+    # same Secret. Empty trusts
     # every *.pub key in the Secret for runtime evidence only.
     configKey: ""
   service:
