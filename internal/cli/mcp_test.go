@@ -517,6 +517,41 @@ func TestMCPImpactSignedInRefusesLocalRefs(t *testing.T) {
 	}
 }
 
+// TestMCPImpactSignedInEditIsUnknown: the edit's impact asks the provider
+// about local directories, which an untrusted provider refuses, so the edit
+// answers with impact unknown rather than with an empty impact.
+func TestMCPImpactSignedInEditIsUnknown(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "orders")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: orders\n  version: \"1.0.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(&fleet.FleetSnapshot{}), nil }
+	server, err := pactomcp.New("v", pactomcp.Authoring{}, pactomcp.Modes{Fleet: &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps())}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_edit", Arguments: map[string]any{"path": dir, "version": "1.1.0", "dry_run": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := res.Content[0].(*mcpsdk.TextContent).Text
+	if strings.Contains(text, `"impact"`) || !strings.Contains(text, "pass oci:// references") || !strings.Contains(text, "is not known") {
+		t.Fatalf("an untrusted provider's edit:\n%s", text)
+	}
+}
+
 // viewSnapshot is a caller's view: orders is visible with a digest-pinned
 // ResolvedRef, and a local-source revision has a path for its ResolvedRef.
 func viewSnapshot() *fleet.FleetSnapshot {

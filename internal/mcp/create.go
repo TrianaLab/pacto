@@ -166,6 +166,8 @@ type CreateResult struct {
 	Kept []string `json:"kept,omitempty"`
 	// Warnings are what the contract says that is valid but likely wrong.
 	Warnings []string `json:"warnings,omitempty"`
+	// Chain is the steps that carry the new service to running, in order.
+	Chain []ChainStep `json:"chain,omitempty"`
 }
 
 // EditInput holds the parameters for editing an existing contract.
@@ -223,6 +225,13 @@ type EditResult struct {
 	Changes []string        `json:"changes"`
 	// Warnings are what the edit wrote that is valid but likely wrong.
 	Warnings []string `json:"warnings,omitempty"`
+	// Impact is who the edit affects, read from the fleet snapshot; absent
+	// when this session has none or the analysis failed (see Chain).
+	Impact *EditImpact `json:"impact,omitempty"`
+	// Chain is the steps that carry the edit to running, in order.
+	Chain []ChainStep `json:"chain,omitempty"`
+	// Executor is who acts on the published revision.
+	Executor string `json:"executor,omitempty"`
 }
 
 // CheckResult holds the result of a check operation.
@@ -622,16 +631,25 @@ func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir str
 	return nil
 }
 
-// validateStaged writes bundleFS to a temporary directory beside dir, so a
-// relative ref resolves from it as it does from dir, runs validate on it and
-// removes it.
+// validateStaged runs validate on bundleFS staged beside dir (see stage) and
+// removes the stage.
 func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir string, bundleFS fstest.MapFS) (validation.Report, error) {
+	stage, err := o.stage(dir, bundleFS)
+	if err != nil {
+		return validation.Report{}, err
+	}
+	defer os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
+	return validate(ctx, stage)
+}
+
+// stage writes bundleFS to a temporary directory beside dir, so a relative
+// ref resolves from it as it does from dir. The caller removes it.
+func (o fileOps) stage(dir string, bundleFS fstest.MapFS) (string, error) {
 	abs, _ := filepath.Abs(dir) //nolint:errcheck // fails only when the working directory is gone, and then the stage fails below
 	stage, err := o.mkdirTemp(filepath.Dir(abs), ".pacto-edit-*")
 	if err != nil {
-		return validation.Report{}, fmt.Errorf("failed to stage the edited bundle: %w", err)
+		return "", fmt.Errorf("failed to stage the edited bundle: %w", err)
 	}
-	defer os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
 	for _, rel := range slices.Sorted(maps.Keys(bundleFS)) {
 		p := filepath.Join(stage, filepath.FromSlash(rel))
 		if bundleFS[rel].Mode.IsDir() {
@@ -640,10 +658,11 @@ func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir str
 			err = o.writeFile(p, bundleFS[rel].Data, 0o644)
 		}
 		if err != nil {
-			return validation.Report{}, fmt.Errorf("failed to stage the edited bundle: %w", err)
+			os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
+			return "", fmt.Errorf("failed to stage the edited bundle: %w", err)
 		}
 	}
-	return validate(ctx, stage)
+	return stage, nil
 }
 
 // needsResolve reports whether input adds or changes something configuration
@@ -662,11 +681,13 @@ func needsResolve(input EditInput, c *contract.Contract, fromVersion string) boo
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
 // runs (see validateEdited); nothing is written unless the edited bundle passes.
-func Edit(ctx context.Context, validate Validator, input EditInput) (*EditResult, error) {
-	return osFileOps().edit(ctx, validate, input)
+// opts adds the impact and the chain of steps that carry the edit to running
+// (see EditOptions); the zero value adds a chain that serves no tool.
+func Edit(ctx context.Context, validate Validator, opts EditOptions, input EditInput) (*EditResult, error) {
+	return osFileOps().edit(ctx, validate, opts, input)
 }
 
-func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) (*EditResult, error) {
+func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions, input EditInput) (*EditResult, error) {
 	dir := input.Path
 	if dir == "" {
 		dir = "."
@@ -709,6 +730,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 	}
 
 	result := &EditResult{Path: pactoPath, Summary: summarizeContract(c), Changes: changes}
+	result.Impact, result.Chain, result.Executor = o.explain(ctx, opts, dir, o.buildBundleFSForValidation(dir, yamlBytes, c, files), c, input)
 	if input.Owner != nil {
 		result.Warnings = ownerWarnings(*input.Owner)
 	}

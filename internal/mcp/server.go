@@ -107,9 +107,9 @@ func newBareServer(version, instructions string) *mcpsdk.Server {
 }
 
 // newServer builds a server with the given instructions and the authoring tools.
-func newServer(version, instructions string, a Authoring) *mcpsdk.Server {
+func newServer(version, instructions string, a Authoring, opts EditOptions) *mcpsdk.Server {
 	server := newBareServer(version, instructions)
-	registerTools(server, a)
+	registerTools(server, a, opts)
 	return server
 }
 
@@ -121,10 +121,13 @@ func newServer(version, instructions string, a Authoring) *mcpsdk.Server {
 // typed struct. The raw form does neither, so `{"max_depth":"3"}` used to decode
 // to nothing and be read as the 0 that means "unlimited" — the caller asked to
 // bound a traversal and got an unbounded one.
-func registerTools(server *mcpsdk.Server, a Authoring) {
+//
+// opts is what the edit adds about who it affects and the steps after it;
+// pacto_create shares its Served.
+func registerTools(server *mcpsdk.Server, a Authoring, opts EditOptions) {
 	if !a.Remote {
-		addTool(server, createTool(), createHandler(a.Init))
-		addTool(server, editTool(), editHandler(a.Validate))
+		addTool(server, createTool(), createHandler(a.Init, opts.Served))
+		addTool(server, editTool(), editHandler(a.Validate, opts))
 		addTool(server, checkTool(), checkHandler(a.Validate))
 	}
 	addTool(server, schemaTool(), schemaHandler(a.Remote))

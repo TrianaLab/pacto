@@ -98,7 +98,7 @@ func runEditCases(t *testing.T, tests []editCase) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := refRoot(t, tt.pacto, tt.files)
 			tt.input.Path = dir
-			result, err := Edit(context.Background(), realValidator, tt.input)
+			result, err := Edit(context.Background(), realValidator, EditOptions{}, tt.input)
 			if err != nil {
 				t.Fatalf("edit: %v", err)
 			}
@@ -320,7 +320,7 @@ func TestEdit_ReferenceAndEnvironmentErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := refRoot(t, tt.pacto, tt.files)
 			tt.input.Path = dir
-			_, err := Edit(context.Background(), realValidator, tt.input)
+			_, err := Edit(context.Background(), realValidator, EditOptions{}, tt.input)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("err %v, want %q", err, tt.want)
 			}
@@ -333,7 +333,7 @@ func TestEdit_ReferenceAndEnvironmentErrors(t *testing.T) {
 
 func TestEdit_DryRunWritesNothing(t *testing.T) {
 	dir := refRoot(t, orders23, nil)
-	result, err := Edit(context.Background(), realValidator, EditInput{
+	result, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{
 		Path:                 dir,
 		DryRun:               true,
 		AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "../pg", Values: map[string]any{"size": "small"}}},
@@ -362,7 +362,7 @@ func TestEdit_DryRunWritesNothing(t *testing.T) {
 // provider the reference resolves, as pacto_check does.
 func TestEditRejectsADependencyRangeTheConfigurationRefMisses(t *testing.T) {
 	dir := refRoot(t, orders24, nil)
-	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+	_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir,
 		AddDependencies: []DependencyInput{{Name: "postgresql", Ref: "../pg", Compatibility: "^17.0.0"}}})
 	if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_VERSION_OUTSIDE_RANGE") {
 		t.Fatalf("err %v", err)
@@ -376,7 +376,7 @@ func TestEditRejectsADependencyRangeTheConfigurationRefMisses(t *testing.T) {
 func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 	t.Run("inline values", func(t *testing.T) {
 		dir := refRoot(t, orders23, nil)
-		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+		_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir,
 			AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "../pg", Values: map[string]any{"size": "huge"}}}})
 		if err == nil || !strings.Contains(err.Error(), "CONFIG_VALUES_VALIDATION_FAILED") {
 			t.Fatalf("err %v", err)
@@ -388,7 +388,7 @@ func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 	})
 	t.Run("environment values", func(t *testing.T) {
 		dir := refRoot(t, ordersEnv, map[string]string{"environments/prod.yaml": "db: {size: large}\n"})
-		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+		_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir,
 			SetEnvironmentValues: []EnvironmentValuesInput{{Environment: "prod", Configuration: "db", Values: map[string]any{"size": "huge"}}}})
 		if err == nil || !strings.Contains(err.Error(), "ENVIRONMENT_VALUES_INVALID") {
 			t.Fatalf("err %v", err)
@@ -399,7 +399,7 @@ func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 	})
 	t.Run("an added environment whose file already holds rejected values", func(t *testing.T) {
 		dir := refRoot(t, orders24, map[string]string{"environments/prod.yaml": "db: {size: huge}\n"})
-		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, AddEnvironments: []EnvironmentInput{{Name: "prod"}}})
+		_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir, AddEnvironments: []EnvironmentInput{{Name: "prod"}}})
 		if err == nil || !strings.Contains(err.Error(), "ENVIRONMENT_VALUES_INVALID") {
 			t.Fatalf("err %v", err)
 		}
@@ -417,7 +417,7 @@ func TestEditFailsClosedOnUnresolvableRefs(t *testing.T) {
 		}}, nil).ValidationReport
 		for name, validate := range map[string]Validator{"wired": unreachable, "fallback": nil} {
 			dir := refRoot(t, orders23, nil)
-			_, err := Edit(context.Background(), validate, EditInput{Path: dir,
+			_, err := Edit(context.Background(), validate, EditOptions{}, EditInput{Path: dir,
 				AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "oci://ghcr.io/acme/pg:16.1.0", Values: map[string]any{"size": "small"}}}})
 			if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
 				t.Errorf("%s: err %v", name, err)
@@ -430,7 +430,7 @@ func TestEditFailsClosedOnUnresolvableRefs(t *testing.T) {
 		}}, nil).ValidationReport
 		pacto := "pactoVersion: \"2.4\"\nservice: {name: orders, version: 1.0.0}\nenvironments:\n  - {name: prod, file: environments/prod.yaml}\n"
 		dir := refRoot(t, pacto, map[string]string{"environments/prod.yaml": "{}\n"})
-		_, err := Edit(context.Background(), unreachable, EditInput{Path: dir,
+		_, err := Edit(context.Background(), unreachable, EditOptions{}, EditInput{Path: dir,
 			AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "oci://ghcr.io/acme/pg:1.0.0"}}})
 		if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
 			t.Fatalf("err %v", err)
@@ -446,7 +446,7 @@ func TestEditAddEnvironmentValidatesNewFile(t *testing.T) {
 	files := map[string]string{"config.json": `{"type":"object","properties":{"port":{"type":"integer"}}}`}
 	edit := func(port any) error {
 		dir := refRoot(t, pacto, files)
-		_, err := Edit(context.Background(), nil, EditInput{Path: dir,
+		_, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir,
 			AddEnvironments:      []EnvironmentInput{{Name: "prod"}},
 			SetEnvironmentValues: []EnvironmentValuesInput{{Environment: "prod", Configuration: "app", Values: map[string]any{"port": port}}}})
 		return err
@@ -484,7 +484,7 @@ func TestEditAtomicOnFailure(t *testing.T) {
 			}
 			return os.WriteFile(path, data, perm)
 		}
-		if _, err := o.edit(context.Background(), realValidator, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to write") {
+		if _, err := o.edit(context.Background(), realValidator, EditOptions{}, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to write") {
 			t.Fatalf("err %v", err)
 		}
 		assertUnchanged(t, dir)
@@ -498,7 +498,7 @@ func TestEditAtomicOnFailure(t *testing.T) {
 			}
 			return os.MkdirAll(path, perm)
 		}
-		if _, err := o.edit(context.Background(), realValidator, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to create") {
+		if _, err := o.edit(context.Background(), realValidator, EditOptions{}, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to create") {
 			t.Fatalf("err %v", err)
 		}
 		assertUnchanged(t, dir)
@@ -507,7 +507,7 @@ func TestEditAtomicOnFailure(t *testing.T) {
 		dir := refRoot(t, ordersEnv, map[string]string{"environments/prod.yaml": "db: {size: small}\n"})
 		o := osFileOps()
 		o.rename = func(string, string) error { return errors.New("busy") }
-		if _, err := o.edit(context.Background(), realValidator, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to write") {
+		if _, err := o.edit(context.Background(), realValidator, EditOptions{}, input(dir)); err == nil || !strings.Contains(err.Error(), "failed to write") {
 			t.Fatalf("err %v", err)
 		}
 		assertUnchanged(t, dir)
@@ -534,7 +534,7 @@ func TestEdit_StagingFailures(t *testing.T) {
 			dir := refRoot(t, orders23, map[string]string{"notes/readme.txt": "hi"})
 			o := osFileOps()
 			break_(&o)
-			if _, err := o.edit(context.Background(), realValidator, values(dir)); err == nil || !strings.Contains(err.Error(), "failed to stage the edited bundle") {
+			if _, err := o.edit(context.Background(), realValidator, EditOptions{}, values(dir)); err == nil || !strings.Contains(err.Error(), "failed to stage the edited bundle") {
 				t.Fatalf("err %v", err)
 			}
 			if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders23 {
@@ -670,7 +670,7 @@ func TestAddEnvironmentWithLifetimeRaisesTo24(t *testing.T) {
 
 func TestAddEnvironmentExpiresNeedsTemporary(t *testing.T) {
 	dir := refRoot(t, orders23, nil)
-	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+	_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir,
 		AddEnvironments: []EnvironmentInput{{Name: "prod", Lifetime: contract.EnvironmentPersistent, Expires: "2026-11-20T00:00:00Z"}}})
 	if err == nil {
 		t.Fatal("persistent with expires was accepted")
@@ -779,12 +779,12 @@ func TestRemoveEnvironmentKeepsSharedFile(t *testing.T) {
 
 func TestRemoveUndeclaredEnvironmentFails(t *testing.T) {
 	dir := refRoot(t, ordersTwoEnvs, map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "{}\n"})
-	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, RemoveEnvironments: []string{"staging"}})
+	_, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir, RemoveEnvironments: []string{"staging"}})
 	if err == nil || err.Error() != `environment "staging" is not declared; declared: prod, pr-1` {
 		t.Fatalf("err %v", err)
 	}
 	dir = refRoot(t, orders24, nil)
-	if _, err := Edit(context.Background(), realValidator, EditInput{Path: dir, RemoveEnvironments: []string{"prod"}}); err == nil ||
+	if _, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir, RemoveEnvironments: []string{"prod"}}); err == nil ||
 		err.Error() != `environment "prod" is not declared; declared: none` {
 		t.Fatalf("err %v", err)
 	}
@@ -810,7 +810,7 @@ func TestRemoveAndAddSameEnvironment(t *testing.T) {
 
 func TestRemoveEnvironmentDryRunWritesNothing(t *testing.T) {
 	dir := refRoot(t, ordersTwoEnvs, map[string]string{"environments/prod.yaml": "{}\n", "environments/pr-1.yaml": "{}\n"})
-	result, err := Edit(context.Background(), realValidator, EditInput{Path: dir, DryRun: true, RemoveEnvironments: []string{"pr-1"}})
+	result, err := Edit(context.Background(), realValidator, EditOptions{}, EditInput{Path: dir, DryRun: true, RemoveEnvironments: []string{"pr-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
