@@ -711,7 +711,14 @@ export function installScaleFixture(): void {
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
-    try { amend(method, path, doc, body); } catch (e) { console.error('scale fixture', path, e); return res; }
+    try { amend(method, path, doc, body); } catch (e) {
+      // An override that throws would leave the route unscaled and the gate green:
+      // layoutProblems reports it.
+      console.error('scale fixture', path, e);
+      const w = window as unknown as { __pactoScaleErrors?: string[] };
+      (w.__pactoScaleErrors ??= []).push(`scale fixture ${path}: ${e}`);
+      return res;
+    }
     return { ...res, body: JSON.stringify(doc) };
   };
   Object.defineProperty(window, '__pactoServe', {
@@ -733,7 +740,7 @@ export async function gateMode(page: Page): Promise<void> {
  */
 export async function layoutProblems(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const out: string[] = [];
+    const out: string[] = [...((window as unknown as { __pactoScaleErrors?: string[] }).__pactoScaleErrors ?? [])];
     const root = document.querySelector('#app') ?? document.body;
     const say = (el: Element | null) => {
       if (!el) return '?';
