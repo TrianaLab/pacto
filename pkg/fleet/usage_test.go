@@ -310,3 +310,14 @@ func TestSortUsageByFigures(t *testing.T) {
 		t.Errorf("order = %+v", recs)
 	}
 }
+
+// TestAttackReplayedUsageStaysStale: a usage report accepted just now but
+// observed long ago (an old report sent again) is stale and shows no figures:
+// staleness follows the signed observation time, never the accept time.
+func TestAttackReplayedUsageStaysStale(t *testing.T) {
+	old, accepted := fixedNow().Add(-3*time.Hour), fixedNow().Add(-time.Minute)
+	snap := usageSnap(t, 2*time.Hour, ordersFleet(), []RawUsage{usageReport(func(r *RawUsage) { r.ObservedAt, r.AcceptedAt = old, &accepted })})
+	if c := one(t, must(consumption(t, NewQuery(snap)))); c.State != consumptionUnknown || c.Figures != nil || !c.Stale {
+		t.Errorf("consumption = %+v, want stale and unknown", c)
+	}
+}

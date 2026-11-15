@@ -148,3 +148,30 @@ func TestResourceUsageObservation(t *testing.T) {
 		t.Error("ResourceUsage and ResourceProvisioned are the provider-reported kinds")
 	}
 }
+
+// TestAttackHostileUsagePayloads: hostile usage payloads on the wire are
+// refused at decode, before any store or fleet sees them.
+func TestAttackHostileUsagePayloads(t *testing.T) {
+	metric := `{"name":"m","value":1}`
+	many := make([]string, 10000)
+	for i := range many {
+		many[i] = `{"name":"m` + strings.Repeat("x", i%40) + `","value":1}`
+	}
+	for name, v := range map[string]string{
+		"10,000 metrics":       `{"provider":"acme-db","metrics":[` + strings.Join(many, ",") + `]}`,
+		"NaN value":            `{"provider":"acme-db","metrics":[{"name":"m","value":NaN}]}`,
+		"infinite value":       `{"provider":"acme-db","metrics":[{"name":"m","value":1e400}]}`,
+		"1e308 value":          `{"provider":"acme-db","metrics":[{"name":"m","value":1e308}]}`,
+		"1 MB unit":            `{"provider":"acme-db","metrics":[{"name":"m","value":1,"unit":"` + strings.Repeat("u", 1<<20) + `"}]}`,
+		"lowercase currency":   `{"provider":"acme-db","cost":{"amount":"1","currency":"usd","period":"P30D"}}`,
+		"unicode currency":     `{"provider":"acme-db","cost":{"amount":"1","currency":"ＵＳＤ","period":"P30D"}}`,
+		"credential URL":       `{"provider":"acme-db","externalRef":"https://user:pass@db.example/x","metrics":[` + metric + `]}`,
+		"unknown key":          `{"provider":"acme-db","metrics":[` + metric + `],"owner":"team-b"}`,
+		"string value":         `{"provider":"acme-db","metrics":[{"name":"m","value":"1"}]}`,
+		"negative cost amount": `{"provider":"acme-db","cost":{"amount":"-1","currency":"USD","period":"P30D"}}`,
+	} {
+		if err := decodeUsage(usageJSON("Observed", v)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

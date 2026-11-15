@@ -2,6 +2,7 @@ package evidenceingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 var usageGrant = []string{string(evidence.ResourceUsage)}
@@ -201,5 +203,51 @@ func TestTargetsSchemaV4WithUsage(t *testing.T) {
 		if len(b.Targets) != tc.targets || len(b.Usage) != tc.usage || !b.Truncated {
 			t.Errorf("budget %d: targets %d usage %d truncated %v", tc.budget, len(b.Targets), len(b.Usage), b.Truncated)
 		}
+	}
+}
+
+// TestAttackReplayOldUsageReport: an adapter's old signed usage report sent
+// again, byte for byte or under a new envelope id with an old sequence, is
+// refused, so a stale cost cannot be made current.
+func TestAttackReplayOldUsageReport(t *testing.T) {
+	a, priv := provisioningAcceptor(t, usageGrant)
+	set := provisionedSet("ghcr.io/a/orders/production/usage/configuration/db", fixedNow().Add(-time.Minute), usageObs("configuration", "db", "production"))
+	old := signedEnvelopeBytes(t, priv, 1, "e1", set)
+	if _, err := a.Accept(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 2, "e2", set)); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"same envelope": old, "old sequence, new id": signedEnvelopeBytes(t, priv, 1, "e3", set)} {
+		if _, err := a.Accept(context.Background(), data); !errors.Is(err, ErrReplay) {
+			t.Errorf("%s: Accept = %v, want ErrReplay", name, err)
+		}
+	}
+}
+
+// TestAttackV3ReaderRefusesV4Body: a reader that knows only v3 decodes the
+// targets body strictly, so a v4 body's usage list fails the decode instead
+// of being dropped or read as provisioning.
+func TestAttackV3ReaderRefusesV4Body(t *testing.T) {
+	_, url, accept := usageHandler(t)
+	accept(2, provisionedSet("ghcr.io/a/orders/production/usage/configuration/db", fixedNow().Add(-time.Minute), usageObs("configuration", "db", "production")))
+	resp, err := http.Get(url + TargetsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// The v3 response shape: every key of TargetsResponse except usage.
+	var v3 struct {
+		SchemaVersion string            `json:"schemaVersion"`
+		GeneratedAt   json.RawMessage   `json:"generatedAt"`
+		Health        json.RawMessage   `json:"health"`
+		Truncated     bool              `json:"truncated"`
+		Targets       []json.RawMessage `json:"targets"`
+		Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
+	}
+	err = strictjson.Decode(resp.Body, &v3)
+	if err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Errorf("v3 decode = %v, want the unknown usage key refused", err)
 	}
 }
