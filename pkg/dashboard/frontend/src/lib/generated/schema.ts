@@ -4259,13 +4259,13 @@ export interface components {
         };
         ProductChangeEvent: {
             /**
-             * @description present: declared by the oldest revision this answer holds (declared since at least that revision)
+             * @description present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum
              * @enum {string}
              */
             change: "present" | "added" | "removed" | "changed";
             /** @description changed: which declared fields changed */
             fields?: string[] | null;
-            /** @description The value before the change, as the previous revision declares it */
+            /** @description The value before the change, as the previous revision declares it; for a finding, its severity or the readiness "score N/M" (score and minimum) */
             from?: string;
             /**
              * @description What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding

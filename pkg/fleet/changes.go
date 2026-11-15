@@ -9,6 +9,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // ChangeEvent is one declared change to a service between two consecutive
@@ -17,9 +19,9 @@ import (
 type ChangeEvent struct {
 	Kind       string     `json:"kind" enum:"owner,domain,offering,dependency,lifecycle,environment,finding" doc:"What changed: the owner, the business domain, the offering, one dependency, the lifecycle, one environment or a validation finding"`
 	Subject    string     `json:"subject,omitempty" doc:"The dependency, environment or finding the change is about; empty for the owner, domain, offering and lifecycle"`
-	Change     string     `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision)"`
+	Change     string     `json:"change" enum:"present,added,removed,changed" doc:"present: declared by the oldest revision this answer holds (declared since at least that revision). For a finding, added: it appeared, removed: it resolved, changed: the readiness score crossed its minimum"`
 	Fields     []string   `json:"fields,omitempty" doc:"changed: which declared fields changed"`
-	From       string     `json:"from,omitempty" doc:"The value before the change, as the previous revision declares it"`
+	From       string     `json:"from,omitempty" doc:"The value before the change, as the previous revision declares it; for a finding, its severity or the readiness \"score N/M\" (score and minimum)"`
 	To         string     `json:"to,omitempty" doc:"The value after the change, as the revision declares it"`
 	Revision   EntityRef  `json:"revision" doc:"The first revision this answer holds that shows the change; versions between it and previous may not be held"`
 	Previous   *EntityRef `json:"previous,omitempty" doc:"The revision it was compared with: the change happened after it, at or before revision"`
@@ -132,6 +134,7 @@ func revisionChanges(prev, r *ContractRevision) []ChangeEvent {
 		out = presentEvents(r.Contract)
 	} else {
 		out = append(diffEvents(context.Background(), prev, r), dependencyEvents(prev.Contract, r.Contract)...)
+		out = append(out, findingEvents(prev, r)...)
 	}
 	ref := revisionEntityRef(r)
 	var prevRef *EntityRef
@@ -141,7 +144,10 @@ func revisionChanges(prev, r *ContractRevision) []ChangeEvent {
 	}
 	for i := range out {
 		out[i].Revision, out[i].Previous = ref, prevRef
-		out[i].Provenance, out[i].Source = "declared", "contract"
+		out[i].Provenance = "declared"
+		if out[i].Source == "" {
+			out[i].Source = "contract"
+		}
 	}
 	slices.SortStableFunc(out, func(a, b ChangeEvent) int {
 		if c := slices.Index(changeKindOrder, a.Kind) - slices.Index(changeKindOrder, b.Kind); c != 0 {
@@ -355,6 +361,49 @@ func changedDependency(o, n contract.Dependency) (ChangeEvent, bool) {
 	e.From, e.To = strings.Join(from, ", "), strings.Join(to, ", ")
 	return e, len(e.Fields) > 0
 }
+
+// findingEvents is the validation findings that appeared in r or resolved
+// since prev, keyed by code and subject, plus one readiness event when the
+// score crosses the minimum. Nothing when either revision was never
+// validated: an unvalidated revision holds no findings to compare.
+func findingEvents(prev, r *ContractRevision) []ChangeEvent {
+	if len(prev.Stages) == 0 || len(r.Stages) == 0 {
+		return nil
+	}
+	before, after := findingSet(prev.Validation), findingSet(r.Validation)
+	var out []ChangeEvent
+	for k, sev := range after {
+		if _, had := before[k]; !had {
+			out = append(out, ChangeEvent{Kind: "finding", Subject: k, Change: "added", To: sev, Source: "validation"})
+		}
+	}
+	for k, sev := range before {
+		if _, has := after[k]; !has {
+			out = append(out, ChangeEvent{Kind: "finding", Subject: k, Change: "removed", From: sev, Source: "validation"})
+		}
+	}
+	if o, n := prev.Readiness, r.Readiness; o != nil && n != nil && (o.Score >= o.MinScore) != (n.Score >= n.MinScore) {
+		out = append(out, ChangeEvent{Kind: "finding", Subject: "readiness", Change: "changed", From: scoreString(o), To: scoreString(n), Source: "validation"})
+	}
+	return out
+}
+
+// findingSet is each finding's subject line ("<code>" or "<code> (<subject
+// kind> <name>)") to its severity.
+func findingSet(fs []finding.Finding) map[string]string {
+	out := make(map[string]string, len(fs))
+	for _, f := range fs {
+		k := string(f.Code)
+		if s := strings.TrimSpace(f.Subject.Kind + " " + f.Subject.Name); s != "" {
+			k += " (" + s + ")"
+		}
+		out[k] = string(f.Severity)
+	}
+	return out
+}
+
+// scoreString is a readiness score against its minimum, "score N/M".
+func scoreString(r *readiness.Result) string { return fmt.Sprintf("score %d/%d", r.Score, r.MinScore) }
 
 // Heading is the line the CLI and TUI print above [ChangeHistoryPreview.Lines].
 func (h ChangeHistoryPreview) Heading() string {
