@@ -1122,3 +1122,17 @@ func TestSeedStatsAfterPush(t *testing.T) {
 		t.Errorf("the seed's order is push=%d stats publish=%d; records come after the bundles", push, publish)
 	}
 }
+
+func TestComposeDashboardReadsStats(t *testing.T) {
+	args, err := OperationalGraph.composeDashboardArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := strings.Join(args, " ")
+	if !strings.Contains(cmd, "--stats-registry registry:5000/demo/pacto-stats") {
+		t.Errorf("the dashboard does not read the seeded run records: %s", cmd)
+	}
+	if !strings.Contains(cmd, "--allow-anonymous") {
+		t.Errorf("the dashboard lost --allow-anonymous: %s", cmd)
+	}
+}

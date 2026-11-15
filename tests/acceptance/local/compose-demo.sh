@@ -1142,6 +1142,31 @@ grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
 	fail "pacto init --plan wrote into the checkout, which should still hold only its Dockerfile: $init_out"
 pass "pacto init --plan shows the checkout contract and changes nothing"
 
+# The Metrics page reads the CI run records the seed published to the demo's
+# own registry. Compose runs no delivery, so no record is an operation, and the
+# dashboard is an unrestricted local reader, so nothing is hidden.
+stats_json=$(curl -fsS "$V1_BASE/api/stats") || fail "GET /api/stats failed on the Compose demo"
+[ "$(jq -r '.recordsRead' <<<"$stats_json")" -gt 0 ] ||
+	fail "the Compose dashboard read no run records: $stats_json"
+[ "$(jq -r '.hidden.present' <<<"$stats_json")" = "false" ] ||
+	fail "the Compose dashboard hides run records from an unrestricted reader: $stats_json"
+[ "$(jq -r '.environments | length' <<<"$stats_json")" = "0" ] ||
+	fail "the Compose dashboard shows delivery numbers, but Compose runs no delivery: $stats_json"
+stats_cli() { # ARGS...: pacto stats inside the stack, against the demo's own registry
+	docker compose -p "$PROJ1" exec -T dashboard pacto stats \
+		--registry registry:5000/demo/pacto-stats --output-format json "$@" 2>&1
+}
+STATS_READ=$(stats_cli --since 30d | jq -r '.recordsRead') || fail "pacto stats could not read the demo's run records"
+[ "$STATS_READ" -gt 0 ] || fail "pacto stats read no run records from registry:5000/demo/pacto-stats"
+ops=$(stats_cli --since 90d --kind operation | jq -r '.runs') || fail "pacto stats --kind operation failed"
+[ "$ops" = "0" ] || fail "the Compose demo holds $ops operation records, but it runs no delivery"
+# The seed shifts the records to seed time with busybox date: the newest one,
+# a publish at offset 0, must fall in the last 15 minutes (a record in the
+# future would fall outside the window, which ends now).
+recent=$(stats_cli --since 15m --kind publish | jq -r '.runs') || fail "pacto stats --since 15m failed"
+[ "$recent" -ge 1 ] || fail "no run record in the last 15 minutes: the seed did not shift the records to seed time"
+pass "the Metrics page reads $STATS_READ CI run records the seed shifted to seed time, and no operation record"
+
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it
 # addresses THIS deployment's entities by name — and skips, with a reason, the one
@@ -1173,6 +1198,9 @@ seedlog="$(docker compose -p "$PROJ1" logs seed --no-log-prefix 2>&1)"
 grep -q "already in the registry" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo re-published instead of finding its content"; }
 grep -q "already ingested" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo did not recognize its own envelope as a replay"; }
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
+grep -q "run records were already seeded" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo re-published its run records"; }
+[ "$(stats_cli --since 30d | jq -r '.recordsRead')" = "$STATS_READ" ] ||
+	fail "a restarted demo changed the run record count from $STATS_READ"
 pass "the fleet survived a stop and start"
 
 # `stop`/`start` keeps the container, so it proves nothing about where evidence

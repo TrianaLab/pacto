@@ -544,6 +544,9 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 		}
 		args = append(args, "--trace-source", src.ID+"="+ComposeArtifactMount+"/"+src.ID+".json")
 	}
+	// The Metrics page reads the run records the seed published (CI records
+	// only: the Compose demo runs no delivery).
+	args = append(args, "--stats-registry", ComposeStatsRepo)
 	args = append(args, "--host", "0.0.0.0", "--port", strconv.Itoa(composeDashboardPort), "--allow-anonymous")
 	for _, a := range args {
 		if err := checkComposeValue(a); err != nil {

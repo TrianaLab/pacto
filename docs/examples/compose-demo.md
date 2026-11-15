@@ -66,6 +66,10 @@ recorded trace file. Follow the graph from `orders` to
 `checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
+The Metrics page totals the run records the demo's seed published to its own
+registry, as unsigned statistics. They are CI records only (diffs, impact checks
+and publishes), because the Compose demo runs no delivery.
+
 ### The cold start, step by step
 
 Every Pacto rollout starts the same way. Every service in this demo already
@@ -109,6 +113,13 @@ contract `pacto init` would write and changes nothing:
 docker compose -p pacto-demo exec dashboard sh -c \
   'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile &&
    pacto init --plan --owner commerce /tmp/checkout'
+```
+
+Total the run records behind the Metrics page:
+
+```sh
+docker compose -p pacto-demo exec -e PACTO_STATS_REGISTRY=registry:5000/demo/pacto-stats \
+  dashboard pacto stats
 ```
 
 ## Connect an agent
