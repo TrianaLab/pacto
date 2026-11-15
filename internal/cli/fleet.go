@@ -67,7 +67,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	f.AddFlagSet(shared)
 }
 
@@ -167,8 +167,17 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 
 // warnPartial prints a completeness warning and each limitation to stderr for
 // text output, so a partial answer is never silently presented as complete.
+//
+// A complete answer prints nothing, except a note when freshness was not
+// checked: that limitation never makes an answer partial, yet a stale count of
+// zero must not read as "nothing is stale".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
+		for _, l := range m.Limitations {
+			if l.Code == fleet.LimitationFreshnessNotEvaluated {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+			}
+		}
 		return
 	}
 	w := cmd.ErrOrStderr()
@@ -364,7 +373,8 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "Report services and targets needing attention",
 		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
 			"revisions without readiness, unresolved dependencies, dependencies whose provider " +
-			"version is outside the declared range, services with no declared owner and undeclared " +
+			"version is outside the declared range, services that use a deprecated or past-sunset provider, " +
+			"services with no declared owner and undeclared " +
 			"runtime dependencies. With no category flag it reports every category.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -384,6 +394,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("missing-readiness", false, "report revisions without a readiness assessment")
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
+	cmd.Flags().Bool("lifecycle", false, "report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)")
 	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
 	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
@@ -400,7 +411,7 @@ func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
 		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
-		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"),
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Lifecycle: get("lifecycle"), Unowned: get("unowned"), Undeclared: get("undeclared"),
 		GoldenPathDeployed: get("golden-path-deployed"), Limit: limit,
 	}
 }

@@ -42,3 +42,15 @@ const STAGGER_MAX = 8;
 export function stagger(i: number): number {
   return dur(Math.min(Math.max(0, i), STAGGER_MAX) * STAGGER_STEP);
 }
+
+/**
+ * Scrolls to an in-page section by id, opening any closed disclosure around it first.
+ * The dashboard is hash-routed, so an in-page jump is a button that calls this, never a
+ * fragment href (which would replace the route).
+ */
+export function scrollToSection(id: string): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  for (let p: HTMLElement | null = el; p; p = p.parentElement) if (p instanceof HTMLDetailsElement) p.open = true;
+  el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+}

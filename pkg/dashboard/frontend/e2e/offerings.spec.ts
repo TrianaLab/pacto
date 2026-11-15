@@ -29,12 +29,33 @@ test.describe('WASM demo — platform offerings', () => {
     await page.goto('/#/fleet/offerings');
     const list = page.getByTestId('offering-list');
     await expect(list).toBeVisible({ timeout: T });
-    const rows = list.locator('li.pl-row');
+    const rows = list.locator('tbody tr');
     await expect(rows).toHaveCount(5);
     for (const name of ['messaging', 'postgresql', 'redis', 'shared-config', 'shared-policy']) {
       await expect(list.locator(`a.entity-link[href$="/fleet/offerings/${name}"]`)).toBeVisible();
     }
     await expect(rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/shared-config"]') })).toContainText('2 providers');
+    await expect(list.locator('thead')).toContainText('Observed targets');
+    await expect(page.locator('main')).not.toContainText('operational target');
+  });
+
+  test('the list draws where offering requests stand and narrows to deprecated offerings', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/#/fleet/offerings');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const fig = page.getByTestId('offerings-figure');
+    await expect(fig).toBeVisible({ timeout: T });
+    await expect(fig).toContainText('Are the requests for platform offerings ready?');
+    await expect(fig).toContainText(/across 5 offerings/);
+    const pg = page.getByTestId('offering-list').locator('tbody tr').filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/postgresql"]') });
+    await expect(pg.locator('[data-label="Lifecycle"]')).toHaveText('deprecated');
+    await page.getByLabel('Lifecycle').selectOption('deprecated');
+    await expect(page).toHaveURL(/#\/fleet\/offerings\?lifecycle=deprecated$/);
+    await expect(page.getByTestId('offering-list').locator('tbody tr')).toHaveCount(1, { timeout: T });
+    await expect(page.locator('.filter-chips')).toContainText('Deprecated');
+    await page.getByTestId('offering-failed-filter').check();
+    await expect(page).toHaveURL(/failed=1/);
+    expect(await noSideScroll(page)).toBe(true);
   });
 
   test('the postgresql page shows its provider, a consume snippet and its consumers', async ({ page }) => {

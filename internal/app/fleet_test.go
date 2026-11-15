@@ -71,6 +71,33 @@ func TestService_Fleet(t *testing.T) {
 	}
 }
 
+func TestFleetDisclosesUncheckedFreshness(t *testing.T) {
+	root := t.TempDir()
+	writeLocalBundle(t, filepath.Join(root, "svc-a"), "svc-a")
+	targetState := filepath.Join(t.TempDir(), "targets.yaml")
+	body := "schemaVersion: pacto.dev/fleet-targets/v1\ntargets:\n  - scope: prod\n    kind: k8s\n    name: svc-a\n    service: svc-a\n    compliance: Compliant\n"
+	if err := os.WriteFile(targetState, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	has := func(window time.Duration) bool {
+		snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+			LocalRoots: []string{root}, TargetStateFiles: []string{targetState}, FreshnessWindow: window,
+		})
+		if err != nil {
+			t.Fatalf("Fleet: %v", err)
+		}
+		return slices.ContainsFunc(snap.Limitations, func(l fleet.Limitation) bool {
+			return l.Code == fleet.LimitationFreshnessNotEvaluated
+		})
+	}
+	if !has(0) {
+		t.Error("the product build path must disclose a zero freshness window")
+	}
+	if has(fleet.RecentEvidenceWindow) {
+		t.Error("a set window checked freshness, so there is nothing to disclose")
+	}
+}
+
 func TestSourceID(t *testing.T) {
 	cases := []struct {
 		kind     string

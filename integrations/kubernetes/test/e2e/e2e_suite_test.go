@@ -536,6 +536,7 @@ func okHealthWithBody(w http.ResponseWriter, _ *http.Request) {
 func status404(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
 
 func status503(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }
+func status501(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotImplemented) }
 
 // promMetrics serves a genuine Prometheus text-exposition body that the real expfmt parser accepts.
 func promMetrics(w http.ResponseWriter, _ *http.Request) {

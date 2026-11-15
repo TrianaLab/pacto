@@ -198,6 +198,44 @@ and none of its targets. Consumers the viewer may not read appear only as a
 count, with their provisioning status hidden, and a conflict reflects only the
 reports the viewer can see.
 
+## Resources a service consumes
+
+The service page's **Resources** section, `pacto fleet entity service <key>`
+and `pacto_fleet_entity` list every resource a service consumes, one row per
+provider and kind of use. A use of a provider that declares no offering
+appears once a provider reports on it. Each row carries:
+
+| Field | Shows | Provenance |
+|---|---|---|
+| `provider`, `offering` | The provider, linked, and its offering or none | declared |
+| `providerOwner`, `providerAvailability` | Who owns the provider and whether it answers where it runs, apart from this resource's phase | declared, observed |
+| `requested` | The configuration entry, provider revision and values the service asks for, on the configuration-reference row only | declared |
+| `provisioning` | The phase per environment, with the adapter, signed or unsigned and the report time | observed |
+| `consumption` | Usage and cost per environment: `reported` with the provider's `figures`, `unknown` with a reason, or `not-reported` | observed |
+
+The CLI prints the same facts in its Resources block. A provider adapter
+reports usage and cost with [usage reports](provider-reports.md#usage-reports).
+A figure reads `reported` only from one signed, fresh report about the
+service's current revision that no other report contradicts; anything else
+reads `unknown`, and its figures stay apart under `reported`. For live
+utilization, ask [Mira](investigate-a-problem.md): with Mira configured, the
+dashboard links the service to it, and the MCP instructions point at Mira's
+`query_metric`.
+
+A resource's phase is its lifecycle, never the service's health: a Failed
+resource leaves the service's compliance unchanged. It raises an item in the
+`provisioning` attention category instead: `PROVISIONING_FAILED` when a
+provider reports Failed and `PROVISIONING_STALE` when the last report about
+the current revision is older than the freshness window. A resource that no
+provider ever reported on stays Unknown and raises nothing.
+
+A restricted viewer never sees a provider it may not read. The service's
+`hiddenProviders` says at least that many resources come from such providers,
+counted from the service's own contract and reports, and an environment they
+may provision in reads Unknown. A Failed or stale report about such a provider
+raises attention without naming the adapter or external reference; its usage
+and cost stay out.
+
 ## Use the resource
 
 Each status also shows the provider's external reference for that environment,
@@ -224,6 +262,9 @@ To change a request, edit its values and publish the consumer contract again;
 `pacto_edit` sets environment values with `set_environment_values`. To retire
 it, remove the configuration reference with `remove_configuration_refs` and
 publish.
+
+Resize or delete runs in the provider's tools. pacto_edit refuses a request
+the provider's schema rejects, and pacto validate and push fail on it.
 
 When the platform team ships a new provider version, `pacto impact` and
 `pacto_impact` list every consumer by dependency and by configuration

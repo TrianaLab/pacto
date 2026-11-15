@@ -433,3 +433,44 @@ func TestVerifyObservationKinds(t *testing.T) {
 		})
 	}
 }
+
+func TestKindAllowedWithholdsUsageByDefault(t *testing.T) {
+	if (TrustEntry{}).KindAllowed(evidence.ResourceUsage) {
+		t.Error("an empty allowlist must withhold ResourceUsage")
+	}
+	if (TrustEntry{AllowedObservationKinds: []string{"ResourceProvisioned"}}).KindAllowed(evidence.ResourceUsage) {
+		t.Error("a ResourceProvisioned grant must not grant ResourceUsage")
+	}
+	if !(TrustEntry{AllowedObservationKinds: []string{"ResourceUsage"}}).KindAllowed(evidence.ResourceUsage) {
+		t.Error("a listed ResourceUsage must be allowed")
+	}
+	priv, pub := keyPair(1)
+	e := baseEnvelope()
+	e.EvidenceSet.Observations = []evidence.Observation{evidence.NewResourceUsage(
+		evidence.SubjectRef{Kind: "configuration", Name: "db"},
+		evidence.UsageObservation{Provider: "acme-db", Cost: &evidence.UsageCost{Amount: "1", Currency: "USD", Period: "P30D"}}, prov())}
+	usage := mustSign(t, e, priv)
+	for _, kinds := range [][]string{nil, {"ResourceProvisioned"}} {
+		ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", AllowedObservationKinds: kinds}}
+		if err := Verify(usage, ts, validNow); !errors.Is(err, ErrKindNotAllowed) {
+			t.Errorf("kinds %v: Verify = %v, want ErrKindNotAllowed", kinds, err)
+		}
+	}
+}
+
+func TestRuntimeAllowedIgnoresUsage(t *testing.T) {
+	cases := []struct {
+		kinds []string
+		want  bool
+	}{
+		{nil, true},
+		{[]string{"ResourceUsage"}, false},
+		{[]string{"ResourceUsage", "ResourceProvisioned"}, false},
+		{[]string{"ResourceUsage", "WorkloadObserved"}, true},
+	}
+	for _, tc := range cases {
+		if got := (TrustEntry{AllowedObservationKinds: tc.kinds}).runtimeAllowed(); got != tc.want {
+			t.Errorf("runtimeAllowed(%v) = %v, want %v", tc.kinds, got, tc.want)
+		}
+	}
+}

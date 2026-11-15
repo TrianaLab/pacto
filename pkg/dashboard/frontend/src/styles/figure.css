@@ -451,6 +451,9 @@ a.tl-n:hover { text-decoration: underline; }
 .ph-chips .badge.chip bdi { max-width: 100%; }
 .ph-unknown { grid-area: unknown; grid-template-columns: 28px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; font-size: var(--text-sm); }
 .fig[data-w="col"] .ofig { grid-template-columns: minmax(0, 1fr); grid-template-areas: "prov" "hub" "requested" "provisioning" "ready" "deleting" "failed" "chips" "unknown"; }
+/* The Offerings list figure: the same track with no providers row above the hub. */
+.ofig--fleet { grid-template-areas: "hub requested provisioning ready deleting" ". . failed chips chips" ". unknown unknown unknown unknown"; }
+.fig[data-w="col"] .ofig--fleet { grid-template-areas: "hub" "requested" "provisioning" "ready" "deleting" "failed" "chips" "unknown"; }
 .fig[data-w="col"] .ofig-prov { flex-direction: column; }
 .fig[data-w="col"] .ofig-hub { grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: var(--sp-3); }
 .fig[data-w="col"] .ph { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; }

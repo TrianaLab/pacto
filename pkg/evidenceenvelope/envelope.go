@@ -137,7 +137,7 @@ func Sign(e Envelope, key ed25519.PrivateKey) (Envelope, error) {
 // authorized to claim. Binding the producer id to the key is what stops one
 // trusted key from impersonating another producer; the optional allowlists scope
 // which subjects it may report, which contract repos its evidence may reference
-// and which provider repos its provisioning reports may be about. Rotation is adding a new entry and removing the old one, so a
+// and which provider repos its provisioning and usage reports may be about. Rotation is adding a new entry and removing the old one, so a
 // producer's identity survives a key change without any key being able to assume
 // another producer's identity.
 type TrustEntry struct {
@@ -153,12 +153,13 @@ type TrustEntry struct {
 	// prefixes evidence from this key may reference. Enforced at the ingestion seam.
 	ContractRepos []string
 	// AllowedObservationKinds, when non-empty, is the allowlist of observation
-	// kinds this key may report. Empty means every kind except
-	// ResourceProvisioned, which a key reports only when it lists it, so a
-	// team's runtime-evidence key cannot certify its own resources as Ready.
+	// kinds this key may report. Empty means every kind except the
+	// provider-reported ones (ResourceProvisioned and ResourceUsage), which a key
+	// reports only when it lists them, so a team's runtime-evidence key cannot
+	// certify its own resources as Ready or report their usage and cost.
 	AllowedObservationKinds []string
 	// ProviderRepos, when non-empty, is the allowlist of provider-contract
-	// repository prefixes a provisioning report from this key may be about: the
+	// repository prefixes a provisioning or usage report from this key may be about: the
 	// consumer's declared configuration or dependency ref must name a repository
 	// under one of them. Empty means any provider. Enforced at the ingestion
 	// seam, which holds the consumer contract.
@@ -168,7 +169,7 @@ type TrustEntry struct {
 // KindAllowed reports whether this key may report observations of kind k.
 func (t TrustEntry) KindAllowed(k evidence.ObservationKind) bool {
 	if len(t.AllowedObservationKinds) == 0 {
-		return k != evidence.ResourceProvisioned
+		return !k.ProviderReported()
 	}
 	return slices.Contains(t.AllowedObservationKinds, string(k))
 }
@@ -266,11 +267,11 @@ func (t TrustEntry) authorize(e Envelope) error {
 	return nil
 }
 
-// runtimeAllowed reports whether this key may report any kind other than
-// ResourceProvisioned.
+// runtimeAllowed reports whether this key may report any kind other than the
+// provider-reported ones.
 func (t TrustEntry) runtimeAllowed() bool {
 	return len(t.AllowedObservationKinds) == 0 || slices.ContainsFunc(t.AllowedObservationKinds, func(k string) bool {
-		return k != string(evidence.ResourceProvisioned)
+		return !evidence.ObservationKind(k).ProviderReported()
 	})
 }
 

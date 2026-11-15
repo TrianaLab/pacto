@@ -96,7 +96,7 @@ pacto tui
 # a populated screen from the committed demo fixture
 pacto tui --local examples/demo/bundles \
   --target-state examples/demo/fleet-targets.yaml \
-  --traces examples/demo/traces.json --freshness 24h
+  --traces examples/demo/traces.json
 
 # the same demo with no clone at all, straight out of the registry
 pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""

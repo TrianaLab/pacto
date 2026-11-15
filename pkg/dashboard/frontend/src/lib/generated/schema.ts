@@ -397,7 +397,7 @@ export interface paths {
         };
         /**
          * Search entities
-         * @description Searches services, revisions, targets, owners and sources, returning stable navigable references. Powers global search, graph focus and entity pickers.
+         * @description Searches services, revisions, targets, owners, sources, business domains and platform offerings, returning stable navigable references. Powers global search, graph focus and entity pickers.
          */
         get: operations["fleet-entities"];
         put?: never;
@@ -417,7 +417,7 @@ export interface paths {
         };
         /**
          * Entity detail
-         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.
+         * @description Returns one entity's strongly typed, discriminated detail (service, revision, target, owner, source, domain or offering), keyed by the query-param key so a key containing a slash is transported safely.
          */
         get: operations["fleet-entity-detail"];
         put?: never;
@@ -443,7 +443,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze impact by canonical identity
-         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
+         * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, or offeringKey, every provider of a platform offering, becomes unavailable or is removed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
         delete?: never;
@@ -2084,6 +2084,17 @@ export interface components {
             /** Format: int64 */
             required: number;
         };
+        "Evidence.UsageCost": {
+            amount: string;
+            currency: string;
+            period: string;
+        };
+        "Evidence.UsageMetric": {
+            name: string;
+            unit?: string;
+            /** Format: double */
+            value: number;
+        };
         ExplanationStatusStruct: {
             actorClass?: string;
             message?: string;
@@ -2118,6 +2129,25 @@ export interface components {
             category: string;
             /** Format: int64 */
             count: number;
+        };
+        "Fleet.Availability": {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            /** @description The state per environment, bounded */
+            byEnvironment: components["schemas"]["Fleet.EnvironmentAvailability"][] | null;
+            /**
+             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
         };
         "Fleet.BundleProvenance": {
             /** Format: date-time */
@@ -2328,6 +2358,9 @@ export interface components {
             distinctOwners?: number;
             /** Format: int64 */
             domains: number;
+            failedByOffering?: components["schemas"]["Fleet.TypeCount"][] | null;
+            /** Format: int64 */
+            failedOfferingsBeyond?: number;
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -2348,6 +2381,8 @@ export interface components {
             nonCompliantUnidentified?: number;
             /** Format: int64 */
             offeringCount: number;
+            offeringPhaseConsumers: components["schemas"]["Fleet.PhaseTally"];
+            offeringPhases: components["schemas"]["Fleet.PhaseTally"];
             /** Format: int64 */
             offeringTypes?: number;
             offerings?: components["schemas"]["Fleet.TypeCount"][] | null;
@@ -2372,19 +2407,31 @@ export interface components {
             unidentifiedOwnership?: number;
         };
         "Fleet.EntityRef": {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -2404,8 +2451,46 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
             version?: string;
+        };
+        "Fleet.EnvironmentAvailability": {
+            /** @description The environment label of the targets; empty for targets with no label */
+            environment: string;
+            /**
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @enum {string}
+             */
+            provenance: "observed" | "inferred" | "unknown";
+            /** @description On an offering: the providers whose state this is */
+            providers?: components["schemas"]["Fleet.EntityRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
+            /**
+             * Format: int64
+             * @description Provider targets with fresh evidence
+             */
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            /** @description Consumer targets that report they cannot reach it, bounded */
+            unreachable?: components["schemas"]["Fleet.EntityRef"][] | null;
         };
         "Fleet.EnvironmentResult": {
             /** @description Inferred: expires is at or before this answer's asOf. Nothing is deleted */
@@ -2482,6 +2567,7 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -2655,6 +2741,8 @@ export interface components {
             invalidRevisions: number;
             /** Format: int64 */
             invalidTargets: number;
+            /** Format: int64 */
+            lifecycleConsumers: number;
             /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
@@ -2957,6 +3045,27 @@ export interface components {
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
+        };
+        "Fleet.ResourceConsumption": {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
+            environment?: string;
+            externalRef?: string;
+            figures?: components["schemas"]["Fleet.UsageFigures"];
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reported?: components["schemas"]["Fleet.UsageFigures"];
+            source?: string;
+            stale?: boolean;
+            /** @enum {string} */
+            state: "reported" | "unknown" | "not-reported";
+            verified?: boolean;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -3297,6 +3406,35 @@ export interface components {
             sources: string[] | null;
             toService: string;
         };
+        "Fleet.UsageFigures": {
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+        };
+        "Fleet.UsageRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            cost?: components["schemas"]["Evidence.UsageCost"];
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            metrics?: components["schemas"]["Evidence.UsageMetric"][] | null;
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            stale: boolean;
+            verified: boolean;
+        };
         "Fleet.ValidationStage": {
             name: string;
             reason?: string;
@@ -3447,9 +3585,11 @@ export interface components {
              * @enum {string}
              */
             kind: "unavailable" | "removed" | "regressed";
+            /** @description A platform offering: the event is about every service that provides it */
+            offering?: string;
             /** @description The revision that regressed: a version or an artifact digest */
             revision?: string;
-            /** @description The fleet service key of the service */
+            /** @description The fleet service key of the service; empty when the event is about an offering */
             service: string;
         };
         "Impact.Evidence": {
@@ -3540,6 +3680,8 @@ export interface components {
             /** @description The canonical owner keys of the affected consumers */
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
+            /** @description The service keys of the services that provide the offering of an offering event */
+            providers?: string[] | null;
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             schemaVersion: string;
             service: string;
@@ -3568,6 +3710,8 @@ export interface components {
              * @description Max consumers per page (negatives rejected; excessive values capped)
              */
             limit?: number;
+            /** @description With event unavailable or removed: a platform offering instead of serviceKey */
+            offeringKey?: string;
             /**
              * Format: int64
              * @description Consumer page offset (negatives rejected)
@@ -3885,7 +4029,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "golden-path" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "provisioning" | "readiness" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -3945,6 +4089,24 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        ProductAvailability: {
+            /**
+             * Format: date-time
+             * @description The snapshot time the evidence is judged against
+             */
+            asOf: string;
+            byEnvironment: components["schemas"]["ProductEnvironmentAvailability"][] | null;
+            /**
+             * @description available when every environment is, unavailable when every one is, unknown when every one is or none is listed, else degraded
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Environments before the bound
+             */
+            total: number;
         };
         ProductConfigurationSummary: {
             configuration?: string;
@@ -4042,6 +4204,41 @@ export interface components {
             /** @enum {string} */
             severity?: "error" | "warning" | "info";
             view: string;
+        };
+        ProductEnvironmentAvailability: {
+            /** @description The environment label of the targets; empty for targets with no label */
+            environment: string;
+            /**
+             * Format: date-time
+             * @description The newest fresh evidence the state reads
+             */
+            evidenceAt?: string;
+            /** @description Consumers or providers the viewer may not see are not counted */
+            partial?: boolean;
+            /**
+             * @description observed from the provider's own targets, inferred from consumer reports, unknown when nothing fresh is seen
+             * @enum {string}
+             */
+            provenance: "observed" | "inferred" | "unknown";
+            providers?: components["schemas"]["ProductRef"][] | null;
+            /** @description Why the state is what it is */
+            reason: string;
+            /**
+             * Format: int64
+             * @description Provider targets with fresh evidence
+             */
+            reporting: number;
+            /**
+             * @description Whether the capability answers here
+             * @enum {string}
+             */
+            state: "available" | "degraded" | "unavailable" | "unknown";
+            /**
+             * Format: int64
+             * @description Provider targets in this environment the viewer can see
+             */
+            targets: number;
+            unreachable?: components["schemas"]["ProductRef"][] | null;
         };
         ProductEnvironmentEvent: {
             /**
@@ -4157,8 +4354,12 @@ export interface components {
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
+            /** @description The platform offering an offering event is about; service is then the same offering reference */
+            offering?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
             owners: components["schemas"]["ProductRefPreview"];
+            /** @description The services that provide the offering of an offering event, each with its owner */
+            providers?: components["schemas"]["ProductRef"][] | null;
             /** @description The delivery evidence about a regressed revision, at most 50 */
             regression?: components["schemas"]["Impact.RegressionEvidence"][] | null;
             service: components["schemas"]["ProductRef"];
@@ -4299,23 +4500,53 @@ export interface components {
             revisionState?: string;
             status?: string;
         };
+        ProductObservedConsumer: {
+            /** @description A caller no contract describes */
+            caller?: string;
+            consumer?: components["schemas"]["ProductRef"];
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider: components["schemas"]["ProductRef"];
+            sources?: string[] | null;
+            stale?: boolean;
+            uncontracted?: boolean;
+        };
+        ProductObservedConsumersPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductObservedConsumer"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductOfferingDetail: {
+            availability: components["schemas"]["ProductAvailability"];
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
             /** Format: int64 */
             hiddenConsumers: number;
+            /** Format: int64 */
+            hiddenObservedConsumers: number;
+            /** Format: int64 */
+            hiddenProviders?: number;
+            observedConsumers: components["schemas"]["ProductObservedConsumersPreview"];
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {
+            availability: components["schemas"]["ProductAvailability"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            latestSupported?: components["schemas"]["ProductRef"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             service: components["schemas"]["ProductRef"];
+            successor?: components["schemas"]["ProductSuccessorInfo"];
             summary?: string;
             versions: components["schemas"]["ProductProviderVersions"];
         };
@@ -4334,12 +4565,21 @@ export interface components {
         ProductOfferingUse: {
             compatibility?: string;
             consumer: components["schemas"]["ProductRef"];
+            consumption?: components["schemas"]["Fleet.ResourceConsumption"][] | null;
             offering: string;
             provider: components["schemas"]["ProductRef"];
+            providerAvailability?: components["schemas"]["Fleet.Availability"];
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            providerOwner?: components["schemas"]["ProductOwnership"];
             provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            requested?: components["schemas"]["ProductRequestedConfiguration"][] | null;
+            requestedTruncated?: boolean;
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            supportedRange?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
             via: "dependency" | "configuration_reference" | "policy_reference";
         };
@@ -4444,6 +4684,9 @@ export interface components {
             latestCompatible?: components["schemas"]["ProductRef"];
             note: string;
             range?: string;
+            successor?: components["schemas"]["ProductSuccessorInfo"];
+            /** @enum {string} */
+            successorRange?: "satisfied" | "unsatisfied" | "unknown";
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -4471,20 +4714,32 @@ export interface components {
             verified: boolean;
         };
         ProductRef: {
+            /** @enum {string} */
+            availability?: "available" | "degraded" | "unavailable" | "unknown";
+            /** @enum {string} */
+            availabilityProvenance?: "observed" | "inferred" | "unknown";
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            consumers?: number;
             /** Format: int64 */
             created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: int64 */
+            failedRequests?: number;
             /** Format: date-time */
             fetchedAt?: string;
+            /** Format: int64 */
+            hiddenConsumers?: number;
             href: string;
             key: string;
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            /** @enum {string} */
+            lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -4504,6 +4759,7 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            targetsUnknown?: boolean;
             template?: boolean;
             version?: string;
         };
@@ -4528,6 +4784,14 @@ export interface components {
             /** Format: int64 */
             total?: number;
             truncated: boolean;
+        };
+        ProductRequestedConfiguration: {
+            configuration?: string;
+            entry: string;
+            /** @enum {string} */
+            provenance: "declared";
+            revision?: components["schemas"]["ProductRef"];
+            values: components["schemas"]["Fleet.RuntimePreview"];
         };
         ProductRevisionDetail: {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
@@ -4613,6 +4877,11 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            /**
+             * Format: int64
+             * @description At least this many resources this service uses come from providers you may not see; counted from your own contract and reports, never named
+             */
+            hiddenProviders?: number;
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
@@ -4646,6 +4915,13 @@ export interface components {
             revisionCount: number;
             /** Format: int64 */
             targetCount: number;
+        };
+        ProductSuccessorInfo: {
+            /** @enum {string} */
+            provenance: "inferred" | "unknown";
+            reason?: string;
+            ref: string;
+            revision?: components["schemas"]["ProductRef"];
         };
         ProductTargetDetail: {
             /** @enum {string} */
@@ -6887,8 +7163,12 @@ export interface operations {
                 hasNonCompliant?: boolean;
                 /** @description Exact source kind (oci, kubernetes, evidence-http, ...) for source entities */
                 sourceKind?: string;
-                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first) or created (golden paths that created the most services first); absent orders by kind then key */
-                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created";
+                /** @description Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by their worst provider, service entities by their newest readable revision */
+                lifecycle?: "deprecated" | "sunset";
+                /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
+                failed?: boolean;
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most failed provisioning requests first) or consumers (offerings with the most declared consumers first); absent orders by kind then key */
+                sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -45,10 +46,19 @@ const (
 	ConfigurationPresent ObservationKind = "ConfigurationPresent"
 	PersistenceObserved  ObservationKind = "PersistenceObserved"
 	ResourceProvisioned  ObservationKind = "ResourceProvisioned"
+	ResourceUsage        ObservationKind = "ResourceUsage"
 )
 
 // Known reports whether k is an observation kind this build understands.
 func (k ObservationKind) Known() bool { return len(k.subjectKinds()) > 0 }
+
+// ProviderReported reports whether k is a kind a provider adapter reports about
+// the resource a consumer asked for (ResourceProvisioned and ResourceUsage),
+// never about the consumer's own runtime. A key reports these only when its
+// allowlist lists them.
+func (k ObservationKind) ProviderReported() bool {
+	return k == ResourceProvisioned || k == ResourceUsage
+}
 
 // Outcome is the collection verdict. Exactly Observed carries a payload. There is NO OutcomeAbsent.
 type Outcome string
@@ -73,6 +83,10 @@ func (o Outcome) Valid() bool {
 // Typed payloads carry observed FACTS only; identity is on SubjectRef (INV-1b migration).
 type CapabilityObservation struct {
 	Present bool `json:"present"`
+	// Healthy is what the capability's own check reported when it answered: false when a declared health
+	// endpoint answered 5xx or a declared readiness probe on it is failing; nil when not reported. It
+	// requires Present == true: an absent capability reports no health.
+	Healthy *bool `json:"healthy,omitempty"`
 }
 type WorkloadObservation struct {
 	Type string `json:"type"`
@@ -160,6 +174,15 @@ func (o Observation) ProvisionedEnvironment() string {
 	return o.Subject.Environment
 }
 
+// UsageEnvironment is the consumer environment a ResourceUsage observation is
+// about: the payload's for an Observed one, the subject's otherwise.
+func (o Observation) UsageEnvironment() string {
+	if p, err := o.GetUsageObservation(); err == nil {
+		return p.Environment
+	}
+	return o.Subject.Environment
+}
+
 // ValidateProvisioned checks a ResourceProvisioned payload beyond its shape. The
 // fleet applies it again to every provisioning record it ingests.
 func ValidateProvisioned(p ProvisionedObservation) error {
@@ -168,14 +191,130 @@ func ValidateProvisioned(p ProvisionedObservation) error {
 		return fmt.Errorf("provider %q must be a lowercase slug of at most %d bytes", p.Provider, maxSlugBytes)
 	case !p.Phase.valid():
 		return fmt.Errorf("unknown phase %q", p.Phase)
-	case len(p.ExternalRef) > maxExternalRefBytes:
+	}
+	return validResourceRef(p.ExternalRef, p.Environment)
+}
+
+// validResourceRef applies the rules a provisioning and a usage report share to
+// the external reference and the environment.
+func validResourceRef(externalRef, environment string) error {
+	switch {
+	case len(externalRef) > maxExternalRefBytes:
 		return fmt.Errorf("externalRef exceeds %d bytes", maxExternalRefBytes)
-	case strings.ContainsFunc(p.ExternalRef, func(r rune) bool { return !unicode.IsPrint(r) }):
+	case strings.ContainsFunc(externalRef, func(r rune) bool { return !unicode.IsPrint(r) }):
 		return errors.New("externalRef must be printable text")
-	case credentialURL.MatchString(p.ExternalRef):
+	case credentialURL.MatchString(externalRef):
 		return errors.New("externalRef must not carry URL credentials")
-	case p.Environment != "" && !validSlug(p.Environment):
-		return fmt.Errorf("environment %q must be a lowercase slug of at most %d bytes", p.Environment, maxSlugBytes)
+	case environment != "" && !validSlug(environment):
+		return fmt.Errorf("environment %q must be a lowercase slug of at most %d bytes", environment, maxSlugBytes)
+	}
+	return nil
+}
+
+// UsageObservation is a provider's report on how much of the resource a
+// consumer asked for is used, and what it costs. Like ProvisionedObservation it
+// is limited by design: strict decode rejects any other key, a report carries
+// at least one metric or a cost, and Pacto never sums or converts the figures.
+type UsageObservation struct {
+	Provider    string        `json:"provider"`
+	ExternalRef string        `json:"externalRef,omitempty"`
+	Environment string        `json:"environment,omitempty"`
+	Metrics     []UsageMetric `json:"metrics,omitempty"`
+	Cost        *UsageCost    `json:"cost,omitempty"`
+}
+
+// UsageMetric is one measured quantity, such as storage-used 31 Gi.
+type UsageMetric struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit,omitempty"`
+}
+
+// UsageCost is what the resource costs over Period: Amount is a decimal string,
+// Currency an ISO 4217 code and Period an ISO 8601 duration of one unit from
+// P1D to P1Y.
+type UsageCost struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+	Period   string `json:"period"`
+}
+
+// Bounds on a ResourceUsage payload.
+const (
+	maxUsageMetrics = 16
+	// maxMetricValue keeps a figure readable and far from float64's edge.
+	maxMetricValue = 1e18
+)
+
+var (
+	unitPattern     = regexp.MustCompile(`^[!-~]{1,16}$`)
+	amountPattern   = regexp.MustCompile(`^[0-9]{1,15}(\.[0-9]{1,6})?$`)
+	currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
+	periodPattern   = regexp.MustCompile(`^P([0-9]{1,3})([DWMY])$`)
+)
+
+// periodDays is the approximate length of one unit of a cost period, in days.
+var periodDays = map[string]int{"D": 1, "W": 7, "M": 30, "Y": 365}
+
+// ValidateUsage checks a ResourceUsage payload beyond its shape. The fleet
+// applies it again to every usage record it ingests.
+func ValidateUsage(p UsageObservation) error {
+	switch {
+	case !validSlug(p.Provider):
+		return fmt.Errorf("provider %q must be a lowercase slug of at most %d bytes", p.Provider, maxSlugBytes)
+	case len(p.Metrics) == 0 && p.Cost == nil:
+		return errors.New("a usage report carries at least one metric or a cost")
+	case len(p.Metrics) > maxUsageMetrics:
+		return fmt.Errorf("a usage report carries at most %d metrics", maxUsageMetrics)
+	}
+	if err := validResourceRef(p.ExternalRef, p.Environment); err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(p.Metrics))
+	for _, m := range p.Metrics {
+		if err := validateMetric(m); err != nil {
+			return err
+		}
+		if seen[m.Name] {
+			return fmt.Errorf("metric %q is reported twice", m.Name)
+		}
+		seen[m.Name] = true
+	}
+	if p.Cost != nil {
+		return validateCost(*p.Cost)
+	}
+	return nil
+}
+
+func validateMetric(m UsageMetric) error {
+	switch {
+	case !validSlug(m.Name):
+		return fmt.Errorf("metric name %q must be a lowercase slug of at most %d bytes", m.Name, maxSlugBytes)
+	case m.Unit != "" && !unitPattern.MatchString(m.Unit):
+		return fmt.Errorf("metric %q unit must be at most 16 printable ASCII bytes", m.Name)
+	// The negated range also refuses NaN, which fails every comparison.
+	case !(m.Value >= 0 && m.Value <= maxMetricValue):
+		return fmt.Errorf("metric %q value must be a number from 0 to %g", m.Name, maxMetricValue)
+	}
+	return nil
+}
+
+func validateCost(c UsageCost) error {
+	switch {
+	case !amountPattern.MatchString(c.Amount):
+		return fmt.Errorf("cost amount %q must be a decimal such as 212.40", c.Amount)
+	case !currencyPattern.MatchString(c.Currency):
+		return fmt.Errorf("cost currency %q must be an ISO 4217 code such as USD", c.Currency)
+	}
+	// ponytail: one unit per period (P30D, P1M, P1Y); a combined duration such as
+	// P1M15D is refused. Add a full ISO 8601 parser if an adapter needs one.
+	m := periodPattern.FindStringSubmatch(c.Period)
+	if m == nil {
+		return fmt.Errorf("cost period %q must be an ISO 8601 duration such as P30D", c.Period)
+	}
+	n, _ := strconv.Atoi(m[1]) // at most three digits, so it parses
+	if days := n * periodDays[m[2]]; days < 1 || days > 365 {
+		return fmt.Errorf("cost period %q must be from P1D to P1Y", c.Period)
 	}
 	return nil
 }
@@ -224,7 +363,7 @@ func (k ObservationKind) subjectKinds() []string {
 		return []string{"configuration"}
 	case WorkloadObserved, PersistenceObserved:
 		return []string{"service"}
-	case ResourceProvisioned:
+	case ResourceProvisioned, ResourceUsage:
 		return []string{"configuration", "dependency"}
 	}
 	return nil
@@ -259,15 +398,15 @@ func (o Observation) validate() error {
 }
 
 // checkSubjectEnvironment allows Subject.Environment only where a payload cannot carry it: on a
-// non-Observed ResourceProvisioned observation, as a lowercase slug.
+// non-Observed provider-reported observation, as a lowercase slug.
 func (o Observation) checkSubjectEnvironment() error {
 	switch env := o.Subject.Environment; {
 	case env == "":
 		return nil
-	case o.Kind != ResourceProvisioned:
+	case !o.Kind.ProviderReported():
 		return fmt.Errorf("kind %s takes no subject environment", o.Kind)
 	case o.Outcome == Observed:
-		return errors.New("an Observed ResourceProvisioned observation names its environment in the payload")
+		return fmt.Errorf("an Observed %s observation names its environment in the payload", o.Kind)
 	case !ValidEnvironment(env):
 		return fmt.Errorf("subject environment %q must be a lowercase slug of at most %d bytes", env, maxSlugBytes)
 	}
@@ -286,6 +425,7 @@ var verdictKeys = map[ObservationKind][]string{
 	ConfigurationPresent: {"present"},
 	PersistenceObserved:  {"durable"},
 	ResourceProvisioned:  {"provider", "phase"},
+	ResourceUsage:        {"provider"},
 }
 
 // checkKind proves Value decodes as the payload type for Kind. Rejects EXTRA fields and any payload that
@@ -297,7 +437,10 @@ func (o Observation) checkKind() error {
 	var err error
 	switch o.Kind {
 	case CapabilityObserved:
-		_, err = decode[CapabilityObservation](o.Value)
+		var p CapabilityObservation
+		if p, err = decode[CapabilityObservation](o.Value); err == nil && p.Healthy != nil && !p.Present {
+			err = errors.New("an absent capability reports no health")
+		}
 	case WorkloadObserved:
 		_, err = decode[WorkloadObservation](o.Value)
 	case InterfaceObserved:
@@ -308,16 +451,32 @@ func (o Observation) checkKind() error {
 		_, err = decode[ConfigurationObservation](o.Value)
 	case PersistenceObserved:
 		_, err = decode[PersistenceObservation](o.Value)
-	case ResourceProvisioned:
-		var p ProvisionedObservation
-		if p, err = decode[ProvisionedObservation](o.Value); err == nil {
-			err = ValidateProvisioned(p)
-		}
+	case ResourceProvisioned, ResourceUsage:
+		err = o.checkProviderPayload()
 	}
 	if err != nil {
 		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
 	}
 	return nil
+}
+
+// checkProviderPayload decodes and validates a provider-reported payload.
+func (o Observation) checkProviderPayload() error {
+	if o.Kind == ResourceProvisioned {
+		p, err := decode[ProvisionedObservation](o.Value)
+		if err != nil {
+			return err
+		}
+		return ValidateProvisioned(p)
+	}
+	if err := checkMetricValues(o.Value); err != nil {
+		return err
+	}
+	p, err := decode[UsageObservation](o.Value)
+	if err != nil {
+		return err
+	}
+	return ValidateUsage(p)
 }
 
 func (o Observation) checkVerdictKeys() error {
@@ -332,6 +491,23 @@ func (o Observation) checkVerdictKeys() error {
 	for _, k := range required {
 		if v, ok := keys[k]; !ok || string(v) == "null" {
 			return fmt.Errorf("missing required key %q", k)
+		}
+	}
+	return nil
+}
+
+// checkMetricValues rejects a usage metric with no value: a missing value would
+// decode as 0 and read as a confirmed zero usage.
+func checkMetricValues(raw json.RawMessage) error {
+	var p struct {
+		Metrics []map[string]json.RawMessage `json:"metrics"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	for i, m := range p.Metrics {
+		if v, ok := m["value"]; !ok || string(v) == "null" {
+			return fmt.Errorf("metrics[%d]: missing required key \"value\"", i)
 		}
 	}
 	return nil
@@ -389,6 +565,14 @@ func NewCapabilityObserved(subject SubjectRef, present bool, prov Provenance) Ob
 		Value: mustMarshal(CapabilityObservation{Present: present}), Provenance: prov}
 }
 
+// NewCapabilityFailing constructs an Observed capability observation for a capability that answered but
+// reports it is not healthy (a 5xx from its health endpoint, or a failing readiness probe on it).
+func NewCapabilityFailing(subject SubjectRef, prov Provenance) Observation {
+	unhealthy := false
+	return Observation{Kind: CapabilityObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(CapabilityObservation{Present: true, Healthy: &unhealthy}), Provenance: prov}
+}
+
 // NewWorkloadObserved constructs an Observed workload observation.
 func NewWorkloadObserved(subject SubjectRef, wType string, prov Provenance) Observation {
 	return Observation{Kind: WorkloadObserved, Subject: subject, Outcome: Observed,
@@ -442,6 +626,13 @@ func NewPersistenceObservation(subject SubjectRef, p PersistenceObservation, pro
 // observation is marshalled or checked with ValidateEvidenceSet.
 func NewResourceProvisioned(subject SubjectRef, p ProvisionedObservation, prov Provenance) Observation {
 	return Observation{Kind: ResourceProvisioned, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(p), Provenance: prov}
+}
+
+// NewResourceUsage constructs an Observed usage report. The payload must pass
+// ValidateUsage first: a non-finite value cannot be marshalled.
+func NewResourceUsage(subject SubjectRef, p UsageObservation, prov Provenance) Observation {
+	return Observation{Kind: ResourceUsage, Subject: subject, Outcome: Observed,
 		Value: mustMarshal(p), Provenance: prov}
 }
 
@@ -502,6 +693,11 @@ func (o Observation) GetPersistenceObservation() (PersistenceObservation, error)
 // GetProvisionedObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetProvisionedObservation() (ProvisionedObservation, error) {
 	return get[ProvisionedObservation](o, ResourceProvisioned)
+}
+
+// GetUsageObservation returns the typed payload iff Outcome == Observed and Kind matches.
+func (o Observation) GetUsageObservation() (UsageObservation, error) {
+	return get[UsageObservation](o, ResourceUsage)
 }
 
 // ValidateEvidenceSet checks structural validity of an EvidenceSet: top-level identity/source/timestamp

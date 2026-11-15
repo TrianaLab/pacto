@@ -2,6 +2,7 @@ package fleetsrc
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -33,8 +34,9 @@ type TargetStateFileSource struct {
 // TargetStateSchemaV1 is the schemaVersion of a v1 target-state file.
 const TargetStateSchemaV1 = "pacto.dev/fleet-targets/v1"
 
-// TargetStateSchemaV2 is v1 plus provisioning reports. The file is unsigned,
-// so every surface shows its reports as unverified.
+// TargetStateSchemaV2 is v1 plus provisioning and usage reports. The file is
+// unsigned, so every surface shows its reports as unverified and its usage
+// figures as unknown.
 const TargetStateSchemaV2 = "pacto.dev/fleet-targets/v2"
 
 // maxTargetFixtures bounds how many targets a single fixture file may declare.
@@ -73,8 +75,8 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 	if doc.SchemaVersion != TargetStateSchemaV1 && doc.SchemaVersion != TargetStateSchemaV2 {
 		return nil, fmt.Errorf("target-state %s: unsupported schemaVersion %q (want %q or %q)", s.path, doc.SchemaVersion, TargetStateSchemaV1, TargetStateSchemaV2)
 	}
-	if doc.SchemaVersion == TargetStateSchemaV1 && doc.Provisioning != nil {
-		return nil, fmt.Errorf("target-state %s: provisioning needs schemaVersion %q", s.path, TargetStateSchemaV2)
+	if doc.SchemaVersion == TargetStateSchemaV1 && (doc.Provisioning != nil || doc.Usage != nil) {
+		return nil, fmt.Errorf("target-state %s: provisioning and usage need schemaVersion %q", s.path, TargetStateSchemaV2)
 	}
 	if len(doc.Targets) > maxTargetFixtures {
 		return nil, fmt.Errorf("target-state %s: %d targets exceeds the limit of %d", s.path, len(doc.Targets), maxTargetFixtures)
@@ -95,10 +97,27 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 	for _, p := range doc.Provisioning {
 		col.Provisioning = append(col.Provisioning, p.toRaw())
 	}
+	s.collectUsage(col, doc.Usage)
 	if doc.State != nil {
 		col.State = doc.State.toState()
 	}
 	return col, nil
+}
+
+// collectUsage adds each usage report to col, or a limitation for one it
+// cannot carry.
+func (s *TargetStateFileSource) collectUsage(col *fleet.Collection, usage []usageFixture) {
+	for i, u := range usage {
+		raw, reason := u.toRaw()
+		if reason != "" {
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: fmt.Sprintf("usage entry %d is invalid and was skipped: %s", i, reason),
+			})
+			continue
+		}
+		col.Usage = append(col.Usage, raw)
+	}
 }
 
 // decodeTargetStateStrict decodes with KnownFields so unknown fields are
@@ -123,6 +142,7 @@ type targetStateDoc struct {
 	SchemaVersion string                `yaml:"schemaVersion" json:"schemaVersion"`
 	Targets       []targetFixture       `yaml:"targets" json:"targets"`
 	Provisioning  []provisioningFixture `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
+	Usage         []usageFixture        `yaml:"usage,omitempty" json:"usage,omitempty"`
 	State         *stateFixture         `yaml:"state,omitempty" json:"state,omitempty"`
 }
 
@@ -154,6 +174,50 @@ func (p provisioningFixture) toRaw() fleet.RawProvisioning {
 		Service: p.Service, Domain: p.Domain, Digest: p.Digest, Kind: p.Kind, Name: p.Name, Environment: p.Environment,
 		Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: outcome, Producer: p.Producer, ObservedAt: p.ObservedAt,
 	}
+}
+
+// usageFixture is one usage report (v2) about what the consumer revision
+// (service, domain, digest) asked for through its configuration reference or
+// dependency (kind, name). An empty outcome is Observed. The file is unsigned,
+// so the fleet never shows its figures as reported.
+type usageFixture struct {
+	Service     string              `yaml:"service" json:"service"`
+	Domain      string              `yaml:"domain,omitempty" json:"domain,omitempty"`
+	Digest      string              `yaml:"digest" json:"digest"`
+	Kind        string              `yaml:"kind" json:"kind"`
+	Name        string              `yaml:"name" json:"name"`
+	Environment string              `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Provider    string              `yaml:"provider,omitempty" json:"provider,omitempty"`
+	ExternalRef string              `yaml:"externalRef,omitempty" json:"externalRef,omitempty"`
+	Metrics     []metricFixture     `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+	Cost        *evidence.UsageCost `yaml:"cost,omitempty" json:"cost,omitempty"`
+	Outcome     string              `yaml:"outcome,omitempty" json:"outcome,omitempty"`
+	ObservedAt  time.Time           `yaml:"observedAt" json:"observedAt"`
+	Producer    string              `yaml:"producer,omitempty" json:"producer,omitempty"`
+}
+
+// metricFixture is one usage metric. Value is a pointer so a metric with no
+// value is refused instead of read as a measured zero.
+type metricFixture struct {
+	Name  string   `yaml:"name" json:"name"`
+	Value *float64 `yaml:"value" json:"value"`
+	Unit  string   `yaml:"unit,omitempty" json:"unit,omitempty"`
+}
+
+// toRaw converts u, or returns why it cannot: a metric with no value.
+func (u usageFixture) toRaw() (fleet.RawUsage, string) {
+	var metrics []evidence.UsageMetric
+	for _, m := range u.Metrics {
+		if m.Value == nil {
+			return fleet.RawUsage{}, fmt.Sprintf("metric %q has no value", m.Name)
+		}
+		metrics = append(metrics, evidence.UsageMetric{Name: m.Name, Value: *m.Value, Unit: m.Unit})
+	}
+	return fleet.RawUsage{
+		Service: u.Service, Domain: u.Domain, Digest: u.Digest, Kind: u.Kind, Name: u.Name, Environment: u.Environment,
+		Provider: u.Provider, ExternalRef: u.ExternalRef, Metrics: metrics, Cost: u.Cost,
+		Outcome: cmp.Or(u.Outcome, string(evidence.Observed)), Producer: u.Producer, ObservedAt: u.ObservedAt,
+	}, ""
 }
 
 type targetFixture struct {

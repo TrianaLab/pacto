@@ -51,7 +51,10 @@ export function phaseLabel(st: ProvisioningStatus, now: number = Date.now()): st
     return `Unknown: ${st.reason || 'no provider has reported'}`;
   }
   const when = formatRelative(st.asOf, now);
-  if (!st.verified) return `${st.phase} (unsigned target-state file, ${when})`;
+  if (!st.verified) {
+    const via = st.sourceKind === 'target-state' ? 'target-state file' : `report through ${st.source || 'an unnamed source'}`;
+    return `${st.phase} (unsigned ${via}, ${when})`;
+  }
   return `${st.phase} (reported by ${st.producer || 'an unnamed producer'} through ${st.source}, ${when})`;
 }
 

@@ -51,7 +51,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
 	"signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, correlate, " +
-	"get_trace and render_rca) with the service names Pacto reports, and cite them. A Mira read " +
+	"get_trace and render_rca) with the service names Pacto reports, and cite them; ask query_metric about a " +
+	"resource's utilization and cost too, unless a resource carries reported consumption. A Mira read " +
 	"with no spans is unknown, never healthy."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
@@ -332,8 +333,11 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_status",
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
-			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services with no declared owner, " +
-			"undeclared runtime dependencies and running services that declare service.template (GOLDEN_PATH_DEPLOYED). 'total' and 'truncated' say whether the limit cut the list. With no category " +
+			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
+			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services with no declared owner, " +
+			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
+			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
+			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
@@ -344,6 +348,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"missing_readiness":    {Type: "boolean", Description: "Revisions without a readiness assessment"},
 			"unresolved_deps":      {Type: "boolean", Description: "Unresolved declared dependencies"},
 			"unsatisfied_ranges":   {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
+			"lifecycle":            {Type: "boolean", Description: "Services that use a deprecated or past-sunset provider, or whose range refuses its successor"},
 			"unowned":              {Type: "boolean", Description: "Services with no declared owner"},
 			"undeclared":           {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
 			"golden_path_deployed": {Type: "boolean", Description: "Running services that declare service.template (GOLDEN_PATH_DEPLOYED)"},
@@ -362,8 +367,10 @@ type fleetStatusArgs struct {
 	UnresolvedDeps   bool `json:"unresolved_deps"`
 	// UnsatisfiedRanges selects DEPENDENCY_RANGE_UNSATISFIED items.
 	UnsatisfiedRanges bool `json:"unsatisfied_ranges"`
-	Unowned           bool `json:"unowned"`
-	Undeclared        bool `json:"undeclared"`
+	// Lifecycle selects the lifecycle category.
+	Lifecycle  bool `json:"lifecycle"`
+	Unowned    bool `json:"unowned"`
+	Undeclared bool `json:"undeclared"`
 	// GoldenPathDeployed selects GOLDEN_PATH_DEPLOYED items.
 	GoldenPathDeployed bool `json:"golden_path_deployed"`
 	Limit              int  `json:"limit"`
@@ -375,7 +382,7 @@ func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, a
 			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
-			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges,
+			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges, Lifecycle: a.Lifecycle,
 			Unowned: a.Unowned, Undeclared: a.Undeclared, GoldenPathDeployed: a.GoldenPathDeployed, Limit: a.Limit,
 		}))
 		return r, nil, err
@@ -422,7 +429,10 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"the rest, so the rows and counts sum to serviceCompliance.nonCompliant. Owner and domain rows carry nonCompliant " +
 			"(an owner's: the services it owns outright, 'owned'); has_non_compliant keeps the ones with at least one and " +
 			"sort=rate orders them by their share. source_kind keeps the sources of one kind; meta.sourceCounts.availableByKind " +
-			"counts the available ones per kind. Read-only.",
+			"counts the available ones per kind. Offering rows carry owner, lifecycle, availability with availabilityProvenance " +
+			"(observed, inferred or unknown), consumers, hiddenConsumers, failedRequests and targetsUnknown; aggregate.offeringPhases " +
+			"tallies their requests by phase. lifecycle keeps offerings or services that are deprecated or sunset, and failed keeps " +
+			"offerings with a failed provisioning request. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":              {Type: "string", Description: "Substring over name, key and owner"},
 			"kind":              {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
@@ -437,9 +447,11 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
-			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, or golden paths that created the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated}},
+			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, or offerings with the most failed provisioning requests or the most declared consumers first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers}},
 			"has_non_compliant": {Type: "boolean", Description: "Owners and domains with at least one non-compliant service only"},
 			"source_kind":       {Type: "string", Description: "Sources of this exact kind only (oci, kubernetes, evidence-http, ...)"},
+			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle, or services whose own lifecycle, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
+			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -463,6 +475,8 @@ type fleetEntitiesArgs struct {
 	Sort            string `json:"sort"`
 	HasNonCompliant bool   `json:"has_non_compliant"`
 	SourceKind      string `json:"source_kind"`
+	Lifecycle       string `json:"lifecycle"`
+	Failed          bool   `json:"failed"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
@@ -488,7 +502,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Environment: a.Environment, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
-			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind,
+			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 		}))
 	}
 }
@@ -512,7 +526,20 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"expires and an inferred 'expired'), 'owner' with provenance declared, inferred or unknown, 'provisioning' with " +
 			"'provisioningTracked', 'targetsComplete' and the 'differences' between the environments' values; and " +
 			"'environmentHistory', the environment changes between the versions held in version order (no time is " +
-			"recorded, so it is never a timeline), with 'gaps' and 'completeness'. Hidden services are only counted, in the hidden fields. Read-only.",
+			"recorded, so it is never a timeline), with 'gaps' and 'completeness'. An offering carries 'availability' and each provider its own: per " +
+			"environment a 'state' (available, degraded, unavailable or unknown) derived from observed targets and consumer reports, never " +
+			"from compliance, with 'provenance', 'reason' and 'partial' when the viewer may not see every consumer or provider; " +
+			"'hiddenProviders' counts the providers you may not see. 'observedConsumers' lists callers seen at runtime with no declaration. " +
+			"Each provider names its 'successor' (unknown when it resolves to no revision) and 'latestSupported', and each use its " +
+			"'successorRange'. A service's uses are the resources it consumes: each carries 'providerOwner', " +
+			"'providerAvailability', 'requested' (the values the service declares, provenance declared, on the " +
+			"configuration_reference row only) and 'consumption' per environment: 'reported' carries 'figures' (metrics " +
+			"and a cost exactly as one signed, fresh provider report about the current revision gave them, with producer and asOf); " +
+			"'unknown' carries a 'reason' and, when a report exists but is unsigned, stale, about another revision or contradicted " +
+			"('conflict' names the producers), its raw numbers in 'reported', never to be quoted as current usage; " +
+			"'not-reported' means no provider reports usage or cost to Pacto. Pacto never sums or converts a cost. A resource's provisioning phase is its lifecycle, never the service's health. " +
+			"The service's 'hiddenProviders' says at least that many resources come from providers you may not see. " +
+			fleet.ResourceActionsNote + " Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
@@ -537,7 +564,8 @@ func fleetVersionsTool() *mcpsdk.Tool {
 		Description: "List the versions of each provider of a platform offering, newest first, with whether a " +
 			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
 			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
-			"revisions the snapshot holds; the registry may publish others. Read-only.",
+			"revisions the snapshot holds; the registry may publish others. Each provider names the 'successor' its newest " +
+			"revision declares (unknown when it resolves to no revision) and, with 'range', 'successorRange'. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"offering": {Type: "string", Description: "Platform offering slug, such as postgresql"},
 			"provider": {Type: "string", Description: "Only this provider: its key, or a name only one domain uses"},
@@ -569,7 +597,8 @@ func fleetAttentionTool() *mcpsdk.Tool {
 		Description: "List what needs attention, most severe first, each item with 'severity', 'category', " +
 			"'reason' and 'nextStep', paged ('total', 'truncated', 'nextOffset'), with 'severities' and " +
 			"'categories' tallied over every match. category=undeclared lists runtime calls no contract " +
-			"declares and callers with no contract. Read-only.",
+			"declares and callers with no contract. category=provisioning lists resources a provider reports " +
+			"Failed (PROVISIONING_FAILED) or whose last report about the current revision is stale (PROVISIONING_STALE). Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"category":        {Type: "string", Description: "Attention category", Enum: fleet.AttentionCategoriesList()},
 			"severity":        {Type: "string", Description: "Attention severity", Enum: []string{"error", "warning", "info"}},

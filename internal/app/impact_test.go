@@ -492,3 +492,44 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 		t.Fatalf("regression read with %+v %v", read, err)
 	}
 }
+
+// TestParseEventFlagOffering: offering:<name> names an offering for
+// unavailable and removed; an empty or versioned name and a regressed
+// offering are refused.
+func TestParseEventFlagOffering(t *testing.T) {
+	for _, tc := range []struct {
+		kind, value string
+		want        impact.Event
+		err         string
+	}{
+		{impact.EventUnavailable, "offering:postgresql", impact.Event{Kind: "unavailable", Offering: "postgresql"}, ""},
+		{impact.EventRemoved, "offering:redis", impact.Event{Kind: "removed", Offering: "redis"}, ""},
+		{impact.EventUnavailable, "offering:", impact.Event{}, "takes an offering name"},
+		{impact.EventRemoved, "offering:pg@1", impact.Event{}, "takes an offering name"},
+		{impact.EventRegressed, "offering:postgresql@1.0.0", impact.Event{}, "--regressed names one service: a regression belongs to one revision"},
+	} {
+		got, err := ParseEventFlag(tc.kind, tc.value)
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s %q: err %v, want %q", tc.kind, tc.value, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s %q = %+v %v, want %+v", tc.kind, tc.value, got, err, tc.want)
+		}
+	}
+}
+
+// TestImpactEventOfferingSkipsServiceLookup: an offering event names no
+// service, so nothing is resolved and impact answers about the offering.
+func TestImpactEventOfferingSkipsServiceLookup(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("m", "memory", &fleet.Collection{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewService(nil, nil).ImpactEventOnSnapshot(context.Background(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Offering: "ghost"}}, snap)
+	if err != nil || res.Event.Offering != "ghost" || res.Event.Service != "" {
+		t.Fatalf("offering event = %+v %v", res, err)
+	}
+}

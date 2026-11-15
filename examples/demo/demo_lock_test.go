@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDemoLockPinsTheLocalProvider holds catalog-service 1.3.0's committed lock
@@ -128,6 +130,43 @@ func TestDemoEventUnavailablePaymentsBreaksOnly(t *testing.T) {
 	}
 }
 
+// TestDemoOfferingUnavailablePostgres: the offering answer lists every
+// consumer each provider's own answer lists, and nothing else; a provider is
+// never its own consumer. shared-config has two providers (and, today, no
+// consumer an availability event reads), so the union runs over the demo too.
+func TestDemoOfferingUnavailablePostgres(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(res *impact.Result) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range res.Consumers {
+			out[c.Domain+"/"+c.Service] = true
+		}
+		return out
+	}
+	for offering, providers := range map[string]int{"postgresql": 1, "shared-config": 2} {
+		res := impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Offering: offering}})
+		if len(res.Providers) != providers {
+			t.Fatalf("%s providers %v", offering, res.Providers)
+		}
+		got, want := names(res), map[string]bool{}
+		for _, p := range res.Providers {
+			for n := range names(impact.Analyze(context.Background(), nil, nil, nil, nil, snap, impact.Options{Event: &impact.Event{Kind: impact.EventUnavailable, Service: p}})) {
+				want[n] = true
+			}
+		}
+		for _, p := range res.Providers {
+			d, n := fleet.ParseServiceKey(fleet.ServiceKey(p))
+			delete(want, d+"/"+n)
+		}
+		if (offering == "postgresql" && len(got) == 0) || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: offering consumers %v, provider consumers %v", offering, got, want)
+		}
+	}
+}
+
 // TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
 // reports to the revisions they name: each digest is the local content identity
 // of its consumer bundle, so an edit to a bundle (its pacto.lock included) that
@@ -140,12 +179,111 @@ func TestDemoTargetStateProvisioningMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
+		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationUsageUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
 			t.Errorf("%s: %s", l.Code, l.Message)
 		}
 	}
-	if len(snap.Provisioning) != 2 {
-		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	raw, err := os.ReadFile("fleet-targets.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Provisioning []map[string]any `yaml:"provisioning"`
+		Usage        []map[string]any `yaml:"usage"`
+	}
+	if err := yaml.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Provisioning) == 0 || len(snap.Provisioning) != len(file.Provisioning) {
+		t.Errorf("provisioning records = %d, want every one of the file's %d reports kept", len(snap.Provisioning), len(file.Provisioning))
+	}
+	if len(file.Usage) == 0 || len(snap.Usage) != len(file.Usage) {
+		t.Errorf("usage records = %d, want every one of the file's %d reports kept", len(snap.Usage), len(file.Usage))
+	}
+	for _, u := range snap.Usage {
+		if u.Verified {
+			t.Errorf("usage report %s/%s reads signed; the file is unsigned", u.Service, u.Name)
+		}
+	}
+}
+
+// TestDemoNonOfferingResourceStaleFailed: notification-worker 1.0.0 depends on
+// email-provider, which declares no offering, and the mail adapter reported
+// that resource Failed on the file's fixed date. Under the default provisioning
+// window the CLI demo reads it Unknown, a stale Failed report raising
+// PROVISIONING_STALE; a window that covers the date reads it Failed and raises
+// PROVISIONING_FAILED.
+func TestDemoNonOfferingResourceStaleFailed(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		window      time.Duration
+		phase, code string
+		reported    string
+		stale       bool
+	}{
+		{"default window", 0, "Unknown", "PROVISIONING_STALE", "Failed", true},
+		{"window covers the date", 100000 * time.Hour, "Failed", "PROVISIONING_FAILED", "Failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: tc.window},
+				fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := fleet.NewQuery(snap)
+			d, err := q.EntityDetail(fleet.KindService, "notification-worker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var use *fleet.OfferingUse
+			for i, u := range d.Service.ConsumedOfferings.Items {
+				if u.Provider.Key == "email-provider" {
+					use = &d.Service.ConsumedOfferings.Items[i]
+				}
+			}
+			if use == nil || use.Offering != "" || len(use.Provisioning) != 1 {
+				t.Fatalf("email-provider use = %+v", use)
+			}
+			st := use.Provisioning[0]
+			if st.Phase != tc.phase || st.ReportedPhase != tc.reported || st.Stale != tc.stale {
+				t.Errorf("status phase %q reportedPhase %q stale %v", st.Phase, st.ReportedPhase, st.Stale)
+			}
+			l, err := q.Attention(fleet.AttentionFilter{Category: "provisioning", Limit: fleet.MaxAttentionLimit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(l.Items, func(it fleet.AttentionItem) bool {
+				return it.Service == "notification-worker" && it.Code == tc.code
+			}) {
+				t.Errorf("attention %+v, want %s for notification-worker", l.Items, tc.code)
+			}
+		})
+	}
+}
+
+// TestDemoUsageUnsignedIsUnknown: the CLI demo's usage report for
+// catalog-service's database is unsigned, so under any window the usage reads
+// unknown and its figures stay in reported, never in figures.
+func TestDemoUsageUnsignedIsUnknown(t *testing.T) {
+	for _, window := range []time.Duration{0, 100000 * time.Hour} {
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: window},
+			fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := fleet.NewQuery(snap).EntityDetail(fleet.KindService, "catalog-service")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []fleet.ResourceConsumption
+		for _, u := range d.Service.ConsumedOfferings.Items {
+			if u.Via == fleet.RelationshipConfigRef {
+				got = append(got, u.Consumption...)
+			}
+		}
+		if len(got) != 1 || got[0].State != "unknown" || got[0].Figures != nil || got[0].Reported == nil || got[0].Environment != "production" {
+			t.Errorf("window %v: catalog-service consumption = %+v", window, got)
+		}
 	}
 }
 
@@ -323,5 +461,55 @@ func TestDemoStorefrontCurrentRevisionMatches(t *testing.T) {
 		if r[1] != cur.Version {
 			t.Errorf("source_fleet.go runs storefront-web %s, the CLI demo %s", r[1], cur.Version)
 		}
+	}
+}
+
+// TestDemoOfferingRows: on the demo fleet, the only deprecated offering is
+// postgresql, and its row counts the services that consume it. The clock is
+// pinned before postgresql 16.1.0's sunset, so the answer never ages.
+func TestDemoOfferingRows(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: now}, fleetsrc.NewLocalSource("local", "bundles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Lifecycle: fleet.LifecycleDeprecated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Total != 1 || l.Entities[0].Key != "postgresql" || l.Entities[0].Consumers == 0 || l.Entities[0].Lifecycle != fleet.LifecycleDeprecated {
+		t.Errorf("deprecated offerings = %+v", l.Entities)
+	}
+}
+
+// TestDemoOfferingPhaseTallyMatchesDetail: over the CLI demo fleet, the
+// fleet-wide phase tally of the Offerings list is the sum of the tallies each
+// offering page shows, so the figure and the pages never disagree.
+func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{FreshnessWindow: 100000 * time.Hour},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	l, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Limit: fleet.MaxEntityLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var phases, consumers fleet.PhaseTally
+	add := func(a *fleet.PhaseTally, b fleet.PhaseTally) {
+		*a = fleet.PhaseTally{Requested: a.Requested + b.Requested, Provisioning: a.Provisioning + b.Provisioning, Ready: a.Ready + b.Ready,
+			Failed: a.Failed + b.Failed, Deleting: a.Deleting + b.Deleting, Unknown: a.Unknown + b.Unknown}
+	}
+	for _, r := range l.Entities {
+		d, err := q.EntityDetail(fleet.KindOffering, r.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(&phases, d.Offering.Consumers.Phases)
+		add(&consumers, d.Offering.Consumers.PhaseConsumers)
+	}
+	if l.Aggregate.OfferingPhases != phases || l.Aggregate.OfferingPhaseConsumers != consumers || phases == (fleet.PhaseTally{}) {
+		t.Errorf("aggregate %+v / %+v, pages %+v / %+v", l.Aggregate.OfferingPhases, l.Aggregate.OfferingPhaseConsumers, phases, consumers)
 	}
 }

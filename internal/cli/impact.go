@@ -36,7 +36,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 			"When no fleet source holds the changed service, the new revision is added " +
 			"to the snapshot so the services that depend on it are found.\n\n" +
 			"With --unavailable, --removed or --regressed, impact answers what happens if that " +
-			"service becomes unavailable, is removed or a revision of it regressed. Consumers are " +
+			"service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed " +
+			"also take offering:<name>, which asks the same of every service that provides the platform offering. Consumers are " +
 			"graded breaks (every edge on their path is required), may degrade (an optional edge) " +
 			"or unknown. The gate is unverified (exit 2) when anything depends on the service and " +
 			"clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an " +
@@ -66,6 +67,9 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
   # What breaks if redis becomes unavailable, or postgresql is removed
   pacto impact --unavailable redis --local .
   pacto impact --removed postgresql --local . --target-state targets.yaml
+
+  # What breaks if every provider of the postgresql offering becomes unavailable
+  pacto impact --unavailable offering:postgresql --local .
 
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .`,
@@ -140,8 +144,8 @@ func newImpactCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 
 // impactEventFlagHelp is the help of each event flag.
 var impactEventFlagHelp = map[string]string{
-	impact.EventUnavailable: "what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable",
-	impact.EventRemoved:     "what happens if this service (a fleet service key, or a name only one domain holds) is removed",
+	impact.EventUnavailable: "what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering",
+	impact.EventRemoved:     "what happens if this service (a fleet service key, or a name only one domain holds) is removed; offering:<name> asks it of every provider of an offering",
 	impact.EventRegressed:   "what happens if <service>@<revision> regressed; an artifact digest reads delivery's recorded failures",
 }
 
@@ -281,11 +285,17 @@ func printChangeHeader(w io.Writer, result *impact.Result) {
 
 // printEventHeader writes the header of an event answer.
 func printEventHeader(w io.Writer, result *impact.Result) {
-	at := ""
+	subject, at := result.Event.Service, ""
 	if result.Event.Revision != "" {
 		at = " at " + result.Event.Revision
 	}
-	_, _ = fmt.Fprintf(w, "Event: %s %s%s  asOf %s  completeness %s\n", result.Event.Service, result.Event.Kind, at,
+	if result.Event.Offering != "" {
+		subject = "offering " + result.Event.Offering
+		if len(result.Providers) > 0 {
+			at = " (providers " + strings.Join(result.Providers, ", ") + ")"
+		}
+	}
+	_, _ = fmt.Fprintf(w, "Event: %s %s%s  asOf %s  completeness %s\n", subject, result.Event.Kind, at,
 		result.AsOf.Format(time.RFC3339), result.Completeness)
 }
 

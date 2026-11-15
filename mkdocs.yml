@@ -267,6 +267,7 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
+      - Provider reports: provider-reports.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference

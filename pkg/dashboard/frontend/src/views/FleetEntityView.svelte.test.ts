@@ -443,6 +443,21 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // An offering's impact action asks the event about every provider at once.
+  it('asks what if a whole offering becomes unavailable from its page', async () => {
+    const pv = (items: unknown[]) => ({ total: items.length, count: items.length, truncated: false, items });
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'offering', key: 'postgresql', label: 'postgresql', href: '/fleet/offerings/postgresql', offering: 'postgresql' },
+      actions: ['impact'], offering: { providers: pv([]), consumers: pv([]), observedConsumers: pv([]), hiddenConsumers: 0, hiddenObservedConsumers: 0 },
+    });
+    const { target, component } = await mountView('offering', 'postgresql');
+    await vi.waitFor(() => expect(target.querySelector('a.page-hd-action')).toBeTruthy());
+    const links = Array.from(target.querySelectorAll('a.page-hd-action'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['What if it becomes unavailable?']);
+    expect(links[0].getAttribute('href')).toBe('#/fleet/changes?offering=postgresql&event=unavailable');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = await mountView('service', 'domain-a/payments');

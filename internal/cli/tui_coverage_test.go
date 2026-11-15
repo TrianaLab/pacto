@@ -41,6 +41,7 @@ var excludedFromTUI = map[string]string{
 	"doc":                  "writes a file or serves a site, neither of which belongs on a screen stack",
 	"evidence keygen":      "key material handling belongs at a shell prompt, not behind a keystroke",
 	"evidence provisioned": "an adapter's scripted step that feeds evidence sign",
+	"evidence usage":       "an adapter's scripted step that feeds evidence sign",
 	"evidence send":        "key material handling belongs at a shell prompt, not behind a keystroke",
 	"evidence serve":       "a long-running server",
 	"evidence sign":        "key material handling belongs at a shell prompt, not behind a keystroke",
