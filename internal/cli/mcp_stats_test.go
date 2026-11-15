@@ -98,8 +98,8 @@ func TestMCPStatsStdioRegisteredWithoutRegistry(t *testing.T) {
 	expect(t, strings.Contains(s.InitializeResult().Instructions, "pacto_stats totals"), "no stats instructions")
 	// A bad argument is the tool's error, not a smaller answer.
 	t.Setenv("PACTO_STATS_REGISTRY", "r.example/s")
-	text, isErr = callText(t, s, "pacto_stats", map[string]any{"kinds": "coverage"})
-	expect(t, isErr && strings.Contains(text, `"coverage"`), "answer = %s", text)
+	text, isErr = callText(t, s, "pacto_stats", map[string]any{"kinds": "validate"})
+	expect(t, isErr && strings.Contains(text, `"validate"`), "answer = %s", text)
 }
 
 func TestStatsToolRefusesRegistryOverHTTP(t *testing.T) {

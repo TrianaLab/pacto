@@ -43,6 +43,8 @@ test.describe('typography hierarchy on desktop', () => {
       ['Graph discovery', '#/fleet/graph'],
       ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
+      // The plain demo has no stats repository: the explainer.
+      ['Metrics', '#/metrics'],
     ];
 
     const all: RoleSample[] = [];

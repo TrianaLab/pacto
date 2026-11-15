@@ -67,7 +67,7 @@ const (
 // The legal values validate accepts, each listed once so a later kind is
 // added in one place.
 var (
-	kinds         = []string{KindDiff, KindImpact, KindPublish, KindOperation}
+	kinds         = []string{KindDiff, KindImpact, KindPublish, KindOperation, KindCoverage}
 	outcomes      = []string{OutcomePassed, OutcomeFailed, OutcomeUnverified, OutcomePublished, OutcomeUnchanged, OutcomeRefused}
 	verdicts      = []string{VerdictClear, VerdictBlocked, VerdictUnverified, VerdictRefused}
 	completeness  = []string{"complete", "partial", "empty"}
@@ -107,7 +107,7 @@ type Record struct {
 	Version string `json:"version"`
 	// ID is the distinct-change key, see [ID].
 	ID string `json:"id"`
-	// Kind is diff, impact or publish.
+	// Kind is diff, impact, publish, operation or coverage.
 	Kind string `json:"kind"`
 	// Service is the contract's service.name.
 	Service string `json:"service"`
@@ -135,8 +135,8 @@ type Record struct {
 	Completeness string `json:"completeness,omitempty"`
 	// AsOf is the snapshot's time in UTC (impact only).
 	AsOf *time.Time `json:"asOf,omitempty"`
-	// Outcome is what the run ended with.
-	Outcome string `json:"outcome"`
+	// Outcome is what the run ended with. A coverage record has none.
+	Outcome string `json:"outcome,omitempty"`
 	// PactoVersion is the Pacto release that wrote the record, distinct from
 	// a contract's pactoVersion.
 	PactoVersion string `json:"pactoVersion"`
@@ -183,6 +183,9 @@ type Record struct {
 	StartedAt string `json:"startedAt,omitempty"`
 	// FinishedAt is when the operation concluded, RFC 3339.
 	FinishedAt string `json:"finishedAt,omitempty"`
+
+	// Coverage is the body of a coverage record, and only of one.
+	Coverage *Coverage `json:"coverage,omitempty"`
 }
 
 // StageRef names the Stage an operation ran on.
@@ -250,8 +253,11 @@ func Parse(data []byte) (Record, error) {
 
 func validate(r Record) error {
 	checks := []func(Record) error{validateIdentity, validateEnums, validateCounts, validateNoOperationFields}
-	if r.Kind == KindOperation {
+	switch r.Kind {
+	case KindOperation:
 		checks = []func(Record) error{validateIdentity, validateOperationEnums, validateStage, validateOperationValues, validateNoCIFields}
+	case KindCoverage:
+		checks = []func(Record) error{validateIdentity, validateCoverage, validateNoCIFields, validateNoOperationFields}
 	}
 	for _, check := range checks {
 		if err := check(r); err != nil {
@@ -271,6 +277,10 @@ func validateIdentity(r Record) error {
 		return errors.New("service is empty")
 	case r.RecordedAt.IsZero():
 		return errors.New("recordedAt is missing")
+	case r.Kind != KindCoverage && r.Service == CoverageService:
+		return fmt.Errorf("service %s is reserved for coverage records", CoverageService)
+	case r.Kind != KindCoverage && r.Coverage != nil:
+		return fmt.Errorf("a %s record carries no coverage", r.Kind)
 	}
 	return nil
 }

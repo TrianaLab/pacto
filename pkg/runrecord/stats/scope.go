@@ -139,8 +139,13 @@ func recordService(r runrecord.Record) string {
 	return r.Service
 }
 
-// sees reports whether a restricted caller may see r.
+// sees reports whether a restricted caller may see r. A coverage record is
+// fleet-wide: it would tell the caller the size of a fleet they may only
+// partly read.
 func (sc Scope) sees(r runrecord.Record) bool {
+	if r.Kind == runrecord.KindCoverage {
+		return false
+	}
 	if _, ok := sc.place(recordService(r)); !ok {
 		return false
 	}
@@ -255,4 +260,17 @@ func groups(entries, publishes []Entry, by string, sc Scope) []Group {
 		return cmp.Or(unnamed(a)-unnamed(b), fleet.NaturalCompare(a.Label, b.Label), strings.Compare(a.Key, b.Key))
 	})
 	return out
+}
+
+// OperationNamespaces is the sorted, unique Stage namespaces the operation
+// records of set name: the namespaces a caller's access is reviewed in.
+func OperationNamespaces(set RecordSet) []string {
+	var out []string
+	for _, e := range set.Entries {
+		if e.Record.Kind == runrecord.KindOperation && e.Record.Stage != nil && e.Record.Stage.Namespace != "" {
+			out = append(out, e.Record.Stage.Namespace)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }

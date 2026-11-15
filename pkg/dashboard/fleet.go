@@ -32,6 +32,7 @@ type capabilitiesOutput struct {
 		Delivery bool           `json:"delivery" doc:"The delivery views and actions are served"`
 		Auth     capabilityAuth `json:"auth" doc:"What this caller's Kubernetes permissions leave out of the fleet views"`
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
+		Stats    bool           `json:"stats" doc:"The Metrics page has a stats repository to read"`
 	}
 }
 
@@ -79,6 +80,7 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		}
 	}
 	out.Body.MiraURL = s.opts.MiraURL
+	out.Body.Stats = s.opts.Stats != nil
 	return out, nil
 }
 

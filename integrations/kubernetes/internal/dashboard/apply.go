@@ -128,8 +128,9 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	return env
 }
 
-// deliveryEnv passes what the delivery views read: the namespace delivery runs
-// in, the trust config its records are verified with and Mira's address.
+// deliveryEnv passes what the delivery and Metrics views read: the namespace
+// delivery runs in, the trust config its records are verified with, Mira's
+// address and the stats repository.
 func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	trust := ""
 	if cfg.DeliveryTrust.Name != "" {
@@ -137,7 +138,8 @@ func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	}
 	var env []*corev1ac.EnvVarApplyConfiguration
 	for _, kv := range [][2]string{{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", cfg.DeliveryNamespace},
-		{"PACTO_DASHBOARD_DELIVERY_TRUST", trust}, {"PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL}} {
+		{"PACTO_DASHBOARD_DELIVERY_TRUST", trust}, {"PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL},
+		{"PACTO_STATS_REGISTRY", cfg.StatsRegistry}} {
 		if kv[1] != "" {
 			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
 		}

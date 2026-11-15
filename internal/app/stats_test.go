@@ -271,3 +271,26 @@ func TestServiceStatsOperationAccessErrorIsAnError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// The dashboard's read and pacto stats open the repository through one
+// opener, and read every anchor when no service is named.
+func TestReadRunRecordsSharesOpener(t *testing.T) {
+	s, path := statsService(t, nil, diffRecord("payments"), diffRecord("orders"))
+	var opened []string
+	open := s.sys.statsRepo
+	s.sys.statsRepo = func(p string) (*remote.Repository, error) { opened = append(opened, p); return open(p) }
+	set, err := s.ReadRunRecords(t.Context(), path, nil)
+	if err != nil || len(set.Entries) != 2 {
+		t.Fatalf("set = %+v err = %v", set, err)
+	}
+	if _, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Now: statsClock}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(opened, []string{path, path}) {
+		t.Fatalf("opened %v", opened)
+	}
+	s.sys.statsRepo = func(string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
+	if _, err := s.ReadRunRecords(t.Context(), "::", nil); err == nil || err.Error() != "bad reference" {
+		t.Fatalf("the registry's error, unwrapped: %v", err)
+	}
+}

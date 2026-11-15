@@ -5,7 +5,7 @@
  */
 import {
   ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl,
-  fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl,
+  fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl, metricsUrl,
 } from './router';
 import { formatCount } from './format';
 
@@ -40,8 +40,14 @@ export const NAV_GLYPH: Record<string, string> = {
   change: 'M4 12 H20 M14 6 L20 12 L14 18',
   environment: 'M3 18 H21 M5 18 V10 L12 6 L19 10 V18 M10 18 V13 H14 V18',
   graph: 'M8.5 6 A2.5 2.5 0 1 1 3.5 6 A2.5 2.5 0 1 1 8.5 6 Z M20.5 8 A2.5 2.5 0 1 1 15.5 8 A2.5 2.5 0 1 1 20.5 8 Z M12.5 18 A2.5 2.5 0 1 1 7.5 18 A2.5 2.5 0 1 1 12.5 18 Z M8.4 6.2 L15.5 7.8 M6.7 8.4 L9.3 15.6 M16.6 10.1 L11.6 16',
+  metrics: 'M4 20 H20 M6 20 V15 M10 20 V11 M14 20 V13 M18 20 V6 M5 12 L10 7 L14 9 L19 4',
   source: 'M12 20 V12 M12 12 A3 3 0 1 0 12 6 A3 3 0 1 0 12 12 Z M6 4 A9 9 0 0 0 6 14 M18 4 A9 9 0 0 1 18 14',
 };
+
+/** Metrics, one item for the sidebar and the palette (D12: always shown on a Fleet host). */
+export function metricsNavItem(): NavItem {
+  return { key: 'metrics', label: 'Metrics', href: metricsUrl(), views: ['metrics'], glyph: 'metrics' };
+}
 
 const DELIVERY_VIEWS = ['delivery-inbox', 'delivery-environments', 'delivery-autonomy', 'delivery-change', 'delivery-history', 'delivery-publish'];
 
@@ -80,6 +86,7 @@ export function navGroups(capabilities: any): NavGroup[] {
         ...(capabilities?.delivery === true
           ? [{ key: 'delivery', label: 'Delivery', href: deliveryInboxUrl(), views: DELIVERY_VIEWS, glyph: 'environment' }]
           : []),
+        metricsNavItem(),
       ],
     },
     {

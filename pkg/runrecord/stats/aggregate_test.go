@@ -295,7 +295,11 @@ func TestAggregateGoldenJSON(t *testing.T) {
 	publish.DeployDigest = digest('d')
 	held := verifiedTo(digest('d'), hoursAgo(1))
 	held.HeldFor = "30m0s"
-	s := set(impact, diff, publish, impact, held, promote(delivery.Failed, "", hoursAgo(1)))
+	cov := runrecord.CoverageRecord(runrecord.Coverage{
+		Services: 4, Uncontracted: 1, Knowledge: &runrecord.CoverageKnowledge{Services: 4, Described: 1, WithGaps: 2, Unknown: 1, NotDeployed: 1},
+		Links: runrecord.CoverageLinks{Exact: 3, Unresolved: 1}, SnapshotAsOf: hoursAgo(4), Completeness: "partial",
+	}, "4.6.0", hoursAgo(4))
+	s := set(impact, diff, publish, impact, held, promote(delivery.Failed, "", hoursAgo(1)), cov)
 	s.Skipped = map[string]Skipped{runrecord.AnchorTag("orders"): {Malformed: 1}}
 	st := Aggregate(s, Query{Window: aggWindow, By: "service"}, Scope{}, aggNow)
 	st.Registry = "registry.example.com/acme/pacto-stats"

@@ -52,7 +52,7 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     // The sidebar's groups (SPEC 20): Overview and Needs attention, then Organization,
     // Change and delivery, and System.
     // Names, not text: the count and the source health are descriptions.
-    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Operational graph', 'Data sources'];
+    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Metrics', 'Operational graph', 'Data sources'];
     await expect(nav.getByRole('link')).toHaveCount(names.length);
     for (const [i, name] of names.entries()) await expect(nav.getByRole('link').nth(i)).toHaveAccessibleName(name);
     await expectNoLegacyScreen(page);

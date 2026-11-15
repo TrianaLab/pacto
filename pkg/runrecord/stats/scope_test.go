@@ -433,3 +433,17 @@ func TestGroupsSortOnlyUnnamedLast(t *testing.T) {
 		t.Fatalf("groups = %s", got)
 	}
 }
+
+func TestOperationNamespacesSortedUnique(t *testing.T) {
+	at := func(ns string) runrecord.Record {
+		r := op("promote", delivery.Succeeded, "", fleetNow)
+		r.Stage = &runrecord.StageRef{Namespace: ns, Name: "s"}
+		return r
+	}
+	noStage := op("promote", delivery.Succeeded, "", fleetNow)
+	noStage.Stage = nil
+	got := OperationNamespaces(set(at("b"), at("a"), at("b"), at(""), noStage, diffOf("orders")))
+	if !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("namespaces = %v", got)
+	}
+}

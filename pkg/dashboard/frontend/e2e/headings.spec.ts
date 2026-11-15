@@ -200,6 +200,8 @@ test.describe('document structure on every canonical Fleet route', () => {
       ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
       ['Change analysis (unscoped)', '#/fleet/changes'],
       ['Change analysis (scoped)', `#/fleet/changes/${e(k.service)}`],
+      // The plain demo has no stats repository: the explainer.
+      ['Metrics', '#/metrics'],
     ];
 
     const titles: string[] = [];
