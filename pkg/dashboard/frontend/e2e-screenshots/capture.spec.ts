@@ -49,6 +49,10 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     open: async (p) => { await go(p, '/#/fleet/services/storefront-web', 'storefront-web'); await expect(p.locator('#sec-environments')).toBeVisible(); },
     element: '#sec-environments',
   },
+  // The overview's Operational health and Knowledge bands, each alone: the ownership and
+  // readiness band sits between them, so one shot would not hold both.
+  { name: 'overview-health', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-health' },
+  { name: 'overview-knowledge', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), element: '#sec-knowledge' },
   // The expanded sidebar alone, below the top bar, on the overview.
   { name: 'sidebar', open: (p) => go(p, '/#/fleet', 'Is anything wrong?'), clip: { x: 0, y: 56, width: 232, height: 574 } },
 ];
