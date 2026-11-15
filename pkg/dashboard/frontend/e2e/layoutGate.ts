@@ -456,8 +456,8 @@ export function installScaleFixture(): void {
         df.configuration = longName(String(df.configuration)); df.path = longName(String(df.path));
         df.values = Object.fromEntries(Object.entries(df.values as Record<string, unknown>).map(([k, v]) => [longName(k), typeof v === 'string' ? longName(v) : v]));
       }
-      for (const e of hist?.items ?? []) e.environment = longName(String(e.environment));
-      if (typeof hist?.completenessReason === 'string') hist.completenessReason = longName(hist.completenessReason);
+      for (const e of changes?.items ?? []) for (const k of ['subject', 'from', 'to']) if (typeof e[k] === 'string' && e[k]) e[k] = longName(e[k] as string);
+      if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
     const lengthenEnv = (d: Record<string, unknown> | undefined) => {
@@ -1135,23 +1135,32 @@ const serviceEnvironments = (hash: string) => async (page: Page) => {
   await expect(page.locator('#sec-environments [data-testid="service-environment"]').first()).toBeVisible({ timeout: 30_000 });
 };
 
-/** Opens a service page at its Changes section and waits for one change row. */
-const serviceChanges = (hash: string) => async (page: Page) => {
+/**
+ * changesRoute opens a route that scrolls to the Changes section, with reduced motion
+ * so the scroll is instant, and returns to the top once it has run: the gate reads
+ * from the top.
+ */
+const changesRoute = async (page: Page, hash: string, ready: () => Promise<void>) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`/${hash}`);
-  await expect(page.locator('[data-testid="service-change-row"]').first()).toBeVisible({ timeout: 30_000 });
+  await ready();
+  await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 5_000 }).catch(() => {});
+  // A wheel is the reader driving: it cancels the route's scroll restore.
+  await page.mouse.wheel(0, -1);
+  await page.evaluate(() => window.scrollTo(0, 0));
 };
+
+/** Opens a service page at its Changes section and waits for one change row. */
+const serviceChanges = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-row"]').first()).toBeVisible({ timeout: 30_000 }));
 
 /** Opens a service page with its Changes filtered to one kind and waits for the count. */
-const serviceChangesFiltered = (hash: string) => async (page: Page) => {
-  await page.goto(`/${hash}`);
-  await expect(page.locator('[data-testid="service-changes-filtered"]')).toBeVisible({ timeout: 30_000 });
-};
+const serviceChangesFiltered = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-changes-filtered"]')).toBeVisible({ timeout: 30_000 }));
 
 /** Opens a service page whose change times are hidden and waits for that text. */
-const serviceChangesHidden = (hash: string) => async (page: Page) => {
-  await page.goto(`/${hash}`);
-  await expect(page.locator('[data-testid="service-change-reached"]', { hasText: 'time hidden' }).first()).toBeVisible({ timeout: 30_000 });
-};
+const serviceChangesHidden = (hash: string) => async (page: Page) =>
+  changesRoute(page, hash, () => expect(page.locator('[data-testid="service-change-reached"]', { hasText: 'time hidden' }).first()).toBeVisible({ timeout: 30_000 }));
 
 /** Opens a service page and waits for its Resources section (#468). */
 const serviceResources = (hash: string) => async (page: Page) => {

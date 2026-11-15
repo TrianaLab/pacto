@@ -58,6 +58,7 @@ describe('ServiceChanges', () => {
     const items = [ev({ reached: [reach()] }), ev({ reached: [reach({ verified: false })] }), ev({ reached: [reach({ record: '', fromStatus: true, verified: false })] }), ev()];
     const t = render({ changes: changes(items, { times: 'read' }) });
     expect(reached(t, 0)).toBe('prod 2026-11-10 14:02 UTC');
+    expect(rows(t)[0].querySelector('[data-testid="service-change-reached"] bdi')?.getAttribute('title')).toBe('prod');
     expect(rows(t)[0].querySelector('[data-testid="service-change-reached"] a')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod-ns&stage=web');
     expect(reached(t, 1)).toContain('recorded, signature not checked');
     expect(rows(t)[1].querySelector('[data-testid="service-change-reached"] a')).toBeNull();
@@ -102,7 +103,7 @@ describe('ServiceChanges', () => {
     expect(links).toHaveLength(2);
     expect(links[0].getAttribute('href')).toBe('#/fleet/changes/web?old=web%401.0.0&new=web%401.1.0');
     expect(links.map((a) => a.getAttribute('aria-label'))).toEqual([
-      "Analyse 1.0.0 to 1.1.0 against today's graph", "Analyse 1.1.0 to 1.2.0 against today's graph"]);
+      "Analyse against today's graph: 1.0.0 to 1.1.0", "Analyse against today's graph: 1.1.0 to 1.2.0"]);
     expect(rows(t)[2].querySelector('a.sc-analyse')).toBeNull();
   });
 

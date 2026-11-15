@@ -80,9 +80,11 @@
 
   // The route that asked for this section scrolls to it once its rows render.
   const wantsSection = $derived(section === 'changes' || !!kind || !!urlInt(offset) || !!urlInt(limit));
+  let scrolledFor = '';
   $effect(() => {
-    if (!wantsSection || !items.length) return;
-    void kind; void offset; void limit;
+    const at = `${kind}|${offset}|${limit}|${section}`;
+    if (!wantsSection || !items.length || scrolledFor === at) return;
+    scrolledFor = at;
     tick().then(() => scrollToSection('sec-changes'));
   });
 
@@ -116,11 +118,11 @@
         {#each page.items as e, i (`${page.page.offset + i}`)}
           <div class="sc-row" role="row" data-testid="service-change-row" data-kind={e.kind}>
             <span class="sc-cell sc-title" role="cell" data-label="Version">
-              <a href={hashForHref(e.revision.href)} title={e.revision.label}><bdi>{version(e.revision)}</bdi></a>
+              <a href={hashForHref(e.revision.href)} title={version(e.revision)}><bdi>{version(e.revision)}</bdi></a>
               {#if e.previous}
-                <span class="t-meta">compared with <a href={hashForHref(e.previous.href)} title={e.previous.label}><bdi>{version(e.previous)}</bdi></a></span>
+                <span class="sc-line"><span class="t-meta">compared with</span> <a href={hashForHref(e.previous.href)} title={version(e.previous)}><bdi>{version(e.previous)}</bdi></a></span>
                 <a class="sc-analyse" href={fleetChangesUrl(service, { old: e.previous.key, new: e.revision.key })}
-                  aria-label={`Analyse ${version(e.previous)} to ${version(e.revision)} against today's graph`}>Analyse against today's graph</a>
+                  aria-label={`Analyse against today's graph: ${version(e.previous)} to ${version(e.revision)}`}>Analyse against today's graph</a>
               {/if}
             </span>
             <span class="sc-cell" role="cell" data-label="Change">
@@ -134,13 +136,13 @@
             <span class="sc-cell" role="cell" data-label="Reached" data-testid="service-change-reached">
               {#if e.reached?.length}
                 {#each e.reached as r (`${r.namespace}/${r.stage}`)}
+                  {@const where = r.environment || r.stage}
+                  {@const signed = !!r.record && r.verified}
                   <span class="sc-reach">
-                    {#if r.record && r.verified}
-                      <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })} title={`Stage ${r.namespace}/${r.stage}, record ${r.record}`}><bdi>{r.environment || r.stage}</bdi> {timeLabel(r.at)}</a>
-                    {:else}
-                      <bdi title={`Stage ${r.namespace}/${r.stage}`}>{r.environment || r.stage}</bdi> {timeLabel(r.at)}
-                      <span class="t-meta">{r.fromStatus ? 'from status, not signed' : 'recorded, signature not checked'}</span>
-                    {/if}
+                    {#if signed}<a class="sc-where" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}><bdi title={where}>{where}</bdi></a>
+                    {:else}<bdi class="sc-where" title={where}>{where}</bdi>{/if}
+                    <span>{timeLabel(r.at)}</span>
+                    {#if !signed}<span class="t-meta">{r.fromStatus ? 'from status, not signed' : 'recorded, signature not checked'}</span>{/if}
                   </span>
                 {/each}
               {:else}<span class="t-meta">{noTime}</span>{/if}
@@ -177,8 +179,11 @@
   .sc-cell bdi { min-inline-size: 0; overflow-wrap: anywhere; }
   .sc-cell[data-label]:not(.sc-title)::before { content: attr(data-label); flex-basis: 100%; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
   .sc-title { font-weight: 600; }
-  .sc-title .t-meta, .sc-analyse { font-weight: 400; }
-  .sc-reach { display: flex; flex-wrap: wrap; gap: 0 var(--sp-1); flex-basis: 100%; }
+  .sc-title .t-meta, .sc-analyse, .sc-line a { font-weight: 400; }
+  .sc-line { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); }
+  .sc-reach { display: flex; flex-wrap: wrap; gap: var(--sp-2); flex-basis: 100%; min-inline-size: 0; }
+  .sc-where { flex-basis: 100%; min-inline-size: 0; overflow-wrap: anywhere; }
+  [data-label="Reached"] { row-gap: var(--sp-2); }
   @container sctable (min-width: 56rem) {
     .sc-row { grid-template-columns: minmax(16ch, 1.2fr) minmax(20ch, 1.6fr) minmax(16ch, 1.4fr) minmax(18ch, 1.4fr) minmax(10ch, 0.6fr); align-items: start; }
     .sc-head { position: static; inline-size: auto; block-size: auto; overflow: visible; clip-path: none; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
