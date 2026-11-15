@@ -6,7 +6,8 @@
 A delivery plan or proposal can carry a correlation id, such as a ticket or
 incident id: `pacto delivery plan|propose --correlation-id`, `correlation_id`
 on `pacto_delivery_operation_plan` and `pacto_delivery_operation_propose`, and
-`correlationID` in the dashboard's plan and propose bodies. The id is at most
+`correlationID` in the dashboard's plan and propose bodies, and `pacto publish
+--propose --correlation-id`. The id is at most
 128 printable ASCII characters, checked by the client and by the operation
 admission policy. The automatic rollback, freeze and step-down the promoter
 raises after a change inherit its id, so `pacto delivery history
@@ -21,7 +22,8 @@ Operation `Rejected` with `PlanStale`. Proposals without a cause are
 unaffected.
 
 An agent must name the person it acts for (`onBehalfOf`, `--on-behalf-of`,
-`on_behalf_of`) when it proposes a change, never itself, a service account or
+`on_behalf_of`), as the Kubernetes username the cluster authenticates them as,
+when it proposes a change, never itself, a service account or
 the promoter. The client, the promoter and the operation admission policy
 refuse an agent's proposal without one, with the reasons `NoPrincipal`,
 `SelfPrincipal` and `NotAPerson`; planning needs none, and changes the
