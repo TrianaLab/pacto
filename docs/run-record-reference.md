@@ -3,9 +3,9 @@
 A run record is a small JSON document that `pacto diff`, `pacto impact` and
 `pacto publish` can leave behind in CI to count what Pacto catches. Records are
 unsigned statistics, never evidence: nothing in Pacto that validates, diffs,
-analyzes impact, publishes or delivers reads them. Only `pacto stats` and the
-read-only MCP tool `pacto_stats` read them back, to
-[total them](#the-stats-answer). Recording is opt-in and best effort. A problem with recording prints one
+analyzes impact, publishes or delivers reads them. Only `pacto stats`, the
+read-only MCP tool `pacto_stats` and the dashboard's Metrics page read them
+back, to [total them](#the-stats-answer). Recording is opt-in and best effort. A problem with recording prints one
 warning line on stderr, and the exit code and stdout stay the same as a run
 without recording. MCP tools never record. `pacto impact` event answers
 (`--unavailable`, `--removed` and `--regressed`) and `pacto publish --plan`
@@ -24,9 +24,12 @@ defaulted, and these settings are never read from `pacto.yaml`. Credentials and
 insecure registries come from the same settings every other registry command
 uses (`PACTO_INSECURE_REGISTRIES` lists registries reached over plain HTTP).
 An empty flag, such as `--stats-file=`, turns its environment variable off for
-that command. A file holds one record: `--stats-file` replaces the record a file
-already holds, with a warning, and writes an empty file like a missing one. It
-refuses to overwrite a file that holds something other than a run record.
+that command. A file holds one record. `--stats-file`:
+
+- replaces the record a file already holds, with a warning;
+- writes an empty file like a missing one;
+- refuses to overwrite a file that holds something other than a run record.
+
 `PACTO_STATS_FILE` applies to every recording command in the job, so give each
 command its own file with `--stats-file` when a job runs more than one.
 
@@ -165,15 +168,19 @@ actor, approver, note, message, citation or correlation id.
 
 ### Coverage records
 
-`pacto fleet status` writes a `coverage` record of the fleet snapshot it read,
-only when `--stats-registry` or `--stats-file` is on its command line. A
-coverage record is fleet-wide: its `service` is always `_fleet`, a name no
-contract can declare. Its `id` is the hex SHA-256 of `coverage`, `_fleet`, an
-empty old revision and the snapshot's `snapshotAsOf`, so recording one snapshot
-twice counts once. It holds no `outcome`, none of the CI-only keys, no
-`environment` and none of the operation keys. Readers take the newest coverage
-record in a window and never sum them. A reader that may see only part of the
-fleet sees no coverage record.
+`pacto fleet status` writes a `coverage` record of the fleet snapshot it read:
+
+- only when `--stats-registry` or `--stats-file` is on its command line; it
+  ignores `PACTO_STATS_REGISTRY` and `PACTO_STATS_FILE`;
+- best effort, like the other commands: a failure prints a warning and leaves
+  the exit code unchanged;
+- fleet-wide: its `service` is always `_fleet`, a name no contract can declare;
+- with an `id` over `coverage`, `_fleet`, an empty old revision and the
+  snapshot's `snapshotAsOf`, so one snapshot recorded twice counts once;
+- with no `outcome`, CI-only key, `environment` or operation key;
+- read as a level: readers take the newest coverage record in a window and
+  never sum them;
+- hidden from a reader that may see only part of the fleet.
 
 | Key | Type | Present | Holds |
 | --- | --- | --- | --- |
@@ -185,7 +192,7 @@ fleet sees no coverage record.
 | `coverage.knowledge.described` | integer | with `knowledge` | services whose contract and interface documents leave nothing out |
 | `coverage.knowledge.withGaps` | integer | with `knowledge` | services with at least one knowledge gap |
 | `coverage.knowledge.unknown` | integer | with `knowledge` | services whose knowledge Pacto cannot judge |
-| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here |
+| `coverage.knowledge.notDeployed` | integer | with `knowledge` | services with gaps that run nowhere; unknown services are never counted here. The observed services are `knowledge.services` minus `knowledge.unknown` minus `knowledge.notDeployed`, with unknown services shown beside them |
 | `coverage.links` | object | always | operational targets by how they link to a contract |
 | `coverage.links.exact` | integer | always | targets linked exactly |
 | `coverage.links.inferred` | integer | always | targets linked by inference |
@@ -193,10 +200,6 @@ fleet sees no coverage record.
 | `coverage.links.unresolved` | integer | always | targets that match no contract |
 | `coverage.snapshotAsOf` | string | always | the snapshot's time, RFC 3339 in UTC; never after `recordedAt` |
 | `coverage.completeness` | string | always | `complete` or `partial`; an empty snapshot is recorded as `partial` |
-
-The observed services are `knowledge.services` minus `knowledge.unknown` minus
-`knowledge.notDeployed`. Unknown services are shown beside them and never
-counted as observed.
 
 ### Impact gate codes
 

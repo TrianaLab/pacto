@@ -62,6 +62,17 @@ apart by more than their name. One
 history shows a gap and one record is signed by a key nobody trusts, so you
 can see how Pacto reports them.
 
+## Metrics
+
+**Metrics**, under Change and delivery, draws the [run records](../run-record-reference.md)
+in a stats repository as trends: breaking changes caught, gates, delivery rates,
+lead time and coverage, each labelled unsigned statistics and linked to the
+records behind it. The demo has no stats repository yet, so the page explains
+how to turn recording on.
+
+![The Metrics page with recording off: "Metrics are off" and the commands that set a stats repository for CI, the dashboard and pacto stats](../assets/screenshots/dashboard-metrics-light.png#only-light)
+![The Metrics page with recording off: "Metrics are off" and the commands that set a stats repository for CI, the dashboard and pacto stats](../assets/screenshots/dashboard-metrics-dark.png#only-dark)
+
 ## What the delivery story shows
 
 The delivery screens play the payments story, the scenario every demo shares.
