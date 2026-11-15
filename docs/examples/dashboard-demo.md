@@ -17,8 +17,8 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
-![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
-![The demo's fleet overview: it answers "Is anything wrong?" for forty-four services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+![The demo's fleet overview: "Is anything wrong?" for forty-four services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: "Is anything wrong?" for forty-four services, with one failing health check, one unavailable data source and one partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
 The sidebar groups the pages: **Overview** and **Needs attention** first,
 then the **Organization**, **Change and delivery** and **System** groups. Its top button, or the `[` key,
