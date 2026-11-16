@@ -535,3 +535,31 @@ func TestHistoryChainsForward(t *testing.T) {
 		t.Fatal("the history holds no publish or operation record")
 	}
 }
+
+// TestStoryChangeClassificationAgrees: every CI record of one change (service,
+// from, to) carries the same classification, so a publish never contradicts the
+// diff and impact runs before it. A refused publish is its own change. History
+// revisions are numbered apart from the story's, so each list is checked alone.
+func TestStoryChangeClassificationAgrees(t *testing.T) {
+	agree(t, storyEvents())
+	agree(t, historyEvents())
+}
+
+func agree(t *testing.T, events []StatsEvent) {
+	t.Helper()
+	type change struct {
+		service  string
+		from, to int
+	}
+	seen := map[change]string{}
+	for _, ev := range events {
+		if ev.Classification == "" || ev.Verdict == runrecord.VerdictRefused {
+			continue
+		}
+		c := change{ev.Service, ev.From, ev.To}
+		if prev, ok := seen[c]; ok && prev != ev.Classification {
+			t.Errorf("%+v: %s record says %s, an earlier one says %s", c, ev.Kind, ev.Classification, prev)
+		}
+		seen[c] = ev.Classification
+	}
+}

@@ -429,7 +429,7 @@ func storyEvents() []StatsEvent {
 		// swap may break its consumers, and none of them can be checked, so its gate is unverified.
 		diffRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING"),
 		impactRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING", runrecord.VerdictUnverified, "CONSUMERS_UNCHECKED", 0, 0),
-		publishRun(ago(6, 9), "pay-agent", 0, 1),
+		StatsEvent{At: ago(6, 9), Kind: runrecord.KindPublish, Service: "pay-agent", From: 0, To: 1, Classification: "POTENTIAL_BREAKING"},
 		failedPromote(ago(6, 7), "pay-agent", Test, 0, 1, PayAgent),
 		rollback(ago(6, 6), "pay-agent", Test, 1, 0),
 		// notification-worker accepts a record from another cluster.
