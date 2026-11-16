@@ -20,7 +20,7 @@ const (
 
 // ErrUnverified is the error of a run that cannot judge a pactoVersion raise:
 // it already fails or a stage could not verify what it checks.
-var ErrUnverified = errors.New("fix the errors above before Pacto can tell whether raising pactoVersion keeps its meaning")
+var ErrUnverified = errors.New("fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning")
 
 // meaningStages are the stages runLayers can skip. Every rule that depends on
 // pactoVersion lives in them; a run such as `pacto validate` adds stages of

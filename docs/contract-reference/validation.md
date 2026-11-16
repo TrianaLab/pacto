@@ -47,7 +47,7 @@ in an older contract, reports that version's code for each use instead: set
   version. The message says the raise keeps what the contract means, or names
   the finding it would add (usually `ENVIRONMENT_VALUES_MISSING`, because from
   `"2.4"` a required configuration taken by `ref` has its defaults checked) or
-  says to fix the errors above before Pacto can tell.
+  says to fix the errors the run reports before Pacto can tell.
 - Raising a contract older than `"2.4"` that takes a configuration by `ref`
   adds no finding, and the message says the operator then also accepts
   `ContractOverrides` values for those configurations.
