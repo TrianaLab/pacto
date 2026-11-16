@@ -441,7 +441,8 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 	}
 }
 
-// validateDependencyForm enforces the two shapes a dependency takes: a ref to
+// validateDependencyForm enforces a name (declared or derived from ref) and the
+// two shapes a dependency takes: a ref to
 // its contract with a compatibility range, or, for a dependency this Pacto
 // system does not deliver and nobody wrote a contract for, external: true with
 // the free-text version it runs against. It reports false when the shape is
@@ -449,6 +450,8 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 func validateDependencyForm(i int, dep contract.Dependency, result *ValidationResult) bool {
 	base := fmt.Sprintf("dependencies[%d]", i)
 	switch {
+	case dep.Name == "":
+		result.AddError(base+".name", string(finding.CodeDependencyNameRequired), "a dependency needs a name, or a ref Pacto derives the name from: set name, or set ref to its contract")
 	case dep.Ref == "" && !dep.External:
 		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract (for a contract not published yet, the repository it will be published at, with the versions you accept in compatibility), or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
 	case dep.Ref == "" && dep.Version == "":

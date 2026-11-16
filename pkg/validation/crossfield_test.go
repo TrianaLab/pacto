@@ -1279,3 +1279,13 @@ func TestEnvironmentLifetimeChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestDependencyNameRequiredWithoutRef(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{External: true, Version: "2025-01"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "DEPENDENCY_NAME_REQUIRED") || len(result.Errors) != 1 || result.Errors[0].Path != "dependencies[0].name" {
+		t.Errorf("want one DEPENDENCY_NAME_REQUIRED on dependencies[0].name, got %+v", result.Errors)
+	}
+}

@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -133,5 +134,21 @@ func TestDiffDependencies_External(t *testing.T) {
 	want := []string{"dependencies.external modified NON_BREAKING", "dependencies.version modified POTENTIAL_BREAKING"}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestDiffDependencyNameFromRefMatchesDeclared(t *testing.T) {
+	parse := func(doc string) *contract.Contract {
+		t.Helper()
+		c, err := contract.Parse(strings.NewReader(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	old := parse("dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    required: true\n    compatibility: ^1.0.0\n")
+	new := parse("dependencies:\n  - ref: oci://ghcr.io/acme/ledger\n    compatibility: ^1.0.0\n")
+	if changes := diffDependencies(old, new); len(changes) != 0 {
+		t.Errorf("a name derived from the ref equal to the declared one is no change, got %+v", changes)
 	}
 }

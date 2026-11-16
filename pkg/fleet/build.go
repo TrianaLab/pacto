@@ -2243,7 +2243,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
-			External: dep.External, Version: dep.Version,
+			External: dep.External, Version: dep.Version, NameFromRef: dep.NameFromRef,
 		}
 		if rev.Lock != nil {
 			if e, found := rev.Lock.Dependency(dep.Name); found {
@@ -2254,6 +2254,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		switch {
 		case !ok && dep.External:
 			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+		case !ok && dep.NameFromRef:
+			rel.Reason = derivedNameReason(dep.Ref)
 		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		default:
@@ -2407,9 +2409,54 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc ServiceKey, lockedDigest stri
 // resolveDepService resolves a dependency to a logical service, preferring the
 // depending revision's own domain (a bare dependency ref carries no domain, so it
 // resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
+//
+// A name derived from the ref is a guess from a path, so it resolves only to a
+// service of the ref's own domain with a revision read from that repository: an
+// oci://ghcr.io/other-org/payments never reaches the fleet's own payments, and a
+// local ref, which names no repository, never resolves.
 func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (ServiceKey, bool) {
+	if dep.NameFromRef {
+		repo := ociRepository(dep.Ref)
+		key := lookupServiceInDomain(snap, contract.OCIDomain(dep.Ref), dep.Name)
+		if repo == "" || key == "" || !publishedAt(snap, key, repo) {
+			return "", false
+		}
+		return key, true
+	}
 	key := lookupServiceInDomain(snap, fromDomain, dep.Name)
 	return key, key != ""
+}
+
+// derivedNameReason says why a dependency whose name was derived from ref did
+// not resolve.
+func derivedNameReason(ref string) string {
+	if repo := ociRepository(ref); repo != "" {
+		return "the name was derived from the ref and no service in the fleet is published at " + repo
+	}
+	return "the name was derived from a local ref, which names no published repository: declare the name"
+}
+
+// ociRepository is the repository an oci:// ref names, without scheme, tag or
+// digest; "" for any other ref.
+func ociRepository(ref string) string {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		return ""
+	}
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo
+}
+
+// publishedAt reports whether some revision of svc was read from repo.
+func publishedAt(snap *FleetSnapshot, svc ServiceKey, repo string) bool {
+	for _, rk := range snap.Services[svc].Revisions {
+		rev := snap.Revisions[rk]
+		for _, ref := range []string{rev.RequestedRef, rev.ResolvedRef} {
+			if r, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref)); r == repo {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lockReference returns the lock entry that records what THIS revision's own

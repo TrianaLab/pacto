@@ -104,9 +104,9 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `policies[].target` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `dependencies` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `dependencies[]` | `verified` | `verified` | `verified` | `partial` | Compliant; DEPENDENCY_UNREACHABLE (error, warning when optional); OBSERVATION_UNSUPPORTED when the provider is not a Pacto target; DEPENDENCY_UNDECLARED (warning) for reachable peers no entry names |
-| `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
+| `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME |
 | `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
-| `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
+| `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted before 2.5, where absent means true |
 | `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
 | `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
 | `dependencies[].requires` | `static-only` | - | - | - | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
@@ -1239,10 +1239,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Dependency identifier; subject of its evidence. |
 | Runtime | `not-applicable` |
 | Evidence | identity only; the runtime check lives on dependencies[] |
-| Rule | schema: required; cross-field: unique |
-| Outcomes | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
-| Limitations | the provider is found by ref, not by name |
-| Tests | unit: `pkg/contract/contract_test.go:TestDependency_NameField`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid` |
+| Rule | schema: required before 2.5; 2.5 derives it from the last path segment of ref when absent; cross-field: unique, and present or derivable |
+| Outcomes | SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME |
+| Limitations | the provider is found by ref, not by name; a name derived from ref resolves only to a service published at that repository |
+| Tests | unit: `pkg/contract/contract_test.go:TestDependency_NameField`, `pkg/contract/contract_test.go:TestDependencyNameFromRef`, `pkg/validation/crossfield_test.go:TestDependencyNameRequiredWithoutRef`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/from-ref`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/needs-2.5` |
 
 ### `dependencies[].ref`
 
@@ -1270,9 +1270,9 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | decides the severity axis of the dependency evidence |
 | Rule | required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning |
-| Outcomes | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
+| Outcomes | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted before 2.5, where absent means true |
 | Limitations | none beyond the parent |
-| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency`, `pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning` |
+| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency`, `pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected`, `pkg/contract/contract_test.go:TestDependencyRequiredDefaultsTrue`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/absent-is-true`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning` |
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |

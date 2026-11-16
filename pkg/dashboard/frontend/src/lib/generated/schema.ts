@@ -1159,6 +1159,7 @@ export interface components {
             compatibility?: string;
             external?: boolean;
             name: string;
+            nameFromRef?: boolean;
             ref?: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -2002,6 +2003,7 @@ export interface components {
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
+            nameFromRef?: boolean;
             ref: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -3416,6 +3418,7 @@ export interface components {
             lastSeen?: string;
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** Format: int64 */
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
@@ -5441,6 +5444,7 @@ export interface components {
         ProductUnresolvedDependency: {
             external?: boolean;
             from: components["schemas"]["ProductRef"];
+            nameFromRef?: boolean;
             reason?: string;
             ref: string;
             requestedRef?: string;

@@ -323,11 +323,15 @@ var fieldCoverageCases = []fcCase{
 	valid("dependencies[]/valid"),
 	invalid("dependencies[]/invalid", "DUPLICATE_DEPENDENCY_NAME", set("dependencies.1", map[string]any{"name": "payments", "ref": "oci://ghcr.io/acme/other-pacto:1.0.0", "required": false, "compatibility": "^1.0.0"})),
 	valid("dependencies[].name/valid", set("dependencies.0.name", "billing")),
-	invalid("dependencies[].name/invalid", schemaViolation, del("dependencies.0.name")),
+	valid("dependencies[].name/from-ref", del("dependencies.0.name")), // derived from the ref: payments-pacto
+	invalid("dependencies[].name/invalid", "DEPENDENCY_NAME_REQUIRED", del("dependencies.0.name"), del("dependencies.0.ref"), del("dependencies.0.compatibility"), set("dependencies.0.external", true), set("dependencies.0.version", "2025-01")),
+	invalid("dependencies[].name/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("dependencies.0.name")), // only 2.5 may leave it out
 	warns("dependencies[].ref/valid", "TAG_NOT_DIGEST", set("dependencies.0.ref", "oci://ghcr.io/acme/payments-pacto:1.0.0")),
 	invalid("dependencies[].ref/invalid", "INVALID_OCI_REF", set("dependencies.0.ref", "oci://")),
 	valid("dependencies[].required/valid", set("dependencies.0.required", false)),
-	invalid("dependencies[].required/invalid", schemaViolation, del("dependencies.0.required")),
+	valid("dependencies[].required/absent-is-true", del("dependencies.0.required")),
+	invalid("dependencies[].required/invalid", parseError, set("dependencies.0.required", "maybe")),
+	invalid("dependencies[].required/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("dependencies.0.required")), // only 2.5 may leave it out
 	valid("dependencies[].compatibility/valid", set("dependencies.0.compatibility", ">=1.2.0 <3.0.0")),
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
 	valid("dependencies[].external/valid", set("dependencies.0.external", true)),

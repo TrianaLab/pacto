@@ -790,6 +790,10 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// NameFromRef marks a declared dependency whose name the contract does not
+	// declare: it was derived from the ref, so it resolves only to a service
+	// published at that repository.
+	NameFromRef bool `json:"nameFromRef,omitempty"`
 	// RangeStatus, for a resolved declared dependency with a compatibility range,
 	// says whether the provider version the fleet holds satisfies that range:
 	// satisfied, unsatisfied or unknown (a range or version semver cannot read, or

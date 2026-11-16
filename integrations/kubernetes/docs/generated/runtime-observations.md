@@ -108,6 +108,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CONFIG_REF_UNRESOLVED` | `UnresolvedReference` |
 | `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
+| `DEPENDENCY_NAME_REQUIRED` | `InvalidDependency` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
 | `DUPLICATE_CAPABILITY` | `DuplicateName` |

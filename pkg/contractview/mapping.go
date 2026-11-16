@@ -403,6 +403,7 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 	for _, dep := range c.Dependencies {
 		d := DependencyInfo{
 			Name:          dep.Name,
+			NameFromRef:   dep.NameFromRef,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,

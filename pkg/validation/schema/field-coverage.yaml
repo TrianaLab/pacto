@@ -1728,15 +1728,21 @@ fields:
     meaning: Dependency identifier; subject of its evidence.
     runtime: not-applicable
     evidence: identity only; the runtime check lives on dependencies[]
-    rule: 'schema: required; cross-field: unique'
-    outcomes: SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME
-    limitations: the provider is found by ref, not by name
+    rule: 'schema: required before 2.5; 2.5 derives it from the last path segment of ref when absent; cross-field:
+      unique, and present or derivable'
+    outcomes: SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME
+    limitations: the provider is found by ref, not by name; a name derived from ref resolves only to a service published
+      at that repository
     tests:
       unit:
       - pkg/contract/contract_test.go:TestDependency_NameField
+      - pkg/contract/contract_test.go:TestDependencyNameFromRef
+      - pkg/validation/crossfield_test.go:TestDependencyNameRequiredWithoutRef
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/from-ref
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/needs-2.5
       e2e: []
   dependencies[].ref:
     meaning: Reference to the provider's contract bundle.
@@ -1771,15 +1777,19 @@ fields:
     runtime: partial
     evidence: decides the severity axis of the dependency evidence
     rule: 'required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning'
-    outcomes: DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted
+    outcomes: DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when
+      omitted before 2.5, where absent means true
     limitations: none beyond the parent
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency
       - pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected
+      - pkg/contract/contract_test.go:TestDependencyRequiredDefaultsTrue
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/absent-is-true
       - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/needs-2.5
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning
     platforms:

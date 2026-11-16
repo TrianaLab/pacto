@@ -27,8 +27,18 @@ func Current() string { return SupportedVersions[len(SupportedVersions)-1] }
 // 2.3, 2.4 and 2.5 each add fields it refuses in any older one.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, &ParseError{Message: fmt.Sprintf("failed to read YAML: %v", err), Err: err}
+	}
+	return parseStrict(raw)
+}
+
+// parseStrict is Parse over bytes in memory. The defaults that depend on which
+// keys a dependency writes are read from the document node afterwards.
+func parseStrict(raw []byte) (*Contract, error) {
 	var c Contract
-	decoder := yaml.NewDecoder(r)
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return nil, &ParseError{
@@ -36,13 +46,19 @@ func Parse(r io.Reader) (*Contract, error) {
 			Err:     err,
 		}
 	}
-	if err := checkRequired(&c); err != nil {
-		return nil, err
-	}
-	return &c, nil
+	var root yaml.Node
+	_ = yaml.Unmarshal(raw, &root) // the strict decode above already read the same document
+	return completeParsed(&root, &c)
 }
 
-func parseStrict(raw []byte) (*Contract, error) { return Parse(bytes.NewReader(raw)) }
+// completeParsed applies what both parse paths do after decoding.
+func completeParsed(root *yaml.Node, c *Contract) (*Contract, error) {
+	if err := checkRequired(c); err != nil {
+		return nil, err
+	}
+	applyDependencyDefaults(root, c)
+	return c, nil
+}
 
 // checkRequired completes an absent pactoVersion to Current() and refuses an
 // unsupported one. service.name and service.version may be absent: a contract

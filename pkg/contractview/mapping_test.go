@@ -118,7 +118,7 @@ func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "oci://ghcr.io/org/db:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Name: "db", NameFromRef: true, Ref: "oci://ghcr.io/org/db:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "cache-svc", Required: false},
 		},
 	}
@@ -131,6 +131,9 @@ func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 	}
 	if !details.Dependencies[0].Required {
 		t.Error("expected first dep required=true")
+	}
+	if !details.Dependencies[0].NameFromRef || details.Dependencies[1].NameFromRef {
+		t.Error("nameFromRef is carried from the contract")
 	}
 	if details.Dependencies[0].Compatibility != "^1.0.0" {
 		t.Errorf("expected compatibility '^1.0.0', got %q", details.Dependencies[0].Compatibility)

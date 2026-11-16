@@ -29,6 +29,7 @@ const (
 	CodeDuplicateTemplatePlugin        Code = "DUPLICATE_TEMPLATE_PLUGIN"
 	CodeInvalidOriginRef               Code = "INVALID_ORIGIN_REF"
 	CodeEmptyCompatibility             Code = "EMPTY_COMPATIBILITY"
+	CodeDependencyNameRequired         Code = "DEPENDENCY_NAME_REQUIRED" // a dependency with neither a name nor a ref to derive one from
 	CodeInvalidCompatibility           Code = "INVALID_COMPATIBILITY"
 	CodeValuesWithoutSchema            Code = "VALUES_WITHOUT_SCHEMA"
 	CodeConfigValuesValidationFailed   Code = "CONFIG_VALUES_VALIDATION_FAILED"
@@ -132,6 +133,7 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateTemplatePlugin:        {CategoryDuplicateName, SeverityError},
 	CodeInvalidOriginRef:               {CategoryInvalidReference, SeverityError},
 	CodeEmptyCompatibility:             {CategoryInvalidDependency, SeverityError},
+	CodeDependencyNameRequired:         {CategoryInvalidDependency, SeverityError},
 	CodeInvalidCompatibility:           {CategoryInvalidDependency, SeverityError},
 	CodeValuesWithoutSchema:            {CategoryMissingConfiguration, SeverityError},
 	CodeConfigValuesValidationFailed:   {CategoryConfigurationViolation, SeverityError},

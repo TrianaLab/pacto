@@ -64,10 +64,7 @@ func parseNode(root *yaml.Node, raw []byte) (*Contract, error) {
 	if !knownFields(root, reflect.TypeOf(c)) || root.Decode(&c) != nil {
 		return parseStrict(raw)
 	}
-	if err := checkRequired(&c); err != nil {
-		return nil, err
-	}
-	return &c, nil
+	return completeParsed(root, &c)
 }
 
 // documentFromNode decodes root into the Document. It untags timestamps first

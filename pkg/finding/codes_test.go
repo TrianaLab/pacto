@@ -33,6 +33,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeEnvironmentValuesUnverified:  CategoryUnresolvedReference,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
+		CodeDependencyNameRequired:       CategoryInvalidDependency,
 		CodeInvalidConfigRef:             CategoryInvalidReference,
 		CodeYamlParseError:               CategorySchemaViolation,
 		CodePolicyRefUnresolved:          CategoryUnresolvedReference,

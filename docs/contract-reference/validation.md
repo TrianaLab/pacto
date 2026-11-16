@@ -79,6 +79,7 @@ Validates semantic references and consistency:
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
+| A dependency has a `name`, or a `ref` its name is derived from | `DEPENDENCY_NAME_REQUIRED` |
 | A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
 | An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
 | `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |

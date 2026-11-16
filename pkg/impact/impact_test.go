@@ -1125,3 +1125,26 @@ func TestImpactLeavesGoldenPathsOut(t *testing.T) {
 		})
 	}
 }
+
+// TestDerivedDependencyNameNeverContractual: a consumer whose dependency name is
+// derived from a ref at another repository shares the provider's name but never
+// becomes a contractual consumer of it.
+func TestDerivedDependencyNameNeverContractual(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	caller := svcContract("caller", "1.0.0", contract.Owner{Team: "team-c"},
+		contract.Dependency{Name: "auth-service", NameFromRef: true, Ref: "oci://ghcr.io/other-org/auth-service", Compatibility: "^1.0.0", Required: true})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: mkBundle(auth), Domain: "ghcr.io/acme", RequestedRef: "oci://ghcr.io/acme/auth-service:1.0.0"},
+			{Bundle: mkBundle(caller), Domain: "ghcr.io/acme", RequestedRef: "oci://ghcr.io/acme/caller:1.0.0"},
+		}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Analyze(context.Background(), auth, svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	for _, c := range res.Consumers {
+		if c.Service == "caller" && c.Confidence == ConfidenceContractual {
+			t.Fatalf("caller graded contractual over a name derived from a foreign ref: %+v", c)
+		}
+	}
+}

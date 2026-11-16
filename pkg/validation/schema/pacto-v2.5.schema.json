@@ -584,25 +584,22 @@
       "description": "Other services this service depends on. Each one references the other service's Pacto contract, or, for a dependency this Pacto system does not deliver and nobody wrote a contract for, is marked external with the version it runs against. For a service of your own whose contract is not published yet, give ref as the repository its contract will be published at and compatibility as the versions you accept: Pacto reports the dependency as unresolved until that contract is published.",
       "items": {
         "type": "object",
-        "required": [
-          "name",
-          "required"
-        ],
         "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string",
             "minLength": 1,
-            "description": "A unique name for this dependency within the contract (typically the service name)."
+            "description": "A unique name for this dependency within the contract (typically the service name). Leave it out to derive it from ref: the last path segment of the repository, without tag or digest (oci://ghcr.io/acme/ledger gives ledger). A derived name resolves only to a service published at that repository."
           },
           "ref": {
             "type": "string",
             "minLength": 1,
-            "description": "An OCI reference to the dependency's Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...). For a contract that is not published yet, the repository it will be published at (e.g. oci://ghcr.io/org/contracts/ledger), which validates and stays unresolved until it is published. Leave it out only for an external dependency with no contract, which gives version instead."
+            "description": "An OCI reference to the dependency's Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...). For a contract that is not published yet, the repository it will be published at (e.g. oci://ghcr.io/org/contracts/ledger), which validates and stays unresolved until it is published. Leave it out only for an external dependency with no contract, which gives version and name instead. Without name, the name is derived from the last path segment of its repository."
           },
           "required": {
             "type": "boolean",
-            "description": "Whether this dependency is mandatory. If true, the service cannot function without it; if false, the service degrades gracefully when it is unavailable."
+            "default": true,
+            "description": "Whether this dependency is mandatory (default true). If true, the service cannot function without it; if false, the service degrades gracefully when it is unavailable."
           },
           "compatibility": {
             "type": "string",

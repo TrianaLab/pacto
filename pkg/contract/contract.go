@@ -347,6 +347,10 @@ type Dependency struct {
 	// Requires is the behavior this service relies on from the provider's
 	// interfaces (pactoVersion 2.2); see [Unmet].
 	Requires []Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`
+	// NameFromRef marks a Name the parser derived from Ref because the contract
+	// declares none (pactoVersion 2.5). A derived name is a guess from a path,
+	// so it never resolves like a declared one.
+	NameFromRef bool `yaml:"-" json:"nameFromRef,omitempty"`
 }
 
 // Reference kinds for ReferenceRef.Kind.

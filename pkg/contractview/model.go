@@ -299,7 +299,9 @@ type ConfigurationInfo struct {
 
 // DependencyInfo describes a declared dependency.
 type DependencyInfo struct {
-	Name          string `json:"name"`
+	Name string `json:"name"`
+	// NameFromRef marks a Name derived from Ref because the contract declares none.
+	NameFromRef   bool   `json:"nameFromRef,omitempty"`
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility,omitempty"`
