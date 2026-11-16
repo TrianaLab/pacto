@@ -253,7 +253,8 @@ export type DomainEntityDetail = Detail & {
   target?: never;
   owner?: never;
   source?: never;
-  offering?: never;  external?: never;
+  offering?: never;
+  external?: never;
 };
 export type OfferingEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'offering' };
@@ -303,8 +304,6 @@ export const isDomainDetail = (d: ProductEntityDetail): d is DomainEntityDetail 
   d.entity?.kind === 'domain';
 export const isOfferingDetail = (d: ProductEntityDetail): d is OfferingEntityDetail =>
   d.entity?.kind === 'offering';
-export const isExternalDetail = (d: ProductEntityDetail): d is ExternalEntityDetail =>
-  d.entity?.kind === 'external';
 
 // DETAIL_KINDS is the closed set of entity-detail payload discriminants; it doubles
 // as the payload-field names (each kind's payload lives under the same key).

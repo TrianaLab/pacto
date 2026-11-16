@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError, ApiContractError,
-  narrowEntityDetail, isServiceDetail, isTargetDetail, isExternalDetail,
+  narrowEntityDetail, isServiceDetail, isTargetDetail,
 } from './api.ts';
-import type { ProductEntityDetail } from './api.ts';
+import type { ProductEntityDetail, ExternalEntityDetail } from './api.ts';
 
 // The facade routes every call through the generated openapi-fetch client, which
 // builds a Request and hands it to the single transport seam (dashboardFetch),
@@ -199,7 +199,7 @@ describe('entity-detail runtime narrowing', () => {
 
   it('narrows an external system to its external payload', () => {
     const d = narrowEntityDetail(raw({ entity: { kind: 'external', key: 'stripe' }, external: { external: { key: 'stripe' }, consumers: [] } }));
-    expect(isExternalDetail(d) && d.external.external.key).toBe('stripe');
+    expect((d as ExternalEntityDetail).external.external.key).toBe('stripe');
     expect(() => narrowEntityDetail(raw({ entity: { kind: 'external' }, offering: {} }))).toThrow(ApiContractError);
   });
 
