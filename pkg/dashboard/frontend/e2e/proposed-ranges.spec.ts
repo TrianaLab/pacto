@@ -35,9 +35,24 @@ test.describe('a dependency with no declared range', () => {
     await neverAccepted(page);
   });
 
-  test('the offering page titles the consumer range not declared', async ({ page }) => {
+  test('the offering page titles the consumer range not declared and grades no successor', async ({ page }) => {
     await open(page, 'offering entity');
     await expect(page.locator('[data-testid="offering-consumer"] [title="Range not declared"]').first()).toBeAttached();
+    await expect(page.locator('[data-testid="offering-consumer"]').filter({ has: page.locator('[title="Range not declared"]') })
+      .getByText(/(accepts|excludes) (successor|latest supported)/)).toHaveCount(0);
+    await neverAccepted(page);
+  });
+
+  test('the service page titles a resource it uses range not declared', async ({ page }) => {
+    await open(page, 'service entity');
+    await expect(page.locator('[data-testid="service-resource"] [title="Range not declared"]').first()).toBeAttached();
+    await neverAccepted(page);
+  });
+
+  test('the golden path page titles a requirement range not declared', async ({ page }) => {
+    test.setTimeout(120_000);
+    await open(page, 'golden path entity');
+    await expect(page.locator('[data-testid="golden-path-requirements"] [title="Range not declared"]').first()).toBeAttached();
     await neverAccepted(page);
   });
 });

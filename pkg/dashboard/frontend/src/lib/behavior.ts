@@ -165,6 +165,7 @@ const SUCCESSOR: Record<string, { label: string; tone: Tone }> = {
  * `what` names another target revision, such as the provider's latest supported one.
  */
 export function successorBadge(status: string | null | undefined, range = '', what = 'successor'): { label: string; tone: Tone; title: string } | null {
-  const b = status ? SUCCESSOR[status] ?? SUCCESSOR.unknown : null;
+  // With no declared range the successor is never graded, whatever status says.
+  const b = status ? (range === 'unknown' ? SUCCESSOR.unknown : SUCCESSOR[status] ?? SUCCESSOR.unknown) : null;
   return b && { ...b, label: b.label.replace('successor', what), title: range && range !== 'unknown' ? `Range ${range}` : RANGE_NOT_DECLARED };
 }

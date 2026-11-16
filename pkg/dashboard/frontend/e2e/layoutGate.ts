@@ -324,7 +324,13 @@ export function installScaleFixture(): void {
       // Every fourth dependency consumer, the first included, declares no range, so its
       // badges read "Range not declared".
       let deps = 0;
-      for (const u of cons?.items ?? []) if (u.via === 'dependency' && deps++ % 4 === 0) { u.compatibility = 'unknown'; u.rangeStatus = 'unknown'; }
+      // The engine grades a successor or supported range from the declared range, so
+      // with none it grades those unknown too.
+      for (const u of cons?.items ?? []) {
+        if (u.via !== 'dependency' || deps++ % 4 !== 0) continue;
+        u.compatibility = 'unknown'; u.rangeStatus = 'unknown';
+        for (const k of ['successorRange', 'supportedRange']) if (u[k]) u[k] = 'unknown';
+      }
       for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
     }
     // A checked range's answer carries the provider's successor at its longest ref.
@@ -473,6 +479,10 @@ export function installScaleFixture(): void {
         used.total = 120; used.count = 40; used.truncated = true;
         svc.hiddenProviders = 3;
       }
+      // The first resource a service uses and the first requirement of a golden path
+      // declare no range, so their badges read "Range not declared".
+      const tpl = svc?.template as { requirements?: { items?: Record<string, unknown>[] } } | undefined;
+      for (const u of [used?.items?.[0], tpl?.requirements?.items?.[0]]) if (u) { u.compatibility = 'unknown'; u.rangeStatus = 'unknown'; }
       for (const it of pl?.items ?? []) {
         if (it.environment) it.environment = longName(String(it.environment));
         for (const v of (it.revisions as Record<string, unknown>[] | undefined) ?? []) v.version = longName(String(v.version ?? 'v'));
