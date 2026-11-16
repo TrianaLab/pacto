@@ -71,6 +71,11 @@ async function atViewport(page: Page, [w, h]: VP) {
   await settle(page);
 }
 
+// Route outermost: Playwright shards a contiguous run of tests, so every kind of test
+// (the dark desktop one carries G1 and costs several times the rest) has to be spread
+// along the file, or one shard gets the heavy group whole. Titles are unchanged: each
+// (theme, group) describe repeats once per route.
+for (const r of ROUTES) {
 for (const theme of ['dark', 'light'] as const) {
   for (const g of GROUPS) {
     for (const dpr of g.dprs) {
@@ -88,7 +93,6 @@ for (const theme of ['dark', 'light'] as const) {
           const geometry = FULL || theme === 'dark';
           // G1 runs where its own spec ran: fine pointer, DPR 1, Verdana, the same themes.
           const g1 = geometry && !g.touch && dpr === 1 && font === 'verdana';
-          for (const r of ROUTES) {
             test(r.name, async ({ page }) => {
               test.setTimeout((FULL ? 900_000 : 240_000) + (g1 ? 150_000 : 0));
               await appReady(page);
@@ -143,11 +147,11 @@ for (const theme of ['dark', 'light'] as const) {
               }
               expect(problems, `${r.name} (${theme}, ${g.name})`).toEqual([]);
             });
-          }
         });
       }
     }
   }
+}
 }
 
 // The case the reader reported (SPEC 22): at about 1900px with the sidebar expanded, the
