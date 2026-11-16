@@ -1069,6 +1069,7 @@ pacto fleet entities [text] [flags]
 ```
       --business-domain string           exact business domain, (none) for none or (unknown) for unknown
       --capability string                services whose revisions declare this capability key, such as health or acme.io/cost
+      --class string                     with --kind external, external systems of this class (vendor-api, managed-cloud, legacy, unclassified, other-egress)
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
       --domain string                    exact registry path, the domain part of a service key
@@ -1077,7 +1078,7 @@ pacto fleet entities [text] [flags]
       --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
-      --kind string                      entity kind (service, revision, target, owner, source, domain, offering; empty lists services, owners, domains and offerings)
+      --kind string                      entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)
       --lifecycle string                 offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is deprecated or sunset
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
@@ -1115,7 +1116,7 @@ pacto fleet entity <kind> <key> [flags]
 
 ### `pacto fleet explain`
 
-Explain the deterministic reasons for a service or target state
+Explain the deterministic reasons for a service or target state. Give external:&lt;identity&gt; to list the sources that declare an external system and the catalog entry that classified it.
 
 ```
 pacto fleet explain <subject> [flags]
@@ -1129,7 +1130,7 @@ pacto fleet explain <subject> [flags]
 
 ### `pacto fleet get`
 
-Inspect a logical service or an operational target
+Inspect a logical service by name, an external system by external:&lt;identity&gt; (a vendor, managed service or legacy host no Pacto contract describes) or an operational target with --target.
 
 ```
 pacto fleet get [service] [flags]
@@ -1144,7 +1145,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed).
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed). Give external:&lt;identity&gt; with --direction dependents to list the consumers of an external system.
 
 ```
 pacto fleet graph <service> [flags]

@@ -62,7 +62,7 @@ func ProductKinds() []string {
 // ListKinds are the kinds a listing that names one kind (the CLI and MCP)
 // asks for: kind when set; otherwise the one kind its filter applies to
 // (services for template only, revisions for readiness, targets for scope,
-// sources for sourceKind or sourceHealth); nil, the kind set every surface
+// sources for sourceKind or sourceHealth, external systems for class); nil, the kind set every surface
 // lists by default, when it names a service, domain or source, so the listing
 // holds that service's revisions and targets as the dashboard's does; else the
 // ProductKinds.
@@ -78,6 +78,8 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindTarget}
 	case f.SourceKind != "" || f.SourceHealth != "":
 		return []EntityKind{KindSource}
+	case f.Class != "":
+		return []EntityKind{KindExternal}
 	case f.Service != "" || f.Domain != "" || f.Source != "":
 		return nil
 	}

@@ -803,3 +803,27 @@ func TestRevisionDetailShowsBehindVersion(t *testing.T) {
 		t.Errorf("revision detail misses the behind version:\n%s", b.String())
 	}
 }
+
+// TestTUIExternalDetail: an external system's page carries the CLI's three
+// blocks: its class and consumers, its sources and its catalog.
+func TestTUIExternalDetail(t *testing.T) {
+	rec := fleet.ExternalRecord{
+		Key: "stripe", Class: "vendor-api", ConsumersTotal: 2, SourcesTotal: 2, HiddenConsumers: 1,
+		Sources: []fleet.ExternalSource{{Service: "checkout", Index: 0, Dependency: "Stripe", Provenance: "declared"}},
+		Catalog: &fleet.ExternalCatalogMatch{Origin: "default", Digest: "sha256:abc", Entry: "stripe"},
+	}
+	out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec, FoldedInto: fleet.OtherEgress}})
+	for _, want := range []string{"vendor-api", "1 you may not see", "other-egress", "Sources (2)", "checkout pacto.yaml dependencies[0] (name: Stripe, declared)", "Catalog", "sha256:abc"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("external detail lacks %q:\n%s", want, out)
+		}
+	}
+	rec.Catalog = nil
+	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); !strings.Contains(out, "none (joined by name)") {
+		t.Errorf("a name-only external:\n%s", out)
+	}
+	rec.Folded = 3
+	if out := renderDetail(&fleet.EntityDetail{External: &fleet.ExternalDetailData{External: rec}}); !strings.Contains(out, "3 external systems") {
+		t.Errorf("the other-egress node:\n%s", out)
+	}
+}

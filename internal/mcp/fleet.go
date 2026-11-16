@@ -29,6 +29,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"'rangeStatus' before saying the dependency is met. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
 	"knowledge: when source coverage is incomplete, a missing result means unknown. " +
+	"An external system (a vendor, managed service or legacy host no Pacto contract describes) is kind external, " +
+	"keyed by its canonical identity; a dependency that joins one has toExternal set and resolved false. " +
 	"A service's 'offering' names the platform offering it provides to other teams " +
 	"(service.offering) and 'summary' says what it is for; search with 'offering' to find " +
 	"every provider of one. Offerings are read from contracts and are unrelated to a " +
@@ -195,7 +197,9 @@ func fleetSearchTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_search",
 		Description: "Search logical services in the operational graph. Read-only. " +
 			"Returns a bounded, deterministically ordered list with an asOf time and completeness. " +
-			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get.",
+			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get. " +
+			"A text search also lists, in 'externals', up to 20 external systems whose identity, label or alias holds the text, " +
+			"with 'externalsTotal'.",
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over service name, summary and owner"},
 			"owner":           {Type: "string", Description: "Filter by owner team, DRI or contact"},
@@ -277,9 +281,10 @@ func fleetGetTool() *mcpsdk.Tool {
 			"(team, dri, contacts) here and in pacto_fleet_search. Each revision's 'provenance' says whether its " +
 			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
-			"no source checked. Read-only.",
+			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
+			"its provenance), consumers, the catalog entry that classified it and 'hiddenConsumers' you may not see. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"service": {Type: "string", Description: "Logical service name"},
+			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
 		}, nil),
 	}
@@ -299,6 +304,8 @@ func fleetGetHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetGetArgs, any] {
 		switch {
 		case a.Target != "":
 			res, err = q.GetTarget(a.Target)
+		case strings.HasPrefix(a.Service, fleet.ExternalSubjectPrefix):
+			res, err = q.GetExternal(a.Service)
 		case a.Service != "":
 			res, err = q.GetService(a.Service)
 		default:
@@ -322,9 +329,10 @@ func fleetGraphTool() *mcpsdk.Tool {
 			"declared, observed or declared+observed), cycles, unresolved dependencies and 'truncated'. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
-			"Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. Read-only.",
+			"Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. " +
+			"Rooted at external:<identity>, it walks the external system's consumers with direction dependents; an external system has no dependencies Pacto knows. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions)"},
+			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions), or external:<identity>"},
 			"revision":   {Type: "string", Description: "Root a specific contract revision key (exact, not latest)"},
 			"target":     {Type: "string", Description: "Root the revision linked to this operational target key or name"},
 			"direction":  {Type: "string", Description: "Traversal direction", Enum: []string{"dependencies", "dependents"}},
@@ -430,9 +438,11 @@ func fleetExplainTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_explain",
 		Description: "Explain the deterministic reasons for a service or target state (findings, missing " +
-			"evidence, staleness, unresolved dependencies). Returns structured reasons, not prose. Read-only.",
+			"evidence, staleness, unresolved dependencies). Returns structured reasons, not prose. For external:<identity> " +
+			"it lists one reason per declaring source, the catalog match or the name-only fallback and the cap; its status is " +
+			"always unknown. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"subject": {Type: "string", Description: "Service name or operational target key/name"},
+			"subject": {Type: "string", Description: "Service name, operational target key/name or external:<identity>"},
 		}, []string{"subject"}),
 	}
 }
@@ -471,7 +481,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"Offering rows carry owner, lifecycle, availability with availabilityProvenance " +
 			"(observed, inferred or unknown), consumers, hiddenConsumers, failedRequests and targetsUnknown; aggregate.offeringPhases " +
 			"tallies their requests by phase. lifecycle keeps offerings or services that are deprecated or sunset, and failed keeps " +
-			"offerings with a failed provisioning request. Read-only.",
+			"offerings with a failed provisioning request. kind=external lists the external systems contracts name (vendors, " +
+			"managed services, legacy hosts), each keyed by its canonical identity; class keeps one class. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":              {Type: "string", Description: "Substring over name, key and owner"},
 			"kind":              {Type: "string", Description: "Entity kind (empty lists services, owners, domains and offerings)", Enum: fleet.EntityKinds()},
@@ -499,6 +510,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
 			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
+			"class":             {Type: "string", Description: "External systems of this class (lists kind external when kind is empty)", Enum: fleet.ExternalClasses()},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -532,6 +544,7 @@ type fleetEntitiesArgs struct {
 	SourceHealth    string `json:"source_health"`
 	Lifecycle       string `json:"lifecycle"`
 	Failed          bool   `json:"failed"`
+	Class           string `json:"class"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
@@ -549,7 +562,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
-			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth,
+			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,
 		}
 		f.Kinds = fleet.ListKinds(a.Kind, f)
 		return productResult(link, productview.ToEntityList)(q.Entities(f))
@@ -559,8 +572,8 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 func fleetEntityTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_entity",
-		Description: "Inspect one entity's full detail: a service, revision, target, owner, source, business domain " +
-			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
+		Description: "Inspect one entity's full detail: a service, revision, target, owner, source, business domain, " +
+			"platform offering or external system (its sources, consumers and catalog match). A domain or owner answer summarizes its services; an offering answer lists " +
 			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
 			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
 			"comes from an unsigned target-state file. An offering answer carries 'adapters': the adapter slug, producer " +

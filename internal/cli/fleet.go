@@ -320,8 +320,10 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) (fleet.SearchFilter, e
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get [service]",
-		Short: "Inspect a logical service or an operational target",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Inspect a logical service, an external system or an operational target",
+		Long: "Inspect a logical service by name, an external system by external:<identity> " +
+			"(a vendor, managed service or legacy host no Pacto contract describes) or an operational target with --target.",
+		Args: cobra.MaximumNArgs(1),
 		// A service key comes from the snapshot, and building one at tab time would
 		// reach k8s, a registry or the disk cache while the reader holds tab. No
 		// candidates is the honest answer; falling back to filenames is not, because
@@ -342,7 +344,14 @@ func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			}
 			name := optionalArg(args)
 			if name == "" {
-				return fmt.Errorf("provide a service name or --target")
+				return fmt.Errorf("provide a service name, external:<identity> or --target")
+			}
+			if _, ok := fleet.ParseExternalSubject(name); ok {
+				ev, err := q.GetExternal(name)
+				if err != nil {
+					return err
+				}
+				return printFleetExternal(cmd, ev, v.GetString(outputFormatKey))
 			}
 			sv, err := q.GetService(name)
 			if err != nil {
@@ -363,7 +372,8 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"name to aggregate across its revisions, or --revision/--target to root " +
 			"an exact revision (never 'latest'). The walk also follows observed " +
 			"runtime calls, so services no contract connects appear too; each node " +
-			"reports its provenance (declared, observed or declared+observed).",
+			"reports its provenance (declared, observed or declared+observed). Give " +
+			"external:<identity> with --direction dependents to list the consumers of an external system.",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to
 		// build at the prompt, and this positional is never a path.
@@ -474,7 +484,9 @@ func newFleetExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return &cobra.Command{
 		Use:   "explain <subject>",
 		Short: "Explain the deterministic reasons for a service or target state",
-		Args:  cobra.ExactArgs(1),
+		Long: "Explain the deterministic reasons for a service or target state. Give external:<identity> " +
+			"to list the sources that declare an external system and the catalog entry that classified it.",
+		Args: cobra.ExactArgs(1),
 		// Same as `fleet get`: the subject resolves to a service or a target, both
 		// of which only a snapshot knows, and neither of which is ever a path.
 		ValidArgsFunction: noCompletions,

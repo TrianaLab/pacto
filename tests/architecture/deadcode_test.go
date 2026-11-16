@@ -67,7 +67,6 @@ var deadCodeAllowlist = map[string]string{
 
 	// ponytail: temporary; story #586 phase P6 routes `fleet get external:<id>`
 	// and pacto_fleet_get to it, and that phase deletes this entry.
-	"pkg/fleet.GetExternal": "the external-system lookup the CLI and MCP get commands call from story #586 P6",
 
 	"pkg/workloadmanager.Detect": "511-S1 lands in phases: P1 ships the detection on its own and P6 " +
 		"gives it its production caller (the operator's detectApplier). Remove this entry with that " +
