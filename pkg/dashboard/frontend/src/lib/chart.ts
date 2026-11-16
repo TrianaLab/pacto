@@ -26,10 +26,6 @@ export function bandScale(n: number, width: number) {
   return { band, x: (i: number) => band * i, mid: (i: number) => band * i + band / 2 };
 }
 
-export function linearScale([d0, d1]: [number, number], [r0, r1]: [number, number]) {
-  return (v: number) => (d1 === d0 ? r0 : r0 + ((v - d0) / (d1 - d0)) * (r1 - r0));
-}
-
 /**
  * logDomain is the lead-time axis in seconds: from max(1s, fastest known / 1.6) to the
  * slowest known x 1.25. A 0s or sub-second lead is legal, so the floor keeps the axis

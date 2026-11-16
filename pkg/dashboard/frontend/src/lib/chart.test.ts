@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { niceMax, bandScale, linearScale, logScale, logDomain, logTicks, colPath, barPath, showTick, directLabelIndexes, durationText, runs, SERIES, HEAT } from './chart.ts';
+import { niceMax, bandScale, logScale, logDomain, logTicks, colPath, barPath, showTick, directLabelIndexes, durationText, runs, SERIES, HEAT } from './chart.ts';
 
 describe('niceMax', () => {
   it('rounds up to the next nice step', () => {
@@ -18,10 +18,6 @@ describe('scales', () => {
     const b = bandScale(4, 200);
     expect(b.band).toBe(50);
     expect([b.x(0), b.mid(0), b.mid(3)]).toEqual([0, 25, 175]);
-  });
-  it('maps a linear domain and survives an empty one', () => {
-    expect(linearScale([0, 10], [100, 0])(5)).toBe(50);
-    expect(linearScale([3, 3], [0, 80])(3)).toBe(0);
   });
 });
 
