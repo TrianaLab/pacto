@@ -40,7 +40,7 @@ No ClusterRole grants Secrets. The operator reads a pull Secret or a Secret that
 
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
-The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace).
+The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

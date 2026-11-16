@@ -372,7 +372,9 @@ def gen_rbac(k8s: str) -> str:
     out.append(
         "The teardown half of the managed components: `get` and `delete` on the fixed names "
         "a previous install may have created there, the node agent's included (releases "
-        "before the dedicated agent namespace ran it in the release namespace).\n"
+        "before the dedicated agent namespace ran it in the release namespace). The one "
+        "`secrets` `get` rule with no name reads pull Secrets and Secrets that back a "
+        "configuration in the release namespace.\n"
     )
     out.extend(_rbac_rules_table(ns_always))
     out.append("")
