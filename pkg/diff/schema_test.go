@@ -3,6 +3,7 @@ package diff
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -521,5 +522,92 @@ func TestResponseHeaderCap_MatchesTheHeadersMap(t *testing.T) {
 	}
 	if got := classifySchemaChange(dirResponse, resp+".content.application/json.schema.properties.headers.properties.b", false, Removed, "a", nil); got != Breaking {
 		t.Errorf("body property named headers: got %s", got)
+	}
+}
+
+func redactionDiff(t *testing.T, oldSchema, newSchema string) []Change {
+	t.Helper()
+	return diffSchema("schema.json", "schema.json",
+		fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(oldSchema)}},
+		fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(newSchema)}})
+}
+
+func changeAt(t *testing.T, changes []Change, path string) Change {
+	t.Helper()
+	for _, c := range changes {
+		if c.Path == path {
+			return c
+		}
+	}
+	t.Fatalf("no change at %s in %+v", path, changes)
+	return Change{}
+}
+
+func assertNoLeak(t *testing.T, changes []Change, secret string) {
+	t.Helper()
+	b, err := json.Marshal(changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("diff leaks %q: %s", secret, b)
+	}
+}
+
+func TestSchemaDiffRedactsSensitiveDefault(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","default":"hunter2"},"PORT":{"type":"integer","default":8080}}}`,
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","writeOnly":true},"PORT":{"type":"integer","default":9090}}}`)
+	c := changeAt(t, changes, "schema.properties.DB_PASSWORD.default")
+	if c.Type != Removed || c.OldValue != redacted || c.NewValue != nil {
+		t.Errorf("sensitive default change = %+v", c)
+	}
+	if c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "schema.properties.DB_PASSWORD.default") {
+		t.Errorf("classification or reason lost: %+v", c)
+	}
+	if w := changeAt(t, changes, "schema.properties.DB_PASSWORD.writeOnly"); w.NewValue != redacted {
+		t.Errorf("writeOnly change not redacted: %+v", w)
+	}
+	if p := changeAt(t, changes, "schema.properties.PORT.default"); p.OldValue != float64(8080) || p.NewValue != float64(9090) {
+		t.Errorf("non-sensitive default redacted: %+v", p)
+	}
+	assertNoLeak(t, changes, "hunter2")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_NewPropertiesObject(t *testing.T) {
+	changes := redactionDiff(t, `{"type":"object"}`,
+		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
+	if c := changeAt(t, changes, "schema.properties"); c.Type != Added || c.NewValue != redacted {
+		t.Errorf("ancestor change not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "s3cr3t")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_PropertyAdded(t *testing.T) {
+	changes := redactionDiff(t, `{"type":"object","properties":{}}`,
+		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
+	if c := changeAt(t, changes, "schema.properties.API_TOKEN"); c.NewValue != redacted {
+		t.Errorf("added sensitive property not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "s3cr3t")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_WriteOnlyParent(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:old@h"}}}}}`,
+		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:new@h"}}}}}`)
+	if c := changeAt(t, changes, "schema.properties.db.properties.url.default"); c.OldValue != redacted || c.NewValue != redacted {
+		t.Errorf("child of writeOnly object not redacted: %+v", c)
+	}
+	assertNoLeak(t, changes, "old@h")
+	assertNoLeak(t, changes, "new@h")
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_Composition(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"aaa"}}}]}`,
+		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"bbb"}}}]}`)
+	if c := changeAt(t, changes, "schema.allOf[0].properties.SECRET_KEY.default"); c.OldValue != redacted || c.NewValue != redacted {
+		t.Errorf("composed sensitive key not redacted: %+v", c)
 	}
 }

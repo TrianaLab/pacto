@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // schemaDirection says which side of an exchange supplies the data a schema
@@ -54,7 +56,71 @@ func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		return nil
 	}
 
-	return diffJSON(dirUnknown, nil, "schema", oldDoc, newDoc)
+	sensitive := sensitivePaths("schema", oldDoc, nil)
+	sensitive = sensitivePaths("schema", newDoc, sensitive)
+	return redact(diffJSON(dirUnknown, nil, "schema", oldDoc, newDoc), sensitive)
+}
+
+// redacted replaces the value of a change to a sensitive property, the same
+// marker pkg/schemax shows for a writeOnly key.
+const redacted = "(sensitive)"
+
+// sensitivePaths appends the path of every property in node, at any depth and
+// inside any composition or $defs, that is writeOnly or whose name
+// schemax.SensitiveKey matches. The subtree of such a property is covered by
+// its path, so the walk does not descend into it.
+func sensitivePaths(prefix string, node any, out []string) []string {
+	switch t := node.(type) {
+	case map[string]any:
+		for k, v := range t {
+			path := prefix + "." + k
+			props, ok := v.(map[string]any)
+			if k != "properties" || !ok {
+				out = sensitivePaths(path, v, out)
+				continue
+			}
+			for name, prop := range props {
+				if pm, _ := prop.(map[string]any); schemax.SensitiveKey(name) || pm["writeOnly"] == true {
+					out = append(out, path+"."+name)
+				} else {
+					out = sensitivePaths(path+"."+name, prop, out)
+				}
+			}
+		}
+	case []any:
+		for i, e := range t {
+			out = sensitivePaths(fmt.Sprintf("%s[%d]", prefix, i), e, out)
+		}
+	}
+	return out
+}
+
+// redact replaces OldValue and NewValue with the redacted marker on every
+// change at, under or above a sensitive path: above one, the value holds the
+// sensitive property. Path, type, classification and reason stay, so a reader
+// still sees what changed and how much it matters.
+func redact(changes []Change, sensitive []string) []Change {
+	for i, c := range changes {
+		if !slices.ContainsFunc(sensitive, func(p string) bool { return pathsOverlap(c.Path, p) }) {
+			continue
+		}
+		if c.OldValue != nil {
+			changes[i].OldValue = redacted
+		}
+		if c.NewValue != nil {
+			changes[i].NewValue = redacted
+		}
+	}
+	return changes
+}
+
+// pathsOverlap reports whether a equals b or one lies under the other.
+func pathsOverlap(a, b string) bool {
+	return a == b || under(a, b) || under(b, a)
+}
+
+func under(path, parent string) bool {
+	return strings.HasPrefix(path, parent+".") || strings.HasPrefix(path, parent+"[")
 }
 
 // diffJSON recursively compares two JSON values and produces changes. dir says
