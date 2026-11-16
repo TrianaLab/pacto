@@ -473,3 +473,61 @@ func TestTheProvenanceGateBites(t *testing.T) {
 		run(c, true)
 	}
 }
+
+// dryRunSubjectProblems ties the dry run's subject check to the release job's
+// attest step: release.yml attests exactly dist/pacto_* and dist/checksums.txt,
+// and dry-run.sh checks those same files after build-cli.sh.
+func dryRunSubjectProblems(releaseYML, dryRun []byte) []string {
+	var doc struct {
+		Jobs map[string]wfJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(releaseYML, &doc); err != nil {
+		return []string{"parse release.yml: " + err.Error()}
+	}
+	var out []string
+	subjects := map[string]bool{}
+	for _, s := range doc.Jobs["release"].Steps {
+		if !strings.HasPrefix(s.Uses, attestAction) {
+			continue
+		}
+		p, _ := s.With["subject-path"].(string)
+		for _, l := range strings.Split(p, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				subjects[strings.TrimPrefix(l, "dist/")] = true
+			}
+		}
+	}
+	if len(subjects) != 2 || !subjects["pacto_*"] || !subjects["checksums.txt"] {
+		out = append(out, fmt.Sprintf("release attest subjects must be exactly {pacto_*, checksums.txt}, got %v", subjects))
+	}
+	d := string(dryRun)
+	for _, want := range []string{"attest: skipped in the dry run", "'pacto_*'", "/checksums.txt"} {
+		if !strings.Contains(d, want) {
+			out = append(out, "dry-run.sh does not contain "+want)
+		}
+	}
+	return out
+}
+
+func TestDryRunSkipsAttestationExplicitly(t *testing.T) {
+	rel := string(releaseWorkflowBytes(t))
+	dry := readFile(t, repoRoot(t), "release", "orchestrator", "dry-run.sh")
+	if p := dryRunSubjectProblems([]byte(rel), []byte(dry)); len(p) > 0 {
+		t.Fatalf("the real files fail: %v", p)
+	}
+	bites := []struct{ name, rel, dry string }{
+		{"attest the SBOM too", strings.Replace(rel, "            dist/checksums.txt\n", "            dist/checksums.txt\n            dist/pacto-sbom.spdx.json\n", 1), dry},
+		{"drop the checksums subject", strings.Replace(rel, "            dist/checksums.txt\n", "", 1), dry},
+		{"drop the pacto_* check from the dry run", rel, strings.ReplaceAll(dry, "'pacto_*'", "'x'")},
+	}
+	for _, b := range bites {
+		t.Run(b.name, func(t *testing.T) {
+			if b.rel == rel && b.dry == dry {
+				t.Fatal("the mutation changed nothing")
+			}
+			if len(dryRunSubjectProblems([]byte(b.rel), []byte(b.dry))) == 0 {
+				t.Error("dryRunSubjectProblems accepts the mutated files")
+			}
+		})
+	}
+}
