@@ -116,6 +116,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
+	var uses []sourcedUse
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
 	// regardless of goroutine completion order.
@@ -146,6 +147,9 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			for _, e := range r.col.Observed {
 				observed = append(observed, observedInput{edge: e, source: src.ID()})
 			}
+			for _, u := range r.col.ExternalUses {
+				uses = append(uses, sourcedUse{use: u, source: src.ID()})
+			}
 		}
 	}
 
@@ -163,6 +167,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
+	foldExternalUses(snap, uses)
 	finalizeExternals(snap)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -2341,7 +2346,8 @@ func finalizeExternal(rec *ExternalRecord) {
 		rec.SourcesTotal += n
 	}
 	slices.SortFunc(rec.Sources, func(a, b ExternalSource) int {
-		return cmp.Or(strings.Compare(string(a.Service), string(b.Service)), strings.Compare(a.Kind, b.Kind), a.Index-b.Index)
+		return cmp.Or(strings.Compare(string(a.Service), string(b.Service)), strings.Compare(a.Kind, b.Kind), a.Index-b.Index,
+			strings.Compare(string(a.Target), string(b.Target)), strings.Compare(a.Match, b.Match))
 	})
 }
 
@@ -2745,7 +2751,10 @@ func sortRelationships(rels []Relationship) {
 		if a.To != b.To {
 			return a.To < b.To
 		}
-		return a.RequestedRef < b.RequestedRef
+		// Observed and inferred edges name no To: their target and
+		// provenance keep the order total.
+		return cmp.Or(cmp.Compare(a.RequestedRef, b.RequestedRef), cmp.Compare(a.ToService, b.ToService),
+			cmp.Compare(a.ToExternal, b.ToExternal), cmp.Compare(a.Provenance, b.Provenance)) < 0
 	})
 }
 

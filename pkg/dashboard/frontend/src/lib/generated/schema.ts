@@ -2808,11 +2808,11 @@ export interface components {
              */
             index: number;
             /**
-             * @description Where the evidence comes from: a contract's dependency or a call a trace source saw
+             * @description Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec
              * @enum {string}
              */
-            kind: "contract" | "observed";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name or system (an OpenTelemetry system value) */
+            kind: "contract" | "observed" | "pod-spec";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -2882,6 +2882,29 @@ export interface components {
             root: string;
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
+        };
+        "Fleet.InferredSource": {
+            /** @description The digest of the catalog the source classified it with */
+            catalog?: string;
+            /** @enum {string} */
+            confidence: "likely" | "possible";
+            /** @description The catalog entry that classified it */
+            entry?: string;
+            /** @description The normalized host and port; empty when only a key name matched */
+            host?: string;
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry */
+            kind: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The id of the source that reported it */
+            source: string;
+            /** @description The target the evidence was read on */
+            target?: string;
+            /** @description The object and key it was found in, never a value */
+            where?: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -3518,6 +3541,11 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            /**
+             * @description The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did
+             * @enum {string}
+             */
+            confidence?: "likely" | "possible";
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             external?: boolean;
             /** Format: date-time */
@@ -3530,6 +3558,8 @@ export interface components {
             /** @enum {string} */
             guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
+            /** @description Where each source recognized this external system in the caller's configuration; set only on an inferred edge */
+            inferredSources?: components["schemas"]["Fleet.InferredSource"][] | null;
             /** Format: date-time */
             lastSeen?: string;
             lockedDigest?: string;
@@ -4754,6 +4784,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             href: string;
             id: string;
+            inferred?: boolean;
             /** Format: date-time */
             lastSeen?: string;
             /** @enum {string} */
@@ -4761,7 +4792,7 @@ export interface components {
             observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
             observed: boolean;
             /** @enum {string} */
-            provenance: "declared" | "observed" | "declared+observed";
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             relation: "dependency" | "runs" | "configuration_reference";

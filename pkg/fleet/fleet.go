@@ -191,11 +191,12 @@ const (
 	SourceUnavailable SourceStatus = "unavailable"
 )
 
-// Provenance distinguishes how a relationship became known. "declared" (from a
-// contract) and "observed" (folded from runtime telemetry, see
-// foldObservedRelationships) are both produced today and kept separate so an
-// observed edge is never conflated with declared intent; "inferred" is reserved
-// for a future heuristic graph and is not produced yet.
+// Provenance distinguishes how a relationship became known: "declared" (from a
+// contract), "observed" (folded from runtime telemetry, see
+// foldObservedRelationships) or "inferred" (an external system a source
+// recognized in a service's configuration, see foldExternalUses). They are
+// kept separate so neither an observed nor an inferred edge is conflated with
+// declared intent, and an inferred edge never enters an index a gate reads.
 const (
 	ProvenanceDeclared = "declared"
 	ProvenanceObserved = "observed"
@@ -375,6 +376,18 @@ const (
 	// systems and folds the least-consumed rest into one other-egress node.
 	// It makes the answer partial.
 	LimitationExternalCap = "EXTERNAL_CAP"
+	// LimitationExternalUseUnattributed: a source reported external uses of
+	// a service this snapshot does not hold, or with an identity that is not
+	// one; they were dropped.
+	LimitationExternalUseUnattributed = "EXTERNAL_USE_UNATTRIBUTED"
+	// LimitationExternalCatalogMismatch: a source classified external uses
+	// with a catalog other than the one this snapshot classifies with, so
+	// one external system may join evidence from two catalog versions.
+	LimitationExternalCatalogMismatch = "EXTERNAL_CATALOG_MISMATCH"
+	// LimitationExternalsUnreported: a target's source cannot say which
+	// external systems it uses (an older operator, partial coverage or a
+	// stale status), so no external answer can rule it out as a consumer.
+	LimitationExternalsUnreported = "EXTERNALS_UNREPORTED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -768,10 +781,10 @@ func ConsumesEdge(rel Relationship) bool {
 
 // Relationship is a directed, revision-scoped graph edge. A declared edge
 // originates from a specific [ContractRevision] (FromRevision) of a logical
-// service (FromService) — never from "the service's latest revision". Declared
-// and observed edges are both produced today (see Provenance); an observed edge
-// is folded from runtime telemetry and carries ObservedCount/Source. Inferred
-// edges are reserved and not produced yet.
+// service (FromService) — never from "the service's latest revision". Declared,
+// observed and inferred edges are kept apart (see Provenance); an observed edge
+// is folded from runtime telemetry and carries ObservedCount/Source, and an
+// inferred edge to an external system carries InferredSources/Confidence.
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -846,6 +859,28 @@ type Relationship struct {
 	// offline sample keeps its old window.
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+	// InferredSources is the per-source evidence of an inferred edge to an
+	// external system, sorted. Empty for declared and observed edges.
+	InferredSources []InferredSource `json:"inferredSources,omitempty" doc:"Where each source recognized this external system in the caller's configuration; set only on an inferred edge"`
+	// Confidence is the strongest confidence of an inferred edge's sources.
+	Confidence string `json:"confidence,omitempty" enum:"likely,possible" doc:"The strongest confidence of the inferred sources: likely when a host or system value matched, possible when only a key name did"`
+}
+
+// InferredSource is one source's evidence for an inferred edge: the kind of
+// object it read, where (an object and a key, never a value), the normalized
+// host, the catalog entry and digest it was classified by and when.
+type InferredSource struct {
+	Source string `json:"source" doc:"The id of the source that reported it"`
+	// Target is the target the evidence was read on, when the source names
+	// one this snapshot holds; a restricted view drops evidence of a hidden one.
+	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry"`
+	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
+	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
+	Confidence string     `json:"confidence" enum:"likely,possible"`
+	Entry      string     `json:"entry,omitempty" doc:"The catalog entry that classified it"`
+	Catalog    string     `json:"catalog,omitempty" doc:"The digest of the catalog the source classified it with"`
+	ObservedAt *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
 }
 
 // ExternalKey is the canonical identity of an external system, an
@@ -866,6 +901,9 @@ const (
 	ExternalSourceContract = "contract"
 	// ExternalSourceObserved is a runtime call a trace source saw.
 	ExternalSourceObserved = "observed"
+	// ExternalSourcePodSpec is a use a source inferred from a workload's pod
+	// spec (see [RawExternalUse]).
+	ExternalSourcePodSpec = "pod-spec"
 )
 
 // ExternalRecord is one external system: a vendor API, a managed cloud
@@ -894,7 +932,7 @@ type ExternalRecord struct {
 
 // ExternalSource is one piece of evidence that names an external system.
 type ExternalSource struct {
-	Kind     string      `json:"kind" enum:"contract,observed" doc:"Where the evidence comes from: a contract's dependency or a call a trace source saw"`
+	Kind     string      `json:"kind" enum:"contract,observed,pod-spec" doc:"Where the evidence comes from: a contract's dependency, a call a trace source saw or a use inferred from a workload's pod spec"`
 	Service  ServiceKey  `json:"service" doc:"The consumer"`
 	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
 	// Target is empty for a contract source.
@@ -904,7 +942,7 @@ type ExternalSource struct {
 	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
-	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name or system (an OpenTelemetry system value)"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value) or keyName (a configuration key name only)"`
 }
 
 // ExternalCatalogMatch names the catalog entry that classified an external system.
