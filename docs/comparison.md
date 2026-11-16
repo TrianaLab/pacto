@@ -45,7 +45,7 @@ when the source page covers the area and describes no such feature. A cell holds
 | **Argo CD** | not verified | Partial | not verified | not verified | Partial | Yes | [Argo CD overview](https://argo-cd.readthedocs.io/en/stable/) |
 | **Flux** | not verified | not verified | Partial | not verified | Partial | Yes | [Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/) |
 | **Backstage** | not verified | not verified | ✅ | not verified | not verified | not verified | [Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format) |
-| **Port** | not verified | not verified | ✅ | not verified | not verified | not verified | [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/) |
+| **Port** | not verified | not verified | not verified | not verified | not verified | not verified | [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/) |
 | **Pact** | not verified | Partial | ✅ | not verified | Partial | No | [Pact Broker introduction](https://docs.pact.io/pact_broker) |
 | **oasdiff** | not verified | ✅ | not verified | not verified | not verified | No | [oasdiff README](https://github.com/oasdiff/oasdiff) |
 | **buf** | not verified | ✅ | Partial | not verified | not verified | No | [buf README](https://github.com/bufbuild/buf) |
@@ -100,8 +100,10 @@ named after it.
 - **Score** wins at describing one workload in a file that each Score
   implementation turns into platform configuration,
   [Score specification](https://docs.score.dev/docs/score-specification/score-spec-reference/).
-  When you run the workload under `pacto run` or the operator, Pacto checks that
-  it serves the ports and reaches the dependencies its contract declares
+  When you run the workload under `pacto run` or `pacto agent` on Linux, or
+  under the operator with its node agent turned on (`nodeAgent.enabled`), Pacto
+  checks that it serves the ports its contract declares and, with eBPF, that it
+  reaches the declared dependencies. What it cannot see it reports as unknown
   ([runtime conformance](runtime-conformance.md)).
 - **Crossplane** wins at shipping Compositions and the packages they depend on
   as one portable OCI package,
@@ -149,10 +151,12 @@ named after it.
   From the sources you connect, Pacto keeps relationships declared in contracts
   apart from those observed in traffic and says how complete each answer is
   ([operational graph](operational-graph.md)).
-- **Pact** wins at testing each consumer's real requests against the provider
-  before it deploys, [Pact Broker introduction](https://docs.pact.io/pact_broker).
-  Pacto lists which consumer contracts it can see would reject the new version
-  and reports a partial answer as unverified ([impact](impact.md)).
+- **Pact** wins at testing the requests each consumer expects against the
+  provider before it deploys,
+  [Pact Broker introduction](https://docs.pact.io/pact_broker). From the
+  consumer contracts you name with `--root` or a fleet source, Pacto lists which
+  would reject the new version and reports a breaking change it cannot fully
+  check as unverified ([impact](impact.md)).
 - **oasdiff** wins at listing the changes between two OpenAPI specs that break
   existing clients, from the command line or in CI,
   [oasdiff README](https://github.com/oasdiff/oasdiff). Given the consumer
@@ -184,5 +188,5 @@ We graded our own row on the same criteria:
   the version digest on a Flux or Argo CD source, and Flux or Argo CD applies
   it ([delivery](integrations/kubernetes/delivery.md)).
 
-Radius was in an earlier version of this table. Its row is out until a source
-page settles most of its cells.
+Radius was in an earlier version of this table. Its row returns when a source
+page settles its cells.
