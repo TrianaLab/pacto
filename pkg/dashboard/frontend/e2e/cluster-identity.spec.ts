@@ -21,7 +21,7 @@ test('a target page says which cluster it runs in and how the name was found', a
 test('a cluster-qualified key lands on the canonical href without a new history entry', async ({ page }) => {
   await appReady(page);
   await page.goto(`/${FORWARD}`);
-  await expect(page).toHaveURL(new RegExp(`${CANONICAL.replace(/[/#]/g, '\\$&')}$`), { timeout: 30_000 });
+  await expect(page).toHaveURL((u) => u.hash === CANONICAL, { timeout: 30_000 });
   await expect(page.getByTestId('target-cluster')).toBeVisible({ timeout: 30_000 });
   await page.goBack();
   await expect(page).not.toHaveURL(/\/fleet\/targets\//);
