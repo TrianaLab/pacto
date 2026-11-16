@@ -87,10 +87,13 @@
   const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
   // Whether this dashboard serves delivery, and if not why: a service page shows
-  // its Stages only when it does, and says why otherwise.
+  // its Stages only when it does, and says why otherwise. A token session of a
+  // ServiceAccount is a sign-in link's (the server signs a ServiceAccount in only
+  // from a token minted for the dashboard), and it reads the fleet only.
   const deliveryState = $derived(capabilities === null ? 'unknown'
     : capabilities.delivery === true ? 'enabled'
-    : (!session || session.mode === 'open' || session.mode === 'none') ? 'no-user' : 'not-served');
+    : (!session || session.mode === 'open' || session.mode === 'none') ? 'no-user'
+    : session.method === 'token' && session.user?.startsWith('system:serviceaccount:') ? 'link' : 'not-served');
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -565,7 +568,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        <DeliveryUnavailable reason={deliveryState === 'no-user' ? 'no-user' : 'not-served'} />
+        <DeliveryUnavailable reason={deliveryState} />
       </div>
     {:else}
       {@render migrating()}

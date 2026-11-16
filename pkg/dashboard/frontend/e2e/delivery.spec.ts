@@ -22,7 +22,7 @@ const T = 30_000;
 // machine starve each other into blank pages that prove nothing about delivery.
 test.describe.configure({ mode: 'default' });
 
-type Persona = 'carol' | 'alice' | 'dana' | 'robot' | 'local' | 'signed-out' | 'token';
+type Persona = 'carol' | 'alice' | 'dana' | 'robot' | 'local' | 'signed-out' | 'token' | 'person-token';
 
 function installDelivery(persona: Persona): void {
   interface ServeResult { status: number; body: string; contentType: string }
@@ -30,7 +30,8 @@ function installDelivery(persona: Persona): void {
   let real: Serve | null = null;
   const json = (status: number, v: unknown): ServeResult => ({ status, body: JSON.stringify(v), contentType: 'application/json' });
   const S = sessionStorage;
-  const fresh = () => S.getItem('mock.fresh') === '1';
+  // A person's token session signed in a moment ago, so its sign-in is fresh.
+  const fresh = () => S.getItem('mock.fresh') === '1' || persona === 'person-token';
   const decided = () => S.getItem('mock.decided');
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
@@ -44,13 +45,16 @@ function installDelivery(persona: Persona): void {
     dana: { user: 'https://idp#dana', class: 'human', groups: ['system:authenticated'], authTime: String(Math.floor(Date.now() / 1000)) },
     robot: { user: 'https://idp#robot', class: 'agent', groups: ['pacto:agents'] },
     local: { user: 'kind-admin', class: 'human', groups: ['system:masters'] },
-    token: { user: 'system:serviceaccount:shop:viewer', class: 'human', groups: ['team-checkout', 'system:serviceaccounts'], authTime: '1792560000' },
+    // A sign-in link's ServiceAccount, and a person who pasted their own token.
+    token: { user: 'system:serviceaccount:shop:viewer', class: 'agent', groups: ['system:serviceaccounts'] },
+    'person-token': { user: 'https://idp#pat', class: 'human', groups: ['team-checkout'], authTime: String(Math.floor(Date.now() / 1000)) },
   };
-  // The token persona is signed out until the stand-in /auth/token accepted a token.
+  const tokenPersona = persona === 'token' || persona === 'person-token';
+  // A token persona is signed out until the stand-in /auth/token accepted a token.
   // mock.ended: the session ended (expired, or signed out in another tab) while a page was open.
-  const signedOut = () => persona === 'signed-out' || S.getItem('mock.ended') === '1' || (persona === 'token' && !document.cookie.includes('mock-token=1'));
+  const signedOut = () => persona === 'signed-out' || S.getItem('mock.ended') === '1' || (tokenPersona && !document.cookie.includes('mock-token=1'));
   const caller = callers[persona] as { groups: string[]; class: string } | undefined;
-  const mayDecide = persona === 'carol' || persona === 'dana';
+  const mayDecide = persona === 'carol' || persona === 'dana' || persona === 'person-token';
   const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
   const plan = { intentDigest: 'sha256:intent', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, predicted: 'Held',
     question: 'payments 2.0.0 removes a field checkout reads. Ship it?',
@@ -72,15 +76,19 @@ function installDelivery(persona: Persona): void {
 
   const delivery = (method: string, route: string, body: string | null = null): ServeResult => {
     if (route === '/api/session') {
-      if (persona === 'token') {
+      if (tokenPersona) {
         return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: !signedOut(),
-          ...(signedOut() ? {} : { method: 'token', csrf: 't', user: 'system:serviceaccount:shop:viewer' }) });
+          ...(signedOut() ? {} : { method: 'token', csrf: 't', ...(caller as object) }) });
       }
       if (signedOut()) return json(200, { mode: 'shared', login: true, signedIn: false });
       return json(200, { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local', signedIn: true,
         csrf: 't', ...(caller as object) });
     }
     if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
+    // A sign-in link session reads the fleet only, as the dashboard's delivery API says.
+    if (persona === 'token') {
+      return json(403, { status: 403, code: 'SignInLinkReadsFleet', detail: 'a sign-in link reads the fleet only: sign in with your identity provider or paste your own token to see delivery' });
+    }
     if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false, teamNarrowing: persona !== 'dana' }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
     if (route === '/api/delivery/inbox') {
       const waits = !decided() && (persona === 'dana' || !!caller?.groups.includes('team-checkout'));
@@ -163,7 +171,7 @@ function installDelivery(persona: Persona): void {
     }
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);
     if (route === '/api/delivery/operations/prod/op1/decision' && method === 'POST') {
-      if (persona === 'local') return json(403, { status: 403, code: 'ApproveFromCLI', detail: 'a local dashboard never decides' });
+      if (persona === 'local') return json(403, { status: 403, code: 'ApproveFromCLI', detail: 'decide from the command line on a local dashboard' });
       if (persona === 'dana') return json(403, { status: 403, code: 'CannotUpdateWorkload', detail: 'you cannot update deployments/payments in prod' });
       if (!fresh()) return json(401, { status: 401, code: 'FreshLoginRequired', detail: 'your login is older than 10m0s: sign in again' });
       if (!mayDecide) return json(403, { status: 403, code: 'NotYourTeam', detail: 'only [team-checkout] may answer this question' });
@@ -187,7 +195,8 @@ function installDelivery(persona: Persona): void {
     }
     if (route === '/api/capabilities') {
       const doc = JSON.parse((await (real as Serve)(method, path, body)).body);
-      return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example', auth: { hidden: false } });
+      // A sign-in link session's capabilities hide Delivery, as the server's do.
+      return json(200, { ...doc, delivery: persona !== 'token', miraURL: 'https://mira.example', auth: { hidden: false } });
     }
     if (route === '/api/session' || route.startsWith('/api/delivery/')) return delivery(method, route, body);
     return (real as Serve)(method, path, body);
@@ -212,6 +221,26 @@ async function fakeIdP(page: Page) {
       `<script>${fresh ? "sessionStorage.setItem('mock.fresh','1');sessionStorage.setItem('mock.fresh.at',String(Math.floor(Date.now()/1000)));" : ''}location.replace(${JSON.stringify(ret)});</script>` });
   });
 }
+
+/** A stand-in for the dashboard's /auth/token: it accepts the link's dashboard token
+ *  and a person's token, refuses a person's token posted from a link (the login-CSRF
+ *  guard) and sets the session cookie. Every body it receives lands in `bodies`. */
+async function tokenEndpoint(page: Page, bodies: Array<{ token?: string; link?: boolean }> = []) {
+  await page.route('**/auth/token', async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    bodies.push(body);
+    if (body.token === 'person-token' && body.link) {
+      return route.fulfill({ status: 401, contentType: 'text/plain',
+        body: 'SignInLinkNeedsDashboardToken: a sign-in link carries only a token minted for the dashboard: paste your own token in the form instead' });
+    }
+    if (body.token !== 'good-token' && body.token !== 'person-token') return route.fulfill({ status: 401, contentType: 'text/plain', body: 'the cluster did not accept this token: Unauthorized' });
+    return route.fulfill({ status: 204, headers: { 'Set-Cookie': 'mock-token=1; Path=/' } });
+  });
+  return bodies;
+}
+
+// A token whose exp has passed, as a sign-in link opened too late carries.
+const EXPIRED = `h.${Buffer.from(JSON.stringify({ exp: 1700000000 })).toString('base64url')}.s`;
 
 async function as(page: Page, persona: Persona) {
   await page.addInitScript(installDelivery, persona);
@@ -393,29 +422,83 @@ test.describe('Delivery views', () => {
     await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   });
 
-  test('a token sign-in checks the token, then shows the fleet, and a token session is offered no decision', async ({ page }) => {
+  test('a token sign-in checks the token, then shows the fleet, and a ServiceAccount token session reads the fleet only', async ({ page }) => {
     await as(page, 'token');
-    // A stand-in for the dashboard's /auth/token: it accepts one token and sets the session cookie.
-    await page.route('**/auth/token', async (route) => {
-      const { token } = JSON.parse(route.request().postData() || '{}');
-      if (token !== 'good-token') return route.fulfill({ status: 401, contentType: 'text/plain', body: 'the cluster did not accept this token: Unauthorized' });
-      return route.fulfill({ status: 204, headers: { 'Set-Cookie': 'mock-token=1; Path=/' } });
-    });
+    const bodies = await tokenEndpoint(page);
     await page.goto('/#/fleet/services');
     const screen = page.getByTestId('sign-in');
     await expect(screen.getByTestId('token-sign-in')).toBeVisible({ timeout: T });
     await expect(screen.getByRole('link', { name: 'Sign in with OIDC', exact: true })).toHaveCount(0);
     await expect(screen.getByRole('link', { name: 'How to get a token' })).toHaveAttribute('href', /dashboard-authentication\/#token-sign-in$/);
+    await expect(screen.locator('#signin-token-hint')).toContainText('--audience pacto-dashboard');
     await screen.getByLabel('Kubernetes token').fill('wrong');
     await screen.getByRole('button', { name: 'Sign in with a token' }).click();
     await expect(screen.getByRole('alert')).toContainText('the cluster did not accept this token');
     await screen.getByLabel('Kubernetes token').fill('good-token');
     await screen.getByRole('button', { name: 'Sign in with a token' }).click();
     await expect(page.getByTestId('identity')).toContainText('Signed in with a token as', { timeout: T });
-    await expect(page.getByRole('navigation', { name: 'Primary' }).first()).toBeVisible();
+    expect(bodies.map((b) => b.link)).toEqual([undefined, undefined]);
+    const nav = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Delivery' })).toHaveCount(0);
     await page.goto('/#/delivery/changes/prod/op1');
-    await expect(page.getByTestId('decide-token')).toContainText('a token never decides', { timeout: T });
+    await expect(page.getByTestId('delivery-unavailable-reason')).toContainText('A sign-in link reads the fleet only', { timeout: T });
     await expect(page.getByTestId('decide-approve')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  });
+
+  test('a person token session is offered the decision and it posts', async ({ page }) => {
+    await as(page, 'person-token');
+    await tokenEndpoint(page);
+    await page.goto('/#/delivery/changes/prod/op1');
+    const screen = page.getByTestId('sign-in');
+    await screen.getByLabel('Kubernetes token').fill('person-token');
+    await screen.getByRole('button', { name: 'Sign in with a token' }).click();
+    const panel = page.getByTestId('decision-panel');
+    await expect(panel).toBeVisible({ timeout: T });
+    await panel.getByLabel('Note (kept with the decision)').fill('checkout 3.1 reads the new field');
+    await panel.getByTestId('decide-approve').click();
+    // The stand-in records an approval only for a decision POST with the session's CSRF token.
+    await expect(page.getByTestId('decision-recorded')).toContainText('recorded as op1-approve-x7k2', { timeout: T });
+  });
+
+  test('an expired token sign-in link says so', async ({ page }) => {
+    await as(page, 'token');
+    const bodies = await tokenEndpoint(page);
+    await page.goto(`/#token=${EXPIRED}`);
+    await expect(page.getByTestId('sign-in-link-expired')).toHaveText('link expired, run the command again', { timeout: T });
+    expect(page.url()).not.toContain('token=');
+    expect(bodies).toEqual([]);
+  });
+
+  test('a token sign-in link signs in from the fragment', async ({ page }) => {
+    await as(page, 'token');
+    const bodies = await tokenEndpoint(page);
+    await page.goto('/#token=good-token');
+    await expect(page.getByTestId('identity')).toContainText('Signed in with a token as', { timeout: T });
+    expect(bodies).toEqual([{ token: 'good-token', link: true }]);
+    expect(page.url()).not.toContain('token=');
+    await expect(page).toHaveURL(/#\/fleet/);
+  });
+
+  test('a token sign-in link opened in an open tab signs in', async ({ page }) => {
+    await as(page, 'token');
+    const bodies = await tokenEndpoint(page);
+    await page.goto('/#/fleet');
+    await expect(page.getByTestId('token-sign-in')).toBeVisible({ timeout: T });
+    await page.evaluate(() => { location.hash = '#token=good-token'; });
+    await expect(page.getByTestId('identity')).toContainText('Signed in with a token as', { timeout: T });
+    expect(bodies).toEqual([{ token: 'good-token', link: true }]);
+    expect(page.url()).not.toContain('token=');
+  });
+
+  test('a token sign-in link carrying a person token is refused', async ({ page }) => {
+    await as(page, 'person-token');
+    await tokenEndpoint(page);
+    await page.goto('/#token=person-token');
+    await expect(page.getByTestId('sign-in').getByRole('alert')).toContainText('SignInLinkNeedsDashboardToken', { timeout: T });
+    await expect(page.getByTestId('identity')).toHaveCount(0);
+    expect(page.url()).not.toContain('token=');
   });
 
   test('a service page opens the service in Mira beside its observed traffic', async ({ page }) => {
