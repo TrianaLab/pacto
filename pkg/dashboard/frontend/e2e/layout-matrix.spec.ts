@@ -17,6 +17,12 @@ import { ROUTES, gateMode, installScaleFixture, layoutProblems, loaded, shellPro
 // default font as well as Verdana. G1's link totals and the 20px overflow sweep stay in
 // layout.spec.ts. CI runs the full matrix nightly and on the changesets Version PR
 // (.github/workflows/layout-full.yml), never on an ordinary PR.
+//
+// On a PR the geometry runs in the dark theme only: light changes colour tokens,
+// color-scheme and one shadow, never a size, spacing or font (styles/tokens.css). The
+// light tests still boot every route per pointer and run the same axe scan at the same
+// first viewport, so contrast and a11y stay gated in both themes on every PR. Light
+// geometry runs under PACTO_LAYOUT_FULL.
 const FULL = !!process.env.PACTO_LAYOUT_FULL;
 type VP = [number, number];
 
@@ -57,6 +63,8 @@ for (const theme of ['dark', 'light'] as const) {
             }
           });
 
+          // ponytail: light on a PR is axe only; geometry there waits for the full run.
+          const geometry = FULL || theme === 'dark';
           for (const r of ROUTES) {
             test(r.name, async ({ page }) => {
               test.setTimeout(FULL ? 900_000 : 240_000);
@@ -68,18 +76,20 @@ for (const theme of ['dark', 'light'] as const) {
               else await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
               expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), 'the pointer is coarse exactly on touch devices').toBe(g.touch);
               const problems: string[] = [];
-              for (const [i, vp] of g.sizes.entries()) {
+              for (const [i, vp] of (geometry ? g.sizes : g.sizes.slice(0, 1)).entries()) {
                 await atViewport(page, vp);
                 const at = `${vp[0]}x${vp[1]}`;
-                for (const p of await layoutProblems(page)) problems.push(`${at}: ${p}`);
-                for (const p of await shellProblems(page)) problems.push(`${at}: ${p}`);
-                for (const p of await touchProblems(page)) problems.push(`${at}: ${p}`);
+                if (geometry) {
+                  for (const p of await layoutProblems(page)) problems.push(`${at}: ${p}`);
+                  for (const p of await shellProblems(page)) problems.push(`${at}: ${p}`);
+                  for (const p of await touchProblems(page)) problems.push(`${at}: ${p}`);
+                }
                 if (i === 0) {
                   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
                   for (const v of axe.violations) problems.push(`${at}: axe ${v.id} on ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
                 }
                 // The other sidebar state, where the sidebar is a column of its own.
-                if (vp[0] >= 1200) {
+                if (geometry && vp[0] >= 1200) {
                   const state = await toggleSidebar(page);
                   for (const p of await layoutProblems(page)) problems.push(`${at}, sidebar ${state}: ${p}`);
                   for (const p of await shellProblems(page)) problems.push(`${at}, sidebar ${state}: ${p}`);

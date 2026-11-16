@@ -239,6 +239,15 @@ func TestFullLayoutMatrixGatesTheRelease(t *testing.T) {
 	if !strings.Contains(readFile(t, repoRoot(t), ".github", "workflows", "layout-full.yml"), "make test-browser-layout-full") {
 		t.Error("layout-full.yml does not run make test-browser-layout-full")
 	}
+	// PRs gate layout geometry in the dark theme only; light geometry for both
+	// layout gates exists only in this target, so it must run both specs.
+	_, recipe, _ := strings.Cut(readFile(t, repoRoot(t), "Makefile"), "\ntest-browser-layout-full:")
+	recipe, _, _ = strings.Cut(recipe, "\n\n")
+	for _, spec := range []string{"e2e/layout-matrix.spec.ts", "e2e/layout.spec.ts", "PACTO_LAYOUT_FULL=1"} {
+		if !strings.Contains(recipe, spec) {
+			t.Errorf("make test-browser-layout-full does not run %s, so the light theme's layout geometry is gated nowhere", spec)
+		}
+	}
 
 	jobs := workflowJobs(t, repoRoot(t), "ci.yml")
 	caller := ""

@@ -3,7 +3,8 @@ import { appReady, settle } from './ready';
 import { ROUTES, densityProblems, figureLinkTotals, gateMode, installScaleFixture, layoutProblems, loaded, sweepOverflow, toggleSidebar } from './layoutGate';
 
 // G1, the transversal layout gate (SPEC sections 12 and 22): every route, at 390, 760,
-// 1024, 1280, 1600, 1920 and 2560px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
+// 1024, 1280, 1600, 1920 and 2560px, in the dark theme on a PR and in both themes under
+// PACTO_LAYOUT_FULL=1 (nightly and before release, see below), with Verdana forced (CI renders DejaVu, wider than Inter),
 // the final frame forced, on the scale fixture. It fails on intersecting text, two text
 // boxes closer than 8px on one line, a box spilling with visible overflow, text under
 // 12.19px, ellipsized text with no title, text cut with no ellipsis, an identity that
@@ -22,7 +23,14 @@ import { ROUTES, densityProblems, figureLinkTotals, gateMode, installScaleFixtur
 
 const WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 
-for (const theme of ['dark', 'light'] as const) {
+// The light theme changes colour tokens, color-scheme and one shadow, never a size,
+// spacing or font (styles/tokens.css), so a PR gates geometry in dark only. Light
+// geometry runs with the full matrix (make test-browser-layout-full, layout-full.yml:
+// nightly and on the changesets Version PR). Contrast and axe stay in both themes on
+// every PR: styles/isoContrast.test.ts, axe.spec.ts and layout-matrix.spec.ts.
+const THEMES = process.env.PACTO_LAYOUT_FULL ? ['dark', 'light'] as const : ['dark'] as const;
+
+for (const theme of THEMES) {
   test.describe(`G1 layout gate (${theme})`, () => {
     test.use({ colorScheme: theme, viewport: { width: 1280, height: 900 } });
     test.beforeEach(async ({ page }) => {
