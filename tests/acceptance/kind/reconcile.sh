@@ -59,11 +59,19 @@ wait_managed_ready pacto-dashboard 120s && echo "  dashboard deployment ready"
 
 echo "== RBAC: the operator ServiceAccount may perform every read its collector needs =="
 for verb_res in "get:deployments" "list:deployments" "get:statefulsets" "get:jobs" \
-                "get:configmaps" "get:secrets" "get:services" "get:endpointslices.discovery.k8s.io"; do
+                "get:configmaps" "get:services" "get:endpointslices.discovery.k8s.io"; do
   v="${verb_res%:*}"; r="${verb_res#*:}"
   kubectl auth can-i "$v" "$r" --as=system:serviceaccount:${NS}:pacto-operator -n demo | grep -qx yes \
     && echo "  can-i $v $r: yes" || { echo "  RBAC FAIL: operator cannot $v $r"; exit 1; }
 done
+# Secrets are read in the release namespace only; elsewhere a person grants
+# them with controller.watchNamespaces or controller.secretGrants.
+kubectl auth can-i get secrets --as=system:serviceaccount:${NS}:pacto-operator -n "$NS" | grep -qx yes \
+  && echo "  can-i get secrets in $NS: yes" || { echo "  RBAC FAIL: operator cannot get secrets in $NS"; exit 1; }
+if kubectl auth can-i get secrets --as=system:serviceaccount:${NS}:pacto-operator -n demo | grep -qx yes; then
+  echo "  RBAC FAIL: operator reads secrets in demo with no grant"; exit 1
+fi
+echo "  can-i get secrets in demo: no"
 
 kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
