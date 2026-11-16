@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -405,5 +406,23 @@ func TestExternalConsumerProvenance(t *testing.T) {
 	want := map[string]string{"billing": ProvenanceDeclared, "checkout": ProvenanceInferred, "mailer": ProvenanceObserved}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("consumer provenance = %v", got)
+	}
+}
+
+// TestNamespaceShortFormIsNoExternal: <pod>.<service>.<namespace> of a
+// namespace a target runs in names no external, whether a pod spec or a trace
+// names it, though the namespace (dev) is also a top-level domain.
+func TestNamespaceShortFormIsNoExternal(t *testing.T) {
+	use := RawExternalUse{Service: "checkout", Namespace: "shop", Identity: "host/kafka-headless.dev", Class: "unclassified", Confidence: "likely",
+		Kind: "env", Where: "deployment/checkout env KAFKA_BROKERS", Host: "kafka-0.kafka-headless.dev:9092"}
+	svcs := []inferredSvc{{name: "checkout", ns: []string{"shop"}}, {name: "kafka", ns: []string{"dev"}}}
+	snap := inferredFleet(t, svcs, []RawExternalUse{use}, []ObservedEdge{{From: "checkout", To: "kafka-0.kafka-headless.dev:9092", Count: 1}}, nil)
+	if len(snap.Externals) != 0 {
+		t.Errorf("externals = %v", slices.Collect(maps.Keys(snap.Externals)))
+	}
+	// With no target in dev, the name still reads as a domain.
+	snap = inferredFleet(t, svcs[:1], []RawExternalUse{use}, nil, nil)
+	if snap.Externals["host/kafka-headless.dev"] == nil {
+		t.Error("an unknown namespace was dropped")
 	}
 }

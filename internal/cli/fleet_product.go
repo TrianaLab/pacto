@@ -804,8 +804,6 @@ func useNotes(u fleet.OfferingUse) string {
 	return s
 }
 
-// printRevisionPlace renders where a revision stands in its service, how many
-// of the service's targets run it and which sources report about it.
 // printExternalText prints an external system's class, catalog and every
 // source: declared and observed ones, and each inferred one with its kind,
 // where it was found and the normalized host, never a value.
@@ -843,6 +841,8 @@ func printMore(w io.Writer, n int, kind string) {
 	}
 }
 
+// printRevisionPlace renders where a revision stands in its service, how many
+// of the service's targets run it and which sources report about it.
 func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
 	current := ""
 	if r.Current {

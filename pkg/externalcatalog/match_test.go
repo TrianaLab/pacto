@@ -62,6 +62,26 @@ func TestNormalizeHostCustomClusterDomain(t *testing.T) {
 	wantHosts(t, "http://orders.shop.svc.:8080")
 }
 
+// TestNamespaceShortForm: <pod>.<service>.<namespace> reads like a domain
+// when the namespace is a TLD; a caller that knows the namespace drops it, and
+// a catalog match is never dropped.
+func TestNamespaceShortForm(t *testing.T) {
+	m, ok := matchHost(t, Default(), "kafka-0.kafka-headless.dev:9092")
+	if !ok || m.Class != ClassUnclassified {
+		t.Fatalf("match = %+v, %v", m, ok)
+	}
+	dev := func(ns string) bool { return ns == "dev" }
+	if !NamespaceShortForm(m, dev) || NamespaceShortForm(m, func(string) bool { return false }) {
+		t.Error("short form of namespace dev not recognized")
+	}
+	if s, _ := matchHost(t, Default(), "api.stripe.com"); NamespaceShortForm(s, func(string) bool { return true }) {
+		t.Error("a catalog match was dropped")
+	}
+	if h, _ := matchHost(t, Default(), "api.acme.dev"); !NamespaceShortForm(h, dev) {
+		t.Error("no port")
+	}
+}
+
 func orgCatalog(t *testing.T) *Catalog {
 	t.Helper()
 	org := mustParse(t, `apiVersion: catalog.pacto.trianalab.io/v1

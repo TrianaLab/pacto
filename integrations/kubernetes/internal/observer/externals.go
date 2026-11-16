@@ -121,7 +121,10 @@ func (x *externalScan) envFrom(ctx context.Context, f corev1.EnvFromSource) {
 // value classifies a value and its key, and follows a host that names a
 // Service of the Pacto's own namespace.
 func (x *externalScan) value(ctx context.Context, kind, where, value, key string) {
-	ms := x.cat.Classify(value, key)
+	// <pod>.<service>.<namespace> of the Pacto's own namespace is in-cluster.
+	ms := slices.DeleteFunc(x.cat.Classify(value, key), func(m externalcatalog.Match) bool {
+		return externalcatalog.NamespaceShortForm(m, func(ns string) bool { return ns == x.input.Namespace })
+	})
 	x.add(kind, where, ms)
 	for _, m := range ms {
 		if m.Kind == externalcatalog.KindHost {

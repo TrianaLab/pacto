@@ -126,6 +126,23 @@ func (c *Catalog) MatchHost(h HostPort) (Match, bool) {
 	return Match{Identity: id, Class: ClassUnclassified, Confidence: ConfidenceLikely, Kind: KindHost, Host: h.String()}, true
 }
 
+// NamespaceShortForm reports whether m is an unclassified host match (no
+// catalog rule) whose last label inNS names as a namespace: the in-cluster
+// short form <pod>.<service>.<namespace>, which resolves through the cluster
+// search domain and only reads like a registrable domain when the namespace
+// is also a top-level domain (dev, app, prod). A caller that knows the
+// cluster's namespaces drops such a match.
+func NamespaceShortForm(m Match, inNS func(string) bool) bool {
+	if m.Kind != KindHost || m.Entry != "" {
+		return false
+	}
+	host := m.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return inNS(host[strings.LastIndex(host, ".")+1:])
+}
+
 // MatchKeyName names the system a configuration key name suggests, compared
 // without case against the catalog's key patterns, with "-" and "." read as
 // "_" so a Secret name (stripe-credentials) reads like an env name. The match

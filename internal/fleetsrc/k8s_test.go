@@ -495,8 +495,18 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 	if len(col.Observed) != 1 || col.Observed[0].To != "payments" {
 		t.Fatalf("observed = %+v", col.Observed)
 	}
-	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") ||
+		!strings.Contains(col.Limitations[0].Message, "external systems") {
 		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+	// The unreadable target says its callers and externals cannot be ruled out,
+	// so an external answer turns partial; the readable one says nothing.
+	var codes []string
+	for _, l := range col.Targets[0].Limitations {
+		codes = append(codes, l.Code)
+	}
+	if !slices.Equal(codes, []string{delivery.LimitationCallersUnseen, fleet.LimitationExternalsUnreported}) {
+		t.Fatalf("broken target limitations = %+v", col.Targets[0].Limitations)
 	}
 }
 

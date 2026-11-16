@@ -46,6 +46,9 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 		u := su.use
 		svc := NewServiceKeyDomain(u.Domain, u.Service)
 		id, err := externalid.Parse(u.Identity)
+		if snap.namespaceShortForm(externalcatalog.Match{Kind: inferredMatch(u), Host: u.Host, Entry: u.Entry}) {
+			continue // an in-cluster name of a namespace the snapshot knows
+		}
 		if snap.Services[svc] == nil || err != nil {
 			unattributed[su.source]++
 			continue

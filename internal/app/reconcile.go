@@ -72,8 +72,8 @@ func declaredFromSnapshot(snap *fleet.FleetSnapshot) []reconcile.Declared {
 // default domain. The CALLEE is resolved WITHIN the caller's domain, mirroring how
 // declared dependencies resolve, so a dependency edge matches consistently and is
 // never mis-attributed to a same-named service in another domain. A callee that is
-// not a fleet service in that domain is keyed "external:<identity>" when it names
-// an external system (see [fleet.FleetSnapshot.ObservedExternal]), else it keeps
+// not a fleet service in that domain, nor in any other, is keyed
+// "external:<identity>" when it names an external system (see [fleet.FleetSnapshot.ObservedExternal]), else it keeps
 // its raw name (an undeclared dependency), which is expected and not itself an
 // ambiguity.
 func observedFromEdges(snap *fleet.FleetSnapshot, edges []otelobserver.Edge) ([]reconcile.Observed, []reconcile.Unresolved) {
@@ -94,8 +94,11 @@ func observedFromEdges(snap *fleet.FleetSnapshot, edges []otelobserver.Edge) ([]
 		dep := e.To
 		if k := fleet.NewServiceKeyDomain(domain, e.To); snap.Services[k] != nil {
 			dep = string(k)
-		} else if id, ok := snap.ObservedExternal(e.To); ok {
-			dep = fleet.ExternalSubjectPrefix + string(id)
+		} else if _, toRes := resolve(e.To); toRes == fleet.ObservedUnknown {
+			// A fleet service of that name anywhere wins, as in the snapshot's fold.
+			if id, ok := snap.ObservedExternal(e.To); ok {
+				dep = fleet.ExternalSubjectPrefix + string(id)
+			}
 		}
 		out = append(out, reconcile.Observed{Service: string(callerKey), Dependency: dep, Count: e.Count})
 	}

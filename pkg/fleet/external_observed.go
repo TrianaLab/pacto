@@ -27,11 +27,27 @@ func (s *FleetSnapshot) observedExternalMatch(name string, res ObservedResolutio
 		return m, true
 	}
 	for _, h := range externalcatalog.NormalizeHost(name) {
-		if m, ok := cat.MatchHost(h); ok {
+		if m, ok := cat.MatchHost(h); ok && !s.namespaceShortForm(m) {
 			return m, true
 		}
 	}
 	return externalcatalog.Match{}, false
+}
+
+// namespaceShortForm reports whether m is an unclassified host whose last
+// label is the namespace of a Kubernetes target in the snapshot: the
+// in-cluster short form <pod>.<service>.<namespace>, never an external.
+// ponytail: only namespaces a target runs in are known; a namespace with no
+// target still reads as a domain when it is also a top-level domain.
+func (s *FleetSnapshot) namespaceShortForm(m externalcatalog.Match) bool {
+	return externalcatalog.NamespaceShortForm(m, func(ns string) bool {
+		for _, t := range s.Targets {
+			if kubeTarget(t) && t.Scope == ns {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 // recordObservedExternal records, on the record of key, that caller was seen

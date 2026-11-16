@@ -441,3 +441,17 @@ func TestObserverExternals(t *testing.T) {
 		t.Fatal(ExternalCatalog())
 	}
 }
+
+// TestObserveExternalsOwnNamespaceShortForm: <pod>.<service>.<namespace> of
+// the Pacto's own namespace is in-cluster, though it reads like a domain.
+func TestObserveExternalsOwnNamespaceShortForm(t *testing.T) {
+	in := extInput()
+	in.Namespace = "dev"
+	d := extDeployment(corev1.Container{Env: []corev1.EnvVar{envVal("KAFKA_BROKERS", "kafka-0.kafka-headless.dev:9092")}})
+	d.Namespace = "dev"
+	got, cov := extObserve(t, interceptor.Funcs{}, in, d)
+	if len(got) != 0 {
+		t.Fatalf("got %s", summary(got))
+	}
+	wantCoverage(t, cov, unversioned.CallerCoverageComplete, "")
+}

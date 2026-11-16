@@ -340,6 +340,17 @@ func TestReconcileExternalCalleeMatchesDeclared(t *testing.T) {
 	}
 }
 
+// A callee that is a fleet service in another domain stays that service's
+// name, never an external, as the snapshot's fold resolves it.
+func TestReconcileCalleeServiceInOtherDomainNotExternal(t *testing.T) {
+	web, other := fleet.NewServiceKeyDomain("eu", "web"), fleet.NewServiceKeyDomain("us", "api.stripe.com")
+	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{web: {Name: "web"}, other: {Name: "api.stripe.com"}}}
+	observed, _ := observedFromEdges(snap, []otelobserver.Edge{{From: "web", To: "api.stripe.com", Count: 1}})
+	if len(observed) != 1 || observed[0].Dependency != "api.stripe.com" {
+		t.Fatalf("observed = %+v", observed)
+	}
+}
+
 // TestFleet_TraceFileExternalCallee: a --traces span whose only callee is
 // api.stripe.com becomes an observed edge to stripe, with no unresolved
 // limitation naming it.
