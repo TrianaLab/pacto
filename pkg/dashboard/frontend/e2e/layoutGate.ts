@@ -960,7 +960,8 @@ export function installScaleFixture(): void {
           gates: { clear: 30 + i, blocked: 2 + (i % 3), unverified: i % 2 },
           environments: envs.map((e) => partOf(e, k, n)).filter((e) => e.operations) };
       }
-      if (!restricted && i !== 0) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
+      // The gap week holds no coverage record either, so the coverage line breaks there.
+      if (!restricted && i !== 1) b.coverage = coverageOf(new Date(end - 3_600_000), i === 2);
       out.push(b);
     }
     return out.reverse();
@@ -1388,15 +1389,9 @@ export async function densityProblems(page: Page): Promise<string[]> {
   });
 }
 
-/**
- * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
- * and reads the total of the list it lands on, from the `data-view-total` its pager
- * carries: "List all N" must land on N, "N more" on N plus the chips its lane names,
- * and a link that says how many it lists in `data-lists` (a phase station's "N
- * consumers", where the station's own count is of requests) on that N. A link that lands on no paged list (prose) fails too. It navigates, so call it last.
- */
-export async function figureLinkTotals(page: Page): Promise<string[]> {
-  const links = await page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
+/** figureLinks are the links figureLinkTotals follows, each with the total it must land on. */
+export async function figureLinks(page: Page): Promise<{ href: string; text: string; want: number }[]> {
+  return page.evaluate(() => [...document.querySelectorAll<HTMLAnchorElement>('[data-fig] a')]
     .filter((a) => a.getClientRects().length && (a.hasAttribute('data-lists') || /^(List all [\d,]+|[\d,]+ more)$/.test((a.textContent ?? '').trim())))
     .map((a) => {
       const t = (a.textContent ?? '').trim(), n = Number(t.replace(/[^\d]/g, ''));
@@ -1406,6 +1401,17 @@ export async function figureLinkTotals(page: Page): Promise<string[]> {
       const shown = lane ? [...lane.querySelectorAll('.chip')].filter((c) => c.getClientRects().length).length : 0;
       return { href: a.getAttribute('href') ?? '', text: t, want: t.startsWith('List all') ? n : n + shown };
     }));
+}
+
+/**
+ * figureLinkTotals follows every "List all N" and "N more" link of a figure (T3, G1 r5)
+ * and reads the total of the list it lands on, from the `data-view-total` its pager
+ * carries: "List all N" must land on N, "N more" on N plus the chips its lane names,
+ * and a link that says how many it lists in `data-lists` (a phase station's "N
+ * consumers", where the station's own count is of requests) on that N. A link that lands on no paged list (prose) fails too. It navigates, so call it last.
+ */
+export async function figureLinkTotals(page: Page): Promise<string[]> {
+  const links = await figureLinks(page);
   const out: string[] = [];
   for (const l of links) {
     await page.goto(`/${l.href}`);
