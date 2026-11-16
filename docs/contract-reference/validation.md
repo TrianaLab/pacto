@@ -48,8 +48,8 @@ in an older contract, reports that version's code for each use instead: set
   the finding it would add (usually `ENVIRONMENT_VALUES_MISSING`, because from
   `"2.4"` a required configuration taken by `ref` has its defaults checked) or
   says to fix the errors the run reports before Pacto can tell.
-- Raising a contract older than `"2.4"` that takes a configuration by `ref`
-  adds no finding, and the message says the operator then also accepts
+- When raising a contract older than `"2.4"` that takes a configuration by
+  `ref` adds no finding, the message says the operator then also accepts
   `ContractOverrides` values for those configurations.
 - The fleet revision detail (`pacto fleet entity`, `pacto_fleet_entity`, the
   TUI and the dashboard revision page) shows the declared `pactoVersion` as
