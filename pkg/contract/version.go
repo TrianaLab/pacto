@@ -2,6 +2,7 @@ package contract
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -28,6 +29,11 @@ type ErrManualMigration struct{ Version string }
 func (e *ErrManualMigration) Error() string {
 	return fmt.Sprintf("pactoVersion %q is not migrated automatically: moving from 1.x to 2.x changes the contract's shape and needs a person; follow https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md", e.Version)
 }
+
+// ErrComparable marks an [UpgradeCheck] error from a run that reached every
+// stage and only could not verify some: its findings still back a claim that a
+// raise adds one. Any other error of the original run means it cannot.
+var ErrComparable = errors.New("findings comparable")
 
 // UpgradeCheck validates a pacto.yaml and returns its errors and warnings. An
 // error means the check cannot tell what the contract means.
@@ -57,10 +63,13 @@ func (u Upgraded) Change() string {
 
 // Upgrade raises raw's pactoVersion to to, editing only the version token so
 // comments, key order, quoting and line endings survive. It runs check on the
-// original and on the raised bytes and keeps the original when the raised one
-// has a finding the original lacks (counted by severity, code and path); Kept
-// names that finding. When neither run adds a finding, a check error keeps the
-// original and is returned: an unknown result never raises a version.
+// original first: its error, unless it wraps [ErrComparable], keeps the
+// original and is returned without running the raised check, because a run
+// that failed or never reached a stage cannot say what a raise adds. Then it
+// runs check on the raised bytes and keeps the original when they have a
+// finding the original lacks (counted by severity, code and path); Kept names
+// that finding. Otherwise either run's error keeps the original and is
+// returned: an unknown result never raises a version.
 //
 // An absent pactoVersion, or one at or past to, returns raw unchanged without
 // running check. A 1.x version returns *ErrManualMigration, and a version or
@@ -87,6 +96,9 @@ func Upgrade(raw []byte, to string, check UpgradeCheck) (Upgraded, error) {
 		return kept, err
 	}
 	e0, w0, err0 := check(raw)
+	if err0 != nil && !errors.Is(err0, ErrComparable) {
+		return kept, err0 // a run that failed or never reached a stage cannot back an "adds X" claim
+	}
 	e1, w1, err1 := check(out)
 	if k := newFinding(e0, w0, e1, w1); k != nil {
 		kept.Kept = k
@@ -152,9 +164,13 @@ func splice(raw []byte, n *yaml.Node, to string) ([]byte, error) {
 }
 
 // offsetOf is the byte offset of the 1-based line and column (in characters)
-// in raw, or -1 when raw has no such position.
+// in raw, or -1 when raw has no such position. A leading UTF-8 BOM is not a
+// column, as yaml.v3 counts them.
 func offsetOf(raw []byte, line, col int) int {
 	off := 0
+	if line == 1 && bytes.HasPrefix(raw, []byte("\xef\xbb\xbf")) {
+		off = 3
+	}
 	for range line - 1 {
 		i := bytes.IndexByte(raw[off:], '\n')
 		if i < 0 {

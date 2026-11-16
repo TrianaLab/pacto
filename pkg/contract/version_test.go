@@ -3,6 +3,7 @@ package contract
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -75,6 +76,13 @@ func TestUpgradeKeepsQuoteStyle(t *testing.T) {
 		if err != nil || !bytes.Equal(up.Raw, fixture(doc, cur)) {
 			t.Errorf("%q: got %q %v", doc, up.Raw, err)
 		}
+	}
+}
+
+func TestUpgradeKeepsBOM(t *testing.T) {
+	const doc = "\xef\xbb\xbfpactoVersion: '{v}'\nservice: {name: a, version: 1.0.0}\n"
+	if up, err := Upgrade(fixture(doc, prev), cur, clean); err != nil || !bytes.Equal(up.Raw, fixture(doc, cur)) {
+		t.Fatalf("got %q %v", up.Raw, err)
 	}
 }
 
@@ -237,7 +245,6 @@ func TestUpgradeExtraSameKeyFindingKeeps(t *testing.T) {
 
 func TestUpgradeNewFindingBeatsRaisedError(t *testing.T) {
 	f := &fakeCheck{}
-	f.before.err = errors.New("cannot tell")
 	f.after.e = []ValidationError{{Code: "E", Path: "p"}}
 	f.after.err = errors.New("cannot tell either")
 	up, err := upgradeWith(t, f)
@@ -245,6 +252,37 @@ func TestUpgradeNewFindingBeatsRaisedError(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertKept(t, up, "E")
+}
+
+// An original that cannot tell (it failed or skipped a stage) never backs an
+// "adds X" claim: a finding the raised run has may be one the original never
+// ran the stage to see.
+func TestUpgradeOriginalErrorBeatsNewFinding(t *testing.T) {
+	f := &fakeCheck{}
+	f.before.e = []ValidationError{{Code: "POLICY", Path: "pactoVersion"}}
+	f.before.err = errors.New("cannot tell")
+	f.after.e = []ValidationError{{Code: "ENVIRONMENT_VALUES_INVALID", Path: "environments[0].file"}}
+	up, err := upgradeWith(t, f)
+	if err != f.before.err || up.Kept != nil || up.To != prev || f.calls != 1 {
+		t.Fatalf("got %+v %v after %d calls", up, err, f.calls)
+	}
+}
+
+// An original that reached every stage and only could not verify one still
+// backs a confirmed new finding.
+func TestUpgradeComparableErrorLetsNewFindingWin(t *testing.T) {
+	f := &fakeCheck{}
+	f.before.err = fmt.Errorf("could not verify: %w", ErrComparable)
+	f.after.e = []ValidationError{{Code: "CONFIG_REF_UNRESOLVED", Path: "configurations[0]"}}
+	up, err := upgradeWith(t, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertKept(t, up, "CONFIG_REF_UNRESOLVED")
+	f.after.e = nil
+	if up, err := upgradeWith(t, f); err != f.before.err || up.Kept != nil || up.To != prev {
+		t.Fatalf("got %+v %v", up, err)
+	}
 }
 
 func TestUpgradeSameFindingsRaise(t *testing.T) {

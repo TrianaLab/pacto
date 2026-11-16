@@ -3,6 +3,7 @@ package validation
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -94,6 +95,10 @@ func TestUpgradeFindingsRule(t *testing.T) {
 		if !errors.Is(err, tc.err) || len(ws) != 1 || len(e) != len(Merged(tc.stages).Errors) {
 			t.Errorf("%s: got %v %v %v", name, e, ws, err)
 		}
+		// An MCP client gets no report, so the error names what blocks the judgement.
+		if want := map[string]string{"skip": "the environments stage skipped: could not verify: prod/db", "error": "first: E: "}[name]; !strings.Contains(fmt.Sprint(err), want) {
+			t.Errorf("%s: %v does not name %q", name, err, want)
+		}
 	}
 }
 
@@ -117,5 +122,30 @@ func TestUpgradeCheckParseErrorKept(t *testing.T) {
 	e, _, err := check([]byte("pactoVersion: '2.3'\nunknownField: 1\n"))
 	if !errors.Is(err, ErrUnverified) || len(e) != 1 || e[0].Code != "PARSE_ERROR" {
 		t.Fatalf("got %v %v", e, err)
+	}
+}
+
+// A policy that fails at the declared version skips the environments stage;
+// at the raised version it passes and environments reports values that were
+// already invalid. The original never ran that stage, so the raise cannot be
+// blamed for the finding: Pacto cannot tell.
+func TestUpgradeSkippedStageNeverBacksANewFinding(t *testing.T) {
+	doc := `pactoVersion: "2.3"
+service: {name: s, version: 1.0.0}
+configurations:
+  - {name: chart, schema: chart.json, required: true}
+environments:
+  - {name: prod, file: prod.yaml}
+policies:
+  - {name: newest, schema: policy.json}
+`
+	fsys := fstest.MapFS{
+		"chart.json":  {Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}}}`)},
+		"prod.yaml":   {Data: []byte("chart: {replicas: three}\n")},
+		"policy.json": {Data: []byte(`{"properties":{"pactoVersion":{"enum":["` + contract.Current() + `"]}}}`)},
+	}
+	up, err := upgradeRefDefaults(t, doc, fsys, nil)
+	if !errors.Is(err, ErrUnverified) || up.Kept != nil || up.To != "2.3" {
+		t.Fatalf("got %+v kept %+v err %v", up, up.Kept, err)
 	}
 }
