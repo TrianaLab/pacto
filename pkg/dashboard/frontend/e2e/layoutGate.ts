@@ -490,10 +490,15 @@ export function installScaleFixture(): void {
       const rev = doc.revision as Record<string, unknown> | undefined;
       for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
       // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
-      // reason, a 5-digit port on every interface and a long inferred source.
+      // reason (every other one linked to the service it names), a 5-digit port on
+      // every interface, a long inferred source and a dependency named from its ref
+      // with no range declared.
       if (rev) {
         rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
-          consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14' })) };
+          consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14',
+          ...(i % 2 ? { service: { kind: 'service', key: `default/break-consumer-${i}`, label: `break-consumer-${i}` } } : {}) })) };
+        const firstDep = (rev.dependencies as { items?: { declaredClaims?: { items?: Record<string, unknown>[] } }[] } | undefined)?.items?.[0];
+        for (const c of firstDep?.declaredClaims?.items ?? []) { c.compatibility = 'unknown'; c.nameFromRef = true; }
         for (const it of (rev.interfaces as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) it.port = 65535;
         rev.inferred = [{ field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' }];
       }
@@ -1493,6 +1498,24 @@ export const ROUTES: Route[] = [
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
   { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
+  {
+    // The scale fixture's 2.5 rows (announced breaks, ports, a ref-named dependency
+    // with no range) live in closed disclosures, which mount nothing: open them all.
+    name: 'revision entity, 2.5 sections open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/')(page);
+      for (const title of ['Interfaces', 'Announced breaks', 'Declared dependencies']) {
+        const sec = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: title }) }).first();
+        await expect(sec, `${title} is on the page`).toBeAttached({ timeout: 30_000 });
+        await sec.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+        const all = sec.getByTestId('preview-show-all');
+        if (await all.count()) await all.first().click();
+      }
+      await expect(page.locator('[data-testid="revision-break"]').first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('name-from-ref').first()).toBeAttached();
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
