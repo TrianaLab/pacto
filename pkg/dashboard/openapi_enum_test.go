@@ -193,6 +193,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"Fleet.ClusterRecord", "nameSource", sortedSet("node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterNameSource", sortedSet("node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterRelation", sortedSet("runs-in", "reported-through")},
+		{"ProductTargetDetail", "clusterRelation", sortedSet("runs-in", "reported-through")},
 	}
 	for _, c := range cases {
 		got := schemaFieldEnum(t, doc, c.schema, c.field)

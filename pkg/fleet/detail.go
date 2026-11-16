@@ -567,6 +567,10 @@ type TargetDetailData struct {
 	Ownership            *OwnershipInfo       `json:"ownership,omitempty"`
 	Limitations          LimitationsPreview   `json:"limitations"`
 	Environment          TargetEnvironment    `json:"environment"`
+	// Cluster is the cluster that reported this target and ClusterRelation how
+	// (see [TargetRecord.ClusterRelation]); both absent when no source named one.
+	Cluster         *Cluster `json:"cluster,omitempty" doc:"The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one"`
+	ClusterRelation string   `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)"`
 }
 
 // TargetEnvironment is the environment a target runs in, read from the
@@ -1310,6 +1314,10 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
 		ObservedRuntime: t.ObservedRuntime,
+		ClusterRelation: t.ClusterRelation,
+	}
+	if t.Cluster != "" {
+		data.Cluster = &Cluster{ID: t.Cluster, Name: t.ClusterName, NameSource: t.ClusterNameSource, ReportedBy: t.ClusterNameReportedBy}
 	}
 	if t.ContractRevision != "" {
 		if rev := q.snap.Revisions[t.ContractRevision]; rev != nil {

@@ -1354,3 +1354,17 @@ func TestEntityDetailTargetResolvesLegacyKey(t *testing.T) {
 		t.Errorf("entity key = %q, want the canonical %q", d.Entity.Key, want)
 	}
 }
+
+func TestTargetDetailDataCarriesCluster(t *testing.T) {
+	d, err := twoClusterPayments(t).EntityDetail(KindTarget, string(NewTargetKey("orders", "kubernetes", "orders")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Cluster{ID: clusterA, Name: "eu-prod", NameSource: ClusterNameFromContext}
+	if d.Target.Cluster == nil || *d.Target.Cluster != want || d.Target.ClusterRelation != ClusterRelationRunsIn {
+		t.Errorf("cluster = %+v relation = %q", d.Target.Cluster, d.Target.ClusterRelation)
+	}
+	if d.Entity.Key != string(NewClusterTargetKey(clusterA, "orders", "kubernetes", "orders")) {
+		t.Errorf("a legacy key answers with the canonical key: %q", d.Entity.Key)
+	}
+}
