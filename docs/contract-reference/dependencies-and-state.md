@@ -37,9 +37,8 @@ A derived name is a guess from a path. The operational graph resolves it only
 against a provider published at that same repository, never against another
 service that happens to share the name, and a local `ref` never resolves by a
 derived name. The dashboard and the fleet tools mark it as a
-name from `ref`. When a derived name that did not resolve matches the changed
-service, impact analysis adds `DERIVED_NAME_CONSUMERS_UNRESOLVED` and the
-answer is `partial`, so the gate stays `unverified`.
+name from `ref`. An unresolved derived name that matches a changed service
+keeps its impact `partial` (`DERIVED_NAME_CONSUMERS_UNRESOLVED`).
 
 ### Unknown compatibility
 
