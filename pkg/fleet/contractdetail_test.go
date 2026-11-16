@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -261,5 +262,18 @@ func TestConfigurationSummaryRefContent(t *testing.T) {
 	cycleA := refBundle(t, "a", fmt.Sprintf("ref: %q", "oci://r/b@"+refDigest("b")), fstest.MapFS{})
 	if got := content(t, cycleA, cycleB, refOrders(t, a, "small", "")); got.Content != nil {
 		t.Errorf("cycle has content: %+v", got.Content)
+	}
+}
+
+// A writeOnly property's default never reaches the schema summary.
+func TestRevisionSchemaMasksWriteOnly(t *testing.T) {
+	rev := schemaRev(fstest.MapFS{"configuration/schema.json": {Data: []byte(`{"properties":{"DB_PASSWORD":{"type":"string","writeOnly":true,"default":"hunter2"}}}`)}})
+	got := revisionSchema(rev, "configuration/schema.json")
+	if len(got.Properties) != 1 || got.Properties[0].Value != "(sensitive)" {
+		t.Fatalf("properties = %+v", got.Properties)
+	}
+	b, err := json.Marshal(got)
+	if err != nil || strings.Contains(string(b), "hunter2") {
+		t.Errorf("marshalled schema = %s, err %v", b, err)
 	}
 }

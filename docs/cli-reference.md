@@ -1442,7 +1442,10 @@ An empty or new folder gets a blank contract with the bundle structure
 already holds a service gets a contract read from its Dockerfile and
 Kubernetes manifests, and a list of what Pacto found and what it could not
 tell (Unknown). The workload's environment, including the ConfigMaps it reads,
-becomes a configuration schema with each value as its default. A URL in it
+becomes a configuration schema of keys and types, with no values: a key read
+from a Secret, named like a password, secret, token, key, credential, private
+key or DSN, or holding a URL with credentials is marked writeOnly, and a
+literal value for one is named under next steps. A URL in the environment
 that names another service in the cluster becomes a dependency: with that
 service's contract in --fleet, its bundle and a range from its version;
 without it, a placeholder range that the comment above it and Unknown name.
