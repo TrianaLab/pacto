@@ -291,3 +291,87 @@ func TestInitDeliveryDeclaresEnvironments(t *testing.T) {
 		t.Errorf("environments/pr-1.yaml: %q %v", raw, err)
 	}
 }
+
+// leakFiles is a chart folder whose Deployment sets sensitive literals and reads
+// one from a ConfigMap in the folder.
+var leakFiles = map[string]string{
+	"Chart.yaml":  "apiVersion: v2\nname: payments\nversion: 1.0.0\n",
+	"values.yaml": "db:\n  password: v4lues-s3cret\n",
+	"deploy/app.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments}\nspec:\n  template:\n    spec:\n      containers:\n" +
+		"        - name: payments\n          image: reg.io/payments:1.0.0\n          envFrom: [{configMapRef: {name: cm}}]\n          env:\n" +
+		"            - {name: DB_PASSWORD, value: hunter2}\n            - {name: DATABASE_URL, value: \"postgres://app:u4l-s3cret@db:5432/x\"}\n",
+	"deploy/cm.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: cm}\ndata: {CLIENT_SECRET: c0nfigmap-s3cret}\n",
+}
+
+// leakedLiterals are the folder and cluster fixtures' secret bytes.
+var leakedLiterals = []string{"hunter2", "u4l-s3cret", "v4lues-s3cret", "c0nfigmap-s3cret", "r3dis-pw", "t0ken-123"}
+
+// leakFolder writes a fresh copy of leakFiles.
+func leakFolder(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "payments")
+	for name, body := range leakFiles {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// leakCluster is a fake cluster whose checkout Deployment sets sensitive
+// literals in a container and an initContainer.
+func leakCluster() dynamic.Interface {
+	gvr := func(g, v, r string) schema.GroupVersionResource {
+		return schema.GroupVersionResource{Group: g, Version: v, Resource: r}
+	}
+	lists := map[schema.GroupVersionResource]string{
+		gvr("apps", "v1", "deployments"): "DeploymentList", gvr("apps", "v1", "statefulsets"): "StatefulSetList", gvr("apps", "v1", "daemonsets"): "DaemonSetList",
+		gvr("batch", "v1", "cronjobs"): "CronJobList", gvr("", "v1", "services"): "ServiceList", gvr("", "v1", "pods"): "PodList",
+		gvr("apps", "v1", "replicasets"): "ReplicaSetList", gvr("batch", "v1", "jobs"): "JobList", gvr("discovery.k8s.io", "v1", "endpointslices"): "EndpointSliceList",
+		gvr("pacto.trianalab.io", "v1alpha1", "pactos"): "PactoList", gvr("pacto.trianalab.io", "v1alpha1", "noderuntimeobservations"): "NodeRuntimeObservationList",
+	}
+	lit := func(name, value string) map[string]any { return map[string]any{"name": name, "value": value} }
+	deploy := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": "checkout", "namespace": "shop"},
+		"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+			"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.0.0", "env": []any{lit("DB_PASSWORD", "hunter2"), lit("REDIS_URL", "redis://:r3dis-pw@cache:6379")}}},
+			"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": []any{lit("MIGRATE_TOKEN", "t0ken-123")}}},
+		}}}}}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, deploy)
+}
+
+// TestInitNeverPrintsEnvValues: no secret literal reaches pacto init output on
+// any path, and the help says the schema holds keys and types.
+func TestInitNeverPrintsEnvValues(t *testing.T) {
+	defer func(old func() (dynamic.Interface, error)) { initDynamic = old }(initDynamic)
+	initDynamic = func() (dynamic.Interface, error) { return leakCluster(), nil }
+	runs := map[string]func() []string{
+		"plan":    func() []string { return []string{"--plan", leakFolder(t)} },
+		"json":    func() []string { return []string{"--plan", "--output-format", "json", leakFolder(t)} },
+		"apply":   func() []string { return []string{"--describe-only", leakFolder(t)} },
+		"several": func() []string { return []string{"--plan", leakFolder(t), leakFolder(t)} },
+		"cluster": func() []string { return []string{"--cluster", "--namespace", "shop", "--out", t.TempDir()} },
+		"clusterJ": func() []string {
+			return []string{"--cluster", "--namespace", "shop", "--output-format", "json", "--out", t.TempDir()}
+		},
+	}
+	for name, args := range runs {
+		t.Run(name, func(t *testing.T) {
+			out, err := runInit(t, args()...)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			for _, v := range leakedLiterals {
+				if strings.Contains(out, v) {
+					t.Errorf("the output holds %q:\n%s", v, out)
+				}
+			}
+		})
+	}
+	if out, _ := runInit(t, "--help"); !strings.Contains(out, "keys and types") {
+		t.Fatalf("help:\n%s", out)
+	}
+}
