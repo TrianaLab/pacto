@@ -53,6 +53,24 @@ func TestWorkloadAccessUsesSelfReview(t *testing.T) {
 	}
 }
 
+// TestWorkloadAccessEvaluationErrorUnverified: a refusal the authorizers
+// could not evaluate is unknown, never a denial; an allow despite one stands.
+func TestWorkloadAccessEvaluationErrorUnverified(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "dana", nil, nil)
+	status := map[string]any{"allowed": false, "evaluationError": "webhook authorizer timed out"}
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": status}}, nil
+	})
+	w := delivery.WorkloadRef{Kind: "Deployment", Name: "checkout"}
+	if a := d.WorkloadAccess(context.Background(), "payments", w); a.Allowed || a.Unverified != "the SelfSubjectAccessReview could not be evaluated: webhook authorizer timed out" {
+		t.Fatalf("refused with an evaluation error: %+v", a)
+	}
+	status["allowed"] = true
+	if a := d.WorkloadAccess(context.Background(), "payments", w); !a.Allowed || a.Unverified != "" {
+		t.Fatalf("allowed with an evaluation error: %+v", a)
+	}
+}
+
 func TestApproveRefusalCopy(t *testing.T) {
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "payments", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments", "actor": map[string]any{"user": "bot"}},

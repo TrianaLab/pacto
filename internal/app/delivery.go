@@ -129,8 +129,8 @@ func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, er
 
 // WorkloadAccess asks the apiserver whether the caller may update w in ns,
 // the default approver rule: a SelfSubjectAccessReview with the caller's own
-// credentials. A review that fails, or a kind with no resource, is
-// unverified, never allowed.
+// credentials. A review that fails, one the authorizers could not evaluate,
+// or a kind with no resource, is unverified, never allowed.
 func (d *Delivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
 	a, group := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
 	if a.Unverified != "" {
@@ -148,6 +148,12 @@ func (d *Delivery) WorkloadAccess(ctx context.Context, ns string, w delivery.Wor
 		return a
 	}
 	a.Allowed, _, _ = unstructured.NestedBool(out.Object, "status", "allowed")
+	// An authorizer that errored may have allowed: a refusal that carries an
+	// evaluation error is no answer.
+	if e, _, _ := unstructured.NestedString(out.Object, "status", "evaluationError"); !a.Allowed && e != "" {
+		a.Unverified = "the SelfSubjectAccessReview could not be evaluated: " + e
+		return a
+	}
 	a.At = d.Now().UTC().Format(time.RFC3339)
 	return a
 }
