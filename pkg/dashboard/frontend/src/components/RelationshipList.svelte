@@ -3,7 +3,7 @@
   import IdentityBadge from './IdentityBadge.svelte';
   import BehaviorBadges from './BehaviorBadges.svelte';
   import RequirementList from './RequirementList.svelte';
-  import { provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
+  import { provenanceLabel, provenanceIsImplied, RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
   import { shortDigest, formatCount } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
@@ -74,7 +74,7 @@
   };
   // compatibility: unknown (pactoVersion 2.5) declares no range, so the claim is never
   // judged in range whatever status the payload carries.
-  const NOT_DECLARED = { label: 'Range not declared', tone: 'neutral' };
+  const NOT_DECLARED = { label: RANGE_NOT_DECLARED, tone: 'neutral' };
   const rangeOf = (c) => (c.compatibility === 'unknown' ? NOT_DECLARED : RANGE[c.rangeStatus]);
   const nameFromRef = (e) => claims(e).some((c) => c.nameFromRef);
 

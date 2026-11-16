@@ -5,7 +5,7 @@
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import HelpTip from '../../components/HelpTip.svelte';
-  import { businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
+  import { acceptsLabel, businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import ServiceDelivery from '../../components/ServiceDelivery.svelte';
@@ -344,7 +344,7 @@
                 {#if u.offering}<a class="se-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a><span class="se-note">from</span>{/if}
                 <EntityLink ref={u.provider} showStatus={false} showKind={false} />
                 <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
-                {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+                {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={acceptsLabel(u.compatibility)} describe />{/if}
                 <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
               </li>
             {/each}

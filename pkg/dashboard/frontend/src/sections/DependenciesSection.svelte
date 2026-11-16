@@ -9,6 +9,7 @@
   import RequirementList from '../components/RequirementList.svelte';
   import { reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
+  import { RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
 
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
@@ -100,7 +101,7 @@
                   <td><code class="text-3">{dep.ref}</code></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
                   <!-- compatibility: unknown declares no range, so it is never read as one. -->
-                  <td>{#if dep.compatibilityUnknown || dep.compatibility === 'unknown'}<span class="badge" data-tip="Pacto cannot tell which versions of this provider work, so it never counts the dependency as compatible.">Range not declared</span>{:else}{dep.compatibility || '—'}{/if}</td>
+                  <td>{#if dep.compatibilityUnknown || dep.compatibility === 'unknown'}<span class="badge" data-tip="Pacto cannot tell which versions of this provider work, so it never counts the dependency as compatible.">{RANGE_NOT_DECLARED}</span>{:else}{dep.compatibility || '—'}{/if}</td>
                   <td>
                     {#if dep.lockedVersion || dep.lockedDigest}
                       <div class="lock-cell">

@@ -3,6 +3,7 @@
   import { formatCount } from '../lib/format.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { phaseLabel } from '../lib/provisioning.ts';
+  import { acceptsLabel } from '../lib/entityLabels.ts';
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
   import OwnershipFact from './OwnershipFact.svelte';
@@ -59,7 +60,7 @@
         <EntityLink ref={u.provider} showStatus={false} showKind={false} />
         {#if u.offering}<a class="rl-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a>{:else}<span class="rl-note">no offering</span>{/if}
         <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
-        {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+        {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={acceptsLabel(u.compatibility)} describe />{/if}
         <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
       </div>
       <div class="rl-row">

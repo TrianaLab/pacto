@@ -232,6 +232,20 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names an undeclared range as such, never as a range the consumer accepts', async () => {
+    const res = impactResult();
+    res.consumers.items[0].compatibility = 'unknown';
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('.consumer-range')).toBeTruthy());
+    const range = target.querySelector('[data-testid="changes-consumers"] [data-label="Verdict"] .consumer-range');
+    expect(range?.textContent?.trim()).toBe('Range not declared');
+    expect(target.querySelector('[data-testid="changes-consumers"]')?.textContent).not.toMatch(/accepts\s+unknown/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('draws the impact once analysed, the same on every page of the table', async () => {
     impactFn.mockResolvedValueOnce(impactResult({ offset: 0, nextOffset: 100 }));
     const { target, component } = mountView({ svc: 'domain-a/payments' });
