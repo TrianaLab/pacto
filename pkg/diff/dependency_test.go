@@ -152,3 +152,38 @@ func TestDiffDependencyNameFromRefMatchesDeclared(t *testing.T) {
 		t.Errorf("a name derived from the ref equal to the declared one is no change, got %+v", changes)
 	}
 }
+
+// compatibilityChange diffs one dependency's compatibility from old to new and
+// returns the single change.
+func compatibilityChange(t *testing.T, old, new string) Change {
+	t.Helper()
+	o, n := minimalContract(), minimalContract()
+	o.Dependencies = []contract.Dependency{{Name: "auth", Ref: "ghcr.io/acme/auth", Required: true, Compatibility: old}}
+	n.Dependencies = []contract.Dependency{{Name: "auth", Ref: "ghcr.io/acme/auth", Required: true, Compatibility: new}}
+	changes := diffDependencies(o, n)
+	if len(changes) != 1 {
+		t.Fatalf("changes = %+v, want one", changes)
+	}
+	return changes[0]
+}
+
+func TestDiffCompatibilityUnknownToRangeNonBreaking(t *testing.T) {
+	c := compatibilityChange(t, contract.CompatibilityUnknown, "^1.0.0")
+	if c.Path != "dependencies.compatibility.declared" || c.Classification != NonBreaking {
+		t.Errorf("change = %+v, want dependencies.compatibility.declared NON_BREAKING", c)
+	}
+}
+
+func TestDiffCompatibilityRangeToUnknownPotentialBreaking(t *testing.T) {
+	c := compatibilityChange(t, "^1.0.0", contract.CompatibilityUnknown)
+	if c.Path != "dependencies.compatibility.unknown" || c.Classification != PotentialBreaking {
+		t.Errorf("change = %+v, want dependencies.compatibility.unknown POTENTIAL_BREAKING", c)
+	}
+}
+
+func TestDiffCompatibilityRangeToRangeUnchanged(t *testing.T) {
+	c := compatibilityChange(t, "^1.0.0", "^2.0.0")
+	if c.Path != "dependencies.compatibility" || c.Classification != PotentialBreaking {
+		t.Errorf("change = %+v, want dependencies.compatibility POTENTIAL_BREAKING", c)
+	}
+}

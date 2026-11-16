@@ -675,3 +675,11 @@ func TestEvaluateIgnoresResourceProvisioned(t *testing.T) {
 		}
 	}
 }
+
+func TestVersionVerdictUnknownIsUnverified(t *testing.T) {
+	for _, v := range []string{"1.0.0", ""} {
+		if got := versionVerdict(contract.CompatibilityUnknown, v); got != verdictUnverified {
+			t.Errorf("versionVerdict(unknown, %q) = %v, want unverified", v, got)
+		}
+	}
+}

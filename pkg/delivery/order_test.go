@@ -609,3 +609,37 @@ func TestStatusCarriesExternal(t *testing.T) {
 		t.Fatal("no relationship to stock")
 	}
 }
+
+// Each reader of a range refuses compatibility: unknown by name: no version is
+// known to work, so it never admits a candidate.
+func TestDeliveryUnknownRangeHolds(t *testing.T) {
+	const want = "is not declared (compatibility: unknown), so Pacto cannot tell whether"
+	unknown := contract.CompatibilityUnknown
+
+	in, pactos := ordersWorld(map[string]*contract.Bundle{o1: bundle("orders", "1.8.5", paymentsDep(unknown))})
+	if m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3)); m.Candidate != nil ||
+		!strings.Contains(m.Unknown, "its range on payments "+want+" payments 3.0.0 works") {
+		t.Errorf("acceptsBoth: %+v", m)
+	}
+
+	in, pactos = ordersWorld(nil)
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", shippingDep(unknown, true)).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "its range on shipping "+want+" the shipping running here works") {
+		t.Errorf("acceptsWhatRunsHere: %v", err)
+	}
+
+	in, pactos = ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "2.0.0", paymentsDep(">=2.0.0 <4.0.0")),
+		o1: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0")),
+	})
+	withCheckout := append(slices.Clone(pactos), dependentPacto("prod", "checkout", "1.0.0", unknown))
+	if m := onlyMove(t, orderPlan(t, in, withCheckout, payments2, payments3)); m.Candidate != nil ||
+		!strings.Contains(m.Unknown, "the range checkout 1.0.0 holds on orders "+want) {
+		t.Errorf("acceptedHere: %+v", m)
+	}
+}

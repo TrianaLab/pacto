@@ -568,3 +568,20 @@ func TestEventRemovedReferrerKeepsTheBreaksPath(t *testing.T) {
 		t.Errorf("orders = %+v", c)
 	}
 }
+
+func TestEventUnknownRangeConfidenceDeclared(t *testing.T) {
+	unknown := dep("auth-service", true)
+	unknown.Compatibility = contract.CompatibilityUnknown
+	res := event(evidenceSnap(t, []fleet.RawRevision{gwRev(unknown)}, []fleet.RawTarget{gwTarget(ago(time.Hour))}), EventUnavailable, "auth-service")
+	if c := onlyConsumer(t, res); c.Confidence != ConfidenceDeclared || c.CompatibilityVerdict != CompatibilityUnknown {
+		t.Errorf("consumer = %+v, want declared confidence and an unknown verdict", c)
+	}
+}
+
+func TestEventGateInferredNameUnverified(t *testing.T) {
+	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("auth-service")}})
+	res := event(snap, EventUnavailable, "auth-service", Options{NameInferredFrom: "chart/Chart.yaml:2"})
+	if res.Gate != GateUnverified || !strings.Contains(res.GateReason, "inferred from chart/Chart.yaml:2") {
+		t.Errorf("gate %s (%s), want unverified over an inferred name", res.Gate, res.GateReason)
+	}
+}

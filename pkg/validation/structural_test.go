@@ -1000,3 +1000,24 @@ func TestNeeds24EnvironmentFields(t *testing.T) {
 		}
 	}
 }
+
+// TestNeeds25CompatibilityUnknown: compatibility: unknown in an older contract
+// is told to set pactoVersion 2.5, a range beside it is not and the caller's
+// data is left alone.
+func TestNeeds25CompatibilityUnknown(t *testing.T) {
+	unknown := map[string]any{"name": "a", "ref": "oci://r/a", "required": true, "compatibility": "unknown"}
+	ranged := map[string]any{"name": "b", "ref": "oci://r/b", "required": true, "compatibility": "^1.0.0"}
+	data := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "dependencies": []any{unknown, ranged}}
+	r := ValidateStructural(data)
+	if len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" || r.Errors[0].Path != "dependencies.0.compatibility" ||
+		!strings.Contains(r.Errors[0].Message, `set pactoVersion: "2.5"`) {
+		t.Fatalf("errors = %+v, want one NEEDS_PACTO_2_5 at dependencies.0.compatibility", r.Errors)
+	}
+	if unknown["compatibility"] != "unknown" {
+		t.Fatal("the caller's data was changed")
+	}
+	data["pactoVersion"] = "2.5"
+	if r := ValidateStructural(data); !r.IsValid() {
+		t.Fatalf("2.5 compatibility: unknown: %v", r.Errors)
+	}
+}

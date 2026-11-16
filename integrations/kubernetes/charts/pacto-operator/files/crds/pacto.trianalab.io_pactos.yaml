@@ -482,8 +482,10 @@ spec:
                   description: DependencyInfo describes a declared dependency.
                   properties:
                     compatibility:
-                      description: Compatibility is the semver constraint for the
-                        dependency.
+                      description: |-
+                        Compatibility is the semver constraint for the dependency, or unknown
+                        when the versions that work are not known yet; unknown is never counted
+                        as compatible.
                       type: string
                     external:
                       description: |-

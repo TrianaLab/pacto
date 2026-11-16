@@ -107,7 +107,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION before 2.5, DEPENDENCY_NAME_REQUIRED with neither name nor ref, DUPLICATE_DEPENDENCY_NAME |
 | `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
 | `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted before 2.5, where absent means true |
-| `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4 |
 | `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
 | `dependencies[].requires` | `static-only` | - | - | - | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
 | `dependencies[].requires[]` | `static-only` | - | - | - | PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read |
@@ -1284,13 +1284,13 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | Semver range of provider versions this service accepts. |
+| Meaning | Semver range of provider versions this service accepts, or unknown when the versions that work are not known yet. |
 | Runtime | `partial` |
 | Evidence | DependencyObservation.Version: the provider Pacto's status.contract.version; when several targets match the ref, the only one inside the range is the target (none or several is Insufficient) |
-| Rule | a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified |
-| Outcomes | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| Rule | a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified; compatibility unknown (pactoVersion 2.5) is valid and never counted as compatible, so it is always unverified |
+| Outcomes | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically; NEEDS_PACTO_2_5 for unknown under 2.0 to 2.4 |
 | Limitations | the provider's contract version is trusted as its deployed version; judged only when the dependency is Observed |
-| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility`, `integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
+| Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility`, `pkg/validation/crossfield_test.go:TestCompatibilityUnknownValid`, `pkg/validation/structural_test.go:TestNeeds25CompatibilityUnknown`, `pkg/validation/evaluate_test.go:TestVersionVerdictUnknownIsUnverified`, `integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak`, `integrations/kubernetes/internal/observer/dependencies_test.go:TestDependencyCompatibilityUnknownIsUnverified`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/unknown`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/needs-2.5`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
 
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |

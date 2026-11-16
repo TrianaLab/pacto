@@ -487,13 +487,15 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 			}
 		}
 
+		// compatibility: unknown says the versions that work are not known yet:
+		// valid, and never counted as compatible.
 		if dep.Compatibility == "" {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"EMPTY_COMPATIBILITY",
 				fmt.Sprintf("dependency %q has a ref, so it needs compatibility: the versions that work, for example ^2.0.0", dep.Name),
 			)
-		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil {
+		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil && contract.IsRange(dep.Compatibility) {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"INVALID_COMPATIBILITY",

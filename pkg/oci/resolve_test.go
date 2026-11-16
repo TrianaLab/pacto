@@ -270,3 +270,10 @@ func TestCachedStore_ListTags_DelegatesToInner(t *testing.T) {
 		t.Errorf("expected nil tags from mock, got %v", tags)
 	}
 }
+
+func TestBestTagUnknownNamedError(t *testing.T) {
+	tag, err := oci.BestTag([]string{"1.0.0", "2.0.0"}, "unknown")
+	if tag != "" || !errors.Is(err, oci.ErrCompatibilityUnknown) {
+		t.Fatalf("BestTag(unknown) = %q, %v; want no tag and ErrCompatibilityUnknown", tag, err)
+	}
+}

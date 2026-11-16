@@ -89,6 +89,12 @@ type Options struct {
 	// Regression is the delivery evidence the caller read for a regressed
 	// event, with its own identity; nil when none was read.
 	Regression *Regression
+	// NameInferredFrom is where the changed service's name was inferred from
+	// (for example chart/Chart.yaml:2) when its contract declares none; empty
+	// when the name is declared. A consumer declares the name it depends on,
+	// so an inferred name may miss every one of them: the answer then carries
+	// SERVICE_NAME_INFERRED and the gate never clears a BREAKING change.
+	NameInferredFrom string
 }
 
 // AffectedConsumer is one service affected by the change.
@@ -326,6 +332,9 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
 			"Add the directory or registry that holds the services depending on it as a fleet source and run the analysis again"
 	}
+	if why := r.nameInferred(); why != "" {
+		return GateUnverified, "the change is BREAKING, but " + why
+	}
 	if r.Completeness != fleet.CompletenessComplete {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
@@ -509,6 +518,21 @@ func (r *Result) unmetNote() string {
 	return ". " + r.Service + " " + r.NewVersion + " does not meet a guarantee required by " + strings.Join(names, ", ")
 }
 
+// LimitationServiceNameInferred marks an answer about a service whose name was
+// inferred (see [Options.NameInferredFrom]).
+const LimitationServiceNameInferred = "SERVICE_NAME_INFERRED"
+
+// nameInferred is the SERVICE_NAME_INFERRED message, "" when the changed
+// service's name is declared.
+func (r *Result) nameInferred() string {
+	for _, l := range r.Limitations {
+		if l.Code == LimitationServiceNameInferred {
+			return l.Message
+		}
+	}
+	return ""
+}
+
 func hasCode(ls []fleet.Limitation, code string) bool {
 	for _, l := range ls {
 		if l.Code == code {
@@ -558,6 +582,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
+	}
+	if opts.NameInferredFrom != "" {
+		res.Limitations = append(res.Limitations, fleet.Limitation{
+			Code: LimitationServiceNameInferred, Source: limitationSource,
+			Message: "service.name is inferred from " + opts.NameInferredFrom + "; declare it so Pacto can find its consumers",
+		})
 	}
 	res.boundEnvelope()
 	res.Gate, res.GateReason = res.gate()
@@ -970,7 +1000,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		c.Via = append(c.Via, fleet.ProvenanceObserved)
 	}
 	c.Provenance = provenance(hasDeclared, seen)
-	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
+	c.Confidence = confidence(node.depth, hasDeclared, contract.IsRange(rel.Compatibility), observedCounted)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}

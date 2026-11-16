@@ -1289,3 +1289,23 @@ func TestDependencyNameRequiredWithoutRef(t *testing.T) {
 		t.Errorf("want one DEPENDENCY_NAME_REQUIRED on dependencies[0].name, got %+v", result.Errors)
 	}
 }
+
+func TestCompatibilityUnknownValid(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis@sha256:" + strings.Repeat("a", 64), Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !result.IsValid() {
+		t.Errorf("compatibility: unknown with a ref is valid, got %+v", result.Errors)
+	}
+}
+
+func TestCompatibilityUnknownWithoutRefRejected(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", External: true, Version: "7", Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "COMPATIBILITY_WITHOUT_REF") {
+		t.Errorf("expected COMPATIBILITY_WITHOUT_REF, got %+v", result.Errors)
+	}
+}

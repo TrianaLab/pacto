@@ -590,3 +590,65 @@ func TestService_ImpactOnSnapshot_Domain(t *testing.T) {
 		t.Fatalf("err %v, without a domain %+v", err, copied)
 	}
 }
+
+// writeNamelessRevision writes a 2.5 contract that declares no service.name in
+// <parent>/payments-api, so the name is inferred from the directory. With dep
+// it depends on ledger, so dropping it is a BREAKING change.
+func writeNamelessRevision(t *testing.T, parent, version string, dep bool) string {
+	t.Helper()
+	dir := filepath.Join(parent, "payments-api")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "pactoVersion: \"2.5\"\nservice:\n  version: \"" + version + "\"\n"
+	if dep {
+		body += "dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    compatibility: \"^1.0.0\"\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// An inferred name may miss every consumer, which declares the name it depends
+// on: a BREAKING change over it never clears, even over a complete fleet in
+// which nothing depends on the inferred name.
+func TestImpactInferredNameNeverClears(t *testing.T) {
+	oldDir := writeNamelessRevision(t, t.TempDir(), "1.0.0", true)
+	newDir := writeNamelessRevision(t, t.TempDir(), "2.0.0", false)
+	fleetRoot := t.TempDir()
+	writeImpactConsumer(t, filepath.Join(fleetRoot, "webapp"), "webapp", "payments", "^1.0.0")
+
+	res, err := NewService(nil, nil).Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: newDir, Fleet: FleetOptions{LocalRoots: []string{fleetRoot}},
+	})
+	if err != nil {
+		t.Fatalf("Impact: %v", err)
+	}
+	if res.Service != "payments-api" || res.Classification != "BREAKING" || res.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("service %q classification %s completeness %s", res.Service, res.Classification, res.Completeness)
+	}
+	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeServiceNameInferred ||
+		!strings.Contains(res.GateReason, "inferred from directory payments-api") {
+		t.Fatalf("gate = %s %s (%s), want unverified SERVICE_NAME_INFERRED", res.Gate, res.GateCode(), res.GateReason)
+	}
+}
+
+func TestNameInferredFromPrefersNew(t *testing.T) {
+	declared := &contract.Bundle{}
+	inferred := func(src string) *contract.Bundle {
+		return &contract.Bundle{Inferred: []contract.Inferred{{Field: "service.name", Value: "a", Source: src}}}
+	}
+	for _, tc := range []struct {
+		old, new *contract.Bundle
+		want     string
+	}{
+		{declared, declared, ""},
+		{inferred("old"), declared, "old"},
+		{inferred("old"), inferred("new"), "new"},
+	} {
+		if got := nameInferredFrom(tc.old, tc.new); got != tc.want {
+			t.Errorf("nameInferredFrom = %q, want %q", got, tc.want)
+		}
+	}
+}

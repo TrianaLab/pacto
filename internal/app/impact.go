@@ -151,10 +151,22 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:          opts.domain(),
-			IncludeObserved: opts.IncludeObserved,
-			ObservedEdges:   observed,
+			Domain:           opts.domain(),
+			IncludeObserved:  opts.IncludeObserved,
+			ObservedEdges:    observed,
+			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
 		}), nil
+}
+
+// nameInferredFrom is where the new, else the old, revision's service.name
+// was inferred from; empty when both declare it.
+func nameInferredFrom(oldBundle, newBundle *contract.Bundle) string {
+	for _, b := range []*contract.Bundle{newBundle, oldBundle} {
+		if inf, ok := b.NameInferred(); ok {
+			return inf.Source
+		}
+	}
+	return ""
 }
 
 // ImpactEventOptions configures a what-if about one fleet service: it

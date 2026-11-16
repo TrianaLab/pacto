@@ -561,7 +561,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.contractVersion` | `string` | no |  |  | ContractVersion is the version from the parsed contract. Kept for backward compatibility and simple access via JSONPath. |
 | `status.currentRevision` | `string` | no |  |  | CurrentRevision is the name of the active PactoRevision. |
 | `status.dependencies` | `[]object` | no |  |  | Dependencies lists the declared dependencies from the contract. |
-| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency. |
+| `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency, or unknown when the versions that work are not known yet; unknown is never counted as compatible. |
 | `status.dependencies[].external` | `boolean` | no |  |  | External marks a dependency this Pacto system does not run, such as a managed database or a hosted model. |
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |

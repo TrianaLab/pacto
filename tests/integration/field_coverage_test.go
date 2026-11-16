@@ -334,6 +334,8 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].required/needs-2.5", schemaViolation, set("pactoVersion", "2.4"), del("dependencies.0.required")), // only 2.5 may leave it out
 	valid("dependencies[].compatibility/valid", set("dependencies.0.compatibility", ">=1.2.0 <3.0.0")),
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
+	valid("dependencies[].compatibility/unknown", set("dependencies.0.compatibility", "unknown")),
+	invalid("dependencies[].compatibility/needs-2.5", needs25, set("pactoVersion", "2.4"), set("dependencies.0.compatibility", "unknown")),
 	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
 	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
 	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish"), del("checks"), set("dependencies.0.external", true)),

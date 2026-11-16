@@ -180,7 +180,11 @@ var rules = map[classificationKey]Classification{
 	{"dependencies", Removed}:                Breaking,
 	{"dependencies.ref", Modified}:           PotentialBreaking,
 	{"dependencies.compatibility", Modified}: PotentialBreaking,
-	{"dependencies.required", Modified}:      PotentialBreaking,
+	// From compatibility: unknown to a range only narrows what nobody knew;
+	// from a range to unknown drops what the service said works.
+	{"dependencies.compatibility.declared", Modified}: NonBreaking,
+	{"dependencies.compatibility.unknown", Modified}:  PotentialBreaking,
+	{"dependencies.required", Modified}:               PotentialBreaking,
 	// external only changes what Pacto expects to see running, not what the
 	// service needs. A new free-text version of an external dependency is
 	// something nobody can check: PotentialBreaking (the default).

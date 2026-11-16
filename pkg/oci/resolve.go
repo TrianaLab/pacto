@@ -24,6 +24,11 @@ type TagLister interface {
 // matching on message text.
 var ErrNoMatchingTag = errors.New("no matching tag")
 
+// ErrCompatibilityUnknown means the request's constraint is compatibility:
+// unknown, so no tag is known to work. It is never answered with the latest
+// tag, which would read an unknown range as a positive.
+var ErrCompatibilityUnknown = errors.New("compatibility is unknown; pin a tag or declare a range")
+
 // HasExplicitTag reports whether an OCI reference includes an explicit tag
 // or digest (e.g. "repo:v1" or "repo@sha256:...").
 func HasExplicitTag(ref string) bool {
@@ -49,6 +54,9 @@ func BestTag(tags []string, constraint string) (string, error) {
 		return sorted[0], nil
 	}
 
+	if constraint == contract.CompatibilityUnknown {
+		return "", ErrCompatibilityUnknown
+	}
 	c, err := msemver.NewConstraint(constraint)
 	if err != nil {
 		return "", fmt.Errorf("invalid constraint %q: %w", constraint, err)

@@ -169,6 +169,8 @@ capability's `binding.interface` or `binding.path` produces no change.
 | `dependencies` | Removed | **BREAKING** |
 | `dependencies.ref` | Modified | POTENTIAL_BREAKING |
 | `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
+| `dependencies.compatibility.declared` | Modified (from `unknown` to a range) | NON_BREAKING |
+| `dependencies.compatibility.unknown` | Modified (from a range to `unknown`) | POTENTIAL_BREAKING |
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Added / Modified | POTENTIAL_BREAKING |
 | `dependencies.requires` | Removed | NON_BREAKING |

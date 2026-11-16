@@ -37,7 +37,8 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 to `"2.3"` contract that sets `service.domain`, `service.offering`,
 `service.summary`, `service.lifecycle`, `service.template` or `service.origin`, or puts `values` or a `configuration`
 selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
-`pactoVersion: "2.4"`.
+`pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract with a dependency whose
+`compatibility` is `unknown` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports

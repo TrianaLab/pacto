@@ -122,6 +122,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if olderThan(version, "2.5") {
+		data = needs25(&result, data)
+	}
 	if olderThan(version, "2.4") {
 		data = needs24(&result, data)
 	}
@@ -195,27 +198,41 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 func needs24(result *ValidationResult, data any) any {
 	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle", "template", "origin")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
-	m = needs24Items(result, m, "configurations", func(im map[string]any) []needs24Key {
+	m = needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "configurations", func(im map[string]any) []needsKey {
 		_, ref := im["ref"]
-		return []needs24Key{{"values", "values beside a ref need ", ref}, {"configuration", "a configuration selector needs ", true}}
+		return []needsKey{{"values", "values beside a ref need ", ref}, {"configuration", "a configuration selector needs ", true}}
 	})
-	return needs24Items(result, m, "environments", func(map[string]any) []needs24Key {
-		return []needs24Key{{"lifetime", "lifetime on an environment needs ", true}, {"expires", "expires on an environment needs ", true}, {"owner", "owner on an environment needs ", true}}
+	return needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "environments", func(map[string]any) []needsKey {
+		return []needsKey{{"lifetime", "lifetime on an environment needs ", true}, {"expires", "expires on an environment needs ", true}, {"owner", "owner on an environment needs ", true}}
 	})
 }
 
-// needs24Key is one key an item of a 2.4 array may only hold in 2.4, the
-// start of its message, and whether it counts on that item at all.
-type needs24Key struct {
+// needs25 records a NEEDS_PACTO_2_5 error for each part only pactoVersion 2.5
+// has (compatibility: unknown on a dependency) in an older contract, in place
+// of the older schema's generic error, and returns data without it for that
+// schema to check the rest. Every dependency stays in place so its other
+// errors keep their index.
+func needs25(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	return needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "dependencies", func(im map[string]any) []needsKey {
+		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown}}
+	})
+}
+
+// needsKey is one key an item of an array may only hold from a later
+// pactoVersion on, the start of its message, and whether it counts on that
+// item at all.
+type needsKey struct {
 	key, what string
 	applies   bool
 }
 
-// needs24Items records NEEDS_PACTO_2_4 for each 2.4-only key keys names on an
-// item of the array m[section] and returns m with those keys removed, every
-// item kept at its index. Without the array m is returned as is.
-func needs24Items(result *ValidationResult, m map[string]any, section string, keys func(map[string]any) []needs24Key) map[string]any {
-	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
+// needsItems records code for each key keys names on an item of the array
+// m[section] that only pactoVersion version allows, and returns m with those
+// keys removed, every item kept at its index. Without the array m is returned
+// as is.
+func needsItems(result *ValidationResult, m map[string]any, version string, code finding.Code, section string, keys func(map[string]any) []needsKey) map[string]any {
+	fix := fmt.Sprintf("pactoVersion %q; set pactoVersion: %q, which keeps every older field", version, version)
 	items, ok := m[section].([]any)
 	if !ok {
 		return m
@@ -227,7 +244,7 @@ func needs24Items(result *ValidationResult, m map[string]any, section string, ke
 			if _, has := im[k.key]; !has || !k.applies {
 				continue
 			}
-			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(finding.CodeNeedsPacto24), k.what+fix)
+			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(code), k.what+fix)
 			im = maps.Clone(im)
 			delete(im, k.key)
 			kept[i] = im

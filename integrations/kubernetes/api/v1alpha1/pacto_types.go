@@ -522,7 +522,9 @@ type DependencyInfo struct {
 	// Required indicates whether this dependency is mandatory.
 	Required bool `json:"required"`
 
-	// Compatibility is the semver constraint for the dependency.
+	// Compatibility is the semver constraint for the dependency, or unknown
+	// when the versions that work are not known yet; unknown is never counted
+	// as compatible.
 	// +optional
 	Compatibility string `json:"compatibility,omitempty"`
 

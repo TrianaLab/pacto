@@ -219,6 +219,9 @@ func acceptedHere(snap *fleet.FleetSnapshot, consumer fleet.ServiceKey, c *contr
 		}
 		from := snap.Revisions[r.FromRevision]
 		who := strings.TrimSpace(from.Service + " " + from.Version)
+		if r.Compatibility == contract.CompatibilityUnknown {
+			return "", unknownRange("the range "+who+" holds on "+c.Service.Name, c.Service.Name+" "+c.Service.Version)
+		}
 		rng, err := contract.ParseRange(r.Compatibility)
 		if err != nil {
 			return "", fmt.Errorf("the range %q %s holds on %s cannot be read: %w", r.Compatibility, who, c.Service.Name, err)
@@ -276,6 +279,9 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		if dep.External && dep.Ref == "" {
 			return "", fmt.Errorf("it uses %s %s, an external dependency with no contract, so Pacto cannot tell whether it works with it", dep.Name, dep.Version)
 		}
+		if dep.Compatibility == contract.CompatibilityUnknown {
+			return "", unknownRange("its range on "+dep.Name, "the "+dep.Name+" running here")
+		}
 		rng, err := contract.ParseRange(dep.Compatibility)
 		if err != nil {
 			return "", fmt.Errorf("its range %q on %s cannot be read: %w", dep.Compatibility, dep.Name, err)
@@ -317,6 +323,9 @@ func acceptsBoth(c *contract.Contract, provider, newVersion, running string) (st
 	for _, dep := range c.Dependencies {
 		if dep.Name != provider {
 			continue
+		}
+		if dep.Compatibility == contract.CompatibilityUnknown {
+			return dep.Compatibility, false, unknownRange("its range on "+provider, provider+" "+newVersion)
 		}
 		rng, err := contract.ParseRange(dep.Compatibility)
 		if err != nil {
@@ -375,4 +384,10 @@ func orderQuestion(o *Order) string {
 		return ". " + first + " can move first, but Pacto cannot see every consumer, so that alone may not clear it (see the plan's order)"
 	}
 	return ". Or ship " + first + " first: a version that accepts it already verified upstream (see the plan's order)"
+}
+
+// unknownRange is why Pacto cannot order a delivery over rng, a range that is
+// compatibility: unknown: no version is known to work, so none is admitted.
+func unknownRange(rng, what string) error {
+	return fmt.Errorf("%s is not declared (compatibility: unknown), so Pacto cannot tell whether %s works", rng, what)
 }

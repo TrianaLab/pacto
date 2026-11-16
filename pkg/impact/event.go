@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -349,7 +350,7 @@ func eventConsumer(snap *fleet.FleetSnapshot, subject fleet.ServiceKey, node con
 	}
 	declared := hasDeclared || len(refs) > 0
 	c.Provenance = provenance(declared, seen)
-	c.Confidence = confidence(node.depth, declared, rel.Compatibility != "", observedFresh)
+	c.Confidence = confidence(node.depth, declared, contract.IsRange(rel.Compatibility), observedFresh)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
@@ -459,6 +460,10 @@ func (r *Result) eventPhrase() string {
 // change has a version a consumer can refuse.
 func (r *Result) eventGate() (string, string) {
 	gate, why := r.eventGateCore()
+	// An inferred name may miss every consumer, so nobody found is no proof.
+	if inferred := r.nameInferred(); inferred != "" && gate == GateClear {
+		gate, why = GateUnverified, inferred
+	}
 	if r.Event.Kind == EventRegressed {
 		why += r.regressionSummary()
 	}

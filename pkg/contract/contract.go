@@ -353,6 +353,17 @@ type Dependency struct {
 	NameFromRef bool `yaml:"-" json:"nameFromRef,omitempty"`
 }
 
+// CompatibilityUnknown is the compatibility of a dependency whose working
+// versions are not known yet (pactoVersion 2.5). It is valid, and it is never
+// counted as compatible: every range check reads it as unknown.
+const CompatibilityUnknown = "unknown"
+
+// IsRange reports whether a dependency's compatibility is a range to check
+// versions against: declared and other than [CompatibilityUnknown].
+func IsRange(compatibility string) bool {
+	return compatibility != "" && compatibility != CompatibilityUnknown
+}
+
 // Reference kinds for ReferenceRef.Kind.
 const (
 	ReferenceKindPolicy = "policy"

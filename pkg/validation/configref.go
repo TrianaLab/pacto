@@ -193,7 +193,7 @@ func refNeeded(c *contract.Contract, cfg contract.Configuration, given map[strin
 	}
 	repo := refRepository(cfg.Ref)
 	return slices.ContainsFunc(c.Dependencies, func(d contract.Dependency) bool {
-		return d.Compatibility != "" && refRepository(d.Ref) == repo
+		return contract.IsRange(d.Compatibility) && refRepository(d.Ref) == repo
 	})
 }
 

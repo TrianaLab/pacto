@@ -1211,3 +1211,13 @@ func TestIntentDigestNoCauseUnchanged(t *testing.T) {
 		t.Fatalf("cause-less digest %s, want %s", got, want)
 	}
 }
+
+func TestDescribeRangesUnknown(t *testing.T) {
+	got := describeRanges([]impact.AffectedConsumer{
+		{Service: "payments", Compatibility: contract.CompatibilityUnknown},
+		{Service: "ledger", Compatibility: contract.CompatibilityUnknown, Via: []string{fleet.RelationshipPolicyRef}},
+	})
+	if want := "payments (range not declared), ledger (range not declared)"; got != want {
+		t.Fatalf("describeRanges = %q, want %q", got, want)
+	}
+}
