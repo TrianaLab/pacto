@@ -67,6 +67,8 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		if err != nil {
 			return nil
 		}
+		b := &contract.Bundle{Contract: c, RawYAML: raw, FS: sub}
+		b.Complete(path.Base(path.Dir(p)))
 		name, ver := c.Service.Name, c.Service.Version
 		if s.byName[name] == nil {
 			s.byName[name] = make(map[string]*versionEntry)
@@ -76,7 +78,7 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		// lock only where a reference must resolve (catalog-service 1.3.0 to
 		// postgresql 16.1.0); the fleet build reads it from the bundle FS.
 		s.byName[name][ver] = &versionEntry{
-			bundle: &contract.Bundle{Contract: c, RawYAML: raw, FS: sub},
+			bundle: b,
 			doc:    doc,
 			hash:   strings.TrimPrefix(h, "sha256:"),
 		}

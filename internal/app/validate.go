@@ -52,6 +52,11 @@ type ValidateResult struct {
 	Warnings []contract.ValidationWarning `json:"warnings"`
 	Stages   []validation.Stage           `json:"stages"`
 	Next     string                       `json:"next"`
+	// Inferred lists what the read implied rather than read from pacto.yaml,
+	// and VersionDeclared whether pacto.yaml declares service.version. Both
+	// describe a contract that loaded; they are zero when it did not.
+	Inferred        []contract.Inferred `json:"inferred,omitempty"`
+	VersionDeclared bool                `json:"versionDeclared"`
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
@@ -70,7 +75,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 
 	lockPath, local := lockPathFor(ref)
 	if lerr := s.verifyLockIfPresent(ctx, ref, bundle); lerr != nil {
-		return newValidateResult(ref, opts, nil, append(stages, failedStage("lock", lockCode(lerr), lerr))...), nil
+		return implied(newValidateResult(ref, opts, nil, append(stages, failedStage("lock", lockCode(lerr), lerr))...), bundle), nil
 	}
 	if _, err := os.Stat(lockPath); local && err == nil {
 		stages = append(stages, validation.RanStage("lock", validation.ValidationResult{}))
@@ -117,7 +122,13 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		stages = append(stages, validation.RanStage("closure", validation.ValidationResult{Errors: ce, Warnings: cw}))
 	}
 
-	return newValidateResult(ref, opts, rawYAML, stages...), nil
+	return implied(newValidateResult(ref, opts, rawYAML, stages...), bundle), nil
+}
+
+// implied records on res what the loaded bundle implied.
+func implied(res *ValidateResult, b *contract.Bundle) *ValidateResult {
+	res.Inferred, res.VersionDeclared = b.Inferred, b.Contract.Service.Version != ""
+	return res
 }
 
 // withExpiredEnvironments adds an ENVIRONMENT_EXPIRED warning to the

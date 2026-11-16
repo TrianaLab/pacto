@@ -1185,6 +1185,11 @@ export interface components {
             retention?: string;
             timeout?: string;
         };
+        "Contract.Inferred": {
+            field: string;
+            source: string;
+            value: string;
+        };
         "Contract.Interface": {
             /** Format: int64 */
             compatibilityEpoch?: number;
@@ -2367,6 +2372,7 @@ export interface components {
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             /** Format: date-time */
             fetchedAt?: string;
+            inferred?: components["schemas"]["Contract.Inferred"][] | null;
             key: string;
             lock?: components["schemas"]["Lock.Lock"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];

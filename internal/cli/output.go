@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // outputFormats is the closed --output-format vocabulary. checkOutputFormat
@@ -60,14 +61,36 @@ func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) 
 	}, nil)
 }
 
+// impliedClause names, in parentheses, what a validate run implied rather than
+// read on a valid contract: " (pactoVersion 2.5 from this CLI, service.name payments from
+// chart/Chart.yaml:2, service.version not declared)". It is empty when the
+// contract did not load or declares everything.
+func impliedClause(result *app.ValidateResult) string {
+	if len(result.Stages) == 0 || result.Stages[0].Name != "load" || result.Stages[0].Status != validation.StagePass {
+		return ""
+	}
+	var parts []string
+	for _, inf := range result.Inferred {
+		parts = append(parts, inf.Field+" "+inf.Value+" from "+inf.Source)
+	}
+	if !result.VersionDeclared {
+		parts = append(parts, "service.version not declared")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
+}
+
 func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
+		clause := impliedClause(result)
 		if result.Valid {
 			if useColor(w) {
-				_, _ = fmt.Fprintf(w, "%s %s is valid\n", checkGlyph(true), result.Path)
+				_, _ = fmt.Fprintf(w, "%s %s is valid%s\n", checkGlyph(true), result.Path, clause)
 			} else {
-				_, _ = fmt.Fprintf(w, "%s is valid\n", result.Path)
+				_, _ = fmt.Fprintf(w, "%s is valid%s\n", result.Path, clause)
 			}
 		} else {
 			if useColor(w) {
@@ -399,7 +422,11 @@ func printEnvironmentDifferences(w io.Writer, result *app.ExplainResult) {
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "Service: %s@%s\n", result.Name, result.Version)
+		if result.Version == "" {
+			_, _ = fmt.Fprintf(w, "Service: %s (version not declared)\n", result.Name)
+		} else {
+			_, _ = fmt.Fprintf(w, "Service: %s@%s\n", result.Name, result.Version)
+		}
 		if !result.Owner.IsEmpty() {
 			_, _ = fmt.Fprintf(w, "Owner: %s\n", result.Owner.DisplayString())
 		}

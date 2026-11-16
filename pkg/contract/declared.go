@@ -19,9 +19,7 @@ var ErrUndeclaredContract = errors.New("contract does not declare its identity")
 // them a nameless, versionless or version-floating contract.
 func RequireDeclared(c *Contract, raw []byte) error {
 	var missing []string
-	var root yaml.Node
-	_ = yaml.Unmarshal(raw, &root) // c parsed from raw: a decode error cannot happen here
-	if root.Kind != yaml.DocumentNode || root.Content[0].Kind != yaml.MappingNode || !hasKey(root.Content[0], "pactoVersion") {
+	if !declaresVersion(raw) {
 		missing = append(missing, "pactoVersion")
 	}
 	if c.Service.Name == "" {
@@ -34,4 +32,11 @@ func RequireDeclared(c *Contract, raw []byte) error {
 		return fmt.Errorf("%w: %s not declared", ErrUndeclaredContract, strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// declaresVersion reports whether raw's root mapping has a pactoVersion key.
+func declaresVersion(raw []byte) bool {
+	var root yaml.Node
+	_ = yaml.Unmarshal(raw, &root) // an undecodable document declares nothing
+	return root.Kind == yaml.DocumentNode && root.Content[0].Kind == yaml.MappingNode && hasKey(root.Content[0], "pactoVersion")
 }

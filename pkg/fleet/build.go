@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -81,6 +82,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	if err != nil {
 		return nil, err
 	}
+	dropNameCollisions(results, sources)
 
 	snap := &FleetSnapshot{
 		SchemaVersion:         SchemaVersion,
@@ -177,6 +179,87 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// dropNameCollisions removes, across every source, each revision whose
+// service.name was only inferred and is claimed by another folder or
+// reference, before service keys are formed, so a guessed name never joins
+// another service and inherits its targets or consumers. Each source that loses
+// a revision gets one SERVICE_NAME_COLLISION limitation per name, which makes
+// it partial. A source's own Collection is never mutated: it may be reused.
+func dropNameCollisions(results []sourceResult, sources []Source) {
+	var claims []contract.NameClaim
+	for i, r := range results {
+		claims = append(claims, nameClaims(sources[i].ID(), r.col)...)
+	}
+	collided := map[string]string{} // name -> limitation message
+	for _, c := range contract.NameCollisions(claims) {
+		var who []string
+		for _, cl := range c.Claims {
+			who = append(who, cl.Dir+" ("+cl.Source+")")
+		}
+		collided[c.Name] = "service name " + c.Name + " is claimed by " + strings.Join(who, ", ") +
+			"; the inferred claims are left out: declare service.name to keep them"
+	}
+	if len(collided) == 0 {
+		return
+	}
+	for i := range results {
+		if col := results[i].col; col != nil {
+			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided)
+		}
+	}
+}
+
+// nameClaims is one claim per revision of col.
+func nameClaims(sourceID string, col *Collection) []contract.NameClaim {
+	var claims []contract.NameClaim
+	for _, rev := range collectionRevisions(col) {
+		claim := contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}
+		if inf, ok := rev.Bundle.NameInferred(); ok {
+			claim.Source, claim.Inferred = inf.Source, true
+		}
+		claims = append(claims, claim)
+	}
+	return claims
+}
+
+// collectionRevisions is col's revisions that carry a contract.
+func collectionRevisions(col *Collection) []RawRevision {
+	if col == nil {
+		return nil
+	}
+	var out []RawRevision
+	for _, rev := range col.Revisions {
+		if rev.Bundle != nil && rev.Bundle.Contract != nil {
+			out = append(out, rev)
+		}
+	}
+	return out
+}
+
+// withoutInferredClaims is a copy of col without the inferred claimants of the
+// collided names, plus one limitation per name it lost.
+func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string) *Collection {
+	cp := *col
+	lost := map[string]bool{}
+	cp.Revisions = slices.DeleteFunc(slices.Clone(col.Revisions), func(rev RawRevision) bool {
+		if rev.Bundle == nil || rev.Bundle.Contract == nil {
+			return false
+		}
+		name := rev.Bundle.Contract.Service.Name
+		_, inferred := rev.Bundle.NameInferred()
+		_, hit := collided[name]
+		lost[name] = lost[name] || hit && inferred
+		return hit && inferred
+	})
+	cp.Limitations = slices.Clone(col.Limitations)
+	for _, name := range slices.Sorted(maps.Keys(lost)) {
+		if lost[name] {
+			cp.Limitations = append(cp.Limitations, Limitation{Code: LimitationServiceNameCollision, Source: sourceID, Message: collided[name]})
+		}
+	}
+	return &cp
 }
 
 // sourceResult is one source's collection outcome.
@@ -782,6 +865,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		// The declared contract is deep-copied so a source mutating its own
 		// bundle after Build can never mutate the snapshot.
 		Contract:   cloneContract(c),
+		Inferred:   slices.Clone(b.Inferred),
 		Source:     source,
 		Sources:    []string{source},
 		FetchedAt:  copyTime(raw.FetchedAt),

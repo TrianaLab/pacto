@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -75,4 +76,36 @@ func TestWalkDocs(t *testing.T) {
 	}
 	WalkDocs(nil, func(string) bool { t.Error("nil FS has no docs"); return true })
 	WalkDocs(fstest.MapFS{}, func(string) bool { t.Error("no docs/ has no docs"); return true })
+}
+
+func TestBundleCompleteRecordsImplicitVersion(t *testing.T) {
+	b := &Bundle{Contract: &Contract{}, FS: fstest.MapFS{"chart/Chart.yaml": {Data: []byte("apiVersion: v2\nname: payments\n")}}}
+	b.Complete("dir")
+	want := []Inferred{
+		{Field: "pactoVersion", Value: Current(), Source: "this CLI"},
+		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+	}
+	if !reflect.DeepEqual(b.Inferred, want) || b.Contract.Service.Name != "payments" {
+		t.Fatalf("got %+v", b.Inferred)
+	}
+	if inf, ok := b.NameInferred(); !ok || inf.Value != "payments" {
+		t.Fatalf("NameInferred = %+v, %v", inf, ok)
+	}
+	// A directory with no usable name leaves the name empty.
+	b = &Bundle{Contract: &Contract{}, RawYAML: []byte("pactoVersion: \"2.5\"\n")}
+	b.Complete("!!")
+	if len(b.Inferred) != 0 || b.Contract.Service.Name != "" {
+		t.Fatalf("got %+v", b.Inferred)
+	}
+}
+
+func TestBundleCompleteKeepsDeclaredName(t *testing.T) {
+	b := &Bundle{Contract: &Contract{Service: Service{Name: "declared"}}, RawYAML: []byte("pactoVersion: \"2.5\"\nservice: {name: declared}\n")}
+	b.Complete("dir")
+	if len(b.Inferred) != 0 || b.Contract.Service.Name != "declared" {
+		t.Fatalf("got %+v", b.Inferred)
+	}
+	if _, ok := b.NameInferred(); ok {
+		t.Fatal("a declared name is not inferred")
+	}
 }

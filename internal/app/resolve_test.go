@@ -915,3 +915,76 @@ func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// emptyChartDir is a folder holding an empty pacto.yaml and a chart named
+// payments.
+func emptyChartDir(t *testing.T, contractYAML string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "payments-api")
+	if err := os.MkdirAll(filepath.Join(dir, "chart"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chart", "Chart.yaml"), []byte("apiVersion: v2\nname: payments\nversion: 0.1.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestLoadLocalBundleInfersName(t *testing.T) {
+	b, err := loadLocalBundle(emptyChartDir(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inf, ok := b.NameInferred()
+	if !ok || b.Contract.Service.Name != "payments" || inf.Source != "chart/Chart.yaml:2" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+	if len(b.RawYAML) != 0 {
+		t.Fatalf("the inferred name must never reach the bytes: %q", b.RawYAML)
+	}
+}
+
+func TestPublishableRefusesInferredName(t *testing.T) {
+	b, err := loadLocalBundle(emptyChartDir(t, "service:\n  version: 1.0.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = publishable(b)
+	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.Contains(err.Error(), "inferred from chart/Chart.yaml:2") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOverrideNameClearsInferredName(t *testing.T) {
+	b, err := loadLocalBundleWithOverrides(emptyChartDir(t, ""), override.Overrides{SetValues: []string{"service.name=billing"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.NameInferred(); ok || b.Contract.Service.Name != "billing" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+}
+
+func TestPublishWithOverrideNamePublishes(t *testing.T) {
+	dir := emptyChartDir(t, "service:\n  version: 1.0.0\n")
+	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Service.Name != "payments" || !strings.Contains(string(raw), "name: payments") {
+		t.Fatalf("got %+v\n%s", c.Service, raw)
+	}
+}
+
+func TestLoadLocalBundleWithOverridesErrors(t *testing.T) {
+	dir := emptyChartDir(t, "")
+	if _, err := loadLocalBundleWithOverrides(dir, override.Overrides{SetValues: []string{"service.name=Bad_Name"}}); err == nil {
+		t.Fatal("an invalid override must fail")
+	}
+	if got := dirBase("."); got == "." || got == "" {
+		t.Fatalf("dirBase(.) = %q", got)
+	}
+}

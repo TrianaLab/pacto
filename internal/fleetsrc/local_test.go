@@ -295,3 +295,25 @@ func TestLoadRevision_DigestIgnoresUnpackagedFiles(t *testing.T) {
 		t.Errorf("digests %q and %q differ; an unpackaged file changed a bundle's identity", a.Digest, b.Digest)
 	}
 }
+
+func TestLocalSourceInfersName(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "Pay API")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	col, err := NewLocalSource("", root).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v", col.Revisions)
+	}
+	b := col.Revisions[0].Bundle
+	if inf, ok := b.NameInferred(); !ok || b.Contract.Service.Name != "pay-api" || inf.Source != "directory Pay API" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+}

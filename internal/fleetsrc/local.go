@@ -145,6 +145,7 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	}
 	fsys := ignore.FS(dirFS, matcher)
 	b := &contract.Bundle{Contract: c, RawYAML: data, FS: fsys}
+	b.Complete(filepath.Base(dir))
 	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir, Document: doc}
 	if h, err := lock.HashFS(fsys); err == nil {
 		rev.Digest = h

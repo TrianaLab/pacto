@@ -351,3 +351,12 @@ func TestFleetServerEditPlacesTheService(t *testing.T) {
 		t.Fatalf("a service the fleet does not hold: %+v", elsewhere)
 	}
 }
+
+// An undeclared service.version names no version in the publish and promote
+// steps.
+func TestPromoteChainUndeclaredVersion(t *testing.T) {
+	steps := promoteChain("svc", "", "/d", nil)
+	if !strings.Contains(steps[1].Why, "publish <version> from /d") || !strings.Contains(steps[2].Command, "--to <version>") {
+		t.Fatalf("got %+v", steps)
+	}
+}

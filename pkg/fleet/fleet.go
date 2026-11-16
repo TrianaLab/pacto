@@ -284,9 +284,13 @@ const (
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
-	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationServiceNameCollision: two or more folders or references claim
+	// one service name and at least one only inferred it. Build drops every
+	// inferred claimant, so a guessed name never joins another service.
+	LimitationServiceNameCollision = "SERVICE_NAME_COLLISION"
+	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -520,9 +524,12 @@ type ContractRevision struct {
 	Digest       string             `json:"digest,omitempty"`
 	Owner        contract.Owner     `json:"owner,omitempty"`
 	Contract     *contract.Contract `json:"contract,omitempty"`
-	Readiness    *readiness.Result  `json:"readiness,omitempty"`
-	Validation   []finding.Finding  `json:"validation,omitempty"`
-	Valid        bool               `json:"valid"`
+	// Inferred lists what a local read implied rather than read from the
+	// contract (an absent pactoVersion, an inferred service.name), with sources.
+	Inferred   []contract.Inferred `json:"inferred,omitempty"`
+	Readiness  *readiness.Result   `json:"readiness,omitempty"`
+	Validation []finding.Finding   `json:"validation,omitempty"`
+	Valid      bool                `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`

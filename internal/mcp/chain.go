@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -206,6 +207,7 @@ func editChain(c *contract.Contract, dir string, imp *EditImpact, unknownWhy str
 // with, so its chain has no impact step; a consumer that already declares it
 // shows that dependency as unresolved until it is published.
 func promoteChain(service, version, dir string, served func(string) bool) []ChainStep {
+	version = cmp.Or(version, "<version>") // an undeclared service.version names none yet
 	publishPlan := step(served, "pacto_publish_plan", "pacto publish --plan "+dir, "check what publishing "+version+" from "+dir+" needs and what refuses it")
 	publish := step(served, "pacto_publish", "pacto publish "+dir, "publish "+version+" from "+dir+" so a Stage can take it")
 	publishPlan.Args, publish.Args = map[string]string{"path": dir}, map[string]string{"path": dir}

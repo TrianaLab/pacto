@@ -49,8 +49,36 @@ func resolveLocalPath(dir string) (filePath, bundleDir string, err error) {
 }
 
 // loadLocalBundle reads a local contract directory, parses pacto.yaml, and
-// returns a Bundle with Contract, RawYAML, and FS populated.
+// returns a completed Bundle with Contract, RawYAML, FS and Inferred populated.
 func loadLocalBundle(dir string) (*contract.Bundle, error) {
+	return loadLocalBundleWithOverrides(dir, override.Overrides{})
+}
+
+// loadLocalBundleWithOverrides reads a local contract directory, applies the
+// overrides and then completes the final contract, so what it records as
+// inferred always describes the bytes the bundle holds.
+func loadLocalBundleWithOverrides(dir string, overrides override.Overrides) (*contract.Bundle, error) {
+	bundle, err := readLocalBundle(dir)
+	if err != nil {
+		return nil, err
+	}
+	if bundle, err = applyOverrides(bundle, overrides); err != nil {
+		return nil, err
+	}
+	bundle.Complete(dirBase(dir))
+	return bundle, nil
+}
+
+// dirBase is the name of dir's folder, "." resolved.
+func dirBase(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return filepath.Base(dir) // ponytail: Abs fails only without a working directory
+}
+
+// readLocalBundle reads and parses a local contract directory, uncompleted.
+func readLocalBundle(dir string) (*contract.Bundle, error) {
 	filePath, bundleDir, err := resolveLocalPath(dir)
 	if err != nil {
 		return nil, err
@@ -84,13 +112,7 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 // from disk and uses the directory as the bundle FS. For OCI references it
 // delegates to the configured BundleStore.
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
-	parsed := graph.ParseDependencyRef(ref)
-	if parsed.IsOCI() {
-		return s.resolveOCIBundle(ctx, parsed.Location)
-	}
-
-	logging.LoggerFromContext(ctx).Debug("loading local bundle", "path", parsed.Location)
-	return loadLocalBundle(parsed.Location)
+	return s.resolveBundleWithOverrides(ctx, ref, override.Overrides{})
 }
 
 // resolveOCIBundle pulls the bundle for an OCI location (a reference with the
@@ -119,8 +141,14 @@ func (s *Service) ResolveBundle(ctx context.Context, ref string) (*contract.Bund
 }
 
 // resolveBundleWithOverrides loads a bundle and applies overrides to it.
+// A local bundle is completed after the overrides apply.
 func (s *Service) resolveBundleWithOverrides(ctx context.Context, ref string, overrides override.Overrides) (*contract.Bundle, error) {
-	bundle, err := s.resolveBundle(ctx, ref)
+	parsed := graph.ParseDependencyRef(ref)
+	if !parsed.IsOCI() {
+		logging.LoggerFromContext(ctx).Debug("loading local bundle", "path", parsed.Location)
+		return loadLocalBundleWithOverrides(parsed.Location, overrides)
+	}
+	bundle, err := s.resolveOCIBundle(ctx, parsed.Location)
 	if err != nil {
 		return nil, err
 	}
@@ -208,12 +236,7 @@ func copyFSWithReplace(src fs.FS, replaceName string, replaceData []byte) (fstes
 // shared helper for pack and push commands that must validate before proceeding.
 func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Overrides) (*contract.Contract, []byte, fs.FS, error) {
 	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle", "dir", dir)
-	bundle, err := loadLocalBundle(dir)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	bundle, err = applyOverrides(bundle, overrides)
+	bundle, err := loadLocalBundleWithOverrides(dir, overrides)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -237,12 +260,7 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 // policies before publishing.
 func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore) (*contract.Contract, []byte, fs.FS, error) {
 	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle with remote resolution", "dir", dir)
-	bundle, err := loadLocalBundle(dir)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	bundle, err = applyOverrides(bundle, overrides)
+	bundle, err := loadLocalBundleWithOverrides(dir, overrides)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -267,8 +285,7 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 // The errors pack, push and publish return for a contract that leaves its
 // identity undeclared, so a published bundle never carries an implied value.
 var (
-	ErrPublishNeedsServiceName = errors.New(string(finding.CodePublishNeedsServiceName) +
-		": service.name is not declared; declare it to publish: `service: {name: <name>}`")
+	ErrPublishNeedsServiceName    = errors.New(string(finding.CodePublishNeedsServiceName))
 	ErrPublishNeedsServiceVersion = errors.New(string(finding.CodePublishNeedsServiceVersion) +
 		": service.version is not declared; declare it to publish: `service: {version: 1.0.0}`")
 )
@@ -282,7 +299,10 @@ func publishable(b *contract.Bundle) (*contract.Bundle, error) {
 		return nil, ErrPublishNeedsServiceVersion
 	}
 	if b.Contract.Service.Name == "" {
-		return nil, ErrPublishNeedsServiceName
+		return nil, fmt.Errorf("%w: service.name is not declared; declare it to publish: `service: {name: <name>}`", ErrPublishNeedsServiceName)
+	}
+	if inf, ok := b.NameInferred(); ok {
+		return nil, fmt.Errorf("%w: service.name is inferred from %s; declare it to publish: `service: {name: %s}`", ErrPublishNeedsServiceName, inf.Source, inf.Value)
 	}
 	raw, err := contract.PinVersion(b.RawYAML)
 	if err != nil {

@@ -157,10 +157,7 @@ const (
 	modeTemplate = "template"
 )
 
-var (
-	nameRE    = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-	nonNameRE = regexp.MustCompile(`[^a-z0-9]+`)
-)
+var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // Init plans the folder and, unless opts.Plan, applies the plan with
 // writeFile.
@@ -285,7 +282,7 @@ func serviceName(name string, sc *scan, dir string) (string, error) {
 	}
 	if name == "" {
 		abs, _ := filepath.Abs(dir) // ponytail: Abs fails only without a working directory
-		name = strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(filepath.Base(abs)), "-"), "-")
+		name = contract.SanitizeName(filepath.Base(abs))
 	}
 	if !nameRE.MatchString(name) {
 		return "", fmt.Errorf("%q is not a valid service name (lowercase letters, digits and hyphens); pass one with --name", name)

@@ -1613,3 +1613,40 @@ func TestDiffOutputNeverPrintsSensitiveDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintValidateImpliedClause(t *testing.T) {
+	loaded := []validation.Stage{{Name: "load", Status: validation.StagePass}}
+	tests := []struct {
+		name   string
+		result *app.ValidateResult
+		want   string
+	}{
+		{"implied", &app.ValidateResult{Path: "/tmp/n", Valid: true, Stages: loaded, Inferred: []contract.Inferred{
+			{Field: "pactoVersion", Value: "2.5", Source: "this CLI"},
+			{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+		}}, "/tmp/n is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)\n"},
+		{"fully declared", &app.ValidateResult{Path: "svc", Valid: true, Stages: loaded, VersionDeclared: true}, "svc is valid\n"},
+		{"load failed", &app.ValidateResult{Path: "svc", Stages: []validation.Stage{{Name: "load", Status: validation.StageFail}}}, "svc is invalid\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, buf := testCmd()
+			if err := printValidateResult(cmd, tt.result, "text"); err != nil {
+				t.Fatal(err)
+			}
+			if got, _, _ := strings.Cut(buf.String(), "\n"); got+"\n" != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrintExplainResultUndeclaredVersion(t *testing.T) {
+	cmd, buf := testCmd()
+	if err := printExplainResult(cmd, &app.ExplainResult{Name: "svc", PactoVersion: "2.5"}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "Service: svc (version not declared)\n") {
+		t.Fatalf("got %q", buf.String())
+	}
+}
