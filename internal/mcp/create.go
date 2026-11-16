@@ -691,6 +691,10 @@ func (o fileOps) raiseForEdit(ctx context.Context, validate Validator, dir strin
 // editCheck is the contract.UpgradeCheck of an edit: the validation an edited
 // contract must pass (see editedReport, with resolution), run on raw as the
 // pacto.yaml of the bundle in dir.
+// ponytail: through ValidationReport a behind original also gets
+// CONTRACT_BEHIND, whose own Upgrade costs two more validation runs; the
+// multiset ignores it (the raised run is current). Pass a skip flag to the
+// validator if edit latency matters.
 func (o fileOps) editCheck(ctx context.Context, validate Validator, dir string) contract.UpgradeCheck {
 	return func(raw []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
 		c, err := contract.Parse(bytes.NewReader(raw))
