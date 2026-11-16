@@ -2,6 +2,8 @@
   import { formatCount } from '../lib/format.ts';
   import { fleetEntityUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { sourceHealthLabel, sourceHealthTone } from '../lib/entityLabels.ts';
+  import { watchedScope, scopeLabels } from '../lib/knowledgeState.ts';
+  import { joinAnd } from '../lib/answers.ts';
 
   // Renders per-source health as navigable chips (which sources are
   // partial, stale or unavailable). Each chip links to that source's detail. Sources
@@ -14,7 +16,16 @@
   // hover or focus -- two cues, neither of them hue alone (WCAG 1.4.1).
   // `label` names the LANDMARK, so it must not repeat the heading of the section it
   // sits in -- two landmarks called "Data sources" is a rotor with two identical rows.
-  let { sources = [], truncated = false, label = 'Data sources by health' } = $props();
+  // `limitations` carries the namespaces a scoped Kubernetes source could not read.
+  let { sources = [], truncated = false, label = 'Data sources by health', limitations = [] } = $props();
+
+  // A Kubernetes source reading a namespace list names it ("Watches ledger and
+  // payments") and any namespace it could not read, so an unreadable one is never
+  // mistaken for a watched one.
+  function scopeOf(s) {
+    const w = watchedScope([s], (limitations ?? []).filter((l) => l?.source === s?.id));
+    return { ...w, shown: scopeLabels(w.names, w.count), unreadableShown: scopeLabels(w.unreadable, w.unreadable.length) };
+  }
 
   const RANK = { unavailable: 0, stale: 1, partial: 2, available: 3 };
   const ordered = $derived(
@@ -32,11 +43,14 @@
     <span class="sh-none">No sources reported.</span>
   {:else}
     {#each shown as s (s.id)}
+      {@const sc = scopeOf(s)}
       <a class="sh-chip tone-{sourceHealthTone(s.status)}" href={fleetEntityUrl('source', s.id)} title={s.error?.message || ''}>
         <span class="sh-dot" aria-hidden="true"></span>
         <span class="sh-id">{s.id}</span>
         {#if s.kind && s.kind !== s.id}<span class="sh-kind">{s.kind}</span>{/if}
         <span class="sh-status">{sourceHealthLabel(s.status)}</span>
+        {#if sc.count}<span class="sh-scope" title={joinAnd(sc.names)}>Watches {joinAnd(sc.shown)}</span>{/if}
+        {#if sc.unreadable.length}<span class="sh-scope" title={joinAnd(sc.unreadable)}>Could not read {joinAnd(sc.unreadableShown)}</span>{/if}
       </a>
     {/each}
     {#if shown.length < ordered.length}
@@ -54,6 +68,8 @@
   .sh-none { color: var(--c-text-3); font-size: var(--text-sm); }
   .sh-chip {
     display: inline-flex; align-items: center; gap: var(--sp-2);
+    /* Long namespace lists wrap inside the chip instead of widening it. */
+    flex-wrap: wrap; max-width: 100%;
     padding: 2px 8px; border-radius: var(--radius-sm); text-decoration: none;
     font-size: var(--text-xs); color: var(--c-text-2);
     border: 1px solid var(--c-border); background: var(--c-surface);
@@ -66,6 +82,7 @@
   .sh-id { font-weight: 600; color: var(--c-accent); }
   .sh-kind { color: var(--c-text-3); }
   .sh-status { color: var(--tone-c, var(--c-text-3)); font-weight: 500; }
+  .sh-scope { color: var(--c-text-3); overflow-wrap: anywhere; min-width: 0; }
   .sh-trunc { color: var(--c-text-3); font-size: var(--text-xs); align-self: center; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }

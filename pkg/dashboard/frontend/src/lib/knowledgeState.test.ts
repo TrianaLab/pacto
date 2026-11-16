@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  snapshotKnowledge, classifyError, decideViewState, allClearAllowed, degradedSourceSummary,
+  snapshotKnowledge, classifyError, decideViewState, allClearAllowed, degradedSourceSummary, watchedScope, scopeLabels,
 } from './knowledgeState.ts';
 import { ApiError, SchemaCompatibilityError, ApiContractError } from './api.ts';
 
@@ -302,5 +302,34 @@ describe('degradedSourceSummary (naming WHAT is missing, not just that something
     // fall back to its own wording rather than print an empty accusation.
     expect(degradedSourceSummary(k([{ status: 'available' }]))).toBe('');
     expect(degradedSourceSummary(snapshotKnowledge(null))).toBe('');
+  });
+});
+
+describe('watchedScope', () => {
+  it('watchedScope reads Kubernetes namespaces', () => {
+    const s = watchedScope(
+      [
+        { id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments', 'ledger'] },
+        { id: 'oci', kind: 'oci', status: 'available', namespaces: ['ignored'] },
+      ],
+      [{ code: 'K8S_NAMESPACE_UNREADABLE', source: 'k8s', message: 'source k8s could not read namespace billing: forbidden' }],
+    );
+    expect(s).toEqual({ count: 2, names: ['ledger', 'payments'], unreadable: ['billing'] });
+  });
+
+  it('counts namespacesTotal when names were capped or restricted', () => {
+    const s = watchedScope([{ id: 'k8s', kind: 'kubernetes', namespaces: ['payments'], namespacesTotal: 3 }]);
+    expect(s.count).toBe(3);
+    expect(scopeLabels(s.names, s.count)).toEqual(['payments', '2 more']);
+  });
+
+  it('is empty when no source is scoped', () => {
+    expect(watchedScope([{ id: 'k8s', kind: 'kubernetes', status: 'available' }])).toEqual({ count: 0, names: [], unreadable: [] });
+    expect(watchedScope(null)).toEqual({ count: 0, names: [], unreadable: [] });
+  });
+
+  it('shows the first 3 and "N more" past 4 names', () => {
+    expect(scopeLabels(['a', 'b', 'c', 'd'], 4)).toEqual(['a', 'b', 'c', 'd']);
+    expect(scopeLabels(['a', 'b', 'c', 'd', 'e', 'f'], 6)).toEqual(['a', 'b', 'c', '3 more']);
   });
 });

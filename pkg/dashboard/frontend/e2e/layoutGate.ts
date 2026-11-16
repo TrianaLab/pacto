@@ -225,6 +225,17 @@ export function installScaleFixture(): void {
         { ...row, domain: '', domainUnknown: true, services: 1400 }, { ...row, domain: '', services: 1100 }];
       const at = doc.attention as Record<string, unknown>;
       if (at) { at.total = 2400; at.actionable = 1900; }
+      // 'overview watched namespaces': a Kubernetes source reading 12 long namespaces,
+      // one of which it could not read. Behind a flag so no other route moves.
+      if ((window as unknown as { __scoped?: boolean }).__scoped && meta) {
+        const ns = Array.from({ length: 12 }, (_, i) => longName(`watched-namespace-${i}`));
+        meta.sources = [{ id: 'k8s-scoped', kind: 'kubernetes', status: 'partial', revisionCount: 0, targetCount: 0, namespaces: ns, namespacesTotal: 12 },
+          ...((meta.sources as unknown[] | undefined) ?? [])];
+        meta.limitations = [
+          { code: 'K8S_NAMESPACE_SCOPED', source: 'k8s-scoped', message: `source k8s-scoped watches 12 namespaces (${ns.slice(0, 3).join(', ')} and 9 more); services in any other namespace are unknown` },
+          { code: 'K8S_NAMESPACE_UNREADABLE', source: 'k8s-scoped', message: `source k8s-scoped could not read namespace ${longName('unreadable-namespace')}: forbidden` },
+          ...((meta.limitations as unknown[] | undefined) ?? [])];
+      }
     }
     if (route === '/api/fleet/attention') {
       page(doc, 2400);
@@ -1452,6 +1463,7 @@ const createdService = async (page: Page) => {
 export type Route = { name: string; hash?: string; list?: boolean; open?: (page: Page) => Promise<void> };
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
+  { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
   { name: 'services', list: true, hash: '#/fleet/services' },
   { name: 'owners', list: true, hash: '#/fleet/owners' },
   { name: 'domains', list: true, hash: '#/fleet/domains' },
