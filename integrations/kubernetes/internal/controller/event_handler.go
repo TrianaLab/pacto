@@ -23,31 +23,6 @@ func enqueueForTarget(c client.Client) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(mapObjectToPactos(c))
 }
 
-// enqueueForPullSecret returns an event handler that maps Secret events
-// to Pacto CRs that reference them via spec.contractRef.pullSecretRef.
-func enqueueForPullSecret(c client.Client) handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(mapSecretToPactos(c))
-}
-
-// mapSecretToPactos returns the MapFunc used by enqueueForPullSecret.
-func mapSecretToPactos(c client.Client) handler.MapFunc {
-	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		pactoList := &pactov1alpha1.PactoList{}
-		if err := c.List(ctx, pactoList, client.InNamespace(obj.GetNamespace())); err != nil {
-			return nil
-		}
-		var requests []reconcile.Request
-		for _, p := range pactoList.Items {
-			if p.Spec.ContractRef.PullSecretRef == obj.GetName() {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: p.Name, Namespace: p.Namespace},
-				})
-			}
-		}
-		return requests
-	}
-}
-
 // mapObjectToPactos returns the MapFunc used by enqueueForTarget.
 func mapObjectToPactos(c client.Client) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {

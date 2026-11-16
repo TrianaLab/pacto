@@ -9,12 +9,15 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
@@ -70,6 +73,11 @@ func (m *RevisionMirror) mirror(ctx context.Context, pacto *pactov1alpha1.Pacto)
 	var ociAuth *authn.AuthConfig
 	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
 		auth, err := r.resolveOCIAuth(ctx, pacto.Namespace, secretName, ociRef)
+		if notGranted, ok := errors.AsType[*pullSecretNotGrantedError](err); ok {
+			// The reconcile already reports it on the Pacto (PullSecretNotGranted); the mirror skips it.
+			logf.FromContext(ctx).Info("Skipping tag mirror: pull secret not granted", "pacto", client.ObjectKeyFromObject(pacto), "hint", notGranted.hint(r.Scoped))
+			return
+		}
 		if err != nil {
 			r.recordMirrorFailure(pacto, fmt.Errorf("pull secret %q: %w", secretName, err))
 			return

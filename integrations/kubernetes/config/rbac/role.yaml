@@ -51,13 +51,6 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - watch
-- apiGroups:
   - apps
   resources:
   - deployments

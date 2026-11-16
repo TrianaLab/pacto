@@ -61,8 +61,9 @@ type ConfigRefLoader interface {
 type PactoReconciler struct {
 	client.Client
 	// APIReader reads straight from the API server, bypassing the manager's cache.
-	// SetupWithManager wires it; only the pull Secret is read through it, so a Secret's
-	// values are never held in an informer store (INV-5).
+	// SetupWithManager wires it; every Secret read goes through it (the pull Secret and the
+	// configuration Secret metadata), so no Secret informer starts: a Secret's values are never
+	// held in an informer store (INV-5), and a namespaced or name-scoped get grant is enough.
 	//
 	// INV-5 is module-wide, not controller-local: the dashboard reconciler reads its
 	// OCI Secrets through its own APIReader for the same reason, and a typed Get on
@@ -84,6 +85,9 @@ type PactoReconciler struct {
 	KernelEvidenceStaleness time.Duration
 	// CallerIgnoreNamespaces are extra namespaces whose host-network pods leave caller coverage complete.
 	CallerIgnoreNamespaces []string
+	// Scoped is true when the operator watches a namespace list. It picks the grant hint of a
+	// Secret the operator may not read: only a scoped install is told about controller.watchNamespaces.
+	Scoped bool
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -93,7 +97,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,namespace=system
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
@@ -134,7 +138,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status)
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status, failure.reason)
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -199,6 +203,8 @@ type loadFailure struct {
 	msg        string
 	validation *pactov1alpha1.ValidationResult
 	status     string
+	// reason is the ContractValid reason; empty picks the status's default.
+	reason string
 }
 
 // loadEffectiveContract resolves the pull secret, loads the contract, applies the configuration overrides
@@ -209,6 +215,14 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 	var credID string
 	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
 		auth, id, secretErr := r.resolveOCIAuthID(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
+		if notGranted, ok := errors.AsType[*pullSecretNotGrantedError](secretErr); ok {
+			return nil, &loadFailure{
+				msg:        notGranted.hint(r.Scoped),
+				validation: invalidAt("spec.contractRef.pullSecretRef", secretErr),
+				status:     pactov1alpha1.ContractStatusUnknown,
+				reason:     pactov1alpha1.ReasonPullSecretNotGranted,
+			}
+		}
 		if secretErr != nil {
 			return nil, &loadFailure{
 				msg:        fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
@@ -294,7 +308,7 @@ func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
 // (steps 9 to 15), filling the runtime half of the status.
 func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
-	obs := observer.New(r.Client)
+	obs := observer.New(r.Client).WithReader(r.APIReader)
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
@@ -485,7 +499,8 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 // (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
 // prev is the status persisted by the previous reconciliation; its contract status gates the
 // transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status string) (ctrl.Result, error) {
+// reason overrides the ContractValid reason of an Unknown status when set.
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status, reason string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
@@ -497,7 +512,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 		pacto.Status.Validation = valResult
 	case pactov1alpha1.ContractStatusUnknown:
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
-			pactov1alpha1.ReasonContractUnavailable, msg)
+			cmp.Or(reason, pactov1alpha1.ReasonContractUnavailable), msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
 		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
 		// status.validation nil rather than asserting the contract IS invalid.
@@ -728,8 +743,8 @@ func resolutionPolicy(ociRef string) string {
 // For dockerconfigjson secrets, the registry is extracted from the OCI reference to select the
 // matching auth entry.
 // The read goes through APIReader (uncached, straight to the API server): a typed Get on
-// the manager's client would lazily start the very Secret informer the metadata-only watch
-// exists to avoid.
+// the manager's client would lazily start a Secret informer, which holds every Secret's
+// values (INV-5) and needs list and watch the operator is not granted.
 func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, error) {
 	auth, _, err := r.resolveOCIAuthID(ctx, namespace, secretName, ociRef)
 	return auth, err
@@ -741,6 +756,9 @@ func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretN
 func (r *PactoReconciler) resolveOCIAuthID(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, string, error) {
 	secret := &corev1.Secret{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
+		if apierrors.IsForbidden(err) {
+			return nil, "", &pullSecretNotGrantedError{Namespace: namespace, Name: secretName}
+		}
 		return nil, "", fmt.Errorf("secret %q not found: %w", secretName, err)
 	}
 
@@ -749,7 +767,26 @@ func (r *PactoReconciler) resolveOCIAuthID(ctx context.Context, namespace, secre
 	return auth, fmt.Sprintf("%s/%s@%s", namespace, secretName, secret.ResourceVersion), err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// pullSecretNotGrantedError is a pull Secret the operator has no grant to read.
+type pullSecretNotGrantedError struct{ Namespace, Name string }
+
+func (e *pullSecretNotGrantedError) Error() string {
+	return fmt.Sprintf("the operator may not read Secret %s/%s", e.Namespace, e.Name)
+}
+
+// hint is the error with the grant that would let the operator read the Secret. A cluster-wide
+// install is only told about controller.secretGrants, so it is never asked to narrow its fleet.
+func (e *pullSecretNotGrantedError) hint(scoped bool) string {
+	ref := e.Namespace + "/" + e.Name
+	if scoped {
+		return fmt.Sprintf("%s: add %s to controller.watchNamespaces or list %s in controller.secretGrants", e, e.Namespace, ref)
+	}
+	return fmt.Sprintf("%s: list %s in controller.secretGrants", e, ref)
+}
+
+// SetupWithManager sets up the controller with the Manager. Secrets are not watched: a watch needs
+// list and watch on every Secret in scope, which a name-scoped grant cannot give. Every reconcile
+// requeues after its check interval, so a rotated pull Secret is read within one interval.
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
@@ -759,10 +796,6 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&pactov1alpha1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
-		// Metadata-only: the mapper reads name/namespace, and a typed watch would park
-		// every Secret's .Data in the informer store, breaking INV-5 cluster-wide before
-		// the observer's careful metadata-only reads ever run.
-		Watches(&corev1.Secret{}, enqueueForPullSecret(mgr.GetClient()), builder.OnlyMetadata).
 		Watches(&appsv1.Deployment{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.StatefulSet{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.ReplicaSet{}, enqueueForTarget(mgr.GetClient())).

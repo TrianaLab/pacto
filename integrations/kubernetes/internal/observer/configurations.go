@@ -18,6 +18,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -27,7 +28,7 @@ import (
 )
 
 // observeConfigurationsDim observes all declared configurations (spec section 7.7 / B6 Secret + B7 ConfigMap).
-// ponytail: metadata-only Secret GET (INV-5); ConfigMap decode+validate+discard; stabilize() for NotFound negatives.
+// ponytail: uncached metadata-only Secret GET (INV-5); ConfigMap decode+validate+discard; stabilize() for NotFound negatives.
 func (o *Observer) observeConfigurationsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
 	var observations []evidence.Observation
 	var windowUpdates []ObservationWindowUpdate
@@ -83,17 +84,42 @@ func (o *Observer) observeSecretConfiguration(
 	prov evidence.Provenance,
 	now time.Time,
 ) (evidence.Observation, []ObservationWindowUpdate) {
-	// Metadata-only GET (INV-5 — Secret VALUES never enter operator memory).
+	// Metadata-only GET (INV-5 — Secret VALUES never enter operator memory), uncached: no Secret
+	// informer starts, so a namespaced or name-scoped get grant is enough.
 	partial := &metav1.PartialObjectMetadata{}
 	partial.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
-	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, partial)
+	reader := o.reader
+	if reader == nil {
+		reader = o.client
+	}
+	err := reader.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, partial)
 
+	if apierrors.IsForbidden(err) {
+		return forbiddenSecret(input, cfg, binding.Name, subj, prov)
+	}
 	if err != nil {
 		return o.missingOrFailed(err, input, cfg, subj, prov, now)
 	}
 
 	// Secret present (metadata-only) -> Insufficient (existence established, conformance unverified).
 	obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+	return obs, resetWindow(kindConfiguration, cfg.Name)
+}
+
+// forbiddenSecret is a Secret the operator has no grant to read. That is how the operator is installed,
+// not a failed collection: Unsupported (Unknown, never satisfied) with a Detail that names the missing
+// grant, and the window restarts, so a period the operator could not observe never counts toward ABSENT.
+func forbiddenSecret(input CollectInput, cfg contract.Configuration, name string, subj evidence.SubjectRef, prov evidence.Provenance) (evidence.Observation, []ObservationWindowUpdate) {
+	ref := input.Namespace + "/" + name
+	detail := fmt.Sprintf("the operator may not read Secret %s; list %s in controller.secretGrants", ref, ref)
+	if input.Scoped {
+		detail = fmt.Sprintf("the operator may not read Secrets in namespace %s; add it to controller.watchNamespaces or list %s in controller.secretGrants", input.Namespace, ref)
+	}
+	obs, err := evidence.NewUnobservedDetail(evidence.ConfigurationPresent, subj, evidence.Unsupported, prov, detail)
+	if err != nil {
+		// ponytail: a name too long for the bounded Detail drops the hint; the outcome still reads Unknown.
+		obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Unsupported, prov)
+	}
 	return obs, resetWindow(kindConfiguration, cfg.Name)
 }
 

@@ -1973,6 +1973,13 @@ rules:
     resources: [serviceaccounts]
     verbs: [get, delete]
     resourceNames: [pacto-node-agent]
+  # Pull secrets and Secret-backed configurations of Pactos in the release
+  # namespace, and the dashboard's OCI credentials. get only, read through the
+  # uncached API reader: no Secret is listed or watched, so no informer holds
+  # Secret values.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
   # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
   # Secret and Deployment.
   - apiGroups: [""]

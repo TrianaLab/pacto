@@ -52,6 +52,7 @@ The teardown half of the managed components: `get` and `delete` on the fixed nam
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
 | `"" (core)` | `secrets` | `delete`, `get` | `pacto-dashboard-oci-creds` |
+| `"" (core)` | `secrets` | `get` | *not name-restricted* |
 | `"" (core)` | `serviceaccounts` | `delete`, `get` | `pacto-node-agent` |
 | `"" (core)` | `serviceaccounts`, `services` | `delete`, `get` | `pacto-dashboard` |
 | `"" (core)` | `services` | `delete`, `get` | `pacto-evidence` |
