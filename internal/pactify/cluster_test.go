@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -647,10 +648,15 @@ func TestProviderConflictingContractsProposeNothing(t *testing.T) {
 
 // twoPaymentServices is checkout calling the Services payments and
 // payments-canary, each described by a Pacto naming the contract payments,
-// at canaryRef for the canary.
-func twoPaymentServices(now time.Time, canaryRef string) []runtime.Object {
+// at canaryRef for the canary. Pod u-a calls both; u-b calls payments, or
+// both when bothPods.
+func twoPaymentServices(now time.Time, canaryRef string, bothPods bool) []runtime.Object {
 	call := func(ip string) map[string]any {
 		return map[string]any{"address": ip, "port": int64(80), "successes": int64(3), "lastSuccessAt": now.UTC().Format(time.RFC3339)}
+	}
+	callsB := []any{call("10.0.0.20")}
+	if bothPods {
+		callsB = append(callsB, call("10.0.0.21"))
 	}
 	return []runtime.Object{
 		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"),
@@ -664,15 +670,26 @@ func twoPaymentServices(now time.Time, canaryRef string) []runtime.Object {
 			"nodeName": "node-1",
 			"pods": []any{
 				map[string]any{"uid": "u-a", "connections": []any{call("10.0.0.20"), call("10.0.0.21")}},
-				map[string]any{"uid": "u-b", "connections": []any{call("10.0.0.20")}},
+				map[string]any{"uid": "u-b", "connections": callsB},
 			}}}),
 	}
 }
 
+// checkoutInferred is checkout's one dependency, the same whether one or
+// both pods call both Services.
 func checkoutInferred(t *testing.T, canaryRef string) Inferred {
 	t.Helper()
+	one := checkoutInferredPods(t, canaryRef, false)
+	if both := checkoutInferredPods(t, canaryRef, true); !reflect.DeepEqual(one, both) {
+		t.Fatalf("both pods calling both Services: %+v, want %+v", both, one)
+	}
+	return one
+}
+
+func checkoutInferredPods(t *testing.T, canaryRef string, bothPods bool) Inferred {
+	t.Helper()
 	now := time.Now()
-	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef)...), []string{"shop"}, now)
+	cl, err := readCluster(context.Background(), fakeCluster(twoPaymentServices(now, canaryRef, bothPods)...), []string{"shop"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

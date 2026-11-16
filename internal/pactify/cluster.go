@@ -351,8 +351,8 @@ func mergeInferred(list []Inferred, d Inferred) []Inferred {
 		return append(list, d)
 	}
 	e := &list[i]
-	if slices.Equal(e.services, d.services) {
-		return list // another pod of the workload calling the same Service
+	if !slices.ContainsFunc(d.services, func(s string) bool { return !slices.Contains(e.services, s) }) {
+		return list // another pod of the workload calling Services already merged
 	}
 	e.services = slices.Concat(e.services, d.services)
 	sort.Strings(e.services)
