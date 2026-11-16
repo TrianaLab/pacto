@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -1212,12 +1213,31 @@ func TestIntentDigestNoCauseUnchanged(t *testing.T) {
 	}
 }
 
-func TestDescribeRangesUnknown(t *testing.T) {
+func TestGateReasonUndeclaredRange(t *testing.T) {
 	got := describeRanges([]impact.AffectedConsumer{
 		{Service: "payments", Compatibility: contract.CompatibilityUnknown},
-		{Service: "ledger", Compatibility: contract.CompatibilityUnknown, Via: []string{fleet.RelationshipPolicyRef}},
+		{Service: "invoices", Compatibility: contract.CompatibilityUnknown, Via: []string{fleet.RelationshipPolicyRef}},
 	})
-	if want := "payments (range not declared), ledger (range not declared)"; got != want {
+	if want := "payments (range not declared), invoices (range not declared and references its policy)"; got != want {
 		t.Fatalf("describeRanges = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "accepts unknown") {
+		t.Fatalf("an undeclared range reads as accepted: %q", got)
+	}
+}
+
+func TestUnseenConsumerUndeclaredRange(t *testing.T) {
+	in := PlanInput{Stage: StageSpec{Service: ServiceRef{Name: "ledger"}}, Snapshot: &fleet.FleetSnapshot{}}
+	res := &impact.Result{Classification: diff.NonBreaking.String()}
+	got := unseenConsumersOf(in, res, []impact.AffectedConsumer{
+		{Service: "invoices", Compatibility: contract.CompatibilityUnknown},
+		{Service: "billing"},
+	})
+	want := []string{
+		"invoices (range not declared) has no usable compatibility range for this change",
+		"billing has no usable compatibility range for this change",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("unseenConsumersOf = %q, want %q", got, want)
 	}
 }

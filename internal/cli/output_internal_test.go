@@ -1671,3 +1671,17 @@ func TestPrintExplainResult_PortAndBreaks(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintDependenciesUndeclaredRange(t *testing.T) {
+	var buf bytes.Buffer
+	printExplainDependencies(&buf, []app.ExplainDependency{
+		{Name: "ledger", Ref: "oci://reg.io/ledger", Compatibility: contract.CompatibilityUnknown, Required: true},
+		{Name: "fraud", Ref: "oci://reg.io/fraud", Compatibility: "^1.2.0"},
+	})
+	out := buf.String()
+	for _, want := range []string{"ledger: oci://reg.io/ledger (range not declared, required)", "fraud: oci://reg.io/fraud (^1.2.0, optional)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

@@ -150,3 +150,21 @@ func TestPrintImpactEventText(t *testing.T) {
 		t.Errorf("an empty lane is not printed:\n%s", buf.String())
 	}
 }
+
+func TestPrintImpactConsumerUndeclaredRange(t *testing.T) {
+	var buf bytes.Buffer
+	printImpactConsumer(&buf, &impact.Result{}, impact.AffectedConsumer{
+		Service: "invoices", Direct: true, Confidence: impact.ConfidenceDeclared,
+		Compatibility: contract.CompatibilityUnknown, CompatibilityVerdict: impact.CompatibilityUnknown,
+	})
+	if out := buf.String(); !strings.Contains(out, "compat=unknown (range not declared)") {
+		t.Fatalf("consumer line does not say the range is not declared:\n%s", out)
+	}
+	buf.Reset()
+	printImpactConsumer(&buf, &impact.Result{}, impact.AffectedConsumer{
+		Service: "billing", Compatibility: "^1.0.0", CompatibilityVerdict: impact.CompatibilityCompatible,
+	})
+	if out := buf.String(); strings.Contains(out, "range not declared") {
+		t.Fatalf("a declared range reads as not declared:\n%s", out)
+	}
+}
