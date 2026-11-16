@@ -1162,3 +1162,53 @@ func TestStatsRestrictedEnvironmentFieldsVisibleOnly(t *testing.T) {
 		t.Fatalf("restricted groups = %+v", b.LeadTimeGroups)
 	}
 }
+
+func TestStatsEnvironmentDepthDanglingUpstreamIsAbsent(t *testing.T) {
+	// production names staging, whose Stage the caller cannot read (or that
+	// no longer exists): something feeds production, so it is no entry.
+	stages := []delivery.StageObject{stageTo("production", "production", "staging"), stageTo("dr", "dr", "production"), stageTo("r", "r", "")}
+	set := joined(promoted("orders", "shop", "production", '1', ago(2), time.Hour), promoted("orders", "shop", "dr", '2', ago(2), time.Hour),
+		promoted("orders", "shop", "r", '3', ago(2), time.Hour))
+	b, _ := getStatsBody(t, statsServer(t, ladderOpts(stages, set)), "")
+	for _, name := range []string{"production", "dr"} {
+		if e := envByName(t, b.Environments, name); e.Depth != nil || e.ChainEnd || e.Parents != nil {
+			t.Fatalf("%s at or below a dangling upstream: depth %s, chainEnd %v, parents %v", name, depthOf(e), e.ChainEnd, e.Parents)
+		}
+	}
+	if depthOf(envByName(t, b.Environments, "r")) != "0" || groupKeys(b.LeadTimeGroups) != "depth-0,all" {
+		t.Fatalf("r depth %s, groups %s", depthOf(envByName(t, b.Environments, "r")), groupKeys(b.LeadTimeGroups))
+	}
+}
+
+// partialStages refuses the cluster-wide list and the namespace prod.
+type partialStages struct {
+	stagesDelivery
+}
+
+func (d partialStages) Stages(_ context.Context, ns string) ([]delivery.StageObject, error) {
+	if ns == "" || ns == "prod" {
+		return nil, &DeliveryError{Status: http.StatusForbidden}
+	}
+	return d.stages, nil
+}
+
+func (partialStages) StageNamespaces(context.Context) ([]string, error) { return []string{"shop", "prod"}, nil }
+
+func TestStatsPartialStageReadSaysSo(t *testing.T) {
+	api := partialStages{stagesDelivery{stages: []delivery.StageObject{stageTo("dev", "dev", ""), stageTo("staging", "staging", "dev")}}}
+	set := joined(promoted("orders", "shop", "dev", '1', ago(2), time.Hour), promoted("orders", "shop", "staging", '2', ago(2), time.Hour))
+	opts := Options{Stats: fixedSet(set), Delivery: func(*http.Request) (DeliveryAPI, error) { return api, nil }}
+	b, _ := getStatsBody(t, statsServer(t, opts), "")
+	if b.EnvironmentOrder != "stages" || !slices.ContainsFunc(b.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == LimitationEnvironmentOrderUnknown && strings.Contains(l.Message, "some Stages could not be read")
+	}) {
+		t.Fatalf("a partial Stage read reads as complete: %s %v", b.EnvironmentOrder, b.Limitations)
+	}
+}
+
+func TestStatsEmptyWindowStaysEmptyOnPartialSnapshot(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(stats.RecordSet{}), Fleet: fleetOf(ownersFleetQuery(t, true))}), "")
+	if b.Completeness != fleet.CompletenessEmpty || hasLimitation(b.Limitations, stats.LimitationAttributionPartial) {
+		t.Fatalf("no records, partial snapshot: completeness %s, limitations %v", b.Completeness, b.Limitations)
+	}
+}

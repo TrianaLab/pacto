@@ -6361,7 +6361,7 @@ export interface components {
             cycle?: boolean;
             /**
              * Format: int64
-             * @description Promotion depth from the Stages' upstream links, never from a name: 0 when nothing feeds the environment, else one more than the deepest environment that feeds it; absent when it has no readable Stage or is on, or below, a cycle or unordered environment
+             * @description Promotion depth from the Stages' upstream links, never from a name: 0 when nothing feeds the environment, else one more than the deepest environment that feeds it; absent when it has no readable Stage, is on, or below, a cycle or unordered environment, or a Stage here or upstream names an upstream Stage you cannot read
              */
             depth?: number;
             /** @description Environment name */
