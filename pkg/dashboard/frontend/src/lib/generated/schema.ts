@@ -5328,6 +5328,10 @@ export interface components {
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
+            /** @description The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one */
+            pactoVersionCurrent?: string;
+            /** @description The revision declares a pactoVersion the Pacto that served this answer does not know */
+            pactoVersionUnknown?: boolean;
             policies: components["schemas"]["ProductPoliciesPreview"];
             /** Format: int64 */
             position: number;

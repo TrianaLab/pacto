@@ -120,6 +120,12 @@ func TestFleetEntityTool(t *testing.T) {
 	if d := detail("offering", "payments-api"); d.Offering == nil {
 		t.Errorf("offering detail = %+v", d)
 	}
+	// The fixture declares pactoVersion 2.4, older than this Pacto's latest.
+	var revs fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision", "service": "orders"}), &revs)
+	if d := detail("revision", revs.Entities[0].Key); d.Revision == nil || d.Revision.PactoVersionCurrent != contract.Current() || d.Revision.PactoVersionUnknown {
+		t.Errorf("revision detail does not say pactoVersion 2.4 is behind %s: %+v", contract.Current(), d.Revision)
+	}
 	var raw struct {
 		Offering map[string]json.RawMessage `json:"offering"`
 	}

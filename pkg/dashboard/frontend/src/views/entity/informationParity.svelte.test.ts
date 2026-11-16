@@ -60,6 +60,7 @@ function richRevision(): Record<string, any> {
       service: { kind: 'service', key: 'domain-a/payments', label: 'payments', href: '/fleet/services/domain-a%2Fpayments' },
       version: '2.1.0',
       pactoVersion: '2.0',
+      pactoVersionCurrent: '2.5',
       valid: true,
       identity: {
         digest: 'sha256:abcdef1234567890', resolvedRef: 'ghcr.io/acme/payments@sha256:abcdef1234567890',
@@ -176,6 +177,12 @@ describe('revision detail keeps the whole contract inspectable', () => {
 
   // The named regression: the page used to reduce the declared surface to four count
   // chips, so "3 Interfaces" WAS the interface experience. A count is not an answer.
+  it('says the declared pactoVersion is behind this Pacto', async () => {
+    const { target, component, text } = await renderRevision();
+    expect(text()).toContain('behind 2.5');
+    unmount(component); target.remove();
+  });
+
   it('renders each declared operation, not a count of interfaces', async () => {
     const { target, component, text } = await renderRevision();
     for (const fragment of ['listPayments', 'createPayment', '/payments', 'List payments']) {

@@ -135,7 +135,8 @@
     <!-- The wire field is `pactoVersion`; uppercased as a label it read as PACTOVERSION,
          a field name sitting in a row of English words. The API already documents it as
          "Pacto version". -->
-    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span></div>{/if}
+    <!-- Behind or unknown is this Pacto's view of the declared version, so the titles say whose. -->
+    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span>{#if d.pactoVersionUnknown}<IdentityBadge label="unknown version" tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}, which this Pacto does not know. The latest version it knows is ${d.pactoVersionCurrent}.`} describe />{:else if d.pactoVersionCurrent}<IdentityBadge label={`behind ${d.pactoVersionCurrent}`} tone="neutral" title={`This revision declares pactoVersion ${d.pactoVersion}. The latest version this Pacto knows is ${d.pactoVersionCurrent}.`} describe />{/if}</div>{/if}
     <div class="re-fact"><span class="re-k">Valid</span><span>{d.valid ? 'Yes' : 'No'}</span></div>
     {#if stages.length > 0}
       <!-- How each validation stage ended, so "No" above says where it stopped and a

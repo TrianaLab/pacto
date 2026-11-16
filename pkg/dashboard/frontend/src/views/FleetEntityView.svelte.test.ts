@@ -551,6 +551,29 @@ describe('FleetEntityView — rich revision page (E)', () => {
     expect(labels).not.toContain('pactoVersion');
   });
 
+  it('says when a revision declares a pactoVersion behind or unknown to this Pacto', async () => {
+    const render = async (patch: Record<string, unknown>) => {
+      const d = revisionDetail();
+      Object.assign(d.revision, { pactoVersion: '2.0' }, patch);
+      detailFn.mockResolvedValue(d);
+      const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
+      await vi.waitFor(() => expect(target.textContent).toContain('2.0'));
+      const text = target.textContent || '';
+      unmount(component); document.body.removeChild(target);
+      return text;
+    };
+    const behind = await render({ pactoVersionCurrent: '2.5' });
+    expect(behind).toContain('behind 2.5');
+    expect(behind).toContain('This revision declares pactoVersion 2.0. The latest version this Pacto knows is 2.5.');
+    const unknown = await render({ pactoVersion: '9.9', pactoVersionCurrent: '2.5', pactoVersionUnknown: true });
+    expect(unknown).toContain('unknown version');
+    expect(unknown).toContain('This revision declares pactoVersion 9.9, which this Pacto does not know. The latest version it knows is 2.5.');
+    expect(unknown).not.toContain('behind 2.5');
+    const current = await render({});
+    expect(current).not.toContain('behind');
+    expect(current).not.toContain('unknown version');
+  });
+
   it('links the owner from a revision, the same as from its service', async () => {
     // The backend emits the owner ref for both, so the trail out to "everything this
     // team owns" does not dead-end on the revision page.

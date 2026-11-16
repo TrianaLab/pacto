@@ -513,6 +513,8 @@ export function installScaleFixture(): void {
       // every interface, a long inferred source and a dependency named from its ref
       // with no range declared.
       if (rev) {
+        // A declared pactoVersion behind this Pacto adds a badge to the Pacto version fact.
+        rev.pactoVersionCurrent = '2.5'; delete rev.pactoVersionUnknown;
         rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
           consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14',
           ...(i % 2 ? { service: { kind: 'service', key: `default/break-consumer-${i}`, label: `break-consumer-${i}` } } : {}) })) };
