@@ -25,7 +25,7 @@
   const declared = $derived((data?.external?.sources ?? []).filter((s) => s.provenance === 'declared').map((s) => ({
     provenance: 'declared', service: s.service, kind: 'Contract',
     where: `pacto.yaml dependencies[${s.index}]${s.dependency ? ` (name: ${s.dependency})` : ''}`,
-    host: '', confidence: s.required ? 'Declared, required' : 'Declared',
+    host: null, confidence: s.required ? 'Declared, required' : 'Declared',
     mark: `Declared in ${s.service}'s contract${s.revision ? ` (${s.revision})` : ''}, joined by ${s.match}`,
     details: [s.version ? `version ${s.version}` : '', s.revision ? `revision ${s.revision}` : ''].filter(Boolean),
   })));
@@ -37,7 +37,7 @@
       s.observedAt ? `read ${formatRelative(s.observedAt)}` : 'read time unknown'].filter(Boolean),
   })));
   const observed = $derived((data?.observedSources ?? []).map((s) => ({
-    provenance: 'observed', service: s.service, kind: 'Traces', where: s.source, host: '',
+    provenance: 'observed', service: s.service, kind: 'Traces', where: s.source, host: null,
     confidence: `Observed, ${formatCount(s.count)} ${s.count === 1 ? 'call' : 'calls'}`,
     mark: `Observed: ${s.source} saw ${s.service} call it${s.lastSeen ? `, last ${formatRelative(s.lastSeen)}` : ''}`,
     details: [s.firstSeen ? `first seen ${formatRelative(s.firstSeen)}` : '', s.lastSeen ? `last seen ${formatRelative(s.lastSeen)}` : ''].filter(Boolean),
@@ -83,7 +83,8 @@
         </div>
         <div class="xp-cell" data-cell="host">
           <span class="xp-k">Host</span>
-          {#if r.host}<bdi class="xp-trunc" title={r.host}>{r.host}</bdi>{:else}<span class="t-meta">none</span>{/if}
+          <!-- Only an inferred row carries a host; elsewhere it is unknown, never "none". -->
+          {#if r.host}<bdi class="xp-trunc" title={r.host}>{r.host}</bdi>{:else}<span class="t-meta">{r.host === null ? 'not recorded' : 'none'}</span>{/if}
         </div>
         <div class="xp-cell" data-cell="confidence">
           <span class="xp-k">Confidence</span>

@@ -19,6 +19,10 @@ test.describe('WASM demo — externals recognized from traces and configuration'
     await expect(observed.locator('[data-cell="where"]')).toContainText('otel-traces');
     await expect(observed.locator('[data-cell="service"]')).toContainText('notification-worker');
     await expect(page.locator('[data-testid="external-source"][data-provenance="declared"]')).toHaveCount(0);
+    // No contract declares it, so the consumer reads as observed, never optional,
+    // and the trace row's host is unknown, never "none".
+    await expect(page.getByTestId('external-consumer-use')).toHaveText(['observed only']);
+    await expect(observed.locator('[data-cell="host"]')).toContainText('not recorded');
 
     // The observation window sits under More details.
     await page.getByTestId('external-more-details').click();
@@ -38,5 +42,8 @@ test.describe('WASM demo — externals recognized from traces and configuration'
     const inferred = page.getByTestId('graph-edge').filter({ hasText: /stripe/i });
     await expect(inferred).toHaveCount(1, { timeout: T });
     await expect(inferred.getByTestId('edge-difference')).toContainText('Inferred from configuration');
+    // The trace-only call to twilio is drift, not a declared dependency.
+    const traced = page.getByTestId('graph-edge').filter({ hasText: /twilio/i });
+    await expect(traced.getByTestId('edge-difference')).toContainText('Observed, not expected');
   });
 });

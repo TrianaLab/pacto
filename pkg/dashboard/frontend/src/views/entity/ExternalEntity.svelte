@@ -20,6 +20,11 @@
     return `${m.origin === 'default' ? 'Default' : 'Organization'} catalog ${shortDigest(m.digest, 12)}, entry ${m.entry}${sig}`;
   });
   const consumers = $derived(d.consumers ?? []);
+  // Required and optional describe a declaration; a consumer no contract
+  // declares says how Pacto knows it instead.
+  const consumerUse = (c) => c.provenance === 'observed' ? 'observed only'
+    : c.provenance === 'inferred' ? 'inferred only'
+    : `${c.required ? 'required' : 'optional'}${c.versions?.length ? `, ${c.versions.join(', ')}` : ''}`;
 </script>
 
 <div class="external-entity">
@@ -34,7 +39,7 @@
       {#each consumers as c (c.service.key)}
         <li class="xe-consumer">
           <EntityLink ref={c.service} showKind={false} />
-          <span class="t-meta">{c.required ? 'required' : 'optional'}{c.versions?.length ? `, ${c.versions.join(', ')}` : ''}</span>
+          <span class="t-meta" data-testid="external-consumer-use">{consumerUse(c)}</span>
         </li>
       {/each}
     </ul>

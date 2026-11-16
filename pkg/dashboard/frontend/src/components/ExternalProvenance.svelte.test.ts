@@ -43,6 +43,14 @@ const rows = (t: Element) => [...t.querySelectorAll('[data-testid="external-sour
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 describe('ExternalProvenance', () => {
+  it('never claims "none" for the host of a declared or observed row', () => {
+    const t = render(data());
+    for (const r of rows(t).slice(0, 2)) {
+      expect(text(r.querySelector('[data-cell="host"]'))).toBe('Host not recorded');
+    }
+    expect(text(rows(t)[3].querySelector('[data-cell="host"]'))).toBe('Host none');
+  });
+
   it('lists declared, observed and inferred rows with their kind, where and host', () => {
     const t = render(data());
     expect(rows(t).map((r) => r.getAttribute('data-provenance'))).toEqual(['declared', 'observed', 'inferred', 'inferred']);
