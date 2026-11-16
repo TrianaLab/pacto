@@ -8,6 +8,5 @@ helm upgrade pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 6.4.1 \
   --namespace pacto-operator-system \
-  --reset-then-reuse-values --set delivery.enabled=true \
-  --set delivery.identities.humanGroups={staff}
+  --reset-then-reuse-values --set delivery.enabled=true
 ```

@@ -141,6 +141,17 @@ these before `helm upgrade`:
 - **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
   defaults to the agent namespace instead of the operator's.
 
+## Delivery approvers need update rights
+
+Delivery now tells people from agents by how they sign in and lets whoever
+may update a Stage's workload decide its held changes. Owner teams narrow
+who may answer only when `delivery.identities.teamGroupPrefix` is set, and
+`requireOwnerTeam` defaults to `false`. An upgrade that takes the new
+defaults turns team narrowing off unless you set `teamGroupPrefix` yourself.
+To keep the earlier behaviour, set `teamGroupPrefix: ""` and
+`requireOwnerTeam: true` before you upgrade
+([upgrading](delivery-identity.md#upgrading)).
+
 ## Delivery always installs its admission policies
 
 Delivery no longer runs without its admission policies. The chart refuses

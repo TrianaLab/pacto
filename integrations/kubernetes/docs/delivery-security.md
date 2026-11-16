@@ -19,8 +19,8 @@ wins:
 |---|---|
 | Promoter | The promoter's own ServiceAccount |
 | [Break-glass](../../glossary.md#break-glass) | Members of `delivery.identities.breakGlassGroups` |
-| Agent | Any other ServiceAccount, members of `agentGroups` and, when you set `humanGroups`, anyone in none of them |
-| Person | Everyone else |
+| Agent | Any other ServiceAccount, any other `system:` user, an unauthenticated request, members of `agentGroups` and, when you set the deprecated `humanGroups`, anyone in none of them |
+| Person | Every other signed-in identity |
 
 A CI job that runs under a ServiceAccount counts as an agent. An agent that
 holds a person's credentials acts as that person. [Approvals and

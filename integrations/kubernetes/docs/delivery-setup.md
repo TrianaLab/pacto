@@ -23,10 +23,8 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-Replace `staff` with the group your people are in: anyone outside it counts as
-an agent, which may propose but never approve. The chart refuses an empty
-`humanGroups` unless you set `delivery.identities.allowEmptyHumanGroups=true`
-(see [identities](delivery-identity.md)).
+It needs no identity values: whoever may update a Stage's workload decides
+([who may decide](delivery-identity.md#who-may-decide)).
 
 If you set `crds.install=false` to manage the CRDs yourself, apply the
 delivery CRDs before you turn delivery on. The promoter and the recorder do not
@@ -39,8 +37,8 @@ This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 role, so it cannot act as the promoter. It still reads every Secret: prefer
 KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind
-`pacto-operator-delivery-agent` to agents and
-`pacto-operator-delivery-approver` to approvers. The image is
+`pacto-operator-delivery-agent` to agents. People with `edit` or `admin` in a
+namespace may already decide there. The image is
 [signed](artifact-hub.md).
 
 The admission policies make the actor of an Operation and the person behind
@@ -85,7 +83,8 @@ recorder's their own Service, ServiceMonitor and
 | `pacto_delivery_stats_dropped_total` | [run records](delivery-run-records.md) not published, by `reason`: `queue-full`, `namespace-full` (one namespace already holds a quarter of the queue), `publish-failed` (logged with the operation, and the record in flight when the promoter stops), `no-stage` (the operation had no Stage, so no service to file it under) or `shutdown` (still queued, or concluded, after the promoter began to stop). Every reason reads 0 from startup. A `shutdown` drop is counted by a process about to exit, so its lasting trace is the promoter's log line `run records not published at shutdown` |
 
 The promoter emits a Kubernetes Event on an operation when it waits on a person
-(`Held`) and when it concludes (its outcome). It emits one on a Stage when it
+(`Held`, with `TeamNarrowingOff` while owner teams do not narrow who may
+answer) and when it concludes (its outcome). It emits one on a Stage when it
 raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
 (`RecheckUnknown`, `RecheckFailed`).
 It emits `EnvironmentCreated` on a Stage the first time it reconciles it, with

@@ -3,8 +3,8 @@
 !!! warning "Alpha"
     Delivery is new: its settings and commands may still change.
 
-An agent is an identity in an agent group, a service account or anyone outside
-`humanGroups`
+An agent is a service account, any other `system:` user or an identity in an
+agent group
 ([who counts as a person, an agent or a team](delivery-identity.md#who-counts-as-a-person-an-agent-or-a-team)).
 Agents plan, propose and cancel changes under their own identity. People
 approve them in the dashboard or from the terminal
@@ -85,7 +85,7 @@ where to get one at `/.well-known/oauth-protected-resource`. It exchanges each
 caller's token at the identity provider (RFC 8693) for one the apiserver
 accepts and asks the apiserver who the caller is on every request. Everyone
 gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
-your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
+your agent group): signed in through OIDC, they otherwise count as people. Without token exchange the server refuses `--delivery` over
 HTTP. With `--fleet` it needs token exchange too, names each caller the same
 way and answers [as the dashboard does](dashboard-access.md). The exchanged
 token is the agent's own, so `on_behalf_of` still comes from the tool's
