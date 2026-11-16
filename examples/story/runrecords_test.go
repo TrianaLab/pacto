@@ -563,3 +563,33 @@ func agree(t *testing.T, events []StatsEvent) {
 		seen[c] = ev.Classification
 	}
 }
+
+// TestRunRecordsUnverifiedImpactWaitsForAPerson: a promote of a revision whose
+// impact verdict is unverified clears its impact gate only once a person
+// accepted the unknown, never on its own.
+func TestRunRecordsUnverifiedImpactWaitsForAPerson(t *testing.T) {
+	recs := runRecords(t, Now)
+	unverified, deploys := map[string]bool{}, map[string]bool{}
+	for _, r := range recs {
+		if r.Kind == runrecord.KindImpact && r.Gate != nil && r.Gate.Verdict == runrecord.VerdictUnverified {
+			unverified[r.NewRevision] = true
+		}
+	}
+	for _, r := range recs {
+		if r.Kind == runrecord.KindPublish && unverified[r.BundleDigest] {
+			deploys[r.DeployDigest] = true
+		}
+	}
+	n := 0
+	for _, r := range recs {
+		if r.Kind == runrecord.KindOperation && r.Type == "promote" && deploys[r.To] {
+			n++
+			if r.HeldFor == "" || r.ActorClass != "human" {
+				t.Errorf("%s promote %s at %v follows an unverified impact with no person accepting it", r.Service, r.To, r.RecordedAt)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no promote follows an unverified impact, so the check checks nothing")
+	}
+}

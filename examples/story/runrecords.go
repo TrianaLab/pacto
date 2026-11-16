@@ -426,11 +426,12 @@ func storyEvents() []StatsEvent {
 		promote(ago(8, 8), "fraud", Test, -1, 0),
 		promote(ago(7, 9), "fraud", Prod, -1, 0),
 		// pay-agent 1.1.0 swaps its model, fails its evals in test and is rolled back. A model
-		// swap may break its consumers, and none of them can be checked, so its gate is unverified.
+		// swap may break its consumers, and none of them can be checked, so its gate is unverified
+		// and its promote waits for alice to accept the unknown.
 		diffRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING"),
 		impactRun(ago(6, 10), "pay-agent", 0, 1, "POTENTIAL_BREAKING", runrecord.VerdictUnverified, "CONSUMERS_UNCHECKED", 0, 0),
 		StatsEvent{At: ago(6, 9), Kind: runrecord.KindPublish, Service: "pay-agent", From: 0, To: 1, Classification: "POTENTIAL_BREAKING"},
-		failedPromote(ago(6, 7), "pay-agent", Test, 0, 1, PayAgent),
+		held(failedPromote(ago(6, 7), "pay-agent", Test, 0, 1, PayAgent), time.Hour, Alice),
 		rollback(ago(6, 6), "pay-agent", Test, 1, 0),
 		// notification-worker accepts a record from another cluster.
 		operation(ago(5, 10), delivery.TypeAcknowledge, "notification-worker", Prod, -1, -1, delivery.Succeeded, "", Alice),
