@@ -55,11 +55,7 @@ func provenanceProblems(src []byte) []string {
 	if !ok {
 		return []string{"release.yml has no release job"}
 	}
-	for _, p := range []string{"contents", "id-token", "attestations"} {
-		if job.Permissions[p] != "write" {
-			out = append(out, fmt.Sprintf("release: permission %s: write is missing", p))
-		}
-	}
+	out = append(out, writePermProblems("release", job, "contents", "id-token", "attestations")...)
 	out = append(out, cliAttestProblems(job.Steps)...)
 	for name, subject := range imageSubjects {
 		out = append(out, imageAttestProblems(name, doc.Jobs[name], subject)...)
@@ -83,12 +79,7 @@ func provenanceProblems(src []byte) []string {
 // imageAttestProblems checks that an image merge job records the digest the
 // adapter printed, probes for its own attestation of that index and attests it.
 func imageAttestProblems(name string, job wfJob, subject string) []string {
-	var out []string
-	for _, p := range []string{"packages", "id-token", "attestations"} {
-		if job.Permissions[p] != "write" {
-			out = append(out, fmt.Sprintf("%s: permission %s: write is missing", name, p))
-		}
-	}
+	out := writePermProblems(name, job, "packages", "id-token", "attestations")
 	publish, probe, attest := -1, -1, -1
 	for i, s := range job.Steps {
 		switch {
@@ -115,6 +106,16 @@ func imageAttestProblems(name string, job wfJob, subject string) []string {
 	out = append(out, imageAttestStepProblems(name, job.Steps[attest], subject)...)
 	if repo, _ := job.Env["IMAGE_REPO"].(string); strings.Contains(subject, "IMAGE_REPO") && !strings.HasPrefix(repo, "ghcr.io/trianalab/pacto/") {
 		out = append(out, fmt.Sprintf("%s: job env IMAGE_REPO must name a ghcr.io/trianalab/pacto/ coordinate, got %q", name, repo))
+	}
+	return out
+}
+
+func writePermProblems(name string, job wfJob, perms ...string) []string {
+	var out []string
+	for _, p := range perms {
+		if job.Permissions[p] != "write" {
+			out = append(out, fmt.Sprintf("%s: permission %s: write is missing", name, p))
+		}
 	}
 	return out
 }
@@ -158,7 +159,7 @@ func buildProvenanceProblems(name string, job wfJob) []string {
 	for _, s := range job.Steps {
 		if strings.Contains(s.Run, "docker buildx build") {
 			if !strings.Contains(s.Run, "--provenance=false") {
-				return []string{name + ": docker buildx build must pass --provenance=false (the merge job attests the index)"}
+				return []string{name + ": docker buildx build must pass --provenance=false (the merge job attests the index and compares its children to the platform manifests this build recorded)"}
 			}
 			return nil
 		}
@@ -341,15 +342,23 @@ func TestReleaseWorkflowHasNoReusableWorkflow(t *testing.T) {
 	}
 }
 
-// releaseSection splits the text at the release job, so a mutation lands in
-// that job even when an image job carries the same strings.
-func releaseSection(t *testing.T, src string) (string, string) {
+var jobHeader = regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\s*$`)
+
+// jobSpan returns the byte range of one job's text, from its header to the
+// next job header, so a mutation lands in that job whatever order the jobs
+// are in and whichever other job carries the same strings.
+func jobSpan(t *testing.T, src, job string) (int, int) {
 	t.Helper()
-	i := strings.Index(src, "\n  release:\n")
+	i := strings.Index(src, "\n  "+job+":\n")
 	if i < 0 {
-		t.Fatal("release.yml has no release job")
+		t.Fatalf("release.yml has no job %s", job)
 	}
-	return src[:i], src[i:]
+	i++
+	end := len(src)
+	if m := jobHeader.FindStringIndex(src[i+1:]); m != nil {
+		end = i + 1 + m[0]
+	}
+	return i, end
 }
 
 // stepBlock returns the text of the step whose first line contains marker.
@@ -370,107 +379,72 @@ func stepBlock(t *testing.T, section, marker string) string {
 func TestTheProvenanceGateBites(t *testing.T) {
 	const attestName = "- name: Attest SLSA build provenance for the binaries and checksums"
 	replace := func(old, new string) func(*testing.T, string) string {
-		return func(t *testing.T, rel string) string { return strings.Replace(rel, old, new, 1) }
+		return func(t *testing.T, s string) string { return strings.Replace(s, old, new, 1) }
 	}
-	// inJob replaces the first old after the job's header, in the text before
-	// the release job where every image job lives.
-	inJob := func(job, old, new string) func(*testing.T, string) string {
-		return func(t *testing.T, head string) string {
-			i := strings.Index(head, "\n  "+job+":\n")
-			if i < 0 {
-				t.Fatalf("no job %s", job)
-			}
-			return head[:i] + strings.Replace(head[i:], old, new, 1)
-		}
+	dropLines := func(re string) func(*testing.T, string) string {
+		return func(t *testing.T, s string) string { return regexp.MustCompile(re).ReplaceAllString(s, "") }
 	}
 	const shaGuard = `            test "$GITHUB_SHA" = "$SRC" || { echo "::error::provenance would name $GITHUB_SHA but the bytes were built from $SRC; refusing to sign a false build commit"; exit 1; }` + "\n"
-	type bite struct {
-		name   string
-		mutate func(*testing.T, string) string
-	}
-	cases := []bite{
-		{"delete the attest step", func(t *testing.T, rel string) string {
-			return strings.Replace(rel, stepBlock(t, rel, attestName), "", 1)
+	// Each bite mutates only the text of its job (see jobSpan).
+	cases := []struct {
+		name, job string
+		mutate    func(*testing.T, string) string
+	}{
+		{"delete the attest step", "release", func(t *testing.T, s string) string {
+			return strings.Replace(s, stepBlock(t, s, attestName), "", 1)
 		}},
-		{"drop attestations: write", replace("      attestations: write\n", "")},
-		{"move the attest step after finalize", func(t *testing.T, rel string) string {
-			blk := stepBlock(t, rel, attestName)
-			rel = strings.Replace(rel, blk, "", 1)
+		{"drop attestations: write", "release", replace("      attestations: write\n", "")},
+		{"move the attest step after finalize", "release", func(t *testing.T, s string) string {
+			blk := stepBlock(t, s, attestName)
+			s = strings.Replace(s, blk, "", 1)
 			fin := "run: bash release/orchestrator/finalize-release.sh \"$TAG\" \"$SRC\"\n"
-			return strings.Replace(rel, fin, fin+blk, 1)
+			return strings.Replace(s, fin, fin+blk, 1)
 		}},
-		{"gate the attest step on always()", replace("if: steps.attested.outputs.need == 'true'", "if: always()")},
-		{"add continue-on-error", replace("if: steps.attested.outputs.need == 'true'\n", "if: steps.attested.outputs.need == 'true'\n        continue-on-error: true\n")},
-		{"drop the checksums subject", replace("            dist/checksums.txt\n", "")},
-		{"pin by tag", func(t *testing.T, rel string) string {
-			return attestPin.ReplaceAllString(rel, "actions/attest-build-provenance@v4")
+		{"gate the attest step on always()", "release", replace("if: steps.attested.outputs.need == 'true'", "if: always()")},
+		{"add continue-on-error", "release", replace("if: steps.attested.outputs.need == 'true'\n", "if: steps.attested.outputs.need == 'true'\n        continue-on-error: true\n")},
+		{"drop the checksums subject", "release", replace("            dist/checksums.txt\n", "")},
+		{"pin by tag", "release", func(t *testing.T, s string) string {
+			return attestPin.ReplaceAllString(s, "actions/attest-build-provenance@v4")
 		}},
-		{"delete the --cert-identity line", func(t *testing.T, rel string) string {
-			return regexp.MustCompile(`(?m)^\s+--cert-identity .*\n`).ReplaceAllString(rel, "")
-		}},
-		{"drop the ref from the identity", replace("release.yml@refs/heads/main", "release.yml")},
-		{"delete --source-digest", replace(`--source-digest "$SRC" `, "")},
-		{"delete the GITHUB_REF guard", func(t *testing.T, rel string) string {
-			return regexp.MustCompile(`(?m)^\s+test "\$GITHUB_REF".*\n`).ReplaceAllString(rel, "")
-		}},
-		{"delete the GITHUB_SHA guard", func(t *testing.T, rel string) string {
-			return regexp.MustCompile(`(?m)^\s+test "\$GITHUB_SHA".*\n`).ReplaceAllString(rel, "")
-		}},
-		{"count stored attestations instead of verifying", func(t *testing.T, rel string) string {
-			blk := stepBlock(t, rel, "- name: Check for a verified provenance attestation")
+		{"delete the --cert-identity line", "release", dropLines(`(?m)^\s+--cert-identity .*\n`)},
+		{"drop the ref from the identity", "release", replace("release.yml@refs/heads/main", "release.yml")},
+		{"delete --source-digest", "release", replace(`--source-digest "$SRC" `, "")},
+		{"delete the GITHUB_REF guard", "release", dropLines(`(?m)^\s+test "\$GITHUB_REF".*\n`)},
+		{"delete the GITHUB_SHA guard", "release", dropLines(`(?m)^\s+test "\$GITHUB_SHA".*\n`)},
+		{"count stored attestations instead of verifying", "release", func(t *testing.T, s string) string {
+			blk := stepBlock(t, s, "- name: Check for a verified provenance attestation")
 			i := strings.Index(blk, "        run: |\n")
 			count := "        run: |\n" +
 				"          n=$(gh api \"repos/$GITHUB_REPOSITORY/attestations/sha256:x\" --jq '.attestations | length')\n" +
 				"          echo \"need=$([ \"$n\" = 0 ] && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n"
-			return strings.Replace(rel, blk, blk[:i]+count, 1)
+			return strings.Replace(s, blk, blk[:i]+count, 1)
 		}},
-	}
-	// headCases mutate the image jobs, which sit before the release job.
-	headCases := []bite{
-		{"drop --provenance=false from the shared build", inJob("operator-image-build", "--provenance=false \\\n", "")},
-		{"drop push-to-registry", inJob("operator-image", "          push-to-registry: true\n", "")},
-		{"drop attestations: write from dashboard-image", inJob("dashboard-image", "      attestations: write\n", "")},
-		{"add attestations: write to operator-image-build", inJob("operator-image-build", "      packages: write\n", "      packages: write\n      attestations: write\n")},
-		{"remove id: publish", inJob("dashboard-image", "        id: publish\n", "")},
-		{"swap the dashboard subject-name literal", inJob("dashboard-image", "subject-name: ghcr.io/trianalab/pacto/dashboard", "subject-name: ${{ env.IMAGE_REPO }}")},
-		{"drop IMAGE_REPO from delivery-image", inJob("delivery-image", "      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery\n", "")},
-		{"delete the child-set check from the shared probe", func(t *testing.T, head string) string {
-			i := strings.Index(head, "\n  operator-image:\n")
-			return head[:i] + regexp.MustCompile(`(?m)^.*find /tmp/digests.*\n`).ReplaceAllString(head[i:], "")
-		}},
-		{"restore crane digest in the shared merge", inJob("operator-image", `"${REF}@${digest}"`, `"${REF}@$(crane digest "$REF")"`)},
-		{"delete the GITHUB_SHA guard from the dashboard probe", inJob("dashboard-image", shaGuard, "")},
+		{"drop --provenance=false from the shared build", "operator-image-build", replace("--provenance=false \\\n", "")},
+		{"drop push-to-registry", "operator-image", replace("          push-to-registry: true\n", "")},
+		{"drop attestations: write from dashboard-image", "dashboard-image", replace("      attestations: write\n", "")},
+		{"add attestations: write to operator-image-build", "operator-image-build", replace("      packages: write\n", "      packages: write\n      attestations: write\n")},
+		{"remove id: publish", "dashboard-image", replace("        id: publish\n", "")},
+		{"swap the dashboard subject-name literal", "dashboard-image", replace("subject-name: ghcr.io/trianalab/pacto/dashboard", "subject-name: ${{ env.IMAGE_REPO }}")},
+		{"drop IMAGE_REPO from delivery-image", "delivery-image", replace("      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery\n", "")},
+		{"delete the child-set check from the shared probe", "operator-image", dropLines(`(?m)^.*find /tmp/digests.*\n`)},
+		{"restore crane digest in the shared merge", "operator-image", replace(`"${REF}@${digest}"`, `"${REF}@$(crane digest "$REF")"`)},
+		{"delete the GITHUB_SHA guard from the dashboard probe", "dashboard-image", replace(shaGuard, "")},
 	}
 	src := string(releaseWorkflowBytes(t))
 	if p := provenanceProblems([]byte(src)); len(p) != 0 {
 		t.Fatalf("the real release.yml already fails: %v", p)
 	}
-	run := func(c bite, onHead bool) {
+	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			head, rel := releaseSection(t, src)
-			var before, after string
-			if onHead {
-				before = head
-				head = c.mutate(t, head)
-				after = head
-			} else {
-				before = rel
-				rel = c.mutate(t, rel)
-				after = rel
-			}
-			if after == before {
+			i, j := jobSpan(t, src, c.job)
+			section := c.mutate(t, src[i:j])
+			if section == src[i:j] {
 				t.Fatal("the mutation changed nothing")
 			}
-			if len(provenanceProblems([]byte(head+rel))) == 0 {
+			if len(provenanceProblems([]byte(src[:i]+section+src[j:]))) == 0 {
 				t.Error("provenanceProblems accepts the mutated workflow")
 			}
 		})
-	}
-	for _, c := range cases {
-		run(c, false)
-	}
-	for _, c := range headCases {
-		run(c, true)
 	}
 }
 
