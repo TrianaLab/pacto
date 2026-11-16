@@ -157,3 +157,27 @@ tests:
             apiGroups: [monitoring.coreos.com]
             resources: [servicemonitors, podmonitors]
             verbs: [get, list, watch]
+
+  - it: the operator ClusterRole reads the kube-system namespace by name
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+
+  - it: the operator ClusterRole reads the kube-system namespace by name with delivery off
+    set:
+      delivery.enabled: false
+      dashboard.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+

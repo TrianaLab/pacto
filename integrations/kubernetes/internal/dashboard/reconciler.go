@@ -65,6 +65,9 @@ type Reconciler struct {
 // The dashboard lists the namespaces to ask where a signed-in person may list
 // Stages, the same way: the operator holds the right it grants.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=list
+// The dashboard's live source names its cluster by the kube-system namespace
+// UID, and the operator reads the same UID at start for the Evidence Server.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get,resourceNames=kube-system
 
 // Sync ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.

@@ -355,3 +355,20 @@ tests:
           path: spec.groups[0].rules[1].expr
           value: absent(up{job="d-pacto-operator-delivery-recorder-metrics"} == 1)
         documentSelector: {path: kind, value: PrometheusRule}
+
+  - it: the delivery recorder role keeps the cluster identity rule
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            resourceNames: [kube-system]
+            verbs: [get]
+        documentSelector: {path: kind, value: ClusterRole}

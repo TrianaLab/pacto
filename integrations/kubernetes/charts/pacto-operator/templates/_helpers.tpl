@@ -472,3 +472,14 @@ tolerations:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end }}
+
+{{/*
+The cluster's identity: the kube-system Namespace, whose UID names the
+cluster in operations and records.
+*/}}
+{{- define "pacto-operator.rbac.clusterIdentityRule" -}}
+- apiGroups: [""]
+  resources: [namespaces]
+  resourceNames: [kube-system]
+  verbs: [get]
+{{- end }}

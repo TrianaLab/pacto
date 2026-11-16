@@ -268,8 +268,10 @@ tests:
     asserts:
       - notExists:
           path: $.rules[?(@.resources[0]=="nodes")]
+      # The kube-system read by name is the cluster identity rule, granted
+      # always; no other namespace is read.
       - notExists:
-          path: $.rules[?(@.resources[0]=="namespaces")]
+          path: $.rules[?(@.resources[0]=="namespaces" && @.resourceNames[0]!="kube-system")]
       - notExists:
           path: $.rules[?(@.resources[0]=="leases")]
 

@@ -76,6 +76,10 @@ rules:
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
+  # The operator reads the cluster id, the kube-system namespace UID, at start:
+  # it names the cluster in Evidence Server reports, and the managed dashboard
+  # ClusterRole grants the same read.
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
   {{- if include "pacto-operator.kernelEvidence" . }}
   # The node agent's heartbeat: one Lease per node, read through the cache in
   # the kernel evidence namespace only (the cache never starts a cluster-wide

@@ -10,6 +10,7 @@ package evidence
 import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,6 +35,13 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	args = append(args, "evidence", "serve", "--trust", trust, "--listen-address", ":8686")
 	for _, subject := range cfg.Subjects {
 		args = append(args, "--subject", subject)
+	}
+	if id := cfg.Cluster.ID; id != "" {
+		args = append(args, "--cluster-id", id)
+		// A name that is only the UID prefix adds nothing the server cannot derive.
+		if cfg.Cluster.NameSource != kubecluster.NameFromUID {
+			args = append(args, "--cluster-name", cfg.Cluster.Name, "--cluster-name-source", cfg.Cluster.NameSource)
+		}
 	}
 
 	// The container is stateless: a read-only root filesystem, a read-only trust

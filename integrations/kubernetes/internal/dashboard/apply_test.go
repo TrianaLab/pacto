@@ -216,8 +216,9 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 			}
 			continue
 		}
-		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) {
-			t.Errorf("the dashboard role may %v namespaces", r.Verbs)
+		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) &&
+			(!slices.Equal(r.Verbs, []string{"get"}) || !slices.Equal(r.ResourceNames, []string{"kube-system"})) {
+			t.Errorf("the dashboard role may %v namespaces %v", r.Verbs, r.ResourceNames)
 		}
 		for _, g := range r.APIGroups {
 			if g == "*" {
@@ -235,6 +236,30 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 	}
 	if !reads {
 		t.Error("the dashboard role cannot fill its shared cache of Stages and Operations")
+	}
+}
+
+// TestDashboardClusterRoleReadsClusterIdentity: the dashboard's live source
+// names its cluster by the kube-system namespace UID, so the role reads that
+// one namespace by name and keeps listing namespace names as before.
+func TestDashboardClusterRoleReadsClusterIdentity(t *testing.T) {
+	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	var gets, lists int
+	for _, r := range role.Rules {
+		if !slices.Equal(r.APIGroups, []string{""}) || !slices.Equal(r.Resources, []string{"namespaces"}) {
+			continue
+		}
+		switch {
+		case slices.Equal(r.Verbs, []string{"get"}) && slices.Equal(r.ResourceNames, []string{"kube-system"}):
+			gets++
+		case slices.Equal(r.Verbs, []string{"list"}) && len(r.ResourceNames) == 0:
+			lists++
+		default:
+			t.Errorf("unexpected namespaces rule: verbs %v names %v", r.Verbs, r.ResourceNames)
+		}
+	}
+	if gets != 1 || lists != 1 {
+		t.Errorf("want one kube-system get rule and one list rule, got %d and %d", gets, lists)
 	}
 }
 

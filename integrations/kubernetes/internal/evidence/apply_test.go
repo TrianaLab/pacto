@@ -8,10 +8,12 @@ See LICENSE file in the project root for full license text.
 package evidence
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
@@ -107,6 +109,43 @@ func TestDeploymentAC_ArgsAndSingleWriter(t *testing.T) {
 	}
 	if len(deploy.OwnerReferences) != 0 {
 		t.Errorf("expected no owner references, got %d", len(deploy.OwnerReferences))
+	}
+}
+
+func clusterArgs(t *testing.T, cfg Config) map[string]string {
+	t.Helper()
+	args := deploymentACFor(t, cfg).Spec.Template.Spec.Containers[0].Args
+	got := map[string]string{}
+	for i, a := range args {
+		if strings.HasPrefix(a, "--cluster-") && i+1 < len(args) {
+			got[a] = args[i+1]
+		}
+	}
+	return got
+}
+
+func TestEvidenceArgsCarryClusterIdentity(t *testing.T) {
+	cfg := serverCfg()
+	cfg.Cluster = kubecluster.Identity{ID: "9f1c4e2a-uid", Name: "eu-prod", NameSource: kubecluster.NameFromNodeLabel}
+	got := clusterArgs(t, cfg)
+	want := map[string]string{"--cluster-id": "9f1c4e2a-uid", "--cluster-name": "eu-prod", "--cluster-name-source": "node-label"}
+	if !maps.Equal(got, want) {
+		t.Errorf("cluster args = %v, want %v", got, want)
+	}
+}
+
+func TestEvidenceArgsOmitClusterNameForUIDSource(t *testing.T) {
+	cfg := serverCfg()
+	cfg.Cluster = kubecluster.Identity{ID: "9f1c4e2a-uid", Name: "9f1c4e2a", NameSource: kubecluster.NameFromUID}
+	got := clusterArgs(t, cfg)
+	if want := map[string]string{"--cluster-id": "9f1c4e2a-uid"}; !maps.Equal(got, want) {
+		t.Errorf("cluster args = %v, want %v", got, want)
+	}
+}
+
+func TestEvidenceArgsOmitClusterWhenUnknown(t *testing.T) {
+	if got := clusterArgs(t, serverCfg()); len(got) != 0 {
+		t.Errorf("cluster args = %v, want none", got)
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -44,6 +45,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -561,7 +563,9 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		return fmt.Errorf("failed to add dashboard reconciler: %w", err)
 	}
 
+	// The cluster id names the cluster in Evidence Server reports; read once.
 	evidenceCfg := evidence.Config{
+		Cluster:            readClusterIdentity(mgr),
 		Enabled:            o.enableEvidence,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,
@@ -637,4 +641,19 @@ func operatorOwnerRef(mgr ctrl.Manager, namespace string) *metav1ac.OwnerReferen
 		WithKind("Deployment").
 		WithName(operatorDeploy.Name).
 		WithUID(operatorDeploy.UID)
+}
+
+// readClusterIdentity reads the cluster id (the kube-system namespace UID) and
+// a display name. A failure is logged and leaves the identity empty: Evidence
+// Server reports then carry no cluster.
+func readClusterIdentity(mgr ctrl.Manager) kubecluster.Identity {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err == nil {
+		var ident kubecluster.Identity
+		if ident, err = kubecluster.Identify(context.Background(), dyn, ""); err == nil {
+			return ident
+		}
+	}
+	setupLog.Info("the cluster id could not be read; Evidence Server reports carry no cluster", "error", err)
+	return kubecluster.Identity{}
 }

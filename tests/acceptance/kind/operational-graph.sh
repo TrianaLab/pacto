@@ -264,6 +264,14 @@ while IFS=$'\t' read -r subject payload sequence envelope_id extra; do
   "$PACTO_BIN" evidence send "$BDIR/${envelope_id}.envelope.json" --url "http://127.0.0.1:${LOCAL_EV_PORT}" >/dev/null 2>&1 \
     && pass "$subject evidence accepted" || fail "$subject evidence not accepted"
 done < <(plan_records evidence)
+# The operator read the cluster id (the kube-system namespace UID) at start and
+# handed it to the Evidence Server, which stamps it on every record it accepts.
+# (UID itself is a read-only bash variable.)
+CLUSTER_UID="$(kubectl get ns kube-system -o jsonpath='{.metadata.uid}')"
+curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" \
+  | jq -e --arg u "$CLUSTER_UID" '.schemaVersion == "pacto.dev/evidence-source/v4" and .cluster.id == $u and all(.targets[]; .cluster == $u)' >/dev/null \
+  && pass "the Evidence Server names its cluster on every target" \
+  || fail "the Evidence Server does not name cluster $CLUSTER_UID"
 kill "$EV_PF" 2>/dev/null || true
 
 echo "== the live Product API proves the fixture is ready =="
@@ -295,6 +303,13 @@ FIXTURE_JSON="$(mktemp)"
     -snapshots 2 -out "$FIXTURE_JSON" ) \
   && pass "the live Product API proves the fixture, twice, across a refresh" \
   || fail "the live Product API never proved the fixture on two distinct snapshots"
+# The managed dashboard reads the kube-system namespace by name (its ClusterRole
+# grants exactly that), so its live source is keyed by the cluster UID. This is
+# the one proof that the RBAC works against a real API server.
+curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" \
+  | jq -e --arg u "$CLUSTER_UID" 'any(.sources[]; .kind == "kubernetes" and .id == $u)' >/dev/null \
+  && pass "the dashboard's live source is keyed by the cluster UID" \
+  || fail "the dashboard's live source is not keyed by cluster $CLUSTER_UID"
 
 # Browser acceptance: drive the LIVE dashboard in Chromium via Playwright, proving
 # the real frontend bundle + real HTTP API + real operator data render together —
