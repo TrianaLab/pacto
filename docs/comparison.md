@@ -41,7 +41,9 @@ when the source page covers the area and describes no such feature. A cell holds
 | **Crossplane Configuration** | ✅ | not verified | Partial | not verified | Partial | Yes | [Configurations](https://docs.crossplane.io/latest/packages/configurations/) |
 | **KubeVela** | Partial | Partial | not verified | not verified | not verified | Yes | [Version control](https://kubevela.io/docs/end-user/version-control/) |
 | **Kratix** | Partial | not verified | Partial | not verified | not verified | Yes | [Promise reference](https://docs.kratix.io/main/reference/promises/intro) |
-| **Kargo** | Partial | not verified | — | not verified | not verified | No | [Core concepts](https://docs.kargo.io/user-guide/core-concepts/) |
+| **Kargo** | Partial | not verified | not verified | not verified | not verified | No | [Core concepts](https://docs.kargo.io/user-guide/core-concepts/) |
+| **Argo CD** | not verified | Partial | not verified | not verified | Partial | Yes | [Argo CD overview](https://argo-cd.readthedocs.io/en/stable/) |
+| **Flux** | not verified | not verified | Partial | not verified | Partial | Yes | [Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/) |
 | **Pacto** | ✅ | ✅ | ✅ | ✅ (opt-in) | ✅ | No (delivery promotes, alpha) | This site |
 
 What each source page shows:
@@ -61,6 +63,13 @@ What each source page shows:
 - **Kargo**: Freight is a Kargo resource that references specific revisions of
   images, charts and commits. Stages form a promotion pipeline, and a GitOps
   agent such as Argo CD does the deploying.
+- **Argo CD**: Argo CD compares the live state of each application with the
+  target state in Git, reports the differences and marks a drifted application
+  `OutOfSync`. It syncs the manifests to the target clusters and analyses the
+  health of their resources.
+- **Flux**: a Kustomization applies the manifests from a source artifact and
+  corrects drift on every interval. Its `dependsOn` list waits for other
+  Kustomizations to be ready, and its health checks report the rollout status.
 
 ## Pacto's own row
 
