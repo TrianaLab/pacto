@@ -32,7 +32,11 @@ compliance evidence that a source carries.
   compliance, findings, coverage and observed runtime. The operator also
   reports runtime calls no contract declares and callers with no contract,
   which join the graph as `observed`. It reports only undeclared calls, so
-  this observation alone leaves every declared edge `insufficient`.
+  this observation alone leaves every declared edge `insufficient`. The
+  externals the operator reads from a workload's pod spec (`status.externals`)
+  join as `inferred` edges to external systems. A Pacto whose status predates
+  them, reports incomplete coverage or is stale adds `EXTERNALS_UNREPORTED` to
+  its target, and the external answers that consume it read `partial`.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -62,6 +66,15 @@ A declared edge any source saw is `matched`. A restricted view hides each
 caller with no namespace, from any source, and each unresolved observed name,
 counting them in `hiddenDependents` and one `OBSERVED_IDENTITY_UNRESOLVED`
 limitation per source.
+
+- A declared external dependency is `matched` when an observed call maps to
+  the same identity through the
+  [external catalog](external-catalog-reference.md#matching).
+- Only a name that matches more than one service, or that is neither a
+  service nor an external system, is unresolved.
+- An observed or inferred edge to an external system follows its caller: when
+  the caller is hidden, the edge is dropped and counted among the external
+  system's hidden consumers.
 
 ### What a target-state fixture looks like
 

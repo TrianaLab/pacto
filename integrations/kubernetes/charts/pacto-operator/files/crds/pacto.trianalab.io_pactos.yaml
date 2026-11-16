@@ -704,6 +704,10 @@ spec:
                 description: |-
                   ExternalsCoverage says whether externals can be trusted as complete:
                   partial or unavailable means a missing external is unknown, not absent.
+                  The reason is pod-spec-unavailable (the target workload could not be
+                  read), configmap-unreadable (a ConfigMap the pod spec references could
+                  not be read), serviceentry-reader-off (the cluster serves no Istio
+                  ServiceEntry API) or truncated (more than 50 externals).
                 properties:
                   reason:
                     type: string

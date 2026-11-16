@@ -72,11 +72,13 @@ confidence `unknown`, so it cannot drop out of the answer. A live source such
 as Mira reports no window, and its evidence says "no observation window".
 
 With `--include-observed` and no observed edge anywhere, the answer adds
-`OBSERVED_EVIDENCE_ABSENT`: observed-only consumers cannot be found. Observed
-calls whose services Pacto cannot identify raise
-`OBSERVED_IDENTITY_UNRESOLVED` and make the answer `partial`. A call to an
-external system the catalog or a host name identifies, such as
-`api.stripe.com`, is no consumer of a service and raises nothing.
+`OBSERVED_EVIDENCE_ABSENT`: observed-only consumers cannot be found. An
+observed call to a name that matches more than one service, or that is neither
+a service nor an external system, raises `OBSERVED_IDENTITY_UNRESOLVED` and
+makes the answer `partial`. A call to an external system that the
+[external catalog](external-catalog-reference.md#matching) or a host name
+identifies, such as `api.stripe.com`, is no consumer of a service and raises
+nothing.
 
 ## What's next
 
