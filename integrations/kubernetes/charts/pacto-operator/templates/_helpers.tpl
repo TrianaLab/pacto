@@ -472,3 +472,9 @@ tolerations:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end }}
+
+{{/*
+Whether the cluster serves an API: (list $ "<group/version[/Kind]>") renders
+true or nothing.
+*/}}
+{{- define "pacto-operator.apiServed" -}}{{- if (index . 0).Capabilities.APIVersions.Has (index . 1) }}true{{- end }}{{- end }}

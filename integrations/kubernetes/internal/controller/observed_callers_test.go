@@ -9,8 +9,11 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -55,5 +58,52 @@ func TestReconcile_ObservedCallersCoverage(t *testing.T) {
 	}
 	if got.ObservedCallers != nil {
 		t.Fatalf("callers = %+v", got.ObservedCallers)
+	}
+}
+
+// TestStatusCarriesExternalsAndFormat3 writes the externals the target's pod
+// spec names, their coverage with the refresh interval and the catalog digest,
+// in status format 3.
+func TestStatusCarriesExternalsAndFormat3(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef:          pactov1alpha1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
+			Target:               pactov1alpha1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "pay", Kind: "Deployment"}},
+			CheckIntervalSeconds: 60,
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app", Env: []corev1.EnvVar{{Name: "STRIPE_API_BASE", Value: "https://api.stripe.com/v1"}},
+		}}}}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(newSchemeWithApps()).
+		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(pacto, dep).Build()
+	r := &PactoReconciler{Client: cl, Scheme: cl.Scheme(), Recorder: record.NewFakeRecorder(20),
+		Loader: &mockLoader{loadFn: func(context.Context, string, string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract:       &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0"}, Workload: "service"},
+				RawYAML:        []byte(validContract),
+				ResolvedRef:    "r/pactos/payments@" + evaluatedDigest,
+				ResolvedDigest: evaluatedDigest,
+			}, nil
+		}}}
+	if _, err := r.Reconcile(context.Background(), reconcileReq("pay", "default")); err != nil {
+		t.Fatal(err)
+	}
+	got := getPacto(t, r, "pay", "default").Status
+	if got.StatusFormat != 3 {
+		t.Fatalf("statusFormat = %d", got.StatusFormat)
+	}
+	if len(got.Externals) != 1 || got.Externals[0].Identity != "stripe" || got.Externals[0].Host != "api.stripe.com" {
+		t.Fatalf("externals = %+v", got.Externals)
+	}
+	if c := got.ExternalsCoverage; c == nil || c.Reason != "serviceentry-reader-off" || c.RefreshSeconds != 60 {
+		t.Fatalf("coverage = %+v", c)
+	}
+	if !strings.HasSuffix(got.ExternalCatalog, " (embedded)") {
+		t.Fatalf("catalog = %q", got.ExternalCatalog)
 	}
 }

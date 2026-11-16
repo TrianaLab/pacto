@@ -120,6 +120,9 @@ type CollectInput struct {
 	// CallerIgnoreNamespaces are namespaces, besides the cluster's own and the node agent's, whose host-network
 	// pods are taken not to call workloads, so they leave caller coverage complete.
 	CallerIgnoreNamespaces []string
+	// ServiceEntries turns on the Istio ServiceEntry reader of the externals list: the operator found the
+	// networking.istio.io/v1 ServiceEntry API at startup.
+	ServiceEntries bool
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -205,10 +208,13 @@ type collectRun struct {
 	// callers and callerCoverage are what observeCallers found, as of now.
 	callers        []unversioned.ObservedCaller
 	callerCoverage *unversioned.CallerCoverage
-	now            time.Time
-	monitors       map[string]*monitorList
-	failures       []error
-	seen           map[string]bool
+	// externals and externalsCoverage are what observeExternals found.
+	externals         []unversioned.ExternalStatus
+	externalsCoverage unversioned.CallerCoverage
+	now               time.Time
+	monitors          map[string]*monitorList
+	failures          []error
+	seen              map[string]bool
 }
 
 func newCollectRun() *collectRun {
@@ -316,6 +322,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 	observations = append(observations, o.observeUndeclaredPeers(ctx, input, now)...)
 	o.run.now = now
 	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
+	o.run.externals, o.run.externalsCoverage = o.observeExternals(ctx, input)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

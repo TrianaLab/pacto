@@ -162,7 +162,7 @@ func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
 	}
 	// The status says it records guarantees, so delivery reads a missing one
 	// as none offered rather than unknown.
-	if v.Status.StatusFormat != delivery.StatusFormatDomain {
-		t.Fatalf("statusFormat = %d, want %d", v.Status.StatusFormat, delivery.StatusFormatDomain)
+	if v.Status.StatusFormat < delivery.StatusFormatDomain {
+		t.Fatalf("statusFormat = %d, want at least %d", v.Status.StatusFormat, delivery.StatusFormatDomain)
 	}
 }

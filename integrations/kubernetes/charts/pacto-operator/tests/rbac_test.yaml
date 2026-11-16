@@ -2,6 +2,26 @@ suite: rbac tests
 templates:
   - templates/clusterrole.yaml
 tests:
+  - it: should read Istio ServiceEntries when the cluster serves them
+    capabilities:
+      apiVersions: [networking.istio.io/v1]
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
+
+  - it: should not read Istio ServiceEntries without the Istio API
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [serviceentries]
+            verbs: [get, list, watch]
+
   - it: should create a ClusterRole
     asserts:
       - isKind:

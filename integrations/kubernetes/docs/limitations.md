@@ -26,7 +26,15 @@ never `NonCompliant`. That happens for:
 
 - **External or non-Pacto Services** -- a dependency backed by an `ExternalName`
   Service, or a Service the operator does not manage, cannot be reached reliably
-  and is reported `Unsupported`.
+  and is reported `Unsupported`. Compliance evidence for them stays the same.
+  When the target workload names an `ExternalName` Service, a selectorless
+  Service or a host an Istio `ServiceEntry` lists, the operator also reports it
+  in `status.externals`. It reads Services, EndpointSlices and ServiceEntries
+  in the Pacto's own namespace only, plus ServiceEntries exported to every
+  namespace (`exportTo: ["*"]`). A name that points into another namespace is
+  classified as text and never looked up. `status.externals` shows every reader
+  of the Pacto the normalized host and port that the referenced ConfigMap keys
+  hold. It never reads a Secret.
 - **Non-HTTP capability bindings** -- health and metrics probing supports HTTP
   bindings only; gRPC capability probing is not implemented and returns
   `Unsupported`.
