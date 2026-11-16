@@ -29,14 +29,14 @@ matcher.
 
 | Input | Rule | Confidence |
 |-------|------|------------|
-| A host | The longest catalog host rule wins, an exact host over a `*.` wildcard of the same length | `likely` |
+| A host | The longest catalog host rule wins, an exact host over a `*.` wildcard of the same length. An exact rule matches only that name, and `*.example.com` matches its subdomains and never `example.com` itself | `likely` |
 | A host no rule names | Three or more labels and a public registrable domain give `host/<registrable-domain>`. A two-label name matches only a catalog rule, because a namespace short form such as `orders.shop` reads like a vendor's domain | `likely` |
 | A configuration key name | Compared without case against the entries' key patterns, with `-` and `.` read as `_`, so the Secret name `stripe-credentials` reads like `STRIPE_CREDENTIALS` | `possible` |
 | An OpenTelemetry `db.system`, `messaging.system` or `rpc.system` value | Compared exactly, without case, against the entries' values. A protocol no entry claims, such as `grpc`, gives no match | `likely` |
 
 A configuration value is a host candidate only when it has a scheme
 (`https://`), a port or a key named like a host: one that contains `url`,
-`uri`, `host`, `endpoint`, `addr`, `address`, `server`, `broker` or `dsn`. A
+`uri`, `host`, `endpoint`, `addr`, `address`, `server` or `broker`. A
 value that names no host can still match by its key name. `likely` means a
 host or a system value matched. `possible` means only a key name did, and
 nothing else confirms it.
@@ -50,7 +50,9 @@ The matcher reads a host and a port and nothing else:
   `postgres://user:pass@db.xyz.rds.amazonaws.com:5432/app?password=x` shows as
   `db.xyz.rds.amazonaws.com:5432`.
 - A value under a key that names a password, secret, token, key, credential,
-  private key or DSN is never parsed. Only its key name is matched.
+  private key or DSN is never parsed. Only its key name is matched. The rule
+  reads parts of a name, so a `DATABASE_DSN` or `KEYCLOAK_URL` value gives no
+  host either.
 - A Secret contributes its name and key names, never a value.
 - A comma-separated seed list, such as Kafka brokers, gives one host per entry,
   and a `jdbc:` prefix is dropped.
