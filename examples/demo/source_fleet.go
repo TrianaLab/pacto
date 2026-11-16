@@ -118,6 +118,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
+		ExternalUses: demoExternalUses(demoNow()),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -126,7 +127,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// the target page shows anything worth reading.
 	telemetry := fleet.NewMemorySource("otel-traces", "observation", &fleet.Collection{
 		Targets:  demoCorroboratedTargets(),
-		Observed: demoObservedEdges(),
+		Observed: demoObservedEdges(demoNow()),
 	})
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
@@ -454,22 +455,5 @@ func demoCorroboratedTargets() []fleet.RawTarget {
 	return []fleet.RawTarget{
 		{Scope: "prod", Kind: "Deployment", Name: "payments-service", Service: "payments-service", EvidenceAt: at(seen)},
 		{Scope: "prod", Kind: "Deployment", Name: "orders-service", Service: "orders-service", EvidenceAt: at(seen)},
-	}
-}
-
-// demoObservedEdges are embedded observed caller→provider edges Build folds into
-// the snapshot as domain-qualified observed relationships. audit-log is observed
-// calling payments-service WITHOUT declaring it — an observed-only (shadow)
-// dependency; orders-service→payments-service corroborates a declared dependency;
-// reporting-api reads postgresql directly without declaring any use of the
-// offering, so the postgresql page lists it as an undeclared caller.
-// They surface in the Operational Graph's Observed layer and, when include-observed
-// is enabled, in impact.
-func demoObservedEdges() []fleet.ObservedEdge {
-	return []fleet.ObservedEdge{
-		{From: "audit-log", To: "payments-service", Count: 12},
-		{From: "orders-service", To: "payments-service", Count: 340},
-		// Seen 20 minutes before the demo loaded, so the page reads it as current.
-		{From: "reporting-api", To: "postgresql", Count: 57, FirstSeen: demoNow().Add(-6 * time.Hour), LastSeen: demoNow().Add(-20 * time.Minute)},
 	}
 }
