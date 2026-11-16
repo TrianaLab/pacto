@@ -18,6 +18,9 @@ const (
 	MaxMetaSources = 50
 	// MaxMetaLimitations caps the limitations carried in a product answer's meta.
 	MaxMetaLimitations = 100
+	// MaxSourceNamespaces caps the namespaces one source carries in a meta;
+	// NamespacesTotal keeps the full count.
+	MaxSourceNamespaces = 64
 )
 
 // MaxGraphNodes caps the nodes one graph traversal answer carries. The walk itself
@@ -44,10 +47,17 @@ func sourceHealthRank(s SourceStatus) int {
 	}
 }
 
-// boundSources caps a (already-cloned) source slice at MaxMetaSources. Under the
+// boundSources caps a (already-cloned) source slice at MaxMetaSources, and each
+// source's namespaces at MaxSourceNamespaces. Under the
 // cap the slice is returned verbatim in its stable snapshot order; over the cap
 // the unhealthy sources are kept first and truncation is reported.
 func boundSources(ss []SourceState) ([]SourceState, bool) {
+	for i := range ss {
+		if n := len(ss[i].Namespaces); n > MaxSourceNamespaces {
+			ss[i].NamespacesTotal = max(ss[i].NamespacesTotal, n)
+			ss[i].Namespaces = ss[i].Namespaces[:MaxSourceNamespaces]
+		}
+	}
 	if len(ss) <= MaxMetaSources {
 		return ss, false
 	}

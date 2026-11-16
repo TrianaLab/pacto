@@ -348,17 +348,9 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	}
 	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
-	reads := mcpDeliveryReads(id, fm, fleetNamespace(cmd))
+	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe()}, nil
-}
-
-// fleetNamespace is the fleet --namespace, the only namespace delivery reads
-// cover when set, as on the dashboard. --delivery-namespace names where the
-// identity policy is published and never narrows them.
-func fleetNamespace(cmd *cobra.Command) string {
-	ns, _ := cmd.Flags().GetString("namespace")
-	return ns
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.

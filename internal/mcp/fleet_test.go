@@ -886,3 +886,29 @@ func TestFleetStatusToolNeverRecords(t *testing.T) {
 		}
 	}
 }
+
+// TestFleetStatusScopedNamesNamespaces: an agent reading pacto_fleet_status
+// over a source that watches a namespace list sees the namespaces and the
+// limitation that says the rest is unknown.
+func TestFleetStatusScopedNamesNamespaces(t *testing.T) {
+	read := []string{"ledger", "payments"}
+	src := fleet.NewMemorySource("c1", fleet.SourceKindKubernetes, &fleet.Collection{
+		State:       &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: read, NamespacesTotal: 2},
+		Limitations: []fleet.Limitation{fleet.NamespaceScopeLimitation("c1", read, 0)},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := callHandler(t, fleetStatusTool(), fleetStatusHandler(fleet.NewQuery(snap)), map[string]any{})
+	var out fleet.StatusResult
+	decode(t, res, &out)
+	if out.Meta.Completeness != fleet.CompletenessPartial || len(out.Meta.Sources) != 1 || !slices.Equal(out.Meta.Sources[0].Namespaces, read) {
+		t.Fatalf("meta = %+v, want partial over [ledger payments]", out.Meta)
+	}
+	if !slices.ContainsFunc(out.Meta.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == fleet.LimitationK8sNamespaceScoped && strings.Contains(l.Message, "(ledger and payments)")
+	}) {
+		t.Errorf("limitations = %+v, want the scope", out.Meta.Limitations)
+	}
+}

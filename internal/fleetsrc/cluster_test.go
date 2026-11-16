@@ -17,7 +17,7 @@ func TestK8sSourceStampsCluster(t *testing.T) {
 	col, err := NewK8sSource("uid-a", cl, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant"}}]}`),
-	}, "").Collect(context.Background())
+	}, nil).Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

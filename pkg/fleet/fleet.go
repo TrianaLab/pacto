@@ -319,7 +319,13 @@ const (
 	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
-	LimitationUnresolvedDep       = "UNRESOLVED_DEPENDENCY"
+	// LimitationK8sNamespaceScoped: a Kubernetes source reads a list of
+	// namespaces, so a service in any other namespace is unknown.
+	LimitationK8sNamespaceScoped = "K8S_NAMESPACE_SCOPED"
+	// LimitationK8sNamespaceUnreadable: a namespace a Kubernetes source was told
+	// to read could not be read; what runs there is unknown.
+	LimitationK8sNamespaceUnreadable = "K8S_NAMESPACE_UNREADABLE"
+	LimitationUnresolvedDep          = "UNRESOLVED_DEPENDENCY"
 	// LimitationRangeUnsatisfied: a declared dependency resolves to a provider
 	// whose version in the fleet is outside the consumer's compatibility range.
 	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
@@ -483,6 +489,8 @@ type SourceState struct {
 	Error              *SourceError `json:"error,omitempty"`
 	RevisionCount      int          `json:"revisionCount"`
 	TargetCount        int          `json:"targetCount"`
+	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read; empty means every namespace. Anything in another namespace is unknown."`
+	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted."`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a

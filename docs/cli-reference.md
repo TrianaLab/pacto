@@ -225,8 +225,8 @@ pacto dashboard [sources...] [flags]
   # Custom port
   pacto dashboard --port 9090
 
-  # Specify Kubernetes namespace (default: all namespaces)
-  pacto dashboard --namespace production
+  # Read only some Kubernetes namespaces (default: all namespaces)
+  pacto dashboard --namespace payments,ledger
 ```
 
 **Flags:**
@@ -240,7 +240,7 @@ pacto dashboard [sources...] [flags]
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
-      --namespace string                  Kubernetes namespace (empty = all namespaces)
+      --namespace string                  Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard
       --oidc-display-name string          the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)
@@ -1019,7 +1019,7 @@ pacto fleet [flags]
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
@@ -1416,7 +1416,7 @@ pacto impact <old> <new> | --unavailable <service> | --removed <service> | --reg
       --k8s[=true|false]                include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string                namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string                namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --new-set stringArray             set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray          values file to merge into the new contract (can be repeated)
       --oci stringArray                 registry reference to include as a published-baseline revision (repeatable)
@@ -1725,7 +1725,7 @@ pacto mcp [bundle-ref] [flags]
       --k8s[=true|false]              include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string              namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
       --oidc-groups-prefix string     prefix the API server puts before every group; must match its claim mapping
@@ -2048,7 +2048,7 @@ pacto stats [flags]
       --kind stringArray           total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --registry string            stats repository to read or publish to, for example ghcr.io/acme/pacto-stats (default $PACTO_STATS_REGISTRY)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -2107,7 +2107,7 @@ pacto tui [flags]
       --k8s[=true|false]           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --namespace string           namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only[=true|false]     hide every write verb
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -2285,7 +2285,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_REPO` | *(positional args)* | **Comma**-separated OCI repositories, used only when no positional `oci://` argument is given |
 | `PACTO_DASHBOARD_HOST` | `--host` | Bind address (default: `127.0.0.1`) |
 | `PACTO_DASHBOARD_PORT` | `--port` | HTTP port (default: `3000`) |
-| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
+| `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespaces to read, comma-separated (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |

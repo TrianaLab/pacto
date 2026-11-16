@@ -43,7 +43,7 @@ To build the image from a checkout instead, `make docker-build` and
 |---|---|---|
 | `PACTO_DASHBOARD_HOST` | Bind address for the server | `0.0.0.0` (in image), `127.0.0.1` (CLI) |
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
-| `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
+| `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespaces to read, comma-separated (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |

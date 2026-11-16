@@ -67,7 +67,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
-	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
+	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	f.AddFlagSet(shared)
 }
@@ -139,7 +139,6 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	// onto the flag, so this one read covers all three.
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
-	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	return app.FleetOptions{
 		LocalRoots:         local,
@@ -151,10 +150,44 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
-		K8sNamespace:       namespace,
+		K8sNamespaces:      flagNamespaces(cmd),
 		FreshnessWindow:    freshness,
 		Provenance:         app.NewProvenanceChecker(),
 	}
+}
+
+// flagNamespaces is the --namespace list of cmd; empty when unset or
+// undeclared.
+func flagNamespaces(cmd *cobra.Command) []string {
+	ns, _ := cmd.Flags().GetString("namespace")
+	return splitNamespaces(ns)
+}
+
+// splitNamespaces reads a comma-separated namespace list: trimmed, sorted,
+// deduplicated, empty entries dropped. One value is a list of one.
+func splitNamespaces(s string) []string {
+	var out []string
+	for ns := range strings.SplitSeq(s, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// deliveryNarrowing is the namespace delivery reads are narrowed to: the one
+// namespace of list, or "" (every namespace) for none or several. Delivery
+// reads list one namespace or all of them, and always run with the reader's
+// own token, so this is a convenience and never an authorization boundary:
+// a list of several namespaces reads delivery everywhere the reader may.
+// --delivery-namespace names where the identity policy is published and never
+// narrows them.
+func deliveryNarrowing(list []string) string {
+	if len(list) == 1 {
+		return list[0]
+	}
+	return ""
 }
 
 // buildQuery assembles the snapshot and returns a pure query over it.
