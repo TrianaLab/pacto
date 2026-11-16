@@ -154,7 +154,7 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 // configuration's defaults must pass alone. Before pactoVersion 2.4 a ref
 // configuration has no defaults, so only given values are checked.
 func valuesChecked(c *contract.Contract, cfg contract.Configuration, given bool) bool {
-	return given || cfg.Required && (cfg.Ref == "" || !olderThan(c.PactoVersion, "2.4"))
+	return given || cfg.Required && (cfg.Ref == "" || RefValuesAllowed(c.PactoVersion))
 }
 
 // loadConfigSchema compiles a configuration's schema from the bundle, or

@@ -188,7 +188,7 @@ func SelectConfiguration(entry contract.Configuration, provider *contract.Contra
 // selector and inline values do, as do environment values for it and a
 // dependency on the same repository with a compatibility to check against.
 func refNeeded(c *contract.Contract, cfg contract.Configuration, given map[string]bool) bool {
-	if !olderThan(c.PactoVersion, "2.4") || given[cfg.Name] {
+	if RefValuesAllowed(c.PactoVersion) || given[cfg.Name] {
 		return true
 	}
 	repo := refRepository(cfg.Ref)

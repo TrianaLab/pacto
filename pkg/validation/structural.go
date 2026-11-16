@@ -155,6 +155,11 @@ func ValidateStructural(data any) ValidationResult {
 	return result
 }
 
+// RefValuesAllowed reports whether a contract at version lets a configuration
+// that takes its schema by ref carry values, and checks that configuration as
+// needed: from pactoVersion 2.4. An unknown version is refused.
+func RefValuesAllowed(version string) bool { return !olderThan(version, "2.4") }
+
 // olderThan reports whether the supported pactoVersion version comes before
 // than, so each later version keeps every field an earlier one added.
 func olderThan(version, than string) bool {

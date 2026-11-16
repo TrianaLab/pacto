@@ -1092,3 +1092,19 @@ func TestPortRange(t *testing.T) {
 		}
 	}
 }
+
+// TestRefValuesAllowed: a ref configuration carries values from 2.4 on, and an
+// unknown version is refused as before, matching the operator's old formula.
+func TestRefValuesAllowed(t *testing.T) {
+	for v, want := range map[string]bool{
+		contract.SupportedVersions[0]: false,
+		"2.3":                         false,
+		"2.4":                         true,
+		contract.Current():            true,
+		"9.9":                         false,
+	} {
+		if got := RefValuesAllowed(v); got != want {
+			t.Errorf("RefValuesAllowed(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
