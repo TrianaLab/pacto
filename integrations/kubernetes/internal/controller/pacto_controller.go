@@ -531,11 +531,6 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
 }
 
-// classifyLoadError maps OCI load errors to Invalid vs Unknown (spec section 9.8).
-// Only the transient obtain-failures are enumerated; everything else — malformed ref,
-// corrupt bundle, unsatisfiable constraint, any error pkg/oci grows later — is Invalid.
-// Listing the Invalid side too was a second closed enumeration the compiler could not
-// check, so a new transient type would have missed BOTH arms and still read Invalid.
 // loadErrorReason names a load failure the ContractValid condition reports with
 // its own reason: a contract that leaves its pactoVersion, service.name or
 // service.version implied is ContractUndeclared.
@@ -546,6 +541,11 @@ func loadErrorReason(err error) string {
 	return ""
 }
 
+// classifyLoadError maps OCI load errors to Invalid vs Unknown (spec section 9.8).
+// Only the transient obtain-failures are enumerated; everything else — malformed ref,
+// corrupt bundle, unsatisfiable constraint, any error pkg/oci grows later — is Invalid.
+// Listing the Invalid side too was a second closed enumeration the compiler could not
+// check, so a new transient type would have missed BOTH arms and still read Invalid.
 func classifyLoadError(err error) string {
 	var (
 		unreachable *oci.RegistryUnreachableError
