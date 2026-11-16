@@ -54,6 +54,9 @@ To check both actively in one namespace, label it:
 kubectl label ns payments pacto.trianalab.io/observe=probing.metrics
 ```
 
+The label applies at each Pacto's next check, within
+`spec.checkIntervalSeconds` (default 5 minutes).
+
 To check them in every namespace, add to `helm install`
 `--set controller.probing=on --set controller.metricsObservation=on`;
 see [Opt-in features](limitations.md#opt-in-features).

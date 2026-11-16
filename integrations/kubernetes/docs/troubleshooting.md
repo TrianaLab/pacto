@@ -111,11 +111,12 @@ is good for is age: an `observedAt` that stopped advancing while
 `metadata.generation` moved on is a leftover from a reconcile that no longer
 runs.
 
-To re-observe, nudge the resource. Any update enqueues a reconcile, and the
-annotation key is arbitrary:
+To re-observe, nudge the Pacto's target Service. Any update to it enqueues a
+reconcile, and the annotation key is arbitrary. An annotation on the Pacto
+itself does not, because only a spec change reconciles a Pacto:
 
 ```bash
-kubectl annotate pacto <name> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
+kubectl annotate service <target> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
 ```
 
 For observations that must outlive the reconcile that made them, such as an
@@ -192,7 +193,11 @@ from:
 
 - `probing off (--enable-probing=auto, namespace has no pacto.trianalab.io/observe label)`
   means label the namespace (`kubectl label ns NAMESPACE
-  pacto.trianalab.io/observe=probing`) or set `controller.probing=on`.
+  pacto.trianalab.io/observe=probing`) or set `controller.probing=on`. The
+  operator does not watch namespaces: it reads the label at each Pacto's next
+  check (`spec.checkIntervalSeconds`, default 5 minutes). To apply it now,
+  annotate the target Service as in
+  [Evidence is not stored](#chasing-the-evidence-behind-a-finding).
 - `namespace label unreadable: forbidden` or `not found` means the operator
   may not read the namespace; check the `namespaces get` grant in
   [RBAC](rbac.md). The condition stays `True`.

@@ -115,6 +115,9 @@ kubectl label ns payments pacto.trianalab.io/observe=probing
 - The label value is `probing`, `metrics` or `probing.metrics`; unlabelled
   namespaces stay passive. The label also works with
   `controller.watchNamespaces`.
+- The operator reads the label at each Pacto's next check
+  (`spec.checkIntervalSeconds`, default 5 minutes); see
+  [Troubleshooting](troubleshooting.md#metrics-or-health-always-unknown) to apply it sooner.
 - `controller.probing` sends requests to your Services to check health and
   protocol; `on` probes every namespace. An explicit `auto` overrides the
   [deprecated keys](upgrade.md#deprecated-observation-keys).
