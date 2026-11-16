@@ -4,7 +4,7 @@ import { appReady } from './ready';
 // Browser acceptance for the entity pages' narrations (SPEC 6, G2) and the marks only a
 // real engine renders (G6). The validation rail of a revision whose policy check failed
 // plays on arrival once per session, never off-screen or with the tab hidden, and its
-// Skip is disabled unless it plays. The shared G1 gate (layout.spec.ts) owns layout.
+// Skip is disabled unless it plays. The shared G1 gate (layout-matrix.spec.ts) owns layout.
 
 const FIGURE = '[data-testid="revision-validation-figure"]';
 

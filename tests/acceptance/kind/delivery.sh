@@ -1085,8 +1085,10 @@ PROMOTER_POD="$(kubectl -n "$DNS" get pods -l app.kubernetes.io/component=delive
 METRICS="$(kubectl get --raw "/api/v1/namespaces/${DNS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
 grep -q '^pacto_delivery_operations_total{.*type="delivery.pacto.trianalab.io/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
 grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
-kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"
-kubectl -n test get events --field-selector involvedObject.kind=Operation,reason=Held -o name | grep -q . || fail "no held operation emitted an Event"
+# Events are recorded asynchronously and best effort: poll, never read once.
+has_event() { kubectl -n "$1" get events --field-selector "involvedObject.kind=$2,reason=$3" -o name | grep -q .; }
+eventually 20 has_event prod Stage Frozen || fail "the prod Stage froze without an Event"
+eventually 20 has_event test Operation Held || fail "no held operation emitted an Event"
 # A throwaway Stage that reads nothing: its creation and deletion each emit one Event on it.
 stage_event() { kubectl -n test get events --field-selector "involvedObject.kind=Stage,involvedObject.name=payments-envevent,reason=$1" -o name | grep -q .; }
 kubectl -n test apply -f - >/dev/null <<YAML

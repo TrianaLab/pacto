@@ -5,7 +5,7 @@ import { installScaleFixture } from './layoutGate';
 
 // Browser acceptance for the Change analysis figure (SPEC 7, flagship) and its narration
 // (SPEC 6, G2), and for the isometric backdrop behind the Overview header and the idle
-// empty states. The shared G1 gate (layout.spec.ts) owns overlap, scale and copy-in-box;
+// empty states. The shared G1 gate (layout-matrix.spec.ts) owns overlap, scale and copy-in-box;
 // this file owns what only a real engine can show: the narration plays when the reader
 // asks, once per answer, Skip ends it in one frame, reduced motion steps instead, a route
 // change ends it, and the rest state is every mark at full opacity in place.

@@ -3,7 +3,7 @@ import { settle } from './ready';
 
 // G1, the transversal layout gate, and the scale fixture it runs on.
 //
-// `layoutGate.ts`, not `*.spec.ts`, so Playwright does not collect it. layout.spec.ts
+// `layoutGate.ts`, not `*.spec.ts`, so Playwright does not collect it. layout-matrix.spec.ts
 // drives every route through it; any spec may call `layoutProblems` on a page it
 // already opened.
 //
