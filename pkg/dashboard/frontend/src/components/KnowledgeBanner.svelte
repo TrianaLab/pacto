@@ -1,6 +1,6 @@
 <script>
   import { knowledgeTone } from '../lib/entityLabels.ts';
-  import { degradedSourceSummary, watchedScope, scopeLabels } from '../lib/knowledgeState.ts';
+  import { degradedSourceSummary, watchedScope, scopeLabels, hiddenScope } from '../lib/knowledgeState.ts';
   import { joinAnd } from '../lib/answers.ts';
 
   // "What we could not see" is the same caveat on every product surface, and it was
@@ -46,7 +46,7 @@
 {#if knowledge.incomplete || scope.count}
   <div class="knowledge tone-{tone || knowledgeTone(knowledge.level)}" role="status" data-testid={testid}>
     {#if scope.count}
-      <strong data-testid="watched-scope" title={joinAnd(scope.names)}>Watching {scope.count} {scope.count === 1 ? 'namespace' : 'namespaces'} ({#each scopeShown as n, i}{i === 0 ? '' : i === scopeShown.length - 1 ? ' and ' : ', '}{#if n.endsWith(' more')}{n}{:else}<bdi>{n}</bdi>{/if}{/each}).</strong>
+      <strong data-testid="watched-scope" title={scope.names.length ? joinAnd(scope.names) : hiddenScope(scope.count)}>Watching {scope.count} {scope.count === 1 ? 'namespace' : 'namespaces'} ({#each scopeShown as n, i}{i === 0 ? '' : i === scopeShown.length - 1 ? ' and ' : ', '}{#if scope.names.includes(n)}<bdi>{n}</bdi>{:else}{n}{/if}{/each}).</strong>
     {:else}
       <strong>The fleet snapshot is missing data.</strong>
     {/if}
@@ -66,4 +66,6 @@
     background: var(--c-hatch) left / 6px 100% no-repeat, var(--c-neutral-bg);
     border-color: var(--c-neutral); padding-inline-start: calc(var(--sp-3) + 6px);
   }
+  /* A 63-character namespace with no hyphen has no break point of its own. */
+  .knowledge bdi { overflow-wrap: anywhere; }
 </style>

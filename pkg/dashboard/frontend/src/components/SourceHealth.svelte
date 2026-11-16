@@ -2,7 +2,7 @@
   import { formatCount } from '../lib/format.ts';
   import { fleetEntityUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { sourceHealthLabel, sourceHealthTone } from '../lib/entityLabels.ts';
-  import { watchedScope, scopeLabels } from '../lib/knowledgeState.ts';
+  import { watchedScope, scopeLabels, hiddenScope } from '../lib/knowledgeState.ts';
   import { joinAnd } from '../lib/answers.ts';
 
   // Renders per-source health as navigable chips (which sources are
@@ -49,7 +49,7 @@
         <span class="sh-id">{s.id}</span>
         {#if s.kind && s.kind !== s.id}<span class="sh-kind">{s.kind}</span>{/if}
         <span class="sh-status">{sourceHealthLabel(s.status)}</span>
-        {#if sc.count}<span class="sh-scope" title={joinAnd(sc.names)}>Watches {joinAnd(sc.shown)}</span>{/if}
+        {#if sc.count}<span class="sh-scope" title={sc.names.length ? joinAnd(sc.names) : hiddenScope(sc.count)}>Watches {sc.names.length ? joinAnd(sc.shown) : hiddenScope(sc.count)}</span>{/if}
         {#if sc.unreadable.length}<span class="sh-scope" title={joinAnd(sc.unreadable)}>Could not read {joinAnd(sc.unreadableShown)}</span>{/if}
       </a>
     {/each}

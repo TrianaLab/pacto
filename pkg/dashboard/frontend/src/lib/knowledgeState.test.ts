@@ -330,6 +330,7 @@ describe('watchedScope', () => {
 
   it('shows the first 3 and "N more" past 4 names', () => {
     expect(scopeLabels(['a', 'b', 'c', 'd'], 4)).toEqual(['a', 'b', 'c', 'd']);
+    expect(scopeLabels([], 3)).toEqual(['none you may read']);
     expect(scopeLabels(['a', 'b', 'c', 'd', 'e', 'f'], 6)).toEqual(['a', 'b', 'c', '3 more']);
   });
 });

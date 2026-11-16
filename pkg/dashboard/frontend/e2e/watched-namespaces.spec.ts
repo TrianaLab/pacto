@@ -12,7 +12,7 @@ import { appReady } from './ready';
 const T = 30_000;
 
 /** Adds a scoped Kubernetes source to the overview meta. Runs in the page. */
-function installScope(scope: { namespaces: string[]; unreadable: string[] }): void {
+function installScope(scope: { namespaces: string[]; unreadable: string[]; total?: number }): void {
   interface ServeResult { status: number; body: string; contentType: string }
   type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   let real: Serve | null = null;
@@ -22,7 +22,7 @@ function installScope(scope: { namespaces: string[]; unreadable: string[] }): vo
     const doc = JSON.parse(res.body);
     const meta = doc.meta;
     meta.completeness = 'partial';
-    meta.sources = [{ id: 'k8s', kind: 'kubernetes', status: 'partial', revisionCount: 0, targetCount: 0, namespaces: scope.namespaces }, ...(meta.sources ?? [])];
+    meta.sources = [{ id: 'k8s', kind: 'kubernetes', status: 'partial', revisionCount: 0, targetCount: 0, namespaces: scope.namespaces, namespacesTotal: scope.total }, ...(meta.sources ?? [])];
     meta.sourceCounts = { ...meta.sourceCounts, total: (meta.sourceCounts?.total ?? 0) + 1, partial: (meta.sourceCounts?.partial ?? 0) + 1 };
     meta.limitations = [
       { code: 'K8S_NAMESPACE_SCOPED', source: 'k8s', message: `source k8s watches ${scope.namespaces.length} namespaces; services in any other namespace are unknown` },
@@ -38,8 +38,8 @@ function installScope(scope: { namespaces: string[]; unreadable: string[] }): vo
   });
 }
 
-async function openOverview(page: Page, namespaces: string[], unreadable: string[] = []) {
-  await page.addInitScript(installScope, { namespaces, unreadable });
+async function openOverview(page: Page, namespaces: string[], unreadable: string[] = [], total?: number) {
+  await page.addInitScript(installScope, { namespaces, unreadable, total });
   await appReady(page, '/#/fleet');
   await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
 }
@@ -77,5 +77,17 @@ test.describe('WASM demo — the Overview names the watched namespaces', () => {
     await expect(scopedChip(page)).toContainText('Watches payments');
     await expect(scopedChip(page)).toContainText('Could not read ledger');
     await expect(page.locator('.all-clear')).toHaveCount(0);
+  });
+
+  test('a reader who may read no watched namespace is told so, never shown a bare count', async ({ page }) => {
+    await openOverview(page, [], [], 3);
+    await expect(watched(page)).toHaveText('Watching 3 namespaces (none you may read).', { timeout: T });
+    await expect(watched(page)).toHaveAttribute('title', '3 namespaces you may not read');
+    await expect(scopedChip(page)).toContainText('Watches 3 namespaces you may not read');
+  });
+
+  test('names the backend left out are counted', async ({ page }) => {
+    await openOverview(page, ['payments'], [], 3);
+    await expect(watched(page)).toHaveText('Watching 3 namespaces (payments and 2 more).', { timeout: T });
   });
 });

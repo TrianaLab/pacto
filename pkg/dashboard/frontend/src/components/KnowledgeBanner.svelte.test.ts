@@ -40,6 +40,21 @@ describe('KnowledgeBanner scope', () => {
     done();
   });
 
+  it('KnowledgeBanner says every watched namespace is hidden from the reader', () => {
+    const { target, done } = render([], { namespacesTotal: 3 });
+    expect(text(target)).toMatch(/^Watching 3 namespaces \(none you may read\)\. /);
+    expect(target.querySelector('[data-testid="watched-scope"]')?.getAttribute('title')).toBe('3 namespaces you may not read');
+    expect(target.querySelectorAll('bdi')).toHaveLength(0);
+    done();
+  });
+
+  it('KnowledgeBanner counts names it may not show', () => {
+    const { target, done } = render(['payments'], { namespacesTotal: 3 });
+    expect(text(target)).toMatch(/^Watching 3 namespaces \(payments and 2 more\)\. /);
+    expect(target.querySelector('[data-testid="watched-scope"]')?.getAttribute('title')).toBe('payments');
+    done();
+  });
+
   it('keeps the banner as before without a scoped source', () => {
     const target = document.createElement('div');
     document.body.appendChild(target);

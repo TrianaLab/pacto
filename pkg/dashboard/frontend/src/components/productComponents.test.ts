@@ -209,6 +209,18 @@ describe('SourceHealth', () => {
     expect(target.textContent).not.toContain('Could not read');
   });
 
+  it('SourceHealth says every watched namespace is hidden from the reader', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: [], namespacesTotal: 3 }] } });
+    const scope = target.querySelector('.sh-scope') as HTMLElement;
+    expect(scope.textContent).toBe('Watches 3 namespaces you may not read');
+    expect(scope.getAttribute('title')).toBe('3 namespaces you may not read');
+  });
+
+  it('SourceHealth counts names it may not show', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments'], namespacesTotal: 3 }] } });
+    expect((target.querySelector('.sh-scope') as HTMLElement).textContent).toBe('Watches payments and 2 more');
+  });
+
   it('SourceHealth names an unreadable namespace', () => {
     comp = mount(SourceHealth, {
       target,

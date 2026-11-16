@@ -195,11 +195,21 @@ export function watchedScope(
 }
 
 /** scopeLabels lists the names to print for `count` namespaces: past 4 the first 3
- *  and "N more", and "N more" for any the reader may not see. */
+ *  and "N more", and "N more" for any the backend capped or hid. No name at all with
+ *  a count means the backend hid every one from this reader: "none you may read".
+ *  ponytail: a tail of capped and hidden names reads "N more"; the meta does not
+ *  say which is which. */
 export function scopeLabels(names: string[], count: number): string[] {
+  if (!names.length && count > 0) return ['none you may read'];
   const more = Math.max(count, names.length) - names.length;
   if (names.length + (more > 0 ? 1 : 0) > 4) return [...names.slice(0, 3), `${Math.max(count, names.length) - 3} more`];
   return more > 0 ? [...names, `${more} more`] : names;
+}
+
+/** hiddenScope says `count` watched namespaces are hidden from this reader, the
+ *  backend's own wording ("3 namespaces you may not read"). */
+export function hiddenScope(count: number): string {
+  return `${count} ${count === 1 ? 'namespace' : 'namespaces'} you may not read`;
 }
 
 /**

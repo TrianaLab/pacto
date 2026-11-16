@@ -228,7 +228,8 @@ export function installScaleFixture(): void {
       // 'overview watched namespaces': a Kubernetes source reading 12 long namespaces,
       // one of which it could not read. Behind a flag so no other route moves.
       if ((window as unknown as { __scoped?: boolean }).__scoped && meta) {
-        const ns = Array.from({ length: 12 }, (_, i) => longName(`watched-namespace-${i}`));
+        // The first is a legal 63-character DNS label with no hyphen: no break point of its own.
+        const ns = Array.from({ length: 12 }, (_, i) => (i === 0 ? 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1' : longName(`watched-namespace-${i}`)));
         meta.sources = [{ id: 'k8s-scoped', kind: 'kubernetes', status: 'partial', revisionCount: 0, targetCount: 0, namespaces: ns, namespacesTotal: 12 },
           ...((meta.sources as unknown[] | undefined) ?? [])];
         meta.limitations = [
