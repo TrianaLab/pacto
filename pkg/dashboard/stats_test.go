@@ -149,6 +149,7 @@ type statsBody struct {
 	Services         []StatsServiceRow   `json:"services"`
 	ServicesTotal    int                 `json:"servicesTotal"`
 	CoverageNow      *runrecord.Coverage `json:"coverageNow"`
+	EnvironmentsBy   StatsEnvironmentsBy `json:"environmentsBy"`
 }
 
 func getStatsBody(t *testing.T, srv *httptest.Server, query string) (statsBody, string) {
@@ -792,5 +793,149 @@ func TestStatsClockDefaultsToNow(t *testing.T) {
 	before := time.Now()
 	if got := NewServer(Options{}).now(); got.Before(before) {
 		t.Fatalf("now = %v", got)
+	}
+}
+
+// ownersFleetQuery: orders (team checkout, domain commerce) runs in shop,
+// billing (team payments, domain finance) in vault, catalog (no owner, no
+// domain) and ledger (team books, a real domain named unknown) in shop.
+func ownersFleetQuery(t *testing.T, partial bool) *fleet.Query {
+	t.Helper()
+	rev := func(name string, owner contract.Owner, domain string, d byte) fleet.RawRevision {
+		c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: "1.0.0", Owner: owner, Domain: domain}}
+		return fleet.RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: sha(d)}
+	}
+	target := func(ns, name string) fleet.RawTarget {
+		return fleet.RawTarget{Scope: ns, Kind: fleet.SourceKindKubernetes, Name: name, Service: name, Compliance: fleet.StatusCompliant}
+	}
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{rev("orders", contract.Owner{Team: "checkout"}, "commerce", 'a'), rev("billing", contract.Owner{Team: "payments"}, "finance", 'c'),
+			rev("catalog", contract.Owner{}, "", 'e'), rev("ledger", contract.Owner{Team: "books"}, "unknown", 'f')},
+		Targets: []fleet.RawTarget{target("shop", "orders"), target("vault", "billing"), target("shop", "catalog"), target("shop", "ledger")},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return statsNowAt.Add(-time.Hour) }},
+		fleet.NewMemorySource("k8s", "kubernetes", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial {
+		snap.Completeness = fleet.CompletenessPartial
+	}
+	return fleet.NewQuery(snap)
+}
+
+// ownersSet: production delivers orders twice and billing once.
+func ownersSet() stats.RecordSet {
+	return recordSet(
+		opRec("orders", "shop", "prod", "production", ago(10)),
+		opRec("orders", "shop", "prod", "production", ago(8)),
+		opRec("billing", "vault", "prod", "production", ago(9)),
+		ciRec(runrecord.KindDiff, "orders", sha('a'), sha('b'), ago(20)),
+	)
+}
+
+func groupEnvs(groups []StatsEnvironmentGroup, key string) []stats.EnvironmentMetrics {
+	for _, g := range groups {
+		if g.Key == key {
+			return g.Environments
+		}
+	}
+	return nil
+}
+
+// aggregateEnvGroups is what pacto stats --by says per group, as
+// environmentsBy carries it.
+func aggregateEnvGroups(set stats.RecordSet, w stats.Window, by string, sc stats.Scope) []StatsEnvironmentGroup {
+	out := []StatsEnvironmentGroup{}
+	for _, g := range stats.Aggregate(set, stats.Query{Window: w, By: by}, sc, statsNowAt).Groups {
+		envs := g.Metrics.Environments
+		if envs == nil {
+			envs = []stats.EnvironmentMetrics{}
+		}
+		out = append(out, StatsEnvironmentGroup{Key: g.Key, Label: g.Label, Environments: envs})
+	}
+	return out
+}
+
+func TestStatsEnvironmentsByOwner(t *testing.T) {
+	q, set := ownersFleetQuery(t, false), ownersSet()
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(q)}), "")
+	by := b.EnvironmentsBy
+	checkout, payments := groupEnvs(by.Owner, "team:checkout"), groupEnvs(by.Owner, "team:payments")
+	if len(checkout) != 1 || checkout[0].Environment != "production" || checkout[0].Operations != 2 ||
+		len(payments) != 1 || payments[0].Environment != "production" || payments[0].Operations != 1 {
+		t.Fatalf("production must count under each owner with only its promotions: %+v", by.Owner)
+	}
+	if finance := groupEnvs(by.Domain, "finance"); len(finance) != 1 || finance[0].Operations != 1 {
+		t.Fatalf("domains = %+v", by.Domain)
+	}
+}
+
+func TestStatsEnvironmentsByEqualsAggregate(t *testing.T) {
+	q, set := ownersFleetQuery(t, false), ownersSet()
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(q)}), "")
+	by := b.EnvironmentsBy
+	if by.Attribution == nil || by.Attribution.Provenance != "inferred" || by.Attribution.Partial || by.Attribution.SnapshotID == "" {
+		t.Fatalf("attribution = %+v", by.Attribution)
+	}
+	sc := stats.Scope{Place: stats.FleetPlacement(q, nil), Snapshot: statsAttribution(q)}
+	for name, got := range map[string][]StatsEnvironmentGroup{"owner": by.Owner, "domain": by.Domain} {
+		if want := aggregateEnvGroups(set, b.Window, name, sc); !reflect.DeepEqual(got, want) {
+			t.Fatalf("by %s = %+v, stats.Aggregate says %+v", name, got, want)
+		}
+	}
+	if hasLimitation(b.Limitations, stats.LimitationAttributionPartial) || b.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("a complete snapshot: %s, %v", b.Completeness, b.Limitations)
+	}
+}
+
+func TestStatsEnvironmentsByUnknownKeys(t *testing.T) {
+	set := recordSet(
+		opRec("phantom", "shop", "prod", "production", ago(5)),
+		opRec("catalog", "shop", "prod", "production", ago(5)),
+		opRec("ledger", "shop", "prod", "production", ago(5)),
+	)
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(set), Fleet: fleetOf(ownersFleetQuery(t, false))}), "")
+	keys := func(groups []StatsEnvironmentGroup) string {
+		var out []string
+		for _, g := range groups {
+			out = append(out, g.Key+"="+g.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := keys(b.EnvironmentsBy.Owner); got != "team:books=books,(unknown)=unknown,(unowned)=unowned" {
+		t.Fatalf("owner keys = %s", got)
+	}
+	if got := keys(b.EnvironmentsBy.Domain); got != "unknown=unknown,(none)=none,(unknown)=unknown" {
+		t.Fatalf("domain keys = %s: a real domain named unknown must stay apart from (unknown)", got)
+	}
+}
+
+func TestStatsEnvironmentsByAttributionPartial(t *testing.T) {
+	b, _ := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(ownersSet()), Fleet: fleetOf(ownersFleetQuery(t, true))}), "")
+	n := 0
+	for _, l := range b.Limitations {
+		if l.Code == stats.LimitationAttributionPartial {
+			n++
+		}
+	}
+	if n != 1 || b.EnvironmentsBy.Attribution == nil || !b.EnvironmentsBy.Attribution.Partial || b.Completeness != fleet.CompletenessPartial {
+		t.Fatalf("partial snapshot: %d ATTRIBUTION_PARTIAL, attribution %+v, completeness %s", n, b.EnvironmentsBy.Attribution, b.Completeness)
+	}
+}
+
+func TestStatsEnvironmentsByRestrictedNeverNamesHidden(t *testing.T) {
+	opts := Options{Stats: fixedSet(ownersSet()), Fleet: fleetOf(ownersFleetQuery(t, false)), View: shopView, OperationAccess: shopAccess}
+	b, raw := getStatsBody(t, statsServer(t, opts), "")
+	assertNotNamed(t, raw, "billing", "payments", "finance", "vault")
+	if checkout := groupEnvs(b.EnvironmentsBy.Owner, "team:checkout"); len(b.EnvironmentsBy.Owner) != 1 || len(checkout) != 1 || checkout[0].Operations != 2 {
+		t.Fatalf("restricted owners = %+v", b.EnvironmentsBy.Owner)
+	}
+}
+
+func TestStatsEnvironmentsByEmptyIsArray(t *testing.T) {
+	b, raw := getStatsBody(t, statsServer(t, Options{Stats: fixedSet(stats.RecordSet{})}), "")
+	if !strings.Contains(raw, `"environmentsBy":{"owner":[],"domain":[]}`) || b.EnvironmentsBy.Attribution != nil {
+		t.Fatalf("empty answer: %s", raw)
 	}
 }

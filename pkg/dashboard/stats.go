@@ -126,6 +126,23 @@ type StatsAnswer struct {
 	Services         []StatsServiceRow   `json:"services" doc:"One page of per-service numbers"`
 	ServicesTotal    int                 `json:"servicesTotal" doc:"Service rows across every page"`
 	CoverageNow      *runrecord.Coverage `json:"coverageNow,omitempty" doc:"Coverage of the caller's current fleet snapshot; absent without a fleet"`
+	EnvironmentsBy   StatsEnvironmentsBy `json:"environmentsBy" doc:"Delivery numbers per environment of each owner and each domain, counting only that group's services"`
+}
+
+// StatsEnvironmentGroup is one owner's or domain's delivery numbers per
+// environment.
+type StatsEnvironmentGroup struct {
+	Key          string                     `json:"key" doc:"Group key: the owner or domain, or (unknown) for a service the fleet snapshot does not place, (unowned) for no owner and (none) for no domain"`
+	Label        string                     `json:"label" doc:"Group label"`
+	Environments []stats.EnvironmentMetrics `json:"environments" doc:"Delivery numbers per environment of the group's services, alphabetical; empty when they have no operation record"`
+}
+
+// StatsEnvironmentsBy is the window's delivery numbers per environment,
+// grouped by owner and by domain as pacto stats --by owner|domain groups them.
+type StatsEnvironmentsBy struct {
+	Owner       []StatsEnvironmentGroup `json:"owner" doc:"One group per owner, alphabetical, the groups no owner names last"`
+	Domain      []StatsEnvironmentGroup `json:"domain" doc:"One group per domain, alphabetical, the groups no domain names last"`
+	Attribution *stats.Attribution      `json:"attribution,omitempty" doc:"Where owner and domain came from; absent without a fleet snapshot"`
 }
 
 type statsOutput struct {
@@ -237,7 +254,7 @@ func (s *Server) statsScope(ctx context.Context, restricted bool) (stats.Scope, 
 	if !restricted {
 		sc := stats.Scope{}
 		if full != nil {
-			sc.Place = stats.FleetPlacement(full, nil)
+			sc.Place, sc.Snapshot = stats.FleetPlacement(full, nil), statsAttribution(full)
 		}
 		return sc, view, nil
 	}
@@ -247,9 +264,44 @@ func (s *Server) statsScope(ctx context.Context, restricted bool) (stats.Scope, 
 		if s.opts.View == nil {
 			narrowed = nil
 		}
-		sc.Place, sc.Names = stats.FleetPlacement(full, narrowed), stats.VisibleNames(view)
+		sc.Place, sc.Names, sc.Snapshot = stats.FleetPlacement(full, narrowed), stats.VisibleNames(view), statsAttribution(full)
 	}
 	return sc, view, nil
+}
+
+// statsAttribution is the fleet snapshot owner and domain are placed from,
+// as pacto stats and pacto_stats name it.
+func statsAttribution(q *fleet.Query) *stats.Attribution {
+	m := q.ProductMeta()
+	return &stats.Attribution{AsOf: m.AsOf, SnapshotID: m.SnapshotID, Partial: m.Completeness != fleet.CompletenessComplete}
+}
+
+// environmentsBy is the window's environments per owner and per domain from
+// the same records and scope as the answer (Decision 2), with the
+// limitation a partial snapshot adds.
+func environmentsBy(r *statsRead) (StatsEnvironmentsBy, *fleet.Limitation) {
+	out := StatsEnvironmentsBy{}
+	var partial *fleet.Limitation
+	for _, by := range []string{"owner", "domain"} {
+		st := stats.Aggregate(r.set, stats.Query{Window: r.window, By: by}, r.scope, r.now)
+		groups := []StatsEnvironmentGroup{}
+		for _, g := range st.Groups {
+			envs := g.Metrics.Environments
+			if envs == nil {
+				envs = []stats.EnvironmentMetrics{}
+			}
+			groups = append(groups, StatsEnvironmentGroup{Key: g.Key, Label: g.Label, Environments: envs})
+		}
+		if by == "owner" {
+			out.Owner = groups
+			continue
+		}
+		out.Domain, out.Attribution = groups, st.Attribution
+		if i := slices.IndexFunc(st.Limitations, func(l fleet.Limitation) bool { return l.Code == stats.LimitationAttributionPartial }); i >= 0 {
+			partial = &st.Limitations[i]
+		}
+	}
+	return out, partial
 }
 
 func (s *Server) getStats(ctx context.Context, in *statsInput) (*statsOutput, error) {
@@ -287,6 +339,11 @@ func (s *Server) getStats(ctx context.Context, in *statsInput) (*statsOutput, er
 	if r.view != nil {
 		c := stats.CoverageOf(r.view)
 		out.Body.CoverageNow = &c
+	}
+	var partial *fleet.Limitation
+	out.Body.EnvironmentsBy, partial = environmentsBy(r)
+	if partial != nil {
+		st.Limitations, st.Completeness = append(st.Limitations, *partial), fleet.CompletenessPartial
 	}
 	out.Body.Stats = *st
 	return out, nil

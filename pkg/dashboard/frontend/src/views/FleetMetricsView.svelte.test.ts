@@ -20,7 +20,8 @@ import FleetMetricsView from './FleetMetricsView.svelte';
 const answer = (extra: any = {}): any => ({
   asOf: '2026-11-15T10:00:00Z', window: { name: '30d' }, recordsRead: 0, runs: 0, distinctChanges: 0,
   completeness: 'empty', provenance: 'unsigned statistics', truncated: '', skipped: { count: 0 }, hidden: { present: false },
-  environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [], limitations: [], ...extra,
+  environmentOrder: 'name', environments: [], services: [], servicesTotal: 0, buckets: [], limitations: [],
+  environmentsBy: { owner: [], domain: [] }, ...extra,
 });
 
 function mountView(props: Record<string, unknown> = {}) {

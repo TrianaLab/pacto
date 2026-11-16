@@ -6286,6 +6286,8 @@ export interface components {
             environmentOrder: "stages" | "name";
             /** @description Delivery numbers per environment, in environmentOrder */
             environments: components["schemas"]["StatsEnvironment"][] | null;
+            /** @description Delivery numbers per environment of each owner and each domain, counting only that group's services */
+            environmentsBy: components["schemas"]["StatsEnvironmentsBy"];
             /** @description Numbers per group */
             groups?: components["schemas"]["Stats.Group"][] | null;
             /** @description Whether records outside the caller's view exist */
@@ -6379,6 +6381,22 @@ export interface components {
             upstream: string[] | null;
             /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
             verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        StatsEnvironmentGroup: {
+            /** @description Delivery numbers per environment of the group's services, alphabetical; empty when they have no operation record */
+            environments: components["schemas"]["Stats.EnvironmentMetrics"][] | null;
+            /** @description Group key: the owner or domain, or (unknown) for a service the fleet snapshot does not place, (unowned) for no owner and (none) for no domain */
+            key: string;
+            /** @description Group label */
+            label: string;
+        };
+        StatsEnvironmentsBy: {
+            /** @description Where owner and domain came from; absent without a fleet snapshot */
+            attribution?: components["schemas"]["Stats.Attribution"];
+            /** @description One group per domain, alphabetical, the groups no domain names last */
+            domain: components["schemas"]["StatsEnvironmentGroup"][] | null;
+            /** @description One group per owner, alphabetical, the groups no owner names last */
+            owner: components["schemas"]["StatsEnvironmentGroup"][] | null;
         };
         StatsLink: {
             /** @description The dashboard route, without the leading # */
