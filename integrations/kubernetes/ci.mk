@@ -19,7 +19,12 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check chart-flags-check
+
+.PHONY: chart-flags-check
+chart-flags-check: ## Every operator flag has a chart value or a written reason.
+	@echo "==> Checking every operator flag has a chart value..."
+	CGO_ENABLED=0 go test ./cmd -run 'TestEveryOperatorFlagHasAChartValue|TestChartlessFlagsHaveReasons' -count=1
 
 # The chart renders copies of the generated CRDs. helm-golden cannot see a
 # stale delivery copy, because delivery is off by default.
