@@ -84,17 +84,18 @@ type options struct {
 	watchNamespacesRaw                               string
 	namespaces                                       []string
 
-	enableDashboard        bool
-	dashboardOCISecrets    string
-	dashboardResources     component.Resources
-	dashboardObservation   []dashboard.ObservationSource
-	dashboardAuth          dashboard.AuthConfig
-	dashboardExtraScopes   string
-	dashboardMiraURL       string
-	dashboardStatsRegistry string
-	dashboardDeliveryNS    string
-	dashboardDeliveryTrust dashboard.KeyRef
-	dashboardRepositories  []string
+	enableDashboard          bool
+	dashboardOCISecrets      string
+	dashboardResources       component.Resources
+	dashboardObservation     []dashboard.ObservationSource
+	dashboardAuth            dashboard.AuthConfig
+	dashboardExtraScopes     string
+	dashboardMiraURL         string
+	dashboardStatsRegistry   string
+	dashboardDeliveryNS      string
+	dashboardDeliveryTrust   dashboard.KeyRef
+	dashboardRepositories    []string
+	dashboardExternalCatalog string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -188,6 +189,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)
 			return nil
 		})
+	fs.StringVar(&o.dashboardExternalCatalog, "dashboard-external-catalog", "",
+		"Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST.")
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
@@ -544,6 +547,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		StatsRegistry:      o.dashboardStatsRegistry,
 		DeliveryTrust:      o.dashboardDeliveryTrust,
 		Repositories:       o.dashboardRepositories,
+		ExternalCatalog:    o.dashboardExternalCatalog,
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")

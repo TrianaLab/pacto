@@ -71,6 +71,11 @@ type Config struct {
 	// are never deployed and so have no Pacto resource to discover them from.
 	Repositories []string
 
+	// ExternalCatalog is the organization external catalog the dashboard
+	// merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. Empty
+	// uses only the default catalog.
+	ExternalCatalog string
+
 	// Observation declares offline OTLP/JSON trace files to mount read-only into
 	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
 	// declared files and never scans the mount; the trace exports themselves are

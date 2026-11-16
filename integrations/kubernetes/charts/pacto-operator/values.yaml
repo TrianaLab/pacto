@@ -200,6 +200,10 @@ dashboard:
   # -- oci:// references the dashboard reads beside the contracts it discovers
   # from Pacto resources, such as golden paths, which are never deployed.
   repositories: []
+  # -- Organization external catalog merged over Pacto's default, as
+  # oci://REPOSITORY@sha256:DIGEST. The dashboard reads it with the dashboard's
+  # OCI credentials. Empty uses only the default catalog.
+  externalCatalog: ""
   # A `# --` comment only reaches the generated Helm reference when it sits on a
   # LEAF key: the table is flattened, so a comment on `resources:` is never
   # rendered and its children publish as blank cells. One per leaf.
