@@ -463,6 +463,27 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // An external system's page: its class, catalog, consumers and where it was recognized.
+  it('shows an external system with its catalog, consumers and sources', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: { kind: 'external', key: 'stripe', label: 'Stripe', href: '/fleet/externals/stripe' }, actions: ['open-graph'],
+      external: {
+        external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: ['domain-a/checkout'], consumersTotal: 1, sourcesTotal: 0, sources: [],
+          catalog: { origin: 'default', digest: `sha256:${'3e9a'.repeat(16)}`, entry: 'stripe' } },
+        consumers: [{ service: { kind: 'service', key: 'domain-a/checkout', label: 'checkout', href: '/fleet/services/domain-a%2Fcheckout' }, required: true }],
+        inferredSources: [{ service: 'domain-a/checkout', source: 'k8s', kind: 'env', where: 'deployment/checkout env STRIPE_API_BASE', host: 'api.stripe.com', confidence: 'likely' }],
+        inferredSourcesTotal: 1,
+      },
+    });
+    const { target, component } = await mountView('external', 'stripe');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="external-source"]')).toBeTruthy());
+    expect(target.textContent).toContain('External system');
+    expect(target.querySelector('[data-testid="external-class"]')?.textContent).toBe('Vendor API');
+    expect(target.querySelector('[data-testid="external-catalog"]')?.textContent).toBe('Default catalog 3e9a3e9a3e9a, entry stripe');
+    expect(target.querySelector('a[href="#/fleet/services/domain-a%2Fcheckout"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = await mountView('service', 'domain-a/payments');

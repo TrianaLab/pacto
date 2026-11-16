@@ -17,7 +17,7 @@ export interface Route {
     | 'fleet-domains'   // /fleet/domains    business-domain list
     | 'fleet-offerings' // /fleet/offerings  platform-offering list
     | 'fleet-golden-paths' // /fleet/golden-paths  golden path list
-    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
+    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail (externals/:identity too)
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
     // Delivery (only where the delivery component is installed).
@@ -35,10 +35,10 @@ export interface Route {
 // plural segment; the product entity-detail facade takes the singular kind. These
 // two maps are the ONE place the frontend translates between them.
 const KIND_PLURAL: Record<string, string> = {
-  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains', offering: 'offerings',
+  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains', offering: 'offerings', external: 'externals',
 };
 const PLURAL_KIND: Record<string, string> = {
-  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain', offerings: 'offering',
+  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain', offerings: 'offering', externals: 'external',
 };
 
 export function parseHash(hash: string | null | undefined): Route {
@@ -269,7 +269,7 @@ function parseFleet(path: string, query: string): Route {
     return { view: views[rest], params };
   }
 
-  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings)\/(.+)$/);
+  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings|externals)\/(.+)$/);
   if (ent) {
     // correlationID is the ticket or incident id an investigation carries into the
     // operations its page plans (the same key the delivery history filters by).

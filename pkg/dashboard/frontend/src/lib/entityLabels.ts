@@ -31,6 +31,7 @@ export function kindLabel(kind: string | undefined): string {
     case 'source': return 'Data source';
     case 'domain': return 'Domain';
     case 'offering': return 'Platform offering';
+    case 'external': return 'External system';
     default: return kind ? kind[0].toUpperCase() + kind.slice(1) : 'Entity';
   }
 }
