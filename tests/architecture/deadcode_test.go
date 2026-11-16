@@ -65,6 +65,10 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
+	// ponytail: temporary; story #586 phase P6 routes `fleet get external:<id>`
+	// and pacto_fleet_get to it, and that phase deletes this entry.
+	"pkg/fleet.GetExternal": "the external-system lookup the CLI and MCP get commands call from story #586 P6",
+
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 
