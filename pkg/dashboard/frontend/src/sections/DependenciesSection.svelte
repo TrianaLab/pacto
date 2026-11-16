@@ -7,7 +7,7 @@
   import StatusBadge from '../components/StatusBadge.svelte';
   import BehaviorBadges from '../components/BehaviorBadges.svelte';
   import RequirementList from '../components/RequirementList.svelte';
-  import { reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
+  import { reasonLabel, reasonTooltip, reasonBadgeClass, isOffContract, offContractReason, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
   import { RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
 
@@ -32,11 +32,12 @@
     return services.some((s) => s.name === svcName);
   }
 
-  /** Look up the resolution reason for a dependency from graph nodes. */
-  function depReason(depName) {
-    if (!graphData?.nodes) return undefined;
-    const node = graphData.nodes.find((n) => n.id === depName || n.serviceName === depName);
-    return node?.status === 'external' ? node.reason : undefined;
+  /** The resolution reason of a dependency: an external system when it has no ref,
+   *  else what the graph node of its ref says. */
+  function depReason(dep) {
+    if (!dep.ref) return 'external';
+    const node = graphData?.nodes?.find((n) => n.id === dep.name || n.serviceName === dep.name);
+    return node && isOffContract(node.status) ? offContractReason(node) : undefined;
   }
   // What a dependency requires of its provider gets its own row under the dependency,
   // so the table keeps its columns however many requirements there are.
@@ -81,12 +82,13 @@
             <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th><th data-tip="Pinned version and digest from pacto.lock">Pinned</th></tr></thead>
             <tbody>
               {#each depRows.slice(dependencies) as dep}
-                {@const reason = svcExists(dep.name) ? undefined : depReason(dep.name)}
+                {@const linked = !!dep.ref && svcExists(dep.name)}
+                {@const reason = linked ? undefined : depReason(dep)}
                 <tr>
                   <td>
-                    {#if svcExists(dep.name)}
+                    {#if linked}
                       <a href={serviceUrl(dep.name)}>{dep.name}</a>
-                    {:else if services.length === 0}
+                    {:else if services.length === 0 && dep.ref}
                       <!-- The fleet list has not arrived yet (a direct link): calling every
                            dependency External before it does would be a guess. -->
                       {dep.name} <span class="badge" data-testid="dep-resolving">Resolving…</span>

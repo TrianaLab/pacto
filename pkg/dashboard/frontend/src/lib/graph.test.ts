@@ -160,7 +160,7 @@ describe('buildVersionSubgraph', () => {
   const services = [
     { name: 'payments', contractStatus: 'Compliant', version: '2.0.0' },
     { name: 'fraud-service', contractStatus: 'Warning', version: '1.3.0' },
-    // postgresql intentionally absent from the fleet -> external
+    // postgresql intentionally absent from the fleet -> an unresolved ref
   ];
 
   it('roots the graph at the selected version with edges to its deps', () => {
@@ -171,13 +171,13 @@ describe('buildVersionSubgraph', () => {
     expect(g.nodes).toHaveLength(3);
   });
 
-  it('labels known deps from the fleet and unknown deps as external', () => {
+  it('labels known deps from the fleet and unknown refs as unresolved', () => {
     const g = buildVersionSubgraph(detail, services, '2.0.0');
     const fraud = g.nodes.find((n) => n.id === 'fraud-service')!;
     expect(fraud.status).toBe('Warning');
     expect(fraud.version).toBe('1.3.0');
     const pg = g.nodes.find((n) => n.id === 'postgresql')!;
-    expect(pg.status).toBe('external');
+    expect(pg.status).toBe('unresolved');
     expect(pg.version).toBe('');
   });
 
@@ -194,6 +194,11 @@ describe('buildVersionSubgraph', () => {
     expect(g.nodes.map((n) => n.id)).toEqual(['svc', 'dep']);
     const root = g.nodes[0];
     expect(root.edges!.filter((e) => e.targetId === 'svc')).toHaveLength(0);
+  });
+
+  it('labels a dependency with no ref as an external system', () => {
+    const g = buildVersionSubgraph({ name: 'svc', dependencies: [{ name: 'stripe' }] }, [], '1.0.0');
+    expect(g.nodes[1].status).toBe('external');
   });
 
   it('handles a service with no dependencies', () => {
@@ -234,6 +239,8 @@ describe('buildElements', () => {
     expect(root.data.isFocus).toBe(1);
     const x = els.find((e) => e.data.id === 'x')!;
     expect(x.data.external).toBe(1);
+    const [u] = buildElements({ nodes: [{ id: 'u', serviceName: 'u', status: 'unresolved', edges: [] }] });
+    expect(u.data.external).toBe(1);
     expect(x.data.reason).toBe('auth_failed');
   });
 

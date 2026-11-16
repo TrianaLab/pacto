@@ -328,6 +328,9 @@ type DependencyInfo struct {
 	// is the free-text version one with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// identity is the 2.5 dependencies[].identity; the graph keys the
+	// external node by it (see externalNode).
+	identity string
 	// Lock pins, populated from pacto.lock when present (local source only).
 	LockedDigest  string `json:"lockedDigest,omitempty"`
 	LockedVersion string `json:"lockedVersion,omitempty"`

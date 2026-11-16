@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, formatCount } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, formatCount, isOffContract, offContractReason } from '../lib/format.ts';
   import { ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY } from '../lib/owners.ts';
   import { aggregateGraphByOwner, relatedSubgraph } from '../lib/graph-aggregate.ts';
   import GraphPanel from '../GraphPanel.svelte';
@@ -82,8 +82,7 @@
   // Status / source / name filters dim the non-matching nodes on the map.
   function graphFilterFn(node) {
     if (statusFilter !== 'all') {
-      const status = node.status === 'external' ? 'external' : node.status;
-      if (status !== statusFilter) return true;
+      if (node.status !== statusFilter) return true;
     }
     if (!nodeMatchesSource(node)) return true;
     if (nameFilter && !serviceMatchesName(node.serviceName)) return true;
@@ -115,7 +114,7 @@
   // two groups — but the group reads as the owner's name, with the namespace only
   // where it is needed to tell two same-named groups apart.
   function ownerLabelOf(node) {
-    if (node.status === 'external') return '(external)';
+    if (isOffContract(node.status)) return '(external)';
     const key = ownerKey(ownerByService.get(node.serviceName));
     if (!key) return UNOWNED_KEY;
     const kind = ownerKeyKind(key);
@@ -155,7 +154,7 @@
     groupByOwner
       ? (aggregatedGraph?.nodes || []).map((n) => n.serviceName).sort()
       : (graphData?.nodes || [])
-          .filter((n) => n.status !== 'external')
+          .filter((n) => !isOffContract(n.status))
           .map((n) => n.serviceName)
           .sort((a, b) => a.localeCompare(b)),
   );
@@ -232,8 +231,7 @@
   <!-- Connections table -->
   {@const filteredNodes = graphData.nodes.filter((n) => {
       if (statusFilter !== 'all') {
-        const status = n.status === 'external' ? 'external' : n.status;
-        if (status !== statusFilter) return false;
+        if (n.status !== statusFilter) return false;
       }
       if (!nodeMatchesSource(n)) return false;
       if (nameFilter) {
@@ -257,19 +255,20 @@
           <tbody>
             {#each connPage.items as node (node.serviceName)}
               {@const edges = node.edges || []}
-              <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName); }}>
+              <tr class={!isOffContract(node.status) ? 'clickable' : ''} onclick={() => { if (!isOffContract(node.status)) location.hash = serviceUrl(node.serviceName); }}>
                 <td data-label="Service">
-                  {#if node.status !== 'external'}
+                  {#if !isOffContract(node.status)}
                     <a href={serviceUrl(node.serviceName)} class="cell-clip" title={node.serviceName}>{node.serviceName}</a>
                   {:else}
-                    {node.serviceName} <span class="badge {reasonBadgeClass(node.reason)}" data-tip={reasonTooltip(node.reason)}>{reasonLabel(node.reason)}</span>
+                    {@const why = offContractReason(node)}
+                    <bdi>{node.serviceName}</bdi> <span class="badge {reasonBadgeClass(why)}" data-tip={reasonTooltip(why)} data-testid="graph-node-kind">{reasonLabel(why)}</span>
                   {/if}
                 </td>
                 <td data-label="Status">
-                  {#if node.status !== 'external'}
+                  {#if !isOffContract(node.status)}
                     <StatusBadge status={node.status} />
                   {:else}
-                    <span class="badge {reasonBadgeClass(node.reason)}">{reasonLabel(node.reason)}</span>
+                    <span class="badge {reasonBadgeClass(offContractReason(node))}">{reasonLabel(offContractReason(node))}</span>
                   {/if}
                 </td>
                 <td data-label="Dependencies">
@@ -278,7 +277,7 @@
                          "worker [req] ,payments" can no longer happen, and a service with
                          sixty dependencies shows five and offers the rest. -->
                     <CappedList items={edges} max={5} inline label={`What ${node.serviceName} depends on`}>
-                      {#snippet item(e)}<a href={serviceUrl(e.targetName)} onclick={(ev) => ev.stopPropagation()}>{e.targetName}</a>{#if e.type === 'reference'}{' '}<span class="badge badge-accent" style="font-size: var(--text-xs)">ref</span>{:else if e.required}{' '}<span class="badge badge-info" style="font-size: var(--text-xs)">req</span>{/if}{/snippet}
+                      {#snippet item(e)}{#if e.resolved === false}<bdi>{e.targetName}</bdi>{:else}<a href={serviceUrl(e.targetName)} onclick={(ev) => ev.stopPropagation()}>{e.targetName}</a>{/if}{#if e.type === 'reference'}{' '}<span class="badge badge-accent" style="font-size: var(--text-xs)">ref</span>{:else if e.required}{' '}<span class="badge badge-info" style="font-size: var(--text-xs)">req</span>{/if}{/snippet}
                     </CappedList>
                   {:else}
                     <span class="text-dim">—</span>
