@@ -270,6 +270,21 @@ export function installScaleFixture(): void {
         });
       }
     }
+    // The external list's hidden line: systems only services you cannot see declare.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'external' && !narrowed) doc.hidden = 12;
+    // 'external entity name only, hidden, folded and truncated': the states a demo
+    // external (every one catalog-joined) never reaches. Behind a flag so the plain
+    // external entity route keeps the engine's answer.
+    if (route === '/api/fleet/entities/external' && (window as unknown as { __externalStates?: boolean }).__externalStates) {
+      const x = doc.external as Record<string, unknown>;
+      const rec = x.external as Record<string, unknown>;
+      const c0 = (x.consumers as Record<string, unknown>[])[0];
+      const svc = c0.service as Record<string, unknown>;
+      x.consumers = Array.from({ length: 50 }, (_, i) => ({ ...c0, service: { ...svc, key: `${svc.key}-c${i}`, label: longName(`consumer-${i}`), href: `${svc.href}-c${i}` } }));
+      delete x.catalog; delete rec.catalog;
+      Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
+      x.foldedInto = 'other-egress';
+    }
     if (route === '/api/fleet/entities/offering') {
       const off = doc.offering as Record<string, Record<string, unknown>>;
       const prov = off?.providers as { items: Record<string, unknown>[]; total: number; count: number; truncated: boolean } | undefined;
@@ -1628,6 +1643,7 @@ export const ROUTES: Route[] = [
   { name: 'externals', list: true, hash: '#/fleet/externals' },
   { name: 'externals vendor', list: true, hash: '#/fleet/externals?class=vendor-api' },
   { name: 'external entity', hash: '#/fleet/externals/parcel-carrier' },
+  { name: 'external entity name only, hidden, folded and truncated', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalStates?: boolean }).__externalStates = true; }); await page.goto('/#/fleet/externals/parcel-carrier'); await page.reload(); await expect(page.getByTestId('external-folded-into')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },

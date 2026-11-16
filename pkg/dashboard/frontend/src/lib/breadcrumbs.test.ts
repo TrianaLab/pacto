@@ -64,10 +64,10 @@ describe('fleetEntityBreadcrumbs (H) — entity-relationship trails from canonic
     expect(t[1].href).toBe('#/fleet/owners');
   });
 
-  it('external: Overview > External systems > Stripe', () => {
+  it('external: Overview > Services > External systems > Stripe (Services hosts the list)', () => {
     const t = fleetEntityBreadcrumbs({ entity: { kind: 'external', key: 'stripe', label: 'Stripe' } });
-    expect(t.map((c) => c.label)).toEqual(['Overview', 'External systems', 'Stripe']);
-    expect(t[1].href).toBe('#/fleet/externals');
+    expect(t.map((c) => c.label)).toEqual(['Overview', 'Services', 'External systems', 'Stripe']);
+    expect(t[2].href).toBe('#/fleet/externals');
   });
 
   it('source: Overview > Data sources > kubernetes', () => {

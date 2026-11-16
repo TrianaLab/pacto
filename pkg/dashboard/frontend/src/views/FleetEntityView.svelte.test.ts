@@ -1025,7 +1025,9 @@ describe('FleetEntityView — external system page', () => {
     ]);
     expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
-    expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'External systems', 'Stripe']));
+    expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'Services', 'External systems', 'Stripe']));
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('2 services declare this vendor API.');
+    expect(target.querySelector('[data-testid="external-folded-into"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -1038,10 +1040,42 @@ describe('FleetEntityView — external system page', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('words the join from how its consumers join it, never "name only" for an identity or a host', async () => {
+    for (const [joinedBy, want] of [
+      ['identity', 'Joined by the identity its consumers declare; no catalog entry classifies it.'],
+      ['host', 'Joined by its registrable domain; no catalog entry classifies it.'],
+    ]) {
+      detailFn.mockResolvedValue(externalDetail({ key: 'k', label: 'k', class: 'unclassified', consumersTotal: 1, joinedBy }));
+      const { target, component } = await mountView('external', 'k');
+      expect(target.querySelector('[data-testid="external-name-only"]')?.textContent).toBe(want);
+      expect(target.querySelector('.xe-caption')?.textContent).toContain('this external system');
+      unmount(component); document.body.removeChild(target);
+    }
+  });
+
+  it('says a verified default catalog is the embedded copy matching the signed artifact, not a registry read', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'stripe', label: 'Stripe', class: 'vendor-api', consumersTotal: 1, catalog: { origin: 'default', digest: DIGEST, entry: 'stripe' } },
+      { catalog: { origin: 'default', digest: DIGEST, copy: 'registry', signature: 'verified', signer: 'release' } }));
+    const { target, component } = await mountView('external', 'stripe');
+    const cat = target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(cat).toContain('embedded copy, matches the signed registry artifact, signature verified (release)');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says when this answer folds the system into other egress', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'legacy-ftp', label: 'legacy-ftp', class: 'unclassified', consumersTotal: 1 }, { foldedInto: 'other-egress' }));
+    const { target, component } = await mountView('external', 'legacy-ftp');
+    const note = target.querySelector('[data-testid="external-folded-into"]');
+    expect(note?.textContent).toContain('This answer folds it into Other egress');
+    expect(note?.querySelector('a')?.getAttribute('href')).toBe('#/fleet/externals/other-egress');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('explains the other-egress node and how many systems it folds', async () => {
     detailFn.mockResolvedValue(externalDetail({ key: 'other-egress', label: 'Other egress', class: 'other-egress', folded: 12, consumersTotal: 3 }));
     const { target, component } = await mountView('external', 'other-egress');
     expect(target.querySelector('[data-testid="external-folded"]')?.textContent).toContain('This node folds 12 external systems');
+    expect(target.querySelector('.xe-caption')?.textContent).toContain('3 services declare the external systems this node folds');
     expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });

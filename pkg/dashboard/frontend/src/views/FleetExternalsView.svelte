@@ -2,7 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
-  import { fleetOverviewUrl, fleetExternalsUrl } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetExternalsUrl, fleetServicesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -14,7 +14,7 @@
   import ListSort from '../components/ListSort.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount, breakableIdentifierHtml } from '../lib/format.ts';
-  import { externalClassLabel, EXTERNAL_CLASSES } from '../lib/entityLabels.ts';
+  import { externalClassLabel, externalJoinWords, EXTERNAL_CLASSES } from '../lib/entityLabels.ts';
 
   // The external-system list: /api/fleet/entities?kinds=external, with search, the class
   // filter, order and paging in the URL. A row is one canonical identity: the services
@@ -68,7 +68,7 @@
 </script>
 
 <div class="product-page">
-  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'External systems' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services', href: fleetServicesUrl() }, { label: 'External systems' }]} />
   <PageHeader
     glyph="external"
     title="External systems"
@@ -135,7 +135,7 @@
               </th>
               <td data-label="Class">{externalClassLabel(ref.secondary)}</td>
               <td class="num" data-label="Consumers"><span data-nofilter>{formatCount(ref.consumers ?? 0)}</span></td>
-              <td data-label="Joined by">{#if ref.catalogEntry}<span class="cell-clip" title={`Catalog entry ${ref.catalogEntry}`}>catalog entry <bdi>{ref.catalogEntry}</bdi></span>{:else}<span class="t-meta" title="No catalog entry names it; consumers that spell it differently do not join">name only</span>{/if}</td>
+              <td data-label="Joined by">{#if ref.catalogEntry}<span class="cell-clip" title={`Catalog entry ${ref.catalogEntry}`}>catalog entry <bdi>{ref.catalogEntry}</bdi></span>{:else}<span class="t-meta" title={externalJoinWords(ref.joinedBy).sentence}>{externalJoinWords(ref.joinedBy).short}</span>{/if}</td>
             </tr>
           {/each}
         </tbody>

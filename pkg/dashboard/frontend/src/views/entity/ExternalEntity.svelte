@@ -1,10 +1,11 @@
 <script>
   import { formatCount, shortDigest } from '../../lib/format.ts';
-  import { externalClassLabel } from '../../lib/entityLabels.ts';
+  import { externalClassNoun, externalJoinWords } from '../../lib/entityLabels.ts';
+  import { fleetEntityUrl } from '../../lib/router.ts';
   import EntityLink from '../../components/EntityLink.svelte';
 
   // An external system's page: the services that declare it first, then how Pacto knows
-  // it. The catalog that classified it (or "joined by name only") is in view; the
+  // it. The catalog that classified it (or how its consumers join it) is in view; the
   // evidence, one declaration per consumer, is one disclosure away. Pacto observes no
   // health for it, so nothing here is a verdict.
   let { detail } = $props();
@@ -23,13 +24,16 @@
 </script>
 
 <div class="external-entity">
+  {#if x.foldedInto}
+    <p class="xe-note t-body-2" data-testid="external-folded-into">This answer folds it into <a href={fleetEntityUrl('external', x.foldedInto)}>Other egress</a>, beyond the cap on how many one answer names, so the list and the graph do not show it. The answer is partial.</p>
+  {/if}
   {#if rec.class === 'other-egress'}
     <p class="xe-note t-body-2" data-testid="external-folded">This node folds {plural(rec.folded ?? 0, 'external system', 'external systems')}, the least consumed beyond the cap on how many one answer names. The answer is partial; each folded system keeps its own identity in the snapshot.</p>
   {/if}
 
   <section class="xe-section" id="sec-consumers" data-toc="Consumers" aria-labelledby="xe-consumers-h">
     <h2 id="xe-consumers-h" class="t-section-title">Consumers</h2>
-    <p class="t-meta xe-caption">{plural(totalConsumers, 'service declares', 'services declare')} this {externalClassLabel(rec.class).toLowerCase()} system{consumers.length < totalConsumers ? `; the first ${formatCount(consumers.length)} are listed` : ''}.{#if hidden}{' '}<span data-testid="external-hidden-consumers">{plural(hidden, 'more service', 'more services')} you cannot see {hidden === 1 ? 'declares' : 'declare'} it.</span>{/if}</p>
+    <p class="t-meta xe-caption">{plural(totalConsumers, 'service declares', 'services declare')} {rec.class === 'other-egress' ? 'the external systems this node folds' : `this ${externalClassNoun(rec.class)}`}{consumers.length < totalConsumers ? `; the first ${formatCount(consumers.length)} are listed` : ''}.{#if hidden}{' '}<span data-testid="external-hidden-consumers">{plural(hidden, 'more service', 'more services')} you cannot see {hidden === 1 ? 'declares' : 'declare'} it.</span>{/if}</p>
     {#if consumers.length}
       <div class="data-scroll xe-frame" role="region" aria-label="Consumers">
         <table class="data-table xe-table" data-testid="external-consumers">
@@ -55,10 +59,10 @@
     {#if catalog && rec.catalog}
       <p class="t-body-2 xe-catalog" data-testid="external-catalog">
         {ORIGIN[catalog.origin] ?? catalog.origin} <span class="xe-digest" title={catalog.digest}>sha256:{shortDigest(catalog.digest)}</span>, entry <bdi>{rec.catalog.entry}</bdi>:
-        {catalog.copy === 'registry' ? 'read from the registry' : 'embedded copy'}, {signatureWords(catalog)}{#if catalog.signature !== 'verified' && catalog.reason}{' '}({catalog.reason}){/if}.
+        {catalog.copy === 'registry' ? (catalog.origin === 'default' ? 'embedded copy, matches the signed registry artifact' : 'read from the registry') : 'embedded copy'}, {signatureWords(catalog)}{#if catalog.signature !== 'verified' && catalog.reason}{' '}({catalog.reason}){/if}.
       </p>
     {:else if rec.class !== 'other-egress'}
-      <p class="t-body-2" data-testid="external-name-only">Joined by name only: consumers that spell it differently do not join.</p>
+      <p class="t-body-2" data-testid="external-name-only">{externalJoinWords(rec.joinedBy).sentence}</p>
     {/if}
     {#if sources.length}
       <details class="disclosure xe-more" data-testid="external-sources">

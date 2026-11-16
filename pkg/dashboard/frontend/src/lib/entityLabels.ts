@@ -50,6 +50,29 @@ export function externalClassLabel(c: string | undefined): string {
   }
 }
 
+/** externalClassNoun names one external system of a class inside a sentence. */
+export function externalClassNoun(c: string | undefined): string {
+  switch (c) {
+    case 'vendor-api': return 'vendor API';
+    case 'managed-cloud': return 'managed cloud service';
+    case 'legacy': return 'legacy system';
+    default: return 'external system';
+  }
+}
+
+/**
+ * externalJoinWords is how the consumers of an external system no catalog entry
+ * classifies join it, from its joinedBy: a short label for a list cell and a
+ * sentence for its page. Only a normalized-name join is "name only".
+ */
+export function externalJoinWords(joinedBy: string | undefined): { short: string; sentence: string } {
+  switch (joinedBy) {
+    case 'identity': return { short: 'declared identity', sentence: 'Joined by the identity its consumers declare; no catalog entry classifies it.' };
+    case 'host': return { short: 'registrable domain', sentence: 'Joined by its registrable domain; no catalog entry classifies it.' };
+    default: return { short: 'name only', sentence: 'Joined by name only: consumers that spell it differently do not join.' };
+  }
+}
+
 /** kindLabelPlural is the user-facing plural of kindLabel (section headings, lists). */
 export function kindLabelPlural(kind: string | undefined): string {
   return `${kindLabel(kind)}s`;

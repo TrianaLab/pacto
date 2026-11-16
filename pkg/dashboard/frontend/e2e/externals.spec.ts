@@ -73,7 +73,8 @@ test.describe('WASM demo — external systems', () => {
     const sources = page.getByTestId('external-sources');
     await sources.locator('summary').click();
     await expect(sources).toContainText('(name: model, version: hosted-llm/2026-06), declared');
-    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('External systems');
+    // Services hosts the list, so the trail runs through it as the nav does.
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/Services.*External systems/);
     expect(await noSideScroll(page)).toBe(true);
     await audit(page, 'external entity');
   });

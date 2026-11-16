@@ -55,7 +55,8 @@ export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
     case 'offering':
       return [root, { label: 'Offerings', href: fleetOfferingsUrl() }, { label: e.label || e.key || 'offering' }];
     case 'external':
-      return [root, { label: 'External systems', href: fleetExternalsUrl() }, { label: e.label || e.key || 'external system' }];
+      // The Services nav item hosts the external systems, so the trail runs through it.
+      return [root, services, { label: 'External systems', href: fleetExternalsUrl() }, { label: e.label || e.key || 'external system' }];
     case 'revision': {
       const leaf = detail.revision?.version ? `Revision ${detail.revision.version}` : (e.label || e.key || 'Revision');
       return [root, services, refCrumb(detail.revision?.service, 'service'), { label: leaf }];

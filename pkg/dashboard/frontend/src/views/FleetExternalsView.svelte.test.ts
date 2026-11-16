@@ -33,20 +33,25 @@ describe('FleetExternalsView', () => {
   it('lists each external system with its class, consumers and how it was joined', async () => {
     entitiesFn.mockResolvedValue(listResp([
       { kind: 'external', key: 'stripe', label: 'Stripe', secondary: 'vendor-api', status: 'unknown', consumers: 2, catalogEntry: 'stripe', href: '/fleet/externals/stripe' },
-      { kind: 'external', key: LONG, label: LONG, secondary: 'managed-cloud', status: 'unknown', consumers: 1 },
+      { kind: 'external', key: LONG, label: LONG, secondary: 'managed-cloud', status: 'unknown', consumers: 1, joinedBy: 'normalized-name' },
+      { kind: 'external', key: 'aws/rds/1/eu-west-1/orders', label: 'orders-db', secondary: 'unclassified', status: 'unknown', consumers: 2, joinedBy: 'identity' },
+      { kind: 'external', key: 'host/example.com', label: 'api.example.com', secondary: 'unclassified', status: 'unknown', consumers: 2, joinedBy: 'host' },
     ]));
     const { target, done } = mountView({ klass: 'vendor-api', text: 'st' });
-    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="external-list"] tbody tr').length).toBe(2));
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="external-list"] tbody tr').length).toBe(4));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['external'], class: 'vendor-api', text: 'st', sort: 'consumers', limit: 25 }));
     expect(target.querySelector('h1')?.textContent).toBe('External systems');
     expect(Array.from(target.querySelectorAll('[data-testid="external-list"] thead th')).map((th) => th.textContent?.trim()))
       .toEqual(['Identity', 'Class', 'Consumers', 'Joined by']);
-    const [stripe, rds] = Array.from(target.querySelectorAll('[data-testid="external-list"] tbody tr'));
+    const [stripe, rds, byIdentity, byHost] = Array.from(target.querySelectorAll('[data-testid="external-list"] tbody tr'));
     const cell = (row: Element, label: string) => row.querySelector(`[data-label="${label}"]`)!;
     expect(cell(stripe, 'Class').textContent).toBe('Vendor API');
     expect(cell(stripe, 'Consumers').textContent?.trim()).toBe('2');
     expect(cell(stripe, 'Joined by').textContent).toBe('catalog entry stripe');
     expect(cell(rds, 'Joined by').textContent).toBe('name only');
+    // Only a normalized-name join is "name only".
+    expect(cell(byIdentity, 'Joined by').textContent).toBe('declared identity');
+    expect(cell(byHost, 'Joined by').textContent).toBe('registrable domain');
     expect(stripe.querySelector('a.entity-link')?.getAttribute('href')).toBe('#/fleet/externals/stripe');
     // A long identity keeps its full text on hover, inside <bdi>.
     const label = rds.querySelector('.ei-label');
