@@ -545,9 +545,19 @@ func (p *planner) configuration(b *strings.Builder) {
 	for _, f := range slices.Sorted(maps.Keys(literals)) {
 		keys := literals[f]
 		slices.Sort(keys)
-		p.next("%s sets %s to literal values, and the bundle publishes that file to anyone who can pull it: "+
-			"read them from a Secret (valueFrom.secretKeyRef) and keep the values out of the folder", f, strings.Join(keys, ", "))
+		values, them := literalValues(len(keys))
+		p.next("%s sets %s to %s, and the bundle publishes that file to anyone who can pull it: "+
+			"read %s from a Secret (valueFrom.secretKeyRef) instead", f, strings.Join(keys, ", "), values, them)
 	}
+}
+
+// literalValues is how a next step names the literal values of n keys, and
+// the pronoun that refers back to those keys.
+func literalValues(n int) (values, them string) {
+	if n == 1 {
+		return "a literal value", "it"
+	}
+	return "literal values", "them"
 }
 
 // envProperty is an environment variable's schema property: its key and

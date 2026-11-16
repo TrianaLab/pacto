@@ -102,7 +102,7 @@ func TestConfigurationKeysAndTypesOnly(t *testing.T) {
 				}
 			}
 			if !hasLine(r.Next, "deploy/app.yaml sets DATABASE_URL, DB_PASSWORD to literal values") ||
-				!hasLine(r.Next, "deploy/cm.yaml sets CLIENT_SECRET to literal values") ||
+				!hasLine(r.Next, "deploy/cm.yaml sets CLIENT_SECRET to a literal value") ||
 				!hasLine(r.Found, "sensitive keys, marked writeOnly: API_TOKEN, CLIENT_SECRET, DATABASE_URL, DB_PASSWORD") ||
 				!hasLine(r.Found, "with their types and no values") {
 				t.Errorf("findings: next %v found %v", r.Next, r.Found)

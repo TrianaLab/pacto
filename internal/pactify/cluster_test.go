@@ -454,6 +454,9 @@ func checkSecretDrafts(t *testing.T, b *Bulk, checkout, nightly *Result) {
 		!hasLine(nightly.Next, "kubectl -n shop create secret generic nightly-env --from-env-file=") {
 		t.Fatalf("next steps: %q %q", checkout.Next, nightly.Next)
 	}
+	if !hasLine(checkout.Next, "manifests.yaml: REDIS_URL held a URL") || hasLine(checkout.Next, "DB_PASSWORD held") || hasLine(nightly.Next, "held a URL") {
+		t.Fatalf("URL next steps: %q %q", checkout.Next, nightly.Next)
+	}
 }
 
 // TestClusterDraftReadsSensitiveLiteralsFromSecret: a sensitive literal in a
@@ -509,7 +512,7 @@ func TestClusterDraftSplitsDifferingLiterals(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = result(t, b, "checkout")
-	if m := file(t, r, "manifests.yaml").Content; strings.Count(m, "key: DB_PASSWORD") != 2 || strings.Contains(m, ".DB_PASSWORD") || !hasLine(r.Next, "sets DB_PASSWORD to literal values") {
+	if m := file(t, r, "manifests.yaml").Content; strings.Count(m, "key: DB_PASSWORD") != 2 || strings.Contains(m, ".DB_PASSWORD") || !hasLine(r.Next, "sets DB_PASSWORD to a literal value; the draft reads it from") {
 		t.Fatalf("equal literals:\n%s\n%q", m, r.Next)
 	}
 }
@@ -532,7 +535,7 @@ func TestClusterDraftKeptManifestsNoSecretNote(t *testing.T) {
 func TestSecretEnvNoPodSpec(t *testing.T) {
 	o := obj("apps/v1", "Deployment", "shop", "empty", map[string]any{"spec": map[string]any{}})
 	before := fmt.Sprint(o.Object)
-	if keys := secretEnv(o, "empty-env"); keys != nil || fmt.Sprint(o.Object) != before {
+	if keys, urls := secretEnv(o, "empty-env"); keys != nil || urls != nil || fmt.Sprint(o.Object) != before {
 		t.Fatalf("keys %v, object %v", keys, o.Object)
 	}
 }

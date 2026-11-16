@@ -195,7 +195,7 @@ spec:
 		!hasLine(r.Unknown, "the ConfigMap gone, which deploy.yaml reads its environment from, is not in the folder") {
 		t.Fatalf("unknown: %v", r.Unknown)
 	}
-	if !hasLine(r.Next, "cm.yaml sets KEYED to literal values") || hasLine(r.Next, "fast") {
+	if !hasLine(r.Next, "cm.yaml sets KEYED to a literal value, and the bundle publishes that file to anyone who can pull it: read it from a Secret") || hasLine(r.Next, "fast") {
 		t.Fatalf("next: %v", r.Next)
 	}
 

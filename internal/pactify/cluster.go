@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -129,10 +130,10 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	writeFile func(string, []byte, os.FileMode) error) (*Result, error) {
 	dir := filepath.Join(out, w.GetNamespace(), w.GetName())
 	scanned, write := dir, writeFile
-	content, keys := cl.manifests(w)
+	content, keys, urls := cl.manifests(w)
 	f := File{Path: "manifests.yaml", Action: Add, Content: content}
 	if _, err := os.Stat(filepath.Join(dir, f.Path)); err == nil {
-		f, keys = File{Path: f.Path, Action: Keep}, nil
+		f, keys, urls = File{Path: f.Path, Action: Keep}, nil, nil
 	} else {
 		if base.Plan {
 			tmp, err := os.MkdirTemp("", "pacto-init-cluster-")
@@ -159,9 +160,14 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	r.Files = append([]File{f}, r.Files...)
 	if len(keys) > 0 {
 		secret := w.GetName() + "-env"
-		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: the cluster sets %s to literal values; the draft reads them from the Secret %s instead, "+
-			"so the values stay out of the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
-			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), secret, w.GetNamespace(), secret))
+		values, them := literalValues(len(keys))
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: the cluster sets %s to %s; the draft reads %s from the Secret %s instead, "+
+			"so no value reaches the bundle. Before you apply it, create that Secret from a file of KEY=value lines: "+
+			"kubectl -n %s create secret generic %s --from-env-file=<file>", strings.Join(keys, ", "), values, them, secret, w.GetNamespace(), secret))
+	}
+	if len(urls) > 0 {
+		r.Next = append(r.Next, fmt.Sprintf("manifests.yaml: %s held a URL, which the draft now reads from a Secret, so the draft does not list "+
+			"the service it names as a dependency: add that service under dependencies", strings.Join(urls, ", ")))
 	}
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
@@ -430,10 +436,11 @@ func selects(sel, labels map[string]string) bool {
 // manifests is the workload and the Services that select its pods, as
 // manifests a folder holds: no namespace, status or server-set fields. A
 // sensitive literal in the workload's environment reads from the Secret
-// <name>-env instead; it returns that Secret's keys. w is never changed.
-func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string) {
+// <name>-env instead; it returns that Secret's keys and the names of the
+// rewritten variables whose value was a URL. w is never changed.
+func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string, []string) {
 	c := w.DeepCopy()
-	keys := secretEnv(c, w.GetName()+"-env")
+	keys, urls := secretEnv(c, w.GetName()+"-env")
 	labels, _, _ := unstructured.NestedStringMap(c.Object, "spec", "template", "metadata", "labels")
 	if c.GetKind() == "CronJob" {
 		labels, _, _ = unstructured.NestedStringMap(c.Object, "spec", "jobTemplate", "spec", "template", "metadata", "labels")
@@ -445,17 +452,18 @@ func (cl *cluster) manifests(w unstructured.Unstructured) (string, []string) {
 			docs = append(docs, plain(s))
 		}
 	}
-	return strings.Join(docs, "---\n"), keys
+	return strings.Join(docs, "---\n"), keys, urls
 }
 
 // secretEnv rewrites every env entry of w's containers and initContainers
 // whose literal value is sensitive, by name or as a URL with credentials, to
 // read the key of the same name from the Secret secret. A name set to
 // different literals in two containers reads <container>.<name>, so the two
-// never share one value. It returns the Secret's keys, sorted; the values are
-// compared in memory and never kept.
+// never share one value. It returns the Secret's keys and the names whose
+// value was a URL, both sorted; the values are compared in memory and never
+// kept.
 // ponytail: args and command literals stay as they are; 513-S2 strips them.
-func secretEnv(w *unstructured.Unstructured, secret string) []string {
+func secretEnv(w *unstructured.Unstructured, secret string) ([]string, []string) {
 	pod := []string{"spec", "template", "spec"}
 	if w.GetKind() == "CronJob" {
 		pod = []string{"spec", "jobTemplate", "spec", "template", "spec"}
@@ -473,9 +481,12 @@ func secretEnv(w *unstructured.Unstructured, secret string) []string {
 		}
 		seen[name] = value
 	})
-	keys := map[string]bool{}
+	keys, urls := map[string]bool{}, map[string]bool{}
 	sensitiveEnv(lists, func(container string, e map[string]any) {
 		k := e["name"].(string)
+		if u, err := url.Parse(e["value"].(string)); err == nil && u.Host != "" {
+			urls[k] = true
+		}
 		if split[k] {
 			k = container + "." + k
 		}
@@ -488,7 +499,7 @@ func secretEnv(w *unstructured.Unstructured, secret string) []string {
 			_ = unstructured.SetNestedSlice(w.Object, lists[i], slices.Concat(pod, []string{f})...) // ponytail: the path held a slice a moment ago
 		}
 	}
-	return slices.Sorted(maps.Keys(keys))
+	return slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(urls))
 }
 
 // sensitiveEnv calls fn with each env entry, and its container's name, whose

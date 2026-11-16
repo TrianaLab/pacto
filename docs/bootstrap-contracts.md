@@ -177,7 +177,8 @@ Pacto targets is skipped. A container environment variable that sets a
 sensitive key to a literal value is read in the draft from the Secret
 `<name>-env`; create it before you apply the draft with
 `kubectl -n <ns> create secret generic <name>-env --from-env-file=<file>`, from
-a file of `KEY=value` lines.
+a file of `KEY=value` lines. When such a value is a URL, the draft no longer
+lists the service it names as a dependency, and next steps ask you to add it.
 
 Without the [node agent](runtime-agent.md), dependencies come only from
 environment values, as in a folder. The draft holds no ConfigMaps, so each one
