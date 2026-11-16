@@ -2,7 +2,6 @@ package fleet
 
 import (
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -108,7 +107,7 @@ func TestNewTargetKey(t *testing.T) {
 	}
 }
 
-// TestTargetKeyRoundTrip asserts NewTargetKey and parseTargetKey are inverse for
+// TestTargetKeyRoundTrip asserts NewTargetKey and ParseTargetKey are inverse for
 // components carrying the characters ("/", "%") that could otherwise forge or
 // blur a component boundary.
 func TestTargetKeyRoundTrip(t *testing.T) {
@@ -121,9 +120,9 @@ func TestTargetKeyRoundTrip(t *testing.T) {
 	}
 	for _, tr := range triples {
 		key := NewTargetKey(tr[0], tr[1], tr[2])
-		scope, kind, name, ok := parseTargetKey(key)
+		_, scope, kind, name, ok := ParseTargetKey(key)
 		if !ok {
-			t.Fatalf("parseTargetKey(%q) not ok", key)
+			t.Fatalf("ParseTargetKey(%q) not ok", key)
 		}
 		if scope != tr[0] || kind != tr[1] || name != tr[2] {
 			t.Errorf("round-trip %q → (%q,%q,%q), want (%q,%q,%q)", key, scope, kind, name, tr[0], tr[1], tr[2])
@@ -137,7 +136,8 @@ func TestTargetKeyRoundTrip(t *testing.T) {
 
 func TestTargetKey_NonCanonicalDoesNotParse(t *testing.T) {
 	bad := []TargetKey{
-		"", "one", "one/two", "a/b/c/d",
+		"", "one", "one/two", "a/b/c/d/e",
+		"/a/b/c", // empty cluster component
 		// Non-canonical / invalid percent encodings must NOT decode ok.
 		"a/b/c%",   // dangling percent
 		"a/b/c%2G", // invalid hex
@@ -145,13 +145,17 @@ func TestTargetKey_NonCanonicalDoesNotParse(t *testing.T) {
 		"a%/b/c",   // bare percent in a component
 	}
 	for _, k := range bad {
-		if _, _, _, ok := parseTargetKey(k); ok {
-			t.Errorf("parseTargetKey(%q) = ok, want not ok", k)
+		if _, _, _, _, ok := ParseTargetKey(k); ok {
+			t.Errorf("ParseTargetKey(%q) = ok, want not ok", k)
 		}
+	}
+	// A 4-part key carries a leading cluster component.
+	if cluster, scope, kind, name, ok := ParseTargetKey("a/b/c/d"); !ok || cluster != "a" || scope != "b" || kind != "c" || name != "d" {
+		t.Errorf("ParseTargetKey(a/b/c/d) = %q/%q/%q/%q ok=%v, want cluster a", cluster, scope, kind, name, ok)
 	}
 	// A canonically-encoded key round-trips.
 	k := NewTargetKey("prod/x", "k8s", "a%b/c")
-	scope, kind, name, ok := parseTargetKey(k)
+	_, scope, kind, name, ok := ParseTargetKey(k)
 	if !ok || scope != "prod/x" || kind != "k8s" || name != "a%b/c" {
 		t.Errorf("canonical key must decode: %q -> %q/%q/%q ok=%v", k, scope, kind, name, ok)
 	}
@@ -220,18 +224,27 @@ func TestCloneHelpers_NilSafe(t *testing.T) {
 	}
 }
 
-// parseTargetKey decodes a target key back into its components, refusing a key
-// that is not canonically encoded, so the tests can prove NewTargetKey's
-// encoding is injective and round-trips.
-func parseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
-	parts := strings.Split(string(k), "/")
-	if len(parts) != 3 {
-		return "", "", "", false
-	}
-	for _, p := range parts {
-		if escapeKeyPart(unescapeKeyPart(p)) != p {
-			return "", "", "", false
+// TestParseTargetKeyRoundTripsBothForms decodes the 3-part key and the
+// cluster-qualified 4-part key, with every component carrying "/" and "%".
+func TestParseTargetKeyRoundTripsBothForms(t *testing.T) {
+	for _, cluster := range []string{"", "9f1c/e%2a", "%25/"} {
+		key := NewClusterTargetKey(cluster, "pay/eu", "k%8/s", "n/%2Fm")
+		c, scope, kind, name, ok := ParseTargetKey(key)
+		if !ok || c != cluster || scope != "pay/eu" || kind != "k%8/s" || name != "n/%2Fm" {
+			t.Errorf("ParseTargetKey(%q) = %q/%q/%q/%q ok=%v, want cluster %q", key, c, scope, kind, name, ok, cluster)
 		}
 	}
-	return unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
+	if NewClusterTargetKey("", "a", "b", "c") != NewTargetKey("a", "b", "c") {
+		t.Error("an empty cluster must keep the 3-part key")
+	}
+}
+
+// TestParseTargetKeyRejectsOtherShapes refuses 5 components and an empty
+// cluster component.
+func TestParseTargetKeyRejectsOtherShapes(t *testing.T) {
+	for _, k := range []TargetKey{"a/b/c/d/e", "/a/b/c", "a/b", "c%/a/b/c"} {
+		if _, _, _, _, ok := ParseTargetKey(k); ok {
+			t.Errorf("ParseTargetKey(%q) = ok, want not ok", k)
+		}
+	}
 }

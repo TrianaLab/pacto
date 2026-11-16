@@ -147,9 +147,44 @@ func NewRevisionKey(serviceKey ServiceKey, contentID string) RevisionKey {
 // forge a component boundary) and the three components are joined with "/". The
 // encoding is canonical (see the round-trip test); a separate human display string
 // is available via [TargetRecord.DisplayName]. Two distinct (scope,kind,name)
-// triples can never map to the same key.
+// triples can never map to the same key. [NewClusterTargetKey] adds a leading
+// cluster component, and [ParseTargetKey] decodes either form.
 func NewTargetKey(scope, kind, name string) TargetKey {
 	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
+}
+
+// NewClusterTargetKey builds the key of a target in a snapshot that holds more
+// than one cluster: the escaped cluster id, "/", then [NewTargetKey]. An empty
+// cluster yields the 3-part [NewTargetKey], so a snapshot with zero or one
+// cluster keeps today's keys.
+func NewClusterTargetKey(cluster, scope, kind, name string) TargetKey {
+	if cluster == "" {
+		return NewTargetKey(scope, kind, name)
+	}
+	return TargetKey(escapeKeyPart(cluster) + "/" + string(NewTargetKey(scope, kind, name)))
+}
+
+// ParseTargetKey decodes a target key built by [NewTargetKey] (cluster "") or
+// [NewClusterTargetKey]. It accepts exactly 3 or 4 canonically escaped
+// components and rejects a 4-part key with an empty cluster component, which
+// [NewClusterTargetKey] never emits.
+func ParseTargetKey(k TargetKey) (cluster, scope, kind, name string, ok bool) {
+	parts := strings.Split(string(k), "/")
+	if len(parts) != 3 && len(parts) != 4 {
+		return "", "", "", "", false
+	}
+	for _, p := range parts {
+		if escapeKeyPart(unescapeKeyPart(p)) != p {
+			return "", "", "", "", false
+		}
+	}
+	if len(parts) == 4 {
+		if parts[0] == "" {
+			return "", "", "", "", false
+		}
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }
 
 // escapeKeyPart percent-encodes "%" first (so encoding is unambiguous) then "/".
@@ -365,7 +400,56 @@ const (
 	// and no target is marked stale. Stale counts read zero because they were not
 	// computed. It does not change completeness, which states source health.
 	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
+	// LimitationClusterUnknown: targets carry no cluster id while another source
+	// names a cluster, so they cannot be told apart from another cluster's
+	// targets. In a snapshot with several clusters, or when such a target merged
+	// into a clustered one, the source that delivered them is partial; otherwise
+	// the limitation is informational.
+	LimitationClusterUnknown = "CLUSTER_UNKNOWN"
+	// LimitationClusterConflict: two evidence sources report one record (same
+	// producer, subject and times) as accepted in two different clusters. Both
+	// targets are kept and the later source is partial.
+	LimitationClusterConflict = "CLUSTER_CONFLICT"
 )
+
+// Cluster name sources: how a [Cluster] name was found. They mirror the values
+// of pkg/kubecluster, which pkg/fleet cannot import. The live Kubernetes source
+// sets node-label, context or uid; a target state file sets file.
+const (
+	ClusterNameFromNodeLabel = "node-label"
+	ClusterNameFromContext   = "context"
+	ClusterNameFromFile      = "file"
+	ClusterNameFromUID       = "uid"
+)
+
+// Cluster relations of a target (see [TargetRecord.ClusterRelation]).
+const (
+	// ClusterRelationRunsIn: a Kubernetes source read the target in the cluster.
+	ClusterRelationRunsIn = "runs-in"
+	// ClusterRelationReportedThrough: the cluster only reported the target, such
+	// as the cluster whose Evidence Server accepted its evidence.
+	ClusterRelationReportedThrough = "reported-through"
+)
+
+// Cluster identifies one Kubernetes cluster a source reads or reports from.
+type Cluster struct {
+	// ID is the kube-system namespace UID: the cluster identity.
+	ID string `json:"id" doc:"The kube-system namespace UID: the identity of the cluster."`
+	// Name is a display name only, never an identity.
+	Name string `json:"name,omitempty" doc:"A display name for the cluster; never an identity."`
+	// NameSource says how Name was found.
+	NameSource string `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
+	// ReportedBy is the id of the source that reported Name, empty when this
+	// process read the name itself.
+	ReportedBy string `json:"reportedBy,omitempty" doc:"The source that reported the name; empty when this process read it itself."`
+}
+
+// ClusterRecord is one cluster a snapshot knows, with every source that
+// reported its id.
+type ClusterRecord struct {
+	Cluster
+	Sources []string `json:"sources" doc:"Every source that reported this cluster id."`
+}
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
 // Prose lives in Message; agents branch on Code.
@@ -708,8 +792,18 @@ type TargetRecord struct {
 	// The record is kept visible with its conflict limitations but is NOT treated
 	// as authoritative (it does not drive service aggregate status), so source
 	// order can never silently pick an identity.
-	Quarantined bool         `json:"quarantined,omitempty"`
-	Limitations []Limitation `json:"limitations,omitempty"`
+	Quarantined bool `json:"quarantined,omitempty"`
+	// Cluster is the kube-system UID of the cluster that reported this target;
+	// empty when no source names one. ClusterName is display only,
+	// ClusterNameSource says how it was found and ClusterNameReportedBy which
+	// source reported it (empty when this process read it). ClusterRelation says
+	// whether the target runs in the cluster or was only reported through it.
+	Cluster               string       `json:"cluster,omitempty" doc:"The kube-system UID of the cluster that reported this target."`
+	ClusterName           string       `json:"clusterName,omitempty" doc:"A display name for the cluster; never an identity."`
+	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the cluster name was found."`
+	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
+	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
+	Limitations           []Limitation `json:"limitations,omitempty"`
 	// labels is the bounded projection of Labels, computed once by boundTargetLabels
 	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
 	// on it, so this is the only way the detail path can honor the same
@@ -732,9 +826,14 @@ type TargetRecord struct {
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
-// components unescaped. Unlike the canonical Key it is lossy (a name containing
-// "/" is shown verbatim) and must not be used as an identity.
+// components unescaped. A target whose key carries a cluster and whose cluster
+// has a name reads "cluster / scope / name". Unlike the canonical Key it is
+// lossy (a name containing "/" is shown verbatim) and must not be used as an
+// identity.
 func (t *TargetRecord) DisplayName() string {
+	if cluster, _, _, _, ok := ParseTargetKey(t.Key); ok && cluster != "" && t.ClusterName != "" {
+		return t.ClusterName + " / " + t.Scope + " / " + t.Name
+	}
 	return strings.Join([]string{t.Scope, t.Kind, t.Name}, "/")
 }
 
@@ -860,6 +959,9 @@ type FleetSnapshot struct {
 	Sources       []SourceState                     `json:"sources"`
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// Clusters are the clusters any source reported, sorted by id. Target keys
+	// carry a cluster component only when there are two or more.
+	Clusters []ClusterRecord `json:"clusters,omitempty"`
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`

@@ -625,7 +625,7 @@ func TestLockFrom_ValidLockFile(t *testing.T) {
 // -------------------- targetFrom --------------------
 
 func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
-	tgt, _ := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if tgt.Compliance != StatusUnknown {
 		t.Errorf("empty compliance → Unknown, got %q", tgt.Compliance)
 	}
@@ -640,7 +640,7 @@ func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
 func TestTargetFrom_Stale(t *testing.T) {
 	old := fixedNow().Add(-2 * time.Hour)
 	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old,
-		Limitations: []Limitation{{Code: "PRE", Message: "supplied"}}}, "k8s", fixedNow(), time.Hour)
+		Limitations: []Limitation{{Code: "PRE", Message: "supplied"}}}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if !tgt.Stale {
 		t.Error("evidence older than window → stale")
 	}
@@ -654,7 +654,7 @@ func TestTargetFrom_Stale(t *testing.T) {
 
 func TestTargetFrom_FreshCompliant(t *testing.T) {
 	recent := fixedNow().Add(-1 * time.Minute)
-	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour, targetCluster{})
 	if tgt.Stale {
 		t.Error("fresh evidence → not stale")
 	}
@@ -665,7 +665,7 @@ func TestTargetFrom_FreshCompliant(t *testing.T) {
 
 func TestTargetFrom_WindowDisabled(t *testing.T) {
 	old := fixedNow().Add(-1000 * time.Hour)
-	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0, targetCluster{})
 	if tgt.Stale {
 		t.Error("window=0 disables staleness")
 	}

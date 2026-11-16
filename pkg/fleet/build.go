@@ -81,6 +81,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	if err != nil {
 		return nil, err
 	}
+	clusters := clusterSet(results, sources)
 
 	snap := &FleetSnapshot{
 		SchemaVersion:         SchemaVersion,
@@ -94,6 +95,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		observedReverse:       map[ServiceKey][]ServiceKey{},
 		observedForward:       map[ServiceKey][]ServiceKey{},
 		provisioningWindow:    opts.FreshnessWindow,
+		Clusters:              clusters.records,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -130,7 +132,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			})
 			continue
 		}
-		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow)
+		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			for _, e := range r.col.Observed {
@@ -139,6 +141,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		}
 	}
 
+	clusterMergeLimitations(snap, clusters)
 	boundTargetLabels(snap)
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
@@ -223,7 +226,8 @@ func collectAll(ctx context.Context, opts BuildOptions, sources []Source) ([]sou
 }
 
 // ingestCollection projects one successful source's records into the snapshot.
-func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration) {
+// clusters is the snapshot's cluster index and i the source's position in it.
+func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time.Time, window time.Duration, clusters clusterIndex, i int) {
 	if col == nil {
 		col = &Collection{}
 	}
@@ -241,7 +245,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// declared second would attribute partiality by ingestion order. Those
 	// limitations are still reported at snapshot level, where they belong to the
 	// disagreement rather than to a source.
-	var recordProblems []Limitation
+	recordProblems := slices.Clone(clusters.problems[i])
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev == nil {
@@ -266,7 +270,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		revCount++
 	}
 	for _, raw := range col.Targets {
-		tgt, invalid := targetFrom(raw, src.ID(), now, window)
+		tgt, invalid := targetFrom(raw, src.ID(), now, window, clusters.forTarget(src, col, raw))
 		recordProblems = append(recordProblems, invalid...)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
@@ -288,6 +292,260 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
+}
+
+// clusterIndex is what Build knows about the clusters of one snapshot, computed
+// once over every collected source before any record is ingested.
+type clusterIndex struct {
+	records  []ClusterRecord
+	resolved map[string]Cluster
+	// problems are per-source record problems (indexed like sources): invalid
+	// cluster ids, CLUSTER_UNKNOWN with several clusters, CLUSTER_CONFLICT.
+	problems [][]Limitation
+	// clusterless are the keys of the targets each source delivered with no
+	// known cluster (always 3-part keys).
+	clusterless [][]TargetKey
+	multi       bool
+}
+
+// targetCluster is the cluster one raw target resolves to.
+type targetCluster struct {
+	cluster  Cluster
+	relation string
+	keyed    bool
+}
+
+// forTarget resolves the cluster of one raw target: its own cluster when set,
+// else the collection's. An invalid id resolves to none.
+func (c clusterIndex) forTarget(src Source, col *Collection, raw RawTarget) targetCluster {
+	cl, ok := c.resolved[rawClusterID(col, raw)]
+	if !ok {
+		return targetCluster{}
+	}
+	relation := ClusterRelationReportedThrough
+	if src.Kind() == SourceKindKubernetes {
+		relation = ClusterRelationRunsIn
+	}
+	return targetCluster{cluster: cl, relation: relation, keyed: c.multi}
+}
+
+// rawClusterID is the cluster id a raw target claims, "" when none.
+func rawClusterID(col *Collection, raw RawTarget) string {
+	switch {
+	case raw.Cluster != nil:
+		return raw.Cluster.ID
+	case col.Cluster != nil:
+		return col.Cluster.ID
+	}
+	return ""
+}
+
+// validClusterIDPattern bounds a cluster id from an untrusted source; a
+// kube-system UID fits.
+var validClusterIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
+
+// clusterNameRank orders the declared name sources of reported names.
+var clusterNameRank = map[string]int{
+	ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
+}
+
+// validClusterName keeps a display name of at most 63 bytes of printable runes.
+func validClusterName(n string) bool {
+	return n != "" && len(n) <= 63 && utf8.ValidString(n) && !strings.ContainsFunc(n, func(r rune) bool { return !unicode.IsPrint(r) })
+}
+
+// clusterNameClaim is one source's claim on the name of a cluster.
+type clusterNameClaim struct {
+	name, nameSource, reportedBy string
+	live                         bool
+}
+
+// outranks says whether claim a beats b: a name the process read itself (a
+// kubernetes-kind source) beats any reported one, then the declared name
+// source decides. Equal claims keep the earlier source.
+func (a clusterNameClaim) outranks(b clusterNameClaim) bool {
+	if a.live != b.live {
+		return a.live
+	}
+	return clusterNameRank[a.nameSource] > clusterNameRank[b.nameSource]
+}
+
+// clusterSet validates every cluster the sources report, ranks their names and
+// decides once whether the snapshot holds more than one cluster.
+func clusterSet(results []sourceResult, sources []Source) clusterIndex {
+	idx := clusterIndex{resolved: map[string]Cluster{}, problems: make([][]Limitation, len(sources)), clusterless: make([][]TargetKey, len(sources))}
+	claims := map[string]*clusterNameClaim{}
+	reporters := map[string][]string{}
+	for i, r := range results {
+		if r.err != nil || r.col == nil {
+			continue
+		}
+		invalid := 0
+		for _, c := range sourceClusters(r.col) {
+			if !validClusterIDPattern.MatchString(c.ID) {
+				invalid++
+				continue
+			}
+			reporters[c.ID] = appendUnique(reporters[c.ID], sources[i].ID())
+			claimClusterName(claims, sources[i], c)
+		}
+		if invalid > 0 {
+			idx.problems[i] = append(idx.problems[i], Limitation{Code: LimitationSourceRecordInvalid, Source: sources[i].ID(),
+				Message: "source " + sources[i].ID() + " reported " + strconv.Itoa(invalid) + " invalid cluster ids; those clusters were dropped and their targets carry no cluster"})
+		}
+	}
+	for id, srcs := range reporters {
+		cl := Cluster{ID: id, Name: id[:min(8, len(id))], NameSource: ClusterNameFromUID}
+		if c := claims[id]; c != nil {
+			cl.Name, cl.NameSource, cl.ReportedBy = c.name, c.nameSource, c.reportedBy
+		}
+		idx.resolved[id] = cl
+		idx.records = append(idx.records, ClusterRecord{Cluster: cl, Sources: srcs})
+	}
+	sort.Slice(idx.records, func(a, b int) bool { return idx.records[a].ID < idx.records[b].ID })
+	idx.multi = len(idx.records) > 1
+	idx.collectClusterless(results, sources)
+	idx.detectClusterConflicts(results, sources)
+	return idx
+}
+
+// sourceClusters lists every cluster a collection names: its own and each
+// target's.
+func sourceClusters(col *Collection) []Cluster {
+	var out []Cluster
+	if col.Cluster != nil {
+		out = append(out, *col.Cluster)
+	}
+	for _, t := range col.Targets {
+		if t.Cluster != nil {
+			out = append(out, *t.Cluster)
+		}
+	}
+	return out
+}
+
+// claimClusterName records src's claim on the name of c when it is valid and
+// outranks the claim already held.
+func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
+	if !validClusterName(c.Name) || clusterNameRank[c.NameSource] == 0 {
+		return
+	}
+	claim := clusterNameClaim{name: c.Name, nameSource: c.NameSource, live: src.Kind() == SourceKindKubernetes}
+	if !claim.live {
+		claim.reportedBy = src.ID()
+	}
+	if held := claims[c.ID]; held == nil || claim.outranks(*held) {
+		claims[c.ID] = &claim
+	}
+}
+
+// collectClusterless records the targets each source delivered with no known
+// cluster and, in a snapshot with several clusters, makes each such source
+// partial with one CLUSTER_UNKNOWN. With no known cluster nothing is recorded.
+func (c *clusterIndex) collectClusterless(results []sourceResult, sources []Source) {
+	if len(c.records) == 0 {
+		return
+	}
+	for i, r := range results {
+		if r.err != nil || r.col == nil {
+			continue
+		}
+		for _, t := range r.col.Targets {
+			if _, ok := c.resolved[rawClusterID(r.col, t)]; !ok {
+				c.clusterless[i] = append(c.clusterless[i], NewTargetKey(t.Scope, t.Kind, t.Name))
+			}
+		}
+		if c.multi && len(c.clusterless[i]) > 0 {
+			id := sources[i].ID()
+			c.problems[i] = append(c.problems[i], Limitation{Code: LimitationClusterUnknown, Source: id,
+				Message: strconv.Itoa(len(c.clusterless[i])) + " targets from source " + id + " carry no cluster id, so they cannot be told apart from another cluster's; give the source a cluster id (for the live source: get on namespaces/kube-system)"})
+		}
+	}
+}
+
+// evidenceRecord identifies one evidence record across Evidence Servers.
+type evidenceRecord struct {
+	producer, kind, subject string
+	evidenceAt, acceptedAt  time.Time
+}
+
+// detectClusterConflicts reports one evidence record that two evidence sources
+// list as accepted in two different clusters: the later source gets a
+// CLUSTER_CONFLICT record problem and both targets stay.
+func (c *clusterIndex) detectClusterConflicts(results []sourceResult, sources []Source) {
+	seen := map[evidenceRecord]string{}
+	for i, r := range results {
+		if r.err != nil || r.col == nil || sources[i].Kind() != SourceKindEvidenceHTTP {
+			continue
+		}
+		conflicts := 0
+		for _, t := range r.col.Targets {
+			id := rawClusterID(r.col, t)
+			if _, ok := c.resolved[id]; !ok || t.EvidenceAt == nil || t.ReconciledAt == nil {
+				continue
+			}
+			rec := evidenceRecord{t.Scope, t.Kind, t.Name, t.EvidenceAt.UTC(), t.ReconciledAt.UTC()}
+			if prev, ok := seen[rec]; !ok {
+				seen[rec] = id
+			} else if prev != id {
+				conflicts++
+			}
+		}
+		if conflicts > 0 {
+			id := sources[i].ID()
+			c.problems[i] = append(c.problems[i], Limitation{Code: LimitationClusterConflict, Source: id,
+				Message: "source " + id + " reports " + strconv.Itoa(conflicts) + " evidence records that another evidence source reports as accepted in a different cluster; one subject has exactly one accepting Evidence Server"})
+		}
+	}
+}
+
+// clusterMergeLimitations states, in a snapshot with exactly one known cluster,
+// what Build assumed about clusterless targets. A clusterless target that merged
+// into a clustered one was treated as the same cluster, so its source becomes
+// partial with a CLUSTER_UNKNOWN naming the keys. With no such merge, one
+// informational CLUSTER_UNKNOWN is added and completeness is unchanged.
+func clusterMergeLimitations(snap *FleetSnapshot, c clusterIndex) {
+	if len(c.records) != 1 {
+		return
+	}
+	total, merged := 0, false
+	for i, keys := range c.clusterless {
+		total += len(keys)
+		var hit []string
+		for _, k := range keys {
+			if snap.Targets[k].Cluster != "" {
+				hit = appendUnique(hit, string(k))
+			}
+		}
+		if len(hit) > 0 {
+			merged = true
+			markSourcePartial(snap, i, Limitation{Code: LimitationClusterUnknown, Source: snap.Sources[i].ID,
+				Message: "targets from source " + snap.Sources[i].ID + " carry no cluster id and were merged into the targets of cluster " + c.records[0].Name + ": " + boundedKeyList(hit)})
+		}
+	}
+	if !merged && total > 0 {
+		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationClusterUnknown,
+			Message: strconv.Itoa(total) + " targets carry no cluster id; with one known cluster their keys stay unqualified"})
+	}
+}
+
+// boundedKeyList joins at most 20 keys and counts the rest, so a limitation
+// message never grows with the fleet.
+func boundedKeyList(keys []string) string {
+	const limit = 20
+	if len(keys) <= limit {
+		return strings.Join(keys, ", ")
+	}
+	return strings.Join(keys[:limit], ", ") + " and " + strconv.Itoa(len(keys)-limit) + " more"
+}
+
+// markSourcePartial adds lim and downgrades an available source to partial.
+// It runs before completeness is classified.
+func markSourcePartial(snap *FleetSnapshot, i int, lim Limitation) {
+	snap.Limitations = append(snap.Limitations, lim)
+	if snap.Sources[i].Status == SourceAvailable {
+		snap.Sources[i].Status = SourcePartial
+	}
 }
 
 // mergeRevision folds a later contribution of the same immutable revision into
@@ -474,6 +732,7 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 		existing.ResolvedRef = ref
 	}
 	lims = append(lims, mergeTargetLabels(existing, add)...)
+	mergeTargetCluster(existing, add)
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
@@ -494,6 +753,20 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	}
 	existing.Limitations = append(existing.Limitations, add.Limitations...)
 	return lims
+}
+
+// mergeTargetCluster fills an empty cluster of existing from add, so the merged
+// target's cluster never depends on source order. Two different ids never share
+// a key (two clusters key every target by cluster), so there is no conflict to
+// report. runs-in wins over reported-through.
+func mergeTargetCluster(existing, add *TargetRecord) {
+	if existing.Cluster == "" {
+		existing.Cluster, existing.ClusterName, existing.ClusterNameSource = add.Cluster, add.ClusterName, add.ClusterNameSource
+		existing.ClusterNameReportedBy, existing.ClusterRelation = add.ClusterNameReportedBy, add.ClusterRelation
+	}
+	if add.ClusterRelation == ClusterRelationRunsIn {
+		existing.ClusterRelation = ClusterRelationRunsIn
+	}
 }
 
 // mergeTargetIdentity reconciles the identity-bearing fields of two contributions
@@ -1085,13 +1358,17 @@ func canonicalFindings(fs []finding.Finding) (out []finding.Finding, invalid int
 // extension seam) may set to any string, keeping the usable record and returning a
 // SOURCE_RECORD_INVALID limitation for each normalized field.
 // The returned limitations are also recorded on the target so it self-describes.
-func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration) (*TargetRecord, []Limitation) {
+func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration, tc targetCluster) (*TargetRecord, []Limitation) {
 	compliance, complianceInvalid := canonicalCompliance(raw.Compliance)
 	findings, invalidSeverities := canonicalFindings(raw.Findings)
+	keyCluster := ""
+	if tc.keyed {
+		keyCluster = tc.cluster.ID
+	}
 	// Every mutable field is deep-copied so a source mutating its own records
 	// after Build cannot mutate the snapshot.
 	t := &TargetRecord{
-		Key:          NewTargetKey(raw.Scope, raw.Kind, raw.Name),
+		Key:          NewClusterTargetKey(keyCluster, raw.Scope, raw.Kind, raw.Name),
 		Scope:        raw.Scope,
 		Kind:         raw.Kind,
 		Name:         raw.Name,
@@ -1116,6 +1393,10 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Source:          source,
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
+	}
+	if tc.cluster.ID != "" {
+		t.Cluster, t.ClusterName, t.ClusterNameSource = tc.cluster.ID, tc.cluster.Name, tc.cluster.NameSource
+		t.ClusterNameReportedBy, t.ClusterRelation = tc.cluster.ReportedBy, tc.relation
 	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
