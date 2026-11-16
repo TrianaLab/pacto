@@ -31,7 +31,22 @@ export function kindLabel(kind: string | undefined): string {
     case 'source': return 'Data source';
     case 'domain': return 'Domain';
     case 'offering': return 'Platform offering';
+    case 'external': return 'External system';
     default: return kind ? kind[0].toUpperCase() + kind.slice(1) : 'Entity';
+  }
+}
+
+/** The classes of an external system, '' first for every class (the filter's All). */
+export const EXTERNAL_CLASSES = ['', 'vendor-api', 'managed-cloud', 'legacy', 'unclassified', 'other-egress'] as const;
+
+/** externalClassLabel is the words for an external system's class. */
+export function externalClassLabel(c: string | undefined): string {
+  switch (c) {
+    case 'vendor-api': return 'Vendor API';
+    case 'managed-cloud': return 'Managed cloud';
+    case 'legacy': return 'Legacy';
+    case 'other-egress': return 'Other egress';
+    default: return 'Unclassified';
   }
 }
 

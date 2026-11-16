@@ -978,3 +978,71 @@ describe('FleetEntityView — cluster-qualified target keys', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetEntityView — external system page', () => {
+  beforeEach(() => detailFn.mockReset());
+  const DIGEST = 'sha256:3e9a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd';
+  const svc = (name: string) => ({ kind: 'service', key: name, label: name, href: `/fleet/services/${name}` });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  function externalDetail(record: Record<string, any>, extra: Record<string, any> = {}): any {
+    return {
+      meta,
+      entity: { kind: 'external', key: record.key, label: record.label, secondary: record.class, status: 'unknown', href: `/fleet/externals/${record.key}` },
+      status: 'unknown',
+      actions: ['open-graph'],
+      external: {
+        external: { sources: [], sourcesTotal: 0, consumers: [], consumersTotal: 0, ...record },
+        consumers: [],
+        ...extra,
+      },
+    };
+  }
+
+  it('lists the consumers and a provenance panel with every source and the catalog', async () => {
+    detailFn.mockResolvedValue(externalDetail({
+      key: 'stripe', label: 'Stripe', class: 'vendor-api', consumersTotal: 2, sourcesTotal: 2, hiddenConsumers: 1,
+      catalog: { origin: 'default', digest: DIGEST, entry: 'stripe' },
+      sources: [
+        { kind: 'contract', service: 'checkout', index: 0, dependency: 'Stripe', version: '2024-06', required: true, provenance: 'declared', match: 'catalog-alias' },
+        { kind: 'contract', service: 'billing', index: 2, dependency: 'stripe-api', provenance: 'declared', match: 'catalog-alias' },
+      ],
+    }, {
+      consumers: [{ service: svc('checkout'), required: true, versions: ['2024-06'] }, { service: svc('billing') }],
+      catalog: { origin: 'default', digest: DIGEST, copy: 'embedded', signature: 'unknown', reason: 'the default catalog is checked only when a source already reads ghcr.io' },
+    }));
+    const { target, component } = await mountView('external', 'stripe');
+    expect(detailFn).toHaveBeenCalledWith('external', 'stripe');
+    const rows = Array.from(target.querySelectorAll('[data-testid="external-consumers"] tbody tr'));
+    expect(rows.map((r) => Array.from(r.children).map((c) => c.textContent?.trim()))).toEqual([['checkout', 'required', '2024-06'], ['billing', 'optional', 'none named']]);
+    expect(target.querySelector('[data-testid="external-hidden-consumers"]')?.textContent).toBe('1 more service you cannot see declares it.');
+    const cat = target.querySelector('[data-testid="external-catalog"]')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(cat).toBe('Default catalog sha256:3e9a1b2c, entry stripe: embedded copy, signature unknown (the default catalog is checked only when a source already reads ghcr.io).');
+    openAll(target);
+    const sources = Array.from(target.querySelectorAll('[data-testid="external-sources"] li')).map((li) => li.textContent?.trim());
+    expect(sources).toEqual([
+      'checkout pacto.yaml dependencies[0] (name: Stripe, version: 2024-06), declared',
+      'billing pacto.yaml dependencies[2] (name: stripe-api), declared',
+    ]);
+    expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
+    const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
+    expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'External systems', 'Stripe']));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says a system joined by name only does not join other spellings', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'parcel-carrier', label: 'parcel-carrier', class: 'unclassified', consumersTotal: 1 },
+      { consumers: [{ service: svc('carrier-gateway'), required: true }] }));
+    const { target, component } = await mountView('external', 'parcel-carrier');
+    expect(target.querySelector('[data-testid="external-name-only"]')?.textContent).toBe('Joined by name only: consumers that spell it differently do not join.');
+    expect(target.querySelector('[data-testid="external-catalog"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('explains the other-egress node and how many systems it folds', async () => {
+    detailFn.mockResolvedValue(externalDetail({ key: 'other-egress', label: 'Other egress', class: 'other-egress', folded: 12, consumersTotal: 3 }));
+    const { target, component } = await mountView('external', 'other-egress');
+    expect(target.querySelector('[data-testid="external-folded"]')?.textContent).toContain('This node folds 12 external systems');
+    expect(target.querySelector('[data-testid="external-name-only"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+});

@@ -86,6 +86,10 @@ func TestRestrictExternalCountsHiddenConsumers(t *testing.T) {
 			t.Errorf("a hidden consumer is named: %+v", src)
 		}
 	}
+	l, _ := q.Restrict(shopView).Entities(EntityFilter{Kinds: []EntityKind{KindExternal}})
+	if row := l.Entities[0]; row.Consumers != 1 || row.HiddenConsumers != 0 {
+		t.Fatalf("restricted list row = %+v", row)
+	}
 }
 
 func TestRestrictExternalSourcesTotalCountsVisibleOnly(t *testing.T) {

@@ -58,9 +58,15 @@ function edgeType(relation: string): string {
   return relation === 'configuration_reference' ? 'reference' : 'dependency';
 }
 
-/** nodeKind narrows a backend entity kind to the three kinds the graph renders. */
-function nodeKind(kind: string): 'service' | 'revision' | 'target' {
-  return kind === 'revision' || kind === 'target' ? kind : 'service';
+/** nodeKind narrows a backend entity kind to the four kinds the graph renders. */
+function nodeKind(kind: string): 'service' | 'revision' | 'target' | 'external' {
+  return kind === 'revision' || kind === 'target' || kind === 'external' ? kind : 'service';
+}
+
+/** graphNodeId is a node's canvas id: its key, prefixed for an external system, whose
+ *  identity can equal a service key (a service and an external both called stripe). */
+export function graphNodeId(ref: { kind?: string; key: string }): string {
+  return ref.kind === 'external' ? `external:${ref.key}` : ref.key;
 }
 
 /** neighborhoodToGraph adapts a ProductNeighborhood into GraphData: one GraphNode per
@@ -76,7 +82,7 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
     const version = n.ref.kind === 'revision' ? n.ref.version || '' : '';
     const label = n.ref.label || n.ref.key;
     const g: GraphNode = {
-      id: n.ref.key,
+      id: graphNodeId(n.ref),
       serviceName: version && label.endsWith(` ${version}`) ? label.slice(0, -version.length - 1) : label,
       ...(version ? { version } : {}),
       ...(n.ref.nameInferred ? { nameInferred: n.ref.nameInferred.source } : {}),
@@ -90,14 +96,14 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
     byKey.set(g.id, g);
   }
   for (const e of nb?.edges ?? []) {
-    const src = byKey.get(e.from.key);
-    if (!src || !byKey.has(e.to.key)) continue;
+    const src = byKey.get(graphNodeId(e.from));
+    if (!src || !byKey.has(graphNodeId(e.to))) continue;
     // Carry the backend reconciliation state (difference for a service edge, service
     // corroboration for a fine-grained one) into a single visual state the canvas
     // renders as a real distinction. The drawer keeps the precise, scoped wording.
     const state = edgeState(e);
     const edge: GraphEdge = {
-      targetId: e.to.key,
+      targetId: graphNodeId(e.to),
       type: edgeType(e.relation),
       edgeState: state || undefined,
       driftStatus: state === 'drift' ? 'drift' : undefined,

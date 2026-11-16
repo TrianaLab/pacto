@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError, ApiContractError,
-  narrowEntityDetail, isServiceDetail, isTargetDetail,
+  narrowEntityDetail, isServiceDetail, isTargetDetail, isExternalDetail,
 } from './api.ts';
 import type { ProductEntityDetail } from './api.ts';
 
@@ -190,11 +190,17 @@ describe('entity-detail runtime narrowing', () => {
   // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
   const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);
 
-  it('accepts a valid instance for each of the six kinds', () => {
-    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain'] as const) {
+  it('accepts a valid instance for each kind', () => {
+    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'] as const) {
       const d = narrowEntityDetail(raw({ entity: { kind }, [kind]: {} }));
       expect(d.entity.kind).toBe(kind);
     }
+  });
+
+  it('narrows an external system to its external payload', () => {
+    const d = narrowEntityDetail(raw({ entity: { kind: 'external', key: 'stripe' }, external: { external: { key: 'stripe' }, consumers: [] } }));
+    expect(isExternalDetail(d) && d.external.external.key).toBe('stripe');
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'external' }, offering: {} }))).toThrow(ApiContractError);
   });
 
   it('rejects a service kind with a missing service payload', () => {

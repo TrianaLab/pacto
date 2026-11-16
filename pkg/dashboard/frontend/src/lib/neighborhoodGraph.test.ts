@@ -6,7 +6,7 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, graphNodeId, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
 import { graphLabels, fullName } from './graph.ts';
 
@@ -45,6 +45,18 @@ describe('neighborhoodToGraph', () => {
     expect(kindOf('domain-a/web@sha256:1')).toBe('revision');
     expect(kindOf('domain-a/api')).toBe('service');
     expect(kindOf('team-a')).toBe('service'); // owner falls back to a service-shaped node
+  });
+
+  // An external identity can equal a service key: its node id is prefixed so the two
+  // stay two nodes, and the edge to it still lands.
+  it('keeps an external system apart from a service with the same key', () => {
+    const gd = neighborhoodToGraph({ nodes: [
+      { ref: { kind: 'service', key: 'stripe', label: 'stripe' }, status: 'Compliant', focus: true },
+      { ref: { kind: 'external', key: 'stripe', label: 'Stripe' }, status: 'unknown' },
+    ], edges: [{ from: { kind: 'service', key: 'stripe' }, to: { kind: 'external', key: 'stripe' }, relation: 'dependency' }] } as never);
+    expect(gd.nodes.map((n) => [n.id, n.kind])).toEqual([['stripe', 'service'], ['external:stripe', 'external']]);
+    expect(gd.nodes[0].edges).toEqual([expect.objectContaining({ targetId: 'external:stripe' })]);
+    expect(graphNodeId({ kind: 'external', key: 'aws/rds' })).toBe('external:aws/rds');
   });
 
   it('maps dependency and runs to distinct edge types and attaches edges to the source', () => {

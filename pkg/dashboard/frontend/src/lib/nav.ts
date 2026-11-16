@@ -69,9 +69,11 @@ export function navGroups(capabilities: any): NavGroup[] {
     {
       label: 'Organization',
       items: [
+        // Services also hosts the external systems the services declare (their list and
+        // pages), so the sidebar gains no item for them (the Overview line links there).
         // '#/services' works at every probe state: canonicalized to /fleet/services on a
         // Fleet host. '#/' would canonicalize to the Overview and do nothing visible.
-        { key: 'services', label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/services', views: ['list', 'detail', 'fleet-services'], kinds: ['service', 'revision', 'target'], glyph: 'service' },
+        { key: 'services', label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/services', views: ['list', 'detail', 'fleet-services', 'fleet-externals'], kinds: ['service', 'revision', 'target', 'external'], glyph: 'service' },
         { key: 'owners', label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], glyph: 'owner' },
         { key: 'domains', label: 'Domains', href: fleetDomainsUrl(), views: ['fleet-domains'], kinds: ['domain'], glyph: 'domain' },
         { key: 'offerings', label: 'Offerings', href: fleetOfferingsUrl(), views: ['fleet-offerings'], kinds: ['offering'], glyph: 'offering' },
@@ -117,7 +119,8 @@ export function legacyNav(): NavItem[] {
 export function navCurrent(item: NavItem, view: string, kind: string): 'page' | 'true' | undefined {
   if (view === 'fleet-entity') return (item.kinds || []).includes(kind) ? 'true' : undefined;
   if (!item.views.includes(view)) return undefined;
-  return item.key === 'delivery' && view !== 'delivery-inbox' ? 'true' : 'page';
+  // The external-system list sits beneath Services, like a Delivery tab beneath the inbox.
+  return (item.key === 'delivery' && view !== 'delivery-inbox') || view === 'fleet-externals' ? 'true' : 'page';
 }
 
 /**

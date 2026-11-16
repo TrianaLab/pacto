@@ -64,6 +64,12 @@ describe('fleetEntityBreadcrumbs (H) — entity-relationship trails from canonic
     expect(t[1].href).toBe('#/fleet/owners');
   });
 
+  it('external: Overview > External systems > Stripe', () => {
+    const t = fleetEntityBreadcrumbs({ entity: { kind: 'external', key: 'stripe', label: 'Stripe' } });
+    expect(t.map((c) => c.label)).toEqual(['Overview', 'External systems', 'Stripe']);
+    expect(t[1].href).toBe('#/fleet/externals');
+  });
+
   it('source: Overview > Data sources > kubernetes', () => {
     const t = fleetEntityBreadcrumbs({ entity: { kind: 'source', key: 'kubernetes', label: 'kubernetes' } });
     expect(t.map((c) => c.label)).toEqual(['Overview', 'Data sources', 'kubernetes']);

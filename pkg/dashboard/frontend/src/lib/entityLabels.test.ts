@@ -25,6 +25,7 @@ describe('kindLabel', () => {
     expect(kindLabel('service')).toBe('Service');
     expect(kindLabel('revision')).toBe('Revision');
     expect(kindLabel('owner')).toBe('Owner');
+    expect(kindLabel('external')).toBe('External system');
   });
 
   // Pacto observes where a revision runs; it never deploys anything. Calling a target a

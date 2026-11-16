@@ -152,11 +152,14 @@ func TestEntitiesListExternalOnlyWhenAsked(t *testing.T) {
 	}
 	l := listExternals(t, q, EntityFilter{})
 	want := []EntityRef{
-		{Kind: KindExternal, Key: "legacy-mq", Label: "legacy-mq", Secondary: externalcatalog.ClassUnclassified, Status: StatusUnknown},
-		{Kind: KindExternal, Key: "stripe", Label: "Stripe", Secondary: externalcatalog.ClassVendorAPI, Status: StatusUnknown},
+		{Kind: KindExternal, Key: "legacy-mq", Label: "legacy-mq", Secondary: externalcatalog.ClassUnclassified, Status: StatusUnknown, Consumers: 1},
+		{Kind: KindExternal, Key: "stripe", Label: "Stripe", Secondary: externalcatalog.ClassVendorAPI, Status: StatusUnknown, Consumers: 2, CatalogEntry: "stripe"},
 	}
 	if !reflect.DeepEqual(l.Entities, want) || l.Hidden != 0 {
 		t.Fatalf("externals = %+v", l.Entities)
+	}
+	if l = listExternals(t, q, EntityFilter{Sort: SortConsumers}); l.Entities[0].Key != "stripe" {
+		t.Fatalf("most consumed first = %+v", l.Entities)
 	}
 }
 

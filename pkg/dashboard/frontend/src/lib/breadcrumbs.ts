@@ -1,6 +1,6 @@
 /** Breadcrumb trails derived from view state. Pure — unit-testable. */
 import {
-  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl, fleetEntityUrl, hashForHref,
+  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetExternalsUrl, fleetGoldenPathsUrl, fleetEntityUrl, hashForHref,
 } from './router';
 
 export interface Crumb {
@@ -54,6 +54,8 @@ export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
       return [root, domains, { label: e.label || e.key || 'domain' }];
     case 'offering':
       return [root, { label: 'Offerings', href: fleetOfferingsUrl() }, { label: e.label || e.key || 'offering' }];
+    case 'external':
+      return [root, { label: 'External systems', href: fleetExternalsUrl() }, { label: e.label || e.key || 'external system' }];
     case 'revision': {
       const leaf = detail.revision?.version ? `Revision ${detail.revision.version}` : (e.label || e.key || 'Revision');
       return [root, services, refCrumb(detail.revision?.service, 'service'), { label: leaf }];

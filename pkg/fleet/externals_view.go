@@ -181,6 +181,19 @@ func externalEntityRef(r *ExternalRecord) EntityRef {
 	return EntityRef{Kind: KindExternal, Key: string(r.Key), Label: r.Label, Secondary: r.Class, Status: StatusUnknown}
 }
 
+// externalListRef is an external list row: its reference with how many
+// visible services declare it and the catalog entry that joined it (empty
+// when joined by name only). Hidden consumers stay off the row, so a
+// restricted list never varies with them; the entity page counts them.
+func externalListRef(r *ExternalRecord) EntityRef {
+	ref := externalEntityRef(r)
+	ref.Consumers = r.ConsumersTotal
+	if r.Catalog != nil {
+		ref.CatalogEntry = r.Catalog.Entry
+	}
+	return ref
+}
+
 // externalTextMatches reports whether text, compared without case, is in
 // rec's identity, label or a catalog alias.
 func externalTextMatches(rec *ExternalRecord, text string) bool {

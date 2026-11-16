@@ -70,8 +70,9 @@ export interface GraphNode {
   // kind distinguishes what a node represents so the renderer can style it and the
   // viewer is never misled about the layer: 'target' is a deployed instance,
   // 'service' is a logical service (incl. a dependency-service aggregate in the
-  // target perspective), 'revision' is a content-addressed revision. Absent = service.
-  kind?: 'service' | 'revision' | 'target';
+  // target perspective), 'revision' is a content-addressed revision, 'external' a
+  // system no contract describes. Absent = service.
+  kind?: 'service' | 'revision' | 'target' | 'external';
   edges?: GraphEdge[];
   /** Hops from the focus (0 = the focus), when the answer says; it seeds the layout in
    *  rings so a large neighborhood reads outward from its subject. */
@@ -429,6 +430,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'kind:group': 'node[group = 1]',
   'kind:revision': 'node[kind = "revision"]',
   'kind:target': 'node[kind = "target"]',
+  'kind:external': 'node[kind = "external"]',
   'rel:dependency': 'edge[etype = "dependency"]',
   'rel:runs': 'edge[etype = "runs"]',
   'rel:reference': 'edge[etype = "reference"]',
@@ -720,6 +722,12 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       // border) without relying on color.
       selector: "node[kind='revision']",
       style: { 'border-style': 'dashed' },
+    },
+    {
+      // An external system of the operational graph is a dashed hexagon: a shape no
+      // fleet entity takes, with no compliance tone (Pacto observes no health for it).
+      selector: "node[kind='external']",
+      style: { shape: 'hexagon', 'border-style': 'dashed', 'border-color': pal.neutral, 'border-width': 1.5 },
     },
     {
       // An external system reads as a dashed ring, matching its legend swatch, so it is

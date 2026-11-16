@@ -151,7 +151,7 @@ const (
 	// SortFailed puts the offerings with the most consumers with a failed
 	// provisioning request first, then by name.
 	SortFailed = "failed"
-	// SortConsumers puts the offerings with the most declared consumers first,
+	// SortConsumers puts the offerings and external systems with the most declared consumers first,
 	// then by name.
 	SortConsumers = "consumers"
 	// SortGaps puts the owners and domains with the most services that leave
@@ -617,7 +617,7 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) ([]EntityRef, map[string
 	}
 	if want[KindExternal] {
 		for _, rec := range q.externals {
-			refs = append(refs, externalEntityRef(rec))
+			refs = append(refs, externalListRef(rec))
 		}
 	}
 	return refs, offerings

@@ -216,7 +216,8 @@ type EntityRef struct {
 	AvailabilityProvenance string            `json:"availabilityProvenance,omitempty" enum:"observed,inferred,unknown"`
 	// Consumers counts the distinct services with a declared use of any
 	// provider; HiddenConsumers the consumers the viewer may not see, which
-	// makes Consumers and FailedRequests lower bounds.
+	// makes Consumers and FailedRequests lower bounds. An EXTERNAL list row
+	// carries Consumers alone: the visible services that declare it.
 	Consumers       int `json:"consumers,omitempty"`
 	HiddenConsumers int `json:"hiddenConsumers,omitempty"`
 	// FailedRequests counts the distinct consumers with a failed provisioning
@@ -225,6 +226,9 @@ type EntityRef struct {
 	// TargetsUnknown says the viewer cannot see every target of a provider, or
 	// a target source is incomplete: Targets is then 0 and means unknown.
 	TargetsUnknown bool `json:"targetsUnknown,omitempty"`
+	// CatalogEntry is, on an EXTERNAL list row, the catalog entry that joined
+	// it; empty when it is joined by name only.
+	CatalogEntry string `json:"catalogEntry,omitempty" doc:"On an external list row, the catalog entry that joined it; empty when it is joined by name only"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

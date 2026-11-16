@@ -331,6 +331,7 @@ describe('renderGraph (Cytoscape)', () => {
       ] },
       { id: 'rev', serviceName: 'svc', status: 'Compliant', kind: 'revision', edges: [] },
       { id: 'tgt', serviceName: 'svc', status: 'Compliant', kind: 'target', edges: [{ targetId: 'rev', type: 'runs' }] },
+      { id: 'external:stripe', serviceName: 'Stripe', status: 'unknown', kind: 'external', edges: [] },
       { id: 'dep', serviceName: 'dep', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'eno', serviceName: 'eno', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
@@ -595,6 +596,18 @@ describe('renderGraph in lanes (headless)', () => {
 });
 
 describe('cyStylesheet', () => {
+  // An external system is a shape no fleet entity takes, with no compliance tone.
+  it('draws an external system as a dashed neutral hexagon', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f', fontSans: 'Inter', fontDisplay: 'Serif', radius: 6 };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force', 'visible'),
+      elements: [{ data: { id: 'external:stripe', label: 'Stripe', status: 'unknown', kind: 'external', group: 0, lane: 0 } }],
+    });
+    const x = cy.getElementById('external:stripe');
+    expect([x.style('shape'), x.style('border-style'), x.style('border-color')]).toEqual(['hexagon', 'dashed', 'rgb(136,136,136)']);
+    cy.destroy();
+  });
+
   // The canvas speaks the rest of the dashboard's visual language: hairline borders in
   // the status tone, the body's type, the kind glyph, the page's focus ring and lane
   // names set as section labels rather than headings.

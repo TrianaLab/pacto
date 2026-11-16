@@ -24,6 +24,7 @@
   import SourceEntity from './entity/SourceEntity.svelte';
   import DomainEntity from './entity/DomainEntity.svelte';
   import OfferingEntity from './entity/OfferingEntity.svelte';
+  import ExternalEntity from './entity/ExternalEntity.svelte';
 
   // The unified entity route for every kind. It resolves the
   // product entity-detail endpoint (NarrowedEntityDetail) -- never the raw snapshot --
@@ -222,6 +223,8 @@
           <DomainEntity {detail} />
         {:else if detail.offering}
           <OfferingEntity {detail} />
+        {:else if detail.external}
+          <ExternalEntity {detail} />
         {/if}
         {#snippet failed(err, reset)}
           <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />

@@ -199,6 +199,7 @@ export type ServiceEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type RevisionEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'revision' };
@@ -209,6 +210,7 @@ export type RevisionEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type TargetEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'target' };
@@ -219,6 +221,7 @@ export type TargetEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type OwnerEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'owner' };
@@ -229,6 +232,7 @@ export type OwnerEntityDetail = Detail & {
   source?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type SourceEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'source' };
@@ -239,6 +243,7 @@ export type SourceEntityDetail = Detail & {
   owner?: never;
   domain?: never;
   offering?: never;
+  external?: never;
 };
 export type DomainEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'domain' };
@@ -248,7 +253,7 @@ export type DomainEntityDetail = Detail & {
   target?: never;
   owner?: never;
   source?: never;
-  offering?: never;
+  offering?: never;  external?: never;
 };
 export type OfferingEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'offering' };
@@ -259,6 +264,18 @@ export type OfferingEntityDetail = Detail & {
   owner?: never;
   source?: never;
   domain?: never;
+  external?: never;
+};
+export type ExternalEntityDetail = Detail & {
+  entity: DetailEntity & { kind: 'external' };
+  external: NonNullable<Detail['external']>;
+  service?: never;
+  revision?: never;
+  target?: never;
+  owner?: never;
+  source?: never;
+  domain?: never;
+  offering?: never;
 };
 
 /** NarrowedEntityDetail is the discriminated view of a ProductEntityDetail. */
@@ -269,7 +286,8 @@ export type NarrowedEntityDetail =
   | OwnerEntityDetail
   | SourceEntityDetail
   | DomainEntityDetail
-  | OfferingEntityDetail;
+  | OfferingEntityDetail
+  | ExternalEntityDetail;
 
 export const isServiceDetail = (d: ProductEntityDetail): d is ServiceEntityDetail =>
   d.entity?.kind === 'service';
@@ -285,10 +303,12 @@ export const isDomainDetail = (d: ProductEntityDetail): d is DomainEntityDetail 
   d.entity?.kind === 'domain';
 export const isOfferingDetail = (d: ProductEntityDetail): d is OfferingEntityDetail =>
   d.entity?.kind === 'offering';
+export const isExternalDetail = (d: ProductEntityDetail): d is ExternalEntityDetail =>
+  d.entity?.kind === 'external';
 
 // DETAIL_KINDS is the closed set of entity-detail payload discriminants; it doubles
 // as the payload-field names (each kind's payload lives under the same key).
-const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering'] as const;
+const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering', 'external'] as const;
 
 /**
  * narrowEntityDetail validates the runtime invariant the generated broad shape
