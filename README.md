@@ -188,8 +188,8 @@ core makes no deployment decisions. The opt-in delivery component decides
 which version runs where and leaves applying it to Flux or Argo CD.
 
 [How Pacto relates to other tools](https://pacto.run/latest/comparison/)
-compares Pacto with nearby projects, with the criteria and a source for each
-row.
+compares Pacto with nearby projects, with the criteria, a source for each row
+and where each tool wins.
 
 ## Installation
 

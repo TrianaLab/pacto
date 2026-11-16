@@ -6,7 +6,7 @@ core makes no deployment decisions. The opt-in delivery component decides
 which version runs where and leaves applying it to Flux or Argo CD.
 
 This page grades Pacto and several nearby projects on the same criteria.
-Reviewed on 2026-10-29. Maintainers review this page at every minor release.
+Reviewed on 2026-11-16. Maintainers review this page at every minor release.
 These projects move fast, so check the source page before you rely on a cell.
 
 ## Criteria
@@ -91,6 +91,79 @@ What each source page shows:
 - **buf**: `buf breaking` compares a Protobuf schema with a past version and
   flags source, JSON or wire-format incompatibilities. A `buf.yaml` declares the
   schema modules it depends on, and `buf.lock` pins them.
+
+## Where each tool wins
+
+Each tool below wins at the job its source page describes. Pacto adds the check
+named after it.
+
+- **Score** wins at describing one workload in a file that each Score
+  implementation turns into platform configuration,
+  [Score specification](https://docs.score.dev/docs/score-specification/score-spec-reference/).
+  When you run the workload under `pacto run` or the operator, Pacto checks that
+  it serves the ports and reaches the dependencies its contract declares
+  ([runtime conformance](runtime-conformance.md)).
+- **Crossplane** wins at shipping Compositions and the packages they depend on
+  as one portable OCI package,
+  [Configurations](https://docs.crossplane.io/latest/packages/configurations/).
+  Given two versions of a contract, Pacto classifies each change as breaking,
+  potentially breaking or non-breaking ([diff](contract-reference/diff.md)).
+- **KubeVela** wins at keeping a revision of each published application and
+  rolling back to a past one,
+  [Version control](https://kubevela.io/docs/end-user/version-control/). Given
+  the old contract, the new one and the consumer contracts it can see, Pacto
+  lists the consumers the new version would break ([impact](impact.md)).
+- **Kratix** wins at packaging a platform service as a Promise with its API and
+  the Promises it requires,
+  [Promise reference](https://docs.kratix.io/main/reference/promises/intro).
+  From the sources you connect, such as your registry or a cluster, Pacto shows
+  which services depend on a service and which revision runs where
+  ([operational graph](operational-graph.md)).
+- **Kargo** wins at promoting Freight through a pipeline of Stages and leaves
+  the deploying to a GitOps agent,
+  [Core concepts](https://docs.kargo.io/user-guide/core-concepts/). In a pull
+  request, Pacto lists which of the consumer contracts you name with `--root`
+  would reject the new version
+  ([who breaks](ci.md#on-every-pull-request-who-breaks)).
+- **Argo CD** wins at syncing Git state to target clusters and showing where the
+  live state differs, [Argo CD overview](https://argo-cd.readthedocs.io/en/stable/).
+  With the health check from [GitOps gates](integrations/kubernetes/gitops.md)
+  in `argocd-cm`, an Application goes Degraded when its Pacto is `NonCompliant`
+  or `Invalid` and stays Progressing while the verdict is `Unknown`.
+- **Flux** wins at applying manifests from a source artifact and correcting
+  drift on every interval,
+  [Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/).
+  With the health check expression from
+  [GitOps gates](integrations/kubernetes/gitops.md), a Kustomization that holds
+  a `NonCompliant` or `Invalid` Pacto turns unready and the Kustomizations that
+  depend on it wait.
+- **Backstage** wins at a catalog where each component lists what it depends
+  on and the APIs it provides and consumes,
+  [Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format).
+  A Pacto contract also records which versions of each dependency it accepts,
+  so `pacto impact` names the consumers a new version breaks among the
+  contracts it is given ([impact](impact.md)).
+- **Port** wins at a data model where relations connect blueprints and their
+  entities and several sources add targets to the same relation,
+  [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/).
+  From the sources you connect, Pacto keeps relationships declared in contracts
+  apart from those observed in traffic and says how complete each answer is
+  ([operational graph](operational-graph.md)).
+- **Pact** wins at testing each consumer's real requests against the provider
+  before it deploys, [Pact Broker introduction](https://docs.pact.io/pact_broker).
+  Pacto lists which consumer contracts it can see would reject the new version
+  and reports a partial answer as unverified ([impact](impact.md)).
+- **oasdiff** wins at listing the changes between two OpenAPI specs that break
+  existing clients, from the command line or in CI,
+  [oasdiff README](https://github.com/oasdiff/oasdiff). Given the consumer
+  contracts you name with `--root`, Pacto lists the consumers whose accepted
+  range rejects the new version
+  ([who breaks](ci.md#on-every-pull-request-who-breaks)).
+- **buf** wins at checking a Protobuf schema against a past version for source,
+  JSON or wire-format breaks, [buf README](https://github.com/bufbuild/buf).
+  Pacto classifies a change to the whole contract, including its
+  configuration and dependencies, as breaking, potentially breaking or
+  non-breaking ([diff](contract-reference/diff.md)).
 
 ## Pacto's own row
 
