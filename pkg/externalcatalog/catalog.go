@@ -278,11 +278,17 @@ const (
 )
 
 // DeclaredIdentity names the external system a declared dependency with no
-// contract reference calls: the catalog entry one of whose aliases is the
-// name, else the registrable domain when the name is a host name, else the
-// normalized name. It returns how it matched, and the [externalid.Name] error
-// when the name cannot be normalized (empty, too long or reserved).
-func DeclaredIdentity(c *Catalog, name string) (externalid.ID, string, error) {
+// contract reference calls: the identity it declares when that parses, else
+// the catalog entry one of whose aliases is the name, else the registrable
+// domain when the name is a host name, else the normalized name. It returns
+// how it matched, and the [externalid.Name] error when the name cannot be
+// normalized (empty, too long or reserved). Validation refuses an identity
+// that does not parse, so the name fallback only serves a contract read
+// without it.
+func DeclaredIdentity(c *Catalog, identity, name string) (externalid.ID, string, error) {
+	if id, err := externalid.Parse(identity); identity != "" && err == nil {
+		return id, MatchIdentity, nil
+	}
 	if e, _, ok := c.ResolveDeclared(name); ok {
 		return e.Identity, MatchCatalogAlias, nil
 	}

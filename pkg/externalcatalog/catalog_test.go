@@ -228,14 +228,20 @@ func TestDeclaredIdentity(t *testing.T) {
 		"mq.corp-legacy.co.uk": {"host/corp-legacy.co.uk", MatchHost},
 		"Legacy_MQ":            {"legacy-mq", MatchNormalizedName},
 	} {
-		id, match, err := DeclaredIdentity(c, name)
+		id, match, err := DeclaredIdentity(c, "", name)
 		if err != nil || id != want.id || match != want.match {
 			t.Errorf("DeclaredIdentity(%q) = %q, %q, %v; want %q, %q", name, id, match, err, want.id, want.match)
 		}
 	}
 	for _, name := range []string{"日本語", "other-egress"} {
-		if id, _, err := DeclaredIdentity(c, name); err == nil {
+		if id, _, err := DeclaredIdentity(c, "", name); err == nil {
 			t.Errorf("DeclaredIdentity(%q) = %q, want an error", name, id)
 		}
+	}
+	if id, match, err := DeclaredIdentity(c, "host/corp-legacy.example", "Stripe"); err != nil || id != "host/corp-legacy.example" || match != MatchIdentity {
+		t.Errorf("a declared identity wins over an alias: %q, %q, %v", id, match, err)
+	}
+	if id, match, _ := DeclaredIdentity(c, "Not An Identity", "Stripe"); id != "stripe" || match != MatchCatalogAlias {
+		t.Errorf("an identity that does not parse falls back to the name: %q, %q", id, match)
 	}
 }

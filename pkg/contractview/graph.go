@@ -5,7 +5,6 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
-	"github.com/trianalab/pacto/v4/pkg/externalid"
 	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 )
 
@@ -201,10 +200,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 func externalNode(dep DependencyInfo) GraphNodeData {
 	n := GraphNodeData{ID: externalPrefix + dep.Name, ServiceName: dep.Name, Status: StatusExternalNode, Version: dep.Version}
 	cat := externalcatalog.Default()
-	id, err := externalid.Parse(dep.identity)
-	if dep.identity == "" || err != nil {
-		id, _, err = externalcatalog.DeclaredIdentity(cat, dep.Name)
-	}
+	id, _, err := externalcatalog.DeclaredIdentity(cat, dep.identity, dep.Name)
 	if err != nil {
 		return n
 	}
