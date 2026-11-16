@@ -511,3 +511,31 @@ func TestOverviewPrinterEdges(t *testing.T) {
 		t.Errorf("no domain prints a table: %q", buf.String())
 	}
 }
+
+// An inferred name keeps its source in text output, as in JSON and the dashboard.
+func TestPrintFleet_MarksInferredName(t *testing.T) {
+	inf := &contract.Inferred{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	res := &fleet.SearchResult{Total: 2, Count: 2, Services: []fleet.ServiceHit{{Name: "payments", NameInferred: inf}, {Name: "orders"}}}
+	if err := printFleetSearch(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if err := printFleetService(cmd, &fleet.ServiceView{Service: &fleet.ServiceRecord{Name: "payments", NameInferred: inf}}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(out.String()) {
+		if strings.Contains(line, "orders") && strings.Contains(line, "inferred") {
+			t.Errorf("declared row marked: %q", line)
+		}
+	}
+	for _, want := range []string{"payments", "Service: payments (name inferred from chart/Chart.yaml:2)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("text lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Count(out.String(), "(name inferred from chart/Chart.yaml:2)") != 2 {
+		t.Errorf("want the mark on the search row and the Service line:\n%s", out.String())
+	}
+}
