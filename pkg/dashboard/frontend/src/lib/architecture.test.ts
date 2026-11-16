@@ -191,8 +191,13 @@ describe('product visualization system', () => {
   // #597 grew the set out loud: ColumnChart (columns, stacked columns, the column
   // sparkline) and LineChart (the coverage lines, the line sparkline) draw marks only,
   // hatch every unknown and give every bucket a keyboard tooltip, and each card that
-  // hosts one also prints every number in its table view.
-  const ALLOWED_VIZ = ['ColumnChart.svelte', 'DistributionBar.svelte', 'HorizontalBars.svelte', 'LineChart.svelte', 'PostureBars.svelte'];
+  // hosts one also prints every number in its table view. RangeDots draws lead time as a
+  // dot at p50 and a line to p90 on one log axis, with an unjoined row hatched "unknown".
+  // RateGrid brings a heatmap back, and only because it fixes what retired the old one
+  // ("dense colour with no textual equivalent"): every cell is a table cell with its
+  // count, denominator and percent in words, the card's table view prints every number,
+  // and colour is an ordinal ramp of 4 bins plus a distinct real-zero cell and the hatch.
+  const ALLOWED_VIZ = ['ColumnChart.svelte', 'DistributionBar.svelte', 'HorizontalBars.svelte', 'LineChart.svelte', 'PostureBars.svelte', 'RangeDots.svelte', 'RateGrid.svelte'];
   // Retired: a shape whose meaning the product data cannot honestly support.
   const RETIRED = /\b(ReadinessDonut|ReadinessHeatmap|TreemapChart)\b|conic-gradient|stroke-dasharray/;
 

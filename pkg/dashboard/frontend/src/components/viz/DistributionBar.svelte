@@ -191,6 +191,7 @@
         <span
           class="dist-seg tone-{r.tone || 'neutral'}"
           class:hatch={r.hatch}
+          class:dots={r.texture === 'dots'}
           class:dim={dimmed(r.label)}
           class:sel={selected === r.label}
           data-motion
@@ -214,13 +215,13 @@
         >
           {#if r.href}
             <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
-              <span class="dist-swatch" class:hatch={r.hatch} aria-hidden="true"></span>
+              <span class="dist-swatch" class:hatch={r.hatch} class:dots={r.texture === 'dots'} aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
               <span class="dist-value">{formatCount(r.value)}</span>
               {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
             </a>
           {:else}
-            <span class="dist-swatch" class:hatch={r.hatch} aria-hidden="true"></span>
+            <span class="dist-swatch" class:hatch={r.hatch} class:dots={r.texture === 'dots'} aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
             <span class="dist-value">{formatCount(r.value)}</span>
             {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
@@ -321,6 +322,13 @@
     border-color: var(--c-neutral);
   }
   .dist-seg.hatch .dist-seg-text { color: var(--c-text); background: var(--c-surface); border-radius: 2px; }
+  /* Unverified (#597): the dot grid, distinct from the hatch, with the same edge and plate. */
+  .dist-seg.dots, .dist-swatch.dots {
+    background: var(--c-dots), var(--c-surface);
+    box-shadow: inset 0 0 0 1px var(--c-neutral);
+    border-color: var(--c-neutral);
+  }
+  .dist-seg.dots .dist-seg-text { color: var(--c-text); background: var(--c-surface); border-radius: 2px; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }

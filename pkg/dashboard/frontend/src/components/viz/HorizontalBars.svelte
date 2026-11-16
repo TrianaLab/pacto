@@ -21,6 +21,9 @@
     unit = '',
     unitOne = '',
     emptyLabel = 'Nothing to show yet.',
+    // A shared domain (#597 small multiples): panels drawn against one scale compare.
+    // A domain only, never a clamp: a value above it still draws its full length.
+    domainMax = undefined,
   } = $props();
 
   // A zero is an ANSWER, not an absent row. Dropping zero-valued rows used to delete the
@@ -33,10 +36,13 @@
   // full hatched track, prints the reason where the number goes and stays out of the
   // scale and out of the "every row is zero" line. Unknown is never drawn as 0.
   const known = $derived(rows.filter((i) => !i.unknown));
-  const max = $derived(known.reduce((m, i) => Math.max(m, i.value || 0), 0));
+  const knownMax = $derived(known.reduce((m, i) => Math.max(m, i.value || 0), 0));
+  const max = $derived(domainMax != null ? Math.max(domainMax, knownMax) : knownMax);
   // A zero gets NO bar. The 2% floor exists so a small non-zero value stays visible, and
   // painting a stub for zero would say "a little" where the answer is "none".
   const width = (v) => (max > 0 && v > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
+  // `valueText` (a rate's "1/5 (20%)") or `display` replace the printed number.
+  const valueOf = (r) => r.unknown || r.valueText || r.display || amount(r.value);
   // A ranked chart is mostly small numbers, so "1 items" and "1 consumers" are the
   // common case, not the edge case. Callers give the singular; irregular nouns are not
   // guessed at by stripping an "s".
@@ -65,20 +71,20 @@
             <a class="hb-inner" href={r.href}>
               <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
-              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || r.display || amount(r.value)}</span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{valueOf(r)}</span>
             </a>
           {:else}
             <span class="hb-inner">
               <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" class:hatch={r.hatch || r.unknown} data-motion style="width: {r.unknown ? 100 : width(r.value)}%"></span></span>
-              <span class="hb-value" class:hb-unknown={r.unknown}>{r.unknown || r.display || amount(r.value)}</span>
+              <span class="hb-value" class:hb-unknown={r.unknown}>{valueOf(r)}</span>
             </span>
           {/if}
         </li>
       {/each}
     </ul>
     {#if max > 0}
-      <p class="hb-scale">Bar length is relative to the largest value shown ({max}).</p>
+      <p class="hb-scale">{domainMax != null ? `Bar length is relative to ${max}.` : `Bar length is relative to the largest value shown (${max}).`}</p>
     {:else if known.length}
       <p class="hb-scale">Every row here is zero, so no bar is drawn.</p>
     {/if}
