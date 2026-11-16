@@ -1785,7 +1785,7 @@ func TestBuildRelationships_NilContractSkipped(t *testing.T) {
 		reverseDeps:           map[ServiceKey][]ServiceKey{},
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 	}
-	buildRelationships(snap)
+	buildRelationships(snap, nil)
 	if len(snap.Relationships) != 0 {
 		t.Errorf("nil-contract revision must produce no edges, got %+v", snap.Relationships)
 	}

@@ -859,7 +859,8 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 		rel := q.snap.Relationships[i]
 		// Dependencies only: an unresolved configuration reference is reported on
 		// the contract's own configurations.
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.Hidden {
+		// A joined external is not unresolved: it names its external system.
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.ToExternal != "" || rel.Hidden {
 			continue
 		}
 		if _, ok := depthOf[rel.FromService]; !ok {

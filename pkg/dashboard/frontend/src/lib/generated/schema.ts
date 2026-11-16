@@ -2720,6 +2720,95 @@ export interface components {
             /** Format: int64 */
             withoutEvidence: number;
         };
+        "Fleet.ExternalCatalogMatch": {
+            /** @description The digest of the catalog artifact */
+            digest: string;
+            /** @description The identity of the catalog entry */
+            entry: string;
+            /** @enum {string} */
+            origin: "default" | "organization";
+        };
+        "Fleet.ExternalCatalogRef": {
+            /**
+             * @description registry when the bytes were read from the registry, embedded when they are the copy compiled into this binary
+             * @enum {string}
+             */
+            copy: "registry" | "embedded";
+            /** @description The digest of the catalog artifact; the recorded input whichever copy was read */
+            digest: string;
+            /** @enum {string} */
+            origin: "default" | "organization";
+            /** @description Why the signature reads as it does */
+            reason?: string;
+            repository?: string;
+            /** @enum {string} */
+            signature: "verified" | "unverified" | "unsigned" | "unknown";
+            signer?: string;
+        };
+        "Fleet.ExternalRecord": {
+            /** @description The catalog entry that classified it; absent when it is joined by name only */
+            catalog?: components["schemas"]["Fleet.ExternalCatalogMatch"];
+            /**
+             * @description The catalog class, unclassified when no catalog entry names it
+             * @enum {string}
+             */
+            class: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+            /** @description The services that declare it */
+            consumers: string[] | null;
+            /**
+             * Format: int64
+             * @description How many services declare it
+             */
+            consumersTotal: number;
+            /**
+             * Format: int64
+             * @description On the other-egress node, how many external systems it folds
+             */
+            folded?: number;
+            /**
+             * Format: int64
+             * @description How many consumers the caller's permissions hide
+             */
+            hiddenConsumers?: number;
+            /** @description The canonical identity */
+            key: string;
+            /** @description The catalog label, else the first name a consumer declared */
+            label: string;
+            /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
+            sources: components["schemas"]["Fleet.ExternalSource"][] | null;
+            /**
+             * Format: int64
+             * @description Every declaration, across every revision of every consumer
+             */
+            sourcesTotal: number;
+        };
+        "Fleet.ExternalSource": {
+            /** @description The declared dependency name */
+            dependency?: string;
+            /**
+             * Format: int64
+             * @description The position of the dependency in the contract's dependencies
+             */
+            index: number;
+            /**
+             * @description Where the evidence comes from
+             * @enum {string}
+             */
+            kind: "contract";
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name */
+            match: string;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred";
+            required?: boolean;
+            /** @description The newest consumer revision that declares it */
+            revision?: string;
+            /** @description The consumer */
+            service: string;
+            /** @description The target the evidence was observed on; empty for a contract source */
+            target?: string;
+            /** @description The free-text version the dependency declares */
+            version?: string;
+        };
         "Fleet.FindingsPreview": {
             /** Format: int64 */
             count: number;
@@ -2730,6 +2819,10 @@ export interface components {
         };
         "Fleet.FleetSnapshot": {
             completeness: string;
+            externalCatalogs?: components["schemas"]["Fleet.ExternalCatalogRef"][] | null;
+            externals?: {
+                [key: string]: components["schemas"]["Fleet.ExternalRecord"];
+            };
             /** Format: date-time */
             generatedAt: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
@@ -3426,6 +3519,8 @@ export interface components {
             resolvedRevision?: string;
             source?: string;
             to: string;
+            /** @description The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it */
+            toExternal?: string;
             toService?: string;
             type: string;
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;

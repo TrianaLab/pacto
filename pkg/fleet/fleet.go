@@ -365,6 +365,10 @@ const (
 	// and no target is marked stale. Stale counts read zero because they were not
 	// computed. It does not change completeness, which states source health.
 	LimitationFreshnessNotEvaluated = "FRESHNESS_NOT_EVALUATED"
+	// LimitationExternalCatalogUnavailable: an external catalog the caller
+	// configured could not be read, so external systems it would classify are
+	// joined by name only. It makes the answer partial.
+	LimitationExternalCatalogUnavailable = "EXTERNAL_CATALOG_UNAVAILABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -795,6 +799,9 @@ type Relationship struct {
 	// is the free-text version an external dependency with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// ToExternal is the external system a ref-less external dependency joins
+	// (see [ExternalRecord]). Resolved stays false: no fleet service delivers it.
+	ToExternal ExternalKey `json:"toExternal,omitempty" doc:"The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it"`
 	// DependencyBehavior is what a declared dependency requires of its
 	// provider's behavior and whether the provider meets it (pactoVersion 2.2).
 	DependencyBehavior
@@ -828,6 +835,71 @@ type Relationship struct {
 	// offline sample keeps its old window.
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+}
+
+// ExternalKey is the canonical identity of an external system, an
+// externalid.ID: "stripe", "aws/rds/<account>/<region>/<id>" or
+// "host/<registrable-domain>".
+type ExternalKey string
+
+// ExternalSourceContract is the kind of an [ExternalSource] that a contract's
+// dependencies declare.
+const ExternalSourceContract = "contract"
+
+// ExternalRecord is one external system: a vendor API, a managed cloud
+// resource or a legacy host that no contract in the fleet describes. Pacto
+// never delivers, observes the health of or checks a version range against an
+// external system: it never clears a gate.
+type ExternalRecord struct {
+	Key   ExternalKey `json:"key" doc:"The canonical identity"`
+	Label string      `json:"label" doc:"The catalog label, else the first name a consumer declared"`
+	Class string      `json:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"The catalog class, unclassified when no catalog entry names it"`
+	// Sources is the evidence, one per consumer and declaring position, each
+	// with its own provenance. SourcesTotal counts every declaration.
+	Sources      []ExternalSource      `json:"sources" doc:"The evidence that names this external system, one per consumer and dependency position, each with its own provenance"`
+	SourcesTotal int                   `json:"sourcesTotal" doc:"Every declaration, across every revision of every consumer"`
+	Catalog      *ExternalCatalogMatch `json:"catalog,omitempty" doc:"The catalog entry that classified it; absent when it is joined by name only"`
+	Consumers    []ServiceKey          `json:"consumers" doc:"The services that declare it"`
+	// ConsumersTotal counts Consumers before an answer bounds them.
+	ConsumersTotal  int `json:"consumersTotal" doc:"How many services declare it"`
+	HiddenConsumers int `json:"hiddenConsumers,omitempty" doc:"How many consumers the caller's permissions hide"`
+	Folded          int `json:"folded,omitempty" doc:"On the other-egress node, how many external systems it folds"`
+	// declarations counts, per consumer, the revisions that declare it.
+	declarations map[ServiceKey]int
+}
+
+// ExternalSource is one piece of evidence that names an external system.
+type ExternalSource struct {
+	Kind     string      `json:"kind" enum:"contract" doc:"Where the evidence comes from"`
+	Service  ServiceKey  `json:"service" doc:"The consumer"`
+	Revision RevisionKey `json:"revision,omitempty" doc:"The newest consumer revision that declares it"`
+	// Target is empty for a contract source.
+	Target     TargetKey `json:"target,omitempty" doc:"The target the evidence was observed on; empty for a contract source"`
+	Dependency string    `json:"dependency,omitempty" doc:"The declared dependency name"`
+	Index      int       `json:"index" doc:"The position of the dependency in the contract's dependencies"`
+	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
+	Required   bool      `json:"required,omitempty"`
+	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host or normalized-name"`
+}
+
+// ExternalCatalogMatch names the catalog entry that classified an external system.
+type ExternalCatalogMatch struct {
+	Origin string `json:"origin" enum:"default,organization"`
+	Digest string `json:"digest" doc:"The digest of the catalog artifact"`
+	Entry  string `json:"entry" doc:"The identity of the catalog entry"`
+}
+
+// ExternalCatalogRef records one catalog a snapshot classified external
+// systems with (see [externalcatalog.Ref]).
+type ExternalCatalogRef struct {
+	Origin     string `json:"origin" enum:"default,organization"`
+	Repository string `json:"repository,omitempty"`
+	Digest     string `json:"digest" doc:"The digest of the catalog artifact; the recorded input whichever copy was read"`
+	Copy       string `json:"copy" enum:"registry,embedded" doc:"registry when the bytes were read from the registry, embedded when they are the copy compiled into this binary"`
+	Signature  string `json:"signature" enum:"verified,unverified,unsigned,unknown"`
+	Signer     string `json:"signer,omitempty"`
+	Reason     string `json:"reason,omitempty" doc:"Why the signature reads as it does"`
 }
 
 // missing reports whether a declared dependency failed to resolve in a way
@@ -872,6 +944,12 @@ type FleetSnapshot struct {
 	// Each carries whether it was signed and whether it is stale; a reader
 	// shows its figures as trusted only through [ResourceConsumption].
 	Usage []UsageRecord `json:"usage,omitempty"`
+	// Externals are the external systems the fleet's contracts name, one
+	// record per canonical identity.
+	Externals map[ExternalKey]*ExternalRecord `json:"externals,omitempty"`
+	// ExternalCatalogs are the catalogs that classified Externals, the
+	// default first.
+	ExternalCatalogs []ExternalCatalogRef `json:"externalCatalogs,omitempty"`
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and

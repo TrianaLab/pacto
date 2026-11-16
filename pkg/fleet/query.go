@@ -910,7 +910,8 @@ func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir 
 			continue
 		}
 		edges = append(edges, rel)
-		if !rel.Resolved {
+		// A joined external is not a gap: no fleet service is expected.
+		if !rel.Resolved && rel.ToExternal == "" {
 			unresolved = append(unresolved, rel)
 		}
 	}

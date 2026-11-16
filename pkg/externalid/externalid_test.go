@@ -58,3 +58,72 @@ func TestParseRejectsBadCharacters(t *testing.T) {
 	expectReject(t, "stri pe", "lower-case")
 	expectReject(t, strings.Repeat("a", 64), "lower-case")
 }
+
+func TestNameNormalizes(t *testing.T) {
+	for in, want := range map[string]ID{
+		"legacy-mq":         "legacy-mq",
+		"Legacy_MQ":         "legacy-mq",
+		"  Legacy MQ ":      "legacy-mq",
+		"carrier-api/v3":    "carrier-api-v3",
+		"_payments.gateway": "payments.gateway",
+		"Stripe (EU)!":      "stripe-eu",
+	} {
+		got, err := Name(in)
+		if err != nil || got != want {
+			t.Errorf("Name(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+}
+
+func TestNameRejectsEmpty(t *testing.T) {
+	for _, s := range []string{"", "   ", "日本語", "---"} {
+		if _, err := Name(s); err == nil {
+			t.Errorf("Name(%q) succeeded, want an error", s)
+		}
+	}
+}
+
+func TestNameRejectsTooLong(t *testing.T) {
+	if _, err := Name(strings.Repeat("a", 254)); err == nil {
+		t.Fatal("a 254-byte name must not normalize to an identity")
+	}
+}
+
+func TestNameRejectsReserved(t *testing.T) {
+	for _, s := range []string{"other-egress", "Other Egress", "OTHER_EGRESS"} {
+		if _, err := Name(s); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("Name(%q) error = %v, want reserved", s, err)
+		}
+	}
+}
+
+func TestHostRegistrableDomain(t *testing.T) {
+	for in, want := range map[string]ID{
+		"mq.corp-legacy.co.uk":       "host/corp-legacy.co.uk",
+		"API.Stripe.com":             "host/stripe.com",
+		"api.stripe.com.":            "host/stripe.com",
+		"db.legacy.example.com:5432": "host/example.com",
+		"example.com":                "host/example.com",
+	} {
+		got, ok := Host(in)
+		if !ok || got != want {
+			t.Errorf("Host(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+}
+
+func TestHostRejectsPrivateSuffixOnly(t *testing.T) {
+	for _, s := range []string{"legacy-mq", "mq.corp.internal", "app.herokuapp.com", "co.uk", "bad_host.example.com", "-a.example.com"} {
+		if id, ok := Host(s); ok {
+			t.Errorf("Host(%q) = %q, want no host identity", s, id)
+		}
+	}
+}
+
+func TestHostRejectsIP(t *testing.T) {
+	for _, s := range []string{"10.0.0.1", "10.0.0.1:5432", "[::1]:80", "::1"} {
+		if id, ok := Host(s); ok {
+			t.Errorf("Host(%q) = %q, want no host identity", s, id)
+		}
+	}
+}

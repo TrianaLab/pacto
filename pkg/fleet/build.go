@@ -23,6 +23,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -60,6 +62,13 @@ type BuildOptions struct {
 	// evidence age was not checked. The delivery planner leaves it false because
 	// impact applies its own 24h rule.
 	DiscloseUncheckedFreshness bool
+	// ExternalCatalog classifies the external systems contracts name. Nil uses
+	// the embedded default catalog.
+	ExternalCatalog *externalcatalog.Catalog
+	// ExternalCatalogLimitations are the limitations the caller met loading
+	// ExternalCatalog (an organization catalog it could not read, for
+	// example). Any of them makes the snapshot partial.
+	ExternalCatalogLimitations []Limitation
 }
 
 // Build composes an immutable [FleetSnapshot] from the given sources. It calls
@@ -144,7 +153,13 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	resolveOrigins(snap)
-	buildRelationships(snap)
+	cat := opts.ExternalCatalog
+	if cat == nil {
+		cat = externalcatalog.Default()
+	}
+	snap.ExternalCatalogs = externalCatalogRefs(cat.Refs())
+	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
+	buildRelationships(snap, cat)
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
 	matchProvisioning(snap)
@@ -168,6 +183,9 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 func computeSnapshotID(snap *FleetSnapshot) string {
 	clone := *snap
 	clone.SnapshotID = ""
+	// The catalogs are build inputs whose signature status changes as checks
+	// complete; what they classified is hashed through Externals.
+	clone.ExternalCatalogs = nil
 	data, err := json.Marshal(&clone)
 	if err != nil {
 		// The snapshot is composed of JSON-serializable domain types; a marshal
@@ -1905,7 +1923,7 @@ func targetAggregateStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 // aggregated dependency indexes. Each edge records the exact FromRevision it
 // originates from, so a target running an old revision never inherits a newer
 // revision's dependencies.
-func buildRelationships(snap *FleetSnapshot) {
+func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 	revKeys := make([]RevisionKey, 0, len(snap.Revisions))
 	for k := range snap.Revisions {
 		revKeys = append(revKeys, k)
@@ -1917,7 +1935,7 @@ func buildRelationships(snap *FleetSnapshot) {
 		if rev.Contract == nil {
 			continue
 		}
-		edges := append(revisionDependencyEdges(snap, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
+		edges := append(revisionDependencyEdges(snap, cat, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
 		// A golden path consumes nothing: every edge of every one of its
 		// revisions stays out of Relationships, routed by the service.
 		if snap.Services[rev.ServiceKey].Template {
@@ -1926,6 +1944,7 @@ func buildRelationships(snap *FleetSnapshot) {
 			snap.Relationships = append(snap.Relationships, edges...)
 		}
 	}
+	finalizeExternals(snap)
 }
 
 // observedInput pairs a raw observed edge with the id of the source that
@@ -2143,10 +2162,10 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 // revisionDependencyEdges builds one dependency edge per declared dependency of a
 // revision, updating the revision-accurate and aggregated indexes for resolved
 // edges of a service that is not a golden path.
-func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
+func revisionDependencyEdges(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	index := !snap.Services[rev.ServiceKey].Template
-	for _, dep := range rev.Contract.Dependencies {
+	for i, dep := range rev.Contract.Dependencies {
 		var toSvc ServiceKey
 		ok := false
 		// An external dependency with no contract has only a local name, which
@@ -2169,7 +2188,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		}
 		switch {
 		case !ok && dep.External:
-			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+			rel.ToExternal, rel.Reason = joinExternal(snap, cat, rk, rev, i, dep)
 		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		default:
@@ -2195,6 +2214,97 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		}
 		rel.DependencyBehavior = dependencyBehavior(snap, rev.Service, dep, rel)
 		out = append(out, rel)
+	}
+	return out
+}
+
+// externalReason is the reason of an external dependency edge that joins no
+// external system.
+const externalReason = "an external dependency: this Pacto system does not deliver it"
+
+// joinExternal names the external system dependency idx of revision rk calls
+// and records the declaration on its [ExternalRecord]. A dependency with a ref
+// resolves through its contract, and one whose name cannot be normalized (or
+// normalizes to the reserved other-egress) joins nothing: both keep
+// externalReason. A golden path consumes nothing, so its edge names the
+// identity but no record counts it.
+func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency) (ExternalKey, string) {
+	if dep.Ref != "" {
+		return "", externalReason
+	}
+	id, match, err := externalcatalog.DeclaredIdentity(cat, dep.Name)
+	if err != nil {
+		return "", externalReason
+	}
+	key := ExternalKey(id)
+	reason := "joined external " + string(id) + " through " + match + "; this Pacto system does not deliver it"
+	if snap.Services[rev.ServiceKey].Template {
+		return key, reason
+	}
+	rec := externalRecord(snap, cat, key, dep.Name)
+	rec.declarations[rev.ServiceKey]++
+	src := ExternalSource{Kind: ExternalSourceContract, Service: rev.ServiceKey, Revision: rk, Dependency: dep.Name, Index: idx,
+		Version: dep.Version, Required: dep.Required, Provenance: ProvenanceDeclared, Match: match}
+	// One source per consumer and position, from the newest revision that
+	// declares it, so every consumer keeps its evidence and the record stays
+	// bounded by the declarations the snapshot already holds.
+	for i, s := range rec.Sources {
+		if s.Service == src.Service && s.Index == idx {
+			if lessRevisionChrono(snap.Revisions[s.Revision], rev) {
+				rec.Sources[i] = src
+			}
+			return key, reason
+		}
+	}
+	rec.Sources = append(rec.Sources, src)
+	return key, reason
+}
+
+// externalRecord returns the record of key, creating it classified by the
+// catalog entry of that identity, else unclassified and labelled name.
+func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key ExternalKey, name string) *ExternalRecord {
+	if rec := snap.Externals[key]; rec != nil {
+		return rec
+	}
+	if snap.Externals == nil {
+		snap.Externals = map[ExternalKey]*ExternalRecord{}
+	}
+	rec := &ExternalRecord{Key: key, Label: name, Class: externalcatalog.ClassUnclassified, declarations: map[ServiceKey]int{}}
+	if e, ref, ok := cat.Entry(externalid.ID(key)); ok {
+		rec.Class = e.Class
+		if e.Label != "" {
+			rec.Label = e.Label
+		}
+		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity)}
+	}
+	snap.Externals[key] = rec
+	return rec
+}
+
+// finalizeExternals orders every external record's consumers and sources and
+// fills its totals. It never bounds a record: answers do.
+func finalizeExternals(snap *FleetSnapshot) {
+	for _, rec := range snap.Externals {
+		rec.Consumers = slices.Sorted(maps.Keys(rec.declarations))
+		rec.ConsumersTotal = len(rec.Consumers)
+		rec.SourcesTotal = 0
+		for _, n := range rec.declarations {
+			rec.SourcesTotal += n
+		}
+		slices.SortFunc(rec.Sources, func(a, b ExternalSource) int {
+			if c := strings.Compare(string(a.Service), string(b.Service)); c != 0 {
+				return c
+			}
+			return a.Index - b.Index
+		})
+	}
+}
+
+// externalCatalogRefs projects the catalogs a build classified with.
+func externalCatalogRefs(refs []externalcatalog.Ref) []ExternalCatalogRef {
+	out := make([]ExternalCatalogRef, len(refs))
+	for i, r := range refs {
+		out[i] = ExternalCatalogRef(r)
 	}
 	return out
 }
@@ -2498,6 +2608,11 @@ func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey 
 func classifyCompleteness(snap *FleetSnapshot) Completeness {
 	for _, st := range snap.Sources {
 		if st.Status != SourceAvailable {
+			return CompletenessPartial
+		}
+	}
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationExternalCatalogUnavailable {
 			return CompletenessPartial
 		}
 	}

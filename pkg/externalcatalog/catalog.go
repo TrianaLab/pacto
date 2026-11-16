@@ -87,6 +87,8 @@ type Ref struct {
 type Catalog struct {
 	entries map[externalid.ID]sourced
 	refs    []Ref
+	// aliases maps a lower-cased alias to the entry that claims it.
+	aliases map[string]externalid.ID
 }
 
 type sourced struct {
@@ -195,12 +197,12 @@ func validateEntry(i int, e Entry) []error {
 // identity, and an alias, host or key pattern the organization claims is taken
 // away from every default entry that also claims it.
 func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
-	c := &Catalog{entries: map[externalid.ID]sourced{}, refs: []Ref{defRef}}
+	c := &Catalog{entries: map[externalid.ID]sourced{}, refs: []Ref{defRef}, aliases: map[string]externalid.ID{}}
 	taken := struct{ aliases, hosts, keys map[string]bool }{map[string]bool{}, map[string]bool{}, map[string]bool{}}
 	if org != nil {
 		c.refs = append(c.refs, *orgRef)
 		for _, e := range org.Entries {
-			c.entries[e.Identity] = sourced{entry: e, ref: 1}
+			c.add(e, 1)
 			mark(taken.aliases, e.Aliases)
 			mark(taken.hosts, e.Hosts)
 			mark(taken.keys, e.KeyPatterns)
@@ -213,9 +215,19 @@ func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 		e.Aliases = without(e.Aliases, taken.aliases)
 		e.Hosts = without(e.Hosts, taken.hosts)
 		e.KeyPatterns = without(e.KeyPatterns, taken.keys)
-		c.entries[e.Identity] = sourced{entry: e, ref: 0}
+		c.add(e, 0)
 	}
 	return c
+}
+
+// add records e, supplied by refs[ref], and indexes its aliases. Organization
+// entries are added first and a default entry has already lost every alias the
+// organization claims, so an alias is never indexed twice.
+func (c *Catalog) add(e Entry, ref int) {
+	c.entries[e.Identity] = sourced{entry: e, ref: ref}
+	for _, a := range e.Aliases {
+		c.aliases[strings.ToLower(strings.TrimSpace(a))] = e.Identity
+	}
 }
 
 func mark(set map[string]bool, values []string) {
@@ -243,3 +255,40 @@ func (c *Catalog) Entry(id externalid.ID) (Entry, Ref, bool) {
 
 // Len returns the number of entries.
 func (c *Catalog) Len() int { return len(c.entries) }
+
+// ResolveDeclared returns the entry whose alias equals name, compared without
+// case and surrounding spaces, and the catalog that supplied it. An
+// organization alias wins over a default one (see [Merge]).
+func (c *Catalog) ResolveDeclared(name string) (Entry, Ref, bool) {
+	id, ok := c.aliases[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return Entry{}, Ref{}, false
+	}
+	return c.Entry(id)
+}
+
+// How [DeclaredIdentity] named a declared external dependency.
+const (
+	MatchCatalogAlias   = "catalog-alias"
+	MatchHost           = "host"
+	MatchNormalizedName = "normalized-name"
+)
+
+// DeclaredIdentity names the external system a declared dependency with no
+// contract reference calls: the catalog entry one of whose aliases is the
+// name, else the registrable domain when the name is a host name, else the
+// normalized name. It returns how it matched, and the [externalid.Name] error
+// when the name cannot be normalized (empty, too long or reserved).
+func DeclaredIdentity(c *Catalog, name string) (externalid.ID, string, error) {
+	if e, _, ok := c.ResolveDeclared(name); ok {
+		return e.Identity, MatchCatalogAlias, nil
+	}
+	if id, ok := externalid.Host(name); ok {
+		return id, MatchHost, nil
+	}
+	id, err := externalid.Name(name)
+	if err != nil {
+		return "", "", err
+	}
+	return id, MatchNormalizedName, nil
+}

@@ -87,6 +87,9 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	}
 
 	out := *s
+	// ponytail: fail closed until restrictExternals counts hidden consumers
+	// (517-S1 P3); a record names its consumers, so it never crosses a view.
+	out.Externals = nil
 	var hiddenNames []string
 	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	for k, t := range s.Targets {

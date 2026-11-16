@@ -15,8 +15,11 @@ package externalid
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // ID is a canonical external identity. Build one with [Parse].
@@ -67,3 +70,50 @@ func (i ID) String() string { return string(i) }
 
 // Segments returns the identity's path segments.
 func (i ID) Segments() []string { return strings.Split(string(i), "/") }
+
+// nameDrop matches what [Name] removes: anything outside the segment alphabet.
+var nameDrop = regexp.MustCompile(`[^a-z0-9._-]+`)
+
+// Name normalizes a declared dependency name into a one-segment identity, so
+// consumers that spell the same name differently ("legacy-mq", "Legacy_MQ")
+// join on one node. It lower-cases, turns spaces, underscores and slashes into
+// '-', drops every other character outside the segment alphabet, trims
+// separators at either end and then applies [Parse]. A name that normalizes to
+// nothing, to a segment [Parse] refuses (longer than 63 bytes, for example) or
+// to [Reserved] is an error.
+func Name(s string) (ID, error) {
+	n := strings.NewReplacer(" ", "-", "_", "-", "/", "-").Replace(strings.ToLower(strings.TrimSpace(s)))
+	n = strings.Trim(nameDrop.ReplaceAllString(n, ""), "-._")
+	if n == "" {
+		return "", fmt.Errorf("external name %q: nothing is left after normalizing it", s)
+	}
+	return Parse(n)
+}
+
+// dnsNameRE is a lower-case DNS name of at least two labels.
+var dnsNameRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// Host names an unclassified host by its registrable domain:
+// "mq.corp-legacy.co.uk" is "host/corp-legacy.co.uk". It accepts an optional
+// trailing dot and ":port" and reports false for anything that is not a DNS
+// name under an ICANN public suffix (an IP address, a single label, a private
+// or internal suffix such as "herokuapp.com" or "corp.internal").
+func Host(s string) (ID, bool) {
+	h := strings.ToLower(strings.TrimSpace(s))
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.TrimSuffix(h, ".")
+	if !dnsNameRE.MatchString(h) {
+		return "", false
+	}
+	if _, icann := publicsuffix.PublicSuffix(h); !icann {
+		return "", false
+	}
+	d, err := publicsuffix.EffectiveTLDPlusOne(h)
+	if err != nil {
+		return "", false
+	}
+	id, err := Parse("host/" + d)
+	return id, err == nil
+}

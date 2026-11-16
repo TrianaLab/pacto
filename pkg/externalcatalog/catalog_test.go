@@ -177,3 +177,45 @@ func TestMustDefaultPanicsOnInvalidBytes(t *testing.T) {
 	}()
 	mustDefault([]byte("apiVersion: v0\n"))
 }
+
+func TestResolveDeclaredAliasCaseInsensitive(t *testing.T) {
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), nil, nil)
+	e, ref, ok := c.ResolveDeclared("  STRIPE ")
+	if !ok || e.Identity != "stripe" || ref.Origin != OriginDefault {
+		t.Fatalf("ResolveDeclared(STRIPE) = %+v %+v %v", e, ref, ok)
+	}
+	if _, _, ok := c.ResolveDeclared("legacy-mq"); ok {
+		t.Fatal("an unknown name must not resolve")
+	}
+}
+
+func TestResolveDeclaredOrganizationFirst(t *testing.T) {
+	org := mustParse(t, head+"  - identity: corp/pay\n    class: legacy\n    aliases: [Stripe]\n")
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), org, &Ref{Origin: OriginOrganization, Digest: "sha256:org"})
+	e, ref, ok := c.ResolveDeclared("stripe")
+	if !ok || e.Identity != "corp/pay" || ref.Digest != "sha256:org" {
+		t.Fatalf("ResolveDeclared(stripe) = %+v %+v %v", e, ref, ok)
+	}
+}
+
+func TestDeclaredIdentity(t *testing.T) {
+	c := Merge(mustParse(t, mergeDef), DefaultRef(), nil, nil)
+	for name, want := range map[string]struct {
+		id    externalid.ID
+		match string
+	}{
+		"Stripe":               {"stripe", MatchCatalogAlias},
+		"mq.corp-legacy.co.uk": {"host/corp-legacy.co.uk", MatchHost},
+		"Legacy_MQ":            {"legacy-mq", MatchNormalizedName},
+	} {
+		id, match, err := DeclaredIdentity(c, name)
+		if err != nil || id != want.id || match != want.match {
+			t.Errorf("DeclaredIdentity(%q) = %q, %q, %v; want %q, %q", name, id, match, err, want.id, want.match)
+		}
+	}
+	for _, name := range []string{"日本語", "other-egress"} {
+		if id, _, err := DeclaredIdentity(c, name); err == nil {
+			t.Errorf("DeclaredIdentity(%q) = %q, want an error", name, id)
+		}
+	}
+}
