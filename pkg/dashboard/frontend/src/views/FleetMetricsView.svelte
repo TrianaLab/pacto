@@ -6,7 +6,8 @@
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { andList, placedByName } from '../lib/delivery.ts';
-  import { tiles, trend, caption, isDaily, windowDays, windowTotal, envTitle, hiddenLine, ratioText, duration, noCI, protectedText, coverageTrend, NO_CI, RATES, TRENDS, COVERAGE_SERIES, METRIC_LABEL } from '../lib/metrics.ts';
+  import { durationText } from '../lib/chart.ts';
+  import { tiles, trend, caption, isDaily, windowDays, windowTotal, envTitle, hiddenLine, ratioText, noCI, protectedText, coverageTrend, NO_CI, RATES, TRENDS, COVERAGE_SERIES, METRIC_LABEL } from '../lib/metrics.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
@@ -270,8 +271,8 @@
                     {#each RATES as r (r.metric)}
                       <td data-label={r.label}>{@render count(ratioText(e[r.field]), countLink(r.metric, e[r.field].count, e.environment), e[r.field].count)}</td>
                     {/each}
-                    <td data-label="Lead time p50">{@render count(duration(e.leadTime.p50Seconds), '', 0)}</td>
-                    <td data-label="Lead time p90">{@render count(duration(e.leadTime.p90Seconds), '', 0)}</td>
+                    <td data-label="Lead time p50">{@render count(durationText(e.leadTime.p50Seconds), '', 0)}</td>
+                    <td data-label="Lead time p90">{@render count(durationText(e.leadTime.p90Seconds), '', 0)}</td>
                   </tr>
                 {/each}
               </tbody>

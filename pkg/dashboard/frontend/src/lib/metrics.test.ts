@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tiles, ratioText, sumRate, duration, trend, caption, envTitle, hiddenLine, bucketLabel, isDaily, windowDays, windowTotal, protectedText, coverageTrend, LEAD_TILES } from './metrics.ts';
+import { tiles, ratioText, sumRate, trend, caption, envTitle, hiddenLine, bucketLabel, isDaily, windowDays, windowTotal, protectedText, coverageTrend, LEAD_TILES } from './metrics.ts';
 
 const ratio = (count: number, of: number) => (of ? { count, of } : { count: 0, of: 0, unknown: true });
 const env = (environment: string, held: [number, number], extra: Record<string, unknown> = {}) => ({
@@ -56,11 +56,6 @@ describe('metrics model', () => {
     expect(ratioText({ count: 0, of: 0, unknown: true })).toBe('unknown');
     expect(ratioText(undefined)).toBe('unknown');
     expect(sumRate([], 'held')).toEqual({ count: 0, of: 0, unknown: true });
-  });
-
-  it('prints durations in the two largest units', () => {
-    expect([duration(45), duration(720), duration(12_000), duration(187_200), duration(3_600), duration(0), duration(undefined)])
-      .toEqual(['45s', '12m', '3h 20m', '2d 4h', '1h', '0s', 'unknown']);
   });
 
   it('says why a bucket has no number: no records, or nothing to take the rate over', () => {

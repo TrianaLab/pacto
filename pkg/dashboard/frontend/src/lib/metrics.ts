@@ -7,6 +7,7 @@
 import type { ProductStats } from './api.ts';
 import { metricsUrl } from './router.ts';
 import { countOf, formatCount } from './format.ts';
+import { durationText } from './chart.ts';
 
 type Metrics = NonNullable<ProductStats['totals']>;
 type Bucket = NonNullable<ProductStats['buckets']>[number];
@@ -70,21 +71,6 @@ export function protectedText(m: Pick<Metrics, 'changes' | 'consumersProtected'>
   return { text: [`${formatCount(p.count)} or more`, p.unknown ? `${formatCount(p.unknown)} unknown` : ''].filter(Boolean).join(', '), qualified: true };
 }
 
-/** duration prints seconds as the two largest units: "45s", "12m", "3h 20m", "2d 4h". */
-export function duration(seconds: number | null | undefined): string {
-  if (seconds == null) return 'unknown';
-  const units: [string, number][] = [['d', 86_400], ['h', 3_600], ['m', 60], ['s', 1]];
-  const parts: string[] = [];
-  let left = Math.max(0, Math.round(seconds));
-  for (const [u, n] of units) {
-    const v = Math.floor(left / n);
-    left -= v * n;
-    if (v || parts.length) parts.push(`${v}${u}`);
-    if (parts.length === 2) break;
-  }
-  return parts.filter((x) => !x.startsWith('0')).join(' ') || '0s';
-}
-
 /** The most lead-time tiles a page draws; the environments table holds every one. */
 export const LEAD_TILES = 4;
 
@@ -121,7 +107,7 @@ export function tiles(st: ProductStats, window = ''): Tile[] {
   // ponytail: the first few environments in promotion order get a tile; the table lists them all.
   for (const e of envs.slice(0, LEAD_TILES)) {
     const p50 = e.leadTime.p50Seconds;
-    out.push({ key: `lead:${e.environment}`, label: 'Lead time p50', sub: e.environment, value: duration(p50), unknown: p50 == null,
+    out.push({ key: `lead:${e.environment}`, label: 'Lead time p50', sub: e.environment, value: durationText(p50), unknown: p50 == null,
       detail: e.leadTime.unjoined ? `${formatCount(e.leadTime.unjoined)} with no publish record` : undefined,
       ...(e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }) } : {}) });
   }

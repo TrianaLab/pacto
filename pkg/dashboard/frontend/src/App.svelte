@@ -311,7 +311,13 @@
   <defs><pattern id="fig-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
     <rect width="6" height="6" fill="var(--c-iso-face)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern>
     <pattern id="fig-frost" width="5" height="5" patternUnits="userSpaceOnUse">
-    <rect width="5" height="5" fill="var(--c-iso-face)" /><path d="M2.5 0.8 L4.2 2.5 L2.5 4.2 L0.8 2.5 Z" fill="var(--c-info)" /></pattern></defs>
+    <rect width="5" height="5" fill="var(--c-iso-face)" /><path d="M2.5 0.8 L4.2 2.5 L2.5 4.2 L0.8 2.5 Z" fill="var(--c-info)" /></pattern>
+    <!-- Chart textures (#597): unknown and no records wear the hatch, unverified the dots,
+         each on the chart surface; the mark that wears one draws its own neutral edge. -->
+    <pattern id="viz-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="6" height="6" fill="var(--chart-surface)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern>
+    <pattern id="viz-dots" width="5" height="5" patternUnits="userSpaceOnUse">
+    <rect width="5" height="5" fill="var(--chart-surface)" /><circle cx="2.5" cy="2.5" r="1.2" fill="var(--c-neutral)" /></pattern></defs>
 </svg>
 <!-- WCAG 2.4.1: the first stop skips the header and the sidebar. A button, since the
      hash router owns the URL: it moves focus to the page, never the location. -->
