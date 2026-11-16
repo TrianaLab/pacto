@@ -1491,6 +1491,8 @@ export const ROUTES: Route[] = [
   { name: 'service entity', hash: '#/fleet/services/payments-service' },
   { name: 'revision list', list: true, hash: '#/fleet/revisions?service=payments-service' },
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
+  { name: 'revision entity, implicit contract', open: firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/') },
+  { name: 'service entity, implicit contract', hash: '#/fleet/services/newsletter-service' },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },

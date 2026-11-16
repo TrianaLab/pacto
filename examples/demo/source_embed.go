@@ -94,3 +94,12 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 	sort.Strings(s.names)
 	return s, nil
 }
+
+// requestedRef is the tag a revision is requested under. A contract with no
+// declared service.version has no tag, so its ref is the bare repository.
+func requestedRef(registry, name, ver string) string {
+	if ver == "" {
+		return registry + name
+	}
+	return registry + name + ":" + ver
+}
