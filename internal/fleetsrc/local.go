@@ -145,7 +145,16 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	}
 	fsys := ignore.FS(dirFS, matcher)
 	b := &contract.Bundle{Contract: c, RawYAML: data, FS: fsys}
-	b.Complete(filepath.Base(dir))
+	name := dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		name = abs // a root of "." or ".." has no name of its own
+	}
+	b.Complete(filepath.Base(name))
+	if c.Service.Name == "" {
+		// Nothing implied a name (a folder like "/" sanitizes to nothing): a
+		// revision keyed by "" would read as declared, so it is a record gap.
+		return fleet.RawRevision{}, fmt.Errorf("no service.name declared and none could be inferred")
+	}
 	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir, Document: doc}
 	if h, err := lock.HashFS(fsys); err == nil {
 		rev.Digest = h

@@ -494,6 +494,8 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 
 // A reconciled contract with no service name cannot come from the operator, which
 // refuses one; the source reports the record instead of guessing the CR name.
+// The item becomes no target, so Restrict never learns its namespace: the
+// message must name neither the namespace nor the Pacto.
 func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
 	list := `{"items":[
 	  {"metadata":{"name":"nameless","namespace":"prod"},"status":{"contract":{"serviceName":"","resolvedRef":"ghcr.io/x/a:1.0.0"}}},
@@ -510,7 +512,8 @@ func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
 		t.Fatalf("targets = %+v", col.Targets)
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
-		!strings.Contains(col.Limitations[0].Message, "prod/nameless") {
+		strings.Contains(col.Limitations[0].Message, "prod") || strings.Contains(col.Limitations[0].Message, "nameless") ||
+		!strings.Contains(col.Limitations[0].Message, "1 Pacto(s)") {
 		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }

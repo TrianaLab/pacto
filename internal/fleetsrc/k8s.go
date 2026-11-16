@@ -117,14 +117,14 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	}
 	_ = json.Unmarshal(data, &raw)
 	col := &fleet.Collection{ObservedUndeclaredOnly: true}
+	nameless := 0
 	for i, item := range list.Items {
 		if c := item.Status.Contract; c != nil && c.ServiceName == "" {
 			// The operator refuses a contract that does not declare its name, so
 			// a reconciled one without it is a record this source cannot place.
-			col.Limitations = append(col.Limitations, fleet.Limitation{
-				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
-				Message: "Pacto " + item.Metadata.Namespace + "/" + item.Metadata.Name + " reports a contract with no service name",
-			})
+			// The message names neither namespace nor Pacto: the item becomes no
+			// target, so a restricted view could not tell it is hidden.
+			nameless++
 			continue
 		}
 		t := s.targetFrom(item)
@@ -133,6 +133,12 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			t.Limitations = s.callerLimitations(v, t.ReconciledAt)
 		}
 		col.Targets = append(col.Targets, t)
+	}
+	if nameless > 0 {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+			Message: fmt.Sprintf("%d Pacto(s) report a contract with no service name", nameless),
+		})
 	}
 	return col, nil
 }
