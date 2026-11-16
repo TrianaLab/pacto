@@ -2437,6 +2437,18 @@ func revisionStatus(r *ContractRevision) string {
 	return ""
 }
 
+// PactoVersionText is the declared pactoVersion with the answering Pacto's
+// view of it: behind its latest version, or unknown to it.
+func (r *RevisionDetailData) PactoVersionText() string {
+	switch {
+	case r.PactoVersionUnknown:
+		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
+	case r.PactoVersionCurrent != "":
+		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
+	}
+	return r.PactoVersion
+}
+
 // pactoVersionStatus returns this Pacto's latest pactoVersion when v is older
 // or unknown to it, and whether v is unknown. An empty v reads as neither: the
 // contract left it out and the reader implies the current one.

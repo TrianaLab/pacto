@@ -1193,3 +1193,18 @@ func TestRevisionDetailPactoVersionCurrent(t *testing.T) {
 		}
 	}
 }
+
+func TestRevisionDetailPactoVersionText(t *testing.T) {
+	for _, tc := range []struct {
+		r    RevisionDetailData
+		want string
+	}{
+		{RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"}, "2.3 (behind 2.5)"},
+		{RevisionDetailData{PactoVersion: "9.9", PactoVersionCurrent: "2.5", PactoVersionUnknown: true}, "9.9 (unknown to this Pacto, latest 2.5)"},
+		{RevisionDetailData{PactoVersion: "2.5"}, "2.5"},
+	} {
+		if got := tc.r.PactoVersionText(); got != tc.want {
+			t.Errorf("PactoVersionText(%+v) = %q, want %q", tc.r, got, tc.want)
+		}
+	}
+}

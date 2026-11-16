@@ -796,19 +796,7 @@ func TestRenderDetailForAnOfferingAdapters(t *testing.T) {
 	}
 }
 
-func TestPactoVersionText(t *testing.T) {
-	for _, tc := range []struct {
-		r    fleet.RevisionDetailData
-		want string
-	}{
-		{fleet.RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"}, "2.3 (behind 2.5)"},
-		{fleet.RevisionDetailData{PactoVersion: "9.9", PactoVersionCurrent: "2.5", PactoVersionUnknown: true}, "9.9 (unknown to this Pacto, latest 2.5)"},
-		{fleet.RevisionDetailData{PactoVersion: "2.5"}, "2.5"},
-	} {
-		if got := pactoVersionText(&tc.r); got != tc.want {
-			t.Errorf("pactoVersionText(%+v) = %q, want %q", tc.r, got, tc.want)
-		}
-	}
+func TestRevisionDetailShowsBehindVersion(t *testing.T) {
 	var b strings.Builder
 	renderRevisionDetail(&b, &fleet.RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"})
 	if !strings.Contains(b.String(), "2.3 (behind 2.5)") {

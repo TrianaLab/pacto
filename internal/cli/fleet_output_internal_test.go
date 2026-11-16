@@ -251,7 +251,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
 	rev := &fleet.RevisionDetailData{
-		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11,
+		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11, PactoVersion: "2.3", PactoVersionCurrent: "2.5",
 		ExactTargets: fleet.RefPreview{Total: 6}, InferredTargets: fleet.RefPreview{Total: 2},
 		EvidenceSourceCounts: fleet.SourceCounts{Total: 3, Available: 2, Stale: 1},
 	}
@@ -260,6 +260,7 @@ func TestPrintRevisionPlace(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Position: 1 of 4 revisions, newest first, current\n",
+		"Pacto version: 2.3 (behind 2.5)\n",
 		"Targets: 8 of the service's 11 run this revision (6 exact, 2 inferred)\n",
 		"Evidence sources: 3 (2 available, 0 partial, 1 stale, 0 unavailable)\n",
 	} {
@@ -271,6 +272,9 @@ func TestPrintRevisionPlace(t *testing.T) {
 	printRevisionPlace(&buf, &fleet.RevisionDetailData{Position: 2, Revisions: 4})
 	if !strings.Contains(buf.String(), "Position: 2 of 4 revisions, newest first\n") {
 		t.Errorf("a revision that is not current says so: %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "Pacto version") {
+		t.Errorf("a revision with no pactoVersion prints none: %q", buf.String())
 	}
 }
 

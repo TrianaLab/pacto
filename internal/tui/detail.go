@@ -275,7 +275,7 @@ func renderOriginDetail(b *strings.Builder, o *fleet.OriginDetail, steps []fleet
 func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	field(b, "service", r.Service.Label)
 	field(b, "version", r.Version)
-	field(b, "pacto version", pactoVersionText(r))
+	field(b, "pacto version", r.PactoVersionText())
 	field(b, "lifecycle", strings.TrimPrefix(lifecycleText(r.Lifecycle), ", "))
 	field(b, "valid", fmt.Sprintf("%t", r.Valid))
 	field(b, "workload", r.Workload)
@@ -527,16 +527,4 @@ func renderSourceDetail(b *strings.Builder, s *fleet.SourceDetailData) {
 		section(b, "Error")
 		field(b, "message", s.Error.Message)
 	}
-}
-
-// pactoVersionText is the declared pactoVersion with this Pacto's view of it:
-// behind its latest version, or unknown to it.
-func pactoVersionText(r *fleet.RevisionDetailData) string {
-	switch {
-	case r.PactoVersionUnknown:
-		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
-	case r.PactoVersionCurrent != "":
-		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
-	}
-	return r.PactoVersion
 }

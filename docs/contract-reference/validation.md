@@ -51,6 +51,11 @@ in an older contract, reports that version's code for each use instead: set
 - Raising a contract older than `"2.4"` that takes a configuration by `ref`
   adds no finding, and the message says the operator then also accepts
   `ContractOverrides` values for those configurations.
+- The fleet revision detail (`pacto fleet entity`, `pacto_fleet_entity`, the
+  TUI and the dashboard revision page) shows the declared `pactoVersion` as
+  `2.3 (behind 2.5)`. In JSON, `pactoVersionCurrent` is the newest version the
+  Pacto that answered knows, and `pactoVersionUnknown` marks a version it does
+  not know.
 - A 1.x contract follows
   [MIGRATION.md](https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md)
   and is never raised automatically.
