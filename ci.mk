@@ -360,7 +360,7 @@ verify-k8s-standalone:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
 # COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
-COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
+COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
 	@go test -race $(COVER_PKGS) -coverprofile=coverage.out

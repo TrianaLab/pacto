@@ -1,0 +1,176 @@
+# The default external catalog. Pacto embeds these bytes and the release
+# pipeline publishes the same bytes to ghcr.io/trianalab/pacto/external-catalog,
+# so the embedded copy and the published artifact have one digest.
+#
+# Keep it small and correct: every host and SDK module below is taken from the
+# vendor's own documentation, cited in the "# source:" comment beside it. SDK
+# modules name the module path without its /vN major suffix. Hosts that put the
+# region in the middle of the name (sqs.<region>.amazonaws.com) cannot be written
+# as a pattern, so those entries rely on their SDK modules and OTel values.
+apiVersion: catalog.pacto.trianalab.io/v1
+entries:
+  # --- vendor APIs ---
+  - identity: stripe
+    class: vendor-api
+    label: Stripe
+    aliases: [stripe, stripe-api]
+    hosts: [api.stripe.com] # source: https://docs.stripe.com/api
+    sdkModules: [github.com/stripe/stripe-go] # source: https://github.com/stripe/stripe-go
+    keyPatterns: ["STRIPE_*"]
+  - identity: twilio
+    class: vendor-api
+    label: Twilio
+    aliases: [twilio, twilio-api]
+    hosts: [api.twilio.com] # source: https://github.com/twilio/twilio-go
+    sdkModules: [github.com/twilio/twilio-go] # source: https://github.com/twilio/twilio-go
+    keyPatterns: ["TWILIO_*"]
+  - identity: sendgrid
+    class: vendor-api
+    label: SendGrid
+    aliases: [sendgrid, sendgrid-api]
+    hosts: [api.sendgrid.com] # source: https://github.com/sendgrid/sendgrid-go
+    sdkModules: [github.com/sendgrid/sendgrid-go] # source: https://github.com/sendgrid/sendgrid-go
+    keyPatterns: ["SENDGRID_*"]
+  - identity: anthropic
+    class: vendor-api
+    label: Anthropic
+    aliases: [anthropic, anthropic-api, claude-api]
+    hosts: [api.anthropic.com] # source: https://platform.claude.com/docs/en/api/overview
+    sdkModules: [github.com/anthropics/anthropic-sdk-go] # source: https://github.com/anthropics/anthropic-sdk-go
+    keyPatterns: ["ANTHROPIC_*"]
+  - identity: openai
+    class: vendor-api
+    label: OpenAI
+    aliases: [openai, openai-api]
+    hosts: [api.openai.com] # source: https://github.com/openai/openai-go/blob/main/option/requestoption.go
+    sdkModules: [github.com/openai/openai-go] # source: https://github.com/openai/openai-go
+    keyPatterns: ["OPENAI_*"]
+  - identity: github
+    class: vendor-api
+    label: GitHub
+    aliases: [github, github-api]
+    hosts: [api.github.com] # source: https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api
+  - identity: slack
+    class: vendor-api
+    label: Slack
+    aliases: [slack, slack-api]
+    hosts: [slack.com] # source: https://docs.slack.dev/apis/web-api/
+    sdkModules: [github.com/slack-go/slack] # source: https://github.com/slack-go/slack
+    keyPatterns: ["SLACK_*"]
+  - identity: pagerduty
+    class: vendor-api
+    label: PagerDuty
+    aliases: [pagerduty, pagerduty-api]
+    hosts:
+      - api.pagerduty.com # source: https://docs.pagerduty.com/developer/rest-api-overview
+      - events.pagerduty.com # source: https://docs.pagerduty.com/developer/send-alert-event
+    sdkModules: [github.com/PagerDuty/go-pagerduty] # source: https://github.com/PagerDuty/go-pagerduty
+    keyPatterns: ["PAGERDUTY_*"]
+  - identity: datadog
+    class: vendor-api
+    label: Datadog
+    aliases: [datadog, datadog-api]
+    hosts: ["*.datadoghq.com", "*.datadoghq.eu"] # source: https://docs.datadoghq.com/getting_started/site/
+    sdkModules: [github.com/DataDog/datadog-api-client-go] # source: https://github.com/DataDog/datadog-api-client-go
+    keyPatterns: ["DD_*"] # source: https://docs.datadoghq.com/agent/guide/environment-variables/
+  - identity: auth0
+    class: vendor-api
+    label: Auth0
+    aliases: [auth0]
+    hosts: ["*.auth0.com"] # source: https://github.com/auth0/go-auth0
+    sdkModules: [github.com/auth0/go-auth0] # source: https://github.com/auth0/go-auth0
+    keyPatterns: ["AUTH0_*"]
+  - identity: algolia
+    class: vendor-api
+    label: Algolia
+    aliases: [algolia]
+    hosts: ["*.algolia.net", "*.algolianet.com"] # source: https://www.algolia.com/doc/guides/security/security-best-practices/
+    sdkModules: [github.com/algolia/algoliasearch-client-go] # source: https://github.com/algolia/algoliasearch-client-go
+    keyPatterns: ["ALGOLIA_*"]
+  - identity: mailgun
+    class: vendor-api
+    label: Mailgun
+    aliases: [mailgun, mailgun-api]
+    hosts: [api.mailgun.net, api.eu.mailgun.net] # source: https://documentation.mailgun.com/docs/mailgun/api-reference/api-overview
+    sdkModules: [github.com/mailgun/mailgun-go] # source: https://github.com/mailgun/mailgun-go
+    keyPatterns: ["MAILGUN_*"]
+
+  # --- managed cloud services (517-S2 adds the account, region and id) ---
+  - identity: aws/rds
+    class: managed-cloud
+    label: Amazon RDS
+    aliases: [aws-rds, amazon-rds]
+    hosts: ["*.rds.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_CommonTasks.Connect.html
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/rds] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/rds
+  - identity: aws/sqs
+    class: managed-cloud
+    label: Amazon SQS
+    aliases: [aws-sqs, amazon-sqs]
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/sqs] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sqs
+    otel: { messagingSystem: [aws_sqs, aws.sqs] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+  - identity: aws/sns
+    class: managed-cloud
+    label: Amazon SNS
+    aliases: [aws-sns, amazon-sns]
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/sns] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sns
+    otel: { messagingSystem: [aws.sns] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+  - identity: aws/s3
+    class: managed-cloud
+    label: Amazon S3
+    aliases: [aws-s3, amazon-s3]
+    hosts: [s3.amazonaws.com, "*.s3.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/s3] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3
+  - identity: aws/dynamodb
+    class: managed-cloud
+    label: Amazon DynamoDB
+    aliases: [aws-dynamodb, amazon-dynamodb, dynamodb]
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/dynamodb] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/dynamodb
+    otel: { dbSystem: [dynamodb, aws.dynamodb] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/db/
+  - identity: aws/elasticache
+    class: managed-cloud
+    label: Amazon ElastiCache
+    aliases: [aws-elasticache, amazon-elasticache, elasticache]
+    hosts: ["*.cache.amazonaws.com"] # source: https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Endpoints.html
+    sdkModules: [github.com/aws/aws-sdk-go-v2/service/elasticache] # source: https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/elasticache
+  - identity: gcp/cloudsql
+    class: managed-cloud
+    label: Google Cloud SQL
+    aliases: [gcp-cloudsql, cloud-sql, cloudsql]
+    hosts: [sqladmin.googleapis.com] # source: https://github.com/GoogleCloudPlatform/cloud-sql-go-connector
+    sdkModules: [cloud.google.com/go/cloudsqlconn] # source: https://github.com/GoogleCloudPlatform/cloud-sql-go-connector
+  - identity: gcp/pubsub
+    class: managed-cloud
+    label: Google Cloud Pub/Sub
+    aliases: [gcp-pubsub, pubsub]
+    hosts: [pubsub.googleapis.com] # source: https://docs.cloud.google.com/pubsub/docs/reference/service_apis_overview
+    sdkModules: [cloud.google.com/go/pubsub] # source: https://pkg.go.dev/cloud.google.com/go/pubsub
+    otel: { messagingSystem: [gcp_pubsub, gcp.pubsub] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+  - identity: gcp/gcs
+    class: managed-cloud
+    label: Google Cloud Storage
+    aliases: [gcp-gcs, gcs, google-cloud-storage]
+    hosts: [storage.googleapis.com] # source: https://docs.cloud.google.com/storage/docs/request-endpoints
+    sdkModules: [cloud.google.com/go/storage] # source: https://pkg.go.dev/cloud.google.com/go/storage
+  - identity: azure/sql
+    class: managed-cloud
+    label: Azure SQL Database
+    aliases: [azure-sql]
+    hosts: ["*.database.windows.net"] # source: https://learn.microsoft.com/en-us/azure/azure-sql/database/connect-query-go
+  - identity: azure/servicebus
+    class: managed-cloud
+    label: Azure Service Bus
+    aliases: [azure-servicebus, servicebus]
+    hosts: ["*.servicebus.windows.net"] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus
+    sdkModules: [github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus
+    otel: { messagingSystem: [servicebus, azure.servicebus] } # source: https://opentelemetry.io/docs/specs/semconv/registry/attributes/messaging/
+  - identity: azure/storage
+    class: managed-cloud
+    label: Azure Storage
+    aliases: [azure-storage, azure-blob]
+    hosts: # source: https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview
+      - "*.blob.core.windows.net"
+      - "*.dfs.core.windows.net"
+      - "*.file.core.windows.net"
+      - "*.queue.core.windows.net"
+      - "*.table.core.windows.net"
+    sdkModules: [github.com/Azure/azure-sdk-for-go/sdk/storage/azblob] # source: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/storage/azblob
