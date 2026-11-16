@@ -6,7 +6,8 @@
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, fleetEntityUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked } from '../lib/delivery.ts';
+    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked, classSourceLabel } from '../lib/delivery.ts';
+  import ApprovalAccess from '../components/ApprovalAccess.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
@@ -206,7 +207,7 @@
 
     {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
-      <DecisionPanel {op} {actions} stage={e.stage} freshness={data?.decisionFreshness ?? 0} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
+      <DecisionPanel {op} {actions} decisionRefusal={data?.decisionRefusal ?? ''} stage={e.stage} freshness={data?.decisionFreshness ?? 0} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
     <div class="cd-folds">
@@ -248,7 +249,7 @@
             {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>
             {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}{#if data.revisions?.[d]}{' '}<a href={fleetEntityUrl('revision', data.revisions[d])} aria-label={`revision of ${data.versions?.[d] || shortDigest(d)}`} data-testid="change-revision">revision</a>{/if}</dd>{/if}
           {/each}
-          <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} />{/if}</dd>
+          <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{' '}<span class="t-meta" data-testid="actor-source">({classSourceLabel(e.status?.actorClassifiedBy)})</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} />{/if}</dd>
           {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
         </dl>
 
@@ -257,7 +258,7 @@
           {#if st?.approvals?.length}
             <ul class="cd-approvals">
               {#each st.approvals as a (a.name)}
-                <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+                <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}<ApprovalAccess {a} /></li>
               {/each}
             </ul>
           {:else}

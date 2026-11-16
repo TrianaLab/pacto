@@ -227,10 +227,10 @@ type inboxInput struct {
 type inboxOutput struct {
 	Body struct {
 		Listing
-		Held        []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
+		Held        []InboxItem      `json:"held" doc:"Held operations whose decision by the caller the promoter would count: the caller is a person who may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names; for break-glass also those that name no team. A change whose update rights could not be checked is left out and marks the answer partial"`
 		HeldPage    Page             `json:"heldPage"`
 		HeldShared  int              `json:"heldShared" doc:"How many held changes, over every page, more than one team may answer"`
-		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
+		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services; when owner teams do not narrow who may answer, every frozen Stage the caller can read"`
 		FrozenPage  Page             `json:"frozenPage"`
 		Errored     []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
 		ErroredPage Page             `json:"erroredPage"`
@@ -265,11 +265,12 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// operations are never deleted, so an Errored one waits on someone only
 	// while the pause it caused lasts; after that it is history.
 	frozen, frozenStages := frozenOf(stages, mine, in.Q)
-	held, errored := inboxQueues(ops, in.Q, frozen, caller)
+	byStage := delivery.StagesByName(stages)
+	access := delivery.AccessMemo(stages, api.WorkloadAccess)
+	held, errored, unchecked := inboxQueues(ctx, ops, in.Q, frozen, caller, access)
 	out := &inboxOutput{}
 	b := &out.Body
-	b.Listing = l
-	byStage := delivery.StagesByName(stages)
+	b.Listing = uncheckedPartial(l, caller, unchecked)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -309,7 +310,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for _, st := range page {
 		b.Frozen = append(b.Frozen, environmentRowOf(st, nil, caller, read, false))
 	}
-	narrowRows(ctx, api, b.Frozen)
+	narrowRows(ctx, api, b.Frozen, caller.Class, access)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
 }
@@ -342,9 +343,27 @@ func frozenOf(stages []delivery.StageObject, mine func(string) bool, q string) (
 	return frozen, frozenStages
 }
 
+// uncheckedPartial is l marked partial when a held change was left out
+// because the caller's update rights could not be checked (unchecked), or
+// was judged on the default policy because the published one was unread:
+// either may wait on the caller.
+func uncheckedPartial(l Listing, caller delivery.Caller, unchecked []string) Listing {
+	if caller.PolicyErr != "" {
+		unchecked = append(unchecked, "delivery identity policy: "+caller.PolicyErr)
+	}
+	if len(unchecked) > 0 {
+		l.Completeness = "partial"
+		l.Unreadable = append(slices.Clone(l.Unreadable), unchecked...)
+	}
+	return l
+}
+
 // inboxQueues splits the operations matching q into those held on the caller
-// and those errored on a Stage that is still frozen.
-func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller) (held, errored []InboxItem) {
+// and those errored on a Stage that is still frozen. access answers whether
+// the caller may update the workload of a Stage. unchecked names, once per
+// Stage, the held changes left out because that could not be answered.
+func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller,
+	access delivery.StageAccess) (held, errored []InboxItem, unchecked []string) {
 	held, errored = []InboxItem{}, []InboxItem{}
 	for _, o := range ops {
 		it := inboxItem(o)
@@ -352,21 +371,39 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 			continue
 		}
 		switch {
-		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
-			held = append(held, it)
+		case it.Phase == delivery.PhaseHeld:
+			waits, why := waitsOn(ctx, &o, it, caller, access)
+			if waits {
+				held = append(held, it)
+			} else if note := it.Namespace + "/" + it.Stage + ": could not check update rights (" + why + ")"; why != "" && !slices.Contains(unchecked, note) {
+				unchecked = append(unchecked, note)
+			}
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			errored = append(errored, it)
 		}
 	}
-	return held, errored
+	return held, errored, unchecked
 }
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
 // count. A question that names no team is also break-glass's: under
-// requireOwnerTeam nobody else can resolve it, unless they asked for it.
-func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
-	return answerRefusal(op, caller, it.Decision) == "" ||
-		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User)
+// requireOwnerTeam nobody else can resolve it, unless they asked for it. An
+// agent never decides, so its access is never asked, and the access is asked
+// only when every other check passes. unverified is why the caller's update
+// rights could not be checked when that alone kept the change out.
+func waitsOn(ctx context.Context, op *delivery.OperationObject, it InboxItem, caller delivery.Caller, access delivery.StageAccess) (waits bool, unverified string) {
+	if len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User) {
+		return true, ""
+	}
+	if !caller.Policy.IsHuman(caller.Identity) {
+		return false, ""
+	}
+	var asked delivery.WorkloadAccess
+	code := answerRefusal(op, caller, it.Decision, func() delivery.WorkloadAccess { asked = access(ctx, it.Namespace, it.Stage); return asked })
+	if code == "ApproverUnverified" {
+		return false, asked.Unverified
+	}
+	return code == "", ""
 }
 
 // EnvironmentRow is one Stage: one service in one environment, as the
@@ -525,7 +562,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if in.Service != "" {
 		undoOffers(ctx, api, shown, out.Body.Environments, caller)
 	}
-	narrowRows(ctx, api, out.Body.Environments)
+	narrowRows(ctx, api, out.Body.Environments, caller.Class, delivery.AccessMemo(shown, api.WorkloadAccess))
 	s.revisionLinks(ctx, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
@@ -1300,13 +1337,16 @@ func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObje
 	}
 }
 
-// narrowRows makes unavailable what the caller's RBAC refuses (NarrowOffers).
-func narrowRows(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
+// narrowRows makes unavailable what the caller's RBAC refuses (NarrowOffers)
+// and an unfreeze a person of class may not make for want of update rights
+// on the workload (NarrowUnfreeze).
+func narrowRows(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow, class delivery.ActorClass, access delivery.StageAccess) {
 	ptrs := make([]*delivery.StageRow, len(rows))
 	for i := range rows {
 		ptrs[i] = &rows[i].StageRow
 	}
 	delivery.NarrowOffers(ctx, ptrs, delivery.CreateOperations(api.Can))
+	delivery.NarrowUnfreeze(ctx, ptrs, class, access)
 }
 
 // maxPeople bounds the names a dashboard remembers.

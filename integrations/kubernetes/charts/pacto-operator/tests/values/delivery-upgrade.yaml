@@ -1,0 +1,7 @@
+# A values file kept across an upgrade (Argo CD, a Flux HelmRelease or
+# `helm upgrade -f`): it turns delivery on and names the agent group, and sets
+# neither teamGroupPrefix nor requireOwnerTeam.
+delivery:
+  enabled: true
+  identities:
+    agentGroups: [acme:bots]

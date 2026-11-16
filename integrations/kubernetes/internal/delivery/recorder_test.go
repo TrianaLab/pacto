@@ -188,9 +188,7 @@ func TestRecorderWritesChainedRecords(t *testing.T) {
 	second := re.concluded("ship-again", 2, delivery.Rejected)
 	re.approve(second, "ok", "alice", delivery.Approve)
 	second.Status.Approvals = []delivery.ApprovalRecord{{Name: "ok", By: "alice", Decision: delivery.Approve}}
-	if err := re.c.Status().Update(context.Background(), second); err != nil {
-		t.Fatal(err)
-	}
+	must(t, re.c.Status().Update(context.Background(), second))
 	pending := func() float64 { return promtest.ToFloat64(RecordsPending.WithLabelValues("cid/prod/payments-prod")) }
 	re.rec.Signer = failingSigner{}
 	re.reconcile()
@@ -203,6 +201,19 @@ func TestRecorderWritesChainedRecords(t *testing.T) {
 		t.Fatalf("pacto_delivery_records_pending = %v once both are recorded, want 0", got)
 	}
 
+	chainedRecordsWritten(t, re, first, second)
+	// Nothing owed: no registry round trip, nothing new.
+	re.reg.srv.Close()
+	if res := re.reconcile(); res.RequeueAfter != 0 {
+		t.Fatalf("idle pass requeued: %+v", res)
+	}
+}
+
+// chainedRecordsWritten checks the records of first and second chain at seqs
+// 1 and 2, are attached to the apply and contract repositories, and that the
+// stream and both operations say so.
+func chainedRecordsWritten(t *testing.T, re *recEnv, first, second *dv1.Operation) {
+	t.Helper()
 	recs := re.records()
 	if len(recs) != 2 {
 		t.Fatalf("records = %d, want 2", len(recs))
@@ -223,8 +234,15 @@ func TestRecorderWritesChainedRecords(t *testing.T) {
 			t.Errorf("%s@%s has %d referrers, want 2", path, d, n)
 		}
 	}
+	recordedOnStreamAndOps(t, re, r2.ID)
+}
+
+// recordedOnStreamAndOps checks the stream recorded seq 2 with head r2ID and
+// both operations hold their record and no longer the record finalizer.
+func recordedOnStreamAndOps(t *testing.T, re *recEnv, r2ID string) {
+	t.Helper()
 	s := re.getStage()
-	if s.Status.Stream.RecordedSeq != 2 || s.Status.Stream.Head != r2.ID || condition(s).Status != "True" {
+	if s.Status.Stream.RecordedSeq != 2 || s.Status.Stream.Head != r2ID || condition(s).Status != "True" {
 		t.Fatalf("stream %+v condition %+v", s.Status.Stream, condition(s))
 	}
 	for _, name := range []string{"ship", "ship-again"} {
@@ -232,11 +250,6 @@ func TestRecorderWritesChainedRecords(t *testing.T) {
 		if controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) || o.Status.Record == nil || o.Status.Record.Kind != delivery.RecordOperation {
 			t.Fatalf("%s: finalizers %v record %+v", name, o.Finalizers, o.Status.Record)
 		}
-	}
-	// Nothing owed: no registry round trip, nothing new.
-	re.reg.srv.Close()
-	if res := re.reconcile(); res.RequeueAfter != 0 {
-		t.Fatalf("idle pass requeued: %+v", res)
 	}
 }
 

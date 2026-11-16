@@ -23,7 +23,7 @@ func rowStage(level Level, st StageStatus) StageObject {
 }
 
 func rowCaller(class ActorClass, groups ...string) Caller {
-	return Caller{Identity: Identity{User: "alice", Groups: groups}, Class: class, Policy: ClassPolicy{TeamGroupPrefix: "acme:"}}
+	return Caller{Identity: Identity{User: "alice", Groups: groups}, Class: class, Policy: ClassPolicy{TeamGroupPrefix: "acme:", TeamNarrowing: true}}
 }
 
 func offerOf(row StageRow, action string) *Offer {
@@ -570,5 +570,39 @@ func TestStagesByName(t *testing.T) {
 	stages := []StageObject{rowStage(LevelAdvise, StageStatus{})}
 	if by := StagesByName(stages); len(by) != 1 || by["prod/payments"] != &stages[0] {
 		t.Fatalf("index %v", by)
+	}
+}
+
+// TestNarrowUnfreeze: a person's unfreeze offer needs update rights on the
+// workload; an agent's or break-glass caller's is untouched.
+func TestNarrowUnfreeze(t *testing.T) {
+	row := func(stage string) *StageRow {
+		return &StageRow{Namespace: "prod", Stage: stage, Actions: []string{"promote", "unfreeze"},
+			Offers: []Offer{{Action: "promote", Available: true}, {Action: "unfreeze", Available: true}}}
+	}
+	access := func(_ context.Context, _, stage string) WorkloadAccess {
+		a := WorkloadAccess{Resource: "deployments", Name: "payments", Namespace: "prod", Allowed: stage == "allowed"}
+		if stage == "unverified" {
+			a.Unverified = "timeout"
+		}
+		return a
+	}
+	rows := []*StageRow{row("denied"), row("unverified"), row("allowed"), {Namespace: "prod", Stage: "denied"}}
+	NarrowUnfreeze(context.Background(), rows, ClassHuman, access)
+	if o := rows[0].Offers[1]; o.Available || !strings.HasPrefix(o.Reason, "you cannot update deployments/payments in prod") || !slices.Equal(rows[0].Actions, []string{"promote"}) {
+		t.Errorf("denied: %+v %v", o, rows[0].Actions)
+	}
+	if o := rows[1].Offers[1]; o.Available || !strings.HasPrefix(o.Reason, "Pacto could not check whether you may update deployments/payments in prod") {
+		t.Errorf("unverified: %+v", o)
+	}
+	if !rows[2].Offers[1].Available || !rows[0].Offers[0].Available {
+		t.Errorf("allowed or another action narrowed: %+v %+v", rows[2], rows[0])
+	}
+	for _, class := range []ActorClass{ClassAgent, ClassBreakGlass} {
+		r := row("denied")
+		NarrowUnfreeze(context.Background(), []*StageRow{r}, class, access)
+		if !r.Offers[1].Available {
+			t.Errorf("%s narrowed", class)
+		}
 	}
 }

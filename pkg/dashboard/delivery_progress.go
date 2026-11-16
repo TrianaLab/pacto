@@ -51,6 +51,7 @@ func (s *Server) deliveryProgress(ctx context.Context, in *progressInput) (*prog
 			}
 		}
 	}
+	pin.Access = delivery.PersonAccess(ctx, caller, *st, pin.Ops, delivery.AccessMemo([]delivery.StageObject{*st}, api.WorkloadAccess))
 	if ok, err := delivery.CreateOperations(api.Can)(ctx, in.Namespace); err != nil {
 		pin.RBACErr = err.Error()
 	} else {

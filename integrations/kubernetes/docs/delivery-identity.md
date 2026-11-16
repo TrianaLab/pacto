@@ -66,17 +66,18 @@ lists the three ways a held change still ends.
 
 ## Who counts as a person, an agent or a team
 
-Set the groups once, in the operator chart's delivery section:
+Delivery tells people from agents by how they sign in. A ServiceAccount, any
+other `system:` user and an unauthenticated request are agents. Every other
+signed-in identity, such as an OIDC or client certificate user, is a person.
+These values, all optional, mark automation and narrow who may answer:
 
 ```yaml
 delivery:
   identities:
     agentGroups: [pacto:agents]          # agents propose, never approve or unfreeze
     breakGlassGroups: [pacto:break-glass]
-    teamGroupPrefix: ""                  # owner team T is group T, or this prefix plus T
-    requireOwnerTeam: true               # a question naming no team is answered by nobody
-    humanGroups: [staff]                 # everyone outside these groups is an agent
-    allowEmptyHumanGroups: false         # true lets humanGroups stay empty
+    teamGroupPrefix: null                # set it, even to "", to let only owner teams answer
+    requireOwnerTeam: false              # true: a question naming no team is answered by nobody
 ```
 
 The chart renders the admission policies from these values and publishes them
@@ -96,19 +97,62 @@ names. Admission and the promoter still decide.
 
 ### Owner teams and agent groups
 
-A held question goes to the teams that own the affected services. When neither
-the service nor its consumers declare an owner, nobody may answer it with
-`requireOwnerTeam: true`, and only break-glass can override. The plan says so
-in its question. Set it to `false` to let any person answer instead.
+A held question goes to the teams that own the affected services. Unless
+`teamGroupPrefix` is set, that only routes it, and whoever
+[may decide](#who-may-decide) answers. Once set, only owner team members
+answer: team `T` is the group `T` with `""`, or the prefix followed by `T`. A
+`system:` group is never a team. With `requireOwnerTeam: true`, a question
+whose services declare no owner is answered by nobody but break-glass, as its
+plan says.
 
-Service accounts are always agents, but a person-like agent identity is an
-agent only while it is in an agent group. Left out by mistake, it counts as a
-person, and an unenrolled identity that completes a `pacto-approve` login
-counts as a person when it approves too: `pacto-approve` is a public client,
-so a bot user with stored credentials can log in without anyone at the
-keyboard and get a login time. Set `humanGroups` to the groups your people are
-in, and anyone outside them is an agent. The chart refuses delivery with
-`humanGroups` empty unless you set `allowEmptyHumanGroups: true`.
+Automation that signs in through OIDC counts as a person until you put it in
+`agentGroups`. So does a bot that completes a `pacto-approve` login with
+stored credentials: the public client gives it a login time. `humanGroups` is
+deprecated: when set, anyone outside its groups is an agent.
+
+## Who may decide
+
+A person may decide a held change when they may update the Stage's
+workload. When it counts an Approval, the promoter asks the apiserver a
+SubjectAccessReview with the Approval's user and groups, such as
+`update deployments/checkout in payments`. The same review decides a person's
+unfreeze and acknowledge. With delivery on, the chart aggregates delivery
+reads into the built-in `view`, `edit` and `admin` roles, and creating
+Approvals and Operations into `edit` and `admin`, so `edit` or `admin` in the
+namespace is enough. A custom role without `edit` also needs the
+`pacto-operator-delivery-approver` ClusterRole.
+
+Agents never decide. Without update rights the refusal is
+`CannotUpdateWorkload`. A review that fails, or a workload kind with no known
+resource, is `ApproverUnverified`, never allowed.
+
+Records keep how each actor was classified and, for each approval, the access
+phrase, which review answered it and when. Older records show "not recorded".
+
+## Upgrading
+
+To keep the earlier team rules, set both values before you upgrade:
+
+```yaml
+delivery:
+  identities:
+    teamGroupPrefix: ""
+    requireOwnerTeam: true
+```
+
+- An upgrade that takes the new chart's defaults turns team narrowing off
+  unless you set `teamGroupPrefix` yourself, and the ownerless protection
+  unless you set `requireOwnerTeam`: a values file through Argo CD or a Flux
+  HelmRelease, `helm upgrade -f` and `--reset-then-reuse-values`. The
+  promoter then emits a `TeamNarrowingOff` Event on each Operation it holds.
+- An upgrade that reuses the earlier release's values whole keeps the earlier
+  defaults, and so keeps narrowing.
+- Approvers need `update` on the Stage's workload, with or without narrowing.
+- `allowEmptyHumanGroups` is ignored. Other `system:` users are agents.
+- Records gain `actor.classifiedBy` and, on each approval, `classifiedBy`,
+  `access`, `accessSource` and `accessAt`. Signed records are read strictly,
+  so upgrade a promoter that follows another cluster's records
+  (`upstreamTrust`) no later than the recording cluster.
 
 ## The dashboard's delivery settings
 
@@ -145,10 +189,10 @@ views say they may be incomplete.
 ## Approve from the dashboard
 
 A held change asks one question of the teams that own the affected services.
-Only their members may answer. A contract owner team `T` is the group `T`, or
-`teamGroupPrefix` followed by `T`. A person decides with the sign-in they
+Whoever [may decide](#who-may-decide) answers it, and only owner team members
+when team narrowing is on. A person decides with the sign-in they
 have. The dashboard and `pacto delivery approve` check a decision with the
-promoter's own rule before they record it, and refuse one it would not count,
+promoter's own rule, asking with your own credentials, before they record it, and refuse one it would not count,
 saying why. Agents are refused, and so is a pasted token in the dashboard.
 
 ### A recent sign-in to decide
@@ -202,6 +246,9 @@ free port, which suits a provider that allows any loopback port (RFC 8252).
 - A stolen dashboard session can take that person's actions until it ends. With
   a recent sign-in required, it approves only in the first two thirds of
   `delivery.promoter.authFreshness` after they signed in again.
+- The SubjectAccessReview names the Approval's user and groups, not its
+  `extra`. An authorizer that narrows by `extra`, such as token scopes,
+  answers for the user without them.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart
   signs everyone out ([sessions](dashboard-authentication.md#sessions)).
 - A change's timeline shows only the Operation's own times, not Kubernetes

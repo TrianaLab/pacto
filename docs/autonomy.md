@@ -72,7 +72,7 @@ example "this caller has no contract".
 
 A proposal changes nothing by itself. To act on it, someone asks for the
 raise in the dashboard or with `pacto delivery propose`, and a different
-person of the service's [owner team](glossary.md#owner-team) approves it.
+person who may update the service's workload approves it.
 Someone can also ask for a raise Pacto has not proposed;
 then the approver must [accept the unknown](glossary.md#accept-the-unknown). A level
 goes up one step at a time. Raising a Stage to either automatic level also

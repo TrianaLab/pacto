@@ -104,6 +104,14 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
 		k8sclient.PactosGVR: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
+	// The caller may update every workload unless a test says otherwise.
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+		if attrs["verb"] != "update" {
+			return false, nil, nil
+		}
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+	})
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))
 		for _, g := range groups {
@@ -533,7 +541,7 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	}
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
 	_, err := d.Approve(ctx, "prod", "p1", delivery.Approve, "")
-	wantErrContaining(t, err, "agents may not approve")
+	wantErrContaining(t, err, "agents cannot approve")
 	d, _ = fixture("bob", nil, op)
 	if f, err := d.Freshness(ctx, "prod", "p1"); err != nil || f != 15*time.Minute {
 		t.Fatalf("freshness: %s %v", f, err)

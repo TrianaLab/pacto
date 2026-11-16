@@ -66,8 +66,16 @@ func TestPromoteShipsAndVerifies(t *testing.T) {
 	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseVerifying || !strings.Contains(o.Status.Message, "last evaluated contract") {
 		t.Fatalf("a result for the old version must not verify the new one: %s %s", o.Status.Phase, o.Status.Message)
 	}
+	promoteConcludesVerified(t, e)
+}
+
+// promoteConcludesVerified reports B compliant, checks p1 concludes Verified
+// and releases the Stage, and that the concluded operation loses its record
+// finalizer once deleted.
+func promoteConcludesVerified(t *testing.T, e *env) {
+	t.Helper()
 	e.evaluate(c2, "Compliant")
-	o = e.drive("p1")
+	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	if o.Status.Verification != delivery.Verified || o.Status.Seq != 1 {
 		t.Fatalf("verification %s seq %d", o.Status.Verification, o.Status.Seq)
@@ -77,9 +85,7 @@ func TestPromoteShipsAndVerifies(t *testing.T) {
 		t.Fatalf("stage after conclusion: %+v", s.Status)
 	}
 	// A concluded operation keeps its record finalizer until it is deleted.
-	if err := e.c.Delete(context.Background(), o); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Delete(context.Background(), o))
 	e.reconcileOp("p1")
 	if err := e.c.Get(context.Background(), keyOf("p1"), o); err == nil {
 		t.Fatal("a deleted concluded operation must lose its finalizer and go")
@@ -155,6 +161,44 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 	if s.Status.FailedDigests[0] != dB || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after the failure: %+v", s.Status)
 	}
+	raisedRollbacksBounded(t)
+	rb := e.getOp("p1-rollback")
+	if rb.Spec.Type != delivery.TypeRollback || rb.Spec.Params.From != dB || rb.Spec.Params.To != dA || rb.Spec.Params.Undoes != "uid-p1" ||
+		rb.Spec.Cause.Operation != "uid-p1" || rb.Spec.Actor.User != promoterSA {
+		t.Fatalf("rollback spec: %+v", rb.Spec)
+	}
+	rollbackOnceThenRefuseB(t, e, o, s)
+}
+
+// rollbackOnceThenRefuseB checks raising the rollback of o again is a no-op,
+// drives the rollback to Verified with no hold left and checks a new promote
+// of B is refused.
+func rollbackOnceThenRefuseB(t *testing.T, e *env, o *dv1.Operation, s *dv1.Stage) {
+	t.Helper()
+	// Raising again is a no-op: one rollback per cause.
+	if squat, err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil || squat != "" {
+		t.Fatal(squat, err)
+	}
+	rb := e.drive("p1-rollback")
+	if rb.Status.Phase != delivery.PhaseRunning || e.ociDigest("payments") != dA {
+		t.Fatalf("rollback should be running with A written: %s %s", rb.Status.Phase, rb.Status.Message)
+	}
+	e.apply(dA)
+	e.evaluate(c1, "Compliant")
+	rb = e.drive("p1-rollback")
+	wantOutcome(t, rb, delivery.Succeeded, "Verified")
+	if s := e.getStage(); s.Status.Pointer != dA || s.Status.AutoHold || s.Status.Frozen {
+		t.Fatalf("an automatic rollback leaves no hold: %+v", s.Status)
+	}
+	// Item 2, "never retried": a new promote of B is refused.
+	e.create(opObj("p2", delivery.TypePromote, dA, dB, bot))
+	wantOutcome(t, e.drive("p2"), delivery.Rejected, "FailedDigest")
+}
+
+// raisedRollbacksBounded checks the memory of raised rollbacks is bounded
+// like the failed digests.
+func raisedRollbacksBounded(t *testing.T) {
+	t.Helper()
 	// The memory of raised rollbacks is bounded like the failed digests.
 	full := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	old := make([]string, delivery.MaxRolledBack)
@@ -170,29 +214,6 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 	if rb := full.getStage().Status.RolledBack; len(rb) != delivery.MaxRolledBack || rb[0] != "uid-old-1" || rb[len(rb)-1] != "uid-p1" {
 		t.Fatalf("raised rollbacks past the cap: %d, first %s", len(rb), rb[0])
 	}
-	rb := e.getOp("p1-rollback")
-	if rb.Spec.Type != delivery.TypeRollback || rb.Spec.Params.From != dB || rb.Spec.Params.To != dA || rb.Spec.Params.Undoes != "uid-p1" ||
-		rb.Spec.Cause.Operation != "uid-p1" || rb.Spec.Actor.User != promoterSA {
-		t.Fatalf("rollback spec: %+v", rb.Spec)
-	}
-	// Raising again is a no-op: one rollback per cause.
-	if squat, err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil || squat != "" {
-		t.Fatal(squat, err)
-	}
-	rb = e.drive("p1-rollback")
-	if rb.Status.Phase != delivery.PhaseRunning || e.ociDigest("payments") != dA {
-		t.Fatalf("rollback should be running with A written: %s %s", rb.Status.Phase, rb.Status.Message)
-	}
-	e.apply(dA)
-	e.evaluate(c1, "Compliant")
-	rb = e.drive("p1-rollback")
-	wantOutcome(t, rb, delivery.Succeeded, "Verified")
-	if s := e.getStage(); s.Status.Pointer != dA || s.Status.AutoHold || s.Status.Frozen {
-		t.Fatalf("an automatic rollback leaves no hold: %+v", s.Status)
-	}
-	// Item 2, "never retried": a new promote of B is refused.
-	e.create(opObj("p2", delivery.TypePromote, dA, dB, bot))
-	wantOutcome(t, e.drive("p2"), delivery.Rejected, "FailedDigest")
 }
 
 // TestFailedPromoteOverAFailedVersionFreezes: when the version a failed
@@ -928,51 +949,56 @@ func TestPublishedFromUpstream(t *testing.T) {
 	}
 }
 
+// dX is the checkout version its test Stage offers.
+const dX = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+// moveFirstWorld is a promote of payments from A to C that breaks checkout,
+// whose Pacto runs in checkoutNS; the checkout test Stage offers dX, a
+// checkout version that accepts C.
+func moveFirstWorld(t *testing.T, checkoutNS string) *env {
+	t.Helper()
+	checkoutProd := stageObj("")
+	checkoutProd.Name, checkoutProd.Spec.Service.Name, checkoutProd.Spec.ApplyRef.Name = "checkout-prod", "checkout", "checkout"
+	checkoutProd.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "checkout-test", Namespace: "test"}}
+	checkoutTest := stageObj("")
+	checkoutTest.Namespace, checkoutTest.Name, checkoutTest.Spec.Service.Name, checkoutTest.Spec.Environment = "test", "checkout-test", "checkout", "test"
+	checkoutTest.Status = delivery.StageStatus{Offered: []string{dX}, Verified: []string{dX}}
+	checkout := pactoObj("checkout", "checkout", c3, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
+	checkout.SetNamespace(checkoutNS)
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+		pactoObj("payments", "payments", c1, "Compliant", 2), checkoutProd, checkoutTest, ociRepo("checkout", "", "", false), checkout,
+		opObj("p1", delivery.TypePromote, dA, dC, bot))
+	e.reg.contracts[dX] = "oci://reg.example/pactos/checkout@" + c2
+	b := bundle("1.1.0")
+	b.Contract.Service.Name = "checkout"
+	b.Contract.Dependencies = append(b.Contract.Dependencies, contract.Dependency{Name: "payments", Ref: "oci://reg.example/pactos/payments", Compatibility: ">=1.0.0 <3.0.0"})
+	e.reg.bundles["oci://reg.example/pactos/checkout@"+c2] = b
+	return e
+}
+
 // TestBlockedPromoteSaysWhatMovesFirst is M4 at unit level: a promote that
 // checkout, running in prod, does not accept is held, and status.plan names
 // the verified version of checkout to ship first, read through checkout's own
 // apply OCIRepository. A checkout Pacto can place in test, where the test
 // Stage's Kustomization applies, does not hold it; one it cannot place does.
 func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
-	const dX = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	world := func(checkoutNS string) *env {
-		checkoutProd := stageObj("")
-		checkoutProd.Name, checkoutProd.Spec.Service.Name, checkoutProd.Spec.ApplyRef.Name = "checkout-prod", "checkout", "checkout"
-		checkoutProd.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "checkout-test", Namespace: "test"}}
-		checkoutTest := stageObj("")
-		checkoutTest.Namespace, checkoutTest.Name, checkoutTest.Spec.Service.Name, checkoutTest.Spec.Environment = "test", "checkout-test", "checkout", "test"
-		checkoutTest.Status = delivery.StageStatus{Offered: []string{dX}, Verified: []string{dX}}
-		checkout := pactoObj("checkout", "checkout", c3, "Compliant", 1,
-			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
-		checkout.SetNamespace(checkoutNS)
-		e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
-			pactoObj("payments", "payments", c1, "Compliant", 2), checkoutProd, checkoutTest, ociRepo("checkout", "", "", false), checkout,
-			opObj("p1", delivery.TypePromote, dA, dC, bot))
-		e.reg.contracts[dX] = "oci://reg.example/pactos/checkout@" + c2
-		b := bundle("1.1.0")
-		b.Contract.Service.Name = "checkout"
-		b.Contract.Dependencies = append(b.Contract.Dependencies, contract.Dependency{Name: "payments", Ref: "oci://reg.example/pactos/payments", Compatibility: ">=1.0.0 <3.0.0"})
-		e.reg.bundles["oci://reg.example/pactos/checkout@"+c2] = b
-		return e
-	}
 	// The test Stage's version runs in namespace test: Flux applies it there.
 	placed := kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", "")
 	placed.SetNamespace("test")
 	_ = unstructured.SetNestedField(placed.Object, "test", "spec", "targetNamespace")
-	e := world("test")
-	if err := e.c.Create(context.Background(), placed); err != nil {
-		t.Fatal(err)
-	}
+	e := moveFirstWorld(t, "test")
+	must(t, e.c.Create(context.Background(), placed))
 	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("checkout runs only in test, so prod does not wait for it: %s %q", o.Status.Phase, o.Status.Question)
 	}
 	// Nothing says where a checkout in a namespace no Stage applies into runs,
 	// and with the Kustomizations unlistable nothing says where any runs: it
 	// counts, so prod waits.
-	if o := world("checkout-team").drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+	if o := moveFirstWorld(t, "checkout-team").drive("p1"); o.Status.Phase != delivery.PhaseHeld {
 		t.Fatalf("a checkout Pacto cannot place holds prod: %s %q", o.Status.Phase, o.Status.Question)
 	}
-	e = world("test")
+	e = moveFirstWorld(t, "test")
 	_ = e.c.Create(context.Background(), placed)
 	e.fails["list/Kustomization"] = true
 	op := opObj("p1", delivery.TypePromote, dA, dC, bot)
@@ -980,7 +1006,7 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 	if p, err := e.op.plan(context.Background(), op, e.getStage()); err != nil || p.Predicted != delivery.PredictHeld {
 		t.Fatalf("with the Kustomizations unlistable checkout counts: %v %+v", err, p)
 	}
-	e = world(ns)
+	e = moveFirstWorld(t, ns)
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil || len(o.Status.Plan.Order.MoveFirst) != 1 {
 		t.Fatalf("want Held with an order: %s %+v", o.Status.Phase, o.Status.Plan)
@@ -990,22 +1016,25 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 		*m.Stage != (delivery.StageRef{Name: "checkout-prod", Namespace: ns}) || !strings.Contains(o.Status.Question, "Or ship checkout first") {
 		t.Fatalf("move first: %+v question %q", m, o.Status.Question)
 	}
+	moveFirstCannotTell(t, e, o)
+}
 
+// moveFirstCannotTell checks the order says it cannot tell, and never
+// guesses, once checkout's apply OCIRepository is gone and then the Stages
+// are unlistable.
+func moveFirstCannotTell(t *testing.T, e *env, o *dv1.Operation) {
+	t.Helper()
 	// checkout's apply OCIRepository gone, then the Stages unlistable: the
 	// order says it cannot tell, it never guesses.
 	_ = e.c.Delete(context.Background(), ociRepo("checkout", "", "", false))
 	plan, err := e.op.plan(context.Background(), o, e.getStage())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if m := plan.Order.MoveFirst[0]; m.Candidate != nil || !strings.Contains(m.Unknown, "the apply OCIRepository: ") {
 		t.Fatalf("unreadable candidate source: %+v", m)
 	}
 	e.fails["list/Stage"] = true
 	plan, err = e.op.plan(context.Background(), o, e.getStage())
-	if err != nil {
-		t.Fatal(err)
-	}
+	must(t, err)
 	if m := plan.Order.MoveFirst[0]; !strings.Contains(m.Unknown, "the Stages could not be listed") {
 		t.Fatalf("unlistable Stages: %+v", m)
 	}
@@ -1037,6 +1066,12 @@ func TestEveryAskedTeamApproves(t *testing.T) {
 	}
 }
 
+// consumerOf is the Pacto of name at digest, depending on payments within rng.
+func consumerOf(name, digest, rng string) *unstructured.Unstructured {
+	return pactoObj(name, name, digest, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": rng})
+}
+
 // TestHeldOrderIsRefreshed is story beat B6 on Kubernetes: a change held
 // because checkout and orders accept only the old major is planned again while
 // it waits. Once checkout runs a version that accepts it, only team-orders is
@@ -1044,12 +1079,8 @@ func TestEveryAskedTeamApproves(t *testing.T) {
 // A re-plan that rejects, errs or holds on something Pacto cannot see leaves
 // the hold as it is.
 func TestHeldOrderIsRefreshed(t *testing.T) {
-	consumer := func(name, digest, rng string) *unstructured.Unstructured {
-		return pactoObj(name, name, digest, "Compliant", 1,
-			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": rng})
-	}
 	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
-		pactoObj("payments", "payments", c1, "Compliant", 2), consumer("checkout", c3, "^1.0.0"), consumer("orders", c2, "^1.0.0"),
+		pactoObj("payments", "payments", c1, "Compliant", 2), consumerOf("checkout", c3, "^1.0.0"), consumerOf("orders", c2, "^1.0.0"),
 		opObj("p1", delivery.TypePromote, dA, dC, bot))
 	ctx := context.Background()
 	o := e.drive("p1")
@@ -1082,17 +1113,18 @@ func TestHeldOrderIsRefreshed(t *testing.T) {
 		t.Fatal("want the plan error")
 	}
 	delete(e.fails, "get/Stage")
+	heldOrderAfterCheckoutMoved(ctx, t, e)
+}
 
+// heldOrderAfterCheckoutMoved moves checkout first, so only team-orders is
+// asked; a team that breaks too is asked and drops out again, and an orders
+// approval ships the change.
+func heldOrderAfterCheckoutMoved(ctx context.Context, t *testing.T, e *env) {
+	t.Helper()
 	// checkout moved first: its Pacto now holds the version that accepts the change.
-	move := func(name, digest, rng string) {
-		t.Helper()
-		_ = e.c.Delete(ctx, consumer(name, digest, rng))
-		if err := e.c.Create(ctx, consumer(name, digest, rng)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	move("checkout", c3, ">=1.0.0 <3.0.0")
-	o = e.drive("p1")
+	_ = e.c.Delete(ctx, consumerOf("checkout", c3, ">=1.0.0 <3.0.0"))
+	must(t, e.c.Create(ctx, consumerOf("checkout", c3, ">=1.0.0 <3.0.0")))
+	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || strings.Join(o.Status.Plan.Floor.Owners, ",") != "team-orders" ||
 		strings.Join(o.Status.Plan.Floor.Consumers, ",") != "orders" || len(o.Status.Plan.Order.MoveFirst) != 1 ||
 		o.Status.Plan.Order.MoveFirst[0].Service != "orders" || o.Status.Plan.Question != o.Status.Question ||
@@ -1105,13 +1137,11 @@ func TestHeldOrderIsRefreshed(t *testing.T) {
 		t.Fatalf("team-checkout is no longer asked: %s %+v", o.Status.Phase, o.Status.Approvals)
 	}
 	// ledger breaks too: its team is asked as well, and drops out again.
-	if err := e.c.Create(ctx, consumer("ledger", c1, "^1.0.0")); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Create(ctx, consumerOf("ledger", c1, "^1.0.0")))
 	if o = e.drive("p1"); strings.Join(o.Status.Plan.Floor.Owners, ",") != "team-ledger,team-orders" {
 		t.Fatalf("a newly broken team is asked: %+v", o.Status.Plan.Floor)
 	}
-	_ = e.c.Delete(ctx, consumer("ledger", c1, "^1.0.0"))
+	_ = e.c.Delete(ctx, consumerOf("ledger", c1, "^1.0.0"))
 	if o = e.drive("p1"); strings.Join(o.Status.Plan.Floor.Owners, ",") != "team-orders" {
 		t.Fatalf("ledger dropped out: %+v", o.Status.Plan.Floor)
 	}
@@ -1268,22 +1298,24 @@ func TestConclusionWriteFailureTakesOneSeq(t *testing.T) {
 		o.Status.Policy == nil || o.Status.Policy.Environment != "prod" {
 		t.Fatalf("one conclusion must take one seq: op %+v stage %+v", o.Status, s.Status)
 	}
+	staleFailureRaisesNoRollback(t, e, s)
+}
 
+// staleFailureRaisesNoRollback checks p1 decided again on a stale read, even
+// as a failure, raises no rollback because the Stage already concluded it,
+// and that a failed Stage read before a rollback surfaces; s is the Stage it
+// concluded on.
+func staleFailureRaisesNoRollback(t *testing.T, e *env, s *dv1.Stage) {
+	t.Helper()
 	// Decided again on a stale read, even as a failure, it raises no
 	// rollback: the Stage already concluded it.
 	rb := e.getOp("p1-rollback")
 	controllerutil.RemoveFinalizer(rb, dv1.RecordFinalizer)
-	if err := e.c.Update(context.Background(), rb); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.c.Delete(context.Background(), rb); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Update(context.Background(), rb))
+	must(t, e.c.Delete(context.Background(), rb))
 	stale := e.getOp("p1")
 	stale.Status.Phase = delivery.PhaseVerifying
-	if err := e.c.Status().Update(context.Background(), stale); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.c.Status().Update(context.Background(), stale))
 	stale = e.getOp("p1")
 	c := conclusion{outcome: delivery.Failed, reason: "VerifyFailed: again"}
 	if _, err := e.op.finish(context.Background(), stale, e.getStage(), c); err != nil {
@@ -1349,38 +1381,8 @@ func TestStaleOperationIsNotConcludedAgain(t *testing.T) {
 // approval counts; once they are installed the operation goes on.
 func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 	guard := func(e *env) { e.create(guardPolicy(), guardBinding()) }
-	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
-		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-		unguard(e)
-		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
-			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
-		}
-		e.create(guardPolicy())
-		if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded {
-			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
-		}
-		e.create(guardBinding())
-		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || !o.Status.Guarded {
-			t.Fatalf("guarded, it moves and says so: %s %s %v", o.Status.Phase, o.Status.Message, o.Status.Guarded)
-		}
-	})
-	t.Run("a promoter started without admission policies admits nothing", func(t *testing.T) {
-		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-		e.op.AdmissionPolicies, e.st.AdmissionPolicies = nil, nil
-		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded ||
-			!strings.HasPrefix(o.Status.Message, "the promoter was started without --admission-policies, so") {
-			t.Fatalf("want parked: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.Message)
-		}
-		e.create(verifiedRepo("payments-candidates", "latest@"+dB))
-		if err := e.reconcileStage("payments-prod"); err != nil {
-			t.Fatal(err)
-		}
-		if !slices.ContainsFunc(e.getStage().Status.Conditions, func(x delivery.Condition) bool {
-			return x.Type == "Ready" && x.Status == statusFalse && x.Reason == ReasonUnguarded
-		}) {
-			t.Fatalf("Ready: %+v", e.getStage().Status.Conditions)
-		}
-	})
+	t.Run("admission waits for the policy and its binding", testAdmissionWaitsForGuard)
+	t.Run("a promoter started without admission policies admits nothing", testNoAdmissionPoliciesAdmitsNothing)
 	t.Run("a held operation counts no approval", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		delete(e.reg.bundles, contractRef(c2))
@@ -1415,6 +1417,42 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 			t.Fatal("a failed policy read must surface")
 		}
 	})
+}
+
+// testNoAdmissionPoliciesAdmitsNothing checks a promoter started without
+// admission policies admits nothing and says so on Ready.
+func testNoAdmissionPoliciesAdmitsNothing(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.op.AdmissionPolicies, e.st.AdmissionPolicies = nil, nil
+	if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded ||
+		!strings.HasPrefix(o.Status.Message, "the promoter was started without --admission-policies, so") {
+		t.Fatalf("want parked: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.Message)
+	}
+	e.create(verifiedRepo("payments-candidates", "latest@"+dB))
+	must(t, e.reconcileStage("payments-prod"))
+	if !slices.ContainsFunc(e.getStage().Status.Conditions, func(x delivery.Condition) bool {
+		return x.Type == "Ready" && x.Status == statusFalse && x.Reason == ReasonUnguarded
+	}) {
+		t.Fatalf("Ready: %+v", e.getStage().Status.Conditions)
+	}
+}
+
+// testAdmissionWaitsForGuard checks admission waits for the policy and its
+// binding.
+func testAdmissionWaitsForGuard(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	unguard(e)
+	if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
+		t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
+	}
+	e.create(guardPolicy())
+	if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded {
+		t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
+	}
+	e.create(guardBinding())
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || !o.Status.Guarded {
+		t.Fatalf("guarded, it moves and says so: %s %s %v", o.Status.Phase, o.Status.Message, o.Status.Guarded)
+	}
 }
 
 // unguard deletes the admission policy and binding every env starts with.
@@ -1536,9 +1574,7 @@ func TestUnguardedBy(t *testing.T) {
 			if why, err := unguardedBy(context.Background(), e.c, e.op.AdmissionPolicies); why != c.want || err != nil {
 				t.Fatalf("got %q %v", why, err)
 			}
-			if err := e.reconcileStage("payments-prod"); err != nil {
-				t.Fatal(err)
-			}
+			must(t, e.reconcileStage("payments-prod"))
 			ready := e.getStage().Status.Conditions
 			if c.want == "" {
 				if o := e.drive("p1"); o.Status.Reason == ReasonUnguarded {
@@ -1768,5 +1804,24 @@ func TestPromoterRaisedNeedsNoPrincipal(t *testing.T) {
 	rb := e.drive("p1-rollback")
 	if rb.Spec.OnBehalfOf != nil || rb.Status.ActorClass != delivery.ClassController || rb.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("automatic rollback: %+v %+v", rb.Spec.OnBehalfOf, rb.Status)
+	}
+}
+
+// TestAdmitRecordsClassificationSource: admission records how the actor was
+// classified, and a consumed approval how its approver was.
+func TestAdmitRecordsClassificationSource(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	if o := e.drive("p1"); o.Status.ActorClass != delivery.ClassAgent || o.Status.ActorClassifiedBy != delivery.ClassByServiceAccount {
+		t.Fatalf("a service account: %s/%s", o.Status.ActorClass, o.Status.ActorClassifiedBy)
+	}
+	e, _ = stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Unknown)
+	e.now = e.now.Add(2 * time.Minute)
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.ActorClassifiedBy != delivery.ClassByController {
+		t.Fatalf("held by the promoter: %+v", o.Status)
+	}
+	e.approve(o, "no", "bob", delivery.Reject)
+	if o = e.drive("p1"); len(o.Status.Approvals) != 1 || o.Status.Approvals[0].ClassifiedBy != delivery.ClassByUser {
+		t.Fatalf("the approver's source: %+v", o.Status.Approvals)
 	}
 }

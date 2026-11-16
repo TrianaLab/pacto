@@ -9,7 +9,6 @@ release:
   namespace: pacto-system
 set:
   delivery.enabled: true
-  delivery.identities.allowEmptyHumanGroups: true
   delivery.recorder.enabled: true
   delivery.recorder.streamsRepository: registry.example/pacto/streams
   delivery.recorder.signing.ed25519.secretName: recorder-key

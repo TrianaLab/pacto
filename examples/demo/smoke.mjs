@@ -250,6 +250,7 @@ check("pay-agent must name the person it acts for", noPrincipal.status === 403 &
 const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments"), onBehalfOf: "dana@example.com" })));
 check("payments 3.0.0 is held for checkout and orders",
   held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
+check("pay-agent's change records how it was classified", held.operation?.status?.actorClassifiedBy === "service-account", held.operation?.status?.actorClassifiedBy);
 call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout"), onBehalfOf: "dana@example.com" }));
 const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
 let question = "";
@@ -261,6 +262,12 @@ check("after checkout moves first, only orders is asked", /Asked of: orders$/.te
 check("pay-agent may not decide", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 403);
 globalThis.__pactoPersona("carol", false);
 check("carol approves with the sign-in she has", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
+// Her approval keeps how she was classified and what let her decide, checked
+// with her own credentials, so the record it becomes carries them.
+const carolsApproval = (json(call("GET", opPath)).operation?.status?.approvals || []).find((a) => a.decision === "approve") || {};
+check("carol's approval records her classification and access",
+  carolsApproval.classifiedBy === "user" && /^update /.test(carolsApproval.access || "")
+    && carolsApproval.accessSource === "self-subject-access-review" && !!carolsApproval.accessAt, JSON.stringify(carolsApproval));
 const hist = json(call("GET", "/api/delivery/history")).histories || [];
 check("history has a verified stream and one with problems",
   hist.some((h) => h.verified && h.completeness === "complete")

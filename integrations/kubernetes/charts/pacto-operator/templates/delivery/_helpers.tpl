@@ -112,7 +112,10 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 */}}
 {{- define "pacto-operator.delivery.identitiesJSON" -}}
 {{- $i := .Values.delivery.identities -}}
-{{- $p := dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) -}}
+{{- $p := dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) -}}
+{{- /* Owner teams narrow who may answer only once teamGroupPrefix is set, even
+to "" (the exact group T). Unset, whoever may update the Stage's workload answers. */ -}}
+{{- if not (kindIs "invalid" $i.teamGroupPrefix) }}{{ $_ := set $p "teamGroupPrefix" $i.teamGroupPrefix }}{{ $_ := set $p "teamNarrowing" true }}{{ end -}}
 {{- /* Each gate provider's type, never its URL or signers: a client plans with them. */ -}}
 {{- $types := dict -}}
 {{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}

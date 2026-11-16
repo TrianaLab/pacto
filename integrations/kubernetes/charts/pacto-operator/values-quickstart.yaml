@@ -106,8 +106,6 @@ delivery:
   enabled: true
   insecureRegistries:
     - pacto-zot.pacto-operator-system.svc:5000
-  identities:
-    humanGroups: [pacto:people]
   recorder:
     enabled: true
     streamsRepository: pacto-zot.pacto-operator-system.svc:5000/pacto/streams

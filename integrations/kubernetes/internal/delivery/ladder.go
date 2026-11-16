@@ -47,11 +47,30 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	if _, err := delivery.ParseDigest(d); err != nil {
 		return nil // nothing known runs: the proposal says no-observed-digest
 	}
-	st, now := stage.Status, r.Now().UTC()
-	old := ""
-	if st.ObservedRevision != nil {
-		old = st.ObservedRevision.Digest
+	now, old := r.Now().UTC(), ""
+	if stage.Status.ObservedRevision != nil {
+		old = stage.Status.ObservedRevision.Digest
 	}
+	add, err := r.shadowPlans(ctx, stage, d, old, now)
+	if err != nil {
+		return err
+	}
+	if len(add) == 0 && d == old {
+		return r.shadowVerify(ctx, stage, now)
+	}
+	set := func(s *dv1.Stage) { keepShadow(s, add, d, now) }
+	if err := r.updateStatus(ctx, stage, set); err != nil {
+		return err
+	}
+	set(stage)
+	return nil
+}
+
+// shadowPlans plans the Stage's candidate and what GitOps applied (d), each
+// unless it is what ran before (old) or already planned, and replans a plan
+// the published gate refused once the candidate source verified its version.
+func (r *StageReconciler) shadowPlans(ctx context.Context, stage *dv1.Stage, d, old string, now time.Time) ([]delivery.Shadow, error) {
+	st := stage.Status
 	var add []delivery.Shadow
 	for _, to := range []string{st.Candidate, d} {
 		if to == "" || to == old {
@@ -69,7 +88,7 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		}
 		e, err := r.wouldHave(ctx, stage, spec, now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		add = append(add, e)
 	}
@@ -82,43 +101,38 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		}
 		e, err := r.wouldHave(ctx, stage, r.shadowSpec(stage, x.From, x.Candidate), now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		e.ObservedAt, e.Verification = x.ObservedAt, x.Verification
 		add = append(add, e)
 	}
-	if len(add) == 0 && d == old {
-		return r.shadowVerify(ctx, stage, now)
-	}
-	set := func(s *dv1.Stage) {
-		// One entry per candidate. Another reconcile of a stale read may have
-		// planned it already; a new plan for a Stage spec or a running version
-		// that changed replaces an entry that has not run yet.
-		fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
-			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
-				return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
-					!stalePublished(x, s.Status.Published)
-			})
+	return add, nil
+}
+
+// keepShadow stores the plans add and what GitOps applied (d) on s: one
+// entry per candidate. Another reconcile of a stale read may have planned it
+// already; a new plan for a Stage spec or a running version that changed
+// replaces an entry that has not run yet.
+func keepShadow(s *dv1.Stage, add []delivery.Shadow, d string, now time.Time) {
+	fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
+		return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
+			return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
+				!stalePublished(x, s.Status.Published)
 		})
-		kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
-			return slices.ContainsFunc(fresh, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate })
-		})
-		s.Status.Shadow = append(fresh, kept...)
-		s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
-		if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
-			s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}
-		}
-		for i := range s.Status.Shadow {
-			if s.Status.Shadow[i].Candidate == d && s.Status.Shadow[i].ObservedAt == "" {
-				s.Status.Shadow[i].ObservedAt = s.Status.ObservedRevision.Since
-			}
+	})
+	kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
+		return slices.ContainsFunc(fresh, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate })
+	})
+	s.Status.Shadow = append(fresh, kept...)
+	s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
+	if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
+		s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}
+	}
+	for i := range s.Status.Shadow {
+		if s.Status.Shadow[i].Candidate == d && s.Status.Shadow[i].ObservedAt == "" {
+			s.Status.Shadow[i].ObservedAt = s.Status.ObservedRevision.Since
 		}
 	}
-	if err := r.updateStatus(ctx, stage, set); err != nil {
-		return err
-	}
-	set(stage)
-	return nil
 }
 
 // shadowSpec is the promote from to that the shadow plans, under the Stage

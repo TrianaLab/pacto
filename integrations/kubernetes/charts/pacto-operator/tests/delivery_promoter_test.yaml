@@ -5,7 +5,6 @@ templates:
   - templates/delivery/identities.yaml
 set:
   delivery.enabled: true
-  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
@@ -77,6 +76,29 @@ tests:
             verbs: [get, list, watch]
         documentIndex: 1
 
+  - it: grants the promoter create on subjectaccessreviews only
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [selfsubjectaccessreviews]
+            verbs: [create]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create, get, list, watch]
+
   - it: publishes the identity policy the promoter mounts, readable by every signed-in user
     template: templates/delivery/identities.yaml
     set:
@@ -86,7 +108,7 @@ tests:
     asserts:
       - equal:
           path: data["policy.json"]
-          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":["acme:staff"],"requireOwnerTeam":true,"teamGroupPrefix":"acme:"}'
+          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":["acme:staff"],"requireOwnerTeam":false,"teamGroupPrefix":"acme:","teamNarrowing":true}'
         documentIndex: 0
       - equal:
           path: metadata.name
@@ -401,21 +423,80 @@ tests:
             resources: [operations]
             verbs: [get, list, watch, create, update, patch, delete]
 
-  - it: refuses delivery with no humanGroups unless that is accepted on purpose
+  - it: renders delivery with no identity values
     template: templates/delivery/identities.yaml
     set:
-      delivery.identities.allowEmptyHumanGroups: false
-    asserts:
-      - failedTemplate:
-          errorPattern: "delivery.identities.humanGroups is empty"
-
-  - it: renders with humanGroups set
-    template: templates/delivery/identities.yaml
-    set:
-      delivery.identities.allowEmptyHumanGroups: false
-      delivery.identities.humanGroups: [staff]
+      delivery.identities.humanGroups: []
     asserts:
       - notFailedTemplate: {}
+
+  - it: renders the aggregated delivery roles only with delivery
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-view"]
+          value: "true"
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-view
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-edit"]
+          value: "true"
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-view
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-admin"]
+          value: "true"
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-view
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [delivery.pacto.trianalab.io]
+              resources: [stages, operations, approvals]
+              verbs: [get, list, watch]
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-view
+      - notExists:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-view"]
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-edit
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-edit"]
+          value: "true"
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-edit
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-admin"]
+          value: "true"
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-edit
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [delivery.pacto.trianalab.io]
+              resources: [approvals]
+              verbs: [create]
+            - apiGroups: [delivery.pacto.trianalab.io]
+              resources: [operations]
+              verbs: [create, delete]
+        documentSelector:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-edit
+
+  - it: renders no aggregated delivery role with delivery off
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: trusts an internal CA for gate providers when one is named
     template: templates/delivery/deployment.yaml

@@ -41,6 +41,11 @@ func hasEvent(events []string, prefix string) bool {
 	return false
 }
 
+// watchedGauge is the Watched gauge of payments-prod.
+func watchedGauge() float64 {
+	return promtest.ToFloat64(StageWatched.WithLabelValues(ns, "payments-prod"))
+}
+
 // TestPromoterIsObservable: a concluded operation is counted with its
 // verdicts and emits an Event; a re-check that comes back Unknown sets
 // Watched=False and the watched gauge to 0 and says so once; a freeze and a
@@ -59,17 +64,31 @@ func TestPromoterIsObservable(t *testing.T) {
 		t.Fatalf("operation events: %v", ev)
 	}
 
-	watchedGauge := func() float64 { return promtest.ToFloat64(StageWatched.WithLabelValues(ns, "payments-prod")) }
+	rechecksAreObservable(t, e, stEvents)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.FrozenReason = true, "a person froze it" })
+	must(t, e.reconcileStage("payments-prod"))
+	if ev := drain(stEvents); !hasEvent(ev, "Warning Frozen a person froze it") || promtest.ToFloat64(StageFrozen.WithLabelValues(ns, "payments-prod")) != 1 {
+		t.Fatalf("freeze event %v", ev)
+	}
+
+	series := promtest.CollectAndCount(StageFrozen)
+	must(t, e.c.Delete(context.Background(), e.getStage()))
+	if err := e.reconcileStage("payments-prod"); err != nil || promtest.CollectAndCount(StageFrozen) != series-1 {
+		t.Fatalf("a deleted Stage keeps its series: %v", err)
+	}
+	(&StageReconciler{}).observe(stageObj(dA)) // no memory, no recorder: metrics only
+}
+
+// rechecksAreObservable checks Unknown, passing and failed re-checks set the
+// Watched condition, gauge and events, each said once.
+func rechecksAreObservable(t *testing.T, e *env, stEvents *record.FakeRecorder) {
+	t.Helper()
 	e.health.result = delivery.Unknown
 	for range 2 { // said once, not on every Unknown
 		e.now = e.now.Add(10 * time.Minute)
-		if err := e.reconcileStage("payments-prod"); err != nil {
-			t.Fatal(err)
-		}
+		must(t, e.reconcileStage("payments-prod"))
 	}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	w := conditionOf(e.getStage().Status.Conditions, ConditionWatched)
 	if w == nil || w.Status != statusFalse || w.Reason != "RecheckUnknown" || !strings.Contains(w.Message, "health: error ratio Unknown") || watchedGauge() != 0 {
 		t.Fatalf("an Unknown re-check: %+v, gauge %v", w, watchedGauge())
@@ -80,9 +99,7 @@ func TestPromoterIsObservable(t *testing.T) {
 	e.health.result = delivery.Pass
 	e.now = e.now.Add(10 * time.Minute)
 	for range 2 {
-		if err := e.reconcileStage("payments-prod"); err != nil {
-			t.Fatal(err)
-		}
+		must(t, e.reconcileStage("payments-prod"))
 	}
 	if w := conditionOf(e.getStage().Status.Conditions, ConditionWatched); w.Status != "True" || w.Reason != "Rechecked" || watchedGauge() != 1 {
 		t.Fatalf("a passing re-check: %+v, gauge %v", w, watchedGauge())
@@ -90,32 +107,13 @@ func TestPromoterIsObservable(t *testing.T) {
 
 	e.health.result = delivery.Fail
 	e.now = e.now.Add(10 * time.Minute)
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, e.reconcileStage("payments-prod"))
 	if w := conditionOf(e.getStage().Status.Conditions, ConditionWatched); w.Reason != "RecheckFailed" {
 		t.Fatalf("a failed re-check: %+v", w)
 	}
 	if ev := drain(stEvents); !hasEvent(ev, "Warning RollbackRaised p1 RecheckFailed: health") {
 		t.Fatalf("rollback event: %v", ev)
 	}
-
-	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.FrozenReason = true, "a person froze it" })
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
-	}
-	if ev := drain(stEvents); !hasEvent(ev, "Warning Frozen a person froze it") || promtest.ToFloat64(StageFrozen.WithLabelValues(ns, "payments-prod")) != 1 {
-		t.Fatalf("freeze event %v", ev)
-	}
-
-	series := promtest.CollectAndCount(StageFrozen)
-	if err := e.c.Delete(context.Background(), e.getStage()); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.reconcileStage("payments-prod"); err != nil || promtest.CollectAndCount(StageFrozen) != series-1 {
-		t.Fatalf("a deleted Stage keeps its series: %v", err)
-	}
-	(&StageReconciler{}).observe(stageObj(dA)) // no memory, no recorder: metrics only
 }
 
 // TestHeldAndRolledBackEmitEvents: an operation waiting on a person and a

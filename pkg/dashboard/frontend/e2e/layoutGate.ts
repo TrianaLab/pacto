@@ -571,6 +571,15 @@ export function installScaleFixture(): void {
         citation: Object.fromEntries(Array.from({ length: 6 }, (_, j) => [longName(`key-${i}-${j}`).slice(0, 40), longName(`value-${i}-${j}`)])) }));
       if (typeof doc.intentReason === 'string') doc.intentReason = longName(doc.intentReason || 'reason');
     }
+    // Who put a version there at its longest: a long asker and approvers, each with how
+    // they were classified and what let them decide.
+    if (route === '/api/delivery/blame') {
+      const c = doc.change as Record<string, unknown> | undefined;
+      if (c) Object.assign(c, { actor: longName('https://idp.example.com/realms/payments#carol.long-surname'), actorClass: 'human', actorClassifiedBy: 'user' });
+      doc.approvals = [0, 1, 2].map((i) => ({ by: longName(`https://idp.example.com/realms/payments#approver-${i}`), decision: 'approve', operation: 'u',
+        note: longName(`note-${i}`), classifiedBy: 'user', access: `update deployments/${longName(`payments-settlement-worker-${i}`)} in ${longName('prod')}`,
+        accessSource: i % 2 ? 'self-subject-access-review' : 'subject-access-review', accessAt: '2026-11-15T10:00:00Z' }));
+    }
     // The publish figure at fleet scale: thousands of services and versions, and the
     // unsigned lane's four chips named 60 to 200 characters long. Only the chip names
     // are lengthened (no route lists them), and the list totals follow the lanes, so
@@ -1648,6 +1657,16 @@ export const ROUTES: Route[] = [
       await page.goto('/#/delivery/history?namespace=prod&stage=payments');
       await page.locator('button[aria-label^="Read record"]').first().click();
       await expect(page.locator('[data-testid="record-verdicts"]')).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
+    },
+  },
+  {
+    name: 'history, blame panel open',
+    open: async (page) => {
+      await page.goto('/#/delivery/history?namespace=prod&stage=payments');
+      await page.locator('button', { hasText: /^Who put .+ here\?$/ }).first().click();
+      await expect(page.locator('[data-testid="blame-panel"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="approval-access"]').first()).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => window.scrollTo(0, 0)); // the click scrolled the panel into view; the gate reads from the top
     },
   },

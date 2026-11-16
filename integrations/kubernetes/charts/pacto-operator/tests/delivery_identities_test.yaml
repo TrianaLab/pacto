@@ -1,0 +1,133 @@
+suite: delivery identities
+templates:
+  - templates/delivery/identities.yaml
+  - templates/delivery/admission.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: renders delivery with no identity values
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: publishes no team narrowing by default
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+
+  - it: turns narrowing on with a prefix
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    set:
+      delivery.identities.teamGroupPrefix: "acme:"
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false,"teamGroupPrefix":"acme:","teamNarrowing":true}'
+
+  - it: keeps narrowing for a reused empty teamGroupPrefix
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    set:
+      delivery.identities.teamGroupPrefix: ""
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"teamGroupPrefix":"","teamNarrowing":true'
+
+  # The shape a GitOps values file or `helm upgrade --reset-then-reuse-values`
+  # renders: neither teamGroupPrefix nor requireOwnerTeam set, so the new
+  # defaults apply and owner teams stop narrowing. Intended; the changeset and
+  # the promoter's TeamNarrowingOff Event say so.
+  - it: values-file upgrade without teamGroupPrefix turns narrowing off
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    values:
+      - ./values/delivery-upgrade.yaml
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+
+  - it: keeps the old behaviour with the two upgrade values
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    set:
+      delivery.identities.teamGroupPrefix: ""
+      delivery.identities.requireOwnerTeam: true
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"requireOwnerTeam":true,"teamGroupPrefix":"","teamNarrowing":true'
+
+  - it: ignores the deprecated allowEmptyHumanGroups in the policy
+    template: templates/delivery/identities.yaml
+    documentIndex: 0
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"requireOwnerTeam":false}'
+
+  - it: ignores the deprecated allowEmptyHumanGroups in admission
+    template: templates/delivery/admission.yaml
+    set:
+      delivery.identities.allowEmptyHumanGroups: true
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].message'
+      value: "spec.actor.user must be the user creating the operation"
+    asserts:
+      - equal:
+          path: 'spec.variables[?(@.name == "agent")].expression'
+          value: "request.userInfo.username.startsWith('system:') || 'system:unauthenticated' in request.userInfo.groups || request.userInfo.groups.exists(g, g in ['pacto:agents'])"
+
+  - it: keeps humanGroups as an override
+    template: templates/delivery/admission.yaml
+    set:
+      delivery.identities.humanGroups: [staff]
+    documentSelector:
+      path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].message'
+      value: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
+          pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
+
+  - it: treats system users as agents when proposing
+    template: templates/delivery/admission.yaml
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].message'
+      value: "spec.actor.user must be the user creating the operation"
+    asserts:
+      - matchRegex:
+          path: 'spec.variables[?(@.name == "agent")].expression'
+          pattern: "^request\\.userInfo\\.username\\.startsWith\\('system:'\\) \\|\\| 'system:unauthenticated' in request\\.userInfo\\.groups \\|\\|"
+
+  - it: treats system users as agents when cancelling
+    template: templates/delivery/admission.yaml
+    documentSelector:
+      path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].message'
+      value: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
+          pattern: "!\\(request\\.userInfo\\.username\\.startsWith\\('system:'\\) \\|\\| 'system:unauthenticated' in request\\.userInfo\\.groups \\|\\|"
+
+  - it: treats system users as agents when approving
+    template: templates/delivery/admission.yaml
+    documentSelector:
+      path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].message'
+      value: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
+    asserts:
+      - equal:
+          path: 'spec.validations[?(@.message == "agents cannot approve: service accounts, system users and members of agentGroups are agents")].expression'
+          value: "!(request.userInfo.username.startsWith('system:') || 'system:unauthenticated' in request.userInfo.groups || request.userInfo.groups.exists(g, g in ['pacto:agents']))"

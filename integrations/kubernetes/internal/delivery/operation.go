@@ -115,18 +115,11 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 		}
 		return r.expire(ctx, op)
 	}
-	stage := &dv1.Stage{}
-	key := types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}
-	err := r.Get(ctx, key, stage)
-	if apierrors.IsNotFound(err) {
-		// NoStage is final, so a cache that has not seen a new Stage yet
-		// never decides it: only the apiserver's NotFound does.
-		err = r.APIReader.Get(ctx, key, stage)
-	}
+	stage, err := r.stageOf(ctx, op)
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return reconcile.Result{}, err
-		}
+		return reconcile.Result{}, err
+	}
+	if stage == nil {
 		// ponytail: an applied operation whose Stage is gone concludes with no
 		// seq, so no record; a Stage finalizer held until its changes are
 		// recorded closes that, if deleting a Stage mid-change matters.
@@ -155,6 +148,22 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 	}
 }
 
+// stageOf reads op's Stage; nil with no error means it does not exist.
+// NoStage is final, so a cache that has not seen a new Stage yet never
+// decides it: only the apiserver's NotFound does.
+func (r *OperationReconciler) stageOf(ctx context.Context, op *dv1.Operation) (*dv1.Stage, error) {
+	stage := &dv1.Stage{}
+	key := types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}
+	err := r.Get(ctx, key, stage)
+	if apierrors.IsNotFound(err) {
+		err = r.APIReader.Get(ctx, key, stage)
+	}
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	return stage, err
+}
+
 func (r *OperationReconciler) now() time.Time { return r.Now().UTC() }
 
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -169,9 +178,23 @@ func (r *OperationReconciler) requeue() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: r.Poll}, nil
 }
 
-// saveHeld writes an operation that now waits on a person, and says so in an Event.
-func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation) (reconcile.Result, error) {
+// saveHeld writes an operation that now waits on a person, and says so in an
+// Event. With team narrowing off a second Event says owner teams do not
+// narrow who may answer, so an upgrade that turned it off shows where people
+// look at held changes. On a workload kind Pacto cannot ask about, a Warning
+// says no approval can count instead.
+// ponytail: one Event per hold, no state; a per-Stage condition if it is
+// missed.
+func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	event(r.Events, op, true, "Held", op.Status.Reason+": "+op.Status.Question)
+	a, _ := delivery.AccessFor(stage.Spec, stage.Namespace)
+	switch {
+	case a.Unverified != "":
+		event(r.Events, op, true, "ApproverUnverified", "no approval can count: "+a.Unverified+"; only break-glass can override")
+	case !r.Policy.Narrows():
+		event(r.Events, op, false, "TeamNarrowingOff", "owner teams do not narrow who may answer: whoever may "+a.Phrase()+
+			" decides; set delivery.identities.teamGroupPrefix to narrow it to the owner teams")
+	}
 	return r.save(ctx, op)
 }
 
@@ -219,7 +242,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
 		op.Status.ApprovedTeams = nil // a question asked again is answered again
 		op.Status.Reason, op.Status.Message = reasonAwaitingHuman, "a person must "+string(plan.Floor.Decision)
-		return r.saveHeld(ctx, op)
+		return r.saveHeld(ctx, op, stage)
 	case delivery.PredictWaits:
 		op.Status.Reason, op.Status.Message = reasonWaiting, strings.Join(plan.Conflicts, "; ")
 		return r.save(ctx, op)
@@ -248,57 +271,19 @@ func (r *OperationReconciler) preApplyExits(ctx context.Context, op *dv1.Operati
 // compare-and-swap that takes its seq moves the level (LevelRefusal).
 func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, recheck bool) (reconcile.Result, error) {
 	if recheck && (op.Spec.Type == delivery.TypePromote || op.Spec.Type == delivery.TypeAutonomy) {
-		cur, err := r.plan(ctx, op, stage)
-		if err != nil {
-			return reconcile.Result{}, err
+		if res, done, err := r.recheckPlan(ctx, op, stage); done {
+			return res, err
 		}
-		if cur.Predicted == delivery.PredictRejected {
-			// The record and explain name the gate that failed, not the
-			// first plan's passing verdicts.
-			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
-			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(cur)})
-		}
-		if !delivery.StillPasses(*op.Status.Plan, cur) {
-			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
-			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
-			op.Status.ApprovedTeams = nil // a question asked again is answered again
-			op.Status.Reason, op.Status.Message = reasonRecheckChanged, "a gate no longer passes, so a person must decide again"
-			return r.saveHeld(ctx, op)
-		}
-		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 	}
 	if op.Spec.Facet == delivery.FacetLevel {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
 			reason: "LevelChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
 	}
-	facet, uid := op.Spec.Facet, string(op.UID)
 	waiting := ""
 	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
-		if concludedOn(s.Status, op.UID) != nil {
-			return errConcluded // a stale read: this operation concluded already
-		}
-		if holder := s.Status.Locks[facet]; holder != "" && holder != uid {
-			free, err := r.lockFree(ctx, op, holder)
-			if err != nil {
-				return err
-			}
-			if !free {
-				waiting = "waiting for operation " + holder + " to release the " + facet + " lock"
-				return errWait
-			}
-		}
-		if s.Status.Frozen && op.Spec.Type == delivery.TypePromote {
-			waiting = "the Stage is frozen: " + s.Status.FrozenReason
-			return errWait
-		}
-		if s.Status.Pointer != op.Spec.Params.From {
-			return errPointerMoved
-		}
-		if s.Status.Locks == nil {
-			s.Status.Locks = map[string]string{}
-		}
-		s.Status.Locks[facet] = uid
-		return nil
+		var err error
+		waiting, err = r.takeLock(ctx, op, s)
+		return err
 	})
 	switch {
 	case errors.Is(err, errConcluded):
@@ -328,6 +313,64 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: immediately}, nil
+}
+
+// recheckPlan plans an approved promote or level change again. done says it
+// concluded the operation (a gate now refuses) or sent it back to a person
+// (a gate that passed no longer does); otherwise it keeps the new verdicts.
+func (r *OperationReconciler) recheckPlan(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, bool, error) {
+	cur, err := r.plan(ctx, op, stage)
+	if err != nil {
+		return reconcile.Result{}, true, err
+	}
+	if cur.Predicted == delivery.PredictRejected {
+		// The record and explain name the gate that failed, not the
+		// first plan's passing verdicts.
+		op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
+		res, err := r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(cur)})
+		return res, true, err
+	}
+	if !delivery.StillPasses(*op.Status.Plan, cur) {
+		op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
+		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
+		op.Status.ApprovedTeams = nil // a question asked again is answered again
+		op.Status.Reason, op.Status.Message = reasonRecheckChanged, "a gate no longer passes, so a person must decide again"
+		res, err := r.saveHeld(ctx, op, stage)
+		return res, true, err
+	}
+	op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
+	return reconcile.Result{}, false, nil
+}
+
+// takeLock takes op's facet lock on the fresh Stage s, or says why it cannot:
+// errConcluded on a stale read, errWait with what it waits for while another
+// operation holds the lock or the Stage is frozen, errPointerMoved when
+// another operation moved the pointer first.
+func (r *OperationReconciler) takeLock(ctx context.Context, op *dv1.Operation, s *dv1.Stage) (string, error) {
+	facet, uid := op.Spec.Facet, string(op.UID)
+	if concludedOn(s.Status, op.UID) != nil {
+		return "", errConcluded // a stale read: this operation concluded already
+	}
+	if holder := s.Status.Locks[facet]; holder != "" && holder != uid {
+		free, err := r.lockFree(ctx, op, holder)
+		if err != nil {
+			return "", err
+		}
+		if !free {
+			return "waiting for operation " + holder + " to release the " + facet + " lock", errWait
+		}
+	}
+	if s.Status.Frozen && op.Spec.Type == delivery.TypePromote {
+		return "the Stage is frozen: " + s.Status.FrozenReason, errWait
+	}
+	if s.Status.Pointer != op.Spec.Params.From {
+		return "", errPointerMoved
+	}
+	if s.Status.Locks == nil {
+		s.Status.Locks = map[string]string{}
+	}
+	s.Status.Locks[facet] = uid
+	return "", nil
 }
 
 // lockFree reports whether op may take the lock holder has: holder is gone or
@@ -380,29 +423,41 @@ func (r *OperationReconciler) casStage(ctx context.Context, stage *dv1.Stage, fn
 	})
 }
 
+// movePointer moves the Stage's pointer to op's version while op holds the
+// pointer lock, and marks op applied. done says it concluded op (the lock
+// was lost) or failed.
+func (r *OperationReconciler) movePointer(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, bool, error) {
+	from, to, uid := op.Spec.Params.From, op.Spec.Params.To, string(op.UID)
+	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
+		if s.Status.Locks[delivery.FacetPointer] != uid {
+			return errLockLost
+		}
+		s.Status.Pointer, s.Status.LastOp = to, uid
+		return nil
+	})
+	if errors.Is(err, errLockLost) {
+		res, err := r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "LockLost: the pointer lock was taken while running"})
+		return res, true, err
+	}
+	if err != nil {
+		return reconcile.Result{}, true, err
+	}
+	op.Status.Applied, op.Status.Pointer = true, delivery.PointerChange{Before: from, After: to}
+	if err := r.Status().Update(ctx, op); err != nil {
+		return reconcile.Result{}, true, err
+	}
+	return reconcile.Result{}, false, nil
+}
+
 // running moves the pointer, writes it to the OCIRepository and waits for Flux.
 func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if r.passed(op.Status.Times.ExecutionDeadline) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "ExecutionDeadline: Flux did not confirm the version in time"})
 	}
-	from, to, uid := op.Spec.Params.From, op.Spec.Params.To, string(op.UID)
+	from, to := op.Spec.Params.From, op.Spec.Params.To
 	if !op.Status.Applied {
-		err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
-			if s.Status.Locks[delivery.FacetPointer] != uid {
-				return errLockLost
-			}
-			s.Status.Pointer, s.Status.LastOp = to, uid
-			return nil
-		})
-		if errors.Is(err, errLockLost) {
-			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "LockLost: the pointer lock was taken while running"})
-		}
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-		op.Status.Applied, op.Status.Pointer = true, delivery.PointerChange{Before: from, After: to}
-		if err := r.Status().Update(ctx, op); err != nil {
-			return reconcile.Result{}, err
+		if res, done, err := r.movePointer(ctx, op, stage); done {
+			return res, err
 		}
 	}
 	a, err := r.Cluster.freshApplier(ctx, op.Namespace, stage.Spec.ApplyRef)
@@ -528,7 +583,7 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
 		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +
 			". Accept the unknown (the version stays), or reject it (it is rolled back)?"
-		return r.saveHeld(ctx, op)
+		return r.saveHeld(ctx, op, stage)
 	}
 	op.Status.Message = msg
 	return r.save(ctx, op)
@@ -573,7 +628,7 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	}
 	// An Approve answers the question asked before the version shipped, not
 	// this one, so only an accept or a reject counts here.
-	a, skipped := r.approval(ctx, op)
+	a, skipped := r.approval(ctx, op, stage)
 	switch {
 	case a == nil:
 		return r.recheckHeld(ctx, op, stage, skipped)

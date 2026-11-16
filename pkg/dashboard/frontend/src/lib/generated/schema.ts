@@ -73,7 +73,7 @@ export interface paths {
         };
         /**
          * Who delivery says I am
-         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller) and how it was decided, when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer.
          */
         get: operations["delivery-caller"];
         put?: never;
@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * What waits on me
-         * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+         * @description Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
          */
         get: operations["delivery-inbox"];
         put?: never;
@@ -1058,9 +1058,15 @@ export interface components {
         CallerOutputBody: {
             authTime?: string;
             class: string;
+            /** @description How the class was decided: controller, break-glass-group, service-account, agent-group, outside-human-groups, system-user or user */
+            classSource?: string;
             groups?: string[] | null;
+            /** @description Why the published delivery identity policy could not be read; while set, class, requireOwnerTeam and teamNarrowing are the defaults and may not be the promoter's, and no decision is offered */
+            policyError?: string;
             /** @description A question that names no team has nobody who may answer it; only break-glass can override */
             requireOwnerTeam: boolean;
+            /** @description Owner teams narrow who may answer; off, whoever may update the Stage's workload answers. Only the defaults while policyError is set */
+            teamNarrowing: boolean;
             user: string;
         };
         CancelOutputBody: {
@@ -1380,8 +1386,12 @@ export interface components {
             always?: boolean;
         };
         "Delivery.ApprovalRecord": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             name: string;
             note?: string;
@@ -1482,6 +1492,7 @@ export interface components {
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1528,6 +1539,7 @@ export interface components {
         "Delivery.LifecycleEvent": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1641,6 +1653,7 @@ export interface components {
         };
         "Delivery.OperationStatus": {
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: boolean;
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
             approvedTeams?: string[] | null;
@@ -1759,8 +1772,12 @@ export interface components {
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };
         "Delivery.RecordApproval": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             intentDigest: string;
             note?: string;
@@ -2217,6 +2234,7 @@ export interface components {
         };
         ExplanationStatusStruct: {
             actorClass?: string;
+            actorClassifiedBy?: string;
             message?: string;
             outcome?: string;
             phase: string;
@@ -4279,10 +4297,10 @@ export interface components {
             /** @description Errored operations of the caller's services whose Stage is still frozen */
             errored: components["schemas"]["InboxItem"][] | null;
             erroredPage: components["schemas"]["Page"];
-            /** @description Frozen Stages of the caller's services */
+            /** @description Frozen Stages of the caller's services; when owner teams do not narrow who may answer, every frozen Stage the caller can read */
             frozen: components["schemas"]["EnvironmentRow"][] | null;
             frozenPage: components["schemas"]["Page"];
-            /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
+            /** @description Held operations whose decision by the caller the promoter would count: the caller is a person who may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names; for break-glass also those that name no team. A change whose update rights could not be checked is left out and marks the answer partial */
             held: components["schemas"]["InboxItem"][] | null;
             heldPage: components["schemas"]["Page"];
             /**
@@ -4470,6 +4488,8 @@ export interface components {
              * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
              */
             decisionFreshness?: number;
+            /** @description On a held change that offers the caller no decision, why: the code the promoter would refuse it with (CannotUpdateWorkload, ApproverUnverified, NotYourTeam, OwnChange and so on), FreshLoginRequired when the cluster reports no login time, NoApprovalRights when the caller may not create Approvals, PolicyUnknown when the published identity policy could not be read, or DecisionsNotServed when this session may not decide; absent when a decision is offered or the change is not held */
+            decisionRefusal?: string;
             /** @description The environment the Stage delivers to (its spec.environment); absent when the Stage could not be read */
             environment?: string;
             explanation: components["schemas"]["Delivery.Explanation"];

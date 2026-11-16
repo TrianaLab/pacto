@@ -9,11 +9,15 @@ controller and the garbage collector. system:masters bypasses authorization
 and could remove these policies anyway, so refusing it guards nothing. */}}
 {{- $lifecycle := include "pacto-operator.delivery.celList" (concat .Values.delivery.admissionPolicies.gitopsUsers (list "system:serviceaccount:kube-system:namespace-controller" "system:serviceaccount:kube-system:generic-garbage-collector")) }}
 {{- $lifecycleRule := printf "request.operation == 'UPDATE' ||\n        request.userInfo.groups.exists(g, g in %s || g == 'system:masters') ||\n        request.userInfo.username in %s" $breakGlass $lifecycle }}
-{{- /* With identities.humanGroups set, anyone in none of them is an agent too. */}}
+{{- /* Agents are told apart by how they sign in: a service account, any other
+system: user (control-plane components, nodes, anonymous), an unauthenticated
+request or a member of agentGroups. With the deprecated identities.humanGroups
+set, anyone in none of them is an agent too. */}}
 {{- $unenrolled := "" }}
 {{- with .Values.delivery.identities.humanGroups }}
 {{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-operator.delivery.celList" .) }}
 {{- end }}
+{{- $agent := printf "request.userInfo.username.startsWith('system:') ||\n        'system:unauthenticated' in request.userInfo.groups ||\n        request.userInfo.groups.exists(g, g in %s)%s" $agents $unenrolled }}
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override, unfreeze,
 # freeze and acknowledge are limited to their raisers, and the record finalizer
@@ -48,8 +52,7 @@ spec:
       expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
     - name: agent
       expression: >-
-        request.userInfo.username.startsWith('system:serviceaccount:') ||
-        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }}
+        {{ $agent }}
     - name: levelFrom
       expression: "has(object.spec.params) && has(object.spec.params.from) ? object.spec.params.from : ''"
     - name: levelTo
@@ -80,9 +83,9 @@ spec:
         !variables.agent || variables.breakGlass || request.userInfo.username == '{{ $controller }}' ||
         (has(object.spec.onBehalfOf) && size(object.spec.onBehalfOf.user.trim()) > 0 &&
         object.spec.onBehalfOf.user.trim().lowerAscii() != request.userInfo.username.trim().lowerAscii() &&
-        !object.spec.onBehalfOf.user.trim().startsWith('system:serviceaccount:') &&
+        !object.spec.onBehalfOf.user.trim().startsWith('system:') &&
         object.spec.onBehalfOf.user.trim().lowerAscii() != '{{ $controller }}'.lowerAscii())
-      message: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account or the promoter: that person may not approve the change"
+      message: "an agent must name the person it acts for in spec.onBehalfOf, a person other than itself and never a service account, a system user or the promoter: that person may not approve the change"
       reason: Forbidden
     - expression: >-
         has(object.metadata.finalizers) &&
@@ -163,8 +166,7 @@ spec:
         request.userInfo.username == '{{ $controller }}' ||
         request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' ||
         request.userInfo.groups.exists(g, g in {{ $breakGlass }}) ||
-        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
-        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
+        !({{ $agent }})
       message: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
       reason: Forbidden
     - expression: >-
@@ -184,8 +186,11 @@ spec:
   policyName: {{ $fullname }}-cancel
   validationActions: [Deny]
 ---
-# Approvals come from people: not a service account, not an agent group, with
-# by and groups equal to the requesting user's. An authTime is the login time the
+# Approvals come from people: not a service account, a system user or an agent
+# group (nor, with the deprecated humanGroups set, anyone outside them), with
+# by and groups equal to the requesting user's. An approval also needs update
+# rights on the Stage's workload, which the promoter checks with a
+# SubjectAccessReview before it counts it. An authTime is the login time the
 # apiserver reports (structured authentication maps the OIDC auth_time claim to
 # userInfo.extra["delivery.pacto.trianalab.io/auth-time"]); with
 # delivery.promoter.authFreshness set it is required, and the promoter refuses a
@@ -215,9 +220,8 @@ spec:
       message: "spec.by must be the user creating the approval"
       reason: Forbidden
     - expression: >-
-        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
-        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
-      message: "agents and service accounts may not approve"
+        !({{ $agent }})
+      message: "agents cannot approve: service accounts, system users and members of agentGroups are agents"
       reason: Forbidden
     {{- /* Any zero duration ("0", "0s", "0m") turns freshness off, as the promoter reads it. */}}
     {{- if not (regexMatch "^(0+(\\.0+)?(ns|us|µs|ms|s|m|h)?)+$" (.Values.delivery.promoter.authFreshness | default "0" | toString)) }}

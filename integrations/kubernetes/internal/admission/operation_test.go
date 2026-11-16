@@ -45,8 +45,8 @@ func TestOperationCorrelationIDBound(t *testing.T) {
 }
 
 // An agent names the person it acts for, and that person may not approve:
-// admission refuses an agent that names nobody, itself, a service account or
-// the promoter. The promoter and break-glass need no one.
+// admission refuses an agent that names nobody, itself, a service account, a
+// system user or the promoter. The promoter and break-glass need no one.
 func TestOperationAgentNamesAPerson(t *testing.T) {
 	ctx := context.Background()
 	const msg = "must name the person it acts for"
@@ -64,6 +64,7 @@ func TestOperationAgentNamesAPerson(t *testing.T) {
 	denied(t, onBehalf(bot, bot, agents), msg)
 	denied(t, onBehalf(bot, runner, agents), msg)
 	denied(t, onBehalf(bot, controller, agents), msg)
+	denied(t, onBehalf(bot, "system:kube-scheduler", agents), msg)
 	denied(t, onBehalf(runner, "", saGroups...), msg)
 	// The promoter trims and case-folds the name, and admission mirrors it.
 	denied(t, onBehalf(bot, "   ", agents), msg)

@@ -587,27 +587,24 @@ delivery:
 
   identities:
     # -- Groups whose members are agents. Agents may propose, never approve or unfreeze.
-    # Service accounts other than the promoter are always agents.
+    # Service accounts other than the promoter, other `system:` users and unauthenticated requests
+    # are always agents; every other signed-in identity is a person. Use it for automation that
+    # signs in through OIDC.
     agentGroups:
       - pacto:agents
     # -- Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly
     breakGlassGroups:
       - pacto:break-glass
-    # -- Only members of the teams a held question names may answer it. A contract owner team `T`
-    # is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T`
-    # (for example `acme:`). A `system:` group is never a team.
-    teamGroupPrefix: ""
+    # -- Set it to narrow who may answer to the owner teams: a contract owner team `T` is then
+    # the group `T` (with `""`) or this prefix followed by `T` (for example `acme:`). A `system:`
+    # group is never a team. Unset, whoever may update the Stage's workload answers.
+    teamGroupPrefix: null
     # -- A held question whose service and consumers declare no owner team is answered by nobody,
-    # and only break-glass can override. Set false to let any person answer it, as before.
-    requireOwnerTeam: true
-    # -- When set, only members of these groups count as people. Anyone in none of them is an agent,
-    # so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies
-    # by `agentGroups` alone, which the chart refuses unless `allowEmptyHumanGroups` is set.
+    # and only break-glass can override. False lets whoever may update the workload answer it.
+    requireOwnerTeam: false
+    # -- Deprecated: people and agents are told apart by how they sign in. When set, anyone in none
+    # of these groups is an agent.
     humanGroups: []
-    # -- Render with `humanGroups` empty anyway. Then an identity left out of every agent group counts
-    # as a person, and one that completes a `pacto-approve` login (a public client, so a bot with
-    # stored credentials can) may approve.
-    allowEmptyHumanGroups: false
 
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry

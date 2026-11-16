@@ -264,7 +264,7 @@ To leave observe, in this order:
     kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
     ```
 
-3. Ask for the raise; another person of the owner team approves it (see
+3. Ask for the raise; another person who may update the workload approves it (see
    [Why you were asked](pactify-decide.md#why-you-were-asked)). Be quick:
    until the raise, nothing moves the version.
 
@@ -283,7 +283,7 @@ Stage, as [What happens to a change](integrations/kubernetes/delivery.md#what-ha
 explains.
 
 Each move is a [change](glossary.md#change); one that waits for a person shows
-`Held`. To approve one, as a member of the owner team
+`Held`. To approve one, as a person who may update the workload
 ([Decide, unfreeze and roll back](pactify-decide.md) has the details):
 
 ```bash

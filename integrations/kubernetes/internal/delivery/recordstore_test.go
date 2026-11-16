@@ -158,6 +158,13 @@ func TestRecordStoreLocate(t *testing.T) {
 	if l, err := s.locate(ctx, a, apply, "", reg.from); err != nil || l.to == nil || l.contract != nil {
 		t.Fatalf("no contract: %+v %v", l, err)
 	}
+	locateUnaddressable(ctx, t, s, reg, a, apply, missing)
+}
+
+// locateUnaddressable checks an unaddressable contract or apply repository
+// and a failed registry read never locate.
+func locateUnaddressable(ctx context.Context, t *testing.T, s *RecordStore, reg *testRegistry, a *place, apply *applyRef, missing string) {
+	t.Helper()
 	badCtr := reg.push(t, "apps/payments", "v3", map[string]string{delivery.ContractAnnotation: "oci://not a host/x@" + missing}).Digest.String()
 	if l, err := s.locate(ctx, a, apply, "", badCtr); err != nil || l.contract != nil {
 		t.Fatalf("unaddressable contract: %+v %v", l, err)
