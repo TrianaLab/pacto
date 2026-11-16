@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
-import { installScaleFixture, layoutProblems, loaded, toggleSidebar } from './layoutGate';
+import { installScaleFixture, layoutProblems, loaded, openMetricsAt, toggleSidebar } from './layoutGate';
 
 // Browser acceptance for the Metrics page (#493 S4). The fixture replaces the demo's own run
 // records (#493 S5), so every test installs the scale fixture and picks its state through
@@ -173,6 +173,73 @@ test('a restricted reader is told records are left out and sees no coverage hist
   await expect(page.getByTestId('metrics-coverage-trend')).toHaveCount(0);
   await expect(page.getByTestId('metrics-coverage-restricted')).toBeVisible();
   await expect(page.getByTestId('metrics-coverage-now')).toBeVisible();
+});
+
+type Ratio = { count: number; of: number; unknown?: boolean };
+type Env = { environment: string; upstream?: string[]; parents?: string[]; depth?: number; chainEnd?: boolean } & Record<string, unknown>;
+const RATES = ['held', 'failed', 'rolledBack', 'verificationFailed'];
+
+/** Every problem of one fixture answer: its topology against the API's rules and its numbers against its buckets. */
+function fixtureProblems(st: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const envs = st.environments as Env[];
+  const up = new Map(envs.map((e) => [e.environment, e.upstream ?? []]));
+  for (const e of envs) {
+    const closure = up.get(e.environment)!;
+    for (const u of closure) {
+      for (const v of up.get(u) ?? []) if (!closure.includes(v)) out.push(`${e.environment}: upstream holds ${u} but not its upstream ${v}`);
+    }
+    if (e.chainEnd && (e.depth === undefined || !closure.length)) out.push(`${e.environment}: a chain end with no depth or no upstream`);
+    if (e.depth === undefined) continue;
+    const want = closure.filter((u) => !closure.some((v) => (up.get(v) ?? []).includes(u)));
+    if (JSON.stringify([...(e.parents ?? [])].sort()) !== JSON.stringify([...want].sort())) out.push(`${e.environment}: parents ${e.parents} are not the reduction ${want}`);
+  }
+  // No rate with nothing to take it over may read as known, anywhere in the answer.
+  JSON.stringify(st, (k, v: unknown) => {
+    const r = v as Ratio;
+    if (RATES.includes(k) && r && r.of === 0 && !r.unknown) out.push(`${k} of 0 is not unknown`);
+    return v;
+  });
+  // Each environment's counts add up over the buckets.
+  const buckets = st.buckets as { metrics?: { environments: Env[] } }[];
+  for (const e of envs) {
+    for (const k of RATES) {
+      const sum = buckets.reduce((n, b) => n + ((b.metrics?.environments.find((x) => x.environment === e.environment)?.[k] as Ratio | undefined)?.count ?? 0), 0);
+      if (sum !== (e[k] as Ratio).count) out.push(`${e.environment} ${k}: buckets count ${sum}, the window ${(e[k] as Ratio).count}`);
+    }
+  }
+  return out;
+}
+
+test('the fixture serves 5, 60 and 200 environments with the API\'s topology', async ({ page }) => {
+  await openMetrics(page);
+  for (const [size, want] of [['5', 5], ['', 60], ['60', 60], ['200', 200]] as const) {
+    const st = await page.evaluate(async (n) => {
+      if (n) sessionStorage.setItem('fixture.stats.envs', n); else sessionStorage.removeItem('fixture.stats.envs');
+      const w = window as unknown as { __pactoServe: (method: string, path: string, body: string | null) => Promise<{ body: string }> };
+      const get = async (path: string) => JSON.parse((await w.__pactoServe('GET', path, null)).body);
+      return { answer: await get('/api/stats?window=90d'), blocked: (await get('/api/stats/records?window=90d&metric=blocked')).total };
+    }, size);
+    const envs = st.answer.environments as Env[];
+    expect(envs, `size ${size || 'unset'}`).toHaveLength(want);
+    expect(fixtureProblems(st.answer), `size ${size || 'unset'}`).toEqual([]);
+    expect(envs.some((e) => e.chainEnd)).toBe(true);
+    expect(st.answer.buckets).toHaveLength(13);
+    expect(st.answer.buckets.filter((b: { metrics?: unknown }) => !b.metrics)).toHaveLength(1);
+    expect(st.blocked).toBe(st.answer.totals.gates.blocked);
+    const groups = st.answer.leadTimeGroups as { key: string; buckets: { unknown?: boolean }[] }[];
+    expect(groups[0].key).toBe('chain-end');
+    for (const g of groups) expect(g.buckets.filter((b) => b.unknown).length).toBeGreaterThan(0);
+    expect(st.answer.environmentsBy.owner.length).toBeGreaterThan(1);
+  }
+  // The default keeps its names, the cycle and the unordered row.
+  await page.evaluate(() => sessionStorage.removeItem('fixture.stats.envs'));
+  const sixty = (await answer(page)).environments as Env[];
+  expect(sixty[58]).toMatchObject({ cycle: true });
+  expect(sixty[59]).toMatchObject({ unordered: true });
+  expect(sixty.filter((e) => e.depth !== undefined).map((e) => e.depth)).toEqual([...Array(8).fill(0), ...Array(12).fill(1), ...Array(16).fill(2), ...Array(22).fill(3)]);
+  // The other sizes render.
+  for (const size of ['5', '200'] as const) await openMetricsAt(size)(page);
 });
 
 test('Metrics holds its layout in a wide font', async ({ page }) => {
