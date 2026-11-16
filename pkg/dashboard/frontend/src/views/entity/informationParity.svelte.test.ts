@@ -175,14 +175,14 @@ async function renderRevision() {
 describe('revision detail keeps the whole contract inspectable', () => {
   beforeEach(() => detailFn.mockReset());
 
-  // The named regression: the page used to reduce the declared surface to four count
-  // chips, so "3 Interfaces" WAS the interface experience. A count is not an answer.
   it('says the declared pactoVersion is behind this Pacto', async () => {
     const { target, component, text } = await renderRevision();
     expect(text()).toContain('behind 2.5');
     unmount(component); target.remove();
   });
 
+  // The named regression: the page used to reduce the declared surface to four count
+  // chips, so "3 Interfaces" WAS the interface experience. A count is not an answer.
   it('renders each declared operation, not a count of interfaces', async () => {
     const { target, component, text } = await renderRevision();
     for (const fragment of ['listPayments', 'createPayment', '/payments', 'List payments']) {
