@@ -44,6 +44,8 @@ when the source page covers the area and describes no such feature. A cell holds
 | **Kargo** | Partial | not verified | not verified | not verified | not verified | No | [Core concepts](https://docs.kargo.io/user-guide/core-concepts/) |
 | **Argo CD** | not verified | Partial | not verified | not verified | Partial | Yes | [Argo CD overview](https://argo-cd.readthedocs.io/en/stable/) |
 | **Flux** | not verified | not verified | Partial | not verified | Partial | Yes | [Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/) |
+| **Backstage** | not verified | not verified | ✅ | not verified | not verified | not verified | [Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format) |
+| **Port** | not verified | not verified | ✅ | not verified | not verified | not verified | [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/) |
 | **Pacto** | ✅ | ✅ | ✅ | ✅ (opt-in) | ✅ | No (delivery promotes, alpha) | This site |
 
 What each source page shows:
@@ -70,6 +72,12 @@ What each source page shows:
 - **Flux**: a Kustomization applies the manifests from a source artifact and
   corrects drift on every interval. Its `dependsOn` list waits for other
   Kustomizations to be ready, and its health checks report the rollout status.
+- **Backstage**: a Component descriptor lists the components and resources it
+  depends on and the APIs it provides and consumes. The catalog turns these
+  fields into two-way relations such as `dependsOn` and `dependencyOf`.
+- **Port**: a relation connects two blueprints and the entities built from
+  them. Dependencies between services are one of its common uses, and several
+  sources can add targets to the same relation.
 
 ## Pacto's own row
 
@@ -90,5 +98,5 @@ We graded our own row on the same criteria:
   the version digest on a Flux or Argo CD source, and Flux or Argo CD applies
   it ([delivery](integrations/kubernetes/delivery.md)).
 
-Radius, Backstage and Port were in an earlier version of this table. Their
-rows are out until a source page settles most of their cells.
+Radius was in an earlier version of this table. Its row is out until a source
+page settles most of its cells.
