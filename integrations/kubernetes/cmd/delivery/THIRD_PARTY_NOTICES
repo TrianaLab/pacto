@@ -312,8 +312,8 @@ go.yaml.in/yaml/v2 v2.4.5: Apache-2.0, text 72
   source https://proxy.golang.org/go.yaml.in/yaml/v2/@v/v2.4.5.zip
 go.yaml.in/yaml/v3 v3.0.5: Apache-2.0, text 73
   source https://proxy.golang.org/go.yaml.in/yaml/v3/@v/v3.0.5.zip
-golang.org/x/crypto v0.58.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/crypto/@v/v0.58.0.zip
+golang.org/x/crypto v0.59.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/crypto/@v/v0.59.0.zip
 golang.org/x/mod v0.42.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/mod/@v/v0.42.0.zip
 golang.org/x/net v0.62.0: BSD, text 1
@@ -326,8 +326,8 @@ golang.org/x/sys v0.50.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/sys/@v/v0.50.0.zip
 golang.org/x/term v0.48.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/term/@v/v0.48.0.zip
-golang.org/x/text v0.43.0: BSD, text 1
-  source https://proxy.golang.org/golang.org/x/text/@v/v0.43.0.zip
+golang.org/x/text v0.44.0: BSD, text 1
+  source https://proxy.golang.org/golang.org/x/text/@v/v0.44.0.zip
 golang.org/x/time v0.16.0: BSD, text 1
   source https://proxy.golang.org/golang.org/x/time/@v/v0.16.0.zip
 gomodules.xyz/jsonpatch/v2 v2.4.0: Apache-2.0, text 27
