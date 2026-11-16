@@ -35,11 +35,10 @@ test('environments follow each Stage path: test before the prod-eu and prod-us f
 test('unknowns stay unknown: an unjoined lead time is named and an empty week is hatched, never 0', async ({ page }) => {
   await openMetrics(page);
   await expect(page.getByText(/promotions? (has|have) no publish record with their digest, so their lead time is unknown/)).toBeVisible();
-  await expect(page.getByTestId('metrics-tiles').locator('.mx-tile').filter({ hasText: 'Lead time p50', has: page.locator('.mx-tile-sub', { hasText: /^test$/ }) })).toContainText('with no publish record');
-  const unknown = page.getByTestId('metrics-trend').first().locator('.hb-row').filter({ has: page.locator('.hb-value.hb-unknown') });
-  await expect(unknown.first()).toBeVisible();
-  await expect(unknown.first().locator('.hb-value')).not.toHaveText('0');
-  await expect(unknown.first().locator('.hb-fill')).toHaveClass(/hatch/);
+  // The weekly charts hatch a week with no records and never draw it as a 0 column.
+  const stopped = page.getByTestId('metrics-stopped');
+  await expect(stopped.locator('.cc-unknown').first()).toBeVisible();
+  await expect(stopped.locator('.cc-plate').first()).toHaveText(/^no (CI )?records$/);
 });
 
 test('history older than the story names revisions as text; a story revision opens its page', async ({ page }) => {

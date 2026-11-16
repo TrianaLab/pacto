@@ -64,33 +64,23 @@ test('with no stats repository the page explains recording and shows no number',
   expect(prose.join(' ')).not.toMatch(/\d/);
 });
 
-test('every chart says how sure it is', async ({ page }) => {
+test('the provenance line says how sure the page is', async ({ page }) => {
   await openMetrics(page);
-  const charts = page.locator('[data-testid="metrics-trend"], [data-testid="metrics-coverage-trend"]');
-  await expect(charts.first()).toBeVisible();
-  const n = await charts.count();
-  expect(n).toBeGreaterThan(1);
-  for (let i = 0; i < n; i++) {
-    const strip = charts.nth(i).getByTestId('stats-strip');
-    await expect(strip).toContainText('unsigned statistics');
-    await expect(strip).toContainText(/as of /);
-    await expect(strip.locator('.badge')).toHaveText(/^(Partial|Complete|No records)$/);
-    await expect(strip.locator('.badge')).toHaveText('Partial'); // the fixture skipped 3 records
-  }
+  const strip = page.getByTestId('metrics-prov').getByTestId('stats-strip');
+  await expect(strip).toContainText('unsigned statistics');
+  await expect(strip).toContainText(/as of /);
+  await expect(strip).toContainText('3 skipped');
+  await expect(strip.locator('.badge')).toHaveText('Partial'); // the fixture skipped 3 records
 });
 
 test('never draws zero for unknown', async ({ page }) => {
   await openMetrics(page);
-  // The fixture's next-to-newest bucket holds no record: every trend says so, hatched.
-  const trends = page.getByTestId('metrics-trend');
-  const n = await trends.count();
-  expect(n).toBeGreaterThan(0);
-  for (let i = 0; i < n; i++) {
-    const rows = trends.nth(i).locator('.hb-row');
-    const row = rows.nth((await rows.count()) - 2);
-    await expect(row.locator('.hb-value')).toHaveText('no records');
-    await expect(row.locator('.hb-value')).toHaveClass(/hb-unknown/);
-    await expect(row.locator('.hb-fill')).toHaveClass(/hatch/);
+  // The fixture's next-to-newest bucket holds no record: every weekly chart hatches it.
+  for (const id of ['metrics-stopped', 'metrics-gates']) {
+    const card = page.getByTestId(id);
+    await expect(card.locator('.cc-unknown').first()).toBeVisible();
+    await expect(card.locator('.cc-plate').first()).toHaveText('no records');
+    await expect(card.locator('.cc-val')).not.toHaveText(['0']);
   }
   // A rate with nothing to take it over is unknown, never 0%.
   const rolledBack = page.getByTestId('metrics-env-row').nth(1).locator('td[data-label="Rolled back"]');
@@ -110,7 +100,7 @@ test('environments follow the Stage order, not their names', async ({ page }) =>
 
 test('the window picker changes the URL and the bucket count', async ({ page }) => {
   await openMetrics(page);
-  const bars = page.getByTestId('metrics-trend').first().locator('.hb-row');
+  const bars = page.getByTestId('metrics-stopped').locator('.mx-multiples > div').first().locator('.cc-hit');
   await expect(bars).toHaveCount(5); // 30 days: four weeks and a short 2-day bucket
   await page.getByLabel('Window').selectOption('7d');
   await expect(page).toHaveURL(/#\/metrics\?(.*&)?window=7d/);
@@ -122,7 +112,7 @@ test('the window picker changes the URL and the bucket count', async ({ page }) 
 
 test('a blocked gate opens its records, each with its change analysis', async ({ page }) => {
   await openMetrics(page);
-  const tile = page.getByTestId('metrics-tiles').locator('.mx-tile').filter({ hasText: 'Gates blocked' }).getByRole('link');
+  const tile = page.getByTestId('metrics-tiles').locator('.mx-tile').filter({ hasText: 'Release gates' }).getByRole('link');
   const lists = Number(await tile.getAttribute('data-lists'));
   await tile.click();
   await expect(page).toHaveURL(/metric=blocked/);

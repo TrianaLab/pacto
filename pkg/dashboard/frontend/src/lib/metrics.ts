@@ -440,6 +440,24 @@ export function caption(st: ProductStats, chart: 'stopped' | 'gates'): string {
   return `${head}. ${tail}.`;
 }
 
+type Limitation = NonNullable<ProductStats['limitations']>[number];
+// What the provenance line ("3 skipped, cut at"), the hidden line and the coverage card
+// already say, so the note never repeats them.
+const SAID_ELSEWHERE = ['RUN_RECORDS_SKIPPED', 'RUN_RECORDS_TRUNCATED', 'OUTSIDE_YOUR_VIEW', COVERAGE_HIDDEN];
+// The note's order: what empties the page first, then what leaves a number unknown.
+const NOTE_FIRST = ['NO_RUN_RECORDS', 'NO_CI_OR_DELIVERY_RUN_RECORDS', 'LEAD_TIME_UNJOINED', 'CONSUMERS_FROM_PARTIAL_SNAPSHOT',
+  'ENVIRONMENT_ORDER_UNKNOWN', 'ATTRIBUTION_PARTIAL', 'DELIVERY_UNAVAILABLE_OVER_HTTP'];
+const rank = (code: string) => (NOTE_FIRST.includes(code) ? NOTE_FIRST.indexOf(code) : NOTE_FIRST.length);
+
+/** noteLimitations picks the one limitation the page's note line carries (the most
+ *  important one no other line says) and the rest for the list behind it; the coverage
+ *  card's own limitation is in neither. */
+export function noteLimitations(st: Pick<ProductStats, 'limitations'>): { note: Limitation | null; rest: Limitation[] } {
+  const all = (st.limitations ?? []).filter((l) => l.code !== COVERAGE_HIDDEN);
+  const note = all.filter((l) => !SAID_ELSEWHERE.includes(l.code)).sort((a, b) => rank(a.code) - rank(b.code))[0] ?? null;
+  return { note, rest: all.filter((l) => l !== note) };
+}
+
 /** envTitle names the environments table by how its rows are ordered (SPEC 21). */
 export function envTitle(st: ProductStats): string {
   return st.environmentOrder === 'stages'

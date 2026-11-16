@@ -37,7 +37,7 @@
   const H = $derived(compact ? 44 : height);
   const stacked = $derived(series.length > 1);
   const n = $derived(buckets.length);
-  const m = $derived(compact ? { l: 0, r: 0, t: 4, b: 2 } : { l: Math.max(16, widestY) + 6, r: 4, t: 14, b: 22 });
+  const m = $derived(compact ? { l: 0, r: 0, t: 4, b: 2 } : { l: Math.max(16, widestY) + 6, r: 4, t: 14, b: 27 });
   const ph = $derived(H - m.t - m.b);
   const sc = $derived(bandScale(n, W - m.l - m.r));
   const bw = $derived(Math.min(compact ? 10 : 24, sc.band * (compact ? 0.5 : 0.55)));
@@ -86,10 +86,25 @@
   // the widest value label sizes the left margin and the direct-label room.
   $effect(() => {
     void buckets; void max; void W;
-    if (!labelsEl) return;
-    const widest = (sel: string) => Math.max(0, ...Array.from(labelsEl!.querySelectorAll<HTMLElement>(sel), (e) => e.offsetWidth));
-    widestX = widest('.cc-x');
-    widestY = widest('.cc-y');
+    const el = labelsEl;
+    if (!el) return;
+    const measure = () => {
+      const widest = (sel: string) => Math.max(0, ...Array.from(el.querySelectorAll<HTMLElement>(sel), (e) => e.offsetWidth));
+      widestX = widest('.cc-x');
+      widestY = widest('.cc-y');
+      // A reason plate whose words do not fit its band is hidden (measured, never a font
+      // guess); the hatch, the key and the tooltip still say it.
+      for (const p of el.querySelectorAll<HTMLElement>('.cc-plate')) {
+        p.classList.remove('off');
+        if (p.scrollWidth > p.clientWidth + 0.5) p.classList.add('off');
+      }
+    };
+    measure();
+    // The labels change size when the font does (a late web font, a forced one): measure again.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    for (const e of el.querySelectorAll('.cc-x, .cc-y, .cc-plate')) ro.observe(e);
+    return () => ro.disconnect();
   });
 </script>
 
@@ -130,7 +145,7 @@
           style:max-inline-size="{g.len * sc.band - 6}px">{reason(g.start)}</span>
       {/each}
       {#each buckets as b, i (i)}
-        <span class="cc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(cx(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 4}px">{b.short}</span>
+        <span class="cc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(cx(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 9}px">{b.short}</span>
         {#if inSegment}
           {#each columns[i] as c (c.key)}
             {#if c.h >= 18 && bw >= 16}<span class="cc-in" style:left="{cx(i)}px" style:top="{c.y + c.h / 2}px">{c.v}</span>{/if}
@@ -154,7 +169,7 @@
   .cc-labels span { position: absolute; white-space: nowrap; }
   .cc-y { transform: translateY(-50%); }
   .cc-x { transform: translateX(-50%); }
-  .cc-x.off { visibility: hidden; }
+  .cc-x.off, .cc-labels .cc-plate:global(.off) { visibility: hidden; }
   .cc-val { transform: translate(-50%, -100%); color: var(--c-text); font-weight: 600; }
   .cc-in, .cc-plate { transform: translate(-50%, -50%); color: var(--c-text); background: var(--c-surface); border-radius: var(--radius-xs); padding: 1px 3px; }
   .cc-labels .cc-plate { white-space: normal; text-align: center; line-height: 1.2; }

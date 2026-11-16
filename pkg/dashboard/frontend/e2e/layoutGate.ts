@@ -1610,7 +1610,22 @@ export const openMetricsAt = (envs: '5' | '200') => async (page: Page) => {
   await page.evaluate((n) => { sessionStorage.removeItem('fixture.stats'); sessionStorage.setItem('fixture.stats.envs', n); }, envs);
   await page.goto('/index.html?fixture=1#/metrics');
   await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
-  await expect(page.getByTestId('metrics-content')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('metrics-tiles')).toBeVisible({ timeout: 30_000 });
+};
+
+/**
+ * Opens Metrics (60 environments) with every chart card shown as its table (#597), so the
+ * layout checks and figureLinkTotals run over the table views and their narrow form.
+ */
+const metricsTables = async (page: Page) => {
+  await page.goto('/index.html?fixture=1#/metrics');
+  await page.evaluate(() => (window as unknown as { __pactoReady?: Promise<unknown> }).__pactoReady);
+  const toggles = page.getByRole('button', { name: 'Show as table' });
+  await expect(toggles.first()).toBeVisible({ timeout: 30_000 });
+  const n = await toggles.count();
+  for (let i = 0; i < n; i++) await toggles.first().click();
+  await expect(page.locator('.cc-table')).toHaveCount(n);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
 /**
@@ -1939,6 +1954,8 @@ export const ROUTES: Route[] = [
   { name: 'metrics', hash: '#/metrics' },
   { name: 'metrics records', hash: '#/metrics?metric=blocked' },
   { name: 'metrics restricted', open: openMetrics('restricted') },
+  { name: 'metrics 5 environments', open: openMetricsAt('5') },
+  { name: 'metrics tables', open: metricsTables },
   { name: 'metrics (demo records)', open: demoMetrics('#/metrics') },
   { name: 'metrics (demo records, 90 days)', open: demoMetrics('#/metrics?window=90d') },
 ];

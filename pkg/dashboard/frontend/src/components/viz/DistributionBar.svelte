@@ -50,6 +50,8 @@
   // the bucket table with `bucketLabel(STATES, value)`.
   let {
     title = '',
+    // The figure's name when a surrounding tile already titles it (no heading inside).
+    label = '',
     level = 3,
     description = '',
     scopeNote = '',
@@ -142,18 +144,20 @@
   });
 </script>
 
-<figure class="dist">
+<figure class="dist" aria-label={title ? undefined : label || undefined}>
   <!-- Title only. The description used to live in here too, which put two lines of grey
        prose between the heading and the picture -- so a page of five distributions was
        read as ten lines of caveat with graphics between them, and the figure's accessible
        name was the whole paragraph. The prose is a footnote to the drawing, so it is
        printed after it. -->
+  {#if title}
   <figcaption class="dist-cap">
     <svelte:element this={`h${level}`} class="dist-title t-subsection-title">{title}</svelte:element>
     <!-- The description is a definition, so it sits behind the help button rather than
          under the bars: a page of five figures read as ten lines of caveat. -->
     {#if description}<HelpTip label={title} text={description} textClass="dist-desc" />{/if}
   </figcaption>
+  {/if}
 
   {#if rows.length === 0}
     <p class="dist-empty">{emptyLabel}</p>
@@ -216,13 +220,13 @@
           {#if r.href}
             <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
               <span class="dist-swatch" class:hatch={r.hatch} class:dots={r.texture === 'dots'} aria-hidden="true"></span>
-              <span class="dist-label">{r.label}</span>
+              {#if r.icon}<span class="dist-icon" aria-hidden="true">{r.icon}</span>{/if}<span class="dist-label">{r.label}</span>
               <span class="dist-value">{formatCount(r.value)}</span>
               {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
             </a>
           {:else}
             <span class="dist-swatch" class:hatch={r.hatch} class:dots={r.texture === 'dots'} aria-hidden="true"></span>
-            <span class="dist-label">{r.label}</span>
+            {#if r.icon}<span class="dist-icon" aria-hidden="true">{r.icon}</span>{/if}<span class="dist-label">{r.label}</span>
             <span class="dist-value">{formatCount(r.value)}</span>
             {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
           {/if}
@@ -313,6 +317,8 @@
     width: 10px; height: 10px; border-radius: 2px; flex: none;
     background: var(--tone-c, var(--c-neutral)); border: 1px solid var(--c-border);
   }
+  /* A status icon beside its word (#597): never the only carrier of the status. */
+  .dist-icon { color: var(--c-text-2); }
   .dist-value { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
   .dist-pct { font-size: var(--text-xs); color: var(--c-text-3); }
   /* Unknown, partial and hidden: the grey hatch with its solid edge (components.css). */

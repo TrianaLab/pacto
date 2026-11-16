@@ -34,7 +34,7 @@
   const W = $derived(w || 320);
   const H = $derived(compact ? 44 : height);
   const n = $derived(buckets.length);
-  const m = $derived(compact ? { l: 4, r: 6, t: 6, b: 4 } : { l: Math.max(16, widestY) + 6, r: 14, t: 12, b: 22 });
+  const m = $derived(compact ? { l: 4, r: 6, t: 6, b: 4 } : { l: Math.max(16, widestY) + 6, r: 14, t: 12, b: 27 });
   const ph = $derived(H - m.t - m.b);
   const sc = $derived(bandScale(n, W - m.l - m.r));
   const known = $derived(series.flatMap((s) => s.values.filter((v): v is number => v != null)));
@@ -77,10 +77,25 @@
 
   $effect(() => {
     void buckets; void hi; void W;
-    if (!labelsEl) return;
-    const widest = (sel: string) => Math.max(0, ...Array.from(labelsEl!.querySelectorAll<HTMLElement>(sel), (e) => e.offsetWidth));
-    widestX = widest('.lc-x');
-    widestY = widest('.lc-y');
+    const el = labelsEl;
+    if (!el) return;
+    const measure = () => {
+      const widest = (sel: string) => Math.max(0, ...Array.from(el.querySelectorAll<HTMLElement>(sel), (e) => e.offsetWidth));
+      widestX = widest('.lc-x');
+      widestY = widest('.lc-y');
+      // A reason plate whose words do not fit its band is hidden (measured, never a font
+      // guess); the hatch, the key and the tooltip still say it.
+      for (const p of el.querySelectorAll<HTMLElement>('.lc-plate')) {
+        p.classList.remove('off');
+        if (p.scrollWidth > p.clientWidth + 0.5) p.classList.add('off');
+      }
+    };
+    measure();
+    // The labels change size when the font does (a late web font, a forced one): measure again.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    for (const e of el.querySelectorAll('.lc-x, .lc-y, .lc-plate')) ro.observe(e);
+    return () => ro.disconnect();
   });
 </script>
 
@@ -131,7 +146,7 @@
           style:max-inline-size="{g.len * sc.band - 6}px">no records</span>
       {/each}
       {#each buckets as b, i (i)}
-        <span class="lc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(x(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 4}px">{b.short}</span>
+        <span class="lc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(x(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 9}px">{b.short}</span>
       {/each}
     </div>
   {/if}
@@ -148,7 +163,7 @@
   .lc-labels span { position: absolute; white-space: nowrap; }
   .lc-y { transform: translateY(-50%); }
   .lc-x { transform: translateX(-50%); }
-  .lc-x.off { visibility: hidden; }
+  .lc-x.off, .lc-labels .lc-plate:global(.off) { visibility: hidden; }
   .lc-labels .lc-plate {
     transform: translate(-50%, -50%); color: var(--c-text); background: var(--c-surface); border-radius: var(--radius-xs);
     padding: 1px 3px; white-space: normal; text-align: center; line-height: 1.2;

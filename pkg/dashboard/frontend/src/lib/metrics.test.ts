@@ -3,7 +3,7 @@ import {
   ratioText, protectedText, envTitle, hiddenLine, bucketLabel, isDaily, windowDays,
   buckets, series, unknownReasons, headline, coverageSeries, environments, depthLabel, depthFilter,
   groupBy, groupOptions, attributionLine, pooledRate, worstEnvironment, smallMultipleDomain, bin, cell,
-  healthMode, collapsedByDefault, leadRows, tableRows, caption, SMALL_MULTIPLES_MAX, COLLAPSE_ABOVE, LEAD_TOP, LEAD_PAGE,
+  healthMode, collapsedByDefault, leadRows, tableRows, caption, noteLimitations, SMALL_MULTIPLES_MAX, COLLAPSE_ABOVE, LEAD_TOP, LEAD_PAGE,
 } from './metrics.ts';
 
 const ratio = (count: number, of: number) => (of ? { count, of } : { count, of: 0, unknown: true });
@@ -384,5 +384,25 @@ describe('captions', () => {
     expect(caption(daily, 'stopped')).toBe('7 breaking changes caught over 7 days. A change with runs in two days counts in each; 1 day had no records.');
     const noci = answer({ totals: metrics({ changes: 0 }), buckets: [week('2026-10-18T10:00:00Z', '2026-10-25T10:00:00Z', { metrics: metrics({ changes: 0 }) })] });
     expect(caption(noci, 'stopped')).toBe('Breaking changes caught over 30 days: no CI records. A change with runs in two weeks counts in each; 1 week had no CI records.');
+  });
+});
+
+describe('noteLimitations', () => {
+  const l = (code: string) => ({ code, message: code.toLowerCase() });
+  it('puts the limitation no other line says on the note, and the rest behind it', () => {
+    const st = answer({ limitations: [l('RUN_RECORDS_SKIPPED'), l('ENVIRONMENT_ORDER_UNKNOWN'), l('LEAD_TIME_UNJOINED'), l('COVERAGE_OUTSIDE_YOUR_VIEW')] });
+    const { note, rest } = noteLimitations(st);
+    expect(note?.code).toBe('LEAD_TIME_UNJOINED');
+    // The coverage card says its own limitation, so the list leaves it out.
+    expect(rest.map((r) => r.code)).toEqual(['RUN_RECORDS_SKIPPED', 'ENVIRONMENT_ORDER_UNKNOWN']);
+  });
+  it('leaves the note empty when the provenance line already says everything', () => {
+    const { note, rest } = noteLimitations(answer({ limitations: [l('RUN_RECORDS_TRUNCATED')] }));
+    expect(note).toBeNull();
+    expect(rest.map((r) => r.code)).toEqual(['RUN_RECORDS_TRUNCATED']);
+  });
+  it('takes an unranked code after every ranked one', () => {
+    expect(noteLimitations(answer({ limitations: [l('SOMETHING_NEW'), l('ATTRIBUTION_PARTIAL')] })).note?.code).toBe('ATTRIBUTION_PARTIAL');
+    expect(noteLimitations(answer({ limitations: [l('SOMETHING_NEW')] })).note?.code).toBe('SOMETHING_NEW');
   });
 });

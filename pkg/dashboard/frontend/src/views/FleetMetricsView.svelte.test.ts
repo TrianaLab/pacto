@@ -122,21 +122,6 @@ const populated = (extra: Record<string, unknown> = {}) => answer({
 });
 
 describe('FleetMetricsView content', () => {
-  it('reads the chosen window again and links every tile to its records', async () => {
-    statsFn.mockResolvedValue(populated());
-    const { target, done } = mountView({ window: '7d' });
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-content"]')).not.toBeNull());
-    expect(statsFn).toHaveBeenLastCalledWith(expect.objectContaining({ window: '7d' }));
-    const breaking = target.querySelector('[data-testid="metrics-tiles"] a[href*="metric=breaking"]') as HTMLAnchorElement;
-    expect(breaking.textContent).toBe('7');
-    expect(breaking.getAttribute('data-lists')).toBe('7');
-    expect(breaking.getAttribute('href')).toBe('#/metrics?window=7d&metric=breaking');
-    // Every chart says how sure it is.
-    expect(target.querySelectorAll('[data-testid="metrics-trend"] [data-testid="stats-strip"]').length).toBeGreaterThan(3);
-    expect(target.querySelector('[data-testid="stats-strip"]')?.textContent).toContain('unsigned statistics');
-    done();
-  });
-
   it('keeps the answer order of environments, says what feeds them and links their counts', async () => {
     statsFn.mockResolvedValue(populated());
     const { target, done } = mountView();
@@ -180,60 +165,12 @@ describe('FleetMetricsView content', () => {
     done();
   });
 
-  it('keeps unreadable services in the coverage unknown row, never in deployed', async () => {
-    statsFn.mockResolvedValue(populated());
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-coverage-now"]')).not.toBeNull());
-    const rows = Array.from(target.querySelectorAll('[data-testid="metrics-coverage-now"] .hb-row'));
-    const row = (label: string) => rows.find((r) => r.querySelector('.hb-label')?.textContent === label);
-    // 10 services, 3 unreadable, 2 not deployed: 5 deployed and 3 unknown beside it.
-    expect(row('Deployed')?.querySelector('.hb-value')?.textContent).toBe('5');
-    expect(row('Unknown')?.querySelector('.hb-value')?.textContent).toBe('3');
-    expect(row('Unknown')?.querySelector('.hb-fill')?.classList.contains('hatch')).toBe(true);
-    expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull();
-    done();
-  });
-
-  it('prints unknown when the coverage snapshot carries no knowledge tally', async () => {
-    statsFn.mockResolvedValue(populated({ coverageNow: coverage(undefined) }));
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-coverage-now"]')).not.toBeNull());
-    expect(target.querySelector('[data-testid="metrics-coverage-now"]')?.textContent).toContain('unknown');
-    done();
-  });
-
-  it('tells a restricted reader records are hidden and shows coverage now only', async () => {
-    statsFn.mockResolvedValue(populated({ hidden: { present: true }, completeness: 'partial',
-      limitations: [{ code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service' }],
-      buckets: populated().buckets.map((b: Record<string, unknown>) => ({ ...b, coverage: undefined })) }));
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
-    expect(target.querySelector('[data-testid="metrics-hidden"]')?.textContent).toBe('Some run records name services outside your view and are left out of every number.');
-    expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).toBeNull();
-    expect(target.querySelector('[data-testid="metrics-coverage-now"]')).not.toBeNull();
-    expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')?.textContent).toContain('shown to people who can read every service');
-    expect(target.querySelector('[data-testid="stats-strip"]')?.textContent).toContain('Partial');
-    done();
-  });
-
   it('keeps the coverage trend for a reader who sees every service, even when records are hidden', async () => {
     statsFn.mockResolvedValue(populated({ hidden: { present: true }, completeness: 'partial' }));
     const { target, done } = mountView();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
     expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull();
     expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')).toBeNull();
-    done();
-  });
-
-  it('draws no 0 for a window whose every bucket is empty', async () => {
-    statsFn.mockResolvedValue(populated({ buckets: populated().buckets.map((b: Record<string, unknown>) => ({ ...b, metrics: undefined, coverage: undefined })) }));
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-trend"]')).not.toBeNull());
-    for (const v of Array.from(target.querySelectorAll('[data-testid="metrics-trend"] .hb-value, [data-testid="metrics-coverage-trend"] .hb-value'))) {
-      expect(v.textContent).toBe('no records');
-    }
-    expect(Array.from(target.querySelectorAll('[data-testid="metrics-trend"]')).map((t) => t.querySelector('.hb-scale'))).toEqual(
-      Array.from(target.querySelectorAll('[data-testid="metrics-trend"]')).map(() => null));
     done();
   });
 
@@ -324,22 +261,207 @@ describe('FleetMetricsView content', () => {
     done();
   });
 
-  it('puts a lead time environment on its own line', async () => {
+});
+
+
+const tiles = (t: HTMLElement) => t.querySelector('section.mx-tiles') as HTMLElement;
+const card = (t: HTMLElement, id: string) => t.querySelector(`[data-testid="metrics-${id}"]`) as HTMLElement;
+const restricted = () => populated({ hidden: { present: true }, completeness: 'partial',
+  limitations: [{ code: 'COVERAGE_OUTSIDE_YOUR_VIEW', message: 'coverage records count every service' }],
+  buckets: populated().buckets.map((b: Record<string, unknown>) => ({ ...b, coverage: undefined })) });
+
+describe('FleetMetricsView headline and weekly charts', () => {
+  it('reads the chosen window again and links every tile number to its records', async () => {
     statsFn.mockResolvedValue(populated());
-    const { target, done } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('.mx-tile-sub')).not.toBeNull());
-    const tile = target.querySelector('.mx-tile-sub')?.closest('.mx-tile') as HTMLElement;
-    expect(tile.querySelector('.mx-tile-label')?.textContent).toBe('Lead time p50');
-    expect(tile.querySelector('bdi.mx-tile-sub')?.textContent).toBe('staging');
+    const { target, done } = mountView({ window: '7d' });
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    expect(statsFn).toHaveBeenLastCalledWith(expect.objectContaining({ window: '7d' }));
+    const section = tiles(target);
+    expect(section.hasAttribute('data-fig')).toBe(true);
+    expect(section.getAttribute('aria-label')).toBe('Headline numbers');
+    expect(section.querySelectorAll('.mx-tile')).toHaveLength(3);
+    const breaking = section.querySelector('a[href*="metric=breaking"]') as HTMLAnchorElement;
+    expect(breaking.textContent).toBe('7');
+    expect(breaking.getAttribute('data-lists')).toBe('7');
+    expect(breaking.getAttribute('href')).toBe('#/metrics?window=7d&metric=breaking');
+    const blocked = section.querySelector('a[href*="metric=blocked"]') as HTMLAnchorElement;
+    expect(blocked.textContent).toBe('4');
+    expect(blocked.getAttribute('data-lists')).toBe('4');
+    expect(section.textContent).toContain('blocked of 34');
     done();
   });
 
-  it('draws services, described, deployed and unknown over time', async () => {
+  it('reads window totals, never a sum of the buckets', async () => {
+    // The same 7 changes ran in two weeks: each week counts them, the window counts them once.
+    const b = populated().buckets;
+    statsFn.mockResolvedValue(populated({ buckets: [b[0], b[1], { ...b[1], since: '2026-10-25T10:00:00Z', until: '2026-11-01T10:00:00Z' }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    expect(tiles(target).querySelector('a[href*="metric=breaking"]')?.textContent).toBe('7');
+    expect(card(target, 'stopped').textContent).toContain('A change with runs in two weeks counts in each');
+    done();
+  });
+
+  it('qualifies a lower-bound consumers protected count in the tile', async () => {
+    statsFn.mockResolvedValue(populated({ totals: metrics({ consumersProtected: { count: 3, unknown: 5, partial: 2 } }) }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    const sub = tiles(target).querySelector('.mx-tile .mx-tile-sub') as HTMLElement;
+    expect(sub.textContent).toContain('3 or more, 5 unknown');
+    done();
+  });
+
+  it('says on one provenance line what was read, skipped and cut, and puts the main limitation on the note', async () => {
+    statsFn.mockResolvedValue(populated({ completeness: 'partial', skipped: { malformed: 2, oversized: 1, unreadable: 0 }, truncated: 'more than 1000 run records',
+      limitations: [{ code: 'RUN_RECORDS_SKIPPED', message: '3 run records could not be read' },
+        { code: 'LEAD_TIME_UNJOINED', message: '2 promotions have no publish record with their digest, so their lead time is unknown.' }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    const strip = target.querySelector('[data-testid="metrics-prov"] [data-testid="stats-strip"]') as HTMLElement;
+    expect(strip.textContent).toContain('3 skipped');
+    expect(strip.textContent).toContain('cut at more than 1000 run records');
+    expect(strip.textContent).toContain('Partial');
+    expect(strip.textContent).toContain('unsigned statistics');
+    const note = target.querySelector('[data-testid="metrics-note"]') as HTMLElement;
+    expect(note.textContent).toContain('so their lead time is unknown');
+    expect(note.querySelector('.hatch')).not.toBeNull();
+    expect(target.querySelector('[data-testid="metrics-limitations"]')?.textContent).toContain('3 run records could not be read');
+    done();
+  });
+
+  it('draws the gates bar with icons, labels and the dot texture for unverified', async () => {
+    const gates = { gates: { clear: 30, blocked: 4, unverified: 2 } };
+    const b = populated().buckets;
+    statsFn.mockResolvedValue(populated({ totals: metrics(gates), buckets: [b[0], { ...b[1], metrics: metrics(gates) }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    const tile = tiles(target).querySelectorAll('.mx-tile')[1] as HTMLElement;
+    expect(tile.querySelector('.dist-seg.dots')).not.toBeNull();
+    expect(tile.querySelector('.dist-seg.hatch')).toBeNull();
+    expect(Array.from(tile.querySelectorAll('.dist-icon')).map((i) => i.textContent)).toEqual(['✓', '✕', '?']);
+    expect(Array.from(tile.querySelectorAll('.dist-label')).map((i) => i.textContent)).toEqual(['Clear', 'Blocked', 'Unverified']);
+    // The stacked weekly columns use the same texture.
+    expect(card(target, 'gates').querySelector('path.cc-col[data-series="unverified"]')).not.toBeNull();
+    done();
+  });
+
+  it('names the lead time basis: chain-end promotions, p90 and its sparkline', async () => {
+    const group = { key: 'chain-end', label: 'chain end', environments: 1, leadTime: { p50Seconds: 3600, p90Seconds: 7200, joined: 2, unjoined: 0 },
+      buckets: [{ joined: 0, unjoined: 0, unknown: true }, { p50Seconds: 3600, p90Seconds: 7200, joined: 2, unjoined: 0 }] };
+    const staged = [env('staging', { depth: 0 }), env('production', { depth: 1, upstream: ['staging'], parents: ['staging'], chainEnd: true })];
+    statsFn.mockResolvedValue(populated({ leadTimeGroups: [group], environments: staged }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    const tile = tiles(target).querySelectorAll('.mx-tile')[2] as HTMLElement;
+    expect(tile.querySelector('.mx-tile-label')?.textContent).toBe('Lead time to production');
+    expect(tile.querySelector('.mx-tile-value')?.textContent?.trim()).toBe('1h');
+    expect(tile.querySelector('.mx-tile-sub')?.textContent).toBe('p50 of 2 promotions into 1 environment at the end of their promotion chain, p90 2h');
+    expect(tile.querySelector('.lc-line')).not.toBeNull();
+    expect(tile.querySelector('.lc-unknown')).not.toBeNull();
+    done();
+  });
+
+  it('says the lead time is unknown, never 0, when no promotion joined', async () => {
+    statsFn.mockResolvedValue(populated());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    const tile = tiles(target).querySelectorAll('.mx-tile')[2] as HTMLElement;
+    expect(tile.querySelector('.mx-tile-label')?.textContent).toBe('Lead time to any environment');
+    expect(tile.querySelector('.mx-tile-value')?.textContent?.trim()).toBe('unknown');
+    expect(tile.querySelector('.mx-tile-value .hatch')).not.toBeNull();
+    done();
+  });
+
+  it('draws no 0 for a window whose every bucket is empty', async () => {
+    statsFn.mockResolvedValue(populated({ buckets: populated().buckets.map((b: Record<string, unknown>) => ({ ...b, metrics: undefined, coverage: undefined })) }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'stopped')).not.toBeNull());
+    for (const id of ['stopped', 'gates']) {
+      const c = card(target, id);
+      expect(c.querySelectorAll('.cc-plate').length).toBeGreaterThan(0);
+      for (const p of Array.from(c.querySelectorAll('.cc-plate'))) expect(p.textContent).toBe('no records');
+      expect(c.querySelector('.cc-col, .cc-stub, .cc-val')).toBeNull();
+    }
+    // The sparkline is hatched too, never a 0 column.
+    expect(tiles(target).querySelector('.cc-col, .cc-stub')).toBeNull();
+    expect(tiles(target).querySelectorAll('.cc-unknown').length).toBe(2);
+    done();
+  });
+
+  it('says a bucket with no diff or impact run has no CI records', async () => {
+    const b = populated().buckets;
+    statsFn.mockResolvedValue(populated({ buckets: [{ ...b[1], metrics: metrics({ changes: 0 }) }] }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'stopped')).not.toBeNull());
+    expect(card(target, 'stopped').querySelector('.cc-plate')?.textContent).toBe('no CI records');
+    expect(card(target, 'gates').querySelector('.cc-plate')?.textContent).toBe('no CI records');
+    done();
+  });
+
+  it('shows each weekly chart as a table, with unknown cells saying why', async () => {
+    statsFn.mockResolvedValue(populated());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'stopped')).not.toBeNull());
+    for (const id of ['stopped', 'gates', 'coverage']) {
+      const c = card(target, id);
+      const btn = c.querySelector('button.cc-toggle') as HTMLButtonElement;
+      expect(btn.getAttribute('aria-pressed')).toBe('false');
+      btn.click();
+      flushSync();
+      expect(btn.getAttribute('aria-pressed')).toBe('true');
+      expect(btn.textContent?.trim()).toBe('Show as chart');
+      const first = c.querySelector('table tbody tr') as HTMLElement;
+      expect(first.querySelector('th')?.textContent).toBe('16 to 17 Oct (2 days)');
+      expect(first.querySelector('td.cc-unk')?.textContent).toBe('no records');
+    }
+    done();
+  });
+
+  it('draws coverage over time with both lines, a legend and the links of now', async () => {
     statsFn.mockResolvedValue(populated());
     const { target, done } = mountView();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).not.toBeNull());
-    const titles = Array.from(target.querySelectorAll('[data-testid="metrics-coverage-trend"] .hb-title')).map((h) => h.textContent);
-    expect(titles).toEqual(['Services per week', 'Described services per week', 'Deployed services per week', 'Services Pacto cannot judge per week']);
+    const c = card(target, 'coverage');
+    expect(c.querySelector('h2')?.textContent).toBe('Coverage over time');
+    expect(c.querySelectorAll('.lc-line')).toHaveLength(2);
+    expect(c.textContent).toContain('Services observed');
+    expect(c.textContent).toContain('Contracts described');
+    expect(c.textContent).toContain('Pacto cannot judge');
+    expect(c.textContent).toContain('5 exact, 2 inferred, 1 ambiguous and 0 unresolved');
+    expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')).toBeNull();
+    done();
+  });
+
+  it('tells a restricted reader records are hidden and shows coverage now only, with the note', async () => {
+    statsFn.mockResolvedValue(restricted());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-hidden"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-hidden"]')?.textContent).toBe('Some run records name services outside your view and are left out of every number.');
+    expect(target.querySelector('[data-testid="metrics-coverage-trend"]')).toBeNull();
+    expect(card(target, 'coverage').querySelector('button.cc-toggle')).toBeNull();
+    expect(target.querySelector('[data-testid="metrics-coverage-restricted"]')?.textContent).toContain('shown to people who can read every service');
+    // 10 services, 3 unreadable, 2 not deployed: 5 deployed and 3 unknown beside it.
+    const rows = Array.from(target.querySelectorAll('[data-testid="metrics-coverage-now"] .hb-row'));
+    const row = (label: string) => rows.find((r) => r.querySelector('.hb-label')?.textContent === label);
+    expect(row('Deployed')?.querySelector('.hb-value')?.textContent).toBe('5');
+    expect(row('Unknown')?.querySelector('.hb-fill')?.classList.contains('hatch')).toBe(true);
+    expect(target.querySelector('[data-testid="stats-strip"]')?.textContent).toContain('Partial');
+    done();
+  });
+
+  it('prints unknown when a restricted reader\'s coverage snapshot carries no knowledge tally', async () => {
+    statsFn.mockResolvedValue({ ...restricted(), coverageNow: coverage(undefined) });
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="metrics-coverage-now"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-coverage-now"]')?.textContent).toContain('unknown');
+    done();
+  });
+
+  it('mounts the page\'s one chart tooltip', async () => {
+    statsFn.mockResolvedValue(populated());
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(tiles(target)).not.toBeNull());
+    expect(target.querySelectorAll('#chart-tip')).toHaveLength(1);
     done();
   });
 });

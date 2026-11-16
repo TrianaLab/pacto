@@ -15,9 +15,11 @@
   <span>{countOf(st.recordsRead, 'record')} read{#if skipped}, {formatCount(skipped)} skipped{/if}{#if st.truncated}, cut at {st.truncated}{/if}</span>
   <span class="badge wrap {st.completeness === 'complete' ? 'badge-ok' : 'badge-neutral'}">{badge}</span>
   <span>as of {formatDateTime(st.asOf)}</span>
+  <span class="stats-sep" aria-hidden="true"></span>
   <span>{st.provenance}</span>
 </p>
 
 <style>
-  .stats-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin: 0; }
+  .stats-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin: 0; }
+  .stats-sep { inline-size: 1px; block-size: 14px; background: var(--c-border); }
 </style>
