@@ -1004,7 +1004,8 @@ func TestConsumeSnippetOmitsWriteOnlyDefault(t *testing.T) {
 	}
 	// An enum is no candidate either: nothing fits, so the consumer sets it.
 	enum := `{"required":["DB_PASSWORD"],"properties":{"DB_PASSWORD":{"type":"string","writeOnly":true,"enum":["hunter2"]}}}`
-	if _, missing, block := valuesSkeleton([]byte(enum), "s.json"); len(missing) != 1 || strings.Contains(block, "hunter2") {
+	if _, missing, block := valuesSkeleton([]byte(enum), "s.json"); len(missing) != 1 || strings.Contains(block, "hunter2") ||
+		!strings.Contains(block, "# DB_PASSWORD: required string, sensitive, set a value") {
 		t.Errorf("enum: missing %v, block %q", missing, block)
 	}
 	files := fstest.MapFS{"configuration/schema.json": {Data: []byte(schema)}}

@@ -194,14 +194,14 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		typ := schemaType(prop["type"])
 		enum, _ := prop["enum"].([]any)
 		def, hasDef := prop["default"]
-		sensitive := prop["writeOnly"] == true
-		if sensitive {
-			enum, def, hasDef = nil, nil, false
+		mark := ""
+		if prop["writeOnly"] == true {
+			enum, def, hasDef, mark = nil, nil, false, ", sensitive"
 		}
 		value, ok := skeletonValue(prop, typ, enum, def, hasDef)
 		if !ok {
 			missing = append(missing, key)
-			fmt.Fprintf(&lines, "      # %s: %s, set a value\n", yamlKey(key), strings.TrimSpace("required "+typ))
+			fmt.Fprintf(&lines, "      # %s: %s%s, set a value\n", yamlKey(key), strings.TrimSpace("required "+typ), mark)
 			continue
 		}
 		values[key] = value
@@ -216,10 +216,7 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		if hasDef {
 			comment += ", default " + plainValue(def)
 		}
-		if sensitive {
-			comment += ", sensitive"
-		}
-		fmt.Fprintf(&lines, "      %s: %s # %s\n", yamlKey(key), jsonValue(value), comment)
+		fmt.Fprintf(&lines, "      %s: %s # %s%s\n", yamlKey(key), jsonValue(value), comment, mark)
 	}
 	head := "    values:\n"
 	if len(values) == 0 {
