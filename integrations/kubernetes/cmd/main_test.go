@@ -87,3 +87,20 @@ func TestChartlessFlagsHaveReasons(t *testing.T) {
 		}
 	}
 }
+
+func TestStrayArgumentIsRefused(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if err := fs.Parse([]string{"--enable-probing", "off", "--leader-elect"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := noStrayArgs(fs); err == nil || !strings.Contains(err.Error(), `"off"`) {
+		t.Fatalf("noStrayArgs = %v; want the stray off refused", err)
+	}
+	fs = flag.NewFlagSet("t", flag.ContinueOnError)
+	bindFlags(fs, &options{})
+	if err := fs.Parse([]string{"--enable-probing=off", "--leader-elect"}); err != nil || noStrayArgs(fs) != nil {
+		t.Fatalf("the equals form must parse cleanly: %v", err)
+	}
+}
