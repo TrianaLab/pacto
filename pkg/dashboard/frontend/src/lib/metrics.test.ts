@@ -167,7 +167,7 @@ describe('headline', () => {
   });
 
   it('links the lead tile only to the records its value pools, and keeps the depth', () => {
-    expect(headline(answer(), { window: '7d' })!.lead).toMatchObject({ href: '#/metrics?window=7d&metric=leadTime&environment=production', lists: 5 });
+    expect(headline(answer(), { window: '7d' })!.lead).toMatchObject({ href: '#/metrics?window=7d&metric=leadTime&environment=production' });
     // Two chain ends: the records endpoint names one environment, so the pooled value links nowhere.
     const two = answer({ environments: answer().environments.map((e: { environment: string }) => ({ ...e, chainEnd: e.environment !== 'dev' })) });
     expect(headline(two)!.lead.href).toBeUndefined();

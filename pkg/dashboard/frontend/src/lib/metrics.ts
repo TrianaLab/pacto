@@ -404,7 +404,9 @@ export function headline(st: ProductStats, { window, depth }: HeadlineOptions = 
     sub: leadSub(st, lg),
     spark: (lg?.buckets ?? []).map((b) => b.p50Seconds ?? null),
     why: (lg?.buckets ?? []).map((b, i) => (b.p50Seconds != null || !st.buckets?.[i]?.metrics ? null : b.unjoined ? 'no promotion joined a publish record' : 'no promotion here')),
-    ...(known && members.length === 1 ? link('leadTime', lt!.joined, members[0]) : {}),
+    // No lists: the records list each joined promotion with its publish record, and
+    // promotions can share one publish, so no count is honest here.
+    ...(known && members.length === 1 ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: members[0], depth: d }) } : {}),
   };
   return { breaking, gates, lead };
 }
@@ -512,7 +514,7 @@ export function tableRows(st: ProductStats, chart: ChartKey, { window, depth, by
       // The rows the chart draws: an owner's or a domain's own lead time, linked to records
       // only by depth, where a row is the whole environment.
       const p50 = (e: EnvMetrics): Cell => ({ ...dur(e.leadTime.p50Seconds),
-        ...(by === 'depth' && e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }), lists: e.leadTime.joined } : {}) });
+        ...(by === 'depth' && e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }) } : {}) });
       return [
         { caption: 'Lead time by environment', head: ['Environment', GROUP_WORD[by], 'p50', 'p90', 'No publish record'],
           rows: groupBy(st, by, depth).flatMap((g) => g.envs.map((e) => [head(e.environment), { text: g.label, ...(g.unknown ? { unknown: true } : {}) },
