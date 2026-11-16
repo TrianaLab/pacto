@@ -83,6 +83,14 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 	if reason, err := r.unfreezeRefusal(ctx, op, stage); reason != "" || err != nil {
 		return reason, err
 	}
+	return r.pointerRefusal(ctx, op, stage)
+}
+
+// pointerRefusal returns why op's pointer move is refused, or "": a freeze or
+// a pointer operation must start from the version the Stage runs, and a
+// rollback must undo an operation it cites. An error is a read that failed.
+func (r *OperationReconciler) pointerRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (string, error) {
+	s := op.Spec
 	if s.Type == delivery.TypeFreeze && s.Params.From != stage.Status.Pointer {
 		return fmt.Sprintf("PointerMoved: a freeze stays on %q but the Stage runs %q", s.Params.From, stage.Status.Pointer), nil
 	}
