@@ -40,5 +40,8 @@ the effect shows on the first held change.
   `operation/v1`, but signed records are parsed strictly: upgrade a promoter
   that follows another cluster's records (`upstreamTrust`), and the CLI, no
   later than the recording cluster.
-- Go API: `delivery.ApprovalRefusal` and `delivery.ApprovalEligible` take a
-  last `WorkloadAccess` argument, so no caller can skip the rule.
+- Go API: `delivery.ApprovalRefusal` takes a last `WorkloadAccess` argument,
+  so no caller can skip the rule; `delivery.ApprovalRefusalAsking` asks it only
+  for an approval every other check lets through. `delivery.ApprovalEligible`
+  is removed: use `ApprovalRefusal`, whose empty reason means the approval
+  counts.

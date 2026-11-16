@@ -329,6 +329,23 @@ func TestParseClassPolicy(t *testing.T) {
 	}
 }
 
+// TestParseClassPolicyOlderPublisherNarrows: a chart from before narrowing
+// was opt-in always published teamGroupPrefix and never teamNarrowing, and
+// its promoter always narrows; the chart now writes neither or both.
+func TestParseClassPolicyOlderPublisherNarrows(t *testing.T) {
+	for in, want := range map[string]bool{
+		`{"teamGroupPrefix":"","requireOwnerTeam":true}`:                         true,
+		`{"teamGroupPrefix":"acme:","teamNarrowing":true}`:                       true,
+		`{"teamGroupPrefix":"","teamNarrowing":false}`:                           false,
+		`{"agentGroups":["pacto:agents"],"requireOwnerTeam":false}`:              false,
+		`{"breakGlassGroups":["sre"],"teamNarrowing":true,"teamGroupPrefix":""}`: true,
+	} {
+		if p, err := ParseClassPolicy([]byte(in)); err != nil || p.TeamNarrowing != want {
+			t.Errorf("%s: narrowing %v, want %v (%v)", in, p.TeamNarrowing, want, err)
+		}
+	}
+}
+
 // TestClassifyBySources: every class says where it came from, and nobody
 // who signs in as a system: user or unauthenticated is a person.
 func TestClassifyBySources(t *testing.T) {

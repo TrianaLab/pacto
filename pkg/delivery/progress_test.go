@@ -234,8 +234,8 @@ func TestProgressOfMessages(t *testing.T) {
 	accept := heldOp("op-3", "team-payments")
 	accept.Status.Plan.Floor.Decision = AcceptUnknown
 	held := ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: rowCaller(ClassHuman, "acme:team-payments"),
-		Ops: []OperationObject{accept}, Plan: progPlan(PredictHeld, nil)})
-	if r := reasonOf(held, "Held"); !strings.Contains(r.Message, "op-3 waits for accept-unknown from a person of team-payments: Approve the break?") ||
+		Ops: []OperationObject{accept}, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
+	if r := reasonOf(held, "Held"); !strings.Contains(r.Message, "op-3 waits for accept-unknown from a person of team-payments who may update deployments/payments in prod: Approve the break?") ||
 		r.Fix != "pacto delivery approve -n prod op-3 --decision accept-unknown" {
 		t.Errorf("accept-unknown: %+v", r)
 	}
@@ -243,7 +243,7 @@ func TestProgressOfMessages(t *testing.T) {
 	noPlan.Status.Plan, noPlan.Status.Question = nil, ""
 	held = ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: rowCaller(ClassHuman), Ops: []OperationObject{noPlan},
 		Plan: progPlan(PredictHeld, nil)})
-	if r := reasonOf(held, "Held"); r.Message != "op-4 waits for approve from any person except the one who asked or the one it is on behalf of" {
+	if r := reasonOf(held, "Held"); r.Message != "op-4 waits for approve from any person who may update deployments/payments in prod, except the one who asked or the one it is on behalf of" {
 		t.Errorf("held with no plan: %+v", r)
 	}
 }
@@ -257,7 +257,7 @@ func TestProgressOfAgentGetsNoApproveCommand(t *testing.T) {
 	if anyCommand(p, "approve") || anyCommand(p, "propose -n prod --stage payments --type unfreeze") {
 		t.Fatalf("an agent got a command it cannot run: %+v", p.Reasons)
 	}
-	if r := reasonOf(p, "Held"); r.Fix != "a person of team-payments approves it themselves; you cannot answer it" {
+	if r := reasonOf(p, "Held"); r.Fix != "a person of team-payments who may update deployments/payments in prod approves it themselves; you cannot answer it" {
 		t.Errorf("agent held fix %q", r.Fix)
 	}
 }
@@ -315,10 +315,10 @@ func TestProgressOfApproveOnlyForOwner(t *testing.T) {
 	ask := func(user string, groups ...string) Progress {
 		c := rowCaller(ClassHuman, groups...)
 		c.User = user
-		return ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Plan: progPlan(PredictHeld, nil)})
+		return ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	}
 	for _, p := range []Progress{ask("alice", "acme:team-ledger"), ask("bob", "acme:team-payments"), ask("dana", "acme:team-payments"), ask(" Dana", "acme:team-payments")} {
-		if anyCommand(p, "approve") || reasonOf(p, "Held").Fix != "a person of team-payments decides it" {
+		if anyCommand(p, "approve") || reasonOf(p, "Held").Fix != "a person of team-payments who may update deployments/payments in prod decides it" {
 			t.Errorf("not an owner, the asker or the person it is on behalf of: %+v", reasonOf(p, "Held"))
 		}
 	}
@@ -412,21 +412,56 @@ func TestUnfreezeFixNeedsAccess(t *testing.T) {
 	}
 }
 
-// TestUnfreezeAccessAskedForAFrozenPerson: only a person on a frozen or
-// auto-held Stage is asked.
-func TestUnfreezeAccessAskedForAFrozenPerson(t *testing.T) {
+// TestPersonAccessAskedForAFrozenOrHeldPerson: only a person on a frozen or
+// auto-held Stage, or one with a held change, is asked.
+func TestPersonAccessAskedForAFrozenOrHeldPerson(t *testing.T) {
 	asked := 0
 	access := func(context.Context, string, string) WorkloadAccess { asked++; return allowed }
 	frozen := progStage(LevelAdvise, func(s *StageStatus) { s.Frozen = true })
-	held := progStage(LevelAdvise, func(s *StageStatus) { s.AutoHold = true })
-	if a := UnfreezeAccess(context.Background(), rowCaller(ClassHuman), frozen, access); a == nil || !a.Allowed {
+	autoHeld := progStage(LevelAdvise, func(s *StageStatus) { s.AutoHold = true })
+	if a := PersonAccess(context.Background(), rowCaller(ClassHuman), frozen, nil, access); a == nil || !a.Allowed {
 		t.Fatalf("frozen: %+v", a)
 	}
-	if UnfreezeAccess(context.Background(), rowCaller(ClassHuman), held, access) == nil || asked != 2 {
+	if PersonAccess(context.Background(), rowCaller(ClassHuman), autoHeld, nil, access) == nil || asked != 2 {
 		t.Fatal("auto-hold")
 	}
-	if UnfreezeAccess(context.Background(), rowCaller(ClassAgent), frozen, access) != nil ||
-		UnfreezeAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), access) != nil || asked != 2 {
-		t.Fatal("an agent, or a Stage that runs, is not asked")
+	if PersonAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), []OperationObject{heldOp("op-1")}, access) == nil || asked != 3 {
+		t.Fatal("a held change")
+	}
+	done := heldOp("op-2")
+	done.Status.Phase = PhaseConcluded
+	if PersonAccess(context.Background(), rowCaller(ClassAgent), frozen, nil, access) != nil ||
+		PersonAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), []OperationObject{done}, access) != nil || asked != 3 {
+		t.Fatal("an agent, or a Stage that runs with nothing held, is not asked")
+	}
+}
+
+// TestProgressOfApproveNeedsUpdateRights: the approve command goes only to a
+// person who may update the workload; with narrowing off the teams only
+// route the question and update rights decide.
+func TestProgressOfApproveNeedsUpdateRights(t *testing.T) {
+	op := heldOp("op-1", "team-payments")
+	c := rowCaller(ClassHuman, "acme:team-search")
+	c.Policy.TeamNarrowing = false
+	ask := func(a *WorkloadAccess) *ProgressReason {
+		return reasonOf(ProgressOf(ProgressInput{Stage: progStage(LevelAdvise, nil), Caller: c, Ops: []OperationObject{op}, Access: a, Plan: progPlan(PredictHeld, nil)}), "Held")
+	}
+	denied := allowed
+	denied.Allowed = false
+	failed := allowed
+	failed.Unverified = "timeout"
+	for _, cse := range []struct {
+		access *WorkloadAccess
+		fix    string
+	}{
+		{&allowed, "pacto delivery approve -n prod op-1"},
+		{&denied, "you cannot update deployments/payments in payments, and only someone who may decides it"},
+		{&failed, "Pacto could not check whether you may update deployments/payments in payments (timeout), and only someone who may decides it"},
+		{nil, "a person who may update deployments/payments in prod decides it"},
+	} {
+		r := ask(cse.access)
+		if r.Fix != cse.fix || !strings.HasPrefix(r.Message, "op-1 waits for approve from a person who may update deployments/payments in prod (asked of team-payments)") {
+			t.Errorf("%+v: %+v", cse.access, r)
+		}
 	}
 }

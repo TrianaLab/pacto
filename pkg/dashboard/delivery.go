@@ -117,7 +117,11 @@ type callerOutput struct {
 		RequireOwnerTeam bool `json:"requireOwnerTeam" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
 		// TeamNarrowing is the published policy's switch, forwarded for the
 		// copy: off, whoever may update the Stage's workload answers.
-		TeamNarrowing bool `json:"teamNarrowing" doc:"Owner teams narrow who may answer; off, whoever may update the Stage's workload answers"`
+		TeamNarrowing bool `json:"teamNarrowing" doc:"Owner teams narrow who may answer; off, whoever may update the Stage's workload answers. Only the defaults while policyError is set"`
+		// PolicyError says the published policy could not be read, so
+		// requireOwnerTeam and teamNarrowing are the defaults, not the
+		// promoter's.
+		PolicyError string `json:"policyError,omitempty" doc:"Why the published delivery identity policy could not be read; while set, class, requireOwnerTeam and teamNarrowing are the defaults and may not be the promoter's, and no decision is offered"`
 	}
 }
 
@@ -133,7 +137,7 @@ func (s *Server) deliveryCaller(ctx context.Context, _ *struct{}) (*callerOutput
 		return nil, err
 	}
 	out := &callerOutput{}
-	out.Body.Caller, out.Body.RequireOwnerTeam, out.Body.TeamNarrowing = c, c.Policy.RequireOwnerTeam, c.Policy.TeamNarrowing
+	out.Body.Caller, out.Body.RequireOwnerTeam, out.Body.TeamNarrowing, out.Body.PolicyError = c, c.Policy.RequireOwnerTeam, c.Policy.TeamNarrowing, c.PolicyErr
 	return out, nil
 }
 
@@ -154,8 +158,10 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 			"when they last logged in, whether a question that names no team has nobody who may answer it and whether owner teams narrow who may answer."}), s.deliveryCaller)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-inbox", Method: http.MethodGet, Path: "/api/delivery/inbox",
 		Summary: "What waits on me",
-		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
-			"frozen Stages of the caller's services and the Errored operations on them."}), s.deliveryInbox)
+		Description: "Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, " +
+			"is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; " +
+			"a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services " +
+			"(every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them."}), s.deliveryInbox)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
 		Summary: "Every Stage",
 		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +

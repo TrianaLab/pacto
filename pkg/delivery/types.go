@@ -310,11 +310,22 @@ func DefaultClassPolicy() ClassPolicy {
 	return ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 }
 
-// ParseClassPolicy reads a published ClassPolicy.
+// ParseClassPolicy reads a published ClassPolicy. A policy that carries
+// teamGroupPrefix and no teamNarrowing was published by a chart from before
+// narrowing was opt-in, whose promoter always narrows, so narrowing is on:
+// the chart now writes teamGroupPrefix only together with teamNarrowing.
 func ParseClassPolicy(b []byte) (ClassPolicy, error) {
 	var p ClassPolicy
 	if err := json.Unmarshal(b, &p); err != nil {
 		return ClassPolicy{}, fmt.Errorf("the delivery identity policy: %w", err)
+	}
+	var keys struct {
+		Prefix    *string `json:"teamGroupPrefix"`
+		Narrowing *bool   `json:"teamNarrowing"`
+	}
+	_ = json.Unmarshal(b, &keys) // the same bytes parsed above
+	if keys.Prefix != nil && keys.Narrowing == nil {
+		p.TeamNarrowing = true
 	}
 	return p, nil
 }

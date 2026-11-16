@@ -198,10 +198,12 @@ func (p *progress) unfreezeFix() string {
 	return "a person or break-glass unfreezes it"
 }
 
-// UnfreezeAccess is ProgressInput.Access for caller on st: asked only for a
-// person on a Stage frozen or on auto-hold, nil otherwise.
-func UnfreezeAccess(ctx context.Context, caller Caller, st StageObject, access StageAccess) *WorkloadAccess {
-	if caller.Class != ClassHuman || !st.Status.Frozen && !st.Status.AutoHold {
+// PersonAccess is ProgressInput.Access for caller on st: asked only for a
+// person on a Stage frozen or on auto-hold, or with one of its operations ops
+// held, since unfreezing and deciding both need update rights; nil otherwise.
+func PersonAccess(ctx context.Context, caller Caller, st StageObject, ops []OperationObject, access StageAccess) *WorkloadAccess {
+	held := slices.ContainsFunc(ops, func(o OperationObject) bool { return o.Status.Phase == PhaseHeld })
+	if caller.Class != ClassHuman || !st.Status.Frozen && !st.Status.AutoHold && !held {
 		return nil
 	}
 	return new(access(ctx, st.Metadata.Namespace, st.Metadata.Name))
@@ -243,13 +245,7 @@ func (p *progress) heldReason(op OperationObject) {
 		owners, decision = pl.Floor.Owners, cmp.Or(pl.Floor.Decision, Approve)
 	}
 	pol, caller := p.in.Caller.Policy, p.in.Caller
-	who := ""
-	switch {
-	case len(owners) > 0:
-		who = "a person of " + strings.Join(owners, ", ")
-	case !pol.RequireOwnerTeam:
-		who = "any person except the one who asked or the one it is on behalf of"
-	}
+	who := p.heldWho(owners)
 	const nobody = "nobody may answer it; only break-glass overrides"
 	msg := op.Metadata.Name + " waits for " + string(decision)
 	if who != "" {
@@ -269,6 +265,9 @@ func (p *progress) heldReason(op OperationObject) {
 	case caller.Class == ClassAgent:
 		fix = who + " approves it themselves; you cannot answer it"
 	case caller.Class == ClassHuman && !asker && pol.InTeams(caller.Groups, owners):
+		if fix = p.decideAccess(); fix != "" {
+			break
+		}
 		fix = "pacto delivery approve -n " + p.ns + " " + op.Metadata.Name
 		if decision != Approve {
 			fix += " --decision " + string(decision)
@@ -277,6 +276,43 @@ func (p *progress) heldReason(op OperationObject) {
 		fix = who + " decides it"
 	}
 	p.add("Held", msg, fix)
+}
+
+// heldWho says who may decide a change asked of owners: a person who may
+// update the workload, of an owner team when teams narrow who may answer; ""
+// when nobody may.
+func (p *progress) heldWho(owners []string) string {
+	pol, phrase := p.in.Caller.Policy, p.workload().Phrase()
+	switch {
+	case len(owners) > 0 && pol.TeamNarrowing:
+		return "a person of " + strings.Join(owners, ", ") + " who may " + phrase
+	case len(owners) > 0:
+		return "a person who may " + phrase + " (asked of " + strings.Join(owners, ", ") + ")"
+	case !pol.RequireOwnerTeam:
+		return "any person who may " + phrase + ", except the one who asked or the one it is on behalf of"
+	}
+	return ""
+}
+
+// workload is the unasked access to the Stage's workload, for its phrase.
+func (p *progress) workload() WorkloadAccess {
+	a, _ := AccessFor(p.in.Stage.Spec, p.ns)
+	return a
+}
+
+// decideAccess is why a person may not decide for want of update rights on
+// the workload, or "": the promoter counts only a person who may, and an
+// access not asked is no yes.
+func (p *progress) decideAccess() string {
+	switch a := p.in.Access; {
+	case a == nil:
+		return "a person who may " + p.workload().Phrase() + " decides it"
+	case a.Unverified != "":
+		return "Pacto could not check whether you may " + a.Phrase() + " (" + a.Unverified + "), and only someone who may decides it"
+	case !a.Allowed:
+		return "you cannot " + a.Phrase() + ", and only someone who may decides it"
+	}
+	return ""
 }
 
 // levelReasons: an observe Stage refuses every promote; on advise a person

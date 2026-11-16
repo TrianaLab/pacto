@@ -483,7 +483,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery inbox`
 
-Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
 
 It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 

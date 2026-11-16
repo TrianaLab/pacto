@@ -109,7 +109,7 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 	return true, nil
 }
 
-// approval consumes the first Approval for op that delivery.ApprovalEligible
+// approval consumes the first Approval for op that delivery.ApprovalRefusal
 // counts and op has not consumed yet. The groups are the ones admission bound
 // to the user. It also says why the newest Approval for op it passed over does
 // not count, so the person who gave it is not left waiting on nothing. An

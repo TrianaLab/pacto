@@ -190,7 +190,6 @@ func (d *Delivery) whyAll(ctx context.Context, caller Caller, stages []delivery.
 		g.Go(func() error {
 			st := stages[i]
 			pin := delivery.ProgressInput{Stage: st, Caller: caller, Team: read[st.Status.Pointer].Team, AsOf: asOf}
-			pin.Access = delivery.UnfreezeAccess(ctx, caller, st, access)
 			if err := opsErr[st.Metadata.Namespace]; err != nil {
 				pin.OpsErr = err.Error()
 			}
@@ -199,6 +198,7 @@ func (d *Delivery) whyAll(ctx context.Context, caller Caller, stages []delivery.
 					pin.Ops = append(pin.Ops, o)
 				}
 			}
+			pin.Access = delivery.PersonAccess(ctx, caller, st, pin.Ops, access)
 			rows[i].Progress = new(d.progressOf(ctx, pin))
 			return nil
 		})

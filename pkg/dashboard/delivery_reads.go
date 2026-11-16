@@ -227,10 +227,10 @@ type inboxInput struct {
 type inboxOutput struct {
 	Body struct {
 		Listing
-		Held        []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
+		Held        []InboxItem      `json:"held" doc:"Held operations whose decision by the caller the promoter would count: the caller is a person who may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names; for break-glass also those that name no team. A change whose update rights could not be checked is left out and marks the answer partial"`
 		HeldPage    Page             `json:"heldPage"`
 		HeldShared  int              `json:"heldShared" doc:"How many held changes, over every page, more than one team may answer"`
-		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
+		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services; when owner teams do not narrow who may answer, every frozen Stage the caller can read"`
 		FrozenPage  Page             `json:"frozenPage"`
 		Errored     []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
 		ErroredPage Page             `json:"erroredPage"`
@@ -267,10 +267,10 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	frozen, frozenStages := frozenOf(stages, mine, in.Q)
 	byStage := delivery.StagesByName(stages)
 	access := delivery.AccessMemo(stages, api.WorkloadAccess)
-	held, errored := inboxQueues(ctx, ops, in.Q, frozen, caller, access)
+	held, errored, unchecked := inboxQueues(ctx, ops, in.Q, frozen, caller, access)
 	out := &inboxOutput{}
 	b := &out.Body
-	b.Listing = l
+	b.Listing = uncheckedPartial(l, caller, unchecked)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -343,11 +343,27 @@ func frozenOf(stages []delivery.StageObject, mine func(string) bool, q string) (
 	return frozen, frozenStages
 }
 
+// uncheckedPartial is l marked partial when a held change was left out
+// because the caller's update rights could not be checked (unchecked), or
+// was judged on the default policy because the published one was unread:
+// either may wait on the caller.
+func uncheckedPartial(l Listing, caller delivery.Caller, unchecked []string) Listing {
+	if caller.PolicyErr != "" {
+		unchecked = append(unchecked, "delivery identity policy: "+caller.PolicyErr)
+	}
+	if len(unchecked) > 0 {
+		l.Completeness = "partial"
+		l.Unreadable = append(slices.Clone(l.Unreadable), unchecked...)
+	}
+	return l
+}
+
 // inboxQueues splits the operations matching q into those held on the caller
 // and those errored on a Stage that is still frozen. access answers whether
-// the caller may update the workload of a Stage.
+// the caller may update the workload of a Stage. unchecked names, once per
+// Stage, the held changes left out because that could not be answered.
 func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller,
-	access delivery.StageAccess) (held, errored []InboxItem) {
+	access delivery.StageAccess) (held, errored []InboxItem, unchecked []string) {
 	held, errored = []InboxItem{}, []InboxItem{}
 	for _, o := range ops {
 		it := inboxItem(o)
@@ -355,22 +371,39 @@ func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, 
 			continue
 		}
 		switch {
-		case it.Phase == delivery.PhaseHeld && waitsOn(ctx, &o, it, caller, access):
-			held = append(held, it)
+		case it.Phase == delivery.PhaseHeld:
+			waits, why := waitsOn(ctx, &o, it, caller, access)
+			if waits {
+				held = append(held, it)
+			} else if note := it.Namespace + "/" + it.Stage + ": could not check update rights (" + why + ")"; why != "" && !slices.Contains(unchecked, note) {
+				unchecked = append(unchecked, note)
+			}
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			errored = append(errored, it)
 		}
 	}
-	return held, errored
+	return held, errored, unchecked
 }
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
 // count. A question that names no team is also break-glass's: under
 // requireOwnerTeam nobody else can resolve it, unless they asked for it. An
-// agent never decides, so its access is never asked.
-func waitsOn(ctx context.Context, op *delivery.OperationObject, it InboxItem, caller delivery.Caller, access delivery.StageAccess) bool {
-	return caller.Policy.IsHuman(caller.Identity) && answerRefusal(op, caller, it.Decision, access(ctx, it.Namespace, it.Stage)) == "" ||
-		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User)
+// agent never decides, so its access is never asked, and the access is asked
+// only when every other check passes. unverified is why the caller's update
+// rights could not be checked when that alone kept the change out.
+func waitsOn(ctx context.Context, op *delivery.OperationObject, it InboxItem, caller delivery.Caller, access delivery.StageAccess) (waits bool, unverified string) {
+	if len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User) {
+		return true, ""
+	}
+	if !caller.Policy.IsHuman(caller.Identity) {
+		return false, ""
+	}
+	var asked delivery.WorkloadAccess
+	code := answerRefusal(op, caller, it.Decision, func() delivery.WorkloadAccess { asked = access(ctx, it.Namespace, it.Stage); return asked })
+	if code == "ApproverUnverified" {
+		return false, asked.Unverified
+	}
+	return code == "", ""
 }
 
 // EnvironmentRow is one Stage: one service in one environment, as the

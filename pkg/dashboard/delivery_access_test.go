@@ -84,3 +84,70 @@ func TestUnfreezeOfferHiddenWithoutUpdateRights(t *testing.T) {
 	o = unfreeze()
 	expect(t, o["available"] == false && strings.HasPrefix(o["reason"].(string), "Pacto could not check whether you may update deployments/payments in prod"), "unverified: %v", o)
 }
+
+// TestInboxPartialWhenAccessUnverified: a held change left out because the
+// caller's update rights could not be checked marks the answer partial and
+// names it, so a missing item reads as unknown.
+func TestInboxPartialWhenAccessUnverified(t *testing.T) {
+	f := accessCluster()
+	f.accessErr = "the SelfSubjectAccessReview failed: timeout"
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 0 && inbox["completeness"] == "partial" &&
+		slices.Contains(toStrings(inbox["unreadable"]), "prod/payments: could not check update rights (the SelfSubjectAccessReview failed: timeout)"),
+		"unverified access is unknown, never none: %v", inbox)
+	f.accessErr = ""
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 1 && inbox["completeness"] == "complete", "checked: %v", inbox)
+}
+
+// TestInboxAsksNoReviewForWhatCannotCount: a held change the caller could
+// not decide anyway (not their team under narrowing, or their own) costs no
+// review.
+func TestInboxAsksNoReviewForWhatCannotCount(t *testing.T) {
+	f := accessCluster()
+	f.caller = person("acme:team-search")
+	f.caller.Policy.TeamNarrowing = true
+	own := operation("prod", "own", "payments", held("team-search"))
+	own.Spec.Actor.User = f.caller.User
+	f.ops = append(f.ops, own)
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 0 && f.accesses.Load() == 0, "no review for changes that cannot count: %v %d", inbox["held"], f.accesses.Load())
+}
+
+// TestOperationSaysWhyNoDecision: a held change that offers no decision says
+// why, so the panel never guesses.
+func TestOperationSaysWhyNoDecision(t *testing.T) {
+	f := accessCluster()
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	refusal := func() any {
+		t.Helper()
+		_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+		return out["decisionRefusal"]
+	}
+	expect(t, refusal() == nil, "offered: no refusal")
+	f.access = map[string]bool{"prod/payments": false}
+	expect(t, refusal() == "CannotUpdateWorkload", "denied: %v", refusal())
+	f.access, f.accessErr = nil, "timeout"
+	expect(t, refusal() == "ApproverUnverified", "unverified: %v", refusal())
+	f.accessErr, f.deny = "", map[string]bool{"create approvals": true}
+	expect(t, refusal() == "NoApprovalRights", "no create approvals: %v", refusal())
+	f.deny, f.caller.AuthTime = nil, ""
+	f.stages[0].Status.AuthFreshness = "15m"
+	expect(t, refusal() == "FreshLoginRequired", "no login time: %v", refusal())
+}
+
+// TestUnreadPolicyIsUnknown: with the published policy unread, the caller
+// says so, no decision is offered and the inbox is partial.
+func TestUnreadPolicyIsUnknown(t *testing.T) {
+	f := accessCluster()
+	f.caller.PolicyErr = "configmaps is forbidden"
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, c := call(t, http.MethodGet, base+"/api/delivery/caller", nil)
+	expect(t, c["policyError"] == "configmaps is forbidden", "caller: %v", c)
+	_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+	expect(t, out["decisionRefusal"] == "PolicyUnknown" && !slices.Contains(toStrings(out["actions"]), "approve"), "operation: %v", out)
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, inbox["completeness"] == "partial" && slices.Contains(toStrings(inbox["unreadable"]), "delivery identity policy: configmaps is forbidden"), "inbox: %v", inbox)
+}

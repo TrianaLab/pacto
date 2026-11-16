@@ -179,7 +179,10 @@ func TestDeliveryReadsCarryListing(t *testing.T) {
 	for _, route := range []string{"inbox", "environments", "published"} {
 		text, _ := callText(t, session, "pacto_delivery_"+route, map[string]any{})
 		l := listingOf(t, text)
-		expect(t, l.AsOf != "" && l.Completeness == "complete", "%s: %+v", route, l)
+		// This cluster publishes no identity policy: the inbox, judged on the
+		// defaults, says so.
+		policyOnly := route == "inbox" && l.Completeness == "partial" && len(withoutPolicy(l.Unreadable)) == 0
+		expect(t, l.AsOf != "" && (l.Completeness == "complete" || policyOnly), "%s: %+v", route, l)
 	}
 	forbidProd := func(f *dynamicfake.FakeDynamicClient) {
 		f.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -193,8 +196,14 @@ func TestDeliveryReadsCarryListing(t *testing.T) {
 	for _, route := range []string{"inbox", "environments", "published"} {
 		text, _ := callText(t, session, "pacto_delivery_"+route, map[string]any{})
 		l := listingOf(t, text)
-		expect(t, l.Completeness == "partial" && slices.Equal(l.Unreadable, []string{"prod"}), "%s: %+v", route, l)
+		expect(t, l.Completeness == "partial" && slices.Equal(withoutPolicy(l.Unreadable), []string{"prod"}), "%s: %+v", route, l)
 	}
+}
+
+// withoutPolicy drops the note an inbox adds when the identity policy is
+// unread.
+func withoutPolicy(unreadable []string) []string {
+	return slices.DeleteFunc(slices.Clone(unreadable), func(s string) bool { return strings.HasPrefix(s, "delivery identity policy: ") })
 }
 
 // TestInstalledProbeNeedsCluster: with no cluster to ask, delivery counts as
