@@ -749,8 +749,8 @@ func TestNeeds23(t *testing.T) {
 }
 
 // TestPactoVersion24: 2.4 is supported, keeps every 2.3 field, takes values
-// and a selector beside a ref, refuses a selector beside a schema and is the
-// schema SchemaBytes returns; the next version is still refused by name.
+// and a selector beside a ref and refuses a selector beside a schema; a
+// version past the newest is still refused by name.
 func TestPactoVersion24(t *testing.T) {
 	doc := func(cfg map[string]any) map[string]any {
 		d := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
@@ -775,12 +775,31 @@ func TestPactoVersion24(t *testing.T) {
 	if r := ValidateStructural(doc(local)); r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
 		t.Fatalf("2.4 selector beside a schema: %v", r.Errors)
 	}
-	r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
-	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4") {
-		t.Fatalf("2.5: %v", r.Errors)
+	r := ValidateStructural(map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5") {
+		t.Fatalf("2.6: %v", r.Errors)
 	}
-	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.4"`) {
-		t.Fatal("SchemaBytes is not the 2.4 schema")
+}
+
+// TestValidateStructural_V25AcceptsV24Body: a 2.4 body is valid as 2.5.
+func TestValidateStructural_V25AcceptsV24Body(t *testing.T) {
+	docs := []map[string]any{
+		{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments", "template": map[string]any{}},
+			"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}},
+		{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+			"configurations": []any{map[string]any{"name": "db", "ref": "oci://r/pg:1.0.0", "configuration": "provisioning", "values": map[string]any{"size": "small"}, "required": true}}},
+	}
+	for _, d := range docs {
+		if r := ValidateStructural(d); !r.IsValid() {
+			t.Fatalf("2.5 with a 2.4 body: %v", r.Errors)
+		}
+	}
+}
+
+// TestSchemaBytesIsNewest: SchemaBytes is the schema of contract.Current().
+func TestSchemaBytesIsNewest(t *testing.T) {
+	if want := `"title": "Pacto Service Contract v` + contract.Current() + `"`; !strings.Contains(string(SchemaBytes()), want) {
+		t.Fatalf("SchemaBytes is not the %s schema", contract.Current())
 	}
 }
 

@@ -18,7 +18,7 @@ nothing.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json` or `pacto-v2.4.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json` or `pacto-v2.5.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)

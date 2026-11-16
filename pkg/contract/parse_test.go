@@ -487,11 +487,29 @@ configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning
 	if cfg := c.Configurations[0]; cfg.ProviderConfiguration != "provisioning" || cfg.Values["size"] != "small" {
 		t.Fatalf("configuration: %+v", cfg)
 	}
-	for _, v := range []string{"2.5", "2.6"} {
+	for _, v := range []string{"2.6", "3.0"} {
 		_, err := contract.Parse(strings.NewReader("pactoVersion: \"" + v + "\"\nservice: {name: svc, version: 1.0.0}\n"))
 		if err == nil || !strings.Contains(err.Error(), "unsupported pactoVersion") {
 			t.Fatalf("%s: %v", v, err)
 		}
+	}
+}
+
+// TestCurrentIsNewestSupported: Current is the last, newest supported version.
+func TestCurrentIsNewestSupported(t *testing.T) {
+	if got, want := contract.Current(), contract.SupportedVersions[len(contract.SupportedVersions)-1]; got != want || got != "2.5" {
+		t.Fatalf("Current() = %q, want %q (2.5)", got, want)
+	}
+}
+
+// TestParse_Version25: 2.5 parses with the 2.4 body.
+func TestParse_Version25(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(`pactoVersion: "2.5"
+service: {name: svc, version: 1.0.0, domain: payments, template: {}}
+configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning, values: {size: small}, required: true}]
+`))
+	if err != nil || c.PactoVersion != "2.5" || c.Service.Domain != "payments" || c.Configurations[0].ProviderConfiguration != "provisioning" {
+		t.Fatalf("2.5: %+v %v", c, err)
 	}
 }
 

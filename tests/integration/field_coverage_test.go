@@ -85,6 +85,7 @@ const (
 	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
 	needs23         = "NEEDS_PACTO_2_3" // a 2.3-only part in an older contract
 	needs24         = "NEEDS_PACTO_2_4" // a 2.4-only part in an older contract
+	needs25         = "NEEDS_PACTO_2_5" // a 2.5-only part in an older contract
 	unmet           = "GUARANTEE_UNMET" // a requirement the provider bundle does not meet
 )
 
@@ -564,11 +565,11 @@ func manyPlugins(n int) []any {
 	return out
 }
 
-// fieldCoverageBase declares every field of the v2.4 schema at least once
+// fieldCoverageBase declares every field of the v2.5 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others; a
 // ref configuration with values needs a registry, so the
 // configurations[].configuration cases add the selector themselves).
-const fieldCoverageBase = `pactoVersion: "2.4"
+const fieldCoverageBase = `pactoVersion: "2.5"
 service:
   name: orders
   version: 1.0.0
