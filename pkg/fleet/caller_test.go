@@ -150,3 +150,50 @@ func TestRestrictRecountsSingleClusterUnknown(t *testing.T) {
 		t.Errorf("informational count is rebuilt from visible targets: %+v", l)
 	}
 }
+
+func TestRestrictRecountsClusterConflict(t *testing.T) {
+	// The k8s source places payments in "vault"; hiding vault hides the payments
+	// service and so every evidence target of it.
+	snap := buildClusterSnap(t,
+		NewMemorySource("ev-1", SourceKindEvidenceHTTP, &Collection{Targets: []RawTarget{evidenceTarget(clusterA, fixedNow())}}),
+		NewMemorySource("ev-2", SourceKindEvidenceHTTP, &Collection{Targets: []RawTarget{evidenceTarget(clusterB, fixedNow())}}),
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us", ClusterNameFromContext), Targets: []RawTarget{workload("vault", "payments"), workload("shop", "orders")}}),
+	)
+	if l := limitationsWith(snap, LimitationClusterConflict); len(l) != 1 || l[0].Source != "ev-2" {
+		t.Fatalf("unrestricted: %+v", l)
+	}
+	visible := NewQuery(snap).Restrict(func(ns string) bool { return ns != "shop" }).SnapshotForSerialization()
+	if l := limitationsWith(visible, LimitationClusterConflict); len(l) != 1 || l[0].Source != "ev-2" || !strings.Contains(l[0].Message, " 1 evidence records") {
+		t.Errorf("a visible conflicting target keeps its CLUSTER_CONFLICT: %+v", l)
+	}
+	hidden := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" }).SnapshotForSerialization()
+	if l := limitationsWith(hidden, LimitationClusterConflict); len(l) != 0 {
+		t.Errorf("a hidden conflicting target is not counted: %+v", l)
+	}
+}
+
+func TestRestrictRecountsInvalidClusterIDs(t *testing.T) {
+	bad := func(scope, name string) RawTarget {
+		r := workload(scope, name)
+		r.Cluster = clusterOf("-bad", "", "")
+		return r
+	}
+	snap := buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "payments")}}),
+		NewMemorySource("file", SourceKindTargetState, &Collection{Targets: []RawTarget{bad("shop", "orders"), bad("vault", "keys"), bad("vault", "audit")}}),
+	)
+	invalid := func(s *FleetSnapshot) []Limitation {
+		return slices.DeleteFunc(limitationsWith(s, LimitationSourceRecordInvalid), func(l Limitation) bool { return !strings.Contains(l.Message, "invalid cluster ids") })
+	}
+	if l := invalid(snap); len(l) != 1 || !strings.Contains(l[0].Message, "3 of them") {
+		t.Fatalf("unrestricted: %+v", l)
+	}
+	s := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" }).SnapshotForSerialization()
+	if l := invalid(s); len(l) != 1 || l[0].Source != "file" || !strings.Contains(l[0].Message, "1 on targets you can see") || strings.Contains(l[0].Message, "3") {
+		t.Errorf("restricted, only the visible target is counted: %+v", l)
+	}
+	none := NewQuery(snap).Restrict(func(ns string) bool { return ns != "vault" && ns != "shop" }).SnapshotForSerialization()
+	if l := invalid(none); len(l) != 0 {
+		t.Errorf("no visible target with an invalid id, no limitation: %+v", l)
+	}
+}

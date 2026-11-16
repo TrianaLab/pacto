@@ -153,6 +153,12 @@ func NewTargetKey(scope, kind, name string) TargetKey {
 	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
 }
 
+// UnknownClusterKeyPart is the cluster component of a target with no known
+// cluster in a snapshot that holds more than one cluster. [ValidClusterID]
+// never accepts it, so it can never name a real cluster, and the target keeps a
+// key of its own: its 3-part key gathers every cluster's namesake.
+const UnknownClusterKeyPart = "_"
+
 // NewClusterTargetKey builds the key of a target in a snapshot that holds more
 // than one cluster: the escaped cluster id, "/", then [NewTargetKey]. An empty
 // cluster yields the 3-part [NewTargetKey], so a snapshot with zero or one
@@ -827,6 +833,11 @@ type TargetRecord struct {
 	// known cluster while the snapshot knew one; Restrict rebuilds
 	// CLUSTER_UNKNOWN from them.
 	clusterUnknownFrom []string
+	// clusterInvalidFrom are the sources that named an invalid cluster id for
+	// this target, and clusterConflictFrom those that reported it in a cluster
+	// another evidence source names for the same record; Restrict rebuilds
+	// their limitations from them.
+	clusterInvalidFrom, clusterConflictFrom []string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

@@ -101,8 +101,18 @@ func TestEntityDetailClusterlessKeyAmbiguous409(t *testing.T) {
 		Scope: "payments", Kind: "kubernetes", Name: "payments", Service: "payments", Compliance: fleet.StatusCompliant,
 	}}}))
 	got := problemCandidates(t, base+"/api/fleet/entities/target?key="+url.QueryEscape(legacyPayments))
-	if len(got) != 3 || got[legacyPayments] != "payments/kubernetes/payments (cluster unknown)" {
-		t.Errorf("an exact clusterless hit is one of three candidates: %v", got)
+	unknownKey := "_/" + legacyPayments
+	if len(got) != 3 || got[unknownKey] != "payments/kubernetes/payments (cluster unknown)" {
+		t.Errorf("the clusterless target is one of three candidates, under a key of its own: %v", got)
+	}
+	// That key opens it, so the chooser never leads back to itself.
+	resp, err := http.Get(base + "/api/fleet/entities/target?key=" + url.QueryEscape(unknownKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("the clusterless candidate key answers %d", resp.StatusCode)
 	}
 }
 

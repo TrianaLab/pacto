@@ -260,8 +260,9 @@ func fleetLookupError(err error) error {
 	return huma.Error422UnprocessableEntity("ambiguous or invalid key: qualify it", err)
 }
 
-// ambiguousTargetKey maps a [fleet.TargetKeyAmbiguousError] to 409 with one
-// "candidates" detail per target the caller may see (its key and label), and
+// ambiguousTargetKey maps a [fleet.TargetKeyAmbiguousError] to 409 with its
+// reason and one "candidates" detail per target the caller may see (its key
+// and label), and
 // returns nil for any other error. Name ambiguity stays 422 in each caller.
 func ambiguousTargetKey(err error) error {
 	var amb *fleet.TargetKeyAmbiguousError
@@ -272,7 +273,7 @@ func ambiguousTargetKey(err error) error {
 	for i, c := range amb.Candidates {
 		details[i] = &huma.ErrorDetail{Location: "candidates", Value: c.Key, Message: c.Label}
 	}
-	return huma.Error409Conflict("this target key names targets in more than one cluster; choose one", details...)
+	return huma.Error409Conflict(amb.Message(), details...)
 }
 
 type fleetGraphInput struct {

@@ -20,6 +20,10 @@ reported it.
 |---|---|
 | Zero or one cluster | `payments/kubernetes/payments` |
 | Two or more clusters | `9f1c4e2a-…/payments/kubernetes/payments` |
+| Two or more clusters, target with no known cluster | `_/payments/kubernetes/payments` |
+
+The `_` component never names a real cluster, so a target with no known
+cluster keeps a key of its own.
 
 ## Resolving a key
 
@@ -27,8 +31,11 @@ reported it.
 |---|---|
 | A 3-part key with zero or one cluster | That target |
 | A 3-part key that one cluster matches | That target, under its 4-part key |
+| A 3-part key that one cluster matches while a source is unavailable or partial | That one candidate to choose; the missing source may hold another |
 | A 3-part key that several clusters match | The candidates; nothing is guessed |
-| A 4-part key with one cluster | The 3-part target in that cluster |
+| A 4-part key with zero or one cluster | The 3-part target in that cluster |
+| A 4-part key whose target has no known cluster | That target as the one candidate, with the reason |
+| A `_` key with zero or one cluster | The 3-part target with no known cluster |
 
 On an ambiguous key the dashboard API answers `409 Conflict` with one
 `candidates` detail per target (the key as `value`, its label as `message`),
@@ -36,12 +43,13 @@ and the dashboard page lets you choose. Name ambiguity keeps `422`. The CLI
 and MCP print the candidates; the CLI exits 1:
 
 ```text
-ambiguous target key; candidates:
+ambiguous target key: this target key names targets in more than one cluster; choose one; candidates:
   us-prod / payments / payments   77ad01b3-…/payments/kubernetes/payments
   eu-prod / payments / payments   9f1c4e2a-…/payments/kubernetes/payments
 ```
 
-A candidate list holds only targets your view may see.
+A candidate list holds only targets your view may see, and every candidate
+key opens its own target.
 
 ## Cluster names
 
@@ -56,7 +64,10 @@ The name is display only, and `clusterNameSource` says where it came from:
 | `uid` | The first 8 characters of the UID |
 
 A name the live source read always wins over a name another source reported,
-and a reported name carries `clusterNameReportedBy`. Renaming a cluster keeps
+and a reported name carries `clusterNameReportedBy`. A reported name is at most
+63 bytes; a name the live source read is at most 253, so an EKS ARN context
+name fits. When two clusters resolve to the same name, each name gains the
+first 8 characters of its UID, such as `eu-prod (9f1c4e2a)`. Renaming a cluster keeps
 its UID; a rebuilt cluster has a new UID and so new keys.
 
 ## Targets with no cluster

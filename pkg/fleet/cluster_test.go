@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -188,8 +189,8 @@ func TestUnknownClusterInMultiClusterSnapshotIsPartial(t *testing.T) {
 	if snap.Completeness != CompletenessPartial {
 		t.Errorf("completeness = %s", snap.Completeness)
 	}
-	if snap.Targets[NewTargetKey("payments", "kubernetes", "payments")] == nil {
-		t.Errorf("a clusterless target keeps its 3-part key: %v", snap.Targets)
+	if snap.Targets[NewClusterTargetKey(UnknownClusterKeyPart, "payments", "kubernetes", "payments")] == nil {
+		t.Errorf("a clusterless target is keyed under the unknown-cluster component: %v", snap.Targets)
 	}
 }
 
@@ -412,5 +413,54 @@ func TestDisplayNameSingleClusterUnchanged(t *testing.T) {
 	}))
 	if got := singleTarget(t, snap).DisplayName(); got != "payments/kubernetes/payments" {
 		t.Errorf("DisplayName = %q", got)
+	}
+}
+
+func TestLiveClusterNameMayRunPast63Bytes(t *testing.T) {
+	arn := "arn:aws:eks:eu-central-1:123456789012:cluster/payments-production"
+	snap := buildClusterSnap(t, NewMemorySource("k8s", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, arn, ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}))
+	if tr := singleTarget(t, snap); tr.ClusterName != arn || tr.ClusterNameSource != ClusterNameFromContext {
+		t.Errorf("a %d-byte context name the process read itself is kept: %+v", len(arn), tr)
+	}
+	file := buildClusterSnap(t, NewMemorySource("file", SourceKindTargetState, &Collection{Cluster: clusterOf(clusterA, arn, ClusterNameFromFile), Targets: []RawTarget{workload("payments", "payments")}}))
+	if tr := singleTarget(t, file); tr.ClusterNameSource != ClusterNameFromUID {
+		t.Errorf("a reported name keeps the 63-byte bound: %+v", tr)
+	}
+}
+
+func TestClusterNameSharedByTwoClustersGainsUIDPrefix(t *testing.T) {
+	snap := buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}),
+		NewMemorySource("file", SourceKindTargetState, &Collection{Cluster: clusterOf(clusterB, "eu-prod", ClusterNameFromFile), Targets: []RawTarget{workload("payments", "payments")}}),
+	)
+	labels := map[string]bool{}
+	for _, tr := range snap.Targets {
+		labels[tr.DisplayName()] = true
+	}
+	if !labels["eu-prod ("+clusterA[:8]+") / payments / payments"] || !labels["eu-prod ("+clusterB[:8]+") / payments / payments"] {
+		t.Errorf("two clusters named alike read apart: %v", labels)
+	}
+	if snap.Clusters[0].Name == snap.Clusters[1].Name {
+		t.Errorf("cluster records read apart: %+v", snap.Clusters)
+	}
+}
+
+func TestValidClusterNameBoundsReportedNames(t *testing.T) {
+	if !ValidClusterName("eu-prod", ClusterNameFromFile) || ValidClusterName(strings.Repeat("n", 64), ClusterNameFromFile) {
+		t.Error("a reported name is at most 63 bytes")
+	}
+}
+
+func TestMergedTargetKeepsEverySourceOfAnInvalidClusterID(t *testing.T) {
+	bad := workload("payments", "payments")
+	bad.Cluster = clusterOf("-bad", "", "")
+	snap := buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "orders")}}),
+		NewMemorySource("f1", SourceKindTargetState, &Collection{Targets: []RawTarget{bad}}),
+		NewMemorySource("f2", SourceKindTargetState, &Collection{Targets: []RawTarget{bad}}),
+	)
+	tr := snap.Targets[NewTargetKey("payments", "kubernetes", "payments")]
+	if tr == nil || !slices.Equal(tr.clusterInvalidFrom, []string{"f1", "f2"}) {
+		t.Errorf("clusterInvalidFrom = %+v", tr)
 	}
 }

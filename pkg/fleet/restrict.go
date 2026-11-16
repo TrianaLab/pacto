@@ -302,7 +302,9 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		}
 		// A fleet-wide count of reports; rebuilt below from the visible ones.
 		// Counts of clusterless targets; rebuilt below from the visible ones.
-		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated || l.Code == LimitationClusterUnknown {
+		// Per-source counts of records that may be hidden; rebuilt below.
+		if l.Code == LimitationProvisioningTruncated || l.Code == LimitationUsageTruncated || l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict ||
+			l.Code == LimitationSourceRecordInvalid && strings.Contains(l.Message, clusterInvalidPhrase) {
 			return true
 		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -315,6 +317,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, droppedReports(out, out.provisioningDropped, LimitationProvisioningTruncated, "provisioning", MaxProvisioningRecords)...)
 	out.Limitations = append(out.Limitations, droppedReports(out, out.usageDropped, LimitationUsageTruncated, "usage", MaxUsageRecords)...)
 	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
+	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
@@ -359,6 +362,29 @@ func clusterUnknownOf(out *FleetSnapshot) []Limitation {
 		}
 	case total > 0:
 		lims = append(lims, clusterUnknownInfo(total))
+	}
+	return lims
+}
+
+// clusterRecordProblemsOf rebuilds CLUSTER_CONFLICT and the invalid cluster
+// id SOURCE_RECORD_INVALID from the targets out holds, one per source that
+// reported a visible affected target.
+func clusterRecordProblemsOf(out *FleetSnapshot) []Limitation {
+	conflicts, invalid := map[string]int{}, map[string]int{}
+	for _, t := range out.Targets {
+		for _, src := range t.clusterConflictFrom {
+			conflicts[src]++
+		}
+		for _, src := range t.clusterInvalidFrom {
+			invalid[src]++
+		}
+	}
+	var lims []Limitation
+	for _, src := range slices.Sorted(maps.Keys(conflicts)) {
+		lims = append(lims, clusterConflict(src, conflicts[src]))
+	}
+	for _, src := range slices.Sorted(maps.Keys(invalid)) {
+		lims = append(lims, clusterInvalid(src, strconv.Itoa(invalid[src])+" on targets you can see"))
 	}
 	return lims
 }

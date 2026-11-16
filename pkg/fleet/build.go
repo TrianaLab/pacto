@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -141,6 +142,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	}
 
 	clusterMergeLimitations(snap, clusters)
+	markClusterConflicts(snap, clusters, sources)
 	boundTargetLabels(snap)
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
@@ -304,7 +306,10 @@ type clusterIndex struct {
 	// clusterless are the keys of the targets each source delivered with no
 	// known cluster (always 3-part keys).
 	clusterless [][]TargetKey
-	multi       bool
+	// conflicts are the keys of the targets each source reported in a cluster
+	// another evidence source names for the same record (CLUSTER_CONFLICT).
+	conflicts [][]TargetKey
+	multi     bool
 }
 
 // targetCluster is the cluster one raw target resolves to.
@@ -314,6 +319,8 @@ type targetCluster struct {
 	keyed    bool
 	// unknown: the target has no known cluster while the snapshot knows one.
 	unknown bool
+	// invalid: the source named a cluster id [ValidClusterID] refuses.
+	invalid bool
 }
 
 // observedEdgesOf is the observed edges of one source. In a snapshot with several
@@ -334,9 +341,10 @@ func observedEdgesOf(id string, col *Collection, c clusterIndex) []observedInput
 // forTarget resolves the cluster of one raw target: its own cluster when set,
 // else the collection's. An invalid id resolves to none.
 func (c clusterIndex) forTarget(src Source, col *Collection, raw RawTarget) targetCluster {
-	cl, ok := c.resolved[rawClusterID(col, raw)]
+	id := rawClusterID(col, raw)
+	cl, ok := c.resolved[id]
 	if !ok {
-		return targetCluster{unknown: len(c.records) > 0}
+		return targetCluster{unknown: len(c.records) > 0, keyed: c.multi, invalid: id != "" && !ValidClusterID(id)}
 	}
 	relation := ClusterRelationReportedThrough
 	if src.Kind() == SourceKindKubernetes {
@@ -372,7 +380,16 @@ var clusterNameRank = map[string]int{
 // ValidClusterName reports whether [Build] keeps a reported cluster name: at
 // most 63 bytes of printable runes with a known name source.
 func ValidClusterName(name, nameSource string) bool {
-	return name != "" && len(name) <= 63 && utf8.ValidString(name) && clusterNameRank[nameSource] > 0 &&
+	return validClusterName(name, nameSource, 63)
+}
+
+// maxLiveClusterNameLen bounds a name the process read itself: a kubeconfig
+// context name such as an EKS ARN or a GKE gke_<project>_<zone>_<cluster>
+// often runs past the 63 bytes a reported name may take.
+const maxLiveClusterNameLen = 253
+
+func validClusterName(name, nameSource string, maxLen int) bool {
+	return name != "" && len(name) <= maxLen && utf8.ValidString(name) && clusterNameRank[nameSource] > 0 &&
 		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
@@ -395,7 +412,7 @@ func (a clusterNameClaim) outranks(b clusterNameClaim) bool {
 // clusterSet validates every cluster the sources report, ranks their names and
 // decides once whether the snapshot holds more than one cluster.
 func clusterSet(results []sourceResult, sources []Source) clusterIndex {
-	idx := clusterIndex{resolved: map[string]Cluster{}, problems: make([][]Limitation, len(sources)), clusterless: make([][]TargetKey, len(sources))}
+	idx := clusterIndex{resolved: map[string]Cluster{}, problems: make([][]Limitation, len(sources)), clusterless: make([][]TargetKey, len(sources)), conflicts: make([][]TargetKey, len(sources))}
 	claims := map[string]*clusterNameClaim{}
 	reporters := map[string][]string{}
 	for i, r := range results {
@@ -412,8 +429,7 @@ func clusterSet(results []sourceResult, sources []Source) clusterIndex {
 			claimClusterName(claims, sources[i], c)
 		}
 		if invalid > 0 {
-			idx.problems[i] = append(idx.problems[i], Limitation{Code: LimitationSourceRecordInvalid, Source: sources[i].ID(),
-				Message: "source " + sources[i].ID() + " reported " + strconv.Itoa(invalid) + " invalid cluster ids; those clusters were dropped and their targets carry no cluster"})
+			idx.problems[i] = append(idx.problems[i], clusterInvalid(sources[i].ID(), strconv.Itoa(invalid)+" of them"))
 		}
 	}
 	for id, srcs := range reporters {
@@ -425,10 +441,26 @@ func clusterSet(results []sourceResult, sources []Source) clusterIndex {
 		idx.records = append(idx.records, ClusterRecord{Cluster: cl, Sources: srcs})
 	}
 	sort.Slice(idx.records, func(a, b int) bool { return idx.records[a].ID < idx.records[b].ID })
+	disambiguateClusterNames(&idx)
 	idx.multi = len(idx.records) > 1
 	idx.collectClusterless(results, sources)
 	idx.detectClusterConflicts(results, sources)
 	return idx
+}
+
+// disambiguateClusterNames appends the uid prefix to a name more than one
+// cluster resolved to, so two clusters never read alike in labels and search.
+func disambiguateClusterNames(idx *clusterIndex) {
+	uses := map[string]int{}
+	for _, r := range idx.records {
+		uses[r.Name]++
+	}
+	for i := range idx.records {
+		if r := &idx.records[i]; uses[r.Name] > 1 {
+			r.Name += " (" + r.ID[:min(8, len(r.ID))] + ")"
+			idx.resolved[r.ID] = r.Cluster
+		}
+	}
 }
 
 // sourceClusters lists every cluster a collection names: its own and each
@@ -449,10 +481,14 @@ func sourceClusters(col *Collection) []Cluster {
 // claimClusterName records src's claim on the name of c when it is valid and
 // outranks the claim already held.
 func claimClusterName(claims map[string]*clusterNameClaim, src Source, c Cluster) {
-	if !ValidClusterName(c.Name, c.NameSource) {
+	live, maxLen := src.Kind() == SourceKindKubernetes, 63
+	if live {
+		maxLen = maxLiveClusterNameLen
+	}
+	if !validClusterName(c.Name, c.NameSource, maxLen) {
 		return
 	}
-	claim := clusterNameClaim{name: c.Name, nameSource: c.NameSource, live: src.Kind() == SourceKindKubernetes}
+	claim := clusterNameClaim{name: c.Name, nameSource: c.NameSource, live: live}
 	if !claim.live {
 		claim.reportedBy = src.ID()
 	}
@@ -498,7 +534,6 @@ func (c *clusterIndex) detectClusterConflicts(results []sourceResult, sources []
 		if r.err != nil || r.col == nil || sources[i].Kind() != SourceKindEvidenceHTTP {
 			continue
 		}
-		conflicts := 0
 		for _, t := range r.col.Targets {
 			id := rawClusterID(r.col, t)
 			if _, ok := c.resolved[id]; !ok || t.EvidenceAt == nil || t.ReconciledAt == nil {
@@ -508,13 +543,40 @@ func (c *clusterIndex) detectClusterConflicts(results []sourceResult, sources []
 			if prev, ok := seen[rec]; !ok {
 				seen[rec] = id
 			} else if prev != id {
-				conflicts++
+				// Two ids mean several clusters, so every target is keyed by cluster.
+				c.conflicts[i] = append(c.conflicts[i], NewClusterTargetKey(id, t.Scope, t.Kind, t.Name))
 			}
 		}
-		if conflicts > 0 {
-			id := sources[i].ID()
-			c.problems[i] = append(c.problems[i], Limitation{Code: LimitationClusterConflict, Source: id,
-				Message: "source " + id + " reports " + strconv.Itoa(conflicts) + " evidence records that another evidence source reports as accepted in a different cluster; one subject has exactly one accepting Evidence Server"})
+		if n := len(c.conflicts[i]); n > 0 {
+			c.problems[i] = append(c.problems[i], clusterConflict(sources[i].ID(), n))
+		}
+	}
+}
+
+// clusterConflict is the CLUSTER_CONFLICT of source id for n evidence records.
+func clusterConflict(id string, n int) Limitation {
+	return Limitation{Code: LimitationClusterConflict, Source: id,
+		Message: "source " + id + " reports " + strconv.Itoa(n) + " evidence records that another evidence source reports as accepted in a different cluster; one subject has exactly one accepting Evidence Server"}
+}
+
+// clusterInvalidPhrase marks the SOURCE_RECORD_INVALID about invalid cluster
+// ids, which Restrict rebuilds from the targets a view may see.
+const clusterInvalidPhrase = " reported invalid cluster ids: "
+
+// clusterInvalid is the SOURCE_RECORD_INVALID of source id for what (a count
+// of ids, or of targets in a restricted view).
+func clusterInvalid(id, what string) Limitation {
+	return Limitation{Code: LimitationSourceRecordInvalid, Source: id,
+		Message: "source " + id + clusterInvalidPhrase + what + "; those clusters were dropped and their targets carry no cluster"}
+}
+
+// markClusterConflicts records on each conflicting target the source that
+// reported it, so Restrict can recount CLUSTER_CONFLICT from visible targets.
+func markClusterConflicts(snap *FleetSnapshot, c clusterIndex, sources []Source) {
+	for i, keys := range c.conflicts {
+		for _, k := range keys {
+			t := snap.Targets[k]
+			t.clusterConflictFrom = appendUnique(t.clusterConflictFrom, sources[i].ID())
 		}
 	}
 }
@@ -802,6 +864,9 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 func mergeTargetCluster(existing, add *TargetRecord) {
 	for _, src := range add.clusterUnknownFrom {
 		existing.clusterUnknownFrom = appendUnique(existing.clusterUnknownFrom, src)
+	}
+	for _, src := range add.clusterInvalidFrom {
+		existing.clusterInvalidFrom = appendUnique(existing.clusterInvalidFrom, src)
 	}
 	if existing.Cluster == "" {
 		existing.Cluster, existing.ClusterName, existing.ClusterNameSource = add.Cluster, add.ClusterName, add.ClusterNameSource
@@ -1406,7 +1471,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	findings, invalidSeverities := canonicalFindings(raw.Findings)
 	keyCluster := ""
 	if tc.keyed {
-		keyCluster = tc.cluster.ID
+		keyCluster = cmp.Or(tc.cluster.ID, UnknownClusterKeyPart)
 	}
 	// Every mutable field is deep-copied so a source mutating its own records
 	// after Build cannot mutate the snapshot.
@@ -1443,6 +1508,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	}
 	if tc.unknown {
 		t.clusterUnknownFrom = []string{source}
+	}
+	if tc.invalid {
+		t.clusterInvalidFrom = []string{source}
 	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
