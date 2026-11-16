@@ -86,6 +86,26 @@ describe('ChartCard', () => {
     done();
   });
 
+  it('clamps the page when the rows under it shrink, and shows the chart when none are left', () => {
+    const props = $state({ title: 't', chart, tables: [{ caption: 'c', head: ['Environment', 'n'], rows: rows(200) }] });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ChartCard, { target, props });
+    flushSync();
+    (target.querySelector('button') as HTMLButtonElement).click(); flushSync();
+    const next = () => Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Next') as HTMLButtonElement;
+    for (let i = 0; i < 15; i++) { next().click(); flushSync(); }
+    expect(text(target.querySelector('.cc-pager'))).toContain('151 to 160 of 200');
+    props.tables = [{ caption: 'c', head: ['Environment', 'n'], rows: rows(20) }]; flushSync();
+    expect(target.querySelectorAll('tbody th')).toHaveLength(10);
+    expect(text(target.querySelector('.cc-pager'))).toContain('11 to 20 of 20');
+    props.tables = [{ caption: 'c', head: ['Environment', 'n'], rows: rows(4) }]; flushSync();
+    expect(target.querySelectorAll('tbody th')).toHaveLength(4);
+    props.tables = []; flushSync();
+    expect(target.querySelector('[data-testid="the-chart"]')).not.toBeNull();
+    unmount(c); target.remove();
+  });
+
   it('draws no toggle when there is no table to show', () => {
     const { target, done } = render({ tables: [] });
     expect(target.querySelector('button')).toBeNull();

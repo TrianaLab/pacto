@@ -609,6 +609,46 @@ describe('FleetMetricsView delivery health and lead time at scale', () => {
     done();
   });
 
+  it('keeps an open group on rows after the filter shrinks it, and lets the toggle close it while filtering', async () => {
+    statsFn.mockResolvedValue(at(fleet(200, (i) => i % 5)));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    const h = card(target, 'health');
+    // Collapsed depth groups show their worst first whatever the order: no Sort that does nothing.
+    expect(Array.from(h.querySelectorAll('select')).some((s) => Array.from(s.options).some((o) => o.value === 'worst'))).toBe(false);
+    groupButtons(target)[0].click(); flushSync();
+    const more = (label: string) => Array.from(h.querySelectorAll('tr.more button')).find((b) => b.textContent === label) as HTMLButtonElement;
+    more('Show all 40').click(); flushSync();
+    more('Next').click(); flushSync();
+    expect(h.querySelector('tr.more')?.textContent).toContain('21 to 40 of 40');
+    const input = h.querySelector('input[aria-label="Filter environments"]') as HTMLInputElement;
+    input.value = 'env-00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const rows = () => card(target, 'health').querySelectorAll('tbody')[0].querySelectorAll('tr:not(.rung):not(.more)');
+    expect(rows()).toHaveLength(2);
+    expect(groupButtons(target)[0].getAttribute('aria-expanded')).toBe('true');
+    groupButtons(target)[0].click(); flushSync();
+    expect(groupButtons(target)[0].getAttribute('aria-expanded')).toBe('false');
+    expect(rows()).toHaveLength(0);
+    done();
+  });
+
+  it('groups by a grouping it offers when promotion depth gives one group, with no depth row', async () => {
+    const envs = fleet(10, () => undefined);
+    const owner = (key: string, es: Extra[]) => ({ key, label: key, environments: es });
+    statsFn.mockResolvedValue(at(envs, { environmentsBy: { owner: [owner('payments', envs.slice(0, 5)), owner('checkout', envs.slice(5))], domain: [],
+      attribution: { asOf: '2026-11-15T09:00:00Z', partial: false } } }));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(card(target, 'health').querySelector('.hm-scroll')).not.toBeNull());
+    expect(target.querySelector('[data-testid="metrics-depths"]')).toBeNull();
+    const select = Array.from(card(target, 'health').querySelectorAll('select')).find((s) => Array.from(s.options).some((o) => o.value === 'owner')) as HTMLSelectElement | undefined;
+    expect(select).toBeUndefined();
+    expect(groupButtons(target).map((b) => b.querySelector('bdi')?.textContent)).toEqual(['payments', 'checkout']);
+    expect(card(target, 'lead').textContent).toContain('grouped by owner');
+    done();
+  });
+
   it('files a cycle under Depth unknown', async () => {
     const envs = [...fleet(9, () => 0), env('looped', { cycle: true })];
     statsFn.mockResolvedValue(at(envs));

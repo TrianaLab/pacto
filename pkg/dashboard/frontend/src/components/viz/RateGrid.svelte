@@ -154,8 +154,9 @@
 <style>
   .rg { container-type: inline-size; min-inline-size: 0; }
   .hm-scroll {
-    inline-size: fit-content; max-inline-size: 100%; max-block-size: 520px; overflow: auto;
-    border: 1px solid var(--c-border); border-radius: var(--radius-sm); overscroll-behavior: contain;
+    inline-size: fit-content; max-inline-size: 100%; max-block-size: min(520px, 70dvh); overflow: auto;
+    /* Only the horizontal scroll is held: a vertical swipe at its end moves the page. */
+    border: 1px solid var(--c-border); border-radius: var(--radius-sm); overscroll-behavior-x: contain;
   }
   .hm { --name-w: 34ch; inline-size: calc(var(--name-w) + var(--cols) * 13ch); border-collapse: separate; border-spacing: 0; table-layout: fixed; }
   .hm col.name { inline-size: var(--name-w); }

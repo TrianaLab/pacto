@@ -10,6 +10,7 @@
    */
   import { bandScale, niceMax, showTick, runs } from '../../lib/chart.ts';
   import { tipState, hideTip, tipLabel, TIP_ID, type TipModel } from '../../lib/chartTip.ts';
+  import { formatCount } from '../../lib/format.ts';
 
   type Bucket = { label: string; short: string; partial?: boolean };
   type Series = { key: string; label: string; color: string; values: (number | null)[]; partial?: boolean[] };
@@ -17,6 +18,7 @@
   let {
     buckets = [] as Bucket[],
     series = [] as Series[],
+    unknown = [] as (string | null)[],
     compact = false,
     tipOf = undefined as ((i: number) => TipModel) | undefined,
     height = 200,
@@ -43,7 +45,10 @@
   const hi = $derived(compact ? Math.max(lo + 1, ...known.map((v) => v * 1.05)) : niceMax(Math.max(1, ...known)));
   const y = (v: number) => m.t + ph - ((v - lo) / (hi - lo)) * ph;
   const x = (i: number) => m.l + sc.mid(i);
-  const ticks = $derived(compact ? [] : [0, hi / 2, hi]);
+  // Counts: a mid tick only where it is a whole number.
+  const ticks = $derived(compact ? [] : Number.isInteger(hi / 2) ? [0, hi / 2, hi] : [0, hi]);
+  // Why a bucket draws no point: the caller's reason (records with no value to draw), else no records.
+  const reason = (i: number) => unknown[i] || 'no records';
   const empty = (i: number) => series.every((s) => s.values[i] == null);
   // A gap is one hatched band over its run of empty buckets, with one plate where it has room.
   const gaps = $derived(runs(buckets.map((_, i) => empty(i))));
@@ -53,7 +58,7 @@
   const lastIdx = (s: Series) => s.values.reduce<number>((l, v, i) => (v == null ? l : i), -1);
 
   function tip(i: number): TipModel {
-    if (empty(i)) return { title: buckets[i].label, rows: [{ value: '', label: 'no records', texture: 'hatch' }], foot: 'Not counted as 0' };
+    if (empty(i)) return { title: buckets[i].label, rows: [{ value: '', label: reason(i), texture: 'hatch' }], foot: 'Not counted as 0' };
     if (tipOf) return tipOf(i);
     return { title: buckets[i].label, rows: series.map((s) => ({ value: s.values[i] == null ? 'unknown' : String(s.values[i]), label: s.label, color: s.color })) };
   }
@@ -132,18 +137,19 @@
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <rect class="lc-hit" x={m.l} y={compact ? 0 : m.t} width={Math.max(0, W - m.l - m.r)} height={compact ? H : ph}
       tabindex="0" role="img" aria-label={label} aria-describedby={TIP_ID} bind:this={hitEl}
-      onpointermove={at} onpointerleave={hide} onfocus={() => show(cur < 0 ? n - 1 : cur)} onblur={hide} onkeydown={key} />
+      onpointermove={at} onpointerleave={(e) => { if (e.pointerType !== 'touch') hide(); }}
+      onpointerup={(e) => { if (e.pointerType === 'touch') at(e); }} onfocus={() => show(cur < 0 ? n - 1 : cur)} onblur={hide} onkeydown={key} />
   </svg>
   <span class="visually-hidden" aria-live="polite">{cur >= 0 ? tipLabel(tip(cur)) : ''}</span>
 
   {#if !compact}
     <div class="lc-labels" aria-hidden="true" bind:this={labelsEl}>
       {#each ticks as t (t)}
-        <span class="lc-y" style:right="{W - m.l + 6}px" style:top="{y(t)}px">{t}</span>
+        <span class="lc-y" style:right="{W - m.l + 6}px" style:top="{y(t)}px">{formatCount(t)}</span>
       {/each}
       {#each gaps.filter((g) => g.len * sc.band >= 40) as g (g.start)}
         <span class="lc-plate" style:left="{m.l + sc.x(g.start) + (g.len * sc.band) / 2}px" style:top="{m.t + ph / 2}px"
-          style:max-inline-size="{g.len * sc.band - 6}px">no records</span>
+          style:max-inline-size="{g.len * sc.band - 6}px">{reason(g.start)}</span>
       {/each}
       {#each buckets as b, i (i)}
         <span class="lc-x" class:off={!showTick(i, n, sc.band, widestX)} style:left="{Math.min(Math.max(x(i), widestX / 2), W - widestX / 2)}px" style:top="{H - m.b + 9}px">{b.short}</span>

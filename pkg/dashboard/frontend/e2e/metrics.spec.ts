@@ -441,6 +441,25 @@ test('200 environments collapse into pooled groups that page open', async ({ pag
   await expect(rows).toHaveCount(10);
 });
 
+test('the name filter keeps a paged group on rows and says when nothing matches', async ({ page }) => {
+  await openMetrics(page, '', '#/metrics', '200');
+  const health = page.getByTestId('metrics-health');
+  const entry = (await answer(page, '?window=30d')).environments.filter((e) => (e as Env).depth === 0) as Env[];
+  await health.locator('tr.rung button').first().click();
+  await health.getByRole('button', { name: `Show all ${entry.length}` }).click();
+  await health.locator('tr.more').getByRole('button', { name: 'Next' }).click();
+  // A name only one environment holds: the page kept from before would land past it.
+  const name = entry[0].environment;
+  const all = (await answer(page, '?window=30d')).environments.map((e) => (e as Env).environment);
+  const k = all.filter((e) => e.toLowerCase().includes(name.toLowerCase())).length;
+  await health.getByLabel('Filter environments').fill(name);
+  await expect(health.getByTestId('metrics-env-count')).toHaveText(`${k} of 200 environments`);
+  await expect(health.locator(`.hm tbody th[scope="row"] .nm[title="${name}"]`)).toHaveCount(1);
+  await health.getByLabel('Filter environments').fill('no-environment-is-named-this');
+  await expect(health.getByText('No environment matches this filter.')).toBeVisible();
+  await expect(health.getByTestId('metrics-env-count')).toHaveText('0 of 200 environments');
+});
+
 test('the depth chip scopes delivery health and lead time and keeps the depth in the URL', async ({ page }) => {
   await openMetrics(page, '', '#/metrics', '200');
   const filter = page.getByRole('group', { name: 'Filter by promotion depth' });

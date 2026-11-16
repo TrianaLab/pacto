@@ -1,6 +1,6 @@
 <script>
   import ShowAll from './ShowAll.svelte';
-  import { TABLE_PAGE } from '../lib/metrics.ts';
+  import { TABLE_PAGE, lastPage } from '../lib/metrics.ts';
   import { formatCount } from '../lib/format.ts';
 
   // One Metrics chart (#597): a titled figure, the question it answers and a "Show as
@@ -15,7 +15,10 @@
   let pages = $state({});
   let all = $state({});
 
-  const shown = (t, i) => (all[i] ? t.rows : t.rows.slice((pages[i] ?? 0) * TABLE_PAGE, ((pages[i] ?? 0) + 1) * TABLE_PAGE));
+  // The page is clamped where it is read: a filter, a depth or a window that shrinks the
+  // rows under it never leaves the table past its end.
+  const pageOf = (t, i) => Math.min(pages[i] ?? 0, lastPage(t.rows.length, TABLE_PAGE));
+  const shown = (t, i) => (all[i] ? t.rows : t.rows.slice(pageOf(t, i) * TABLE_PAGE, (pageOf(t, i) + 1) * TABLE_PAGE));
   const capOf = (i) => ({ all: !!all[i], max: TABLE_PAGE, toggle: () => { all[i] = !all[i]; pages[i] = 0; } });
 </script>
 
@@ -32,9 +35,10 @@
     {/if}
   </div>
 
-  {#if asTable}
+  <!-- No table left (a window with nothing in it) shows the chart, which says why. -->
+  {#if asTable && tables.length}
     {#each tables as t, i (i)}
-      {@const page = pages[i] ?? 0}
+      {@const page = pageOf(t, i)}
       <div class="data-scroll">
         <table class="data-table cc-table">
           <caption class="visually-hidden">{t.caption}</caption>

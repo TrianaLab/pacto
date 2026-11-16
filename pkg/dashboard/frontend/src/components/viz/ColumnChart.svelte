@@ -12,6 +12,7 @@
    */
   import { bandScale, niceMax, colPath, showTick, directLabelIndexes, runs, SERIES } from '../../lib/chart.ts';
   import { chartTip, type TipModel } from '../../lib/chartTip.ts';
+  import { formatCount } from '../../lib/format.ts';
 
   type Bucket = { label: string; short: string; partial?: boolean };
   type Series = { key: string; label: string; color?: string; texture?: 'dots'; values: (number | null)[] };
@@ -48,7 +49,8 @@
   const max = $derived(niceMax(Math.max(1, ...totals.filter((v): v is number => v != null))));
   const y = (v: number) => m.t + ph - (v / max) * ph;
   const cx = (i: number) => m.l + sc.mid(i);
-  const ticks = $derived(compact ? [] : stacked ? [0, max / 2, max] : [0, max]);
+  // Counts: a mid tick only where it is a whole number, never half a change.
+  const ticks = $derived(compact ? [] : stacked && Number.isInteger(max / 2) ? [0, max / 2, max] : [0, max]);
   const peak = $derived(Math.max(...totals.map((v) => v ?? -1)));
 
   // Segments bottom to top, a 2px surface gap between them; the top one gets the rounded end.
@@ -119,6 +121,8 @@
           fill="url(#viz-hatch)" opacity={compact ? 0.55 : 0.22} stroke="var(--c-neutral)" stroke-opacity={compact ? 1 : 0.6} rx="2" />
       {:else if totals[i] === 0}
         <rect class="cc-stub" x={cx(i) - bw / 2} y={m.t + ph - 2} width={bw} height="2" rx="1" fill="var(--chart-axis)" />
+        <!-- 0 known with some unknown is a lower bound, never drawn like a real 0. -->
+        {#if caps[i]}<rect class="cc-cap" x={cx(i) - bw / 2} y={m.t + ph - 9} width={bw} height="6" rx="1" fill="url(#viz-hatch)" stroke="var(--c-neutral)" />{/if}
       {:else}
         {#each columns[i] as c (c.key)}
           <path class="cc-col" data-series={c.key} data-y={c.y} data-h={c.h}
@@ -138,7 +142,7 @@
   {#if !compact}
     <div class="cc-labels" aria-hidden="true" bind:this={labelsEl}>
       {#each ticks as t (t)}
-        <span class="cc-y" style:right="{W - m.l + 6}px" style:top="{y(t)}px">{t}</span>
+        <span class="cc-y" style:right="{W - m.l + 6}px" style:top="{y(t)}px">{formatCount(t)}</span>
       {/each}
       {#each gaps as g (g.start)}
         <span class="cc-plate" style:left="{m.l + sc.x(g.start) + (g.len * sc.band) / 2}px" style:top="{m.t + ph / 2}px"

@@ -586,6 +586,24 @@ describe('ColumnChart', () => {
     expect(target.querySelectorAll('.cc-cap')).toHaveLength(1);
   });
 
+  it('draws a cap on a 0 with unknown on top, so it never looks like a real 0', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'p', label: 'protected', values: [0, 0] }], caps: [true, false] } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(2);
+    expect(target.querySelectorAll('.cc-cap')).toHaveLength(1);
+  });
+
+  it('never prints half a count on the axis and formats large counts', () => {
+    const stack = (v: number) => [{ key: 'a', label: 'a', values: [v] }, { key: 'b', label: 'b', values: [0] }];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: stack(1) } });
+    flushSync();
+    expect(texts('.cc-y')).toEqual(['0', '1']);
+    unmount(comp);
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: stack(1500) } });
+    flushSync();
+    expect(texts('.cc-y')).toEqual(['0', '800', '1,600']);
+  });
+
   it('prints no axis text in compact mode', () => {
     comp = mount(ColumnChart, { target, props: { compact: true, buckets: weeks(4), series: [{ key: 'b', label: 'caught', values: [1, 0, null, 3] }] } });
     flushSync();
@@ -616,6 +634,32 @@ describe('LineChart', () => {
     flushSync();
     expect(target.querySelectorAll('.lc-unknown')).toHaveLength(1);
     expect(texts('.lc-plate')).toEqual(['no records']);
+  });
+
+  it('says why a bucket with records draws no point, and never half a count', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, null, null, 5, 1]), unknown: [null, 'no coverage snapshot', null, null, null], label: 'Coverage' } });
+    flushSync();
+    expect(texts('.lc-plate')).toEqual(['no coverage snapshot']);
+    expect(texts('.lc-y')).toEqual(['0', '5']);
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    hit.dispatchEvent(new FocusEvent('focus'));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    flushSync();
+    expect(get(tipState)?.model.rows[0].label).toBe('no coverage snapshot');
+  });
+
+  it('shows the tapped bucket on a touch tap and keeps it past pointerleave', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(4), series: series([3, 8, 5, 2]), label: 'Coverage' } });
+    flushSync();
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    // jsdom: the hit rect is 0 wide, so any tap reads as the first bucket.
+    const ev = (type: string) => Object.assign(new MouseEvent(type, { clientX: 0, clientY: 0, bubbles: true }), { pointerType: 'touch' });
+    hit.dispatchEvent(ev('pointerup'));
+    hit.dispatchEvent(ev('pointerleave'));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 1');
   });
 
   it('draws one y scale', () => {

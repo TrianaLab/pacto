@@ -148,13 +148,15 @@ export function environments(st: ProductStats): EnvRow[] {
 }
 
 /** depthFilter is the promotion-depth row: how many environments sit at each known depth.
- *  Null at or under SMALL_MULTIPLES_MAX environments, where every panel is drawn anyway. */
+ *  Null at or under SMALL_MULTIPLES_MAX environments, where every panel is drawn anyway,
+ *  and when no environment has a depth, where it would filter nothing. */
 export function depthFilter(st: ProductStats): { total: number; depths: { depth: number; label: string; count: number }[]; unknown: number } | null {
   const envs = environments(st);
   if (envs.length <= SMALL_MULTIPLES_MAX) return null;
   const by = new Map<number, number>();
   for (const e of envs) if (e.depth != null) by.set(e.depth, (by.get(e.depth) ?? 0) + 1);
   const depths = [...by].sort(([a], [b]) => a - b).map(([depth, count]) => ({ depth, label: depthLabel(depth), count }));
+  if (!depths.length) return null;
   return { total: envs.length, depths, unknown: envs.filter((e) => e.depth == null).length };
 }
 
@@ -280,14 +282,26 @@ export function healthGroups(st: ProductStats, { by, depth, q = '', sort, collap
   return { groups, shown: distinct(groups), total: environments(st).length };
 }
 
+/** visibleParents are each placed environment's direct parents among the environments the
+ *  answer holds: the transitive upstream reduced over those rows, so an environment with no
+ *  record in the window never breaks a chain in two. */
+function visibleParents(envs: EnvRow[]): Map<string, string[]> {
+  const up = new Map(envs.map((e) => [e.environment, new Set(e.upstream ?? [])]));
+  return new Map(envs.map((e) => {
+    const vis = [...up.get(e.environment)!].filter((u) => up.has(u));
+    return [e.environment, vis.filter((u) => !vis.some((v) => v !== u && up.get(v)!.has(u)))];
+  }));
+}
+
 /** chainSummary says how many independent Stage chains the environments form and how
- *  deep they run (levels from entry to end), from direct parents only. */
+ *  deep they run (levels from entry to end), from direct links among them only. */
 export function chainSummary(st: ProductStats): { chains: number; min: number; max: number } | null {
   const envs = environments(st).filter((e) => e.depth != null);
   if (!envs.length) return null;
+  const parents = visibleParents(envs);
   const root = new Map(envs.map((e) => [e.environment, e.environment]));
   const find = (x: string): string => (root.get(x) === x ? x : find(root.get(x)!));
-  for (const e of envs) for (const p of e.parents) if (root.has(p)) root.set(find(p), find(e.environment));
+  for (const e of envs) for (const p of parents.get(e.environment)!) root.set(find(p), find(e.environment));
   const deepest = new Map<string, number>();
   for (const e of envs) deepest.set(find(e.environment), Math.max(deepest.get(find(e.environment)) ?? 0, e.depth! + 1));
   const ds = [...deepest.values()];
@@ -297,9 +311,10 @@ export function chainSummary(st: ProductStats): { chains: number; min: number; m
 /** ladder is the promotion strip of a small fleet: the environments on a chain, by depth.
  *  An environment that neither feeds nor is fed stays out of it. */
 export function ladder(st: ProductStats): string[][] {
-  const envs = environments(st);
-  const fed = new Set(envs.flatMap((e) => e.parents));
-  const on = envs.filter((e) => e.depth != null && (e.parents.length || fed.has(e.environment)));
+  const envs = environments(st).filter((e) => e.depth != null);
+  const parents = visibleParents(envs);
+  const fed = new Set([...parents.values()].flat());
+  const on = envs.filter((e) => parents.get(e.environment)!.length || fed.has(e.environment));
   const levels: string[][] = [];
   for (const e of on) (levels[e.depth!] ??= []).push(e.environment);
   return levels.filter(Boolean);
@@ -315,22 +330,28 @@ export type LeadRow = { group: string } | { name: string; p50: number | null; p9
 const unjoinedText = (n: number) => (n ? `${countOf(n, 'promotion')} with no publish record ${n === 1 ? 'is' : 'are'} left out` : '');
 const slowest = (a: EnvMetrics, b: EnvMetrics) => (b.leadTime.p50Seconds ?? -1) - (a.leadTime.p50Seconds ?? -1);
 
+/** lastPage is the last page of n rows at size per page, so a page kept while the rows
+ *  shrink (a filter, a depth, a window) never lands past the end. */
+export const lastPage = (n: number, size: number) => Math.max(0, Math.ceil(n / size) - 1);
+
 /** leadRows are the lead-time chart's rows: the LEAD_TOP slowest p50 over every group, or
- *  every one paged at LEAD_PAGE, under their group headers, slowest first and unknown last. */
-export function leadRows(groups: Group[], { all = false, page = 0 } = {}): { rows: LeadRow[]; total: number; from: number; to: number } {
-  const flat0 = groups.flatMap((g) => g.envs.map((e) => ({ g: g.label, e })));
+ *  every one paged at LEAD_PAGE, under their group headers, slowest first and unknown last.
+ *  `total` counts rows (an environment under two owners is two), `envs` distinct names. */
+export function leadRows(groups: Group[], { all = false, page = 0 } = {}): { rows: LeadRow[]; total: number; envs: number; from: number; to: number } {
+  // Groups are told apart by key: two owners can share one label.
+  const flat0 = groups.flatMap((g) => g.envs.map((e) => ({ k: g.key, g: g.label, e })));
   const picked = all ? flat0 : [...flat0].sort((a, b) => slowest(a.e, b.e)).slice(0, LEAD_TOP);
-  const flat = groups.flatMap((g) => picked.filter((p) => p.g === g.label).sort((a, b) => slowest(a.e, b.e)));
-  const from = all ? page * LEAD_PAGE : 0;
+  const flat = groups.flatMap((g) => picked.filter((p) => p.k === g.key).sort((a, b) => slowest(a.e, b.e)));
+  const from = all ? Math.min(page, lastPage(flat.length, LEAD_PAGE)) * LEAD_PAGE : 0;
   const shown = all ? flat.slice(from, from + LEAD_PAGE) : flat;
   const rows: LeadRow[] = [];
-  let last = '';
-  for (const { g, e } of shown) {
-    if (g !== last) { rows.push({ group: g }); last = g; }
+  let last: string | null = null;
+  for (const { k, g, e } of shown) {
+    if (k !== last) { rows.push({ group: g }); last = k; }
     const foot = unjoinedText(e.leadTime.unjoined);
     rows.push({ name: e.environment, p50: e.leadTime.p50Seconds ?? null, p90: e.leadTime.p50Seconds == null ? null : e.leadTime.p90Seconds ?? null, ...(foot ? { foot } : {}) });
   }
-  return { rows, total: flat0.length, from: shown.length ? from + 1 : 0, to: from + shown.length };
+  return { rows, total: flat0.length, envs: new Set(flat0.map((p) => p.e.environment)).size, from: shown.length ? from + 1 : 0, to: from + shown.length };
 }
 
 /** leadGroup picks the pooled lead time the tile reads: a depth when filtered, else the
@@ -354,7 +375,8 @@ export function headline(st: ProductStats, { window, depth }: HeadlineOptions = 
   const t = st.totals;
   if (!t) return null;
   const w = window || undefined;
-  const link = (metric: string, n: number) => (n > 0 ? { href: metricsUrl({ window: w, metric }), lists: n } : {});
+  const d = depth == null ? undefined : String(depth);
+  const link = (metric: string, n: number, environment?: string) => (n > 0 ? { href: metricsUrl({ window: w, metric, environment, depth: d }), lists: n } : {});
   const ci = !noCI(t);
   const g = t.gates;
   const breaking = {
@@ -371,6 +393,9 @@ export function headline(st: ProductStats, { window, depth }: HeadlineOptions = 
   const lg = leadGroup(st, depth);
   const lt = lg?.leadTime;
   const known = lt?.p50Seconds != null;
+  // The records endpoint names one environment, so only a group of one links to exactly
+  // the promotions its value pools.
+  const members = lg ? leadMembers(st, lg) : [];
   const lead = {
     key: lg?.key ?? '', title: leadTitle(st, depth),
     value: durationText(known ? lt!.p50Seconds : null), unknown: !known,
@@ -378,21 +403,31 @@ export function headline(st: ProductStats, { window, depth }: HeadlineOptions = 
     joined: lt?.joined ?? 0, environments: lg?.environments ?? 0,
     sub: leadSub(st, lg),
     spark: (lg?.buckets ?? []).map((b) => b.p50Seconds ?? null),
-    ...(known && lt!.joined ? { href: metricsUrl({ window: w, metric: 'leadTime' }) } : {}),
+    why: (lg?.buckets ?? []).map((b, i) => (b.p50Seconds != null || !st.buckets?.[i]?.metrics ? null : b.unjoined ? 'no promotion joined a publish record' : 'no promotion here')),
+    ...(known && members.length === 1 ? link('leadTime', lt!.joined, members[0]) : {}),
   };
   return { breaking, gates, lead };
 }
 
+/** leadMembers are the environments a pooled lead-time group holds. */
+function leadMembers(st: ProductStats, lg: LeadGroup): string[] {
+  const envs = environments(st);
+  const keep = lg.key === 'chain-end' ? (e: EnvRow) => e.chainEnd : lg.key === 'all' ? () => true : (e: EnvRow) => e.depth === lg.depth;
+  return envs.filter(keep).map((e) => e.environment);
+}
+
 /** leadSub names the lead tile's basis (Decision 4): how many promotions into how many
- *  environments, and what it cannot see. */
+ *  environments, and what it cannot see. An environment with no known depth has no
+ *  readable Stage or sits on, or below, a cycle or a link it cannot read: either way it is
+ *  in no depth group. */
 function leadSub(st: ProductStats, lg: LeadGroup | undefined): string {
   if (!lg || lg.leadTime.p50Seconds == null) return 'No promotion here joined a publish record, so the lead time is unknown.';
-  const envs = environments(st);
-  const noStage = envs.filter((e) => e.depth == null && !e.cycle && !e.unordered).length;
+  const noDepth = environments(st).filter((e) => e.depth == null).length;
+  const partialOrder = (st.limitations ?? []).some((l) => l.code === 'ENVIRONMENT_ORDER_UNKNOWN');
   const where = { 'chain-end': ' at the end of their promotion chain', all: '' }[lg.key] ?? ` at ${lg.label}`;
-  const scope = lg.key !== 'all' && (st.hidden?.present || noStage) ? ' of the Stages you can read' : '';
+  const scope = lg.key !== 'all' && (st.hidden?.present || noDepth || partialOrder) ? ' of the Stages you can read' : '';
   const out = `p50 of ${countOf(lg.leadTime.joined, 'promotion')} into ${countOf(lg.environments, 'environment')}${where}${scope}, p90 ${durationText(lg.leadTime.p90Seconds)}`;
-  return noStage && lg.key !== 'all' ? `${out}; ${countOf(noStage, 'environment')} with no readable Stage ${noStage === 1 ? 'is' : 'are'} left out` : out;
+  return noDepth && lg.key !== 'all' ? `${out}; ${countOf(noDepth, 'environment')} with no known promotion depth ${noDepth === 1 ? 'is' : 'are'} left out` : out;
 }
 
 const COVERAGE_HIDDEN = 'COVERAGE_OUTSIDE_YOUR_VIEW';
@@ -415,6 +450,8 @@ export function coverageSeries(st: ProductStats) {
     /** Services Pacto cannot judge, per bucket. */
     unknown: bs.map((b) => k(b)?.unknown ?? null),
     foot: bs.map((b) => (b.coverage ? `${countOf(b.coverage.uncontracted, 'caller')} observed with no contract` : '')),
+    /** Why a bucket draws no point, when it holds records: never "no records". */
+    why: bs.map((b) => (k(b) ? null : b.coverage ? 'coverage unknown' : b.metrics ? 'no coverage snapshot' : null)),
   };
 }
 
@@ -471,10 +508,15 @@ export function tableRows(st: ProductStats, chart: ChartKey, { window, depth, by
     }
     case 'lead': {
       const lg = leadGroup(st, depth);
-      const envs = groupBy(st, 'depth', depth).flatMap((g) => g.envs);
+      const w = window || undefined;
+      // The rows the chart draws: an owner's or a domain's own lead time, linked to records
+      // only by depth, where a row is the whole environment.
+      const p50 = (e: EnvMetrics): Cell => ({ ...dur(e.leadTime.p50Seconds),
+        ...(by === 'depth' && e.leadTime.joined ? { href: metricsUrl({ window: w, metric: 'leadTime', environment: e.environment }), lists: e.leadTime.joined } : {}) });
       return [
-        { caption: 'Lead time by environment', head: ['Environment', 'p50', 'p90', 'No publish record'],
-          rows: envs.map((e) => [head(e.environment), dur(e.leadTime.p50Seconds), dur(e.leadTime.p50Seconds == null ? null : e.leadTime.p90Seconds), num(e.leadTime.unjoined)]) },
+        { caption: 'Lead time by environment', head: ['Environment', GROUP_WORD[by], 'p50', 'p90', 'No publish record'],
+          rows: groupBy(st, by, depth).flatMap((g) => g.envs.map((e) => [head(e.environment), { text: g.label, ...(g.unknown ? { unknown: true } : {}) },
+            p50(e), dur(e.leadTime.p50Seconds == null ? null : e.leadTime.p90Seconds), num(e.leadTime.unjoined)])) },
         perBucket(`${leadTitle(st, depth)} per ${unit(st)}`, ['p50', 'p90', 'Promotions joined'], (_, i) => {
           const b: LeadTime | undefined = lg?.buckets?.[i];
           return [dur(b?.p50Seconds), dur(b?.p50Seconds == null ? null : b?.p90Seconds), num(b?.joined ?? 0)];

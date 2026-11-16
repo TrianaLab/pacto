@@ -158,7 +158,20 @@ describe('headline', () => {
     const restricted = answer({ hidden: { present: true } });
     expect(headline(restricted)!.lead.sub).toContain('of the Stages you can read');
     const orphan = answer({ environments: [...answer().environments, env('sandbox', [0, 1])] });
-    expect(headline(orphan)!.lead.sub).toBe('p50 of 5 promotions into 2 environments at the end of their promotion chain of the Stages you can read, p90 3h; 1 environment with no readable Stage is left out');
+    expect(headline(orphan)!.lead.sub).toBe('p50 of 5 promotions into 2 environments at the end of their promotion chain of the Stages you can read, p90 3h; 1 environment with no known promotion depth is left out');
+    // Below a cycle: a readable Stage, no depth, and counted with the rest.
+    const below = answer({ environments: [...answer().environments, env('a', [0, 1], { cycle: true }), env('c', [0, 1], { upstream: ['a'] })] });
+    expect(headline(below)!.lead.sub).toContain('2 environments with no known promotion depth are left out');
+    const partial = answer({ limitations: [{ code: 'ENVIRONMENT_ORDER_UNKNOWN', message: 'some Stages could not be read' }] });
+    expect(headline(partial)!.lead.sub).toContain('of the Stages you can read');
+  });
+
+  it('links the lead tile only to the records its value pools, and keeps the depth', () => {
+    expect(headline(answer(), { window: '7d' })!.lead).toMatchObject({ href: '#/metrics?window=7d&metric=leadTime&environment=production', lists: 5 });
+    // Two chain ends: the records endpoint names one environment, so the pooled value links nowhere.
+    const two = answer({ environments: answer().environments.map((e: { environment: string }) => ({ ...e, chainEnd: e.environment !== 'dev' })) });
+    expect(headline(two)!.lead.href).toBeUndefined();
+    expect(headline(answer(), { window: '7d', depth: 1 })!.breaking.href).toContain('depth=1');
   });
 
   it('pools durations: the server pools, the model never takes a median of p50s', () => {
@@ -194,6 +207,19 @@ describe('coverage', () => {
     expect(t.head).toEqual(['Week', 'Services observed', 'Contracts described', 'Pacto cannot judge', 'Callers with no contract']);
     expect(t.rows[1].map((x) => x.text)).toEqual(['Week of 18 Oct', '5', '6', '3', '4']);
     expect(t.rows[2].map((x) => x.text)).toEqual(['Week of 25 Oct', 'unknown', 'unknown', 'unknown', '1']);
+
+    // A gap with records behind it says why, never "no records".
+    expect(c.why).toEqual([null, null, 'coverage unknown']);
+    const runsOnly = answer({ buckets: [week('2026-10-18T10:00:00Z', '2026-10-25T10:00:00Z', { metrics: metrics() })] });
+    expect(coverageSeries(runsOnly)!.why).toEqual(['no coverage snapshot']);
+  });
+
+  it('says why a lead-time bucket draws no point', () => {
+    // The fixture's chain end: no records in the first bucket, unknown in the second with 0 unjoined.
+    const st = answer({ leadTimeGroups: [leadGroup('chain-end', 'chain end', 3600, { buckets: [lt(), { joined: 0, unjoined: 6, unknown: true }, lt(100)] })] });
+    expect(headline(st)!.lead.why).toEqual([null, 'no promotion joined a publish record', null]);
+    const none = answer({ leadTimeGroups: [leadGroup('chain-end', 'chain end', 3600, { buckets: [lt(), lt(), lt(100)] })] });
+    expect(headline(none)!.lead.why[1]).toBe('no promotion here');
   });
 
   it('is absent for a reader who cannot see every service', () => {
@@ -216,6 +242,9 @@ describe('environments and groups', () => {
     expect(depthFilter(answer())).toBeNull();
     const many = Array.from({ length: SMALL_MULTIPLES_MAX + 1 }, (_, i) => env(`e${i}`, [0, 1], i < 7 ? { depth: i % 2 } : {}));
     expect(depthFilter(answer({ environments: many }))).toEqual({ total: 9, depths: [{ depth: 0, label: 'entry', count: 4 }, { depth: 1, label: 'hop 2', count: 3 }], unknown: 2 });
+
+    // No environment has a depth (no readable Stage graph): no row that filters nothing.
+    expect(depthFilter(answer({ environments: many.map((e) => ({ ...e, depth: undefined })) }))).toBeNull();
   });
 
   it('groups by depth with unknown last, and the depth filter scopes the groups', () => {
@@ -325,6 +354,17 @@ describe('lead rows', () => {
     const p1 = leadRows(groupBy(st, 'depth'), { all: true, page: 1 });
     expect(p1.rows.filter((x) => 'name' in x)).toHaveLength(5);
     expect(p1.rows.at(-1)).toMatchObject({ name: 'e03' });
+    // A page kept while the rows shrink (a window, a depth) lands on the last page.
+    const shrunk = leadRows(groupBy(answer({ environments: many.slice(0, 5) }), 'depth'), { all: true, page: 8 });
+    expect([shrunk.from, shrunk.to, shrunk.total]).toEqual([1, 5, 5]);
+  });
+
+  it('keeps two owners that share a label apart', () => {
+    const groups = [{ key: 'team:alice', label: 'alice', unknown: false, envs: [env('prod', [0, 1], { leadTime: lt(10, 20) })] },
+      { key: 'dri:alice', label: 'alice', unknown: false, envs: [env('prod', [0, 1], { leadTime: lt(30, 40) }), env('test', [0, 1], { leadTime: lt(5, 6) })] }];
+    const r = leadRows(groups as never, { all: true });
+    expect(r.rows.map((x) => ('group' in x ? `[${x.group}]` : `${x.name}:${x.p50}`))).toEqual(['[alice]', 'prod:10', '[alice]', 'prod:30', 'test:5']);
+    expect([r.total, r.envs, r.to]).toEqual([3, 2, 3]);
   });
 
   it('says how many promotions it leaves out', () => {
@@ -370,8 +410,8 @@ describe('table rows', () => {
 
   it('lists lead time per environment and the selected group per bucket', () => {
     const [envs, perBucket] = tableRows(answer(), 'lead');
-    expect(envs.head).toEqual(['Environment', 'p50', 'p90', 'No publish record']);
-    expect(envs.rows.map((r) => r.map((c) => c.text))).toEqual([['dev', '1m', '2m', '0'], ['staging', '3h 20m', '1d 1h', '0'], ['production', 'unknown', 'unknown', '0']]);
+    expect(envs.head).toEqual(['Environment', 'Promotion depth', 'p50', 'p90', 'No publish record']);
+    expect(envs.rows.map((r) => r.filter((_, i) => i !== 1).map((c) => c.text))).toEqual([['dev', '1m', '2m', '0'], ['staging', '3h 20m', '1d 1h', '0'], ['production', 'unknown', 'unknown', '0']]);
     expect(perBucket.caption).toBe('Lead time to production per week');
     expect(perBucket.rows.map((r) => r.map((c) => c.text))).toEqual([
       ['16 to 17 Oct (2 days)', 'unknown', 'unknown', '0'], ['Week of 18 Oct', '1m 40s', '5m', '3'], ['Week of 25 Oct', '3m 20s', 'unknown', '3'],
@@ -415,8 +455,8 @@ describe('noteLimitations', () => {
 
 describe('delivery health at scale', () => {
   const placed = answer({ environments: [
-    env('a', [1, 10], { depth: 0 }), env('b', [5, 10], { depth: 1, parents: ['a'] }), env('c', [0, 0], { depth: 1, parents: ['a'], rolledBack: { count: 2, of: 0, unknown: true } }),
-    env('solo', [0, 4], { depth: 0 }), env('x', [1, 2], { depth: 0 }), env('y', [1, 2], { depth: 1, parents: ['x'] }), env('z', [1, 2], { depth: 2, parents: ['y'] }),
+    env('a', [1, 10], { depth: 0 }), env('b', [5, 10], { depth: 1, parents: ['a'], upstream: ['a'] }), env('c', [0, 0], { depth: 1, parents: ['a'], upstream: ['a'], rolledBack: { count: 2, of: 0, unknown: true } }),
+    env('solo', [0, 4], { depth: 0 }), env('x', [1, 2], { depth: 0 }), env('y', [1, 2], { depth: 1, parents: ['x'], upstream: ['x'] }), env('z', [1, 2], { depth: 2, parents: ['y'], upstream: ['x', 'y'] }),
   ] });
 
   it('pools each group, sorts its rows worst first when asked and counts distinct environments', () => {
@@ -441,5 +481,12 @@ describe('delivery health at scale', () => {
     expect(chainSummary(placed)).toEqual({ chains: 3, min: 1, max: 3 });
     expect(chainSummary(answer({ environments: [env('a', [1, 2])] }))).toBeNull();
     expect(ladder(placed)).toEqual([['a', 'x'], ['b', 'c', 'y'], ['z']]);
+  });
+
+  it('joins a chain across an environment with no record in the window', () => {
+    // dev -> staging -> prod, and staging promoted nothing: prod's direct parent is not a row.
+    const gap = answer({ environments: [env('dev', [0, 1], { depth: 0 }), env('prod', [0, 1], { depth: 2, parents: ['staging'], upstream: ['dev', 'staging'] })] });
+    expect(chainSummary(gap)).toEqual({ chains: 1, min: 3, max: 3 });
+    expect(ladder(gap)).toEqual([['dev'], ['prod']]);
   });
 });

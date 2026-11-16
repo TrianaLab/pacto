@@ -6,13 +6,14 @@
   import { formatCount, countOf } from '../lib/format.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { andList, placedByName } from '../lib/delivery.ts';
+  import { fitIdents } from '../lib/elide.ts';
   import { durationText, HEAT } from '../lib/chart.ts';
   import {
     isDaily, hiddenLine, ratioText, noCI, protectedText, NO_CI, RATES, METRIC_LABEL, BINS, GROUP_WORD,
     GROUP_TOP, GROUP_PAGE, LEAD_TOP, LEAD_PAGE,
     buckets, series, unknownReasons, headline, coverageSeries, tableRows, caption, noteLimitations,
     environments, depthFilter, groupBy, groupOptions, attributionLine, healthGroups, pooledFoot, cell,
-    smallMultipleDomain, healthMode, collapsedByDefault, leadRows, chainSummary, ladder,
+    smallMultipleDomain, healthMode, collapsedByDefault, leadRows, chainSummary, ladder, lastPage,
   } from '../lib/metrics.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -133,7 +134,7 @@
   const steps = $derived(data && mode === 'multiples' ? ladder(data) : []);
   const options = $derived(data ? groupOptions(data) : []);
   let groupSel = $state('depth');
-  const gb = $derived(options.includes(groupSel) ? groupSel : 'depth');
+  const gb = $derived(options.includes(groupSel) ? groupSel : (options[0] ?? 'depth'));
   let query = $state('');
   let sortSel = $state('');
   const collapsed = $derived(collapsedByDefault(scoped.length));
@@ -153,9 +154,12 @@
     const hg = healthGroups(data, { by: gb, depth: d, q: query, sort, collapsed });
     const groups = hg.groups.map((g) => {
       const key = `${gb}:${g.key}`;
-      const open = query.trim() ? true : collapsed ? !!toggled[key] : !toggled[key];
+      // A filter opens every group; the toggle still closes one (toggled is cleared as the
+      // filter changes).
+      const open = query.trim() || !collapsed ? !toggled[key] : !!toggled[key];
       const n = g.envs.length;
-      const page = collapsed ? (gpage[key] ?? -1) : -2;
+      // A page kept while the filter or the depth shrinks the group never lands past its end.
+      const page = collapsed ? Math.min(gpage[key] ?? -1, lastPage(n, GROUP_PAGE)) : -2;
       const list = page === -2 ? g.envs : page === -1 ? g.envs.slice(0, GROUP_TOP) : g.envs.slice(page * GROUP_PAGE, (page + 1) * GROUP_PAGE);
       const set = (p) => () => { gpage[key] = p; };
       let more;
@@ -176,6 +180,14 @@
     return { groups, shown: hg.shown, total: hg.total };
   });
   const toggle = (key) => { toggled[key] = !toggled[key]; };
+  // The strip's Stage names elide in the middle like every other name (lib/elide.ts), so a
+  // fork that differs only at the end still reads; again once web fonts land.
+  const fitLadder = (el) => {
+    const fit = () => fitIdents(el);
+    fit();
+    document.fonts?.ready.then(() => { if (el.isConnected) fit(); });
+    return { update: fit };
+  };
   const lead = $derived.by(() => {
     if (!data) return { rows: [], total: 0, from: 0, to: 0 };
     const gs = mode === 'multiples' ? [{ key: 'all', label: '', unknown: false, envs: scoped }] : groupBy(data, gb, d);
@@ -370,7 +382,7 @@
             <span class="mx-tile-sub">{head.lead.sub}</span>
             {#if head.lead.spark.length}
               <div class="mx-tile-fig">
-                <LineChart compact buckets={bl} series={[{ key: 'lead', label: 'p50', color: 'var(--chart-1)', values: head.lead.spark }]} tipOf={leadTip} label={`${head.lead.title} per ${per}`} />
+                <LineChart compact buckets={bl} unknown={head.lead.why} series={[{ key: 'lead', label: 'p50', color: 'var(--chart-1)', values: head.lead.spark }]} tipOf={leadTip} label={`${head.lead.title} per ${per}`} />
               </div>
             {/if}
           </div>
@@ -420,9 +432,9 @@
             <p class="t-body-2">No delivery operation is recorded in this window.</p>
           {:else if mode === 'multiples'}
             {#if steps.length > 1}
-              <ol class="mx-ladder" aria-label="Promotion order from the Stages">
+              <ol class="mx-ladder" aria-label="Promotion order from the Stages" use:fitLadder={steps}>
                 {#each steps as level, i (i)}
-                  <li>{#if i}<span class="mx-arrow" aria-hidden="true">→</span>{/if}<span class="mx-fork">{#each level as n (n)}<bdi class="mx-st" title={n}>{n}</bdi>{/each}</span></li>
+                  <li>{#if i}<span class="mx-arrow" aria-hidden="true">→</span>{/if}<span class="mx-fork">{#each level as n (n)}<bdi class="mx-st fit" title={n}>{n}</bdi>{/each}</span></li>
                 {/each}
               </ol>
             {/if}
@@ -436,11 +448,12 @@
             </div>
           {:else if grid}
             <div class="mx-ctl">
-              <input type="search" class="input" placeholder="Filter environments" aria-label="Filter environments" bind:value={query} />
+              <input type="search" class="input" placeholder="Filter environments" aria-label="Filter environments" bind:value={query} oninput={() => { toggled = {}; }} />
               {#if options.length > 1}
                 <Select label="Group by" value={gb} options={options.map((o) => ({ value: o, label: GROUP_WORD[o] }))} onchange={(e) => { groupSel = e.currentTarget.value; leadPage = 0; }} />
               {/if}
-              <Select label="Sort" value={sort} options={[{ value: 'order', label: gb === 'depth' ? 'Promotion order' : 'Group order' }, { value: 'worst', label: 'Worst rate first' }]} onchange={(e) => { sortSel = e.currentTarget.value; }} />
+              <!-- Collapsed depth groups always show their worst rows first, so promotion order would change nothing. -->
+              {#if !(collapsed && gb === 'depth')}<Select label="Sort" value={sort} options={[{ value: 'order', label: gb === 'depth' ? 'Promotion order' : 'Group order' }, { value: 'worst', label: 'Worst rate first' }]} onchange={(e) => { sortSel = e.currentTarget.value; }} />{/if}
               <span class="t-meta" data-testid="metrics-env-count">{formatCount(grid.shown)} of {countOf(grid.total, 'environment')}</span>
             </div>
             {#if gb !== 'depth'}<p class="t-meta">{attributionLine(data, gb)}</p>{/if}
@@ -467,16 +480,17 @@
 
       <div class="mx-grid2">
         <ChartCard title="Lead time by environment" question="Publish to promotion, dot at p50, line to p90"
-          tables={envs.length ? tableRows(data, 'lead', { depth: d }) : []} testid="metrics-lead">
+          tables={envs.length ? tableRows(data, 'lead', { window: w, depth: d, by: mode === 'grid' ? gb : 'depth' }) : []} testid="metrics-lead">
           {#snippet chart()}
             {#if envs.length === 0}
               <p class="t-body-2">No delivery operation is recorded in this window.</p>
             {:else}
+              {#if mode === 'grid' && gb !== 'depth'}<p class="t-meta">{attributionLine(data, gb)}</p>{/if}
               <RangeDots rows={lead.rows} label="Lead time by environment, p50 and p90" />
               {#if mode === 'grid'}
                 <div class="mx-pager" data-testid="metrics-lead-pager">
                   {#if !leadAll}
-                    <span>The {formatCount(Math.min(LEAD_TOP, lead.total))} slowest p50 of {formatCount(lead.total)}, grouped by {GROUP_WORD[gb].toLowerCase()}</span>
+                    <span>The {formatCount(Math.min(LEAD_TOP, lead.total))} slowest p50 of {formatCount(lead.total)}{lead.total !== lead.envs ? ` rows across ${countOf(lead.envs, 'environment')}` : ''}, grouped by {GROUP_WORD[gb].toLowerCase()}</span>
                     {#if lead.total > LEAD_TOP}<button type="button" class="btn btn-sm" onclick={() => { leadAll = true; leadPage = 0; }}>Show all {formatCount(lead.total)}</button>{/if}
                   {:else}
                     <button type="button" class="btn btn-sm" disabled={leadPage === 0} onclick={() => { leadPage -= 1; }}>Previous</button>
@@ -501,7 +515,7 @@
                 <span class="mx-key"><span class="mx-hatch hatch" aria-hidden="true"></span><span>Pacto cannot judge, or no records</span></span>
               </div>
               <div data-testid="metrics-coverage-trend">
-                <LineChart buckets={bl} series={coverage.series} tipOf={coverageTip} label={`Coverage per ${per}`} />
+                <LineChart buckets={bl} unknown={coverage.why} series={coverage.series} tipOf={coverageTip} label={`Coverage per ${per}`} />
               </div>
               {#if now}<p class="t-meta">Now: links {formatCount(now.links.exact)} exact, {formatCount(now.links.inferred)} inferred, {formatCount(now.links.ambiguous)} ambiguous and {formatCount(now.links.unresolved)} unresolved; {countOf(now.uncontracted, 'caller')} with no contract, from the snapshot of {formatDateTime(now.snapshotAsOf)}, {now.completeness}.</p>{/if}
             {:else}
