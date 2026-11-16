@@ -400,21 +400,6 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 			t.Errorf("%+v: %q %v", c.dep, why, err)
 		}
 	}
-	// A name derived from a ref matches only the shipping published at that
-	// repository, never this environment's own shipping by name.
-	foreign := contract.Dependency{Name: "shipping", Ref: "oci://ghcr.io/other-org/shipping", Compatibility: "^1.0.0", Required: true, NameFromRef: true}
-	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); err == nil ||
-		!strings.Contains(err.Error(), "Pacto sees no shipping running here") {
-		t.Fatalf("a derived name matched another repository's shipping: %v", err)
-	}
-	for _, r := range s.Revisions {
-		if r.Service == "shipping" {
-			r.ResolvedRef = "oci://ghcr.io/other-org/shipping@sha256:s"
-		}
-	}
-	if why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); why != "" || err != nil {
-		t.Fatalf("the shipping published at the ref: %q %v", why, err)
-	}
 	for _, r := range s.Revisions {
 		if r.Service == "shipping" {
 			r.Version = "not-a-version"
@@ -430,6 +415,30 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", contract.Dependency{Name: "stock", Compatibility: "^1.0.0"}).Contract, "payments"); err == nil ||
 		!strings.Contains(err.Error(), "the operational graph is partial") {
 		t.Fatalf("optional and unseen on a partial graph: %v", err)
+	}
+}
+
+// A name derived from a ref matches only the shipping published at that
+// repository, never this environment's own shipping by name.
+func TestAcceptsWhatRunsHereDerivedName(t *testing.T) {
+	in, pactos := ordersWorld(nil)
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := contract.Dependency{Name: "shipping", Ref: "oci://ghcr.io/other-org/shipping", Compatibility: "^1.0.0", Required: true, NameFromRef: true}
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "Pacto sees no shipping running here") {
+		t.Fatalf("a derived name matched another repository's shipping: %v", err)
+	}
+	for _, r := range s.Revisions {
+		if r.Service == "shipping" {
+			r.ResolvedRef = "oci://ghcr.io/other-org/shipping@sha256:s"
+		}
+	}
+	if why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); why != "" || err != nil {
+		t.Fatalf("the shipping published at the ref: %q %v", why, err)
 	}
 }
 

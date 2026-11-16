@@ -291,7 +291,7 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		// is a Pacto running here, so revisions are what runs.
 		for _, k := range slices.Sorted(maps.Keys(snap.Revisions)) {
 			v := snap.Revisions[k].Version
-			if snap.Revisions[k].Service != dep.Name || dep.NameFromRef && !readFrom(snap.Revisions[k], dep.Ref) {
+			if !runsAs(snap.Revisions[k], dep) {
 				continue
 			}
 			seen = true
@@ -313,6 +313,11 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 		}
 	}
 	return "", nil
+}
+
+// runsAs reports whether rev is the provider dep names.
+func runsAs(rev *fleet.ContractRevision, dep contract.Dependency) bool {
+	return rev.Service == dep.Name && (!dep.NameFromRef || readFrom(rev, dep.Ref))
 }
 
 // readFrom reports whether rev was read from the OCI repository ref names. A

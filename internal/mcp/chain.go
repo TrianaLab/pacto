@@ -107,7 +107,7 @@ func (o fileOps) stagedImpact(ctx context.Context, opts EditOptions, dir string,
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
+	defer os.RemoveAll(stage)                           //nolint:errcheck // best-effort cleanup of a temporary directory
 	return opts.Impact(ctx, c.Service.Name, dir, stage) // c is completed: an inferred name places the service
 }
 
