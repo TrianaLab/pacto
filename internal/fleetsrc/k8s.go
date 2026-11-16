@@ -121,7 +121,8 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
 			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
-			t.Limitations = s.callerLimitations(v, t.ReconciledAt)
+			col.ExternalUses = append(col.ExternalUses, delivery.ExternalUses(v, t.ReconciledAt)...)
+			t.Limitations = s.runtimeLimitations(v, t.ReconciledAt)
 		}
 		col.Targets = append(col.Targets, t)
 	}
@@ -151,9 +152,11 @@ func (s *K8sSource) runtimeView(raw json.RawMessage, item k8sItem, col *fleet.Co
 	return v, true
 }
 
-// callerLimitations is [delivery.CallerLimitations], attributed to this source.
-func (s *K8sSource) callerLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
-	lims := delivery.CallerLimitations(v, reconciled, time.Now())
+// runtimeLimitations are [delivery.CallerLimitations] and
+// [delivery.ExternalLimitations], attributed to this source.
+func (s *K8sSource) runtimeLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
+	now := time.Now()
+	lims := append(delivery.CallerLimitations(v, reconciled, now), delivery.ExternalLimitations(v, reconciled, now)...)
 	for i := range lims {
 		lims[i].Source = s.id
 	}

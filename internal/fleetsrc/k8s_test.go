@@ -2,6 +2,7 @@ package fleetsrc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -128,6 +130,11 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 		t.Fatalf("evidenceAt = %v, want the reconcile time %v", tg.EvidenceAt, reconciled)
 	}
 	tg.ReconciledAt, tg.EvidenceAt = nil, nil // asserted above; nil out so DeepEqual is location-agnostic
+	// The status has no statusFormat, so it cannot say which externals payments uses.
+	if len(tg.Limitations) != 1 || tg.Limitations[0].Code != fleet.LimitationExternalsUnreported {
+		t.Fatalf("limitations = %+v", tg.Limitations)
+	}
+	tg.Limitations = nil
 	want := fleet.RawTarget{
 		Scope: "prod",
 		// Domain is derived from the resolved ref's registry+org, correlating this
@@ -462,6 +469,7 @@ func TestK8sSourceCallerCoverageLimitation(t *testing.T) {
 	fresh := time.Now().UTC().Format(time.RFC3339)
 	item := func(name, state string) string {
 		return `{"metadata":{"name":"` + name + `","namespace":"prod"},"status":{"lastReconciledAt":"` + fresh + `",
+		  "statusFormat":3,"externalsCoverage":{"state":"complete","refreshSeconds":30},
 		  "contract":{"serviceName":"` + name + `"},
 		  "observedCallersCoverage":{"state":"` + state + `","reason":"stale-node","refreshSeconds":30}}}`
 	}
@@ -489,5 +497,98 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
 		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+}
+
+// externalsItem is a reconciled Pacto at status format 3 in namespace ns,
+// reporting externals (a JSON array) with a fresh complete coverage.
+func externalsItem(service, ns, externals string) string {
+	fresh := time.Now().UTC().Format(time.RFC3339)
+	return `{"metadata":{"name":"` + service + `","namespace":"` + ns + `"},"status":{"statusFormat":3,"lastReconciledAt":"` + fresh + `",
+	  "contract":{"serviceName":"` + service + `","resolvedRef":"oci://reg.example/pactos/` + service + `@sha256:` + strings.Repeat("a", 64) + `"},
+	  "externalCatalog":"` + externalcatalog.DefaultDigest() + ` (embedded)",
+	  "externalsCoverage":{"state":"complete","refreshSeconds":30},
+	  "externals":` + externals + `}}`
+}
+
+const stripeExternal = `[{"identity":"stripe","class":"vendor-api","confidence":"likely","kind":"env",
+  "where":"deployment/payments env STRIPE_API_BASE","host":"api.stripe.com","entry":"stripe"}]`
+
+func TestK8sSourceCollectsExternalUses(t *testing.T) {
+	col := collectList(t, `{"items":[`+externalsItem("payments", "prod", stripeExternal)+`,
+	  {"metadata":{"name":"old","namespace":"prod"},"status":{"contract":{"serviceName":"old"}}}]}`)
+	if len(col.ExternalUses) != 1 {
+		t.Fatalf("uses = %+v", col.ExternalUses)
+	}
+	u := col.ExternalUses[0]
+	if u.Service != "payments" || u.Namespace != "prod" || u.Domain != "reg.example/pactos" || u.Identity != "stripe" ||
+		u.Kind != "env" || u.Host != "api.stripe.com" || u.Catalog != externalcatalog.DefaultDigest() || u.ObservedAt == nil {
+		t.Fatalf("use = %+v", u)
+	}
+	if col.Targets[0].Limitations != nil {
+		t.Fatalf("a complete report adds no limitation: %+v", col.Targets[0].Limitations)
+	}
+	lims := col.Targets[1].Limitations
+	if len(lims) != 1 || lims[0].Code != fleet.LimitationExternalsUnreported || lims[0].Source != "prod-cluster" || !strings.Contains(lims[0].Message, "status-format") {
+		t.Fatalf("an older operator's status = %+v", lims)
+	}
+}
+
+// buildK8s builds a snapshot from one Kubernetes source over list.
+func buildK8s(t *testing.T, list string) *fleet.FleetSnapshot {
+	t.Helper()
+	src := NewK8sSource("prod-cluster", &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, listData: []byte(list)}, "")
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+func TestK8sExternalUsesRestrictedByNamespace(t *testing.T) {
+	vault := strings.ReplaceAll(stripeExternal, "deployment/payments", "deployment/vault")
+	snap := buildK8s(t, `{"items":[`+externalsItem("payments", "prod", stripeExternal)+`,`+externalsItem("vault", "secret", vault)+`]}`)
+	if v, err := fleet.NewQuery(snap).GetExternal("stripe"); err != nil || len(v.External.Consumers) != 2 {
+		t.Fatalf("unrestricted stripe = %+v, %v", v, err)
+	}
+	r := fleet.NewQuery(snap).Restrict(func(ns string) bool { return ns == "prod" })
+	v, err := r.GetExternal("stripe")
+	if err != nil || len(v.External.Consumers) != 1 || v.External.HiddenConsumers != 1 {
+		t.Fatalf("restricted stripe = %+v, %v", v, err)
+	}
+	b, _ := json.Marshal(v)
+	if strings.Contains(string(b), "vault") {
+		t.Fatalf("the restricted answer names the hidden caller: %s", b)
+	}
+}
+
+// TestSnapshotJSONCarriesNoCredential: a status built from what the operator
+// reports for a credential URL, a JWT and a dotted password (plus fields no
+// operator writes, carrying the raw values) yields a snapshot holding the
+// normalized host only.
+func TestSnapshotJSONCarriesNoCredential(t *testing.T) {
+	const credURL = "postgres://user:pass@db.xyz.rds.amazonaws.com/app?password=x"
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+	cat := externalcatalog.Default()
+	if len(cat.Classify(jwt, "API_TOKEN")) != 0 || len(cat.Classify("s3cr3t.v4lue", "auth.password")) != 0 {
+		t.Fatal("a value under a secret-like key is never classified")
+	}
+	var entries []map[string]string
+	for kind, where := range map[string]string{"env": "deployment/payments env DATABASE_URL", "configMap": "configmap/settings DB_URL"} {
+		for _, m := range cat.Classify(credURL, "DATABASE_URL") {
+			entries = append(entries, map[string]string{"identity": string(m.Identity), "class": m.Class, "confidence": m.Confidence,
+				"kind": kind, "where": where, "host": m.Host, "entry": m.Entry, "value": credURL, "token": jwt, "password": "s3cr3t.v4lue"})
+		}
+	}
+	ext, _ := json.Marshal(entries)
+	snap := buildK8s(t, `{"items":[`+externalsItem("payments", "prod", string(ext))+`]}`)
+	b, _ := json.Marshal(snap)
+	if !strings.Contains(string(b), "db.xyz.rds.amazonaws.com") {
+		t.Fatalf("the snapshot lost the host: %s", b)
+	}
+	for _, bad := range []string{"user:", "pass@", "/app", "password=", "?password", jwt, "s3cr3t"} {
+		if strings.Contains(string(b), bad) {
+			t.Errorf("snapshot carries %q", bad)
+		}
 	}
 }
