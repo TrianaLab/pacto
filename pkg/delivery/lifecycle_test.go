@@ -371,3 +371,36 @@ func TestApprovalOwnChangeBeforeAccess(t *testing.T) {
 		t.Fatalf("%q", code)
 	}
 }
+
+// TestApprovalRefusalAsksOnlyWhatCouldCount: an approval refused by a check
+// that needs no review costs none; one that passes them is asked once and
+// judged on the answer.
+func TestApprovalRefusalAsksOnlyWhatCouldCount(t *testing.T) {
+	spec, held, a, at := accessCase()
+	asked := 0
+	ask := func() WorkloadAccess { asked++; return allowed }
+	own := a
+	own.By = "bob"
+	other := a
+	other.Groups = []string{"ledger"}
+	for _, c := range []struct {
+		a    ApprovalSpec
+		p    ClassPolicy
+		code string
+	}{{own, ClassPolicy{}, "OwnChange"}, {other, ClassPolicy{TeamNarrowing: true}, "NotYourTeam"}} {
+		if code, _, access := ApprovalRefusalAsking(spec, held, "u1", c.a, at, c.p, 0, ask); code != c.code || access != (WorkloadAccess{}) {
+			t.Fatalf("%q %+v", code, access)
+		}
+	}
+	if asked != 0 {
+		t.Fatalf("asked %d reviews for approvals that cannot count", asked)
+	}
+	if code, _, access := ApprovalRefusalAsking(spec, held, "u1", a, at, ClassPolicy{}, 0, ask); code != "" || access != allowed || asked != 1 {
+		t.Fatalf("%q %+v %d", code, access, asked)
+	}
+	denied := allowed
+	denied.Allowed = false
+	if code, _, _ := ApprovalRefusalAsking(spec, held, "u1", a, at, ClassPolicy{}, 0, func() WorkloadAccess { return denied }); code != "CannotUpdateWorkload" {
+		t.Fatalf("%q", code)
+	}
+}

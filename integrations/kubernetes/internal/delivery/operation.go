@@ -172,13 +172,17 @@ func (r *OperationReconciler) requeue() (reconcile.Result, error) {
 // saveHeld writes an operation that now waits on a person, and says so in an
 // Event. With team narrowing off a second Event says owner teams do not
 // narrow who may answer, so an upgrade that turned it off shows where people
-// look at held changes.
+// look at held changes. On a workload kind Pacto cannot ask about, a Warning
+// says no approval can count instead.
 // ponytail: one Event per hold, no state; a per-Stage condition if it is
 // missed.
 func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	event(r.Events, op, true, "Held", op.Status.Reason+": "+op.Status.Question)
-	if !r.Policy.TeamNarrowing {
-		a, _ := delivery.AccessFor(stage.Spec, stage.Namespace)
+	a, _ := delivery.AccessFor(stage.Spec, stage.Namespace)
+	switch {
+	case a.Unverified != "":
+		event(r.Events, op, true, "ApproverUnverified", "no approval can count: "+a.Unverified+"; only break-glass can override")
+	case !r.Policy.TeamNarrowing:
 		event(r.Events, op, false, "TeamNarrowingOff", "owner teams do not narrow who may answer: whoever may "+a.Phrase()+
 			" decides; set delivery.identities.teamGroupPrefix to narrow it to the owner teams")
 	}

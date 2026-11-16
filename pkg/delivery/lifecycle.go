@@ -73,6 +73,20 @@ func ApprovalRefusal(spec OperationSpec, st OperationStatus, uid string, a Appro
 	return code, why
 }
 
+// ApprovalRefusalAsking is ApprovalRefusal that asks the workload access only
+// for an approval every other check lets through, and returns the access it
+// asked (zero when it asked none). An approval refused anyway costs no review,
+// so a pile of approvals that cannot count never loads the apiserver. Where
+// several checks fail, the reason names one that needs no review.
+func ApprovalRefusalAsking(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration, ask func() WorkloadAccess) (code, why string, access WorkloadAccess) {
+	if code, why = ApprovalRefusal(spec, st, uid, a, created, p, freshness, WorkloadAccess{Allowed: true}); code != "" {
+		return code, why, WorkloadAccess{}
+	}
+	access = ask()
+	code, why = ApprovalRefusal(spec, st, uid, a, created, p, freshness, access)
+	return code, why, access
+}
+
 // AnsweredTeams is approved plus every team of owners an approver in groups
 // belongs to: what one approval answers of a question asked of several teams.
 func AnsweredTeams(p ClassPolicy, owners, groups, approved []string) []string {

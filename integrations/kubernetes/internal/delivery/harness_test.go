@@ -101,6 +101,8 @@ type env struct {
 	health *fakeHealth
 	// rights answers each SubjectAccessReview by user: absent allows.
 	rights map[string]bool
+	// evalError is the evaluation error every refused review carries.
+	evalError string
 	// reviews are the SubjectAccessReviews the promoter asked, in order.
 	reviews []authorizationv1.SubjectAccessReviewSpec
 	// mu guards fails and reg.hosts: RunChecks runs the gates concurrently.
@@ -205,6 +207,9 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 					e.reviews = append(e.reviews, sar.Spec)
 					allowed, ok := e.rights[sar.Spec.User]
 					sar.Status.Allowed = allowed || !ok
+					if !sar.Status.Allowed {
+						sar.Status.EvaluationError = e.evalError
+					}
 					return nil
 				}
 				if obj.GetUID() == "" { // the apiserver assigns one; the fake client does not

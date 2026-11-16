@@ -23,14 +23,17 @@ const accessTimeout = 5 * time.Second
 // access asks the apiserver of the Stage's cluster whether id may update the
 // Stage's workload: the default approver rule. The review names the user and
 // groups admission bound to the approval, unfreeze or acknowledge, and no
-// extra, which they do not record. A review that fails, or a kind with no
-// resource, is unverified, never allowed.
-// ponytail: no cache, one review per approval considered on each reconcile;
-// cache by user and workload for a few seconds if reviews load the apiserver.
-func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, stage *dv1.Stage) delivery.WorkloadAccess {
+// extra, which they do not record. A review that fails, one the authorizers
+// could not evaluate, or a kind with no resource, is unverified, never
+// allowed. err is the failed request, apart from the unverified answer, so a
+// caller that concludes can retry rather than judge on it.
+// ponytail: no cache, one review per approval that would count on each
+// reconcile; cache by user and workload for a few seconds if reviews load the
+// apiserver.
+func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, stage *dv1.Stage) (delivery.WorkloadAccess, error) {
 	a, group := delivery.AccessFor(stage.Spec, stage.Namespace)
 	if a.Unverified != "" {
-		return a
+		return a, nil
 	}
 	a.Source = delivery.AccessBySubjectReview
 	sar := &authorizationv1.SubjectAccessReview{Spec: authorizationv1.SubjectAccessReviewSpec{
@@ -41,8 +44,14 @@ func (r *OperationReconciler) access(ctx context.Context, id delivery.Identity, 
 	defer cancel()
 	if err := r.Create(ctx, sar); err != nil {
 		a.Unverified = "the SubjectAccessReview failed: " + err.Error()
-		return a
+		return a, err
+	}
+	// An authorizer that errored may have allowed: a refusal that carries an
+	// evaluation error is no answer.
+	if !sar.Status.Allowed && sar.Status.EvaluationError != "" {
+		a.Unverified = "the SubjectAccessReview could not be evaluated: " + sar.Status.EvaluationError
+		return a, nil
 	}
 	a.Allowed, a.At = sar.Status.Allowed, ts(r.now())
-	return a
+	return a, nil
 }

@@ -114,7 +114,8 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 // to the user. It also says why the newest Approval for op it passed over does
 // not count, so the person who gave it is not left waiting on nothing. An
 // approval counts only from someone the apiserver lets update the Stage's
-// workload (access), and its record keeps that answer.
+// workload (access), and its record keeps that answer. Only an approval every
+// other check lets through costs a review.
 // ponytail: times are whole seconds, so an approval created in the same
 // second as a new hold still counts.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (*delivery.ApprovalRecord, string) {
@@ -129,9 +130,11 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, s
 			continue
 		}
 		id := delivery.Identity{User: s.By, Groups: s.Groups}
-		access := r.access(ctx, id, stage)
-		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy, r.Freshness, access)
-		if !ok {
+		// A failed review is unverified: the approval is skipped and asked
+		// again on the next reconcile.
+		code, why, access := delivery.ApprovalRefusalAsking(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy, r.Freshness,
+			func() delivery.WorkloadAccess { access, _ := r.access(ctx, id, stage); return access })
+		if code != "" {
 			skipped = "Approval " + a.Name + " by " + s.By + " does not count: " + why
 			continue
 		}

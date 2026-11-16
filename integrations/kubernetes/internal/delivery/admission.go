@@ -80,8 +80,8 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 	if reason := delivery.AdmitAcknowledge(s, stage.Spec); reason != "" {
 		return reason, nil
 	}
-	if reason := r.unfreezeRefusal(ctx, op, stage); reason != "" {
-		return reason, nil
+	if reason, err := r.unfreezeRefusal(ctx, op, stage); reason != "" || err != nil {
+		return reason, err
 	}
 	if s.Type == delivery.TypeFreeze && s.Params.From != stage.Status.Pointer {
 		return fmt.Sprintf("PointerMoved: a freeze stays on %q but the Stage runs %q", s.Params.From, stage.Status.Pointer), nil
@@ -158,10 +158,11 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 // but break-glass may acknowledge then: the stand-in it waves through may be
 // a failed version, and the type promises that only the service's team does.
 // A person who passes the team rule also needs update rights on the Stage's
-// workload (access), the default approver rule.
-func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
+// workload (access), the default approver rule. An error is a review that
+// failed: the reconcile retries rather than reject on it.
+func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (string, error) {
 	if op.Spec.Type != delivery.TypeUnfreeze && op.Spec.Type != delivery.TypeAcknowledge || op.Status.ActorClass != delivery.ClassHuman {
-		return ""
+		return "", nil
 	}
 	verb := "unfreeze it"
 	if op.Spec.Type == delivery.TypeAcknowledge {
@@ -187,24 +188,29 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 	}
 	if len(team) == 0 {
 		return "NoOwnerTeam: the contract running on " + stage.Name + " declares no team or cannot be read (" + running.Err +
-			"), and only an owner team may " + verb + "; break-glass can"
+			"), and only an owner team may " + verb + "; break-glass can", nil
 	}
 	return "NotYourTeam: " + op.Spec.Actor.User + " is not in " + team[0] + ", the team of the service " + stage.Name +
-		" runs, so they may not " + verb + "; that team or break-glass can"
+		" runs, so they may not " + verb + "; that team or break-glass can", nil
 }
 
 // updateRefusal says why the person who raised op may not verb on the
-// Stage for want of update rights on its workload, or "".
-func (r *OperationReconciler) updateRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, verb string) string {
-	a := r.access(ctx, delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups}, stage)
+// Stage for want of update rights on its workload, or "". A review that
+// failed is an error, so a brief apiserver fault is retried, never final; an
+// unverified answer the apiserver gave (a kind with no resource, an
+// evaluation error) refuses.
+func (r *OperationReconciler) updateRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, verb string) (string, error) {
+	a, err := r.access(ctx, delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups}, stage)
 	switch {
+	case err != nil:
+		return "", err
 	case a.Unverified != "":
 		return "ApproverUnverified: Pacto could not ask whether " + op.Spec.Actor.User + " may " + a.Phrase() + " (" + a.Unverified +
-			"), so they may not " + verb + "; someone who may, or break-glass, can"
+			"), so they may not " + verb + "; someone who may, or break-glass, can", nil
 	case !a.Allowed:
-		return "CannotUpdateWorkload: " + op.Spec.Actor.User + " cannot " + a.Phrase() + ", so they may not " + verb + "; someone who may, or break-glass, can"
+		return "CannotUpdateWorkload: " + op.Spec.Actor.User + " cannot " + a.Phrase() + ", so they may not " + verb + "; someone who may, or break-glass, can", nil
 	}
-	return ""
+	return "", nil
 }
 
 // cited finds the operation a rollback undoes, by uid, on the same Stage.

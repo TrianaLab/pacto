@@ -80,7 +80,7 @@ func TestAccessUnknownKindUnverified(t *testing.T) {
 	st := stageObj(dA)
 	st.Spec.Workload = &delivery.WorkloadRef{Kind: "Rollout", Name: "payments"}
 	e := baseEnv(t, nil)
-	if got := e.op.access(context.Background(), delivery.Identity{User: carol}, st); got.Unverified == "" || got.Allowed || len(e.reviews) != 0 {
+	if got, err := e.op.access(context.Background(), delivery.Identity{User: carol}, st); got.Unverified == "" || got.Allowed || err != nil || len(e.reviews) != 0 {
 		t.Fatalf("an unknown kind is unverified and never asked: %+v", got)
 	}
 }
@@ -134,12 +134,63 @@ func TestUnfreezeNeedsUpdateRights(t *testing.T) {
 	if !strings.Contains(u1.Status.Message, "frank cannot update deployments/payments in prod, so they may not unfreeze it") {
 		t.Fatalf("message: %q", u1.Status.Message)
 	}
+	// A review that failed is retried, never a final rejection.
 	e.fails["create/SubjectAccessReview"] = true
 	e.create(opObj("u2", delivery.TypeUnfreeze, "", "", "alice", "team-payments"))
-	wantOutcome(t, e.drive("u2"), delivery.Rejected, "ApproverUnverified")
+	if err := e.reconcileOpErr("u2"); err == nil {
+		t.Fatal("a failed review must requeue")
+	}
+	if o := e.getOp("u2"); o.Status.Outcome != "" {
+		t.Fatalf("a failed review concluded the unfreeze: %s %q", o.Status.Outcome, o.Status.Message)
+	}
 	e.fails["create/SubjectAccessReview"] = false
-	e.create(opObj("u3", delivery.TypeUnfreeze, "", "", "alice", "team-payments"))
-	wantOutcome(t, e.drive("u3"), delivery.Succeeded, "Unfrozen")
+	wantOutcome(t, e.drive("u2"), delivery.Succeeded, "Unfrozen")
+}
+
+func TestAccessEvaluationErrorUnverified(t *testing.T) {
+	e, o := heldEnv(t)
+	e.rights[carol], e.evalError = false, "webhook authorizer timed out"
+	e.approveAs(o, "ok", carol, []string{"team-checkout"}, delivery.Approve)
+	o = e.drive("p1")
+	if len(o.Status.Approvals) != 0 || !strings.Contains(o.Status.Message, "Pacto could not ask whether "+carol+" may update deployments/payments in prod: the SubjectAccessReview could not be evaluated: webhook authorizer timed out") {
+		t.Fatalf("a refusal with an evaluation error is no answer: %q", o.Status.Message)
+	}
+	e.rights[carol] = true
+	if a, err := e.op.access(context.Background(), delivery.Identity{User: carol}, e.getStage()); !a.Allowed || a.Unverified != "" || err != nil {
+		t.Fatalf("an allow with an evaluation error is an allow: %+v %v", a, err)
+	}
+}
+
+func TestHeldIneligibleApprovalsCostNoReview(t *testing.T) {
+	e, o := heldEnv(t)
+	e.approveAs(o, "own", bot, nil, delivery.Approve)
+	e.approveAs(o, "wrong", carol, []string{"team-checkout"}, delivery.Decision("maybe"))
+	e.reviews = nil
+	for range 3 {
+		e.reconcileOp("p1")
+	}
+	if len(e.reviews) != 0 {
+		t.Fatalf("approvals that cannot count asked %d reviews", len(e.reviews))
+	}
+}
+
+func TestHeldUnknownKindWarnsNoApprovalCounts(t *testing.T) {
+	e, o := heldEnv(t)
+	rec := record.NewFakeRecorder(100)
+	e.op.Events = rec
+	st := e.getStage()
+	st.Spec.Workload = &delivery.WorkloadRef{Kind: "Rollout", Name: "payments"}
+	if _, err := e.op.saveHeld(context.Background(), o, st); err != nil {
+		t.Fatal(err)
+	}
+	var warned, off bool
+	for _, ev := range drain(rec) {
+		warned = warned || strings.HasPrefix(ev, "Warning ApproverUnverified no approval can count: the workload kind Rollout is none Pacto knows how to ask about")
+		off = off || strings.Contains(ev, "TeamNarrowingOff")
+	}
+	if !warned || off {
+		t.Fatalf("warned %v, TeamNarrowingOff %v", warned, off)
+	}
 }
 
 func TestRecordKeepsApprovalAccess(t *testing.T) {
@@ -168,12 +219,16 @@ func TestAcknowledgeNeedsUpdateRights(t *testing.T) {
 	e.rights["frank"] = false
 	ack := opObj("a1", delivery.TypeAcknowledge, "", "", "frank", "team-payments")
 	ack.Status.ActorClass = delivery.ClassHuman
-	why := e.op.unfreezeRefusal(context.Background(), ack, e.getStage())
+	why, _ := e.op.unfreezeRefusal(context.Background(), ack, e.getStage())
 	if !strings.HasPrefix(why, "CannotUpdateWorkload: frank cannot update deployments/payments in prod, so they may not acknowledge its upstream stand-ins") {
 		t.Fatalf("%q", why)
 	}
+	e.evalError = "webhook authorizer timed out"
+	if why, err := e.op.unfreezeRefusal(context.Background(), ack, e.getStage()); !strings.HasPrefix(why, "ApproverUnverified: Pacto could not ask whether frank") || err != nil {
+		t.Fatalf("an evaluation error refuses as unverified: %q %v", why, err)
+	}
 	ack.Spec.Actor.User = carol
-	if why := e.op.unfreezeRefusal(context.Background(), ack, e.getStage()); why != "" {
+	if why, err := e.op.unfreezeRefusal(context.Background(), ack, e.getStage()); why != "" || err != nil {
 		t.Fatalf("allowed: %q", why)
 	}
 }

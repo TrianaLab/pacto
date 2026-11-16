@@ -81,8 +81,8 @@ func sarAccess(t *testing.T, c client.Client, user, name string) delivery.Worklo
 	t.Helper()
 	at := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	r := &OperationReconciler{Client: c, Now: func() time.Time { return at }}
-	a := r.access(context.Background(), delivery.Identity{User: user, Groups: []string{"system:authenticated"}}, sarStage(name))
-	if a.Unverified != "" {
+	a, err := r.access(context.Background(), delivery.Identity{User: user, Groups: []string{"system:authenticated"}}, sarStage(name))
+	if a.Unverified != "" || err != nil {
 		t.Fatalf("%s on %s: the review was not answered: %s", user, name, a.Unverified)
 	}
 	if a.Source != delivery.AccessBySubjectReview || a.At != ts(at) {
