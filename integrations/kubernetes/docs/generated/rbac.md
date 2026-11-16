@@ -21,6 +21,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `configmaps` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
 | `"" (core)` | `namespaces` | `get` | `kube-system` |
+| `"" (core)` | `namespaces` | `get` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
@@ -80,7 +81,7 @@ Their namespaced half is granted by the release namespace's `pacto-operator-mana
 
 ## Additionally granted with the node agent (`nodeAgent.enabled`)
 
-The agent runs in its own namespace (`pacto-node-agent` by default), which the chart creates with the privileged Pod Security level. Cluster-wide, the operator gains a node read (the orphan prune), a read and relabel of that one namespace by name, and a read of the agents' heartbeat Leases (also granted when `controller.kernelEvidence.enabled` is on alone):
+The agent runs in its own namespace (`pacto-node-agent` by default), which the chart creates with the privileged Pod Security level. Cluster-wide, the operator gains a node read (the orphan prune), a read and relabel of that one namespace by name, and a read of the agents' heartbeat Leases (also granted when `controller.kernelEvidence.enabled` is `on`):
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
@@ -119,6 +120,7 @@ Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart 
 | --- | --- | --- | --- |
 | `"" (core)` | `configmaps`, `pods`, `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
+| `"" (core)` | `namespaces` | `get` | *not name-restricted* |
 | `"" (core)` | `secrets` | `get` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
@@ -143,7 +145,7 @@ Created in the release namespace and bound to the same ServiceAccount. Used only
 
 ## Optional: metrics-observation ClusterRole
 
-Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. The Helm chart grants the same rules itself when `controller.enableMetricsObservation` is on; apply the two objects yourself only for an operator installed without the chart. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
+Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. The Helm chart grants the same rules itself when `controller.metricsObservation` is `on`; apply the two objects yourself only for an operator installed without the chart. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

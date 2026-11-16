@@ -44,9 +44,16 @@ turns on. A token session decides on no held change, so approve with
 
 ## Health and metrics checks
 
-The profile keeps the chart's runtime defaults. The metrics dimension of a
-contract that declares `metrics` reads `Unsupported`, and health is read
-passively, so Pacto can confirm it but never contradict it. To check both
-actively, add to `helm install`
-`--set controller.enableProbing=true --set controller.enableMetricsObservation=true`;
+The profile keeps the chart's runtime defaults: probing and metrics observation
+run only in namespaces labelled `pacto.trianalab.io/observe`. Elsewhere the
+metrics dimension of a contract that declares `metrics` reads `Unsupported`,
+and health is read passively, so Pacto can confirm it but never contradict it.
+To check both actively in one namespace, label it:
+
+```bash
+kubectl label ns payments pacto.trianalab.io/observe=probing.metrics
+```
+
+To check them in every namespace, add to `helm install`
+`--set controller.probing=on --set controller.metricsObservation=on`;
 see [Opt-in features](limitations.md#opt-in-features).

@@ -130,8 +130,9 @@ finding code says why:
 - **`EVIDENCE_MISSING`**: nothing was collected. The target may not exist yet,
   or `spec.target.serviceName` does not match a real Service.
 - **`OBSERVATION_UNSUPPORTED`**: the dimension cannot be observed here: an
-  `ExternalName` dependency, or a metrics capability while
-  `--enable-metrics-observation` is off.
+  `ExternalName` dependency, or a metrics capability while metrics
+  observation is off for the namespace (chart value
+  `controller.metricsObservation`, flag `--enable-metrics-observation`).
 - **`COLLECTION_FAILED`**: the cluster query errored, or the node agent
   could not load its kernel program. Check the `RuntimeObserved` condition and
   the operator logs.
@@ -181,11 +182,22 @@ Add a `spec.target` to enable runtime observation.
 
 ## Metrics or health always `Unknown`
 
-The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
-is set, and active health probing requires `--enable-probing`. The chart sets
-them through `controller.enableMetricsObservation` and
-`controller.enableProbing`; see
-[Opt-in features](limitations.md#opt-in-features).
+The metrics dimension returns `Unsupported` unless metrics observation is on
+for the namespace, and active health probing needs probing on. The chart sets
+them through `controller.metricsObservation` and `controller.probing`, which
+default to `auto`; see [Opt-in features](limitations.md#opt-in-features).
+
+The `RuntimeObserved` condition message ends with where each setting came
+from:
+
+- `probing off (--enable-probing=auto, namespace has no pacto.trianalab.io/observe label)`
+  means label the namespace (`kubectl label ns NAMESPACE
+  pacto.trianalab.io/observe=probing`) or set `controller.probing=on`.
+- `namespace label unreadable: forbidden` or `not found` means the operator
+  may not read the namespace; check the `namespaces get` grant in
+  [RBAC](rbac.md). The condition stays `True`.
+- `namespace label unreadable: timeout` or `unavailable` with the condition
+  `False` is a transient read failure; the next reconcile retries it.
 
 With probing off, health falls back to the workload, which needs an **`httpGet`
 readiness probe** on the container behind the health capability's port plus a
@@ -202,7 +214,7 @@ answer is `EVIDENCE_INSUFFICIENT`.
 If the logs show forbidden errors reading Services, workloads or EndpointSlices,
 confirm the operator's `ClusterRole` is installed. See [RBAC](rbac.md). The chart
 adds read access to `ServiceMonitor` and `PodMonitor` only when
-`controller.enableMetricsObservation` is on. If you set the controller flag by
+`controller.metricsObservation` is `on`. If you set the controller flag by
 hand instead, grant that access yourself, as
 [Opt-in features](limitations.md#opt-in-features) shows.
 
