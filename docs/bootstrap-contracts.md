@@ -64,8 +64,10 @@ Init reads the environment values to find types and dependencies and writes
 only keys and types. A key is sensitive when its name holds password, secret,
 token, key, credential, private or dsn in any case, when the workload reads it
 from a Secret or when its value is a URL with a password. A sensitive key is a
-`string` with `writeOnly: true` and a description, which every Pacto view shows
-as `(sensitive)`. Init never reads the values of a Secret.
+`string` with `writeOnly: true` and a description. Schema summaries and schema
+diffs show its default and any other schema value as `(sensitive)`. A value
+you declare under `configurations[].values` or in an environment file is shown
+as written, so keep secrets out of it. Init never reads the values of a Secret.
 
 When a manifest or ConfigMap in the folder sets a sensitive key to a literal
 value, init names the file and the key under next steps. The bundle publishes

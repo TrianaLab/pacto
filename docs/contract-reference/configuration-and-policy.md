@@ -128,8 +128,11 @@ Your configuration JSON Schema should declare secret fields as strings:
 ```
 
 - `writeOnly` is standard JSON Schema. The dashboard, the fleet API, the
-  consume snippet, the operator status and `pacto diff` show such a key as
-  `(sensitive)`.
+  consume snippet, the operator status and `pacto diff` show the default and
+  any other schema value of such a key as `(sensitive)`.
+- A value you set under `values` or in an environment file is shown as
+  written, so keep secrets out of it and use a reference such as
+  `secret://vault/...`.
 
 ### Reusing a schema you already have
 
