@@ -367,6 +367,13 @@ def gen_rbac(k8s: str) -> str:
         "`controller.secretGrants` names (`namespace/name`), each through a Role limited to "
         "that Secret.\n"
     )
+    out.append(
+        "The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The one "
+        "with no name reads the `pacto.trianalab.io/observe` label of a target's namespace, "
+        "names and labels only, and is granted only while `controller.probing` or "
+        "`controller.metricsObservation` is `auto` (the default). With "
+        "`controller.watchNamespaces` each watched namespace's Role carries it instead.\n"
+    )
 
     out.append(f"## Always granted in the release namespace (`{mgr_key[2]}` Role)\n")
     out.append(

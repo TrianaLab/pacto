@@ -39,6 +39,8 @@ Present in every cluster-wide install, including one with every managed componen
 
 No ClusterRole grants Secrets. The operator reads a pull Secret or a Secret that backs a configuration with `get` in the release namespace and in each of `controller.watchNamespaces`, and anywhere else only the Secrets `controller.secretGrants` names (`namespace/name`), each through a Role limited to that Secret.
 
+The `namespaces` `get` rule limited to `kube-system` reads the cluster id. The one with no name reads the `pacto.trianalab.io/observe` label of a target's namespace, names and labels only, and is granted only while `controller.probing` or `controller.metricsObservation` is `auto` (the default). With `controller.watchNamespaces` each watched namespace's Role carries it instead.
+
 ## Always granted in the release namespace (`pacto-operator-manager` Role)
 
 The teardown half of the managed components: `get` and `delete` on the fixed names a previous install may have created there, the node agent's included (releases before the dedicated agent namespace ran it in the release namespace). The one `secrets` `get` rule with no name reads pull Secrets and Secrets that back a configuration in the release namespace.
