@@ -167,10 +167,11 @@ func TestCreateTool_PactifyNeverReturnsEnvValues(t *testing.T) {
 	newDynamic = leakDynamic
 	paths, _ := json.Marshal([]string{leakFolder(t), leakFolder(t)})
 	runs := map[string]map[string]any{
-		"path plan":  {"name": "payments", "pactify": true, "path": leakFolder(t), "dry_run": true},
-		"path apply": {"name": "payments", "pactify": true, "path": leakFolder(t), "describe_only": true},
-		"paths":      {"name": "x", "pactify": true, "paths": string(paths)},
-		"cluster":    {"name": "x", "pactify": true, "cluster": true, "path": t.TempDir(), "namespaces": `["shop"]`},
+		"path plan":    {"name": "payments", "pactify": true, "path": leakFolder(t), "dry_run": true},
+		"path apply":   {"name": "payments", "pactify": true, "path": leakFolder(t), "describe_only": true},
+		"path deliver": {"name": "payments", "pactify": true, "path": leakFolder(t)},
+		"paths":        {"name": "x", "pactify": true, "paths": string(paths)},
+		"cluster":      {"name": "x", "pactify": true, "cluster": true, "path": t.TempDir(), "namespaces": `["shop"]`},
 	}
 	for name, args := range runs {
 		t.Run(name, func(t *testing.T) {

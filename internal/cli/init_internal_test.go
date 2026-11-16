@@ -352,6 +352,7 @@ func TestInitNeverPrintsEnvValues(t *testing.T) {
 		"plan":    func() []string { return []string{"--plan", leakFolder(t)} },
 		"json":    func() []string { return []string{"--plan", "--output-format", "json", leakFolder(t)} },
 		"apply":   func() []string { return []string{"--describe-only", leakFolder(t)} },
+		"deliver": func() []string { return []string{leakFolder(t)} },
 		"several": func() []string { return []string{"--plan", leakFolder(t), leakFolder(t)} },
 		"cluster": func() []string { return []string{"--cluster", "--namespace", "shop", "--out", t.TempDir()} },
 		"clusterJ": func() []string {
