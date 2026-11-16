@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  template:
+    spec:
+      containers:
+        - name: checkout
+          image: registry.example/shop/images/checkout:1.2.0
+          envFrom:
+            - secretRef:
+                name: stripe-credentials
+            - configMapRef:
+                name: checkout-config
+          env:
+            - name: STRIPE_API_BASE
+              value: https://api.stripe.com
+            - name: API_TOKEN
+              value: eyJhbGciOi.eyJzdWIi.SflKxw
+            - name: ORDERS_URL
+              value: http://orders.shop.svc:8080
+            - name: ORDERS_ADDR
+              value: orders.shop:8080
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-credentials
+                  key: secret-key

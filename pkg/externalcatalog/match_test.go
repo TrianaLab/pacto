@@ -126,6 +126,9 @@ func TestMatchKeyNamePossible(t *testing.T) {
 	if !ok || m.Identity != "stripe" || m.Confidence != ConfidencePossible || m.Kind != KindKeyName || m.Host != "" {
 		t.Fatalf("key = %+v, %v", m, ok)
 	}
+	if m, ok := Default().MatchKeyName("stripe-credentials"); !ok || m.Identity != "stripe" {
+		t.Fatalf("Secret name = %+v, %v", m, ok)
+	}
 	if m, ok := orgCatalog(t).MatchKeyName("ERP_TOKEN"); !ok || m.Identity != "exact-erp" {
 		t.Fatalf("exact key = %+v, %v", m, ok)
 	}

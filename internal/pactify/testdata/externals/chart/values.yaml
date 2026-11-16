@@ -1,0 +1,6 @@
+replicas: 2
+env:
+  DATABASE_URL: postgres://user:pass@db.xyz.rds.amazonaws.com/app?password=x
+  ERP_HOST: erp.corp-legacy.co.uk:8443
+auth:
+  password: s3cr3t.v4lue

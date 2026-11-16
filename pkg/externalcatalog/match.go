@@ -122,10 +122,11 @@ func (c *Catalog) MatchHost(h HostPort) (Match, bool) {
 }
 
 // MatchKeyName names the system a configuration key name suggests, compared
-// without case against the catalog's key patterns. The match is only
-// possible: a key name alone confirms nothing.
+// without case against the catalog's key patterns, with "-" and "." read as
+// "_" so a Secret name (stripe-credentials) reads like an env name. The match
+// is only possible: a key name alone confirms nothing.
 func (c *Catalog) MatchKeyName(key string) (Match, bool) {
-	key = strings.ToUpper(key)
+	key = strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToUpper(key))
 	e, ok := c.bestEntry(func(e Entry) int { return keyScore(e.KeyPatterns, key) })
 	if !ok {
 		return Match{}, false

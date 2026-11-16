@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-config
+data:
+  DATABASE_URL: postgres://user:pass@db.xyz.rds.amazonaws.com/app?password=x
+  SESSION_TOKEN: eyJhbGciOi.eyJzdWIi.SflKxw
