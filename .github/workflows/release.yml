@@ -401,7 +401,7 @@ jobs:
               -t "$REF"$refs)"
           echo "$out"
           # Sign and attest the digest the adapter recorded, never a second read of the tag.
-          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\))$/\1/p' | tail -n1)"
+          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\)).*/\1/p' | tail -n1)"
           [ -n "$digest" ] || { echo "::error::the adapter printed no recorded digest"; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           case "$out" in
@@ -856,7 +856,7 @@ jobs:
               -t "$REF"$refs)"
           echo "$out"
           # Sign and attest the digest the adapter recorded, never a second read of the tag.
-          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\))$/\1/p' | tail -n1)"
+          digest="$(printf '%s\n' "$out" | sed -n 's/.*(\(sha256:[0-9a-f]\{64\}\)).*/\1/p' | tail -n1)"
           [ -n "$digest" ] || { echo "::error::the adapter printed no recorded digest"; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           case "$out" in

@@ -3,6 +3,7 @@ package release
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -503,5 +504,59 @@ func TestDryRunSkipsAttestationExplicitly(t *testing.T) {
 				t.Error("dryRunSubjectProblems accepts the mutated files")
 			}
 		})
+	}
+}
+
+// TestPublishDigestParsesEveryAdapterOutcome runs each image merge step's real
+// digest extraction over every success line publish-oci-unit.sh prints. The
+// resume line ends in "(skip)", so a parse anchored at the end of the line
+// read nothing there and failed every re-run of an already-recorded unit.
+func TestPublishDigestParsesEveryAdapterOutcome(t *testing.T) {
+	root := repoRoot(t)
+	adapter, err := os.ReadFile(filepath.Join(root, "release", "orchestrator", "publish-oci-unit.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The templates must stay the adapter's own lines, so a reworded line fails here first.
+	templates := []string{
+		`$UNIT: already recorded ($recorded) -> $state (skip)`,
+		`$UNIT: published + recorded ($d)`,
+		`$UNIT: identical -> recorded + skip ($d)`,
+		`$UNIT: adopt (provenance matched this transaction) -> recorded ($d)`,
+	}
+	if n := strings.Count(string(adapter), "\n    echo \"$UNIT: ") + strings.Count(string(adapter), "\n  echo \"$UNIT: "); n != len(templates) {
+		t.Errorf("publish-oci-unit.sh prints %d success lines, the test covers %d", n, len(templates))
+	}
+	want := "sha256:" + strings.Repeat("ab", 32)
+	jobs := workflowJobs(t, root, "release.yml")
+	for name := range imageSubjects {
+		var extract string
+		for _, s := range jobs[name].Steps {
+			if s.ID != "publish" {
+				continue
+			}
+			for _, line := range strings.Split(s.Run, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), `digest="$(`) {
+					extract = strings.TrimSpace(line)
+				}
+			}
+		}
+		if extract == "" {
+			t.Errorf("%s: the publish step has no digest=\"$(...)\" line", name)
+			continue
+		}
+		for _, tpl := range templates {
+			if !strings.Contains(string(adapter), `echo "`+tpl+`"`) {
+				t.Errorf("publish-oci-unit.sh no longer prints %q", tpl)
+			}
+			r := strings.NewReplacer("$UNIT", name, "$recorded", want, "$d", want, "$state", "identical")
+			out := "noise (sha256:" + strings.Repeat("cd", 32) + ")\n" + r.Replace(tpl)
+			cmd := exec.Command("bash", "-c", extract+`; printf '%s' "$digest"`)
+			cmd.Env = append(os.Environ(), "out="+out)
+			got, err := cmd.Output()
+			if err != nil || string(got) != want {
+				t.Errorf("%s: %q parsed %q (err %v), want %q", name, r.Replace(tpl), got, err, want)
+			}
+		}
 	}
 }
