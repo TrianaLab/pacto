@@ -48,7 +48,9 @@
 #   1. A good version passes testing and reaches production on its own.
 #   2. A broken version is rolled back, never reaches production and is never retried.
 #   3. A change that affects no other service ships with no person involved.
-#   4. A change that breaks a service waits, and only that service's team is asked.
+#   4. A change that breaks a service waits, and only that service's team is asked;
+#      whoever may update the workload answers (owner teams narrow it only
+#      with teamGroupPrefix set, which delivery-demo.sh proves).
 #   5. If Pacto cannot see enough, the change waits instead of shipping.
 #   6. When two agents act at once, exactly one wins.
 #   7. A person's rollback is not undone by automation.
@@ -56,7 +58,8 @@
 #
 # plus the admission policies the chart installs (immutable intent, no agent
 # approvals, the pointer edited only by the promoter or break-glass, cancel
-# refused after the pointer moved) and a witnessed override for a break-glass
+# refused after the pointer moved), an approval from someone who may not update
+# the workload never counting, and a witnessed override for a break-glass
 # edit. No promote in the run may produce a witnessed override.
 #
 # Agents run as their own ServiceAccounts with tokens; people are impersonated
@@ -365,7 +368,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
   --set "insecureRegistries[0]=$REG_HOST" \
-  --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+  --set delivery.enabled=true --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
@@ -445,8 +448,41 @@ section "identities: two agents, two people, break-glass"
 for a in agent-a agent-b; do kubectl -n agents create serviceaccount "$a" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
 kubectl create clusterrolebinding delivery-agents --clusterrole=pacto-operator-delivery-agent \
   --serviceaccount=agents:agent-a --serviceaccount=agents:agent-b --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl create clusterrolebinding delivery-approvers --clusterrole=pacto-operator-delivery-approver \
+# People hold the built-in edit role where they work, which also lets them
+# update the workloads there, and nothing from Pacto: the chart aggregates
+# Approval and Operation creation into edit, and the promoter counts an
+# approval from whoever a SubjectAccessReview says may update the Stage's
+# workload. Planning lists every contract and Kustomization in the cluster,
+# which neither view nor edit carries, so people also get that read.
+kubectl create clusterrole delivery-planner --verb=list \
+  --resource=pactos.pacto.trianalab.io,kustomizations.kustomize.toolkit.fluxcd.io --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl create clusterrolebinding delivery-planner --clusterrole=delivery-planner \
   --user=alice --user=carol --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# people_may_update NS... — alice and carol hold edit in each NS.
+people_may_update() {
+  local n u
+  for n in "$@"; do
+    for u in alice carol; do
+      kubectl -n "$n" create rolebinding "$u-edit" --clusterrole=edit --user="$u" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    done
+  done
+}
+people_may_update test prod
+# The aggregation controller fills edit with the chart's delivery rules a
+# moment after the chart installs them.
+may_approve() { [ "$(kubectl auth can-i create approvals.delivery.pacto.trianalab.io -n prod --as=alice)" = yes ]; }
+eventually 60 may_approve || fail "edit in prod does not let alice create an Approval: the chart's -edit role was not aggregated"
+kubectl auth can-i get stages.delivery.pacto.trianalab.io -n prod --as=alice | grep -qx yes \
+  || fail "edit in prod does not let alice read Stages: the chart's -view role was not aggregated"
+# erin holds nothing: no RBAC creates her Approval. In approvers-only she may
+# create one through the explicit -approver role, and still update nothing.
+[ "$(kubectl auth can-i create approvals.delivery.pacto.trianalab.io -n prod --as=erin)" = no ] \
+  || fail "erin, bound to nothing, may create an Approval"
+# Explicit on purpose: a grant that creates Approvals without update rights,
+# which the promoter's SubjectAccessReview must still refuse.
+kubectl create clusterrolebinding approvers-only --clusterrole=pacto-operator-delivery-approver \
+  --group=approvers-only --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+pass "edit lets alice and carol read and approve in test and prod; erin, bound to nothing, may not"
 kubectl create clusterrole break-glass-pointer --verb=get,list,patch,update \
   --resource=ocirepositories.source.toolkit.fluxcd.io --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl create clusterrolebinding break-glass-pointer --clusterrole=break-glass-pointer \
@@ -503,7 +539,7 @@ as_agent() {
   if [ "$1" = propose ]; then shift; set -- propose --on-behalf-of dana@example.com "$@"; fi
   KUBECONFIG="$kc" "$PACTO" delivery "$@"
 }
-# as_person USER TEAM ... — only members of the team a held question names may answer it.
+# as_person USER TEAM ... — USER in TEAM runs pacto delivery.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 # approve_as USER TEAM NS OP DECISION [NOTE] — the Approval a person with a
 # fresh login creates. This run turns the login freshness on, so `pacto
@@ -964,12 +1000,16 @@ metadata: {name: no-login}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: carol}
 YAML
 then fail "an approval without a fresh login was admitted"; fi
-# Only checkout's team may answer: alice is ignored while in team-payments and counts once in team-checkout.
-approve_as alice team-payments test "$OPF" approve "not my team"
-always 3 waits_for_f || fail "an approval from outside team-checkout moved F"
-approve_as alice team-checkout test "$OPF" approve "checkout migrates next sprint"
+# The question is routed to team-checkout, and with teamGroupPrefix unset the
+# owner teams do not narrow who answers (delivery-demo.sh keeps narrowing on):
+# whoever may update the workload decides. alice, who holds edit in test,
+# answers from team-payments, and one approval answers it.
+approve_as alice team-payments test "$OPF" approve "checkout migrates next sprint"
 wait_concluded test "$OPF" Succeeded/Verified
-[ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "the approval is not recorded, or the one from outside the team was"
+[ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "alice's approval is not recorded"
+kubectl -n test get operation "$OPF" -o json | jq -e '.status.approvals[0].classifiedBy == "user" and
+  .status.approvals[0].access == "update deployments/payments in test" and .status.approvals[0].accessSource == "subject-access-review"' >/dev/null \
+  || fail "the approval does not keep how alice was classified and what let her decide: $(field test "$OPF" approvals)"
 # Every Approval of F is owned by F, so it is garbage collected with it, and
 # none can be edited once given.
 OPF_UID="$(kubectl -n test get operation "$OPF" -o jsonpath='{.metadata.uid}')"
@@ -980,9 +1020,16 @@ APF="$(kubectl -n test get approvals -o json | jq -r --arg u "$OPF_UID" '[.items
 OUT="$(kubectl -n test patch approval "$APF" --type merge -p '{"spec":{"decision":"reject"}}' 2>&1 || true)"
 grep -q "an approval is immutable" <<<"$OUT" || fail "an Approval's decision was edited after it was given: $OUT"
 pass "F's Approvals are owned by F and cannot be edited"
-pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
+pass "item 4: F held for team-checkout only, answered by a person who may update payments, verified in test"
 OPFP="$(wait_op prod payments "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
+
+section "default approvers: an Approval from someone who may not update the workload never counts"
+approve_as erin approvers-only prod "$OPFP" approve "I may create Approvals"
+erin_ignored() { field prod "$OPFP" message | grep -q "erin cannot update deployments/payments in prod"; }
+eventually 30 erin_ignored || fail "the promoter did not say why erin's approval does not count: $(field prod "$OPFP" message)"
+held prod "$OPFP" && [ -z "$(field prod "$OPFP" approvals)" ] || fail "erin's approval counted: $(field prod "$OPFP" approvals)"
+pass "erin may create an Approval through -approver and it still does not count: she cannot update deployments/payments in prod"
 approve_as carol team-checkout prod "$OPFP" approve
 wait_concluded prod "$OPFP" Succeeded/Verified
 
@@ -1135,6 +1182,7 @@ MIRA_PORT=5603
 H_REPO=apps/payments-health
 AGENT_NS=pacto-node-agent
 kubectl create namespace "$H" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+people_may_update "$H"
 kubectl -n "$H" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 MIRA_PF_PID="$(pf "$MIRA_PORT" svc/mira 4318)"
 PHASE_PIDS+=" $MIRA_PF_PID"
@@ -1484,6 +1532,7 @@ section "phase 3: pacto publish, and a Stage that promotes only what it publishe
 ! phase_runs core || await operator-back
 P=publish
 kubectl create namespace "$P" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+people_may_update "$P"
 kubectl -n "$P" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 PUB="$(mktemp -d)"
 cp "$KEYDIR/cosign.key" "$PUB/cosign.key"
@@ -1649,6 +1698,7 @@ pass "alice promoted $D1, the contract check verified it, and carol confirmed th
 section "publish --propose waits for Flux, then proposes on a Stage that does not promote by itself"
 M=publish-manual
 kubectl create namespace "$M" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+people_may_update "$M"
 kubectl -n "$M" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -1800,7 +1850,8 @@ section "phase 5: a provider whose consumer must move first"
 ! phase_runs core || await operator-back
 for n in staging live; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  people_may_update "$n"
+  kubectl -n "$n" create secret generic cosign-pub  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 PR100="$(contract pricing 1.0.0 service)"
 PR200="$(contract pricing 2.0.0 service)"  # orders 1.8.0 accepts ^1.0.0 only

@@ -545,7 +545,7 @@ cmd_up() {
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
     --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.enabled=true --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
     --set-json "delivery.gates.providers=$providers" \
@@ -566,11 +566,29 @@ cmd_up() {
   kubectl -n "$NS" rollout status deploy/eval-runner --timeout=120s >/dev/null || fail "the eval runner did not roll out"
   pass "installed: registry, operator and node agent, Flux, promoter and recorder, Mira, span generator, eval runner"
 
-  section "who may do what: pay-agent proposes, team members approve"
+  section "who may do what: pay-agent proposes, team members who may update the workload approve"
   kubectl -n agents create serviceaccount pay-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl create clusterrolebinding demo-agents --clusterrole=pacto-operator-delivery-agent \
     --serviceaccount=agents:pay-agent --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-operator-delivery-approver \
+  # People hold the built-in edit role where examples/story's MayUpdate says
+  # they may update workloads (alice on team-payments and carol on team-orders
+  # in test and prod; dana is only ever named by pay-agent, so she holds
+  # nothing): the chart aggregates Approval and Operation creation into edit,
+  # and the promoter counts an approval only from someone who may update the
+  # Stage's workload. This run sets teamGroupPrefix, so owner teams narrow who
+  # answers on top of that: alice is refused NotYourTeam where only team
+  # orders is asked. Planning reads every contract, Kustomization and
+  # OCIRepository it names cluster-wide, which edit does not carry.
+  local g n
+  for g in team-payments team-orders team-checkout; do
+    for n in test prod; do
+      kubectl -n "$n" create rolebinding "$g-edit" --clusterrole=edit --group="$g" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    done
+  done
+  kubectl create clusterrole demo-planner --verb=get,list \
+    --resource=pactos.pacto.trianalab.io,kustomizations.kustomize.toolkit.fluxcd.io,ocirepositories.source.toolkit.fluxcd.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-planners --clusterrole=demo-planner \
     --group=team-payments --group=team-orders --group=team-checkout --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   # contract-readers (dave) may read contracts and nothing of delivery: the
   # dashboard shows them the fleet with every delivery time hidden.
@@ -1422,7 +1440,7 @@ reach_cluster() {
     '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set global.imageRegistry= --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.enabled=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
     --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
@@ -1506,6 +1524,8 @@ reach_freeze() {
   if ! kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1; then
     section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
     kubectl create namespace prod-eu --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    # alice moves and later unfreezes prod-eu: payments' team may update it.
+    kubectl -n prod-eu create rolebinding team-payments-edit --clusterrole=edit --group=team-payments --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     kubectl -n prod-eu create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     # prod-eu advises, so payments' team moves it.
     environment payments prod-eu upstream false "$(payments_gates prod-eu 10s | grep -v pacto.runtime)"

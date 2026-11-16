@@ -26,6 +26,7 @@ phase_ladder() {
   ! phase_runs core || await operator-back
   local L=ladder T=team-wallet
   kubectl create namespace "$L" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  people_may_update "$L"
   kubectl -n "$L" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   local W100 W110 W130 W200 W1 W2 W3 W4
   W100="$(contract wallet 1.0.0 service)"
