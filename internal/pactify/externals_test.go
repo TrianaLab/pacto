@@ -203,11 +203,7 @@ func TestPactifyRedactsCredentialURL(t *testing.T) {
 	out, _ := json.Marshal(r.Externals)
 	all := string(out) + strings.Join(r.Found, "\n") + strings.Join(r.Unknown, "\n") + strings.Join(r.Next, "\n") + r.Catalog
 	for _, f := range r.Files {
-		// ponytail: configuration/schema.json still carries env values as
-		// defaults until 508-S2a's leak fix merges; drop this skip then.
-		if f.Path != configSchema {
-			all += f.Content
-		}
+		all += f.Content
 	}
 	if !strings.Contains(file(t, r, "pacto.yaml").Content, "inferred externals") {
 		t.Fatal("pacto.yaml has no inferred externals")
