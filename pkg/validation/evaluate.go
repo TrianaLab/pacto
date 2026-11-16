@@ -107,7 +107,7 @@ func (e *evaluator) capabilities(caps []contract.Capability) {
 		if obs := findObservation(e.ev.Observations, evidence.CapabilityObserved, key); healthFailing(obs) {
 			e.cov.Required++
 			e.findings = append(e.findings, unknownFinding(finding.CodeHealthFailing, "capability", key, path,
-				unknownMessage(finding.CodeHealthFailing, "capability", key), e.ref(obs)))
+				unknownMessageFor(finding.CodeHealthFailing, obs, "capability", key), e.ref(obs)))
 			continue
 		}
 		e.assert(evidence.CapabilityObserved, "capability", key, path, true,
@@ -242,7 +242,7 @@ func (e *evaluator) assert(kind evidence.ObservationKind, subjectKind, name, con
 			e.cov.Required++
 			code := unknownCode(obs)
 			e.findings = append(e.findings, unknownFinding(code, subjectKind, name, contractPath,
-				unknownMessage(code, subjectKind, name), e.ref(obs)))
+				unknownMessageFor(code, obs, subjectKind, name), e.ref(obs)))
 		}
 		return nil
 	}
@@ -414,6 +414,16 @@ func unknownMessage(code finding.Code, subjectKind, name string) string {
 	default: // CodeEvidenceInsufficient
 		return fmt.Sprintf("evidence for %s %q is insufficient to satisfy or contradict the contract", subjectKind, name)
 	}
+}
+
+// unknownMessageFor is unknownMessage plus the observation's Detail, when it
+// carries one, so the finding names why the assertion could not be observed.
+func unknownMessageFor(code finding.Code, obs *evidence.Observation, subjectKind, name string) string {
+	msg := unknownMessage(code, subjectKind, name)
+	if obs != nil && obs.Detail != "" {
+		msg += ": " + obs.Detail
+	}
+	return msg
 }
 
 func unknownFinding(code finding.Code, subjectKind, name, contractPath, msg string, evRef finding.EvidenceRef) finding.Finding {
