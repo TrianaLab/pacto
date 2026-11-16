@@ -125,7 +125,8 @@ A rate with nothing to take it over and a lead time with no publish record to
 join are drawn hatched as unknown, never as 0, and unverified gates are dotted.
 Up to eight environments get one small panel each; more turn delivery health
 into a heatmap you can filter and group by promotion depth, owner or domain,
-with the owner and domain inferred from the fleet snapshot. Lead time to
+with the owner and domain inferred from the fleet snapshot. A partial snapshot
+marks the whole answer partial, as `pacto stats --by owner` does. Lead time to
 production pools the promotions into the environments at the end of their
 promotion chain.
 
