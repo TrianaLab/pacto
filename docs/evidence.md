@@ -114,8 +114,8 @@ accepted it, which may differ from where the subject runs. One subject has
 exactly one accepting server, the single-writer rule behind replay protection.
 Two sources that report one record with two clusters raise `CLUSTER_CONFLICT`.
 
-The targets endpoint answers `pacto.dev/evidence-source/v4` when it carries a
-cluster, and older readers accept only v2 and v3: upgrade them before you set
+The targets endpoint answers `pacto.dev/evidence-source/v5` when it carries a
+cluster, and older readers accept only v2 to v4: upgrade them before you set
 `--cluster-id`. See [Clusters and target keys](operational-graph-clusters.md).
 
 ---
@@ -152,7 +152,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
-| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v4` when it carries a cluster, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
+| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
 
 The targets endpoint takes no authentication and lists contract references,
 producers and the external references of provisioned resources. Keep it behind

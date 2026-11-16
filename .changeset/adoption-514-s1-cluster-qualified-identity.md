@@ -24,8 +24,8 @@ snapshot raises `CLUSTER_UNKNOWN` and makes its source partial.
 A `--target-state` file takes an optional `cluster` block with `id` and `name`.
 `pacto evidence serve` takes `--cluster-id`, `--cluster-name` and
 `--cluster-name-source`; each accepted record carries the cluster that accepted
-it, and the targets endpoint answers `pacto.dev/evidence-source/v4` when it
-carries a cluster. Two evidence sources that report one record with two
+it, and the targets endpoint answers `pacto.dev/evidence-source/v5` when it
+carries a cluster; older readers accept only v2 to v4. Two evidence sources that report one record with two
 clusters raise `CLUSTER_CONFLICT`.
 
 The operator reads its cluster identity at start and passes it to the Evidence

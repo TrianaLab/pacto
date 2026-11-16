@@ -269,7 +269,7 @@ done < <(plan_records evidence)
 # (UID itself is a read-only bash variable.)
 CLUSTER_UID="$(kubectl get ns kube-system -o jsonpath='{.metadata.uid}')"
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" \
-  | jq -e --arg u "$CLUSTER_UID" '.schemaVersion == "pacto.dev/evidence-source/v4" and .cluster.id == $u and all(.targets[]; .cluster == $u)' >/dev/null \
+  | jq -e --arg u "$CLUSTER_UID" '.schemaVersion == "pacto.dev/evidence-source/v5" and .cluster.id == $u and all(.targets[]; .cluster == $u)' >/dev/null \
   && pass "the Evidence Server names its cluster on every target" \
   || fail "the Evidence Server does not name cluster $CLUSTER_UID"
 kill "$EV_PF" 2>/dev/null || true
