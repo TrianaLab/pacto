@@ -630,3 +630,46 @@ func TestSchemaDiffRedactsSensitiveDefault_ArrayEntries(t *testing.T) {
 	}
 	changeAt(t, changes, "schema.properties.MODE.enum[fast]")
 }
+
+// TestSchemaDiffRedactsSensitiveValueAnywhere: a sensitive value outside a
+// sensitive property's own subtree is redacted too: an ancestor's default
+// that holds a writeOnly child, a writeOnly $defs entry, a definition a
+// sensitive property reaches through $ref (chained), a writeOnly node under
+// items or additionalProperties, and a credential URL default removed by hand
+// with no writeOnly on either side.
+func TestSchemaDiffRedactsSensitiveValueAnywhere(t *testing.T) {
+	for _, tc := range []struct{ name, old, new, secret string }{
+		{"root default", `{"default":{"DB_PASSWORD":"old1"},"properties":{"DB_PASSWORD":{"writeOnly":true}}}`,
+			`{"default":{"DB_PASSWORD":"new1"},"properties":{"DB_PASSWORD":{"writeOnly":true}}}`, "old1"},
+		{"object default", `{"properties":{"db":{"type":"object","default":{"password":"old2"},"properties":{"password":{"writeOnly":true}}}}}`,
+			`{"properties":{"db":{"type":"object","default":{"password":"new2"},"properties":{"password":{"writeOnly":true}}}}}`, "new2"},
+		{"writeOnly def", `{"$defs":{"S":{"writeOnly":true,"default":"old3"}},"properties":{"cred":{"$ref":"#/$defs/S"}}}`,
+			`{"$defs":{"S":{"writeOnly":true,"default":"new3"}},"properties":{"cred":{"$ref":"#/$defs/S"}}}`, "old3"},
+		{"ref chain", `{"$defs":{"pw":{"$ref":"#/$defs/raw"},"raw":{"default":"old4"},"a~b/c":{"default":"x"}},"properties":{"DB_PASSWORD":{"$ref":"#/$defs/pw"},"X_KEY":{"$ref":"#/$defs/a~0b~1c"},"Y_KEY":{"$ref":"#/$defs/missing/x"},"Z_KEY":{"$ref":"#/$defs/pw"}}}`,
+			`{"$defs":{"pw":{"$ref":"#/$defs/raw"},"raw":{"default":"new4"},"a~b/c":{"default":"x"}},"properties":{"DB_PASSWORD":{"$ref":"#/$defs/pw"},"X_KEY":{"$ref":"#/$defs/a~0b~1c"},"Y_KEY":{"$ref":"#/$defs/missing/x"},"Z_KEY":{"$ref":"#/$defs/pw"}}}`, "new4"},
+		{"items", `{"properties":{"list":{"items":{"writeOnly":true,"default":"old5"}}}}`, `{"properties":{"list":{"items":{"writeOnly":true,"default":"new5"}}}}`, "old5"},
+		{"additionalProperties", `{"additionalProperties":{"writeOnly":true,"default":"old6"}}`, `{"additionalProperties":{"writeOnly":true,"default":"new6"}}`, "new6"},
+		{"credential default", `{"properties":{"DATABASE_URL":{"type":"string","default":"postgres://app:hunter2@db/x"}}}`,
+			`{"properties":{"DATABASE_URL":{"type":"string"}}}`, "hunter2"},
+		{"credential examples", `{"properties":{"URL":{"examples":[{"u":"postgres://app:hunter7@db/x"}]}}}`, `{"properties":{"URL":{}}}`, "hunter7"},
+		{"array ref", `{"anyOf":[{"default":"old8"}],"properties":{"API_TOKEN":{"$ref":"#/anyOf/0"},"B_TOKEN":{"$ref":"#/anyOf/9"},"C_TOKEN":{"$ref":"#/anyOf/x"},"D_TOKEN":{"$ref":"#/anyOf/0/default/x"}}}`,
+			`{"anyOf":[{"default":"new8"}],"properties":{"API_TOKEN":{"$ref":"#/anyOf/0"},"B_TOKEN":{"$ref":"#/anyOf/9"},"C_TOKEN":{"$ref":"#/anyOf/x"},"D_TOKEN":{"$ref":"#/anyOf/0/default/x"}}}`, "old8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changes := redactionDiff(t, tc.old, tc.new)
+			if len(changes) == 0 {
+				t.Fatal("no change")
+			}
+			assertNoLeak(t, changes, tc.secret)
+		})
+	}
+	// A value with no sensitive property anywhere near it stays readable.
+	changes := redactionDiff(t, `{"properties":{"MODE":{"default":"fast"},"db":{"$ref":"#/$defs/d"}},"$defs":{"d":{"default":"a"}}}`,
+		`{"properties":{"MODE":{"default":"slow"},"db":{"$ref":"#/$defs/d"}},"$defs":{"d":{"default":"b"}}}`)
+	if c := changeAt(t, changes, "schema.properties.MODE.default"); c.NewValue != "slow" {
+		t.Errorf("non-sensitive default redacted: %+v", c)
+	}
+	if c := changeAt(t, changes, "schema.$defs.d.default"); c.NewValue != "b" {
+		t.Errorf("non-sensitive def redacted: %+v", c)
+	}
+}

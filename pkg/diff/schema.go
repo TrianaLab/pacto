@@ -56,39 +56,156 @@ func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		return nil
 	}
 
-	sensitive := sensitivePaths("schema", oldDoc, nil)
-	sensitive = sensitivePaths("schema", newDoc, sensitive)
-	return redact(diffJSON(dirUnknown, nil, "schema", oldDoc, newDoc), sensitive)
+	sensitive := slices.Concat(sensitivePaths(oldDoc), sensitivePaths(newDoc))
+	return redact(diffJSON(dirUnknown, nil, schemaRoot, oldDoc, newDoc), sensitive)
 }
 
-// sensitivePaths appends the path of every property in node, at any depth and
-// inside any composition or $defs, that is writeOnly or whose name
-// schemax.SensitiveKey matches. The subtree of such a property is covered by
+// schemaRoot is the path diffSchema gives a schema document's root.
+const schemaRoot = "schema"
+
+// valueKeywords are the keywords whose value is data a schema node accepts or
+// suggests, so it can hold a sensitive value.
+var valueKeywords = []string{"default", "const", "examples", "enum"}
+
+// sensitivePaths is the path of every place in doc that holds a sensitive
+// value: a node that is writeOnly, wherever it sits (a property, $defs,
+// items, additionalProperties, a composition); a property whose name
+// schemax.SensitiveKey matches; the $ref targets inside either; and a value
+// keyword (valueKeywords) that holds a credential URL (schemax.SensitiveValue)
+// or sits on a node whose subtree holds one of the others, since its value can
+// hold that property's value. The subtree of a sensitive path is covered by
 // its path, so the walk does not descend into it.
-func sensitivePaths(prefix string, node any, out []string) []string {
+func sensitivePaths(doc any) []string {
+	s := &sensitiveWalk{root: doc, seen: map[string]bool{}}
+	s.walk(schemaRoot, doc)
+	return s.out
+}
+
+// sensitiveWalk collects sensitivePaths over one document.
+type sensitiveWalk struct {
+	root any
+	seen map[string]bool
+	out  []string
+}
+
+// walk collects the sensitive paths at or under path and reports whether
+// there was one.
+func (s *sensitiveWalk) walk(path string, node any) bool {
+	held := false
 	switch t := node.(type) {
 	case map[string]any:
+		if t["writeOnly"] == true {
+			s.mark(path, t)
+			return true
+		}
 		for k, v := range t {
-			path := prefix + "." + k
-			props, ok := v.(map[string]any)
-			if k != "properties" || !ok {
-				out = sensitivePaths(path, v, out)
-				continue
+			if props, ok := v.(map[string]any); ok && k == "properties" {
+				held = s.walkProperties(path+"."+k, props) || held
+			} else {
+				held = s.walk(path+"."+k, v) || held
 			}
-			for name, prop := range props {
-				if pm, _ := prop.(map[string]any); schemax.SensitiveKey(name) || pm["writeOnly"] == true {
-					out = append(out, path+"."+name)
-				} else {
-					out = sensitivePaths(path+"."+name, prop, out)
-				}
+		}
+		for _, k := range valueKeywords {
+			if v, ok := t[k]; ok && (held || holdsCredential(v)) {
+				s.mark(path+"."+k, nil)
+				held = true
 			}
 		}
 	case []any:
 		for i, e := range t {
-			out = sensitivePaths(fmt.Sprintf("%s[%d]", prefix, i), e, out)
+			held = s.walk(fmt.Sprintf("%s[%d]", path, i), e) || held
+		}
+	}
+	return held
+}
+
+// walkProperties is walk over a properties map, where a sensitive name marks
+// the property.
+func (s *sensitiveWalk) walkProperties(path string, props map[string]any) bool {
+	held := false
+	for name, prop := range props {
+		if schemax.SensitiveKey(name) {
+			s.mark(path+"."+name, prop)
+			held = true
+		} else {
+			held = s.walk(path+"."+name, prop) || held
+		}
+	}
+	return held
+}
+
+// mark adds path, and every local $ref target node references, each target
+// once: a sensitive property's value lies in the definition it points at.
+func (s *sensitiveWalk) mark(path string, node any) {
+	s.out = append(s.out, path)
+	for _, ref := range localRefs(node, nil) {
+		if s.seen[ref] {
+			continue
+		}
+		s.seen[ref] = true
+		if target, at, ok := resolveRef(s.root, ref); ok {
+			s.mark(at, target)
+		}
+	}
+}
+
+// localRefs appends every local $ref ("#/...") in node at any depth.
+func localRefs(node any, out []string) []string {
+	switch t := node.(type) {
+	case map[string]any:
+		for k, v := range t {
+			if r, ok := v.(string); ok && k == "$ref" && strings.HasPrefix(r, "#/") {
+				out = append(out, r)
+			} else {
+				out = localRefs(v, out)
+			}
+		}
+	case []any:
+		for _, e := range t {
+			out = localRefs(e, out)
 		}
 	}
 	return out
+}
+
+// resolveRef finds the node a local JSON pointer ref names in root, and its
+// diff path.
+func resolveRef(root any, ref string) (any, string, bool) {
+	node, path := root, schemaRoot
+	for _, tok := range strings.Split(strings.TrimPrefix(ref, "#/"), "/") {
+		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
+		switch t := node.(type) {
+		case map[string]any:
+			node, path = t[tok], path+"."+tok
+		case []any:
+			i, err := strconv.Atoi(tok)
+			if err != nil || i < 0 || i >= len(t) {
+				return nil, "", false
+			}
+			node, path = t[i], fmt.Sprintf("%s[%d]", path, i)
+		default:
+			return nil, "", false
+		}
+	}
+	return node, path, node != nil
+}
+
+// holdsCredential reports whether v holds a string, at any depth, that is a
+// URL with credentials.
+func holdsCredential(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return schemax.SensitiveValue(t)
+	case map[string]any:
+		for _, e := range t {
+			if holdsCredential(e) {
+				return true
+			}
+		}
+	case []any:
+		return slices.ContainsFunc(t, holdsCredential)
+	}
+	return false
 }
 
 // redact replaces OldValue and NewValue with schemax.Sensitive on every

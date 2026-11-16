@@ -1020,3 +1020,18 @@ func TestConsumeSnippetOmitsWriteOnlyDefault(t *testing.T) {
 		t.Errorf("marshalled offering detail leaks the default: err %v", err)
 	}
 }
+
+// TestConsumeSnippetOmitsDefaultHoldingWriteOnly: an object property whose
+// writeOnly child (under properties or items) its default would fill takes
+// no default either, so the child's value never reaches the snippet.
+func TestConsumeSnippetOmitsDefaultHoldingWriteOnly(t *testing.T) {
+	for _, schema := range []string{
+		`{"required":["db"],"properties":{"db":{"type":"object","default":{"password":"hunter2"},"properties":{"password":{"type":"string","writeOnly":true}}}}}`,
+		`{"required":["db"],"properties":{"db":{"type":"array","default":["hunter2"],"items":[{"type":"string"},{"type":"string","writeOnly":true}]}}}`,
+	} {
+		values, _, block := valuesSkeleton([]byte(schema), "s.json")
+		if strings.Contains(fmt.Sprint(values), "hunter2") || strings.Contains(block, "hunter2") || !strings.Contains(block, "sensitive") {
+			t.Errorf("values %v, block %q", values, block)
+		}
+	}
+}

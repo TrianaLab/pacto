@@ -173,8 +173,9 @@ func writeConfigurationRefs(b *strings.Builder, entries []ConsumeConfiguration, 
 // value, its minimum (numbers) or the empty value of its type; a line comments
 // the type, the allowed values and the default. A property no candidate fits
 // is left out of values, listed in missing and written as a comment asking for
-// a value. A writeOnly property takes neither its default nor an enum value
-// and its comment says sensitive instead. It is all empty when the schema
+// a value. A property that is writeOnly or holds a writeOnly node takes
+// neither its default nor an enum value, since either can hold that node's
+// value, and its comment says sensitive instead. It is all empty when the schema
 // cannot be parsed or requires nothing.
 func valuesSkeleton(schema []byte, path string) (values map[string]any, missing []string, block string) {
 	doc, err := schemax.Parse(schema, path)
@@ -195,7 +196,7 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		enum, _ := prop["enum"].([]any)
 		def, hasDef := prop["default"]
 		mark := ""
-		if prop["writeOnly"] == true {
+		if holdsWriteOnly(prop) {
 			enum, def, hasDef, mark = nil, nil, false, ", sensitive"
 		}
 		value, ok := skeletonValue(prop, typ, enum, def, hasDef)
@@ -224,6 +225,26 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		head = "    values: {}\n"
 	}
 	return values, missing, head + lines.String()
+}
+
+// holdsWriteOnly reports whether node, or any schema node under it, is
+// writeOnly.
+// ponytail: a $ref is not followed, so a writeOnly definition it names stays unseen; resolve local refs when a consume schema uses them.
+func holdsWriteOnly(node any) bool {
+	switch t := node.(type) {
+	case map[string]any:
+		if t["writeOnly"] == true {
+			return true
+		}
+		for _, v := range t {
+			if holdsWriteOnly(v) {
+				return true
+			}
+		}
+	case []any:
+		return slices.ContainsFunc(t, holdsWriteOnly)
+	}
+	return false
 }
 
 // skeletonValue is the first candidate value prop accepts: def, the first enum
