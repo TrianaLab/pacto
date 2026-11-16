@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1236,5 +1237,120 @@ func TestGraphConfigRefDependents(t *testing.T) {
 	}
 	if got := q.snap.reverseDeps[NewServiceKey("cache")]; len(got) != 0 {
 		t.Errorf("an unresolved reference reached reverseDeps: %v", got)
+	}
+}
+
+// twoClusterPayments runs payments in clusters A and B; orders only in A.
+func twoClusterPayments(t *testing.T, extra ...Source) *Query {
+	t.Helper()
+	return NewQuery(buildClusterSnap(t, append([]Source{
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments"), workload("orders", "orders")}}),
+		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")}}),
+	}, extra...)...))
+}
+
+func TestGetTargetLegacyKeyResolvesWhenUnique(t *testing.T) {
+	v, err := twoClusterPayments(t).GetTarget(string(NewTargetKey("orders", "kubernetes", "orders")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := NewClusterTargetKey(clusterA, "orders", "kubernetes", "orders"); v.Target.Key != want {
+		t.Errorf("key = %q, want the canonical %q", v.Target.Key, want)
+	}
+}
+
+func TestGetTargetLegacyKeyAmbiguousListsCandidates(t *testing.T) {
+	legacy := string(NewTargetKey("payments", "kubernetes", "payments"))
+	_, err := twoClusterPayments(t).GetTarget(legacy)
+	var amb *TargetKeyAmbiguousError
+	if !errors.As(err, &amb) {
+		t.Fatalf("want TargetKeyAmbiguousError, got %v", err)
+	}
+	if amb.Key != legacy || len(amb.Candidates) != 2 {
+		t.Fatalf("ambiguity = %+v", amb)
+	}
+	b, a := amb.Candidates[0], amb.Candidates[1]
+	if b.Key != string(NewClusterTargetKey(clusterB, "payments", "kubernetes", "payments")) || b.Label != "us-prod / payments / payments" ||
+		a.Key != string(NewClusterTargetKey(clusterA, "payments", "kubernetes", "payments")) || a.Label != "eu-prod / payments / payments" || a.Kind != KindTarget {
+		t.Errorf("candidates sorted by key with display labels: %+v", amb.Candidates)
+	}
+	if !strings.Contains(err.Error(), "ambiguous target key; candidates:\n  us-prod / payments / payments   "+b.Key) {
+		t.Errorf("Error() = %q", err.Error())
+	}
+}
+
+func TestGetTargetFourPartKeyInSingleClusterSnapshot(t *testing.T) {
+	q := NewQuery(buildClusterSnap(t, NewMemorySource("eu", SourceKindKubernetes, &Collection{
+		Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")},
+	})))
+	v, err := q.GetTarget(string(NewClusterTargetKey(clusterA, "payments", "kubernetes", "payments")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Target.Key != NewTargetKey("payments", "kubernetes", "payments") {
+		t.Errorf("a 4-part bookmark resolves to the canonical 3-part key: %q", v.Target.Key)
+	}
+}
+
+func TestGetTargetFourPartKeyOtherClusterNotFound(t *testing.T) {
+	q := NewQuery(buildClusterSnap(t, NewMemorySource("eu", SourceKindKubernetes, &Collection{
+		Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("payments", "payments")},
+	})))
+	_, err := q.GetTarget(string(NewClusterTargetKey(clusterB, "payments", "kubernetes", "payments")))
+	var nf *NotFoundError
+	if !errors.As(err, &nf) {
+		t.Errorf("a key naming another cluster is not found, got %v", err)
+	}
+}
+
+func TestGetTargetClusterlessKeyDoesNotShadowClusteredTargets(t *testing.T) {
+	q := twoClusterPayments(t, NewMemorySource("inventory", "inventory", &Collection{Targets: []RawTarget{workload("payments", "payments")}}))
+	legacy := string(NewTargetKey("payments", "kubernetes", "payments"))
+	if q.snap.Targets[TargetKey(legacy)] == nil {
+		t.Fatal("fixture: the clusterless target keeps its 3-part key")
+	}
+	_, err := q.GetTarget(legacy)
+	var amb *TargetKeyAmbiguousError
+	if !errors.As(err, &amb) || len(amb.Candidates) != 3 {
+		t.Fatalf("want three candidates, got %v", err)
+	}
+	var labels []string
+	for _, c := range amb.Candidates {
+		labels = append(labels, c.Label)
+	}
+	if !slices.Contains(labels, "payments/kubernetes/payments (cluster unknown)") {
+		t.Errorf("the clusterless candidate says its cluster is unknown: %v", labels)
+	}
+}
+
+func TestGetTargetAmbiguityOnlyListsVisibleTargets(t *testing.T) {
+	ext := func(service string) RawTarget {
+		return RawTarget{Scope: "payments", Kind: "external", Name: "payments", Service: service, Compliance: StatusCompliant}
+	}
+	q := NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterA, "eu-prod", ClusterNameFromContext), Targets: []RawTarget{workload("shop", "payments"), ext("payments")}}),
+		NewMemorySource("us", SourceKindKubernetes, &Collection{Cluster: clusterOf(clusterB, "us-prod", ClusterNameFromContext), Targets: []RawTarget{workload("vault", "ledger"), ext("ledger")}}),
+	))
+	legacy := string(NewTargetKey("payments", "external", "payments"))
+	var amb *TargetKeyAmbiguousError
+	if _, err := q.GetTarget(legacy); !errors.As(err, &amb) {
+		t.Fatalf("unrestricted, the key names two clusters: %v", err)
+	}
+	v, err := q.Restrict(func(ns string) bool { return ns != "vault" }).GetTarget(legacy)
+	if err != nil {
+		t.Fatalf("the only visible candidate resolves: %v", err)
+	}
+	if v.Target.Key != NewClusterTargetKey(clusterA, "payments", "external", "payments") {
+		t.Errorf("key = %q", v.Target.Key)
+	}
+}
+
+func TestEntityDetailTargetResolvesLegacyKey(t *testing.T) {
+	d, err := twoClusterPayments(t).EntityDetail(KindTarget, string(NewTargetKey("orders", "kubernetes", "orders")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := string(NewClusterTargetKey(clusterA, "orders", "kubernetes", "orders")); d.Entity.Key != want {
+		t.Errorf("entity key = %q, want the canonical %q", d.Entity.Key, want)
 	}
 }

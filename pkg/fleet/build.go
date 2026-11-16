@@ -96,6 +96,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		observedForward:       map[ServiceKey][]ServiceKey{},
 		provisioningWindow:    opts.FreshnessWindow,
 		Clusters:              clusters.records,
+		clusterKeyed:          clusters.multi,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -135,9 +136,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow, clusters, i)
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
-			for _, e := range r.col.Observed {
-				observed = append(observed, observedInput{edge: e, source: src.ID()})
-			}
+			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
 		}
 	}
 
@@ -313,6 +312,23 @@ type targetCluster struct {
 	cluster  Cluster
 	relation string
 	keyed    bool
+	// unknown: the target has no known cluster while the snapshot knows one.
+	unknown bool
+}
+
+// observedEdgesOf is the observed edges of one source. In a snapshot with several
+// clusters a k8s: caller of a source with a known cluster gains that cluster;
+// a caller the source already qualified is kept.
+func observedEdgesOf(id string, col *Collection, c clusterIndex) []observedInput {
+	cl, known := c.resolved[rawClusterID(col, RawTarget{})]
+	out := make([]observedInput, 0, len(col.Observed))
+	for _, e := range col.Observed {
+		if cluster, ns, kind, name, ok := ParseK8sCaller(e.From); ok && cluster == "" && known && c.multi {
+			e.From = K8sCaller(cl.ID, ns, kind, name)
+		}
+		out = append(out, observedInput{edge: e, source: id})
+	}
+	return out
 }
 
 // forTarget resolves the cluster of one raw target: its own cluster when set,
@@ -320,7 +336,7 @@ type targetCluster struct {
 func (c clusterIndex) forTarget(src Source, col *Collection, raw RawTarget) targetCluster {
 	cl, ok := c.resolved[rawClusterID(col, raw)]
 	if !ok {
-		return targetCluster{}
+		return targetCluster{unknown: len(c.records) > 0}
 	}
 	relation := ClusterRelationReportedThrough
 	if src.Kind() == SourceKindKubernetes {
@@ -456,9 +472,7 @@ func (c *clusterIndex) collectClusterless(results []sourceResult, sources []Sour
 			}
 		}
 		if c.multi && len(c.clusterless[i]) > 0 {
-			id := sources[i].ID()
-			c.problems[i] = append(c.problems[i], Limitation{Code: LimitationClusterUnknown, Source: id,
-				Message: strconv.Itoa(len(c.clusterless[i])) + " targets from source " + id + " carry no cluster id, so they cannot be told apart from another cluster's; give the source a cluster id (for the live source: get on namespaces/kube-system)"})
+			c.problems[i] = append(c.problems[i], clusterUnknownMulti(sources[i].ID(), len(c.clusterless[i])))
 		}
 	}
 }
@@ -519,14 +533,33 @@ func clusterMergeLimitations(snap *FleetSnapshot, c clusterIndex) {
 		}
 		if len(hit) > 0 {
 			merged = true
-			markSourcePartial(snap, i, Limitation{Code: LimitationClusterUnknown, Source: snap.Sources[i].ID,
-				Message: "targets from source " + snap.Sources[i].ID + " carry no cluster id and were merged into the targets of cluster " + c.records[0].Name + ": " + boundedKeyList(hit)})
+			markSourcePartial(snap, i, clusterUnknownMerged(snap.Sources[i].ID, c.records[0].Name, hit))
 		}
 	}
 	if !merged && total > 0 {
-		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationClusterUnknown,
-			Message: strconv.Itoa(total) + " targets carry no cluster id; with one known cluster their keys stay unqualified"})
+		snap.Limitations = append(snap.Limitations, clusterUnknownInfo(total))
 	}
+}
+
+// clusterUnknownMulti is the CLUSTER_UNKNOWN of a source that delivered n
+// clusterless targets to a snapshot with several clusters.
+func clusterUnknownMulti(id string, n int) Limitation {
+	return Limitation{Code: LimitationClusterUnknown, Source: id,
+		Message: strconv.Itoa(n) + " targets from source " + id + " carry no cluster id, so they cannot be told apart from another cluster's; give the source a cluster id (for the live source: get on namespaces/kube-system)"}
+}
+
+// clusterUnknownMerged is the CLUSTER_UNKNOWN of a source whose clusterless
+// targets (keys) merged into the targets of the one known cluster.
+func clusterUnknownMerged(id, clusterName string, keys []string) Limitation {
+	return Limitation{Code: LimitationClusterUnknown, Source: id,
+		Message: "targets from source " + id + " carry no cluster id and were merged into the targets of cluster " + clusterName + ": " + boundedKeyList(keys)}
+}
+
+// clusterUnknownInfo is the informational CLUSTER_UNKNOWN of a snapshot with
+// one known cluster whose total clusterless targets merged into none.
+func clusterUnknownInfo(total int) Limitation {
+	return Limitation{Code: LimitationClusterUnknown,
+		Message: strconv.Itoa(total) + " targets carry no cluster id; with one known cluster their keys stay unqualified"}
 }
 
 // boundedKeyList joins at most 20 keys and counts the rest, so a limitation
@@ -760,6 +793,9 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 // a key (two clusters key every target by cluster), so there is no conflict to
 // report. runs-in wins over reported-through.
 func mergeTargetCluster(existing, add *TargetRecord) {
+	for _, src := range add.clusterUnknownFrom {
+		existing.clusterUnknownFrom = appendUnique(existing.clusterUnknownFrom, src)
+	}
 	if existing.Cluster == "" {
 		existing.Cluster, existing.ClusterName, existing.ClusterNameSource = add.Cluster, add.ClusterName, add.ClusterNameSource
 		existing.ClusterNameReportedBy, existing.ClusterRelation = add.ClusterNameReportedBy, add.ClusterRelation
@@ -1397,6 +1433,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	if tc.cluster.ID != "" {
 		t.Cluster, t.ClusterName, t.ClusterNameSource = tc.cluster.ID, tc.cluster.Name, tc.cluster.NameSource
 		t.ClusterNameReportedBy, t.ClusterRelation = tc.cluster.ReportedBy, tc.relation
+	}
+	if tc.unknown {
+		t.clusterUnknownFrom = []string{source}
 	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)

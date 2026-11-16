@@ -156,6 +156,23 @@ func (e *AmbiguousError) Error() string {
 	return fmt.Sprintf("%s %q is ambiguous: matches %s", e.Kind, e.ID, strings.Join(e.Matches, ", "))
 }
 
+// TargetKeyAmbiguousError is returned when a 3-part target key names targets
+// in more than one cluster. Candidates are the targets the caller may see,
+// sorted by key, each labelled for a person to choose from.
+type TargetKeyAmbiguousError struct {
+	Key        string
+	Candidates []EntityRef
+}
+
+func (e *TargetKeyAmbiguousError) Error() string {
+	var b strings.Builder
+	b.WriteString("ambiguous target key; candidates:")
+	for _, c := range e.Candidates {
+		b.WriteString("\n  " + c.Label + "   " + c.Key)
+	}
+	return b.String()
+}
+
 // ParseLabels reads key=value pairs into SearchFilter.Labels. A pair with no
 // key or no =, or a key repeated with another value, is an InvalidQueryError:
 // dropping it would widen the answer past what the caller asked for.
@@ -584,8 +601,17 @@ type TargetView struct {
 
 // GetTarget returns a target by exact key, or (failing that) by unique name. It
 // returns a [NotFoundError] when nothing matches and an [AmbiguousError] when a
-// name matches more than one target.
+// name matches more than one target. A key in the other cluster form resolves
+// first (see resolveTargetKey): a 3-part key that names targets in several
+// clusters returns a [TargetKeyAmbiguousError]. The answer always carries the
+// canonical key.
 func (q *Query) GetTarget(id string) (*TargetView, error) {
+	if t, err := q.resolveTargetKey(id); t != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return q.targetView(t), nil
+	}
 	if t := q.snap.Targets[TargetKey(id)]; t != nil {
 		return q.targetView(t), nil
 	}
@@ -608,6 +634,55 @@ func (q *Query) GetTarget(id string) (*TargetView, error) {
 		sort.Strings(keys)
 		return nil, &AmbiguousError{Kind: "target", ID: id, Matches: keys}
 	}
+}
+
+// resolveTargetKey resolves a key whose cluster form differs from the
+// snapshot's. In a snapshot keyed by cluster, a 3-part key gathers every
+// target with that scope, kind and name, clustered or not, so a clusterless
+// exact hit never shadows clustered ones: one match resolves, more are a
+// [TargetKeyAmbiguousError]. In a snapshot that is not, a 4-part key resolves
+// to the 3-part target in that cluster. It returns nil, nil when neither
+// applies. It reads only q's snapshot, so a restricted viewer's candidates are
+// targets it may see.
+func (q *Query) resolveTargetKey(id string) (*TargetRecord, error) {
+	cluster, scope, kind, name, ok := ParseTargetKey(TargetKey(id))
+	switch {
+	case !ok:
+		return nil, nil
+	case cluster == "" && q.snap.clusterKeyed:
+		var matches []*TargetRecord
+		for _, t := range q.snap.Targets {
+			if t.Scope == scope && t.Kind == kind && t.Name == name {
+				matches = append(matches, t)
+			}
+		}
+		if len(matches) > 1 {
+			return nil, targetKeyAmbiguous(id, matches)
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	case cluster != "" && !q.snap.clusterKeyed:
+		if t := q.snap.Targets[NewTargetKey(scope, kind, name)]; t != nil && t.Cluster == cluster {
+			return t, nil
+		}
+	}
+	return nil, nil
+}
+
+// targetKeyAmbiguous lists matches as the candidates of key, sorted by key. A
+// clusterless candidate says its cluster is unknown.
+func targetKeyAmbiguous(key string, matches []*TargetRecord) *TargetKeyAmbiguousError {
+	e := &TargetKeyAmbiguousError{Key: key}
+	for _, t := range matches {
+		ref := targetEntityRef(t)
+		if t.Cluster == "" {
+			ref.Label += " (cluster unknown)"
+		}
+		e.Candidates = append(e.Candidates, ref)
+	}
+	sort.Slice(e.Candidates, func(a, b int) bool { return e.Candidates[a].Key < e.Candidates[b].Key })
+	return e
 }
 
 func (q *Query) targetView(t *TargetRecord) *TargetView {

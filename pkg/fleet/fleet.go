@@ -823,6 +823,10 @@ type TargetRecord struct {
 	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
 	// label is dropped from Labels and Environment stays empty.
 	environmentConflict bool
+	// clusterUnknownFrom are the sources that delivered this target with no
+	// known cluster while the snapshot knew one; Restrict rebuilds
+	// CLUSTER_UNKNOWN from them.
+	clusterUnknownFrom []string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
@@ -962,6 +966,9 @@ type FleetSnapshot struct {
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
+	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
+	// survives Restrict, which may leave one cluster visible under 4-part keys.
+	clusterKeyed bool
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
@@ -1096,14 +1103,42 @@ type UsageRecord struct {
 
 // UncontractedCaller is a runtime caller no contract describes, of a service
 // that has one. Caller is the raw observed identity, for example
-// "k8s:payments/Deployment/legacy-billing"; the k8s: prefix keeps it from ever
-// resolving to a contracted service by accident.
+// "k8s:payments/Deployment/legacy-billing" (see [K8sCaller]); in a snapshot
+// with several clusters a Kubernetes caller carries its cluster first:
+// "k8s:<clusterUID>/payments/Deployment/legacy-billing". The k8s: prefix keeps
+// it from ever resolving to a contracted service by accident.
 type UncontractedCaller struct {
 	Caller    string     `json:"caller"`
 	ToService ServiceKey `json:"toService"`
 	Sources   []string   `json:"sources"`
 	// Ambiguous is set when the caller name matched more than one service.
 	Ambiguous bool `json:"ambiguous,omitempty"`
+}
+
+// K8sCaller is the identity of a Kubernetes workload with no contract:
+// "k8s:" then the escaped cluster id and "/" when cluster is set, then
+// namespace/kind/name. Namespace and object names are RFC 1123 and a kind is
+// alphanumeric, so the part count tells the two forms apart.
+func K8sCaller(cluster, namespace, kind, name string) string {
+	c := namespace + "/" + kind + "/" + name
+	if cluster != "" {
+		c = escapeKeyPart(cluster) + "/" + c
+	}
+	return "k8s:" + c
+}
+
+// ParseK8sCaller decodes a [K8sCaller] string. ok is false for any other
+// caller, and for a k8s: caller with neither 3 nor 4 parts.
+func ParseK8sCaller(s string) (cluster, namespace, kind, name string, ok bool) {
+	rest, k8s := strings.CutPrefix(s, "k8s:")
+	parts := strings.Split(rest, "/")
+	if !k8s || len(parts) < 3 || len(parts) > 4 {
+		return "", "", "", "", false
+	}
+	if len(parts) == 4 {
+		cluster, parts = unescapeKeyPart(parts[0]), parts[1:]
+	}
+	return cluster, parts[0], parts[1], parts[2], true
 }
 
 // Service returns the logical service record by name, or nil.

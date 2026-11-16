@@ -174,6 +174,12 @@ func TestFixFor(t *testing.T) {
 	expect(t, fixFor("incident", "x", "payments", nil) == nil, "nothing to copy for an incident")
 }
 
+func TestFixForQualifiedCaller(t *testing.T) {
+	want := "pacto init --cluster --namespace batch --out ./pacto-drafts"
+	expect(t, fixFor("missing-contract", fleet.K8sCaller("", "batch", "Deployment", "legacy"), "", nil).Command == want, "a 3-part caller")
+	expect(t, fixFor("missing-contract", fleet.K8sCaller("9f1c4e2a", "batch", "Deployment", "legacy"), "", nil).Command == want, "a 4-part caller names its namespace, not its cluster")
+}
+
 // rewire reads v by its JSON field names into T.
 func rewire[T any](v any) (t T) {
 	b, _ := json.Marshal(v) // plain data: never fails
