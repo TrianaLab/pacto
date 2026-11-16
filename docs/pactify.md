@@ -104,7 +104,7 @@ dependencies:               # one per service a URL in the environment names
     ref: oci://registry.example/acme/contracts/billing   # its publish.bundle
     required: true                              # yours cannot run without it
     compatibility: "^1.0.0"                     # a placeholder: the versions yours accepts
-configurations:             # the environment, ConfigMaps included, values as defaults
+configurations:             # the environment, ConfigMaps included: keys and types, no values
   - name: env
     schema: configuration/schema.json
     required: true
@@ -123,6 +123,17 @@ publish:
         command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
+
+- The configuration schema holds each key and its type, never a value, so it
+  declares no defaults.
+- It marks a key `writeOnly` when its name holds password, secret, token, key,
+  credential, private or dsn (any case), when it is read from a Secret or when
+  its value is a URL with credentials.
+- Next steps name each manifest or ConfigMap in the folder that sets
+  such a key to a literal value, because the bundle publishes that file.
+- A `--cluster` draft reads such a key from the Secret `<workload>-env`, which
+  you create with `kubectl create secret generic --from-env-file`
+  ([details](bootstrap-contracts.md#configuration-keys-and-sensitive-values)).
 
 Leave the long `command` line as it is. It copies your Kubernetes files with
 the image pinned to the digest this version built, in every manifest that runs
