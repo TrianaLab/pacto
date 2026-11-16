@@ -41,6 +41,13 @@ func TestDemoExternalsJoinThroughCatalog(t *testing.T) {
 			}
 		}
 	}
+	assertOrganizationCatalogRef(t, snap)
+}
+
+// assertOrganizationCatalogRef: the snapshot reports the organization catalog
+// as embedded and unsigned, with a reason.
+func assertOrganizationCatalogRef(t *testing.T, snap *fleet.FleetSnapshot) {
+	t.Helper()
 	var org *fleet.ExternalCatalogRef
 	for i := range snap.ExternalCatalogs {
 		if snap.ExternalCatalogs[i].Origin == externalcatalog.OriginOrganization {
