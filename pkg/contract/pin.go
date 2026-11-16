@@ -36,7 +36,9 @@ func PinVersion(raw []byte) ([]byte, error) {
 	switch {
 	case top == nil || (top.Tag == "!!null" && top.Value == ""):
 		return insertVersionLine(raw, bom, body, 0), nil
-	case top.Kind == yaml.MappingNode && top.Style&yaml.FlowStyle == 0:
+	// A root tag or anchor (`--- !!map`, `&root`) sits on a line of its own
+	// that a text insert could split from its mapping, so it is re-encoded.
+	case top.Kind == yaml.MappingNode && top.Style&(yaml.FlowStyle|yaml.TaggedStyle) == 0 && top.Anchor == "":
 		if hasKey(top, "pactoVersion") {
 			return raw, nil
 		}

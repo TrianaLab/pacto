@@ -64,6 +64,21 @@ func TestPinVersionAfterDocumentMarker(t *testing.T) {
 	}
 }
 
+// A root tag or anchor must stay on the contract's mapping: the pinned text is
+// one document that still declares the service.
+func TestPinVersionTaggedOrAnchoredRoot(t *testing.T) {
+	for _, raw := range []string{
+		"--- !!map\nservice:\n  name: a\n  version: 1.0.0\n",
+		"--- &root\nservice:\n  name: a\n  version: 1.0.0\n",
+		"---\n!!map\nservice:\n  name: a\n  version: 1.0.0\n",
+	} {
+		c, err := contract.Parse(strings.NewReader(pinned(t, raw)))
+		if err != nil || c.Service.Name != "a" || c.PactoVersion != contract.Current() {
+			t.Errorf("%q: got %+v, %v", raw, c, err)
+		}
+	}
+}
+
 func TestPinVersionKeepsDeclared(t *testing.T) {
 	for _, raw := range []string{"pactoVersion: \"2.4\"\nservice:\n  name: a\n", `{"pactoVersion": "2.4"}`} {
 		out, err := contract.PinVersion([]byte(raw))
