@@ -86,6 +86,14 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
+	// The scrape never follows a namespace-chosen name out of its selector-backed Services (same guard as
+	// health.go and interfaces.go): a namespace label can turn metrics on, so an ExternalName's CNAME or a
+	// selector-less Service's hand-written endpoints must not choose what the operator dials.
+	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
 	// Resolve the interface-bound port number.
 	boundPort, found := findServicePort(svc, binding.ServicePort)
 	if !found {
