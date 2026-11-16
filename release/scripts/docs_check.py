@@ -906,6 +906,14 @@ def check_supply_chain() -> None:
     for c in commands + verify_commands(read(OPERATOR_README)):
         if VERIFY_IDENTITY not in c:
             problems.append(f"'{c[:60]}...' does not pin the release.yml@refs/heads/main identity")
+        # An empty --source-digest turns gh's commit check off silently, so the
+        # value must be a ${var:?...} expansion that stops the command when empty.
+        if "--source-digest" in c and not re.search(r'--source-digest\s+"?\$\{\w+:\?', c):
+            problems.append(f"'{c[:60]}...' passes --source-digest without a ${{var:?...}} guard against an empty value")
+
+    # gh prints predicateType only under --format json; the human output has no such token.
+    if "predicateType" in text and "--format json" not in text:
+        problems.append("docs/installation.md names predicateType without --format json, the only output that prints it")
 
     ok = not problems
     record(ok, SUPPLY_CHAIN_CHECK,

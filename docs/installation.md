@@ -159,18 +159,24 @@ A successful run prints the certificate subject and the workflow ref it was issu
 
 ### Build provenance
 
-The release workflow records SLSA build provenance as GitHub artifact attestations for the CLI binaries, `checksums.txt` and the three images. The provenance names the workflow, the run and the commit it built from. Verify a binary or an image with the [GitHub CLI](https://cli.github.com/):
+The release workflow records SLSA build provenance as GitHub artifact attestations for the CLI binaries, `checksums.txt` and the three images. The provenance names the workflow, the run and the commit it built from. Verify a binary or an image with the [GitHub CLI](https://cli.github.com/). First look up the commit the version's tag points at, then pass it to `--source-digest`. Use `v<version>` for the CLI and the dashboard, `integrations/kubernetes/v<version>` for the operator and delivery images:
 
 ```bash
+sha="$(git ls-remote https://github.com/TrianaLab/pacto refs/tags/v<version> | cut -f1)"
 gh attestation verify pacto_darwin_arm64 --repo TrianaLab/pacto \
   --cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main \
-  --source-digest "$(git rev-list -n1 v<version>)" --deny-self-hosted-runners
+  --source-digest "${sha:?tag not found}" --deny-self-hosted-runners
+k8s_sha="$(git ls-remote https://github.com/TrianaLab/pacto refs/tags/integrations/kubernetes/v<version> | cut -f1)"
 gh attestation verify oci://ghcr.io/trianalab/pacto/operator:<version> --repo TrianaLab/pacto \
   --cert-identity https://github.com/TrianaLab/pacto/.github/workflows/release.yml@refs/heads/main \
-  --source-digest "$(git rev-list -n1 integrations/kubernetes/v<version>)" --deny-self-hosted-runners
+  --source-digest "${k8s_sha:?tag not found}" --deny-self-hosted-runners
 ```
 
-A successful run prints `✓ Verification succeeded!` and a statement with `predicateType https://slsa.dev/provenance/v1`. Any other output means do not run it. The identity pins the release workflow on `main`, and `--source-digest` pins the commit the version's tag points at: `v<version>` for the CLI and the dashboard, `integrations/kubernetes/v<version>` for the operator and delivery images. Releases older than this change carry no attestation, so `gh attestation verify` reports none for them.
+An empty `--source-digest` turns the commit check off without a warning. `${sha:?tag not found}` stops the command when the tag lookup returned nothing. The identity pins the release workflow on `main`, and `--source-digest` pins the tag's commit.
+
+The command exits with status 0 and prints `✓ Verification succeeded!` when the provenance verifies. Any other exit status means do not run it. Scripts should check the exit status, or add `--format json` and read `.[].verificationResult.statement.predicateType`, which is `https://slsa.dev/provenance/v1`.
+
+Core v4.5.0, Kubernetes v6.5.0 and earlier releases carry no attestation. The first attested release is the one whose [core changelog](https://github.com/TrianaLab/pacto/blob/main/release/units/pacto-core/CHANGELOG.md) or [Kubernetes changelog](https://github.com/TrianaLab/pacto/blob/main/release/units/k8s-module/CHANGELOG.md) entry announces SLSA build-provenance attestations.
 
 To check that a download matches the release page, use the checksum:
 
@@ -178,7 +184,7 @@ To check that a download matches the release page, use the checksum:
 shasum -a 256 -c checksums.txt --ignore-missing
 ```
 
-`pacto update` performs the checksum check, and `gh attestation verify` proves who built the binary. For a release older than this change there is no attestation: `checksums.txt` proves only that the download matches what the release published and says nothing about who built it, so build from source at the tag if that matters.
+`pacto update` performs the checksum check, and `gh attestation verify` proves who built the binary. For a release without an attestation, `checksums.txt` proves only that the download matches what the release published and says nothing about who built it, so build from source at the tag if that matters.
 
 ---
 

@@ -180,6 +180,14 @@ func TestDocsSupplyChainCheckBitesOnAMissingClaim(t *testing.T) {
 				"--signer-workflow TrianaLab/pacto/.github/workflows/release.yml"),
 			"refs/heads/main",
 		},
+		"unguarded --source-digest": {
+			strings.ReplaceAll(doc, `"${sha:?tag not found}"`, `"$(git rev-list -n1 v<version>)"`),
+			"--source-digest",
+		},
+		"predicateType promised in the human output": {
+			strings.ReplaceAll(doc, "`--format json` and read `.[].verificationResult.statement.predicateType`", "`predicateType`"),
+			"predicateType",
+		},
 	}
 	readme := readFile(t, repoRoot(t), "integrations", "kubernetes", "README.md")
 	if bad := strings.ReplaceAll(readme, "release.yml@refs/heads/main", "release.yml"); bad == readme {
