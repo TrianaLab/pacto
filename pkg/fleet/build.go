@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -189,16 +190,16 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 // it partial. A source's own Collection is never mutated: it may be reused.
 func dropNameCollisions(results []sourceResult, sources []Source) {
 	var claims []contract.NameClaim
-	seen := map[[2]string]bool{} // name, digest of an inferred claim already made
+	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
 	for i, r := range results {
 		for _, c := range nameClaims(sources[i].ID(), r.col) {
 			// One bundle read by two sources (overlapping roots, a catalog root
 			// inside --local) is one claimant, not two competing ones.
-			if c.Inferred && c.Digest != "" {
-				if seen[[2]string{c.Name, c.Digest}] {
+			if c.Inferred && c.Bundle != "" {
+				if seen[[2]string{c.Name, c.Bundle}] {
 					continue
 				}
-				seen[[2]string{c.Name, c.Digest}] = true
+				seen[[2]string{c.Name, c.Bundle}] = true
 			}
 			claims = append(claims, c.NameClaim)
 		}
@@ -222,10 +223,28 @@ func dropNameCollisions(results []sourceResult, sources []Source) {
 	}
 }
 
-// digestClaim is a name claim and the content digest of the bundle making it.
+// digestClaim is a name claim and the identity of the bundle making it.
 type digestClaim struct {
 	contract.NameClaim
-	Digest string
+	Bundle string
+}
+
+// bundleIdentity is the folder a local revision was read from, made absolute,
+// or the digest of a published one. Two folders with identical content are
+// two bundles, so a local identity is never a digest.
+func bundleIdentity(rev RawRevision) string {
+	ref := cmp.Or(rev.ResolvedRef, rev.RequestedRef)
+	if strings.Contains(ref, "://") && !strings.HasPrefix(ref, "file://") {
+		return rev.Digest
+	}
+	dir := strings.TrimPrefix(ref, "file://")
+	if dir == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 // nameClaims is one claim per revision of col, plus one declared claim per
@@ -236,7 +255,7 @@ type digestClaim struct {
 func nameClaims(sourceID string, col *Collection) []digestClaim {
 	var claims []digestClaim
 	for _, rev := range collectionRevisions(col) {
-		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, rev.Digest}
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev)}
 		if inf, ok := rev.Bundle.NameInferred(); ok {
 			claim.Source, claim.Inferred = inf.Source, true
 		}

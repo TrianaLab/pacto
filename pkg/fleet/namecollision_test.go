@@ -147,10 +147,18 @@ func TestBuildInferredNameDoesNotTakeTargets(t *testing.T) {
 	}
 }
 
-// One bundle read by two sources is one claimant: it is no collision.
+// One bundle read by two sources is one claimant: it is no collision. Two
+// folders with identical content are still two claimants.
 func TestBuildSameBundleTwoSourcesIsNoCollision(t *testing.T) {
-	a, b := inferredRev("my-svc", "my-svc", "directory my-svc"), inferredRev("my-svc", "./my-svc", "directory my-svc")
+	a, b := inferredRev("my-svc", "my-svc", "directory my-svc"), inferredRev("my-svc", "my-svc", "directory my-svc")
+	b.RequestedRef = "./my-svc" // a catalog root names the folder without file://
 	a.Digest, b.Digest = "sha256:same", "sha256:same"
+	twin := inferredRev("my-svc", "/elsewhere/my-svc", "directory my-svc")
+	twin.Digest = "sha256:same"
+	if snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{a, twin}})); err != nil || len(collisionLims(snap)) != 1 {
+		t.Fatalf("two folders, same content: %v %+v", err, snap.Limitations)
+	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
 		NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{a}}),
 		NewMemorySource("catalog", "local", &Collection{Revisions: []RawRevision{b}}))
