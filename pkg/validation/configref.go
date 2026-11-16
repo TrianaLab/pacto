@@ -268,7 +268,7 @@ func ConfigRefStage(c *contract.Contract, refs ConfigRefs, res ValidationResult,
 		}
 	}
 	if len(declared) == 0 {
-		return SkippedStages("no configuration references", "configuration-refs")[0]
+		return SkippedStages(skipNoConfigRefs, "configuration-refs")[0]
 	}
 	st := RanStage("configuration-refs", res)
 	if st.Status == StagePass && len(unverified) > 0 {

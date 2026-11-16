@@ -14,9 +14,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -102,6 +104,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	}
 	stages = append(stages, validation.ValidateStagesWithResolverAt(ctx, bundle.Contract, rawYAML, bundle.FS, resolver, s.env().now())...)
 	stages = withExpiredEnvironments(stages, bundle.Contract, s.env().now())
+	stages = s.withBehind(ctx, stages, bundle.Contract, s.judgedFS(ctx, ref, opts.Overrides, bundle), resolver)
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -142,6 +145,71 @@ func withExpiredEnvironments(stages []validation.Stage, c *contract.Contract, no
 		}
 	}
 	return stages
+}
+
+// judgedFS is the bundle's files as written, before any override: with
+// overrides, bundle.FS holds the merged pacto.yaml, so the bundle is read
+// again. A bundle that no longer reads is an empty FS, whose missing pacto.yaml
+// says Pacto cannot tell.
+func (s *Service) judgedFS(ctx context.Context, ref string, overrides override.Overrides, bundle *contract.Bundle) fs.FS {
+	if overrides.IsEmpty() {
+		return bundle.FS
+	}
+	if b, err := s.resolveBundle(ctx, ref); err == nil {
+		return b.FS
+	}
+	return fstest.MapFS{}
+}
+
+// withBehind adds a CONTRACT_BEHIND info finding to the structural stage when
+// c declares a pactoVersion older than the current one, saying whether raising
+// it keeps what the contract means. It judges the pacto.yaml in fsys, the
+// bundle before any override, so override values never reach the judged
+// bytes. A skipped structural stage still carries it.
+func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *contract.Contract, fsys fs.FS, resolver validation.BundleResolver) []validation.Stage {
+	current, behind := contract.Behind(c.PactoVersion)
+	if !behind {
+		return stages
+	}
+	raw, err := fs.ReadFile(fsys, DefaultContractPath)
+	var up contract.Upgraded
+	if err == nil {
+		// ponytail: this validates the original twice; pass the first run's
+		// findings into Upgrade if validate time matters.
+		up, err = contract.Upgrade(raw, current, validation.UpgradeCheck(ctx, fsys, resolver, s.env().now()))
+		if err == nil && up.From == "" {
+			return stages // pacto.yaml declares no pactoVersion, so it is current; an override set the older one
+		}
+	}
+	w := contract.ValidationWarning{Path: "pactoVersion", Code: string(finding.CodeContractBehind), Message: behindMessage(c, current, up, err)}
+	for i := range stages {
+		if stages[i].Name == "structural" {
+			stages[i].Warnings = append(stages[i].Warnings, w)
+		}
+	}
+	return stages
+}
+
+// behindMessage says that c's pactoVersion is behind current and what raising
+// it does, given the Upgrade result up and its error.
+func behindMessage(c *contract.Contract, current string, up contract.Upgraded, err error) string {
+	head := fmt.Sprintf("pactoVersion %q is behind %q; ", c.PactoVersion, current)
+	switch {
+	case err != nil:
+		return head + err.Error()
+	case up.Kept != nil:
+		return head + fmt.Sprintf("setting pactoVersion: %q would add %s at %s, so review that first", current, up.Kept.Code, up.Kept.Path)
+	}
+	var refs []string
+	for _, cfg := range c.Configurations {
+		if cfg.Ref != "" {
+			refs = append(refs, cfg.Name)
+		}
+	}
+	if len(refs) > 0 && !validation.RefValuesAllowed(up.From) && validation.RefValuesAllowed(current) {
+		return head + fmt.Sprintf("setting pactoVersion: %q adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (%s)", current, strings.Join(refs, ", "))
+	}
+	return head + fmt.Sprintf("setting pactoVersion: %q keeps what this contract means", current)
 }
 
 // failedStage is the stage name, failed with err under code.

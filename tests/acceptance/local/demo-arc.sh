@@ -202,6 +202,7 @@ else
 fi
 assert_contains "$OUT" "PASS configuration-refs" "the configuration ref resolves and its stage passes"
 assert_contains "$OUT" "FAIL environments" "the environments stage fails on its own line"
+assert_contains "$OUT" "INFO  [CONTRACT_BEHIND]" "a behind contract says so even when it fails"
 assert_contains "$OUT" "storefront-web/v1.2.1/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID]" "the error points at the line in the values file"
 if grep -Fq "ENVIRONMENT_VALUES_UNVERIFIED" <<<"$OUT"; then
   echo "--- output ---"; echo "$OUT"; fail "preview's values for the ref configuration are checked against the provider schema"

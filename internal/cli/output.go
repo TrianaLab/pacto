@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -114,7 +115,11 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 				_, _ = fmt.Fprintf(w, "  %sERROR [%s] %s: %s\n", at, e.Code, e.Path, e.Message)
 			}
 			for _, wr := range st.Warnings {
-				_, _ = fmt.Fprintf(w, "  WARN  [%s] %s: %s\n", wr.Code, wr.Path, wr.Message)
+				label := "WARN "
+				if finding.SeverityFor(finding.Code(wr.Code), true) == finding.SeverityInfo {
+					label = "INFO "
+				}
+				_, _ = fmt.Fprintf(w, "  %s [%s] %s: %s\n", label, wr.Code, wr.Path, wr.Message)
 			}
 		}
 		_, _ = fmt.Fprintln(w, "Next: "+result.Next)

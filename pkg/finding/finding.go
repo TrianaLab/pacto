@@ -50,6 +50,7 @@ const (
 	CategoryReferenceCycle         Category = "ReferenceCycle"
 	CategoryDuplicateName          Category = "DuplicateName"
 	CategoryInvalidVersion         Category = "InvalidVersion"
+	CategoryOutdatedVersion        Category = "OutdatedVersion" // a valid contract that declares an older pactoVersion
 	CategoryInvalidReadiness       Category = "InvalidReadiness"
 	CategoryMissingEvidence        Category = "MissingEvidence"
 	CategoryInvalidFile            Category = "InvalidFile"

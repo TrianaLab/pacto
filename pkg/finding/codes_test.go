@@ -16,6 +16,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeNeedsPacto23:                 CategoryInvalidVersion,
 		CodeNeedsPacto24:                 CategoryInvalidVersion,
 		CodeNeedsPacto25:                 CategoryInvalidVersion,
+		CodeContractBehind:               CategoryOutdatedVersion,
 		CodePublishNeedsServiceName:      CategorySchemaViolation,
 		CodePublishNeedsServiceVersion:   CategoryInvalidVersion,
 		CodeDuplicateTemplatePlugin:      CategoryDuplicateName,
@@ -91,6 +92,8 @@ func expectedSeverities() map[Code]Severity {
 		CodeConfigRefNotEnforced:        SeverityWarning,
 		CodeEnvironmentValuesUnverified: SeverityWarning,
 		CodeDependencyUndeclared:        SeverityWarning,
+		// Info: a fact that never fails a run.
+		CodeContractBehind: SeverityInfo,
 		// Family 2 — uncertainty -> Unknown.
 		CodeEvidenceMissing:        SeverityUnknown,
 		CodeObservationUnsupported: SeverityUnknown,

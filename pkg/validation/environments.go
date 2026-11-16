@@ -47,7 +47,7 @@ func EnvironmentStage(c *contract.Contract, bundleFS fs.FS) Stage {
 // were resolved.
 func EnvironmentStageWith(c *contract.Contract, bundleFS fs.FS, refs ConfigRefs) Stage {
 	if len(c.Environments) == 0 {
-		return SkippedStages("no environments declared", "environments")[0]
+		return SkippedStages(skipNoEnvironments, "environments")[0]
 	}
 	var r ValidationResult
 	var unverified []string
