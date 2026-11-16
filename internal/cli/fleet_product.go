@@ -823,7 +823,7 @@ func printExternalText(w io.Writer, e *fleet.ExternalDetailData) {
 	for _, s := range e.InferredSources {
 		_, _ = fmt.Fprintf(w, "  %s %s %s (inferred, %s)\n", s.Service, s.Kind, s.Where, s.Confidence)
 		if s.Host != "" {
-			_, _ = fmt.Fprintf(w, "    -> %s (credentials stripped)\n", s.Host)
+			_, _ = fmt.Fprintf(w, "    -> %s (host and port only)\n", s.Host)
 		}
 	}
 	printMore(w, e.InferredSourcesTotal-len(e.InferredSources), "inferred")

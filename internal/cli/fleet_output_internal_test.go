@@ -539,7 +539,7 @@ func TestFleetEntityExternalPrintsInferredSources(t *testing.T) {
 		"Class: vendor-api\n",
 		"Catalog: default sha256:3e9a\n",
 		"  pay contract dependencies[1] (declared) name stripe-api\n",
-		"  checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n    -> api.stripe.com (credentials stripped)\n",
+		"  checkout env deployment/checkout env STRIPE_API_BASE (inferred, likely)\n    -> api.stripe.com (host and port only)\n",
 		"  checkout secretKeyRef deployment/checkout secretKeyRef stripe/KEY (inferred, possible)\n  3 more inferred sources\n",
 		"  checkout otel (observed, 4 calls)\n",
 		"Hidden consumers: 2\n",
