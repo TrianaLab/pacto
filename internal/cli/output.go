@@ -73,7 +73,7 @@ func impliedClause(result *app.ValidateResult) string {
 	for _, inf := range result.Inferred {
 		parts = append(parts, inf.Field+" "+inf.Value+" from "+inf.Source)
 	}
-	if !result.VersionDeclared {
+	if result.VersionDeclared != nil && !*result.VersionDeclared {
 		parts = append(parts, "service.version not declared")
 	}
 	if len(parts) == 0 {

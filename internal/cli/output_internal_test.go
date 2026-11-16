@@ -1624,8 +1624,8 @@ func TestPrintValidateImpliedClause(t *testing.T) {
 		{"implied", &app.ValidateResult{Path: "/tmp/n", Valid: true, Stages: loaded, Inferred: []contract.Inferred{
 			{Field: "pactoVersion", Value: "2.5", Source: "this CLI"},
 			{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
-		}}, "/tmp/n is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)\n"},
-		{"fully declared", &app.ValidateResult{Path: "svc", Valid: true, Stages: loaded, VersionDeclared: true}, "svc is valid\n"},
+		}, VersionDeclared: new(false)}, "/tmp/n is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)\n"},
+		{"fully declared", &app.ValidateResult{Path: "svc", Valid: true, Stages: loaded, VersionDeclared: new(true)}, "svc is valid\n"},
 		{"load failed", &app.ValidateResult{Path: "svc", Stages: []validation.Stage{{Name: "load", Status: validation.StageFail}}}, "svc is invalid\n"},
 	}
 	for _, tt := range tests {

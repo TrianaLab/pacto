@@ -54,9 +54,10 @@ type ValidateResult struct {
 	Next     string                       `json:"next"`
 	// Inferred lists what the read implied rather than read from pacto.yaml,
 	// and VersionDeclared whether pacto.yaml declares service.version. Both
-	// describe a contract that loaded; they are zero when it did not.
+	// describe a contract that loaded; they are absent when it did not, so an
+	// unknown never reads as "not declared".
 	Inferred        []contract.Inferred `json:"inferred,omitempty"`
-	VersionDeclared bool                `json:"versionDeclared"`
+	VersionDeclared *bool               `json:"versionDeclared,omitempty"`
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
@@ -127,7 +128,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 
 // implied records on res what the loaded bundle implied.
 func implied(res *ValidateResult, b *contract.Bundle) *ValidateResult {
-	res.Inferred, res.VersionDeclared = b.Inferred, b.Contract.Service.Version != ""
+	res.Inferred, res.VersionDeclared = b.Inferred, new(b.Contract.Service.Version != "")
 	return res
 }
 

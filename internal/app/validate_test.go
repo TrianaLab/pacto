@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -463,14 +464,33 @@ func TestValidateReportsInferred(t *testing.T) {
 		{Field: "pactoVersion", Value: contract.Current(), Source: "this CLI"},
 		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
 	}
-	if !result.Valid || result.VersionDeclared || !slices.Equal(result.Inferred, want) {
+	if !result.Valid || result.VersionDeclared == nil || *result.VersionDeclared || !slices.Equal(result.Inferred, want) {
 		t.Fatalf("got valid=%v declared=%v inferred=%+v errors=%v", result.Valid, result.VersionDeclared, result.Inferred, result.Errors)
 	}
 	result, err = NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeTestBundle(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.VersionDeclared || len(result.Inferred) != 0 {
+	if result.VersionDeclared == nil || !*result.VersionDeclared || len(result.Inferred) != 0 {
 		t.Fatalf("a declared contract implies nothing: %+v", result)
+	}
+}
+
+// A contract that fails to load says nothing about its version: the field is
+// absent, not a false that reads as "not declared".
+func TestValidateLoadFailureOmitsVersionDeclared(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: a, version: 1.0.0}\nbogus: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid || result.VersionDeclared != nil {
+		t.Fatalf("got valid=%v declared=%v", result.Valid, result.VersionDeclared)
+	}
+	if data, _ := json.Marshal(result); strings.Contains(string(data), "versionDeclared") {
+		t.Fatalf("json carries versionDeclared: %s", data)
 	}
 }
