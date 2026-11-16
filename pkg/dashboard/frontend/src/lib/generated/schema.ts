@@ -3744,6 +3744,13 @@ export interface components {
             kind: string;
             /** Format: date-time */
             lastSuccessfulSync?: string;
+            /** @description The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown. */
+            namespaces?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace.
+             */
+            namespacesTotal?: number;
             /** Format: date-time */
             observedAt?: string;
             /** Format: int64 */

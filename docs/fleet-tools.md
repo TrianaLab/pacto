@@ -92,6 +92,16 @@ same facts in a `meta` envelope for a CI job to branch on, and
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 
+### Namespace scope
+
+A Kubernetes source that reads a list of namespaces (`--namespace
+payments,ledger`, or an operator with `controller.watchNamespaces`) is always
+`partial`. It names its scope in a `K8S_NAMESPACE_SCOPED` limitation, such as
+`source kind-demo watches 2 namespaces (ledger and payments); services in any other
+namespace are unknown`, and in its `namespaces` list. A listed namespace it
+could not read is left out of `namespaces` and named in a
+`K8S_NAMESPACE_UNREADABLE` limitation.
+
 ### A service's changes
 
 A service's detail carries its `changes`: each declared change between the

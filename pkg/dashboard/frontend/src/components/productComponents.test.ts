@@ -202,6 +202,43 @@ describe('SourceHealth', () => {
     expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['k8s Unavailable', '40 available']);
     expect(links[1].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=available');
   });
+
+  it('SourceHealth names a scoped source', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments', 'ledger'] }] } });
+    const chip = target.querySelector('a.sh-chip') as HTMLAnchorElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ')).toContain('Watches ledger and payments');
+    expect(target.textContent).not.toContain('Could not read');
+  });
+
+  it('SourceHealth says every watched namespace is hidden from the reader', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: [], namespacesTotal: 3 }] } });
+    const scope = target.querySelector('.sh-scope') as HTMLElement;
+    expect(scope.textContent).toBe('Watches 3 namespaces you may not read');
+    expect(scope.getAttribute('title')).toBe('3 namespaces you may not read');
+  });
+
+  it('SourceHealth counts names it may not show', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments'], namespacesTotal: 3 }] } });
+    expect((target.querySelector('.sh-scope') as HTMLElement).textContent).toBe('Watches payments and 2 more');
+  });
+
+  it('SourceHealth names an unreadable namespace', () => {
+    comp = mount(SourceHealth, {
+      target,
+      props: {
+        sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments'] }],
+        limitations: [
+          { code: 'K8S_NAMESPACE_UNREADABLE', source: 'k8s', message: 'source k8s could not read namespace ledger: forbidden' },
+          { code: 'K8S_NAMESPACE_UNREADABLE', source: 'other', message: 'source other could not read namespace billing: forbidden' },
+        ],
+      },
+    });
+    const chip = target.querySelector('a.sh-chip') as HTMLAnchorElement;
+    const t = chip.textContent?.replace(/\s+/g, ' ') || '';
+    expect(t).toContain('Watches payments');
+    expect(t).toContain('Could not read ledger');
+    expect(t).not.toContain('billing');
+  });
 });
 
 describe('OperationalSummary', () => {

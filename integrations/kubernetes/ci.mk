@@ -77,6 +77,15 @@ helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering the quickstart profile (bundled zot and Dex)..."
 	helm template pacto-operator charts/pacto-operator -n pacto-operator-system -f charts/pacto-operator/values-quickstart.yaml \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
+	@echo "==> Rendering with a namespace list, with it plus delivery, and with a Secret granted by name..."
+	helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={payments,ledger}' > /dev/null
+	helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={payments,ledger}' \
+		--set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
+	helm template pacto-operator charts/pacto-operator --set 'controller.secretGrants={payments/regcred}' > /dev/null
+	@echo "==> The schema refuses an invalid namespace, and watching the node agent namespace fails..."
+	! helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={Bad_NS}' > /dev/null 2>&1
+	! helm template pacto-operator charts/pacto-operator --set 'controller.watchNamespaces={pacto-node-agent}' > /dev/null 2>&1
 	@echo "==> Delivery refuses to render with no humanGroups by accident..."
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null 2>&1

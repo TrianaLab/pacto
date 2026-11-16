@@ -426,7 +426,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.Claims{}.Person(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
-	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient))
+	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient, reviewCluster))
 	o := dashboard.Options{UI: fstest.MapFS{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q.Load(), nil },
 		Published: func() *fleet.Query { return q.Load() },

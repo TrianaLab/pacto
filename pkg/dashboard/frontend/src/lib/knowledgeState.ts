@@ -153,6 +153,65 @@ export function degradedSourceSummary(k: SnapshotKnowledge): string {
   return k.countsBounded ? `at least ${sentence}` : sentence;
 }
 
+/** The namespaces a namespace-scoped fleet watches, and the ones it could not read. */
+interface WatchedScope {
+  /** How many namespaces are watched, including any the reader may not see. */
+  count: number;
+  /** The watched namespaces the reader may see, sorted. */
+  names: string[];
+  /** Namespaces a source was told to watch but could not read. */
+  unreadable: string[];
+}
+
+interface ScopedSourceLike { id?: string; status?: string; kind?: string; namespaces?: string[] | null; namespacesTotal?: number }
+interface LimitationLike { code?: string; source?: string; message?: string }
+
+/** The namespace a K8S_NAMESPACE_UNREADABLE limitation names, or ''.
+ *  ponytail: read back from the backend's prose ("could not read namespace <ns>: ..."). */
+function unreadableNamespace(l: LimitationLike | null | undefined): string {
+  if (l?.code !== 'K8S_NAMESPACE_UNREADABLE') return '';
+  return /could not read namespace ([^:]+):/.exec(l.message ?? '')?.[1] ?? '';
+}
+
+/**
+ * watchedScope reads which namespaces the Kubernetes sources watch. Empty when no
+ * source reads a namespace list (a cluster-wide source watches every namespace).
+ * `count` uses namespacesTotal when set, because the backend caps the names and
+ * drops the ones the reader may not read.
+ */
+export function watchedScope(
+  sources: Array<ScopedSourceLike | null> | null | undefined,
+  limitations: Array<LimitationLike | null> | null | undefined = [],
+): WatchedScope {
+  const names = new Set<string>();
+  let count = 0;
+  for (const s of sources ?? []) {
+    if (s?.kind !== 'kubernetes') continue;
+    for (const ns of s.namespaces ?? []) names.add(ns);
+    count += s.namespacesTotal || (s.namespaces?.length ?? 0);
+  }
+  const unreadable = new Set((limitations ?? []).map(unreadableNamespace).filter(Boolean));
+  return { count, names: [...names].sort(), unreadable: [...unreadable].sort() };
+}
+
+/** scopeLabels lists the names to print for `count` namespaces: past 4 the first 3
+ *  and "N more", and "N more" for any the backend capped or hid. No name at all with
+ *  a count means the backend hid every one from this reader: "none you may read".
+ *  ponytail: a tail of capped and hidden names reads "N more"; the meta does not
+ *  say which is which. */
+export function scopeLabels(names: string[], count: number): string[] {
+  if (!names.length && count > 0) return ['none you may read'];
+  const more = Math.max(count, names.length) - names.length;
+  if (names.length + (more > 0 ? 1 : 0) > 4) return [...names.slice(0, 3), `${Math.max(count, names.length) - 3} more`];
+  return more > 0 ? [...names, `${more} more`] : names;
+}
+
+/** hiddenScope says `count` watched namespaces are hidden from this reader, the
+ *  backend's own wording ("3 namespaces you may not read"). */
+export function hiddenScope(count: number): string {
+  return `${count} ${count === 1 ? 'namespace' : 'namespaces'} you may not read`;
+}
+
 /**
  * classifyError maps a caught error to the honest failure kind. A 404 is a real
  * not-found; a schema/contract violation is a distinct incompatibility the user must

@@ -106,10 +106,16 @@ resources:
     memory: 128Mi
 
 controller:
-  # -- Restrict the controller's observation scope to a single namespace.
-  # Empty string (default) means cluster-wide: the controller watches all namespaces.
-  # The dashboard inherits this scope automatically.
+  # -- Namespaces the controller and the managed dashboard watch. Empty means
+  # cluster-wide. With a list, the chart renders namespaced Roles only; fleet
+  # answers report the rest as unknown.
+  watchNamespaces: []
+  # -- Deprecated: use watchNamespaces. Merged into it.
   watchNamespace: ""
+  # -- Secrets outside the release namespace and watchNamespaces the operator may
+  # read, as namespace/name: pull secrets and Secrets that back a contract
+  # configuration. Each gets a Role limited to that Secret.
+  secretGrants: []
   # -- Stabilization window: how long a sustained NEGATIVE observation must persist
   # before it converts to a confirmed violation (a transient blip reads Unknown
   # meanwhile). Empty string uses the controller default (2m). Accepts a Go
@@ -633,9 +639,11 @@ delivery:
         key: key.pem
         # -- Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation)
         generate: false
-      # -- Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so
-      # it can read this key too and the recorder is not its only holder. The chart refuses
-      # `ed25519.secretName` unless this is true. Prefer KMS or keyless signing
+      # -- Say yes to an Ed25519 key in a Secret the operator may read. The operator reads Secrets in
+      # the release namespace, in each of `controller.watchNamespaces` and the ones
+      # `controller.secretGrants` names, so the chart refuses `ed25519.secretName` unless this is true
+      # when `delivery.namespace` is the release namespace, is watched, or the key is granted by name:
+      # the recorder would not be the key's only holder. Prefer KMS or keyless signing
       allowOperatorReadableKey: false
       # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image
       # includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with

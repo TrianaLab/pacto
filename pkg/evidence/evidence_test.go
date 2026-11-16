@@ -483,3 +483,56 @@ func TestSubjectEnvironmentScope(t *testing.T) {
 		t.Errorf("errors = %v, want one for the set subject environment", errs)
 	}
 }
+
+func TestObservationDetailRefusedOnObserved(t *testing.T) {
+	o := NewCapabilityObserved(sr("capability", "health"), true, prov())
+	o.Detail = "why"
+	if err := o.validate(); err == nil {
+		t.Fatal("an Observed observation must not carry a detail")
+	}
+	if _, err := NewUnobservedDetail(CapabilityObserved, sr("capability", "health"), Observed, prov(), "why"); err == nil {
+		t.Fatal("NewUnobservedDetail must refuse Observed")
+	}
+}
+
+func TestObservationDetailBounded(t *testing.T) {
+	subj := sr("configuration", "app")
+	if _, err := NewUnobservedDetail(ConfigurationPresent, subj, Unsupported, prov(), strings.Repeat("x", MaxObservationDetail+1)); err == nil {
+		t.Fatal("a detail past the bound must be refused")
+	}
+	o, err := NewUnobservedDetail(ConfigurationPresent, subj, Unsupported, prov(), strings.Repeat("x", MaxObservationDetail))
+	if err != nil || len(o.Detail) != MaxObservationDetail {
+		t.Fatalf("a detail at the bound must be kept: %v", err)
+	}
+}
+
+func TestObservationDetailNeverSerialized(t *testing.T) {
+	subj := sr("configuration", "app")
+	plain, err := NewUnobserved(ConfigurationPresent, subj, Unsupported, prov())
+	if err != nil {
+		t.Fatal(err)
+	}
+	withDetail, err := NewUnobservedDetail(ConfigurationPresent, subj, Unsupported, prov(), "the operator may not read Secret ns/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(plain)
+	got, err := json.Marshal(withDetail)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("marshal with a detail = %s (%v), want %s", got, err, want)
+	}
+	var back Observation
+	if err := json.Unmarshal(got, &back); err != nil || back.Detail != "" {
+		t.Fatalf("unmarshal must leave Detail empty: %q %v", back.Detail, err)
+	}
+}
+
+func TestEnvelopeWithDetailRejected(t *testing.T) {
+	data := `{"Subject":{"kind":"service","name":"ns/orders"},"Source":"k8s","ObservedAt":"2026-01-01T00:00:00Z",` +
+		`"Observations":[{"kind":"ConfigurationPresent","subject":{"kind":"configuration","name":"app"},"outcome":"Unsupported",` +
+		`"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"},"detail":"injected"}]}`
+	var es EvidenceSet
+	if err := json.Unmarshal([]byte(data), &es); err == nil {
+		t.Fatal("an observation carrying a detail key must fail the strict decode")
+	}
+}

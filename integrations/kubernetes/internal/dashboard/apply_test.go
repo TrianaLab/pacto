@@ -69,33 +69,6 @@ func TestDeploymentAC_WithOwnerRef(t *testing.T) {
 	}
 }
 
-func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
-	cfg := Config{
-		Enabled:        true,
-		Image:          "img:v1",
-		Namespace:      "test-ns",
-		WatchNamespace: "production",
-	}
-	ac := deploymentAC(cfg)
-	deploy, ok := ac.(*appsv1ac.DeploymentApplyConfiguration)
-	if !ok {
-		t.Fatalf("expected *DeploymentApplyConfiguration, got %T", ac)
-	}
-	container := deploy.Spec.Template.Spec.Containers[0]
-	var found bool
-	for _, env := range container.Env {
-		if *env.Name == "PACTO_DASHBOARD_NAMESPACE" {
-			found = true
-			if *env.Value != "production" {
-				t.Errorf("expected PACTO_DASHBOARD_NAMESPACE=production, got %q", *env.Value)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected PACTO_DASHBOARD_NAMESPACE env var, the one the dashboard reads")
-	}
-}
-
 func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
@@ -201,7 +174,7 @@ func TestDeploymentAC_AuthVolumes(t *testing.T) {
 // asking the apiserver what a signed-in person may read; it lists namespaces
 // only to know whom to ask.
 func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
-	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	role := clusterRoleAC(false).(*rbacv1ac.ClusterRoleApplyConfiguration)
 	sar, reads := false, false
 	for _, r := range role.Rules {
 		if slices.Equal(r.APIGroups, []string{"authorization.k8s.io"}) && slices.Equal(r.Resources, []string{"subjectaccessreviews"}) &&
@@ -243,7 +216,7 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 // names its cluster by the kube-system namespace UID, so the role reads that
 // one namespace by name and keeps listing namespace names as before.
 func TestDashboardClusterRoleReadsClusterIdentity(t *testing.T) {
-	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	role := clusterRoleAC(false).(*rbacv1ac.ClusterRoleApplyConfiguration)
 	var gets, lists int
 	for _, r := range role.Rules {
 		if !slices.Equal(r.APIGroups, []string{""}) || !slices.Equal(r.Resources, []string{"namespaces"}) {

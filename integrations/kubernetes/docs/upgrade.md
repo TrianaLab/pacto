@@ -172,6 +172,43 @@ dashboard serving anonymously: the chart passes the flag unless the value is
 `false`. A dashboard you run yourself needs `--allow-anonymous` or
 `PACTO_DASHBOARD_ALLOW_ANONYMOUS=true`.
 
+## Pull secrets outside granted namespaces
+
+The operator no longer reads Secrets across the cluster. It reads a pull
+secret in the release namespace, in each of `controller.watchNamespaces` and
+wherever `controller.secretGrants` names it. Any other pull secret sets
+`ContractValid=Unknown` with reason `PullSecretNotGranted`, and the condition
+message names the grant to add. The status stays `Unknown`, because the
+operator never read the contract. Before `helm upgrade`, list each pull secret
+outside the release namespace:
+
+```bash
+kubectl get pactos -A \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.spec.contractRef.pullSecretRef}{"\n"}{end}'
+```
+
+- A cluster-wide install lists each one as `namespace/name` in
+  `controller.secretGrants`.
+- A namespace-list install already reads pull secrets in each listed
+  namespace. There the message points at the chart's watch Role and
+  RoleBinding in that namespace, which were removed or changed.
+
+The operator no longer watches Secrets. It reads a rotated pull secret on the
+next check, within one check interval.
+
+`controller.watchNamespace` still works and joins `controller.watchNamespaces`,
+also in an upgrade that reuses the earlier release's values.
+
+Moving from a cluster-wide install to a namespace list leaves the
+`pacto-dashboard` ClusterRole and ClusterRoleBinding behind, because the
+operator may no longer delete them. The `helm upgrade` notes and a
+`StaleClusterRBAC` Warning event on the dashboard Deployment both report them.
+Delete them:
+
+```bash
+kubectl delete clusterrole,clusterrolebinding pacto-dashboard
+```
+
 ## Rolling back
 
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns

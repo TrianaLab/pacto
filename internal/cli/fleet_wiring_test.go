@@ -92,11 +92,11 @@ func TestMCPFleetView(t *testing.T) {
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	cmd := newMCPCommand(svc, "v", d)
-	if mcpFleetView(cmd, d) != nil {
+	if view := mcpFleetView(cmd, d); view != nil {
 		t.Fatal("a stdio server narrows nothing")
 	}
 	_ = cmd.Flags().Set("transport", "http")
-	if mcpFleetView(cmd, d) != nil {
+	if view := mcpFleetView(cmd, d); view != nil {
 		t.Fatal("an HTTP server without sign-in narrows nothing")
 	}
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
@@ -116,7 +116,7 @@ func TestMCPFleetView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+	if _, err = view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
 		t.Fatalf("no cluster to ask: %v", err)
 	}
 }
@@ -168,19 +168,19 @@ func TestDashboardFleetOptions(t *testing.T) {
 	// Unset (empty) env → no evidence source added, unconfigured stays disabled.
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
 	// Nothing detected -> nothing configured, and configuredSources says so.
-	if got := configuredSources(dashboardFleetOptions("", nil, "", nil, dashboardSources{})); len(got) != 0 {
+	if got := configuredSources(dashboardFleetOptions("", nil, nil, nil, dashboardSources{})); len(got) != 0 {
 		t.Errorf("configuredSources with nothing detected = %v, want none", got)
 	}
 	// Every source active.
 	det := dashboardSources{local: true, cache: true, cluster: &fakeClusterClient{}}
-	fopts := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", nil, det)
+	fopts := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, []string{"prod"}, nil, det)
 	if len(fopts.LocalRoots) != 1 || fopts.LocalRoots[0] != "./svc" {
 		t.Errorf("LocalRoots = %v", fopts.LocalRoots)
 	}
 	if len(fopts.OCIRefs) != 1 || fopts.OCIRefs[0] != "ghcr.io/x/a" {
 		t.Errorf("OCIRefs = %v", fopts.OCIRefs)
 	}
-	if !fopts.IncludeCache || !fopts.IncludeK8s || fopts.K8sNamespace != "prod" {
+	if !fopts.IncludeCache || !fopts.IncludeK8s || !slices.Equal(fopts.K8sNamespaces, []string{"prod"}) {
 		t.Errorf("cache/k8s wiring wrong: %+v", fopts)
 	}
 	if fopts.Provenance == nil {
@@ -197,7 +197,7 @@ func TestDashboardFleetOptions(t *testing.T) {
 		t.Errorf("configuredSources = %v, want %v", got, want)
 	}
 	// A detected local root the caller cannot name is not a local source.
-	if got := dashboardFleetOptions("", nil, "", nil, dashboardSources{local: true}); len(got.LocalRoots) != 0 {
+	if got := dashboardFleetOptions("", nil, nil, nil, dashboardSources{local: true}); len(got.LocalRoots) != 0 {
 		t.Errorf("LocalRoots = %v, want none without a directory", got.LocalRoots)
 	}
 }
@@ -205,7 +205,7 @@ func TestDashboardFleetOptions(t *testing.T) {
 // TestDashboardFleetOptions_EvidenceURL proves the operator-wired env var adds a
 // read-only evidence source even when nothing else was detected.
 func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
-	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{evidenceURL: "http://evidence.internal:8080"})
+	fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{evidenceURL: "http://evidence.internal:8080"})
 	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
 		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
 	}
@@ -224,7 +224,7 @@ func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 // rule that a target goes stale as its evidence ages past the window never fired
 // in the one deployment that consumes an Evidence Server.
 func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
-	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{evidenceURL: "http://evidence.internal:8080"})
+	fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{evidenceURL: "http://evidence.internal:8080"})
 	if fopts.FreshnessWindow != fleet.RecentEvidenceWindow {
 		t.Errorf("FreshnessWindow = %v, want the product recency horizon %v",
 			fopts.FreshnessWindow, fleet.RecentEvidenceWindow)
@@ -241,7 +241,7 @@ func TestDashboardFleetOptions_Traces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observationSources: %v", err)
 	}
-	fopts := dashboardFleetOptions("", nil, "", obs, dashboardSources{})
+	fopts := dashboardFleetOptions("", nil, nil, obs, dashboardSources{})
 	if got := configuredSources(fopts); !slices.Equal(got, []string{"observation"}) {
 		t.Errorf("configuredSources = %v, want [observation]", got)
 	}
@@ -415,6 +415,7 @@ func TestManagerFleetProvider(t *testing.T) {
 type fakeClusterClient struct {
 	listJSON string
 	listErr  error
+	asked    []string
 }
 
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
@@ -423,7 +424,8 @@ func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscover
 func (c *fakeClusterClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
 	return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
 }
-func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
+func (c *fakeClusterClient) ListJSON(_ context.Context, _ k8sclient.CRDDiscovery, ns string) ([]byte, error) {
+	c.asked = append(c.asked, ns)
 	if c.listErr != nil {
 		return nil, c.listErr
 	}
@@ -435,15 +437,20 @@ func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, st
 // than failing the refresh: the Kubernetes source reports its own unavailability,
 // and failing here would take the local, OCI and cache baselines down with it.
 func TestClusterContractRefs(t *testing.T) {
-	if got := clusterContractRefs(nil, ""); got != nil {
+	if got := clusterContractRefs(nil, nil); got != nil {
 		t.Error("expected no callback without a cluster client")
 	}
-	unreadable := clusterContractRefs(&fakeClusterClient{listErr: errors.New("cluster unreachable")}, "")
+	unreadable := clusterContractRefs(&fakeClusterClient{listErr: errors.New("cluster unreachable")}, nil)
 	if unreadable == nil {
 		t.Fatal("expected a callback when a cluster client was built")
 	}
 	if got := unreadable(context.Background()); got != nil {
 		t.Errorf("an unreadable cluster contributed %v, want no references", got)
+	}
+	listed := &fakeClusterClient{listJSON: `{"items":[]}`}
+	clusterContractRefs(listed, []string{"ledger", "payments"})(context.Background())
+	if !slices.Equal(listed.asked, []string{"ledger", "payments"}) {
+		t.Errorf("asked %q, want each namespace of the list", listed.asked)
 	}
 }
 
@@ -461,7 +468,7 @@ func TestClusterContractRefs_ExactRefsPrecedeTheirRepository(t *testing.T) {
 		{"metadata":{"name":"checkout","namespace":"prod"},
 		 "status":{"contract":{"serviceName":"checkout","resolvedRef":"reg.svc:5000/demo/checkout@sha256:abc"}}}
 	]}`}
-	got := clusterContractRefs(client, "")(context.Background())
+	got := clusterContractRefs(client, nil)(context.Background())
 	for exact, repo := range map[string]string{
 		"reg.svc:5000/demo/orders:1.0.0":        "reg.svc:5000/demo/orders",
 		"reg.svc:5000/demo/checkout@sha256:abc": "reg.svc:5000/demo/checkout",
@@ -906,7 +913,7 @@ func TestMCPStatsRegistryNeedsFleet(t *testing.T) {
 // TestDashboardFleetOptions_Mira proves --mira-source / PACTO_DASHBOARD_MIRA_SOURCES
 // adds Mira sources and names them in the startup banner.
 func TestDashboardFleetOptions_Mira(t *testing.T) {
-	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{miraURLs: []string{"http://mira:4318"}})
+	fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{miraURLs: []string{"http://mira:4318"}})
 	if !slices.Equal(fopts.MiraURLs, []string{"http://mira:4318"}) {
 		t.Errorf("MiraURLs = %v", fopts.MiraURLs)
 	}

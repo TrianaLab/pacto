@@ -317,12 +317,13 @@ def gen_rbac(k8s: str) -> str:
     release_ns = "pacto-operator-system"
     cr_key = next(k for k in full if k[0] == "ClusterRole")
     cr_name = cr_key[2]
-    mgr_key = next(k for k in full if k[0] == "Role" and k[2].endswith("-manager"))
+    mgr_key = ("Role", release_ns, "pacto-operator-manager")
     le_key = next((k for k in full if k[0] == "Role" and k[2].endswith("-leader-election")), None)
     role_name = le_key[2] if le_key else None
     always, component_only = _split(full, minimal, cr_key)
     ns_always, ns_component = _split(full, minimal, mgr_key)
     agent_key = next((k for k in agent if k[0] == "Role" and k[1] != release_ns), None)
+    scoped = helm_rbac(k8s, "controller.watchNamespaces={payments,ledger}")
     agent_cluster = [r for r in agent[cr_key]["rules"]
                      if _rule_key(r) not in {_rule_key(x) for x in full[cr_key]["rules"]}]
 
@@ -330,9 +331,11 @@ def gen_rbac(k8s: str) -> str:
     out.append("# RBAC\n")
     out.append(
         "Every table below is rendered from the Helm chart itself, so it is the permission "
-        "set an install actually creates. The chart creates one cluster-scoped "
+        "set an install actually creates. A cluster-wide install (the default) creates a "
         f"`ClusterRole` (`{cr_name}`) bound to the controller's ServiceAccount for what has "
-        f"to be cluster-wide, a `Role` (`{mgr_key[2]}`) in the release namespace for the "
+        "to be cluster-wide; with `controller.watchNamespaces` set, it is replaced by "
+        "namespaced Roles. Every install creates "
+        f"a `Role` (`{mgr_key[2]}`) in the release namespace for the "
         "managed components that run there, a second one of the same name in the node "
         "agent's namespace when the agent is on, and a `Role` "
         f"(`{role_name}`) for leader election. The tables render the release namespace as "
@@ -349,7 +352,7 @@ def gen_rbac(k8s: str) -> str:
 
     out.append(f"## Always granted (`{cr_name}`)\n")
     out.append(
-        "Present in every install, including one with every managed component disabled. "
+        "Present in every cluster-wide install, including one with every managed component disabled. "
         "Workloads and their wiring are read-only; the writes are on Pacto's own resources, "
         "on events, and on the specific named objects a previous install may have created "
         "(so the operator can clean them up after you disable a component).\n"
@@ -357,33 +360,21 @@ def gen_rbac(k8s: str) -> str:
     out.extend(_rbac_rules_table(always))
     out.append("")
 
-    # The unrestricted `secrets get,list,watch` row is the single grant reviewers
-    # stop on, and the table alone gives them no reason for it and no way to tell
-    # whether watchNamespace narrows it (it does not -- that flag changes what the
-    # controller watches, not what the ClusterRole permits).
     out.append(
-        "!!! warning \"Why the operator can read Secrets in every namespace\"\n\n"
-        "    `spec.contractRef.pullSecretRef` names a Secret **in the Pacto's own "
-        "namespace**, and a `Pacto` can be created in any namespace, so the read "
-        "cannot be scoped to one. `get` resolves those registry credentials when a "
-        "contract is pulled; `list` and `watch` back the Secret informer that "
-        "re-reconciles a Pacto when its pull Secret changes.\n\n"
-        "    **`controller.watchNamespace` does not narrow this.** It restricts what "
-        "the controller reconciles; the ClusterRole is created unconditionally and "
-        "grants the same cluster-wide read either way.\n\n"
-        "    What does limit the blast radius is binding each credential to its host: "
-        "give an Opaque pull Secret a `registry` key and the operator refuses to send "
-        "it anywhere else, so a contract cannot redirect pull traffic to an "
-        "attacker-controlled registry to exfiltrate the token. Beyond that, treat "
-        "cluster-wide Secret read as the cost of the operator and install it on a "
-        "cluster where that is acceptable.\n"
+        "No ClusterRole grants Secrets. The operator reads a pull Secret or a Secret that "
+        "backs a configuration with `get` in the release namespace and in each of "
+        "`controller.watchNamespaces`, and anywhere else only the Secrets "
+        "`controller.secretGrants` names (`namespace/name`), each through a Role limited to "
+        "that Secret.\n"
     )
 
     out.append(f"## Always granted in the release namespace (`{mgr_key[2]}` Role)\n")
     out.append(
         "The teardown half of the managed components: `get` and `delete` on the fixed names "
         "a previous install may have created there, the node agent's included (releases "
-        "before the dedicated agent namespace ran it in the release namespace).\n"
+        "before the dedicated agent namespace ran it in the release namespace). The one "
+        "`secrets` `get` rule with no name reads pull Secrets and Secrets that back a "
+        "configuration in the release namespace.\n"
     )
     out.extend(_rbac_rules_table(ns_always))
     out.append("")
@@ -469,6 +460,18 @@ def gen_rbac(k8s: str) -> str:
             "lets each agent write only the observation and Lease named after the node in its "
             "token, which RBAC cannot express.\n"
         )
+
+    out.append("## With controller.watchNamespaces\n")
+    out.append(
+        "Rendered with `--set 'controller.watchNamespaces={payments,ledger}'`. The chart "
+        "creates no ClusterRole and no ClusterRoleBinding; the node agent and the "
+        "dashboard's delivery reads, when on, keep only their cluster-scoped rules. Each "
+        "watched namespace gets these Roles:\n"
+    )
+    for key in sorted(k for k in scoped if k[1] == "payments"):
+        out.append(f"`{key[2]}` (`{key[0]}` in each watched namespace):\n")
+        out.extend(_rbac_rules_table(scoped[key]["rules"]))
+        out.append("")
 
     if role_name:
         out.append(f"## Namespaced Role (`{role_name}`)\n")

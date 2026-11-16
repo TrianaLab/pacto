@@ -18,7 +18,8 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
 // Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets
-// and k8s uncontracted callers run in: the ones a caller's permissions decide.
+// and k8s uncontracted callers run in, and the namespaces its Kubernetes
+// sources were told to read: the ones a caller's permissions decide.
 func (q *Query) Namespaces() []string {
 	seen := map[string]bool{}
 	for _, t := range q.snap.Targets {
@@ -31,6 +32,7 @@ func (q *Query) Namespaces() []string {
 			seen[ns] = true
 		}
 	}
+	scopeNamespaces(q.snap, seen)
 	return slices.Sorted(maps.Keys(seen))
 }
 
@@ -79,6 +81,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			hiddenNS[ns] = true
 		}
 	}
+	hideUnreadable(s, visible, hiddenNS)
 	restricted := !visible("")
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted)
 	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {
@@ -131,6 +134,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	recountSources(&out)
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
+	restrictScope(&out, visible)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

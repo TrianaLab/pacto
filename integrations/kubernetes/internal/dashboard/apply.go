@@ -31,11 +31,13 @@ func serviceAccountAC(cfg Config) runtime.ApplyConfiguration {
 	return sa
 }
 
-// clusterRoleAC returns a server-side apply configuration for the dashboard ClusterRole.
-func clusterRoleAC() runtime.ApplyConfiguration {
-	return rbacv1ac.ClusterRole(Name).
-		WithLabels(Labels()).
-		WithRules(
+// clusterRoleAC returns a server-side apply configuration for the dashboard ClusterRole. A scoped
+// dashboard (a namespace list with delivery on) gets only the delivery half: the chart grants it
+// Pactos, PactoRevisions and Services in each watched namespace.
+func clusterRoleAC(scoped bool) runtime.ApplyConfiguration {
+	var rules []*rbacv1ac.PolicyRuleApplyConfiguration
+	if !scoped {
+		rules = append(rules,
 			rbacv1ac.PolicyRule().
 				WithAPIGroups("pacto.trianalab.io").
 				WithResources("pactos", "pactorevisions").
@@ -44,6 +46,11 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
+		)
+	}
+	return rbacv1ac.ClusterRole(Name).
+		WithLabels(Labels()).
+		WithRules(append(rules,
 			// With sign-in, the dashboard keeps one copy of the delivery objects
 			// people read and shows each person only what their own RBAC lets
 			// them read; every action goes with the person's own token.
@@ -69,7 +76,7 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithResources("namespaces").
 				WithResourceNames("kube-system").
 				WithVerbs("get"),
-		)
+		)...)
 }
 
 // clusterRoleBindingAC returns a server-side apply configuration for the dashboard ClusterRoleBinding.
@@ -198,8 +205,13 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_PORT").WithValue("3000"),
 		corev1ac.EnvVar().WithName("PACTO_NO_UPDATE_CHECK").WithValue("1"),
 	}
-	if cfg.WatchNamespace != "" {
-		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(cfg.WatchNamespace))
+	if len(cfg.WatchNamespaces) > 0 {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(strings.Join(cfg.WatchNamespaces, ",")))
+	}
+	if !cfg.needsClusterRole() {
+		// Without a ClusterRole the dashboard can only ask, namespace by namespace, what a
+		// signed-in person may read: the chart grants localsubjectaccessreviews there.
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_REVIEW").WithValue("local"))
 	}
 	env = append(append(env, authEnv(cfg)...), deliveryEnv(cfg)...)
 	if cfg.EvidenceSourceURL != "" {

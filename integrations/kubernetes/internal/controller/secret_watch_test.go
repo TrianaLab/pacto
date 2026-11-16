@@ -28,21 +28,18 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 )
 
-// INV-5 says Secret VALUES never enter operator memory. A typed Secret watch defeats it
-// before any observer code runs: controller-runtime keeps a full corev1.Secret (.Data
-// included) in the informer store for every Secret in scope.
+// INV-5 says Secret VALUES never enter operator memory, and a name-scoped Secret grant
+// cannot list or watch. The operator therefore watches no Secret at all: every Secret it
+// reads goes through the uncached API reader, and the periodic requeue re-reads a rotated
+// pull Secret within one check interval.
 //
 // The probe is a cache read with ReaderFailOnMissingInformer set, so a read can never
 // lazily create the informer it is asking about: an informer either already exists
-// (because the watch built it) or the read fails with ErrResourceNotCached.
-//
-// That same property is why this spec covers WATCHES only and cannot be widened to
-// cover a typed cached READ: the setting suppresses the lazy informer creation such a
-// read leaks through, so the read would fail here rather than leak and the probe would
-// stay green either way. The other half of INV-5 -- that no component's Secret Get goes
-// through a cached client -- is pinned in internal/dashboard/secret_read_test.go.
-var _ = Describe("INV-5: the pull-secret watch", func() {
-	It("caches Secret metadata but never Secret values", func() {
+// (because a watch built it) or the read fails with ErrResourceNotCached. The other half
+// of INV-5 -- that no component's Secret Get goes through a cached client -- is pinned in
+// internal/dashboard/secret_read_test.go and TestSecretConfigurationReadsUncached.
+var _ = Describe("TestNoSecretWatch", func() {
+	It("starts no Secret informer, metadata or typed", func() {
 		// An empty namespace, so this second manager reconciles nothing the other specs own.
 		const ns = "kube-node-lease"
 
@@ -73,19 +70,18 @@ var _ = Describe("INV-5: the pull-secret watch", func() {
 			Expect(mgr.Start(mgrCtx)).To(Succeed())
 		}()
 
+		// The Service watch serving reads is the signal that every watch has started.
 		key := client.ObjectKey{Namespace: ns, Name: "absent"}
-
-		// A NotFound (rather than ErrResourceNotCached) means the metadata informer is
-		// serving reads, which is also the signal that the Secret watch has started.
 		Eventually(func() error {
-			partial := &metav1.PartialObjectMetadata{}
-			partial.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
-			return mgr.GetCache().Get(mgrCtx, key, partial)
+			return mgr.GetCache().Get(mgrCtx, key, &corev1.Service{})
 		}, 30*time.Second, 100*time.Millisecond).Should(WithTransform(apierrors.IsNotFound, BeTrue()),
-			"the Secret watch never started a metadata informer")
+			"the Service watch never started")
 
-		// That same watch is the only thing that could have started a TYPED one.
 		var notCached *cache.ErrResourceNotCached
+		partial := &metav1.PartialObjectMetadata{}
+		partial.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+		Expect(errors.As(mgr.GetCache().Get(mgrCtx, key, partial), &notCached)).To(BeTrue(),
+			"a Secret metadata informer is running: it needs list and watch on every Secret in scope")
 		Expect(errors.As(mgr.GetCache().Get(mgrCtx, key, &corev1.Secret{}), &notCached)).To(BeTrue(),
 			"a typed Secret informer is running, so every Secret's .Data is held in heap (INV-5)")
 	})

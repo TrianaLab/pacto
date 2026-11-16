@@ -26,6 +26,7 @@ each one's `reason` is a fixed identifier you can match on:
 | `ContractValid` | `False` | `Invalid` | The contract loaded and is structurally wrong. `status.validation` names the errors. |
 | `ContractValid` | `False` | `ContractUndeclared` | The contract does not declare its `pactoVersion`, `service.name` or `service.version`. A bundle in a registry or an inline contract must declare all three: `pacto publish` writes the version and refuses a contract without the other two. |
 | `ContractValid` | `Unknown` | `Unavailable` | The contract could not be **obtained** -- registry unreachable, auth rejected, tag not found. Validity is undetermined, so `status.validation` is deliberately left empty. |
+| `ContractValid` | `Unknown` | `PullSecretNotGranted` | The operator may not read the pull secret. The message names the grant to add: `controller.secretGrants` or, for a namespace-list install, the chart's watch Role and RoleBinding in that namespace ([Upgrade](upgrade.md#pull-secrets-outside-granted-namespaces)). |
 | `RuntimeObserved` | `True` | `Found` | Runtime evidence was collected. |
 | `RuntimeObserved` | `False` | `ObservationFailed` | A cluster query errored. The message carries the API error. |
 | `ReadinessSatisfied` | `True` | `Satisfied` | `score >= minScore`. |

@@ -42,27 +42,27 @@ func (f *fakeK8sClient) ClusterIdentity(context.Context, string) (kubecluster.Id
 }
 
 func TestK8sSource_IDKind_Default(t *testing.T) {
-	s := NewK8sSource("", nil, &fakeK8sClient{}, "")
+	s := NewK8sSource("", nil, &fakeK8sClient{}, nil)
 	if s.ID() != "k8s" {
 		t.Errorf("default ID = %q, want k8s", s.ID())
 	}
 	if s.Kind() != "kubernetes" {
 		t.Errorf("Kind = %q, want kubernetes", s.Kind())
 	}
-	if got := NewK8sSource("prod", nil, nil, "").ID(); got != "prod" {
+	if got := NewK8sSource("prod", nil, nil, nil).ID(); got != "prod" {
 		t.Errorf("ID = %q, want prod", got)
 	}
 }
 
 func TestK8sSource_Collect_DiscoverError(t *testing.T) {
-	s := NewK8sSource("k8s", nil, &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestK8sSource_Collect_NotFound(t *testing.T) {
-	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	s := NewK8sSource("k8s", nil, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -76,7 +76,7 @@ func TestK8sSource_Collect_ListError(t *testing.T) {
 	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:    &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listErr: errors.New("list failed"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected error")
 	}
@@ -86,7 +86,7 @@ func TestK8sSource_Collect_InvalidJSON(t *testing.T) {
 	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte("{not json"),
-	}, "")
+	}, nil)
 	if _, err := s.Collect(context.Background()); err == nil {
 		t.Fatal("expected decode error")
 	}
@@ -113,7 +113,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -183,7 +183,7 @@ func TestK8sSource_Collect_Readiness(t *testing.T) {
 	s := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -211,7 +211,7 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	s := NewK8sSource("k8s", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := s.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -227,7 +227,7 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 
 func TestContractRefs_NoCRD(t *testing.T) {
 	// An absent CRD is a readable cluster that declares nothing, not a failure.
-	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestContractRefs_NoCRD(t *testing.T) {
 }
 
 func TestContractRefs_DiscoverError(t *testing.T) {
-	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -248,7 +248,7 @@ func TestContractRefs_NoCRs(t *testing.T) {
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(`{"items":[]}`),
 	}
-	refs, err := ContractRefs(context.Background(), fake, "team-a")
+	refs, err := ContractRefs(context.Background(), fake, []string{"team-a"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestContractRefs_RefsAndRepos(t *testing.T) {
 	refs, err := ContractRefs(context.Background(), &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestK8sSource_ReconciledEvidenceIsEvidence(t *testing.T) {
 	src := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "")
+	}, nil)
 	col, err := src.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -418,7 +418,7 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 		s := NewK8sSource("c", nil, &fakeK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[` + c.item + `]}`),
-		}, "")
+		}, nil)
 		col, err := s.Collect(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -435,7 +435,7 @@ func collectList(t *testing.T, list string) *fleet.Collection {
 	col, err := NewK8sSource("prod-cluster", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "").Collect(context.Background())
+	}, nil).Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,10 +505,10 @@ func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
 	  {"metadata":{"name":"nameless","namespace":"prod"},"status":{"contract":{"serviceName":"","resolvedRef":"ghcr.io/x/a:1.0.0"}}},
 	  {"metadata":{"name":"payments","namespace":"prod"},"status":{"contract":{"serviceName":"payments"}}}
 	]}`
-	col, err := NewK8sSource("prod", &fakeK8sClient{
+	col, err := NewK8sSource("prod", nil, &fakeK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 		listData: []byte(list),
-	}, "").Collect(context.Background())
+	}, nil).Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

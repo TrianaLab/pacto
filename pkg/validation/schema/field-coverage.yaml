@@ -1086,7 +1086,8 @@ fields:
     evidence: ConfigurationPresent from the bound ConfigMap or Secret key (spec.target.configBindings)
     rule: absent contradicts; present but failing the declared schema contradicts
     outcomes: Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED
-      when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically
+      when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the
+      bound Secret; DUPLICATE_CONFIGURATION_NAME statically
     limitations: needs a configBinding; environment variables set directly on the pod are not read
     tests:
       unit:

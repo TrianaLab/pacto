@@ -76,7 +76,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `interfaces[].lifecycle.sunset` | `static-only` | - | - | - | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
 | `interfaces[].lifecycle.successor` | `static-only` | - | - | - | INTERFACE_SUCCESSOR_UNKNOWN |
 | `configurations` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
-| `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
+| `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the bound Secret; DUPLICATE_CONFIGURATION_NAME statically |
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
 | `configurations[].schema` | `verified` | `verified` | `unverified` | `unverified` | Compliant or CONFIGURATION_MISMATCH; FILE_NOT_FOUND, INVALID_CONFIG_JSON, INVALID_CONFIG_SCHEMA statically |
 | `configurations[].ref` | `partial` | `partial` | `unverified` | `unverified` | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime Compliant or CONFIGURATION_MISMATCH for a bound ConfigMap, Insufficient when the ref could not be resolved |
@@ -855,7 +855,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | ConfigurationPresent from the bound ConfigMap or Secret key (spec.target.configBindings) |
 | Rule | absent contradicts; present but failing the declared schema contradicts |
-| Outcomes | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
+| Outcomes | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; OBSERVATION_UNSUPPORTED with the missing grant when the operator may not read the bound Secret; DUPLICATE_CONFIGURATION_NAME statically |
 | Limitations | needs a configBinding; environment variables set directly on the pod are not read |
 | Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/crossfield_test.go:TestValidateConfigurationNamesUnique_Duplicate`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:configuration-absent`, `tests/acceptance/kind/runtime-conformance.sh:configuration-mismatch`, `tests/acceptance/kind/runtime-conformance.sh:configuration-optional` |
 

@@ -368,8 +368,26 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "watchNamespaces": {
+          "type": ["array", "null"],
+          "uniqueItems": true,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          }
+        },
         "watchNamespace": {
           "type": "string"
+        },
+        "secretGrants": {
+          "type": ["array", "null"],
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$"
+          }
         },
         "stabilizationWindow": {
           "type": "string"

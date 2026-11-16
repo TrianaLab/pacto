@@ -20,31 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-// Test mapSecretToPactos with List error
-func TestMapSecretToPactos_ListError(t *testing.T) {
-	s := newScheme()
-	c := fake.NewClientBuilder().WithScheme(s).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if _, ok := list.(*pactov1alpha1.PactoList); ok {
-					return fmt.Errorf("list failed")
-				}
-				return c.List(ctx, list, opts...)
-			},
-		}).Build()
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "ns"},
-	}
-
-	fn := mapSecretToPactos(c)
-	requests := fn(context.Background(), secret)
-
-	if requests != nil {
-		t.Errorf("expected nil result on List error, got %d requests", len(requests))
-	}
-}
-
 // Test mapObjectToPactos with List error
 func TestMapObjectToPactos_ListError(t *testing.T) {
 	s := newScheme()

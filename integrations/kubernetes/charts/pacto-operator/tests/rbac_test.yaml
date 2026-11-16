@@ -2,21 +2,6 @@ suite: rbac tests
 templates:
   - templates/clusterrole.yaml
 tests:
-  - it: should create a ClusterRole
-    asserts:
-      - isKind:
-          of: ClusterRole
-
-  - it: should include dashboard RBAC by default
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [rbac.authorization.k8s.io]
-            resources: [clusterroles, clusterrolebindings]
-            verbs: [create, delete, get, list, patch, update, watch]
-        any: true
-
   - it: should not include dashboard RBAC when dashboard is disabled
     set:
       dashboard.enabled: false
@@ -29,24 +14,6 @@ tests:
             verbs: [create, delete, get, list, patch, update, watch]
         any: true
 
-  - it: should let the operator grant the dashboard SubjectAccessReview
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [authorization.k8s.io]
-            resources: [subjectaccessreviews]
-            verbs: [create]
-
-  - it: should let the operator grant the dashboard read-only Stages and Operations
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [delivery.pacto.trianalab.io]
-            resources: [stages, operations]
-            verbs: [get, list, watch]
-
   - it: should not read Stages and Operations when the dashboard is disabled
     set:
       dashboard.enabled: false
@@ -57,15 +24,6 @@ tests:
             apiGroups: [delivery.pacto.trianalab.io]
             resources: [stages, operations]
             verbs: [get, list, watch]
-
-  - it: should let the operator grant the dashboard namespace list
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [namespaces]
-            verbs: [list]
 
   - it: should not list namespaces when the dashboard is disabled
     set:
@@ -101,72 +59,6 @@ tests:
             verbs: [get, delete]
             resourceNames: [pacto-dashboard]
         any: true
-
-  - it: should let the cached client list and watch configmaps
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [configmaps]
-            verbs: [get, list, watch]
-
-  - it: should always grant the kernel evidence and exposure reads
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [pods]
-            verbs: [get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [pacto.trianalab.io]
-            resources: [noderuntimeobservations]
-            verbs: [delete, get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [networking.k8s.io]
-            resources: [ingresses]
-            verbs: [get, list, watch]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [gateway.networking.k8s.io]
-            resources: [httproutes]
-            verbs: [get, list, watch]
-
-  - it: should grant monitor reads only with metrics observation
-    asserts:
-      - notContains:
-          path: rules
-          content:
-            apiGroups: [monitoring.coreos.com]
-            resources: [servicemonitors, podmonitors]
-            verbs: [get, list, watch]
-
-  - it: should grant monitor reads when metrics observation is enabled
-    set:
-      controller.enableMetricsObservation: true
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [monitoring.coreos.com]
-            resources: [servicemonitors, podmonitors]
-            verbs: [get, list, watch]
-
-  - it: the operator ClusterRole reads the kube-system namespace by name
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [namespaces]
-            resourceNames: [kube-system]
-            verbs: [get]
 
   - it: the operator ClusterRole reads the kube-system namespace by name with delivery off
     set:

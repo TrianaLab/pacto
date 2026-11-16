@@ -291,7 +291,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if rc.delivery != nil {
 		policy := rc.delivery(nil) // only its trust and policy namespace are read
 		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
-		rc.build = perCallerBuild(version, a, m, mcpDeliveryReads(id, m.Fleet, fleetNamespace(cmd)), id.installedProbe())
+		rc.build = perCallerBuild(version, a, m, mcpDeliveryReads(id, m.Fleet, deliveryNarrowing(flagNamespaces(cmd))), id.installedProbe())
 	}
 	s.perRequest = rc.middleware
 	s.remoteAuthoring = true

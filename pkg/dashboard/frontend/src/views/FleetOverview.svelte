@@ -429,7 +429,7 @@
       </div>
       <!-- The trust figure at the top of the page counts the sources by state (one
            carrier per fact, L3); this section names them, least healthy first. -->
-      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
+      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} limitations={overview.meta?.limitations || []} />
     </section>
 
     <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">

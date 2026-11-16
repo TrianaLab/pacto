@@ -114,8 +114,8 @@ Controller arguments derived from values
 {{- else }}
 - --metrics-bind-address=0
 {{- end }}
-{{- if .Values.controller.watchNamespace }}
-- --watch-namespace={{ .Values.controller.watchNamespace }}
+{{- if or .Values.controller.watchNamespaces .Values.controller.watchNamespace }}
+- --watch-namespaces={{ include "pacto-operator.watchNamespaces" . | fromYamlArray | join "," }}
 {{- end }}
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
@@ -264,7 +264,7 @@ Controller arguments derived from values
 - --dashboard-repositories={{ join "," . }}
 {{- end }}
 {{- with .Values.dashboard.delivery }}
-{{- with (.namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
+{{- with include "pacto-operator.dashboardDeliveryNamespace" $ }}
 - --dashboard-delivery-namespace={{ . }}
 {{- end }}
 {{- with .trust }}
@@ -482,4 +482,72 @@ cluster in operations and records.
   resources: [namespaces]
   resourceNames: [kube-system]
   verbs: [get]
+{{- end }}
+
+{{/*
+The namespaces the controller and the managed dashboard watch, as a YAML list:
+controller.watchNamespaces with the deprecated controller.watchNamespace merged
+in, empties dropped, sorted. The default list guards keep a --reuse-values
+upgrade from a release without the key rendering. Empty means cluster-wide.
+*/}}
+{{- define "pacto-operator.watchNamespaces" -}}
+{{- $list := concat (default list .Values.controller.watchNamespaces) (list .Values.controller.watchNamespace) | compact | uniq | sortAlpha }}
+{{- range $list }}
+{{- if eq . $.Values.nodeAgent.namespace }}
+{{- fail (printf "controller.watchNamespaces must not hold the node agent namespace %s: the operator already holds its own rules there" .) }}
+{{- end }}
+{{- end }}
+{{- toYaml $list }}
+{{- end }}
+
+{{/*
+The Secrets granted by name, as a YAML list of {namespace, name}, from
+controller.secretGrants (namespace/name).
+*/}}
+{{- define "pacto-operator.secretGrants" -}}
+{{- $out := list }}
+{{- range default list .Values.controller.secretGrants | uniq }}
+{{- $parts := splitList "/" . }}
+{{- $out = append $out (dict "namespace" (index $parts 0) "name" (index $parts 1)) }}
+{{- end }}
+{{- toYaml $out }}
+{{- end }}
+
+{{/*
+The namespace the managed dashboard reads delivery objects in, or nothing:
+dashboard.delivery.namespace, else delivery.namespace when delivery is on.
+*/}}
+{{- define "pacto-operator.dashboardDeliveryNamespace" -}}
+{{- with .Values.dashboard.delivery }}
+{{- .namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether a cluster-scoped need remains, so the ClusterRole renders: no
+namespace list, the node agent, or the dashboard with delivery on.
+*/}}
+{{- define "pacto-operator.clusterScoped" -}}
+{{- if or (not (include "pacto-operator.watchNamespaces" . | fromYamlArray)) .Values.nodeAgent.enabled (and .Values.dashboard.enabled (include "pacto-operator.dashboardDeliveryNamespace" .)) }}true{{ end }}
+{{- end }}
+
+{{/*
+Why the operator may read the recorder's Ed25519 key Secret, or nothing: the
+delivery namespace is the release namespace, is watched, or the key is
+granted by name.
+*/}}
+{{- define "pacto-operator.delivery.operatorReadsKey" -}}
+{{- $ns := .Values.delivery.namespace }}
+{{- $name := .Values.delivery.recorder.signing.ed25519.secretName }}
+{{- if eq $ns .Release.Namespace }}
+{{- printf "%s is the release namespace" $ns }}
+{{- else if has $ns (include "pacto-operator.watchNamespaces" . | fromYamlArray) }}
+{{- printf "%s is in controller.watchNamespaces" $ns }}
+{{- else }}
+{{- range include "pacto-operator.secretGrants" . | fromYamlArray }}
+{{- if and (eq .namespace $ns) (eq .name $name) }}
+{{- printf "controller.secretGrants names %s/%s" $ns $name }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

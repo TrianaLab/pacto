@@ -87,6 +87,14 @@ All three secret formats are supported in both paths:
 
 Create the Secret in the same namespace as the Pacto CR and name it in `spec.contractRef.pullSecretRef`. The supported Secret types and the `registry` key are in [Contract bindings](https://pacto.run/latest/integrations/kubernetes/contract-bindings/).
 
+The operator reads a pull Secret, or a Secret that backs a contract configuration, only where the chart grants it: in the release namespace, in each of `controller.watchNamespaces`, and the Secrets `controller.secretGrants` names as `namespace/name` (each through a Role limited to that Secret). No ClusterRole grants Secrets. A pull Secret outside those grants sets the Pacto's `ContractValid` condition to `Unknown` with reason `PullSecretNotGranted`, and a configuration Secret the operator may not read reads Unknown with a finding that names the missing grant.
+
+```yaml
+controller:
+  secretGrants:
+    - payments/regcred
+```
+
 #### Dashboard credentials (Helm value)
 
 To give the dashboard pod access to private registries, create Secrets in the **operator namespace** and configure them via Helm values. The operator reads these source secrets, merges their credentials, and creates a managed `dockerconfigjson` secret that the dashboard pod mounts automatically.
@@ -179,11 +187,11 @@ dashboard:
       - pacto.example.com
 ```
 
-The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespace` — there is no separate dashboard scope configuration.
+The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespaces` — there is no separate dashboard scope configuration.
 
 ### Observation Scope
 
-The dashboard inherits the controller's scope, `controller.watchNamespace`; see [Common overrides](https://pacto.run/latest/integrations/kubernetes/installation/#common-overrides).
+The dashboard inherits the controller's scope, `controller.watchNamespaces`; with a list it reads only those namespaces and reviews people with namespaced LocalSubjectAccessReviews. See [Common overrides](https://pacto.run/latest/integrations/kubernetes/installation/#common-overrides).
 
 ## Security
 
@@ -210,8 +218,10 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | controller.kernelEvidence.enabled | bool | `false` | Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and dependency evidence. Needs the node agent running; off by default, so evidence comes from the Kubernetes API only. Kernel evidence is on whenever this OR nodeAgent.enabled is true: a managed agent whose observations nobody merges would be pure cost. Set this alone only for an agent you run yourself. |
 | controller.kernelEvidence.namespace | string | `""` | Namespace the node agent publishes to. Empty uses nodeAgent.namespace. |
 | controller.kernelEvidence.staleness | string | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
+| controller.secretGrants | list | `[]` | Secrets outside the release namespace and watchNamespaces the operator may read, as namespace/name: pull secrets and Secrets that back a contract configuration. Each gets a Role limited to that Secret. |
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
-| controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| controller.watchNamespace | string | `""` | Deprecated: use watchNamespaces. Merged into it. |
+| controller.watchNamespaces | list | `[]` | Namespaces the controller and the managed dashboard watch. Empty means cluster-wide. With a list, the chart renders namespaced Roles only; fleet answers report the rest as unknown. |
 | crds.install | bool | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
 | dashboard.auth.allowAnonymous | bool | `true` | Serve the dashboard without sign-in. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. Ignored when sign-in is configured. With `false` and no sign-in the dashboard refuses to start |
 | dashboard.auth.oidc.caBundle.configMap | string | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
@@ -308,7 +318,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.recorder.serviceAccount.annotations | object | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
 | delivery.recorder.serviceAccount.create | bool | `true` | Create a ServiceAccount for the recorder |
 | delivery.recorder.serviceAccount.name | string | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
-| delivery.recorder.signing.allowOperatorReadableKey | bool | `false` | Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so it can read this key too and the recorder is not its only holder. The chart refuses `ed25519.secretName` unless this is true. Prefer KMS or keyless signing |
+| delivery.recorder.signing.allowOperatorReadableKey | bool | `false` | Say yes to an Ed25519 key in a Secret the operator may read. The operator reads Secrets in the release namespace, in each of `controller.watchNamespaces` and the ones `controller.secretGrants` names, so the chart refuses `ed25519.secretName` unless this is true when `delivery.namespace` is the release namespace, is watched, or the key is granted by name: the recorder would not be the key's only holder. Prefer KMS or keyless signing |
 | delivery.recorder.signing.ed25519.generate | bool | `false` | Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation) |
 | delivery.recorder.signing.ed25519.key | string | `"key.pem"` | The key in that Secret |
 | delivery.recorder.signing.ed25519.secretName | string | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
