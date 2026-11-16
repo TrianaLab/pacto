@@ -169,7 +169,7 @@ e2e-otel: test-acceptance-local
 # and liveness are different properties and a merged suite proves neither.
 #
 # PW_SHARD=i/n runs one Playwright slice (CI shards the suite to fit its timeout).
-# PW_LEG=layout|rest picks the layout specs or everything else (playwright.config.ts),
+# PW_LEG=layout|rest picks the layout matrix or everything else (playwright.config.ts),
 # so CI shards each leg by its own weight; unset runs the whole suite.
 # Every shard builds the demo and the doc export it needs; the engine smoke runs
 # only outside the layout leg when PW_SHARD is unset or names shard 1, so it is
@@ -199,13 +199,13 @@ e2e-dashboard-wasm: test-browser
 # default font beside Verdana. The PR suite (test-browser) runs the SPEC 24.6 subset of
 # the same spec. CI runs this one in .github/workflows/layout-full.yml: nightly on main
 # and on the changesets Version PR, where `required` gates the release on it.
-# PW_SHARD=i/n runs one Playwright slice, as in test-browser. It also runs the G1 gate
-# (layout.spec.ts) in both themes: PRs gate geometry in dark only, so this is where the
-# light theme's geometry is gated.
+# PW_SHARD=i/n runs one Playwright slice, as in test-browser. The matrix carries the G1
+# gate too, and here both run in both themes: PRs gate geometry in dark only, so this is
+# where the light theme's geometry is gated.
 test-browser-layout-full:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo doc-export
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts e2e/layout.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
 
 # The dashboard screenshots in docs/assets/screenshots, captured from the built WASM
 # demo at 1600x1000 in both themes, so they are reproducible rather than hand-made.

@@ -4,8 +4,8 @@ name: Layout matrix (full)
 # viewport from a 320px phone to a 3840px screen, the 40px width sweep, DPR 2 and 3
 # on phones and tablets, and the default font beside Verdana. Pull requests run the
 # SPEC 24.6 subset inside ci.yml's dashboard-e2e; this is the rest of the matrix.
-# Pull requests also gate layout geometry (layout-matrix and the G1 gate,
-# layout.spec.ts) in the dark theme only; this run gates both in both themes.
+# Pull requests also gate layout geometry (the matrix and the G1 gate it carries)
+# in the dark theme only; this run gates both in both themes.
 #
 # It runs every night on main, on demand, and on the changesets Version PR, where
 # ci.yml calls it (job layout-full, which the required check aggregates only on

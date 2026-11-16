@@ -14,12 +14,12 @@ import { APP_PORT, DOC_PORT } from './e2e/ports';
 const DIST = '../../../examples/demo/dist';
 const DOC_DIST = '../../../examples/demo/.doc-export';
 
-// PW_LEG splits the suite by weight for CI (make test-browser PW_LEG=...): the two
-// layout gates are about 80% of the browser minutes, so sharding by test count put
-// slow layout tests next to fast ones and left the shards unbalanced. `layout` runs
-// only the layout specs, `rest` runs everything else; unset runs the whole suite.
+// PW_LEG splits the suite by weight for CI (make test-browser PW_LEG=...): the layout
+// matrix (with the G1 gate it carries) is about 80% of the browser minutes, so sharding
+// by test count put slow layout tests next to fast ones and left the shards unbalanced.
+// `layout` runs only the layout matrix, `rest` runs everything else; unset runs the whole suite.
 // The two legs partition the suite, so every spec runs exactly once.
-const LAYOUT = /[\\/]layout(-matrix)?\.spec\.ts$/;
+const LAYOUT = /[\\/]layout-matrix\.spec\.ts$/;
 const MOBILE = /mobile\.spec\.ts/;
 const leg = process.env.PW_LEG;
 if (leg && leg !== 'layout' && leg !== 'rest') throw new Error(`PW_LEG=${leg}: want layout or rest`);

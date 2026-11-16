@@ -17,7 +17,7 @@ type legShard struct {
 }
 
 // TestDashboardE2EShardsEveryLegOnce: dashboard-e2e shards the browser suite by
-// weight, as two legs (PW_LEG in playwright.config.ts): the layout specs and the
+// weight, as two legs (PW_LEG in playwright.config.ts): the layout matrix and the
 // rest. A leg missing from the matrix, or a leg whose shards do not cover 1..n,
 // silently stops running part of the suite while the job stays green.
 func TestDashboardE2EShardsEveryLegOnce(t *testing.T) {

@@ -286,8 +286,8 @@ jobs:
   # build the WASM dashboard demo and drive it in a real (headless Chromium)
   # browser with Playwright. No cluster required.
   #
-  # Sharded by weight: the two layout specs are most of the browser minutes, so
-  # they get their own leg on 4 shards and the rest of the suite runs on 2
+  # Sharded by weight: the layout matrix is most of the browser minutes, so
+  # it gets their own leg on 4 shards and the rest of the suite runs on 2
   # (PW_LEG in playwright.config.ts; the legs partition the suite, so every spec
   # runs once). Sharding the whole suite by test count left slow layout tests
   # bunched on a few shards. Each shard builds the demo once and runs its
