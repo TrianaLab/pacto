@@ -411,8 +411,8 @@ func boundEdges(edges []NeighborhoodEdge, max int) ([]NeighborhoodEdge, bool) {
 }
 
 // addExternalLeaves adds to a service neighborhood the external systems its
-// walked services declare, as leaf nodes one hop past their consumer, and the
-// edges to them. Both count against the answer's node and edge caps.
+// walked services declare, call or use, as leaf nodes one hop past their
+// consumer, and the edges to them. Both count against the answer's node and edge caps.
 func (q *Query) addExternalLeaves(res *Neighborhood, depthOf map[ServiceKey]int, bp boundedParams) {
 	if bp.dir == DirectionDependents {
 		return

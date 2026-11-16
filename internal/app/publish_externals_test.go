@@ -46,18 +46,14 @@ func TestPublishedBundleCarriesNoCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checked := 0
+	checked, schema := 0, false
 	for _, f := range r.Files {
-		// ponytail: configuration/schema.json still carries env values as
-		// defaults until 508-S2a's leak fix merges; check it too then.
-		if f.Path == "configuration/schema.json" {
-			continue
-		}
 		got, err := fs.ReadFile(b.FS, f.Path)
 		if err != nil {
 			continue // cosign.key, .pactoignore: generated, never published
 		}
 		checked++
+		schema = schema || f.Path == "configuration/schema.json"
 		for _, bad := range []string{"user:", "pass@", "/app", "password", "eyJhbGciOi", "s3cr3t"} {
 			if strings.Contains(string(got), bad) {
 				t.Errorf("%s in the bundle holds %q", f.Path, bad)
@@ -65,7 +61,7 @@ func TestPublishedBundleCarriesNoCredential(t *testing.T) {
 		}
 	}
 	pacto, _ := fs.ReadFile(b.FS, "pacto.yaml")
-	if checked == 0 || !strings.Contains(string(pacto), "identity aws/rds") {
+	if checked == 0 || !schema || !strings.Contains(string(pacto), "identity aws/rds") {
 		t.Fatalf("checked %d files; pacto.yaml:\n%s", checked, pacto)
 	}
 }

@@ -917,16 +917,18 @@ type ExternalRecord struct {
 	// Aliases are the catalog entry's aliases, so a search finds it by any.
 	Aliases []string `json:"aliases,omitempty" doc:"The aliases of the catalog entry that classified it"`
 	// Sources is the evidence, one per consumer and declaring position, each
-	// with its own provenance. SourcesTotal counts every declaration.
+	// with its own provenance. SourcesTotal counts every declaration and every
+	// observed or inferred source.
 	Sources      []ExternalSource      `json:"sources" doc:"The evidence that names this external system, one per consumer and dependency position, each with its own provenance"`
-	SourcesTotal int                   `json:"sourcesTotal" doc:"Every declaration, across every revision of every consumer"`
+	SourcesTotal int                   `json:"sourcesTotal" doc:"Every declaration across every revision of every consumer, plus each observed or inferred source"`
 	Catalog      *ExternalCatalogMatch `json:"catalog,omitempty" doc:"The catalog entry that classified it; absent when it is joined by name only"`
-	Consumers    []ServiceKey          `json:"consumers" doc:"The services that declare it"`
+	Consumers    []ServiceKey          `json:"consumers" doc:"The services that declare, call or use it"`
 	// ConsumersTotal counts Consumers before an answer bounds them.
-	ConsumersTotal  int `json:"consumersTotal" doc:"How many services declare it"`
+	ConsumersTotal  int `json:"consumersTotal" doc:"How many services declare, call or use it"`
 	HiddenConsumers int `json:"hiddenConsumers,omitempty" doc:"How many consumers the caller's permissions hide"`
 	Folded          int `json:"folded,omitempty" doc:"On the other-egress node, how many external systems it folds"`
-	// declarations counts, per consumer, the revisions that declare it.
+	// declarations counts, per consumer, the revisions that declare it plus
+	// each observed or inferred source.
 	declarations map[ServiceKey]int
 }
 

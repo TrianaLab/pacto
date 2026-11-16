@@ -2820,11 +2820,11 @@ export interface components {
              * @enum {string}
              */
             class: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
-            /** @description The services that declare it */
+            /** @description The services that declare, call or use it */
             consumers: string[] | null;
             /**
              * Format: int64
-             * @description How many services declare it
+             * @description How many services declare, call or use it
              */
             consumersTotal: number;
             /**
@@ -2845,7 +2845,7 @@ export interface components {
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
              * Format: int64
-             * @description Every declaration, across every revision of every consumer
+             * @description Every declaration across every revision of every consumer, plus each observed or inferred source
              */
             sourcesTotal: number;
         };
