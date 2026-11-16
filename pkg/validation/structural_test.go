@@ -1016,6 +1016,12 @@ func TestNeeds25CompatibilityUnknown(t *testing.T) {
 	if unknown["compatibility"] != "unknown" {
 		t.Fatal("the caller's data was changed")
 	}
+	// 2.0 requires compatibility on a dependency: the NEEDS error stands alone,
+	// with no generic "missing property" beside it.
+	data["pactoVersion"] = "2.0"
+	if r := ValidateStructural(data); len(r.Errors) != 1 || r.Errors[0].Code != "NEEDS_PACTO_2_5" {
+		t.Fatalf("2.0 errors = %+v, want only NEEDS_PACTO_2_5", r.Errors)
+	}
 	data["pactoVersion"] = "2.5"
 	if r := ValidateStructural(data); !r.IsValid() {
 		t.Fatalf("2.5 compatibility: unknown: %v", r.Errors)

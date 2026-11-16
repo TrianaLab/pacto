@@ -200,10 +200,10 @@ func needs24(result *ValidationResult, data any) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	m = needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "configurations", func(im map[string]any) []needsKey {
 		_, ref := im["ref"]
-		return []needsKey{{"values", "values beside a ref need ", ref}, {"configuration", "a configuration selector needs ", true}}
+		return []needsKey{{"values", "values beside a ref need ", ref, nil}, {"configuration", "a configuration selector needs ", true, nil}}
 	})
 	return needsItems(result, m, "2.4", finding.CodeNeedsPacto24, "environments", func(map[string]any) []needsKey {
-		return []needsKey{{"lifetime", "lifetime on an environment needs ", true}, {"expires", "expires on an environment needs ", true}, {"owner", "owner on an environment needs ", true}}
+		return []needsKey{{"lifetime", "lifetime on an environment needs ", true, nil}, {"expires", "expires on an environment needs ", true, nil}, {"owner", "owner on an environment needs ", true, nil}}
 	})
 }
 
@@ -220,19 +220,23 @@ func needs25(result *ValidationResult, data any) any {
 		delete(m, "breaks")
 	}
 	m = needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "interfaces", func(map[string]any) []needsKey {
-		return []needsKey{{"port", "port on an interface needs ", true}}
+		return []needsKey{{"port", "port on an interface needs ", true, nil}}
 	})
 	return needsItems(result, m, "2.5", finding.CodeNeedsPacto25, "dependencies", func(im map[string]any) []needsKey {
-		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown}}
+		// 2.0 requires compatibility, and 2.1 to 2.4 require it beside a ref: a
+		// range every older schema accepts stands in, so no generic error joins.
+		return []needsKey{{"compatibility", "compatibility: unknown needs ", im["compatibility"] == contract.CompatibilityUnknown, "*"}}
 	})
 }
 
 // needsKey is one key an item of an array may only hold from a later
-// pactoVersion on, the start of its message, and whether it counts on that
-// item at all.
+// pactoVersion on, the start of its message, whether it counts on that item at
+// all and, when the older schema requires the key, the value that stands in
+// for it (nil removes the key).
 type needsKey struct {
-	key, what string
-	applies   bool
+	key, what   string
+	applies     bool
+	placeholder any
 }
 
 // needsItems records code for each key keys names on an item of the array
@@ -254,7 +258,11 @@ func needsItems(result *ValidationResult, m map[string]any, version string, code
 			}
 			result.AddError(fmt.Sprintf("%s.%d.%s", section, i, k.key), string(code), k.what+fix)
 			im = maps.Clone(im)
-			delete(im, k.key)
+			if k.placeholder != nil {
+				im[k.key] = k.placeholder
+			} else {
+				delete(im, k.key)
+			}
 			kept[i] = im
 		}
 	}
