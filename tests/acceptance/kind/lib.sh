@@ -45,6 +45,7 @@
 #   push_bundle BIN PORT DIR REF   publish a bundle -> prints the manifest digest
 #   dump_diag NS                   best-effort diagnostics for a failed run
 #   pf LOCAL_PORT TARGET REMOTE    a port-forward that is already answering
+#   dash_token_login PORT TOKEN [link]  sign in to a forwarded dashboard with a token
 #   keep_or_teardown NS CLUSTER FN tear down unless KEEP_E2E_CLUSTER is set
 #   helm_teardown NS               uninstall the release, drop the namespace
 
@@ -573,6 +574,28 @@ pf() {
   kill "$pid" 2>/dev/null || true
   echo "  FAIL: port-forward to $target never answered on 127.0.0.1:${lport}" >&2
   return 1
+}
+
+# dash_token_login PORT TOKEN [link] — POST /auth/token to the dashboard
+# forwarded to 127.0.0.1:PORT, the way its sign-in page does: its own Origin,
+# and {"link": true} when a third argument is given, as the NOTES sign-in link
+# posts. Prints the session cookie's value, or the HTTP status, a space and
+# the refusal (a cookie value never holds a space).
+# The cookie is read from the response headers: __Host- cookies are Secure, and
+# a cookie jar over plain HTTP is a curl version question.
+dash_token_login() {
+  local url="http://127.0.0.1:$1" link="" body hdr cookie
+  [ -n "${3:-}" ] && link=',"link":true'
+  body="$(mktemp)"
+  hdr="$(curl -s -D - -o "$body" -X POST -H "Origin: $url" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$2\"$link}" "$url/auth/token" | tr -d '\r')"
+  cookie="$(sed -n 's/^[Ss]et-[Cc]ookie: __Host-pacto-session=\([^;]*\).*/\1/p' <<<"$hdr")"
+  if [ -n "$cookie" ]; then
+    echo "$cookie"
+  else
+    echo "$(sed -n 's/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<<"$hdr" | tail -n 1) $(cat "$body")"
+  fi
+  rm -f "$body"
 }
 
 # keep_or_teardown NS CLUSTER [TEARDOWN_FN] — tear the run down UNLESS

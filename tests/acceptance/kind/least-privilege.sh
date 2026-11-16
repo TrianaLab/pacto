@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Least-privilege acceptance: prove on a real API server that the default
 # install reads no Secret cluster-wide and that a namespace-list install
-# (controller.watchNamespaces) creates no ClusterRole, reconciles only the
-# namespaces it watches and says its fleet is partial.
+# (controller.watchNamespaces) creates no ClusterRole except the dashboard's
+# TokenReview grant, reconciles only the namespaces it watches and says its
+# fleet is partial.
 #
 # Unit and helm-unittest cases pin the rendered RBAC; only a cluster can answer
 # `kubectl auth can-i`, refuse a real Secret read, run the NOTES lookup on an
@@ -21,11 +22,14 @@
 #   3. upgrade to controller.watchNamespaces={lp-a}: NOTES prints the delete
 #      command for the old pacto-dashboard ClusterRole, the operator warns
 #      (StaleClusterRBAC) or prunes it, and after the documented delete no
-#      ClusterRole named pacto* is left.
+#      ClusterRole named pacto* is left except the dashboard's TokenReview grant
+#      (TokenReview has no namespaced form; it reveals only whose token the
+#      dashboard already holds).
 #   4. uninstall release 1 and the documented cleanup: nothing of it is left.
-#   5. fresh release 2 watching {lp-a,lp-b}: no ClusterRole or binding, a Pacto
-#      in lp-a gets a status and one in lp-c never does, the dashboard reviews
-#      locally and its overview is partial with the two namespaces named.
+#   5. fresh release 2 watching {lp-a,lp-b}: no ClusterRole or binding except
+#      the TokenReview grant, a Pacto in lp-a gets a status and one in lp-c never
+#      does, the dashboard reviews locally, and signed in with the NOTES link
+#      its overview is partial with the two namespaces named.
 #   6. uninstall release 2: nothing of it is left.
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
@@ -45,6 +49,9 @@ DASH_IMG="localhost:5001/pacto-dashboard:${TAG}"
 SA=pacto-operator
 LOCAL_DASH_PORT=18511
 STALE_DELETE="kubectl delete clusterrole,clusterrolebinding pacto-dashboard"
+# The one cluster-scoped object a namespace-list release keeps, named from the
+# fullname (fullnameOverride below).
+TOKENREVIEW=pacto-operator-dashboard-tokenreview
 
 build_operator_images "$OP_IMG" "$DASH_IMG" "$TAG"
 
@@ -123,7 +130,19 @@ $ref
 YAML
 }
 
-count_pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep -c '/pacto' || true; }
+# The TokenReview grant is excluded by name: assert_tokenreview_grant checks it
+# exactly, and assert_release_gone's instance-label check still catches a leak.
+pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v "/${TOKENREVIEW}\$" || true; }
+count_pacto_clusterroles() { pacto_clusterroles | grep -c . || true; }
+
+assert_tokenreview_grant() { # NS — the release namespace whose dashboard it binds
+  kubectl get clusterrole "$TOKENREVIEW" -o json | jq -e '.rules == [{"apiGroups":["authentication.k8s.io"],"resources":["tokenreviews"],"verbs":["create"]}]' >/dev/null \
+    || fail "ClusterRole $TOKENREVIEW grants more than create on tokenreviews: $(kubectl get clusterrole "$TOKENREVIEW" -o jsonpath='{.rules}')"
+  kubectl get clusterrolebinding "$TOKENREVIEW" -o json | jq -e --arg ns "$1" --arg r "$TOKENREVIEW" '.roleRef.name == $r and
+      .subjects == [{"kind":"ServiceAccount","name":"pacto-dashboard","namespace":$ns}]' >/dev/null \
+    || fail "ClusterRoleBinding $TOKENREVIEW binds more than pacto-dashboard in $1: $(kubectl get clusterrolebinding "$TOKENREVIEW" -o jsonpath='{.subjects}')"
+  pass "the only cluster-scoped grant left is create on tokenreviews for $1's pacto-dashboard"
+}
 
 assert_release_gone() { # RELEASE
   local left
@@ -133,7 +152,7 @@ assert_release_gone() { # RELEASE
     left="$(kubectl get "$kind" -A --field-selector metadata.name=pacto-dashboard -o name)"
     [ -z "$left" ] || fail "a $kind named pacto-dashboard is left: $left"
   done
-  [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles or bindings named pacto* are left: $(kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto')"
+  [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles or bindings named pacto* are left: $(pacto_clusterroles)"
   pass "release $1 left no Role, RoleBinding, ClusterRole or ClusterRoleBinding"
 }
 
@@ -181,8 +200,9 @@ stale_warned() {
 eventually 40 stale_warned || fail "the operator neither warned StaleClusterRBAC nor pruned the pacto-dashboard ClusterRole"
 pass "the operator warned StaleClusterRBAC or pruned the old ClusterRole"
 $STALE_DELETE --ignore-not-found >/dev/null
-[ "$(count_pacto_clusterroles)" = "0" ] || fail "after the documented delete these are left: $(kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto')"
-pass "no ClusterRole or binding named pacto* after the documented delete"
+[ "$(count_pacto_clusterroles)" = "0" ] || fail "after the documented delete these are left: $(pacto_clusterroles)"
+assert_tokenreview_grant "$NS1"
+pass "no ClusterRole or binding named pacto* after the documented delete, except the TokenReview grant"
 
 section "SCENARIO 4: uninstalling release 1 leaves nothing behind"
 helm uninstall "$R1" -n "$NS1" --wait >/dev/null
@@ -196,10 +216,13 @@ helm install "$R2" "$CHART" -n "$NS2" --create-namespace "${SETS[@]}" --set crds
   --set 'controller.watchNamespaces={lp-a,lp-b}' --wait --timeout 180s >/dev/null
 assert_operator_healthy
 wait_managed_ready pacto-dashboard >/dev/null || fail "dashboard Deployment not Ready"
-[ -z "$(kubectl get clusterrole,clusterrolebinding -l "app.kubernetes.io/instance=$R2" -o name)" ] || fail "release $R2 rendered a ClusterRole or binding"
+scoped="$(kubectl get clusterrole,clusterrolebinding -l "app.kubernetes.io/instance=$R2" -o name | sort | tr '\n' ' ')"
+[ "$scoped" = "clusterrole.rbac.authorization.k8s.io/$TOKENREVIEW clusterrolebinding.rbac.authorization.k8s.io/$TOKENREVIEW " ] \
+  || fail "release $R2 rendered a ClusterRole or binding beyond the TokenReview grant: $scoped"
 gone clusterrole pacto-dashboard || fail "the scoped operator applied the pacto-dashboard ClusterRole"
-[ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles named pacto* exist: $(kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto')"
-pass "no ClusterRole or ClusterRoleBinding for $R2"
+[ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles named pacto* exist: $(pacto_clusterroles)"
+assert_tokenreview_grant "$NS2"
+pass "no ClusterRole or ClusterRoleBinding for $R2 except the TokenReview grant"
 OP_AS="system:serviceaccount:$NS2:$SA"
 [ "$(can_i list pactos.pacto.trianalab.io "$OP_AS" --all-namespaces)" = "no" ] || fail "the scoped operator may list Pactos in every namespace"
 [ "$(can_i list secrets "$OP_AS" --all-namespaces)" = "no" ] || fail "the scoped operator may list Secrets in every namespace"
@@ -217,13 +240,19 @@ dash_env() { kubectl -n "$NS2" get deploy pacto-dashboard -o jsonpath="{.spec.te
 [ "$(dash_env PACTO_DASHBOARD_NAMESPACE)" = "lp-a,lp-b" ] || fail "the dashboard reads '$(dash_env PACTO_DASHBOARD_NAMESPACE)', want lp-a,lp-b"
 pass "the dashboard reads lp-a,lp-b and reviews people locally"
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
+# The default install signs people in: sign in with the NOTES link (POST
+# /auth/token with {"link": true}, dash_token_login), whose pacto-viewer reads
+# Pactos through a Role in each watched namespace.
+SESSION="$(dash_token_login "$LOCAL_DASH_PORT" "$(kubectl -n "$NS2" create token pacto-viewer --audience pacto-dashboard --duration 10m)" link)"
+[[ -n "$SESSION" && "$SESSION" != *" "* ]] || { kill "$DASH_PF" 2>/dev/null || true; fail "the NOTES link did not sign in: $SESSION"; }
+overview() { curl -fsS -H "Cookie: __Host-pacto-session=$SESSION" "http://127.0.0.1:${LOCAL_DASH_PORT}/api/fleet/overview"; }
 overview_partial() {
-  curl -fsS "http://127.0.0.1:${LOCAL_DASH_PORT}/api/fleet/overview" | jq -e '
+  overview | jq -e '
     .meta.completeness == "partial" and
     ([.meta.sources[] | select(.kind == "kubernetes") | .namespaces] == [["lp-a", "lp-b"]])' >/dev/null
 }
 eventually 40 overview_partial || {
-  curl -sS "http://127.0.0.1:${LOCAL_DASH_PORT}/api/fleet/overview" | jq '.meta' >&2 || true
+  overview | jq '.meta' >&2 || true
   kill "$DASH_PF" 2>/dev/null || true
   fail "the dashboard overview is not partial with namespaces [lp-a, lp-b]"
 }
