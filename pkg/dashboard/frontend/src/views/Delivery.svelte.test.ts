@@ -107,7 +107,7 @@ describe('inbox', () => {
     const held = target.querySelector('[data-testid="inbox-held"]')!;
     expect(text(held as HTMLElement)).toContain('Breaks checkout');
     expect(text(held as HTMLElement)).not.toContain('checkout accepts only 1.x: ship?');
-    expect(text(held as HTMLElement)).toContain('team-checkout may answer');
+    expect(text(held as HTMLElement)).toContain('People of team-checkout who may update this workload may answer');
     expect(held.querySelector('a.btn-primary')?.textContent).toBe('Decide');
     expect(held.querySelector('.badge')).toBeNull();
     expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide. 1 failed and 1 frozen.');
@@ -1360,13 +1360,34 @@ describe('change detail', () => {
     }
   });
 
+  it('says why no decision is offered from the server\'s code, never a guess', async () => {
+    // Narrowing on: a member of the asked team who may not update the workload.
+    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));
+    const cases: [string, string, string][] = [
+      ['CannotUpdateWorkload', 'decide-no-access', 'You cannot update this workload, and only people who may update it decide its changes.'],
+      ['ApproverUnverified', 'decide-unverified', 'Pacto could not check whether you may update this workload'],
+      ['NoApprovalRights', 'decide-no-rights', 'Your Kubernetes RBAC does not let you create Approvals in prod.'],
+      ['PolicyUnknown', 'decide-policy', 'Pacto could not read the delivery identity policy'],
+    ];
+    for (const [code, id, line] of cases) {
+      auth.loaded = false;
+      fns.operation.mockResolvedValue({ ...heldOperation({ actions: ['cancel'] }), decisionRefusal: code });
+      const r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+      await settle();
+      expect(text(r.target.querySelector(`[data-testid="${id}"]`) as HTMLElement)).toContain(line);
+      expect(r.target.querySelector('[data-testid="decide-not-team"]')).toBeNull();
+      expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('Only people of team-checkout who may update this workload may answer');
+      r.destroy();
+    }
+  });
+
   it('says whoever may update the workload answers when owner teams do not narrow it', async () => {
     fns.session.mockResolvedValue(shared({ caller: human([]), teamNarrowing: false }));
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
     let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-who"]') as HTMLElement)).toBe('People who may update this workload may answer; asked of team-checkout');
-    expect(text(r.target.querySelector('[data-testid="decide-no-access"]') as HTMLElement)).toContain('Only people who may update this workload may answer this question.');
+    expect(text(r.target.querySelector('[data-testid="decide-rule"]') as HTMLElement)).toContain('Only people who may update this workload may answer this question.');
     expect(r.target.querySelector('[data-testid="decide-not-team"]')).toBeNull();
     r.destroy();
 
@@ -1419,7 +1440,7 @@ describe('change detail', () => {
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('Any person may answer.');
+    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('People who may update this workload may answer.');
     r.destroy();
 
     auth.loaded = false;
@@ -1456,7 +1477,7 @@ describe('change detail', () => {
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryInboxView);
     await settle();
-    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Any person');
+    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('People who may update this workload may answer');
     r.destroy();
   });
 
