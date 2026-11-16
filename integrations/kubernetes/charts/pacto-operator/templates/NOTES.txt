@@ -48,9 +48,9 @@ only spec.ref.digest, and only on an OCIRepository labelled
 delivery.pacto.trianalab.io/apply-ref=<stage>, the label that also protects the
 pointer from everyone else.
 
-Bind {{ include "pacto-operator.delivery.fullname" . }}-agent to your agents' own service
-accounts and {{ include "pacto-operator.delivery.fullname" . }}-approver to the people who may
-approve. Then:
+Agents run as their own ServiceAccounts: bind {{ include "pacto-operator.delivery.fullname" . }}-agent
+to them. People who may update a workload (the built-in edit or admin role in its namespace)
+approve its changes. Then:
 
   pacto delivery plan --namespace <ns> --stage <stage> --to sha256:<digest>
 {{- if .Values.delivery.recorder.enabled }}
