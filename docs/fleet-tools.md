@@ -42,6 +42,9 @@ lists each provider's versions of a platform offering and, with `--range`,
 which satisfy it, and `pacto fleet entities --consumes <offering>` lists the
 services that consume it. `pacto fleet entity offering <slug>` shows each
 consumer's [provisioning status](platform-offerings.md#provisioning-status).
+`pacto fleet entities --kind external` lists the
+[external systems](external-catalog-reference.md) contracts name, and `get`,
+`graph` and `explain` take `external:<identity>`, such as `external:stripe`.
 
 [Golden paths](golden-paths.md) have their own filters:
 
@@ -151,7 +154,7 @@ the note says where that answer lives instead.
 | Question | CLI | MCP tool | Dashboard route | Note |
 |---|---|---|---|---|
 | Which owners, domains, offerings or services match? | `pacto fleet entities` | `pacto_fleet_entities` | `GET /api/fleet/entities` | |
-| What is this service, revision, owner, domain or offering? | `pacto fleet entity` | `pacto_fleet_entity` | `GET /api/fleet/entities/{kind}` | |
+| What is this service, revision, owner, domain, offering or external system? | `pacto fleet entity` | `pacto_fleet_entity` | `GET /api/fleet/entities/{kind}` | |
 | What changed in this service, and when did it reach each Stage? | `pacto fleet entity service <key> --reached` | `pacto_fleet_entity` with `reached` | `GET /api/fleet/entities/{kind}?reached=true` | Times only from delivery records read as you; an HTTP MCP server answers `times: not-read` |
 | What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |

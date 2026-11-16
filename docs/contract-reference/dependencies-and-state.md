@@ -124,9 +124,9 @@ dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`
 
 ### Name an external system
 
-Each external dependency with no `ref` joins one graph node per external
-system. A catalog alias joins its entry (`stripe-api` joins `stripe`); any
-other name gets a node of its own. When the name says what the dependency does,
+Each ref-less external dependency joins one graph node per external system. A
+catalog alias joins its entry (`stripe-api` joins `stripe`); any other name
+gets a node of its own. When the name says what the dependency does,
 set `identity` to the system it calls:
 
 ```yaml
@@ -144,7 +144,7 @@ An identity is lower-case path segments: a vendor (`stripe`),
 (`aws/rds/123456789012/eu-west-1/orders-db`). It needs `external: true` and no
 `ref` (`IDENTITY_WITHOUT_EXTERNAL`). An unparseable identity or the reserved
 `other-egress` fails with `INVALID_EXTERNAL_IDENTITY`. Changing it is never
-breaking.
+breaking. See the [external catalog reference](../external-catalog-reference.md).
 
 ### A dependency whose contract is not published yet
 

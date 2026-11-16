@@ -200,21 +200,20 @@ carries a `meta` envelope, here from
 ```
 
 `schemaVersion` is the compatibility contract to branch on and `snapshotId` the
-content digest that proves two answers came from the same system view. On this
-envelope `count` is how many rows the page carries and `total` the whole matched
-population. Match on `key`, the canonical identity, because `name` can repeat
-across domains. A bounded preview nested in a `get` answer is the
-exception: it omits `total` when the walk was itself bounded, so an absent
-`total` means "we stopped counting".
+content digest that proves two answers share one system view. `count` is the
+rows on this page and `total` the whole matched population. Match on `key`,
+because `name` can repeat across domains. A bounded preview nested in a `get`
+answer omits `total` when its walk was bounded: an absent `total` means "we
+stopped counting".
 
 Beside the rows, answers carry tallies over the complete matched population,
 computed before paging. The [tallies reference](operational-graph-tallies.md)
 lists them, the knowledge-gap filters and the attention categories.
 
-`get`, `graph` and `explain` name a single subject and carry no envelope: a
-missing subject is a *failure*. `pacto fleet get ghost` exits 1
-with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
-`search` before you treat a subject miss as an absence.
+`get`, `graph` and `explain` name a single subject and carry no envelope, so
+no `completeness`: a missing subject is a *failure*. `pacto fleet get ghost`
+exits 1 with `service "ghost" not found in the fleet snapshot` on stderr. Read
+`completeness` from `search` before you treat a miss as an absence.
 
 ### Where a service runs
 
@@ -268,7 +267,7 @@ version the fleet holds satisfies the consumer's `compatibility` range:
 | `satisfied` | Every revision of the provider in the fleet (or the one `pacto.lock` pins) is inside the range. |
 | `unsatisfied` | None is. `status` reports it as `DEPENDENCY_RANGE_UNSATISFIED` in the `out-of-range` category. |
 | `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. |
-| *absent* | The dependency declares no range or is unresolved. |
+| *absent* | The dependency declares no range, is unresolved or joins an [external system](#external-systems), which is never ranged. |
 
 A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
 is resolved and unsatisfied.
@@ -378,3 +377,23 @@ See the [platform offerings reference](platform-offerings.md) and
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.
+
+## External systems
+
+A ref-less `external: true` dependency joins an entity of kind `external`, one
+per canonical identity. The [external catalog reference](external-catalog-reference.md)
+covers identities, the join order and catalogs.
+
+| Surface | Behaviour |
+|---|---|
+| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `rangeStatus` or `resolvedRevision` and never counts in impact, dependents or delivery |
+| Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
+| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance` and `match`), `sourcesTotal`, `catalog` (origin, digest and entry; absent when joined by name only), `consumers`, `consumersTotal`, `hiddenConsumers` |
+| Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |
+| Get | `pacto fleet get external:<identity>` and `pacto_fleet_get` with `service: external:<identity>` |
+| Search | A text search adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal` |
+| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH` or `EXTERNAL_NAME_ONLY`, and `EXTERNAL_CAP` when folded; status is always `Unknown` |
+| Graph | Rooted at `external:<identity>` with `direction: dependents`, it walks the consumers and their dependents; `direction: dependencies` is an invalid query |
+| Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
+| Overview | `externals` and `hiddenExternals` |
+| Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |
