@@ -35,7 +35,9 @@ export default defineConfig({
   // GitHub's 4-vCPU ubuntu-latest, which is what keeps the CI job fast without starving it.
   workers: '50%',
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retry on a PR or a push: a retry turns a flake green and hides it. Only the
+  // scheduled nightly keeps one, where Playwright still reports the test as flaky.
+  retries: process.env.GITHUB_EVENT_NAME === 'schedule' ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {
     baseURL: `http://127.0.0.1:${APP_PORT}/`,
