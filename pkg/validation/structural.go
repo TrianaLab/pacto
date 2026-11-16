@@ -160,6 +160,12 @@ func ValidateStructural(data any) ValidationResult {
 // needed: from pactoVersion 2.4. An unknown version is refused.
 func RefValuesAllowed(version string) bool { return !olderThan(version, "2.4") }
 
+// PublishNeedsRaise reports whether a contract at version must raise
+// pactoVersion before it may declare publish: a known version before 2.1.
+func PublishNeedsRaise(version string) bool {
+	return contract.Known(version) && olderThan(version, "2.1")
+}
+
 // olderThan reports whether the supported pactoVersion version comes before
 // than, so each later version keeps every field an earlier one added.
 func olderThan(version, than string) bool {

@@ -15,10 +15,7 @@ var versionBranch = regexp.MustCompile(`contract\.SupportedVersions|olderThan\(|
 
 // versionBranchAllowlist names files that may still branch on pactoVersion
 // outside pkg/validation and pkg/contract, each with why. A stale entry fails.
-var versionBranchAllowlist = map[string]string{
-	"internal/pactify/contract.go": "a hint that names the version publish needs, not a meaning rule; " +
-		"added by 513-S1, flagged to its owner",
-}
+var versionBranchAllowlist = map[string]string{}
 
 // TestVersionBranchesLiveInValidation keeps every rule that depends on
 // pactoVersion where the standard upgrade check sees it: a raise is judged by

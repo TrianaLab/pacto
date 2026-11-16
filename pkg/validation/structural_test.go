@@ -1093,6 +1093,22 @@ func TestPortRange(t *testing.T) {
 	}
 }
 
+// TestPublishNeedsRaise: only a known version before 2.1 must raise to
+// declare publish; an absent (current) or unknown version never reads as one.
+func TestPublishNeedsRaise(t *testing.T) {
+	for v, want := range map[string]bool{
+		contract.SupportedVersions[0]: true,
+		"2.1":                         false,
+		contract.Current():            false,
+		"":                            false,
+		"9.9":                         false,
+	} {
+		if got := PublishNeedsRaise(v); got != want {
+			t.Errorf("PublishNeedsRaise(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
 // TestRefValuesAllowed: a ref configuration carries values from 2.4 on, and an
 // unknown version is refused as before, matching the operator's old formula.
 func TestRefValuesAllowed(t *testing.T) {
