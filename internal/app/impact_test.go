@@ -634,6 +634,32 @@ func TestImpactInferredNameNeverClears(t *testing.T) {
 	}
 }
 
+// An edit stages the new revision in a temporary folder: NewDirName names it
+// from the folder it is a copy of, so both sides infer one name.
+func TestImpactStagedCopyInfersTheRealFolderName(t *testing.T) {
+	oldDir := writeNamelessRevision(t, t.TempDir(), "1.0.0", true)
+	staged := filepath.Join(t.TempDir(), ".pacto-edit-123")
+	if err := os.MkdirAll(staged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(writeNamelessRevision(t, t.TempDir(), "2.0.0", false), "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, "pacto.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewService(nil, nil).Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: staged, NewDirName: "payments-api", Fleet: FleetOptions{LocalRoots: []string{t.TempDir()}},
+	})
+	if err != nil {
+		t.Fatalf("Impact: %v", err)
+	}
+	if res.Service != "payments-api" || res.GateCode() != impact.GateCodeServiceNameInferred {
+		t.Fatalf("service %q gate %s %s", res.Service, res.Gate, res.GateCode())
+	}
+}
+
 func TestNameInferredFromPrefersNew(t *testing.T) {
 	declared := &contract.Bundle{}
 	inferred := func(src string) *contract.Bundle {

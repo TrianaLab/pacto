@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -127,7 +129,9 @@ func editOptions(m Modes) EditOptions {
 			if err != nil {
 				return nil, fmt.Errorf("the fleet snapshot cannot place %s: %w", service, err)
 			}
-			res, err := f.Opts.Impact(ctx, q.SnapshotForSerialization(), ImpactRequest{OldRef: oldDir, NewRef: newDir, Domain: view.Service.Domain})
+			abs, _ := filepath.Abs(oldDir) //nolint:errcheck // fails only without a working directory
+			res, err := f.Opts.Impact(ctx, q.SnapshotForSerialization(), ImpactRequest{OldRef: oldDir, NewRef: newDir, Domain: view.Service.Domain,
+				NewDirName: filepath.Base(cmp.Or(abs, oldDir))})
 			if err != nil || heldVersion(view, res.OldVersion) {
 				return res, err
 			}

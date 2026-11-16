@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing/fstest"
@@ -77,6 +78,14 @@ const (
 // explain is the impact, chain and executor of an edit. The edited bundle is
 // staged beside dir only while the impact provider reads it.
 func (o fileOps) explain(ctx context.Context, opts EditOptions, dir string, bundleFS fstest.MapFS, c *contract.Contract, input EditInput) (*EditImpact, []ChainStep, string) {
+	// Complete a copy, as every local read does, so an inferred name places the
+	// service in the fleet and names it in the chain; c stays what is written.
+	cc := *c
+	c = &cc
+	abs, _ := filepath.Abs(dir) //nolint:errcheck // fails only without a working directory; Base(dir) is then the best name
+	b := &contract.Bundle{Contract: c, FS: bundleFS}
+	b.Complete(filepath.Base(cmp.Or(abs, dir)))
+	_, nameInferred := b.NameInferred()
 	why := noSnapshot
 	var imp *EditImpact
 	if opts.Impact != nil {
@@ -90,7 +99,7 @@ func (o fileOps) explain(ctx context.Context, opts EditOptions, dir string, bund
 	if input.DryRun {
 		why += afterWrite
 	}
-	return imp, editChain(c, dir, imp, why, opts.Served), executor(input)
+	return imp, editChain(c, nameInferred, dir, imp, why, opts.Served), executor(input)
 }
 
 func (o fileOps) stagedImpact(ctx context.Context, opts EditOptions, dir string, bundleFS fstest.MapFS, c *contract.Contract) (*impact.Result, error) {
@@ -99,7 +108,7 @@ func (o fileOps) stagedImpact(ctx context.Context, opts EditOptions, dir string,
 		return nil, err
 	}
 	defer os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
-	return opts.Impact(ctx, c.Service.Name, dir, stage)
+	return opts.Impact(ctx, c.Service.Name, dir, stage) // c is completed: an inferred name places the service
 }
 
 func editImpact(r *impact.Result) *EditImpact {
@@ -193,13 +202,40 @@ func approvals(r *impact.Result) string {
 }
 
 // editChain is the steps that carry an edit to running: impact first when it
-// is not known, then publish and promote.
-func editChain(c *contract.Contract, dir string, imp *EditImpact, unknownWhy string, served func(string) bool) []ChainStep {
+// is not known, then declaring the identity publish refuses without, then
+// publish and promote.
+func editChain(c *contract.Contract, nameInferred bool, dir string, imp *EditImpact, unknownWhy string, served func(string) bool) []ChainStep {
 	var steps []ChainStep
 	if imp == nil {
 		steps = append(steps, step(served, "pacto_impact", "pacto impact <published ref> "+dir, unknownWhy))
 	}
+	if s, ok := declareIdentity(c, nameInferred, dir); ok {
+		steps = append(steps, s)
+	}
 	return append(steps, promoteChain(c.Service.Name, c.Service.Version, dir, served)...)
+}
+
+// declareIdentity is the pacto_edit step that declares service.name and
+// service.version when the contract leaves either out: publish refuses it
+// (PUBLISH_NEEDS_SERVICE_NAME, PUBLISH_NEEDS_SERVICE_VERSION) until it does.
+func declareIdentity(c *contract.Contract, nameInferred bool, dir string) (ChainStep, bool) {
+	var missing []string
+	args := map[string]string{"path": dir}
+	if nameInferred || c.Service.Name == "" {
+		missing = append(missing, "service.name")
+		if c.Service.Name != "" {
+			args["name"] = c.Service.Name
+		}
+	}
+	if c.Service.Version == "" {
+		missing = append(missing, "service.version")
+	}
+	if len(missing) == 0 {
+		return ChainStep{}, false
+	}
+	what := strings.Join(missing, " and ")
+	return ChainStep{Tool: "pacto_edit", Args: args, Command: "declare " + what + " in " + dir + "/pacto.yaml",
+		Why: "pacto publish refuses a contract that does not declare " + what}, true
 }
 
 // promoteChain is publish then promote of the contract in dir, for an edited

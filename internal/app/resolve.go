@@ -58,6 +58,12 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 // overrides and then completes the final contract, so what it records as
 // inferred always describes the bytes the bundle holds.
 func loadLocalBundleWithOverrides(dir string, overrides override.Overrides) (*contract.Bundle, error) {
+	return loadLocalBundleNamed(dir, dirBase(dir), overrides)
+}
+
+// loadLocalBundleNamed is loadLocalBundleWithOverrides completing with
+// dirName, the folder dir is a staged copy of.
+func loadLocalBundleNamed(dir, dirName string, overrides override.Overrides) (*contract.Bundle, error) {
 	bundle, err := readLocalBundle(dir)
 	if err != nil {
 		return nil, err
@@ -65,7 +71,7 @@ func loadLocalBundleWithOverrides(dir string, overrides override.Overrides) (*co
 	if bundle, err = applyOverrides(bundle, overrides); err != nil {
 		return nil, err
 	}
-	bundle.Complete(dirBase(dir))
+	bundle.Complete(dirName)
 	return bundle, nil
 }
 
