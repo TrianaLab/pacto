@@ -318,6 +318,8 @@ jobs:
         run: |
           # One provenance per image: the merge job attests the index, signed; BuildKit's
           # unsigned per-child statement would be a second, unverifiable one.
+          # It also keeps containerimage.digest the platform manifest the merge probe
+          # compares the index children against: with provenance on it is a per-arch index.
           docker buildx build --platform ${{ matrix.platform }} \
             --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
             --label org.opencontainers.image.title=pacto-dashboard \
@@ -759,6 +761,8 @@ jobs:
           # inside a value (the delivery target and CMD, the operator's dashboard image).
           # One provenance per image: the merge job attests the index, signed; BuildKit's
           # unsigned per-child statement would be a second, unverifiable one.
+          # It also keeps containerimage.digest the platform manifest the merge probe
+          # compares the index children against: with provenance on it is a per-arch index.
           # shellcheck disable=SC2086
           docker buildx build --platform ${{ matrix.platform }} \
             --file integrations/kubernetes/Dockerfile \
@@ -1172,7 +1176,9 @@ jobs:
       # are reproducible, so a resumed run rebuilds the same bytes and either
       # verifies the earlier attestation or writes the missing one. Only a
       # release.yml@main signature over this source commit counts: anyone can
-      # attest a digest from a branch workflow.
+      # attest a digest from a branch workflow. A recovery dispatched after main
+      # moved past the source commit fails the guard below, and the release stays
+      # unattested: a release incident, never a reason to loosen the guard.
       # ponytail: re-verifies every subject each run (seven gh calls); a network
       # error attests again, a second statement from the same identity.
       - name: Check for a verified provenance attestation
