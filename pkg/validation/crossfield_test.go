@@ -2,6 +2,7 @@ package validation
 
 import (
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -33,6 +34,26 @@ func TestValidateServiceVersion_InvalidSemver(t *testing.T) {
 	}
 	if !hasErrorCode(result, "INVALID_SEMVER") {
 		t.Errorf("expected INVALID_SEMVER, got %+v", result.Errors)
+	}
+}
+
+func TestValidateServiceVersionEmptySkipped(t *testing.T) {
+	c := validV20Contract()
+	c.Service.Version = ""
+	var result ValidationResult
+	validateServiceVersion(c, &result)
+	if !result.IsValid() {
+		t.Errorf("an undeclared version is not a semver error: %+v", result.Errors)
+	}
+}
+
+func TestValidateEmpty25ContractHasNoErrors(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := Validate(c, nil, fstest.MapFS{}); len(r.Errors) > 0 {
+		t.Fatalf("empty 2.5 contract: %+v", r.Errors)
 	}
 }
 
@@ -1257,5 +1278,82 @@ func TestEnvironmentLifetimeChecks(t *testing.T) {
 				t.Fatalf("got %+v", result.Errors)
 			}
 		})
+	}
+}
+
+func TestDependencyNameRequiredWithoutRef(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{External: true, Version: "2025-01"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "DEPENDENCY_NAME_REQUIRED") || len(result.Errors) != 1 || result.Errors[0].Path != "dependencies[0].name" {
+		t.Errorf("want one DEPENDENCY_NAME_REQUIRED on dependencies[0].name, got %+v", result.Errors)
+	}
+}
+
+func TestCompatibilityUnknownValid(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis@sha256:" + strings.Repeat("a", 64), Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !result.IsValid() {
+		t.Errorf("compatibility: unknown with a ref is valid, got %+v", result.Errors)
+	}
+}
+
+func TestCompatibilityUnknownWithoutRefRejected(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", External: true, Version: "7", Compatibility: contract.CompatibilityUnknown}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasErrorCode(result, "COMPATIBILITY_WITHOUT_REF") {
+		t.Errorf("expected COMPATIBILITY_WITHOUT_REF, got %+v", result.Errors)
+	}
+}
+
+func breakCodes(c *contract.Contract) []string {
+	var r ValidationResult
+	validateBreaks(c, &r)
+	var out []string
+	for _, e := range r.Errors {
+		out = append(out, e.Path+" "+e.Code)
+	}
+	return out
+}
+
+func TestBreaksDuplicateConsumer(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", "billing"}, Reason: "x"}, {Consumers: []string{"audit", "reports"}, Reason: "y"}}
+	if got, want := breakCodes(c), []string{"breaks[1].consumers[1] DUPLICATE_BREAK_CONSUMER"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksNamesSelf(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports", c.Service.Name}, Reason: "x"}}
+	if got, want := breakCodes(c), []string{"breaks[0].consumers[1] BREAK_NAMES_SELF"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksInvalidExpires(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-2-30"}}
+	if got, want := breakCodes(c), []string{"breaks[0].expires INVALID_BREAK_EXPIRES"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestBreaksValid(t *testing.T) {
+	c := validV20Contract()
+	c.Breaks = []contract.Break{{Consumers: []string{"reports"}, Reason: "x", Expires: "2026-12-14"}, {Consumers: []string{"billing"}, Reason: "y"}}
+	if got := breakCodes(c); len(got) != 0 {
+		t.Fatalf("got %v, want none", got)
+	}
+	// ValidateCrossField runs it.
+	c.Breaks[1].Consumers = []string{"reports"}
+	if r := ValidateCrossField(c, nil); !hasErrorCode(r, "DUPLICATE_BREAK_CONSUMER") {
+		t.Fatalf("ValidateCrossField: %+v", r.Errors)
 	}
 }

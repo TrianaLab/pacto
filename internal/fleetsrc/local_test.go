@@ -295,3 +295,64 @@ func TestLoadRevision_DigestIgnoresUnpackagedFiles(t *testing.T) {
 		t.Errorf("digests %q and %q differ; an unpackaged file changed a bundle's identity", a.Digest, b.Digest)
 	}
 }
+
+func TestLocalSourceInfersName(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "Pay API")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	col, err := NewLocalSource("", root).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v", col.Revisions)
+	}
+	b := col.Revisions[0].Bundle
+	if inf, ok := b.NameInferred(); !ok || b.Contract.Service.Name != "pay-api" || inf.Source != "directory Pay API" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+}
+
+// A root of "." (the --local default) has no base name of its own; the name
+// still comes from the folder, as `pacto validate .` infers it.
+func TestLocalSourceInfersNameAtDotRoot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "payments-api")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	col, err := NewLocalSource("", ".").Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v, limitations = %+v", col.Revisions, col.Limitations)
+	}
+	b := col.Revisions[0].Bundle
+	if inf, ok := b.NameInferred(); !ok || b.Contract.Service.Name != "payments-api" || inf.Source != "directory payments-api" {
+		t.Fatalf("got %+v %+v", b.Contract.Service, b.Inferred)
+	}
+}
+
+// A contract that stays nameless after inference is a record gap, never a
+// service keyed by "".
+func TestLoadRevision_NamelessIsAnError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "---") // sanitizes to nothing
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRevision(dir); err == nil || !strings.Contains(err.Error(), "service.name") {
+		t.Fatalf("err = %v", err)
+	}
+}

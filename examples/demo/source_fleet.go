@@ -63,7 +63,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 				ref := registry + name + "@sha256:" + entry.hash
 				out = append(out, fleet.RawRevision{
 					Bundle:       entry.bundle,
-					RequestedRef: registry + name + ":" + ver,
+					RequestedRef: requestedRef(registry, name, ver),
 					ResolvedRef:  ref,
 					Digest:       "sha256:" + entry.hash,
 					Document:     entry.doc,

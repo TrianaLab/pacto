@@ -499,6 +499,8 @@ func schemaHandler(remote bool) mcpsdk.ToolHandlerFor[struct{}, any] {
 				"A pacto.yaml file describes one service: who owns it (service.owner.team, a bare team name such as billing), " +
 				"its interfaces, the services it calls and the versions of each it accepts, its configuration, " +
 				"workload and state semantics, health and policies. The publish section is opt-in and only pacto publish reads it. " +
+				"Only what you want to pin is required: an empty pacto.yaml is valid, Pacto names the service from its folder, " +
+				"and a dependency with compatibility: unknown is never counted as compatible. " +
 				tools,
 			Agents:     agentGuidance,
 			Docs:       docsURL,

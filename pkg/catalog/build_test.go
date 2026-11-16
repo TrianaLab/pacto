@@ -979,3 +979,19 @@ func TestBoundsReportedInMetaAreTheOnesThatApplied(t *testing.T) {
 		t.Errorf("bounds = %+v, want the caller's depth and the default revision bound", got)
 	}
 }
+
+// A dependency whose compatibility is unknown and whose reference names no tag
+// resolves to no version: the resolver's named reason is kept, never a pick.
+func TestBuildUnknownConstraintUnresolved(t *testing.T) {
+	unknown := contract.Dependency{Name: "lib", Ref: "reg/lib", Required: true, Compatibility: contract.CompatibilityUnknown}
+	f := newFake().ok("reg/root:1", rev(at("root", "unknown-root"), ct("root", "1.0.0", unknown)))
+	f.script[memoKey{Base: "", Ref: "reg/lib", Constraint: contract.CompatibilityUnknown}] = []answer{{err: &ResolveError{Code: ReasonCompatibilityUnknown, Message: "the compatibility is unknown"}}}
+	c := build(t, f, Bounds{}, "reg/root:1")
+	un := c.Unresolved()
+	if len(un) != 1 || un[0].Reason.Code != ReasonCompatibilityUnknown || un[0].Constraint != contract.CompatibilityUnknown {
+		t.Fatalf("unresolved = %+v, want reg/lib with COMPATIBILITY_UNKNOWN", un)
+	}
+	if f.calls[len(f.calls)-1].Constraint != contract.CompatibilityUnknown {
+		t.Errorf("the resolver was asked under %q, want the declared unknown", f.calls[len(f.calls)-1].Constraint)
+	}
+}

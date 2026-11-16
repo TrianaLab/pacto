@@ -568,3 +568,37 @@ func TestEventRemovedReferrerKeepsTheBreaksPath(t *testing.T) {
 		t.Errorf("orders = %+v", c)
 	}
 }
+
+func TestEventUnknownRangeConfidenceDeclared(t *testing.T) {
+	unknown := dep("auth-service", true)
+	unknown.Compatibility = contract.CompatibilityUnknown
+	res := event(evidenceSnap(t, []fleet.RawRevision{gwRev(unknown)}, []fleet.RawTarget{gwTarget(ago(time.Hour))}), EventUnavailable, "auth-service")
+	if c := onlyConsumer(t, res); c.Confidence != ConfidenceDeclared || c.CompatibilityVerdict != CompatibilityUnknown {
+		t.Errorf("consumer = %+v, want declared confidence and an unknown verdict", c)
+	}
+}
+
+// The event callers set no option: the snapshot's own inferred name keeps the
+// gate from clearing.
+func TestEventGateInferredNameFromSnapshot(t *testing.T) {
+	r := rev("auth-service")
+	r.Bundle.Inferred = []contract.Inferred{{Field: "service.name", Value: "auth-service", Source: "chart/Chart.yaml:2"}}
+	r.Bundle.Contract.Service.Offering = "auth"
+	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{r}})
+	res := event(snap, EventUnavailable, "auth-service")
+	if res.Gate != GateUnverified || !strings.Contains(res.GateReason, "inferred from chart/Chart.yaml:2") {
+		t.Errorf("gate %s (%s), want unverified over an inferred name", res.Gate, res.GateReason)
+	}
+	res = Analyze(context.Background(), nil, nil, nil, nil, snap, Options{Event: &Event{Kind: EventUnavailable, Offering: "auth"}})
+	if res.Gate != GateUnverified {
+		t.Errorf("offering gate %s (%s), want unverified over an inferred provider name", res.Gate, res.GateReason)
+	}
+}
+
+func TestEventGateInferredNameUnverified(t *testing.T) {
+	snap := buildAt(t, &fleet.Collection{Revisions: []fleet.RawRevision{rev("auth-service")}})
+	res := event(snap, EventUnavailable, "auth-service", Options{NameInferredFrom: "chart/Chart.yaml:2"})
+	if res.Gate != GateUnverified || !strings.Contains(res.GateReason, "inferred from chart/Chart.yaml:2") {
+		t.Errorf("gate %s (%s), want unverified over an inferred name", res.Gate, res.GateReason)
+	}
+}

@@ -23,6 +23,9 @@ on yours run a Pacto and operator that read 2.1: see
 Pacto runs no tests. It refuses to publish when one of its own checks fails:
 
 - the contract is invalid, or uses a local reference or breaks its `pacto.lock`;
+- the contract does not declare `service.name` (`PUBLISH_NEEDS_SERVICE_NAME`)
+  or `service.version` (`PUBLISH_NEEDS_SERVICE_VERSION`). A name Pacto
+  inferred from the folder is never published;
 - a provider does not meet what a required dependency `requires`
   (`GUARANTEE_UNMET`). Pacto fetches each provider that a dependency declares
   `requires` for, as `pacto validate` does, and `--plan` shows the unmet
@@ -125,6 +128,14 @@ manifests build can pin the image it deploys by digest. Pacto then:
    identity the CI token had, so a mismatch fails here, before any tag is
    written, so Pacto never publishes a version no Stage would take;
 5. pushes the bundle and writes the tags.
+
+The bundled `pacto.yaml` always declares `pactoVersion`. When the contract
+leaves it out, `pacto pack`, `pacto push` and `pacto publish` write the newest
+version the CLI supports into it.
+Readers rely on it: a bundle pulled from a registry, or an inline contract in a
+Pacto resource, without `pactoVersion`, `service.name` or `service.version` is
+rejected. The operational graph reports it as `SOURCE_RECORD_INVALID` and the
+operator as `ContractUndeclared`.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
 `docker-container` driver can) for `dockerfile` builds, and `git` to check that

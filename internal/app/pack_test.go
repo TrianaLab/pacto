@@ -1,10 +1,17 @@
 package app
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestPack_Success(t *testing.T) {
@@ -100,5 +107,51 @@ func TestPack_WriteError(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error when writing archive to invalid path")
+	}
+}
+
+func TestPackImplicitVersionPinned(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: s\n  version: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "s.tar.gz")
+	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: output}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			t.Fatalf("no pacto.yaml in the archive: %v", err)
+		}
+		if h.Name != "pacto.yaml" {
+			continue
+		}
+		data, _ := io.ReadAll(tr)
+		if want := `pactoVersion: "` + contract.Current() + `"`; !strings.HasPrefix(string(data), want) {
+			t.Fatalf("bundled pacto.yaml %q does not start with %s", data, want)
+		}
+		return
+	}
+}
+
+func TestPackRefusesUndeclaredVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir})
+	if !errors.Is(err, ErrPublishNeedsServiceVersion) {
+		t.Fatalf("got %v", err)
 	}
 }

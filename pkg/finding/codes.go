@@ -8,10 +8,13 @@ import (
 const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion        Code = "UNSUPPORTED_PACTO_VERSION"
-	CodeNeedsPacto21                   Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
-	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
-	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3" // an older contract declares environments
-	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
+	CodeNeedsPacto21                   Code = "NEEDS_PACTO_2_1"               // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
+	CodeNeedsPacto22                   Code = "NEEDS_PACTO_2_2"               // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
+	CodeNeedsPacto23                   Code = "NEEDS_PACTO_2_3"               // an older contract declares environments
+	CodeNeedsPacto24                   Code = "NEEDS_PACTO_2_4"               // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, values or a configuration selector beside a configuration ref, or an environment's lifetime, expires or owner
+	CodeNeedsPacto25                   Code = "NEEDS_PACTO_2_5"               // an older contract declares compatibility: unknown, an interface port or breaks
+	CodePublishNeedsServiceName        Code = "PUBLISH_NEEDS_SERVICE_NAME"    // pack, push or publish of a contract that does not declare service.name
+	CodePublishNeedsServiceVersion     Code = "PUBLISH_NEEDS_SERVICE_VERSION" // pack, push or publish of a contract that does not declare service.version
 	CodeSchemaError                    Code = "SCHEMA_ERROR"
 	CodeSchemaViolation                Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError                 Code = "YAML_PARSE_ERROR"
@@ -27,6 +30,7 @@ const (
 	CodeDuplicateTemplatePlugin        Code = "DUPLICATE_TEMPLATE_PLUGIN"
 	CodeInvalidOriginRef               Code = "INVALID_ORIGIN_REF"
 	CodeEmptyCompatibility             Code = "EMPTY_COMPATIBILITY"
+	CodeDependencyNameRequired         Code = "DEPENDENCY_NAME_REQUIRED" // a dependency with neither a name nor a ref to derive one from
 	CodeInvalidCompatibility           Code = "INVALID_COMPATIBILITY"
 	CodeValuesWithoutSchema            Code = "VALUES_WITHOUT_SCHEMA"
 	CodeConfigValuesValidationFailed   Code = "CONFIG_VALUES_VALIDATION_FAILED"
@@ -37,6 +41,9 @@ const (
 	CodeInvalidPolicySchema            Code = "INVALID_POLICY_SCHEMA"
 	CodeFileNotFound                   Code = "FILE_NOT_FOUND"
 	CodeInvalidReadinessExpires        Code = "INVALID_READINESS_EXPIRES"
+	CodeDuplicateBreakConsumer         Code = "DUPLICATE_BREAK_CONSUMER" // a consumer named in two breaks entries
+	CodeBreakNamesSelf                 Code = "BREAK_NAMES_SELF"         // a break that names the service itself as a consumer
+	CodeInvalidBreakExpires            Code = "INVALID_BREAK_EXPIRES"    // a breaks[].expires that is not a strict YYYY-MM-DD date
 	CodeInvalidReadinessRevision       Code = "INVALID_READINESS_REVISION"
 	CodeDuplicateReadinessId           Code = "DUPLICATE_READINESS_ID"
 	CodeEmptyReadinessEvidence         Code = "EMPTY_READINESS_EVIDENCE"
@@ -113,6 +120,9 @@ var registry = map[Code]codeMeta{
 	CodeNeedsPacto22:                   {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto23:                   {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto24:                   {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto25:                   {CategoryInvalidVersion, SeverityError},
+	CodePublishNeedsServiceName:        {CategorySchemaViolation, SeverityError},
+	CodePublishNeedsServiceVersion:     {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                    {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:                {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:                 {CategorySchemaViolation, SeverityError},
@@ -128,6 +138,7 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateTemplatePlugin:        {CategoryDuplicateName, SeverityError},
 	CodeInvalidOriginRef:               {CategoryInvalidReference, SeverityError},
 	CodeEmptyCompatibility:             {CategoryInvalidDependency, SeverityError},
+	CodeDependencyNameRequired:         {CategoryInvalidDependency, SeverityError},
 	CodeInvalidCompatibility:           {CategoryInvalidDependency, SeverityError},
 	CodeValuesWithoutSchema:            {CategoryMissingConfiguration, SeverityError},
 	CodeConfigValuesValidationFailed:   {CategoryConfigurationViolation, SeverityError},
@@ -139,6 +150,9 @@ var registry = map[Code]codeMeta{
 	CodeFileNotFound:                   {CategoryInvalidFile, SeverityError},
 	CodeStatelessPersistent:            {CategoryStateMismatch, SeverityError},
 	CodeInvalidReadinessExpires:        {CategoryInvalidReadiness, SeverityError},
+	CodeDuplicateBreakConsumer:         {CategoryDuplicateName, SeverityError},
+	CodeBreakNamesSelf:                 {CategoryInvalidReference, SeverityError},
+	CodeInvalidBreakExpires:            {CategorySchemaViolation, SeverityError},
 	CodeInvalidReadinessRevision:       {CategoryInvalidReadiness, SeverityError},
 	CodeDuplicateReadinessId:           {CategoryDuplicateName, SeverityError},
 	CodeEmptyReadinessEvidence:         {CategoryMissingEvidence, SeverityError},

@@ -1050,6 +1050,11 @@ export interface components {
             count: number;
             kind: string;
         };
+        BreakInfo: {
+            consumers: string[] | null;
+            expires?: string;
+            reason: string;
+        };
         CallerOutputBody: {
             authTime?: string;
             class: string;
@@ -1110,6 +1115,11 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
+        "Contract.Break": {
+            consumers: string[] | null;
+            expires?: string;
+            reason: string;
+        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -1135,6 +1145,7 @@ export interface components {
             };
         };
         "Contract.Contract": {
+            breaks?: components["schemas"]["Contract.Break"][] | null;
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
@@ -1159,6 +1170,7 @@ export interface components {
             compatibility?: string;
             external?: boolean;
             name: string;
+            nameFromRef?: boolean;
             ref?: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -1185,12 +1197,19 @@ export interface components {
             retention?: string;
             timeout?: string;
         };
+        "Contract.Inferred": {
+            field: string;
+            source: string;
+            value: string;
+        };
         "Contract.Interface": {
             /** Format: int64 */
             compatibilityEpoch?: number;
             guarantees?: components["schemas"]["Contract.Guarantees"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
+            /** Format: int64 */
+            port?: number;
             ref: string;
             type: string;
             visibility?: string;
@@ -1988,6 +2007,7 @@ export interface components {
         };
         DependencyInfo: {
             compatibility?: string;
+            compatibilityUnknown?: boolean;
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             driftStatus?: string;
             external?: boolean;
@@ -1997,6 +2017,7 @@ export interface components {
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
+            nameFromRef?: boolean;
             ref: string;
             required: boolean;
             requires?: components["schemas"]["Contract.Requirement"][] | null;
@@ -2395,6 +2416,7 @@ export interface components {
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             /** Format: date-time */
             fetchedAt?: string;
+            inferred?: components["schemas"]["Contract.Inferred"][] | null;
             key: string;
             lock?: components["schemas"]["Lock.Lock"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
@@ -2438,6 +2460,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
@@ -2611,6 +2634,7 @@ export interface components {
             label: string;
             /** @enum {string} */
             lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -2784,6 +2808,7 @@ export interface components {
             depth: number;
             key: string;
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             path: string[] | null;
             /** @enum {string} */
             provenance: "declared" | "observed" | "declared+observed";
@@ -2800,6 +2825,13 @@ export interface components {
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
+        "Fleet.InferredField": {
+            field: string;
+            /** @enum {string} */
+            provenance: "inferred";
+            source: string;
+            value: string;
+        };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
             interface: string;
@@ -2814,6 +2846,8 @@ export interface components {
             name: string;
             operations: components["schemas"]["Fleet.ToolsPreview"];
             operationsKnown: boolean;
+            /** Format: int64 */
+            port?: number;
             ref?: string;
             type?: string;
             visibility?: string;
@@ -3439,6 +3473,7 @@ export interface components {
             lastSeen?: string;
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** Format: int64 */
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
@@ -3562,6 +3597,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             /** Format: int64 */
@@ -3597,6 +3633,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
@@ -3981,6 +4018,7 @@ export interface components {
             effect?: "breaks" | "may-degrade" | "unknown";
             /** @description The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first */
             evidence?: components["schemas"]["Impact.Evidence"][] | null;
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             note?: string;
             owner?: string;
             /** @description The canonical owner key (for example team:shop). Group or link by it; owner is the display label */
@@ -4268,6 +4306,8 @@ export interface components {
             hasContractFile?: boolean;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
+            /** Format: int64 */
+            port?: number;
             type: string;
             visibility?: string;
         };
@@ -4559,6 +4599,22 @@ export interface components {
              * @description Environments before the bound
              */
             total: number;
+        };
+        ProductBreakItem: {
+            consumer: string;
+            expires?: string;
+            reason: string;
+            service?: components["schemas"]["ProductRef"];
+        };
+        ProductBreaksPreview: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            hidden?: number;
+            items: components["schemas"]["ProductBreakItem"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         ProductChangeEvent: {
             /**
@@ -5235,6 +5291,7 @@ export interface components {
             label: string;
             /** @enum {string} */
             lifecycle?: "supported" | "deprecated" | "sunset" | "unknown";
+            nameInferred?: components["schemas"]["Contract.Inferred"];
             /** Format: int64 */
             nonCompliant?: number;
             offering?: string;
@@ -5296,6 +5353,7 @@ export interface components {
             values: components["schemas"]["Fleet.RuntimePreview"];
         };
         ProductRevisionDetail: {
+            breaks: components["schemas"]["ProductBreaksPreview"];
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             current?: boolean;
@@ -5306,6 +5364,7 @@ export interface components {
             evidenceSources: components["schemas"]["ProductRefPreview"];
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
+            inferred?: components["schemas"]["Fleet.InferredField"][] | null;
             inferredTargets: components["schemas"]["ProductRefPreview"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
@@ -5487,6 +5546,7 @@ export interface components {
         ProductUnresolvedDependency: {
             external?: boolean;
             from: components["schemas"]["ProductRef"];
+            nameFromRef?: boolean;
             reason?: string;
             ref: string;
             requestedRef?: string;
@@ -5935,6 +5995,7 @@ export interface components {
             value: string;
         };
         ServiceDetails: {
+            breaks?: components["schemas"]["BreakInfo"][] | null;
             capabilities?: components["schemas"]["CapabilityInfo"][] | null;
             compliance?: components["schemas"]["ComplianceInfo"];
             configurations?: components["schemas"]["ConfigurationInfo"][] | null;
@@ -5957,6 +6018,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferredFrom?: string;
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
             offering?: string;

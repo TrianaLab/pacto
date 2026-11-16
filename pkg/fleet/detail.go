@@ -463,6 +463,71 @@ type OriginDetail struct {
 	Reason     string     `json:"reason,omitempty"`
 }
 
+// InferredField is one value a local read implied rather than read from the
+// contract, with where it came from: a "<path>:<line>" in the bundle,
+// "directory <name>" or "this CLI".
+type InferredField struct {
+	Field      string `json:"field"`
+	Value      string `json:"value"`
+	Source     string `json:"source"`
+	Provenance string `json:"provenance" enum:"inferred"`
+}
+
+func inferredFields(inf []contract.Inferred) []InferredField {
+	var out []InferredField
+	for _, i := range inf {
+		out = append(out, InferredField{Field: i.Field, Value: i.Value, Source: i.Source, Provenance: ProvenanceInferred})
+	}
+	return out
+}
+
+// MaxBreaks bounds the announced break rows of a revision detail.
+const MaxBreaks = 20
+
+// BreakItem is one consumer an announced break names, with the break's reason
+// and expiry. Service is set when the fleet holds a service of that name.
+type BreakItem struct {
+	Consumer string     `json:"consumer"`
+	Service  *EntityRef `json:"service,omitempty"`
+	Reason   string     `json:"reason"`
+	Expires  string     `json:"expires,omitempty"`
+}
+
+// BreaksPreview is a bounded preview of the consumers a revision's announced
+// breaks name. Total counts every named consumer; Hidden counts those the
+// caller's permissions hide, which are never named and never in Items.
+type BreaksPreview struct {
+	Total     int         `json:"total"`
+	Count     int         `json:"count"`
+	Truncated bool        `json:"truncated"`
+	Hidden    int         `json:"hidden,omitempty"`
+	Items     []BreakItem `json:"items"`
+}
+
+// breaksPreview is one row per consumer rev's breaks name, resolved in the
+// revision's domain.
+func (q *Query) breaksPreview(rev *ContractRevision) BreaksPreview {
+	var p BreaksPreview
+	var rows []BreakItem
+	for _, b := range rev.Contract.Breaks {
+		for _, name := range b.Consumers {
+			p.Total++
+			if q.snap.hiddenServices[NewServiceKeyDomain(rev.Domain, name)] {
+				p.Hidden++
+				continue
+			}
+			row := BreakItem{Consumer: name, Reason: b.Reason, Expires: b.Expires}
+			if k := lookupServiceInDomain(q.snap, rev.Domain, name); k != "" {
+				row.Service = new(serviceEntityRef(q.snap.Services[k]))
+			}
+			rows = append(rows, row)
+		}
+	}
+	p.Items, _, p.Truncated = boundSlice(rows, MaxBreaks)
+	p.Count = len(p.Items)
+	return p
+}
+
 // RevisionDetailData is the revision-kind payload: parent service, immutable
 // identity/content and provenance, validation, readiness, the DECLARED
 // interfaces/configurations/policies/capabilities/state/workload themselves
@@ -472,6 +537,10 @@ type RevisionDetailData struct {
 	Service      EntityRef `json:"service"`
 	Version      string    `json:"version,omitempty"`
 	PactoVersion string    `json:"pactoVersion,omitempty"`
+	// Inferred lists what a local read implied rather than read from the
+	// contract (an absent pactoVersion, an inferred service.name), each with
+	// its source. It is empty for a published revision.
+	Inferred []InferredField `json:"inferred,omitempty"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4) the revision declares.
 	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Identity   RevisionIdentity             `json:"identity"`
@@ -483,8 +552,11 @@ type RevisionDetailData struct {
 	// when the contract document was never validated.
 	Stages []ValidationStage `json:"stages"`
 	// Environments is each declared environment and the check of its values.
-	Environments   EnvironmentsPreview   `json:"environments"`
-	Interfaces     InterfacesPreview     `json:"interfaces"`
+	Environments EnvironmentsPreview `json:"environments"`
+	Interfaces   InterfacesPreview   `json:"interfaces"`
+	// Breaks is the deliberate breaking changes the revision announces
+	// (pactoVersion 2.5), one row per named consumer.
+	Breaks         BreaksPreview         `json:"breaks"`
 	Configurations ConfigurationsPreview `json:"configurations"`
 	Policies       PoliciesPreview       `json:"policies"`
 	Capabilities   CapabilitiesPreview   `json:"capabilities"`
@@ -1256,6 +1328,8 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Environments:         environmentsPreview(MarkExpired(rev.Environments, q.snap.GeneratedAt)),
 		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
+		Breaks:               q.breaksPreview(rev),
+		Inferred:             inferredFields(rev.Inferred),
 		Workload:             rev.Contract.Workload,
 		State:                stateSummary(rev.Contract.State),
 		Dependencies:         relationshipsPreview(q.revisionEdges(rev.Key)),

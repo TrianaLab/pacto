@@ -24,6 +24,7 @@ each one's `reason` is a fixed identifier you can match on:
 | `ContractValid` | `True` | `Parsed` | The contract loaded and passed validation. |
 | `ContractValid` | `True` | `ReferenceOnly` | Same, and the contract declares no `spec.target`, so nothing further is observed. |
 | `ContractValid` | `False` | `Invalid` | The contract loaded and is structurally wrong. `status.validation` names the errors. |
+| `ContractValid` | `False` | `ContractUndeclared` | The contract does not declare its `pactoVersion`, `service.name` or `service.version`. A bundle in a registry or an inline contract must declare all three: `pacto publish` writes the version and refuses a contract without the other two. |
 | `ContractValid` | `Unknown` | `Unavailable` | The contract could not be **obtained** -- registry unreachable, auth rejected, tag not found. Validity is undetermined, so `status.validation` is deliberately left empty. |
 | `RuntimeObserved` | `True` | `Found` | Runtime evidence was collected. |
 | `RuntimeObserved` | `False` | `ObservationFailed` | A cluster query errored. The message carries the API error. |

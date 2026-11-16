@@ -19,6 +19,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 	"gopkg.in/yaml.v3"
 )
@@ -256,6 +257,9 @@ type CheckResult struct {
 	// EnvironmentDifferencesError says why the environments could not be
 	// compared when none were named.
 	EnvironmentDifferencesError string `json:"environmentDifferencesError,omitempty"`
+	// Inferred lists what the contract implies rather than declares (an
+	// absent pactoVersion, a service.name read from the folder), with sources.
+	Inferred []contract.Inferred `json:"inferred,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -706,6 +710,9 @@ func (o fileOps) edit(ctx context.Context, validate Validator, opts EditOptions,
 	if err := contract.DecodeYAML(rawYAML, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
+	if m == nil {
+		m = map[string]any{} // an empty contract
+	}
 
 	fromVersion, _ := m["pactoVersion"].(string)
 	files, changes, err := editFiles(dir, m, input)
@@ -1033,9 +1040,14 @@ func setServiceField(m, svc map[string]any, field, value, minVersion string) []s
 }
 
 // raiseVersion raises a pactoVersion older than minVersion to minVersion,
-// which keeps every older field, and returns the change it made.
+// which keeps every older field, and returns the change it made. An absent
+// pactoVersion is already the newest (contract.Current()), so it stays absent.
 func raiseVersion(m map[string]any, minVersion string) []string {
-	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
+	v, declared := m["pactoVersion"].(string)
+	if !declared {
+		return nil
+	}
+	if slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
 		m["pactoVersion"] = minVersion
 		return []string{fmt.Sprintf("set pactoVersion to %q", minVersion)}
 	}
@@ -1485,6 +1497,14 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		return result, nil
 	}
 
+	matcher, err := ignore.Load(o.dirFS(dir))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", ignore.IgnoreFileName, err)
+	}
+	abs, _ := filepath.Abs(dir) // ponytail: fails only without a working directory
+	bundle := &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: ignore.FS(o.dirFS(dir), matcher)}
+	bundle.Complete(filepath.Base(abs))
+
 	var vr validation.Report
 	if validate != nil {
 		if vr, err = validate(ctx, dir); err != nil {
@@ -1496,10 +1516,11 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 	}
 
 	cr := &CheckResult{
-		Valid:   vr.IsValid(),
-		Summary: summarizeContract(c),
-		Stages:  vr.Stages,
-		Next:    vr.Next,
+		Valid:    vr.IsValid(),
+		Summary:  summarizeContract(c),
+		Stages:   vr.Stages,
+		Next:     vr.Next,
+		Inferred: bundle.Inferred,
 	}
 
 	for _, e := range vr.Errors {
@@ -1520,7 +1541,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		})
 	}
 
-	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid())
+	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid(), bundle.Inferred)
 
 	rows, err := validation.EnvironmentDifferences(c, o.dirFS(dir), envs)
 	switch {
@@ -1541,7 +1562,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 // in: the newest schema's order.
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations", "environments",
-	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
+	"policies", "dependencies", "breaks", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
 }
 
 // marshalContract writes m with its top-level keys in topLevelKeyOrder, then
@@ -2040,11 +2061,25 @@ func assessSections(c *contract.Contract) map[string]string {
 
 // buildSuggestions is what to improve in a valid contract c, whose bundle
 // files bundleFS holds.
-func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool) []Suggestion {
+func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool, inferred []contract.Inferred) []Suggestion {
 	var suggestions []Suggestion
 
 	if !valid {
 		return nil
+	}
+
+	if inf, ok := (&contract.Bundle{Inferred: inferred}).NameInferred(); ok {
+		suggestions = append(suggestions, Suggestion{
+			Message:  fmt.Sprintf("service.name %s is inferred from %s. Declare service.name to publish.", inf.Value, inf.Source),
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"name": inf.Value}},
+		})
+	}
+
+	if c.Service.Version == "" {
+		suggestions = append(suggestions, Suggestion{
+			Message:  "service.version is not declared; pacto publish needs one.",
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"version": "0.1.0"}},
+		})
 	}
 
 	if len(c.Interfaces) == 0 {

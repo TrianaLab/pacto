@@ -12,6 +12,7 @@ const (
 	GateCodePolicyReferrersFailUnplaced = "POLICY_REFERRERS_FAIL_UNPLACED"
 	GateCodePolicyUnchecked             = "POLICY_UNCHECKED"
 	GateCodeServiceNotInFleet           = "SERVICE_NOT_IN_FLEET"
+	GateCodeServiceNameInferred         = LimitationServiceNameInferred
 	GateCodeAnswerPartial               = "ANSWER_PARTIAL"
 	GateCodeConsumersUnchecked          = "CONSUMERS_UNCHECKED"
 	// Clear.
@@ -43,6 +44,8 @@ func (r *Result) GateCode() string {
 	switch {
 	case hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET"):
 		return GateCodeServiceNotInFleet
+	case r.nameInferred() != "":
+		return GateCodeServiceNameInferred
 	case r.Completeness != fleet.CompletenessComplete:
 		return GateCodeAnswerPartial
 	case len(r.Consumers) > 0:

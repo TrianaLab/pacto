@@ -82,6 +82,8 @@ export function dropService(label: string, service: string): string {
  * shortened label.
  */
 export function inService<T extends EntityRefLike>(ref: T, service: string): T {
+  // A revision labelled with the bare service name declares no version (pactoVersion 2.5).
+  if (ref.kind === 'revision' && service && primaryLabel(ref) === service) return { ...ref, label: 'Version not declared', parentService: undefined };
   const label = dropService(primaryLabel(ref), service);
   return label === primaryLabel(ref) ? ref : { ...ref, label, parentService: undefined };
 }

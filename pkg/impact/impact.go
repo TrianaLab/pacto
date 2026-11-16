@@ -89,24 +89,33 @@ type Options struct {
 	// Regression is the delivery evidence the caller read for a regressed
 	// event, with its own identity; nil when none was read.
 	Regression *Regression
+	// NameInferredFrom is where the changed service's name was inferred from
+	// (for example chart/Chart.yaml:2) when its contract declares none; empty
+	// when the name is declared. A consumer declares the name it depends on,
+	// so an inferred name may miss every one of them: the answer then carries
+	// SERVICE_NAME_INFERRED and the gate never clears a BREAKING change.
+	NameInferredFrom string
 }
 
 // AffectedConsumer is one service affected by the change.
 type AffectedConsumer struct {
-	Service              string     `json:"service"`
-	Domain               string     `json:"domain,omitempty"`
-	Depth                int        `json:"depth"`  // 1 = direct, >1 = transitive
-	Direct               bool       `json:"direct"` // depth == 1
-	Path                 []string   `json:"path"`
-	Owner                string     `json:"owner,omitempty"`
-	OwnerKey             string     `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
-	Required             bool       `json:"required"`
-	Compatibility        string     `json:"compatibility,omitempty"`
-	CompatibilityVerdict string     `json:"compatibilityVerdict"`
-	Provenance           string     `json:"provenance"`
-	Confidence           Confidence `json:"confidence"`
-	Status               string     `json:"status,omitempty"`
-	Targets              []string   `json:"targets,omitempty"`
+	Service string `json:"service"`
+	Domain  string `json:"domain,omitempty"`
+	// NameInferred is where Service comes from when no revision of the
+	// consumer declares its name.
+	NameInferred         *contract.Inferred `json:"nameInferred,omitempty"`
+	Depth                int                `json:"depth"`  // 1 = direct, >1 = transitive
+	Direct               bool               `json:"direct"` // depth == 1
+	Path                 []string           `json:"path"`
+	Owner                string             `json:"owner,omitempty"`
+	OwnerKey             string             `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
+	Required             bool               `json:"required"`
+	Compatibility        string             `json:"compatibility,omitempty"`
+	CompatibilityVerdict string             `json:"compatibilityVerdict"`
+	Provenance           string             `json:"provenance"`
+	Confidence           Confidence         `json:"confidence"`
+	Status               string             `json:"status,omitempty"`
+	Targets              []string           `json:"targets,omitempty"`
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
@@ -326,6 +335,9 @@ func (r *Result) gate() (string, string) {
 		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
 			"Add the directory or registry that holds the services depending on it as a fleet source and run the analysis again"
 	}
+	if why := r.nameInferred(); why != "" {
+		return GateUnverified, "the change is BREAKING, but " + why
+	}
 	if r.Completeness != fleet.CompletenessComplete {
 		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
@@ -509,6 +521,21 @@ func (r *Result) unmetNote() string {
 	return ". " + r.Service + " " + r.NewVersion + " does not meet a guarantee required by " + strings.Join(names, ", ")
 }
 
+// LimitationServiceNameInferred marks an answer about a service whose name was
+// inferred (see [Options.NameInferredFrom]).
+const LimitationServiceNameInferred = "SERVICE_NAME_INFERRED"
+
+// nameInferred is the SERVICE_NAME_INFERRED message, "" when the changed
+// service's name is declared.
+func (r *Result) nameInferred() string {
+	for _, l := range r.Limitations {
+		if l.Code == LimitationServiceNameInferred {
+			return l.Message
+		}
+	}
+	return ""
+}
+
 func hasCode(ls []fleet.Limitation, code string) bool {
 	for _, l := range ls {
 		if l.Code == code {
@@ -558,6 +585,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	} else {
 		res = analyze(ctx, old, new, oldFS, newFS, snap, opts)
 		res.noteRangeOnlyMatches()
+	}
+	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
+		res.Limitations = append(res.Limitations, fleet.Limitation{
+			Code: LimitationServiceNameInferred, Source: limitationSource,
+			Message: "service.name is inferred from " + opts.NameInferredFrom + "; declare it so Pacto can find its consumers",
+		})
 	}
 	res.boundEnvelope()
 	res.Gate, res.GateReason = res.gate()
@@ -793,7 +826,9 @@ func (r *Result) collectOwnersAndTargets(snap *fleet.FleetSnapshot, changed ...f
 
 // noteUnresolvedRefs makes the answer partial when configuration references,
 // and with withPolicy policy references, may name changed but did not resolve:
-// they may consume or check against it, at a revision Pacto cannot tell.
+// they may consume or check against it, at a revision Pacto cannot tell. A
+// dependency named only by a ref that did not resolve (a file:// ref, a
+// repository the fleet did not read) may consume changed too.
 func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, withPolicy bool) {
 	note := func(code, relType, what, verb string) {
 		n := fleet.UnresolvedRefCount(snap, []fleet.ServiceKey{changed}, relType)
@@ -806,6 +841,12 @@ func (r *Result) noteUnresolvedRefs(snap *fleet.FleetSnapshot, changed fleet.Ser
 				" but are not digest-pinned or locked, so Pacto cannot tell which revision they " + verb})
 	}
 	note("CONFIG_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipConfigRef, "configuration references", "consume")
+	if n := fleet.UnresolvedRefCount(snap, []fleet.ServiceKey{changed}, fleet.RelationshipDependency); n > 0 {
+		r.Completeness = fleet.CompletenessPartial
+		r.Limitations = append(r.Limitations, fleet.Limitation{Code: "DERIVED_NAME_CONSUMERS_UNRESOLVED", Source: limitationSource,
+			Message: strconv.Itoa(n) + " " + plural(n, "dependency names", "dependencies name") + " " + string(changed) +
+				" only by a ref that did not resolve, so Pacto cannot tell whether " + plural(n, "it consumes", "they consume") + " it"})
+	}
 	if withPolicy {
 		note("POLICY_REF_CONSUMERS_UNRESOLVED", fleet.RelationshipPolicyRef, "policy references", "check against")
 	}
@@ -970,7 +1011,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		c.Via = append(c.Via, fleet.ProvenanceObserved)
 	}
 	c.Provenance = provenance(hasDeclared, seen)
-	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
+	c.Confidence = confidence(node.depth, hasDeclared, contract.IsRange(rel.Compatibility), observedCounted)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
@@ -991,6 +1032,9 @@ func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey, obse
 	if s := snap.Services[key]; s != nil {
 		c.Owner = s.Owner.DisplayString()
 		c.OwnerKey = s.Owner.KeyString()
+		if inf := s.NameInferred; inf != nil {
+			c.NameInferred = new(*inf) // a copy: the answer never aliases the snapshot
+		}
 		c.Status = s.Status
 		for _, tk := range s.Targets {
 			c.Targets = append(c.Targets, string(tk))

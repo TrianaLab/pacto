@@ -324,6 +324,7 @@ func TestCatalogResolverCategorisesRegistryFailures(t *testing.T) {
 		{"the registry rejects the credentials", anonymous, "oci://" + authHost + "/acme/api:1.0.0", catalog.ReasonAuthFailed},
 		{"the tag does not exist", plain, "oci://" + goodHost + "/acme/lib:9.9.9", catalog.ReasonNotFound},
 		{"no tag satisfies the constraint", plain, "oci://" + goodHost + "/acme/lib", catalog.ReasonNotFound},
+		{"the compatibility is unknown", plain, "oci://" + goodHost + "/acme/lib", catalog.ReasonCompatibilityUnknown},
 		{"the reference does not parse", plain, "oci://" + goodHost + "/AC ME/api:1.0.0", catalog.ReasonInvalidReference},
 		{"the registry is unreachable", plain, "oci://" + deadHost + "/acme/api:1.0.0", catalog.ReasonUnavailable},
 		{"the artifact is not a bundle", &Service{BundleStore: catStubStore{err: &oci.InvalidBundleError{Ref: "x"}}}, "oci://ghcr.io/acme/api:1.0.0", catalog.ReasonInvalidContract},
@@ -333,6 +334,9 @@ func TestCatalogResolverCategorisesRegistryFailures(t *testing.T) {
 			constraint := ""
 			if tc.want == catalog.ReasonNotFound && !strings.Contains(tc.ref, ":9.9.9") {
 				constraint = "^7.0.0" // a constraint no published tag satisfies
+			}
+			if tc.want == catalog.ReasonCompatibilityUnknown {
+				constraint = contract.CompatibilityUnknown
 			}
 			_, err := catResolve(t, tc.svc.CatalogResolver(), tc.ref, "", constraint)
 			if got := catCode(t, err); got != tc.want {

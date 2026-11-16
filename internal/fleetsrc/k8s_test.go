@@ -266,11 +266,11 @@ func TestContractRefs_NoCRs(t *testing.T) {
 // it once, and a CR the operator has not resolved yet contributes nothing.
 func TestContractRefs_RefsAndRepos(t *testing.T) {
 	list := `{"items":[
-	  {"metadata":{"name":"tagged"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
-	  {"metadata":{"name":"pinned"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
-	  {"metadata":{"name":"bare"},"status":{"contract":{"resolvedRef":"ghcr.io/x/orders"}}},
-	  {"metadata":{"name":"ported"},"status":{"contract":{"resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
-	  {"metadata":{"name":"unresolved"},"status":{"contract":{"resolvedRef":""}}},
+	  {"metadata":{"name":"tagged"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
+	  {"metadata":{"name":"pinned"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
+	  {"metadata":{"name":"bare"},"status":{"contract":{"serviceName":"svc","resolvedRef":"ghcr.io/x/orders"}}},
+	  {"metadata":{"name":"ported"},"status":{"contract":{"serviceName":"svc","resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
+	  {"metadata":{"name":"unresolved"},"status":{"contract":{"serviceName":"svc","resolvedRef":""}}},
 	  {"metadata":{"name":"nocontract"},"status":{"contractStatus":"Unknown"}}
 	]}`
 	refs, err := ContractRefs(context.Background(), &fakeK8sClient{
@@ -492,6 +492,32 @@ func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
 		t.Fatalf("observed = %+v", col.Observed)
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
+		t.Fatalf("limitations = %+v", col.Limitations)
+	}
+}
+
+// A reconciled contract with no service name cannot come from the operator, which
+// refuses one; the source reports the record instead of guessing the CR name.
+// The item becomes no target, so Restrict never learns its namespace: the
+// message must name neither the namespace nor the Pacto.
+func TestK8sSource_Collect_NamelessContractIsARecordGap(t *testing.T) {
+	list := `{"items":[
+	  {"metadata":{"name":"nameless","namespace":"prod"},"status":{"contract":{"serviceName":"","resolvedRef":"ghcr.io/x/a:1.0.0"}}},
+	  {"metadata":{"name":"payments","namespace":"prod"},"status":{"contract":{"serviceName":"payments"}}}
+	]}`
+	col, err := NewK8sSource("prod", &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, "").Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Targets) != 1 || col.Targets[0].Service != "payments" {
+		t.Fatalf("targets = %+v", col.Targets)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid ||
+		strings.Contains(col.Limitations[0].Message, "prod") || strings.Contains(col.Limitations[0].Message, "nameless") ||
+		!strings.Contains(col.Limitations[0].Message, "1 Pacto(s)") {
 		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }

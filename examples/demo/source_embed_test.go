@@ -96,3 +96,12 @@ func TestEmbedSourceIndexesArbitraryFS(t *testing.T) {
 		t.Errorf("bundle FS should be rooted at the contract directory: %v", err)
 	}
 }
+
+func TestDemoFleetUndeclaredVersionRef(t *testing.T) {
+	if got := requestedRef("oci://demo.pacto.local/", "newsletter-service", ""); got != "oci://demo.pacto.local/newsletter-service" {
+		t.Fatalf("undeclared version ref = %q", got)
+	}
+	if got := requestedRef("oci://demo.pacto.local/", "ledger", "1.0.0"); got != "oci://demo.pacto.local/ledger:1.0.0" {
+		t.Fatalf("declared version ref = %q", got)
+	}
+}

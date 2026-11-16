@@ -79,6 +79,7 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
       id: n.ref.key,
       serviceName: version && label.endsWith(` ${version}`) ? label.slice(0, -version.length - 1) : label,
       ...(version ? { version } : {}),
+      ...(n.ref.nameInferred ? { nameInferred: n.ref.nameInferred.source } : {}),
       status: n.status || n.ref.status || 'Unknown',
       kind: nodeKind(n.ref.kind),
       edges: [],
@@ -125,7 +126,7 @@ export function topoSignature(gd: GraphData): string {
  *  never left stale. Deterministic (sorted). */
 export function presentationSignature(gd: GraphData): string {
   const ns = gd.nodes
-    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}`)
+    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}:${n.nameInferred || ''}`)
     .sort().join(',');
   const es = gd.nodes
     .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}:${e.refused ? 'refused' : ''}:${e.label || ''}`))

@@ -926,9 +926,11 @@ func describeRanges(cs []impact.AffectedConsumer) string {
 	for _, c := range cs {
 		policy := slices.Contains(c.Via, fleet.RelationshipPolicyRef)
 		switch {
-		case c.Compatibility != "" && policy:
+		case c.Compatibility == contract.CompatibilityUnknown:
+			parts = append(parts, c.Service+" (range not declared)")
+		case contract.IsRange(c.Compatibility) && policy:
 			parts = append(parts, fmt.Sprintf("%s (accepts %s and references its policy)", c.Service, c.Compatibility))
-		case c.Compatibility != "":
+		case contract.IsRange(c.Compatibility):
 			parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
 		case policy:
 			parts = append(parts, c.Service+" (fails its new policy)")

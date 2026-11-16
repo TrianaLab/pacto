@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -61,7 +62,13 @@ func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source strin
 		Service: ServiceFromContract(c, source),
 	}
 
+	if inf, ok := bundle.NameInferred(); ok {
+		svc.NameInferredFrom = inf.Source
+	}
 	svc.Interfaces = interfacesFromContract(c, bundle.FS)
+	for _, b := range c.Breaks {
+		svc.Breaks = append(svc.Breaks, BreakInfo{Consumers: slices.Clone(b.Consumers), Reason: b.Reason, Expires: b.Expires})
+	}
 	svc.Configurations = configsFromContract(c, bundle.FS)
 	svc.Dependencies = depsFromContract(c)
 	svc.Workload = c.Workload
@@ -267,6 +274,7 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 			Name:               iface.Name,
 			Type:               iface.Type,
 			Visibility:         iface.Visibility,
+			Port:               iface.Port,
 			HasContractFile:    iface.Ref != "",
 			ContractFile:       iface.Ref,
 			Lifecycle:          iface.Lifecycle,
@@ -402,12 +410,14 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 	var out []DependencyInfo
 	for _, dep := range c.Dependencies {
 		d := DependencyInfo{
-			Name:          dep.Name,
-			Ref:           dep.Ref,
-			Required:      dep.Required,
-			Compatibility: dep.Compatibility,
-			External:      dep.External,
-			Version:       dep.Version,
+			Name:                 dep.Name,
+			NameFromRef:          dep.NameFromRef,
+			Ref:                  dep.Ref,
+			Required:             dep.Required,
+			Compatibility:        dep.Compatibility,
+			External:             dep.External,
+			CompatibilityUnknown: dep.Compatibility == contract.CompatibilityUnknown,
+			Version:              dep.Version,
 		}
 		d.Requires = dep.Requires
 		if len(dep.Requires) > 0 {

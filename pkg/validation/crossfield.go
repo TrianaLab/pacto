@@ -47,11 +47,34 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateEnvironmentFiles(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
+	validateBreaks(c, &result)
 	validatePublish(c, &result)
 	validateMCPInterfaces(c, bundleFS, &result)
 	validateChecks(c, bundleFS, &result)
 
 	return result
+}
+
+// validateBreaks enforces what the schema cannot say about breaks: a consumer
+// appears in one entry at most, the service never names itself and expires is
+// a strict YYYY-MM-DD date.
+func validateBreaks(c *contract.Contract, result *ValidationResult) {
+	seen := map[string]int{}
+	for i, b := range c.Breaks {
+		for j, consumer := range b.Consumers {
+			path := fmt.Sprintf("breaks[%d].consumers[%d]", i, j)
+			if prev, dup := seen[consumer]; dup && prev != i {
+				result.AddError(path, string(finding.CodeDuplicateBreakConsumer), fmt.Sprintf("consumer %q is already named in breaks[%d]", consumer, prev))
+			}
+			seen[consumer] = i
+			if consumer == c.Service.Name {
+				result.AddError(path, string(finding.CodeBreakNamesSelf), fmt.Sprintf("%q is this service; a break announces a change to its consumers", consumer))
+			}
+		}
+		if b.Expires != "" && !isCanonicalDate(b.Expires) {
+			result.AddError(fmt.Sprintf("breaks[%d].expires", i), string(finding.CodeInvalidBreakExpires), fmt.Sprintf("expires %q must be a valid YYYY-MM-DD date", b.Expires))
+		}
+	}
 }
 
 // validatePublish enforces what the schema cannot say about publish: artifact
@@ -208,6 +231,9 @@ func validateOCIRef(ref, field, code string, result *ValidationResult) {
 }
 
 func validateServiceVersion(c *contract.Contract, result *ValidationResult) {
+	if c.Service.Version == "" {
+		return // not declared: only 2.5 schemas allow it, and publishing requires it
+	}
 	validateSemver(c.Service.Version, "service.version", "INVALID_SEMVER", result)
 }
 
@@ -438,7 +464,8 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 	}
 }
 
-// validateDependencyForm enforces the two shapes a dependency takes: a ref to
+// validateDependencyForm enforces a name (declared or derived from ref) and the
+// two shapes a dependency takes: a ref to
 // its contract with a compatibility range, or, for a dependency this Pacto
 // system does not deliver and nobody wrote a contract for, external: true with
 // the free-text version it runs against. It reports false when the shape is
@@ -446,6 +473,8 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 func validateDependencyForm(i int, dep contract.Dependency, result *ValidationResult) bool {
 	base := fmt.Sprintf("dependencies[%d]", i)
 	switch {
+	case dep.Name == "":
+		result.AddError(base+".name", string(finding.CodeDependencyNameRequired), "a dependency needs a name, or a ref Pacto derives the name from: set name, or set ref to its contract")
 	case dep.Ref == "" && !dep.External:
 		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract (for a contract not published yet, the repository it will be published at, with the versions you accept in compatibility), or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
 	case dep.Ref == "" && dep.Version == "":
@@ -481,13 +510,15 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 			}
 		}
 
+		// compatibility: unknown says the versions that work are not known yet:
+		// valid, and never counted as compatible.
 		if dep.Compatibility == "" {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"EMPTY_COMPATIBILITY",
 				fmt.Sprintf("dependency %q has a ref, so it needs compatibility: the versions that work, for example ^2.0.0", dep.Name),
 			)
-		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil {
+		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil && contract.IsRange(dep.Compatibility) {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"INVALID_COMPATIBILITY",

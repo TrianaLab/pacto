@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -82,6 +83,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	if err != nil {
 		return nil, err
 	}
+	dropNameCollisions(results, sources)
 	clusters := clusterSet(results, sources)
 
 	snap := &FleetSnapshot{
@@ -181,6 +183,134 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// dropNameCollisions removes, across every source, each revision whose
+// service.name was only inferred and is claimed by another folder or
+// reference, before service keys are formed, so a guessed name never joins
+// another service and inherits its targets or consumers. Each source that loses
+// a revision gets one SERVICE_NAME_COLLISION limitation per name, which makes
+// it partial. A source's own Collection is never mutated: it may be reused.
+func dropNameCollisions(results []sourceResult, sources []Source) {
+	var claims []contract.NameClaim
+	seen := map[[2]string]bool{} // name, bundle of an inferred claim already made
+	for i, r := range results {
+		for _, c := range nameClaims(sources[i].ID(), r.col) {
+			// One bundle read by two sources (overlapping roots, a catalog root
+			// inside --local) is one claimant, not two competing ones.
+			if c.Inferred && c.Bundle != "" {
+				if seen[[2]string{c.Name, c.Bundle}] {
+					continue
+				}
+				seen[[2]string{c.Name, c.Bundle}] = true
+			}
+			claims = append(claims, c.NameClaim)
+		}
+	}
+	collided := map[string]string{} // name -> limitation message
+	for _, c := range contract.NameCollisions(claims) {
+		var who []string
+		for _, cl := range c.Claims {
+			who = append(who, cl.Dir+" ("+cl.Source+")")
+		}
+		collided[c.Name] = "service name " + c.Name + " is claimed by " + strings.Join(who, ", ") +
+			"; the inferred claims are left out: declare service.name to keep them"
+	}
+	if len(collided) == 0 {
+		return
+	}
+	for i := range results {
+		if col := results[i].col; col != nil {
+			results[i].col = withoutInferredClaims(col, sources[i].ID(), collided)
+		}
+	}
+}
+
+// digestClaim is a name claim and the identity of the bundle making it.
+type digestClaim struct {
+	contract.NameClaim
+	Bundle string
+}
+
+// bundleIdentity is the folder a local revision was read from, made absolute,
+// or the digest of a published one. Two folders with identical content are
+// two bundles, so a local identity is never a digest.
+func bundleIdentity(rev RawRevision) string {
+	ref := cmp.Or(rev.ResolvedRef, rev.RequestedRef)
+	if strings.Contains(ref, "://") && !strings.HasPrefix(ref, "file://") {
+		return rev.Digest
+	}
+	dir := strings.TrimPrefix(ref, "file://")
+	if dir == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
+// nameClaims is one claim per revision of col, plus one declared claim per
+// target that names a service: a target-only name (target state, an inline
+// Pacto) is a service an inferred name must not join and inherit targets from.
+// ponytail: provisioning and usage records name a consumer revision by digest,
+// so they are not claims; add them if one ever names a service without one.
+func nameClaims(sourceID string, col *Collection) []digestClaim {
+	var claims []digestClaim
+	for _, rev := range collectionRevisions(col) {
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, bundleIdentity(rev)}
+		if inf, ok := rev.Bundle.NameInferred(); ok {
+			claim.Source, claim.Inferred = inf.Source, true
+		}
+		claims = append(claims, claim)
+	}
+	if col != nil {
+		for _, t := range col.Targets {
+			if t.Service != "" {
+				claims = append(claims, digestClaim{NameClaim: contract.NameClaim{
+					Dir: sourceID + " target " + t.Scope + "/" + t.Kind + "/" + t.Name, Name: t.Service, Source: "declared"}})
+			}
+		}
+	}
+	return claims
+}
+
+// collectionRevisions is col's revisions that carry a contract.
+func collectionRevisions(col *Collection) []RawRevision {
+	if col == nil {
+		return nil
+	}
+	var out []RawRevision
+	for _, rev := range col.Revisions {
+		if rev.Bundle != nil && rev.Bundle.Contract != nil {
+			out = append(out, rev)
+		}
+	}
+	return out
+}
+
+// withoutInferredClaims is a copy of col without the inferred claimants of the
+// collided names, plus one limitation per name it lost.
+func withoutInferredClaims(col *Collection, sourceID string, collided map[string]string) *Collection {
+	cp := *col
+	lost := map[string]bool{}
+	cp.Revisions = slices.DeleteFunc(slices.Clone(col.Revisions), func(rev RawRevision) bool {
+		if rev.Bundle == nil || rev.Bundle.Contract == nil {
+			return false
+		}
+		name := rev.Bundle.Contract.Service.Name
+		_, inferred := rev.Bundle.NameInferred()
+		_, hit := collided[name]
+		lost[name] = lost[name] || hit && inferred
+		return hit && inferred
+	})
+	cp.Limitations = slices.Clone(col.Limitations)
+	for _, name := range slices.Sorted(maps.Keys(lost)) {
+		if lost[name] {
+			cp.Limitations = append(cp.Limitations, Limitation{Code: LimitationServiceNameCollision, Source: sourceID, Message: collided[name]})
+		}
+	}
+	return &cp
 }
 
 // sourceResult is one source's collection outcome.
@@ -1163,6 +1293,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		// The declared contract is deep-copied so a source mutating its own
 		// bundle after Build can never mutate the snapshot.
 		Contract:   cloneContract(c),
+		Inferred:   slices.Clone(b.Inferred),
 		Source:     source,
 		Sources:    []string{source},
 		FetchedAt:  copyTime(raw.FetchedAt),
@@ -1808,6 +1939,7 @@ func aggregateServices(snap *FleetSnapshot) {
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
+		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
 		deriveTemplate(snap, s, placed)
@@ -2222,6 +2354,23 @@ func ownerSeen(seen []contract.Owner, o contract.Owner) bool {
 	return false
 }
 
+// nameInferred is the inferred service.name entry of the revision of s with
+// the smallest key when every revision of s inferred its name, else nil: one
+// declared revision makes the name declared.
+func nameInferred(snap *FleetSnapshot, s *ServiceRecord) *contract.Inferred {
+	var found *contract.Inferred
+	for _, rk := range slices.Sorted(slices.Values(s.Revisions)) {
+		inf, ok := (&contract.Bundle{Inferred: snap.Revisions[rk].Inferred}).NameInferred()
+		if !ok {
+			return nil
+		}
+		if found == nil {
+			found = &inf
+		}
+	}
+	return found
+}
+
 func ensureService(snap *FleetSnapshot, domain, name string) *ServiceRecord {
 	key := NewServiceKeyDomain(domain, name)
 	s := snap.Services[key]
@@ -2554,7 +2703,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
-			External: dep.External, Version: dep.Version,
+			External: dep.External, Version: dep.Version, NameFromRef: dep.NameFromRef,
 		}
 		if rev.Lock != nil {
 			if e, found := rev.Lock.Dependency(dep.Name); found {
@@ -2565,6 +2714,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		switch {
 		case !ok && dep.External:
 			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+		case !ok && dep.NameFromRef:
+			rel.Reason = derivedNameReason(dep.Ref)
 		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		default:
@@ -2718,9 +2869,54 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc ServiceKey, lockedDigest stri
 // resolveDepService resolves a dependency to a logical service, preferring the
 // depending revision's own domain (a bare dependency ref carries no domain, so it
 // resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
+//
+// A name derived from the ref is a guess from a path, so it resolves only to a
+// service of the ref's own domain with a revision read from that repository: an
+// oci://ghcr.io/other-org/payments never reaches the fleet's own payments, and a
+// local ref, which names no repository, never resolves.
 func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (ServiceKey, bool) {
+	if dep.NameFromRef {
+		repo := ociRepository(dep.Ref)
+		key := lookupServiceInDomain(snap, contract.OCIDomain(dep.Ref), dep.Name)
+		if repo == "" || key == "" || !publishedAt(snap, key, repo) {
+			return "", false
+		}
+		return key, true
+	}
 	key := lookupServiceInDomain(snap, fromDomain, dep.Name)
 	return key, key != ""
+}
+
+// derivedNameReason says why a dependency whose name was derived from ref did
+// not resolve.
+func derivedNameReason(ref string) string {
+	if repo := ociRepository(ref); repo != "" {
+		return "the name was derived from the ref and no service in the fleet is published at " + repo
+	}
+	return "the name was derived from a local ref, which names no published repository: declare the name"
+}
+
+// ociRepository is the repository an oci:// ref names, without scheme, tag or
+// digest; "" for any other ref.
+func ociRepository(ref string) string {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
+		return ""
+	}
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo
+}
+
+// publishedAt reports whether some revision of svc was read from repo.
+func publishedAt(snap *FleetSnapshot, svc ServiceKey, repo string) bool {
+	for _, rk := range snap.Services[svc].Revisions {
+		rev := snap.Revisions[rk]
+		for _, ref := range []string{rev.RequestedRef, rev.ResolvedRef} {
+			if r, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref)); r == repo {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lockReference returns the lock entry that records what THIS revision's own

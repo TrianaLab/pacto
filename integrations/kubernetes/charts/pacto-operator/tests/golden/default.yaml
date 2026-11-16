@@ -950,8 +950,10 @@ spec:
                   description: DependencyInfo describes a declared dependency.
                   properties:
                     compatibility:
-                      description: Compatibility is the semver constraint for the
-                        dependency.
+                      description: |-
+                        Compatibility is the semver constraint for the dependency, or unknown
+                        when the versions that work are not known yet; unknown is never counted
+                        as compatible.
                       type: string
                     external:
                       description: |-
@@ -1233,6 +1235,13 @@ spec:
                     name:
                       description: Name is the interface name.
                       type: string
+                    port:
+                      description: Port is the port the interface declares it listens
+                        on.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
                     ref:
                       description: Ref is the bundle-relative path to the interface
                         specification file.

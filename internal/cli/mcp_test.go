@@ -827,3 +827,40 @@ func TestMCPFleetOptionsLocalDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestImpactInferredNameNeverClears is the pacto_impact half of the gate rule
+// app's test of the same name pins: a BREAKING change to a service whose name
+// is only inferred never clears, though nothing depends on that name.
+func TestImpactInferredNameNeverClears(t *testing.T) {
+	write := func(dir, body string) string {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	oldDir := write(filepath.Join(t.TempDir(), "payments-api"), "pactoVersion: \"2.5\"\nservice:\n  version: \"1.0.0\"\n"+
+		"dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    compatibility: \"^1.0.0\"\n")
+	newDir := write(filepath.Join(t.TempDir(), "payments-api"), "pactoVersion: \"2.5\"\nservice:\n  version: \"2.0.0\"\n")
+	fleetRoot := t.TempDir()
+	write(filepath.Join(fleetRoot, "webapp"), "pactoVersion: \"2.5\"\nservice:\n  name: webapp\n  version: \"1.0.0\"\n"+
+		"dependencies:\n  - name: payments\n    ref: oci://ghcr.io/acme/payments\n    compatibility: \"^1.0.0\"\n")
+
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("local", fleetRoot); err != nil {
+		t.Fatal(err)
+	}
+	res, err := mcpImpactProvider(cmd, svc, defaultDeps(), true, true)(context.Background(), &fleet.FleetSnapshot{},
+		pactomcp.ImpactRequest{OldRef: oldDir, NewRef: newDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Classification != "BREAKING" || res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeServiceNameInferred {
+		t.Fatalf("classification %s gate %s %s (%s), want unverified SERVICE_NAME_INFERRED", res.Classification, res.Gate, res.GateCode(), res.GateReason)
+	}
+}

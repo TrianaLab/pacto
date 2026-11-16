@@ -866,7 +866,7 @@ func TestAssessSections(t *testing.T) {
 
 func TestBuildSuggestions(t *testing.T) {
 	t.Run("invalid contract gets no suggestions", func(t *testing.T) {
-		s := buildSuggestions(testutil.TestBundle().Contract, nil, false)
+		s := buildSuggestions(testutil.TestBundle().Contract, nil, false, nil)
 		if len(s) != 0 {
 			t.Error("expected no suggestions for invalid contract")
 		}
@@ -876,7 +876,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle := testutil.TestBundle()
 		bundle.Contract.Dependencies = nil
 		bundle.Contract.Configurations = nil
-		s := buildSuggestions(bundle.Contract, nil, true)
+		s := buildSuggestions(bundle.Contract, nil, true, nil)
 		if len(s) == 0 {
 			t.Error("expected suggestions for missing sections")
 		}
@@ -887,7 +887,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle.Contract.Service.Owner = contract.Owner{Team: "team/billing"}
 		bundle.Contract.Dependencies = []contract.Dependency{{Name: "ledger", External: true, Version: "v1"}, {Name: "auth", Ref: "oci://r.example/auth", External: true}}
 		var owner, external []Suggestion
-		for _, sg := range buildSuggestions(bundle.Contract, nil, true) {
+		for _, sg := range buildSuggestions(bundle.Contract, nil, true, nil) {
 			if strings.Contains(sg.Message, "owner.team") {
 				owner = append(owner, sg)
 			}
@@ -3134,5 +3134,119 @@ func TestCreateDomainRaisesVersion(t *testing.T) {
 	c, err := contract.Parse(bytes.NewReader(data))
 	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v\n%s", c, err, data)
+	}
+}
+
+// An absent pactoVersion is already the newest, so an edit that needs 2.4 never
+// writes an older version into an implicit-version contract.
+func TestEditImplicitVersionNotDowngraded(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{`set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("an implicit version was written: %s", raw)
+	}
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" {
+		t.Fatalf("written contract %+v %v", c, err)
+	}
+}
+
+func TestEditEmptyContract(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644)
+	if _, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, Domain: strPtr("payments")}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != contract.Current() || c.Service.Domain != "payments" || strings.Contains(string(raw), "pactoVersion") {
+		t.Fatalf("written %q: %+v %v", raw, c, err)
+	}
+}
+
+// emptyChartBundle is a folder named payments-api holding an empty pacto.yaml
+// and chart/Chart.yaml naming payments on line 2.
+func emptyChartBundle(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "payments-api")
+	if err := os.MkdirAll(filepath.Join(dir, "chart"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "chart", "Chart.yaml"), []byte("apiVersion: v2\nname: payments\nversion: 0.1.0\n"), 0o644)
+	return dir
+}
+
+func TestCheckReportsInferredName(t *testing.T) {
+	result, err := Check(context.Background(), nil, emptyChartBundle(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid || result.Summary.Name != "payments" {
+		t.Fatalf("valid %v name %q errors %+v", result.Valid, result.Summary.Name, result.Errors)
+	}
+	want := []contract.Inferred{
+		{Field: "pactoVersion", Value: contract.Current(), Source: "this CLI"},
+		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+	}
+	if !reflect.DeepEqual(result.Inferred, want) {
+		t.Fatalf("inferred = %+v", result.Inferred)
+	}
+	declared, err := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
+	if err != nil || declared.Inferred != nil {
+		t.Fatalf("declared inferred = %+v, %v", declared.Inferred, err)
+	}
+}
+
+func TestCheckIgnoresPactoignoredNameSource(t *testing.T) {
+	dir := emptyChartBundle(t)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("chart/\n"), 0o644)
+	result, err := Check(context.Background(), nil, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary.Name != "payments-api" {
+		t.Fatalf("name = %q, want the directory: an ignored Chart.yaml is never a source", result.Summary.Name)
+	}
+	_ = os.Remove(filepath.Join(dir, ".pactoignore"))
+	_ = os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755)
+	if _, err := Check(context.Background(), nil, dir, nil); err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+		t.Fatalf("unreadable .pactoignore: err = %v", err)
+	}
+}
+
+func TestCheckSuggestsDeclaringNameAndVersion(t *testing.T) {
+	result, err := Check(context.Background(), nil, emptyChartBundle(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var name, version *Suggestion
+	for i, s := range result.Suggestions {
+		switch {
+		case strings.Contains(s.Message, "Declare service.name to publish"):
+			name = &result.Suggestions[i]
+		case strings.Contains(s.Message, "service.version is not declared; pacto publish needs one"):
+			version = &result.Suggestions[i]
+		}
+	}
+	if name == nil || !strings.Contains(name.Message, "inferred from chart/Chart.yaml:2") || name.ToolCall.Params["name"] != "payments" {
+		t.Errorf("name suggestion = %+v in %+v", name, result.Suggestions)
+	}
+	if version == nil || version.ToolCall.Params["version"] != "0.1.0" {
+		t.Errorf("version suggestion = %+v in %+v", version, result.Suggestions)
+	}
+	declared, _ := Check(context.Background(), nil, testutil.WriteTestBundle(t), nil)
+	for _, s := range declared.Suggestions {
+		if strings.Contains(s.Message, "service.name") || strings.Contains(s.Message, "service.version") {
+			t.Errorf("declared contract got %q", s.Message)
+		}
 	}
 }

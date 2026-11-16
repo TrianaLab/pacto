@@ -28,7 +28,11 @@ type ImpactOptions struct {
 	// names no registry, so a caller that knows the service's fleet domain
 	// (an edit of a checkout of ghcr.io/acme/orders) passes ghcr.io/acme.
 	// Empty derives the domain from NewPath.
-	Domain       string
+	Domain string
+	// NewDirName is the folder name a local NewPath's service.name is
+	// inferred from when NewPath is a staged copy of that folder; empty uses
+	// NewPath's own folder.
+	NewDirName   string
 	OldOverrides override.Overrides
 	NewOverrides override.Overrides
 	Fleet        FleetOptions
@@ -133,7 +137,12 @@ func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (ol
 		return nil, nil, fmt.Errorf("old revision: %w", err)
 	}
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
-	if newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides); err != nil {
+	if opts.NewDirName != "" && !graph.ParseDependencyRef(opts.NewPath).IsOCI() {
+		newBundle, err = loadLocalBundleNamed(graph.ParseDependencyRef(opts.NewPath).Location, opts.NewDirName, opts.NewOverrides)
+	} else {
+		newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
+	}
+	if err != nil {
 		return nil, nil, fmt.Errorf("new revision: %w", err)
 	}
 	return oldBundle, newBundle, nil
@@ -151,10 +160,22 @@ func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *f
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:          opts.domain(),
-			IncludeObserved: opts.IncludeObserved,
-			ObservedEdges:   observed,
+			Domain:           opts.domain(),
+			IncludeObserved:  opts.IncludeObserved,
+			ObservedEdges:    observed,
+			NameInferredFrom: nameInferredFrom(oldBundle, newBundle),
 		}), nil
+}
+
+// nameInferredFrom is where the new, else the old, revision's service.name
+// was inferred from; empty when both declare it.
+func nameInferredFrom(oldBundle, newBundle *contract.Bundle) string {
+	for _, b := range []*contract.Bundle{newBundle, oldBundle} {
+		if inf, ok := b.NameInferred(); ok {
+			return inf.Source
+		}
+	}
+	return ""
 }
 
 // ImpactEventOptions configures a what-if about one fleet service: it

@@ -183,8 +183,15 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	}
 	w := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(w, "warning: answer is %s (as of %s)\n", m.Completeness, m.AsOf.Format(time.RFC3339))
+	// Text drops the per-source split, so two sources reporting one problem
+	// (a name collision across two --local roots) would print it twice.
+	seen := map[string]bool{}
 	for _, l := range m.Limitations {
-		_, _ = fmt.Fprintf(w, "  - [%s] %s\n", l.Code, l.Message)
+		line := fmt.Sprintf("  - [%s] %s\n", l.Code, l.Message)
+		if !seen[line] {
+			seen[line] = true
+			_, _ = fmt.Fprint(w, line)
+		}
 	}
 }
 

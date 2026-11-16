@@ -132,3 +132,13 @@ func OCIDomain(ref string) string {
 	}
 	return ""
 }
+
+// DependencyName derives a dependency name from its ref: the last path segment
+// of the repository, with any oci:// or file:// scheme, tag and digest dropped
+// (oci://ghcr.io/acme/ledger:1.2.0 and file://../ledger are both "ledger").
+// It is "" for an empty ref.
+func DependencyName(ref string) string {
+	ref = strings.TrimPrefix(TrimOCIScheme(ref), "file://")
+	repo, _, _ := SplitOCIRef(strings.TrimRight(ref, "/"))
+	return repo[strings.LastIndex(repo, "/")+1:]
+}

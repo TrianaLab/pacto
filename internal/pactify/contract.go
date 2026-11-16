@@ -2,6 +2,7 @@ package pactify
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -267,7 +268,8 @@ func (p *planner) existing(data []byte) {
 		p.unknown("pacto.yaml could not be read (%v), so nothing was taken from it", err)
 		return
 	}
-	p.r.Service, p.pub = c.Service.Name, c.Publish
+	// A contract that declares no name keeps the one --name or the folder gave.
+	p.r.Service, p.pub = cmp.Or(c.Service.Name, p.r.Service), c.Publish
 	if p.opts.Delivery {
 		missing := slices.DeleteFunc(slices.Clone(p.envs), func(env string) bool {
 			return slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
@@ -277,8 +279,12 @@ func (p *planner) existing(data []byte) {
 		}
 	}
 	if c.Publish == nil && !p.opts.DescribeOnly {
-		p.next("pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: \"2.1\" and add publish " +
-			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written")
+		bump := ""
+		if c.PactoVersion == "2.0" { // the only version before publish existed
+			bump = "set pactoVersion: \"2.1\" and "
+		}
+		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+
+			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written", bump)
 	}
 }
 

@@ -126,6 +126,10 @@ const (
 	ReasonInvalidReference = "INVALID_REFERENCE"
 	ReasonInvalidContract  = "INVALID_CONTRACT"
 	ReasonInvalidIdentity  = "INVALID_IDENTITY"
+	// ReasonCompatibilityUnknown means the declaring dependency's compatibility
+	// is unknown and its reference names no tag, so no version is known to
+	// work and none was picked.
+	ReasonCompatibilityUnknown = "COMPATIBILITY_UNKNOWN"
 	// ReasonBoundExceeded means a bound stopped the resolution before it was
 	// attempted. The reference is unknown, not missing.
 	ReasonBoundExceeded = "BOUND_EXCEEDED"

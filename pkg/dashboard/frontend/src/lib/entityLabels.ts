@@ -389,3 +389,15 @@ export function collectorLabel(collector: string | undefined): string {
 export function seenBy(refs: { collector?: string }[] | null | undefined): string {
   return [...new Set((refs ?? []).map((r) => collectorLabel(r.collector)).filter(Boolean))].join(', ');
 }
+
+/**
+ * compatibility: unknown (pactoVersion 2.5) declares no range, so every surface
+ * names it this one way and never as a range a consumer "accepts".
+ */
+export const RANGE_NOT_DECLARED = 'Range not declared';
+
+/** acceptsLabel is what a consumer's declared compatibility says, or '' for none. */
+export function acceptsLabel(compatibility: string | undefined | null): string {
+  if (!compatibility) return '';
+  return compatibility === 'unknown' ? RANGE_NOT_DECLARED : `Accepts ${compatibility}`;
+}

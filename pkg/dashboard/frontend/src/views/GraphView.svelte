@@ -27,7 +27,7 @@
   import BehaviorBadges from '../components/BehaviorBadges.svelte';
   import RequirementList from '../components/RequirementList.svelte';
   import HelpTip from '../components/HelpTip.svelte';
-  import { kindLabelPlural } from '../lib/entityLabels.ts';
+  import { kindLabelPlural, RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -768,7 +768,7 @@
                            prints a canonical revision key. A 64-hex digest has no break
                            opportunity, so printed whole it also sets this panel's
                            minimum width and pushes the panel off the screen. -->
-                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility === 'unknown'}{' · '}{RANGE_NOT_DECLARED}{:else if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
                   {#if selected.edge.declaredClaims.items.length > claimsShown}

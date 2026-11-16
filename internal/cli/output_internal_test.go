@@ -1613,3 +1613,61 @@ func TestDiffOutputNeverPrintsSensitiveDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintValidateImpliedClause(t *testing.T) {
+	loaded := []validation.Stage{{Name: "load", Status: validation.StagePass}}
+	tests := []struct {
+		name   string
+		result *app.ValidateResult
+		want   string
+	}{
+		{"implied", &app.ValidateResult{Path: "/tmp/n", Valid: true, Stages: loaded, Inferred: []contract.Inferred{
+			{Field: "pactoVersion", Value: "2.5", Source: "this CLI"},
+			{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2"},
+		}, VersionDeclared: new(false)}, "/tmp/n is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)\n"},
+		{"fully declared", &app.ValidateResult{Path: "svc", Valid: true, Stages: loaded, VersionDeclared: new(true)}, "svc is valid\n"},
+		{"load failed", &app.ValidateResult{Path: "svc", Stages: []validation.Stage{{Name: "load", Status: validation.StageFail}}}, "svc is invalid\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, buf := testCmd()
+			if err := printValidateResult(cmd, tt.result, "text"); err != nil {
+				t.Fatal(err)
+			}
+			if got, _, _ := strings.Cut(buf.String(), "\n"); got+"\n" != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrintExplainResultUndeclaredVersion(t *testing.T) {
+	cmd, buf := testCmd()
+	if err := printExplainResult(cmd, &app.ExplainResult{Name: "svc", PactoVersion: "2.5"}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "Service: svc (version not declared)\n") {
+		t.Fatalf("got %q", buf.String())
+	}
+}
+
+func TestPrintExplainResult_PortAndBreaks(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name: "payments", Version: "2.0.0",
+		Interfaces: []app.ExplainInterface{{Name: "api", Type: "openapi", Ref: "openapi.yaml", Port: 8080}},
+		Breaks: []contract.Break{
+			{Consumers: []string{"reports", "billing"}, Reason: "drops /v1", Expires: "2026-12-14"},
+			{Consumers: []string{"audit"}, Reason: "renames a field"},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"  - api (openapi: openapi.yaml, port 8080)\n", "\nBreaks (2):\n", "  - reports, billing: drops /v1, expires 2026-12-14\n", "  - audit: renames a field\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+}
