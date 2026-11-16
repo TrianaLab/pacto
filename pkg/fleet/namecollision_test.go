@@ -123,24 +123,41 @@ func TestBuildInferredNameCollidesWithDeclaredFromOCI(t *testing.T) {
 	}
 }
 
-func TestBuildInferredNameDoesNotTakeK8sTargets(t *testing.T) {
-	local := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{inferredRev("payments", "/r/payments-api", "chart/Chart.yaml:2")}})
-	k8s := NewMemorySource("k8s", "kubernetes", &Collection{
-		Revisions: []RawRevision{declaredRev("payments", "2.0.0", "sha256:d")},
-		Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "payments", Service: "payments",
-			Digest: "sha256:d", Compliance: StatusCompliant}},
-	})
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, local, k8s)
+// K8sSource and the target-state source send targets only, never revisions: a
+// target naming payments is a declared claim the inferred local name collides
+// with, so the guess never joins payments and inherits its prod target.
+func TestBuildInferredNameDoesNotTakeTargets(t *testing.T) {
+	for _, kind := range []string{"kubernetes", "target-state"} {
+		local := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{inferredRev("payments", "/r/payments-api", "chart/Chart.yaml:2")}})
+		targets := NewMemorySource("targets", kind, &Collection{
+			Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "payments", Service: "payments", Compliance: StatusCompliant}},
+		})
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, local, targets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if svc := snap.Services[NewServiceKey("payments")]; svc == nil || len(svc.Revisions) != 0 {
+			t.Fatalf("%s: service = %+v", kind, svc)
+		}
+		lims := collisionLims(snap)
+		if len(lims) != 1 || !strings.Contains(lims[0].Message, "targets target prod/k8s/payments (declared)") ||
+			snap.Completeness != CompletenessPartial {
+			t.Fatalf("%s: limitations = %+v completeness = %s", kind, lims, snap.Completeness)
+		}
+	}
+}
+
+// One bundle read by two sources is one claimant: it is no collision.
+func TestBuildSameBundleTwoSourcesIsNoCollision(t *testing.T) {
+	a, b := inferredRev("my-svc", "my-svc", "directory my-svc"), inferredRev("my-svc", "./my-svc", "directory my-svc")
+	a.Digest, b.Digest = "sha256:same", "sha256:same"
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{a}}),
+		NewMemorySource("catalog", "local", &Collection{Revisions: []RawRevision{b}}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := snap.Services[NewServiceKey("payments")]
-	if svc == nil || len(svc.Revisions) != 1 {
-		t.Fatalf("service = %+v", svc)
-	}
-	tgt := snap.Targets[NewTargetKey("prod", "k8s", "payments")]
-	rev := snap.Revisions[tgt.ContractRevision]
-	if rev == nil || len(rev.Inferred) != 0 || rev.Version != "2.0.0" {
-		t.Fatalf("target links to %+v", rev)
+	if len(collisionLims(snap)) != 0 || snap.Services[NewServiceKey("my-svc")] == nil {
+		t.Fatalf("limitations = %+v services = %v", snap.Limitations, snap.Services)
 	}
 }

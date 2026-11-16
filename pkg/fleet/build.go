@@ -189,8 +189,19 @@ func computeSnapshotID(snap *FleetSnapshot) string {
 // it partial. A source's own Collection is never mutated: it may be reused.
 func dropNameCollisions(results []sourceResult, sources []Source) {
 	var claims []contract.NameClaim
+	seen := map[[2]string]bool{} // name, digest of an inferred claim already made
 	for i, r := range results {
-		claims = append(claims, nameClaims(sources[i].ID(), r.col)...)
+		for _, c := range nameClaims(sources[i].ID(), r.col) {
+			// One bundle read by two sources (overlapping roots, a catalog root
+			// inside --local) is one claimant, not two competing ones.
+			if c.Inferred && c.Digest != "" {
+				if seen[[2]string{c.Name, c.Digest}] {
+					continue
+				}
+				seen[[2]string{c.Name, c.Digest}] = true
+			}
+			claims = append(claims, c.NameClaim)
+		}
 	}
 	collided := map[string]string{} // name -> limitation message
 	for _, c := range contract.NameCollisions(claims) {
@@ -211,15 +222,33 @@ func dropNameCollisions(results []sourceResult, sources []Source) {
 	}
 }
 
-// nameClaims is one claim per revision of col.
-func nameClaims(sourceID string, col *Collection) []contract.NameClaim {
-	var claims []contract.NameClaim
+// digestClaim is a name claim and the content digest of the bundle making it.
+type digestClaim struct {
+	contract.NameClaim
+	Digest string
+}
+
+// nameClaims is one claim per revision of col, plus one declared claim per
+// target that names a service: a target-only name (target state, an inline
+// Pacto) is a service an inferred name must not join and inherit targets from.
+// ponytail: provisioning and usage records name a consumer revision by digest,
+// so they are not claims; add them if one ever names a service without one.
+func nameClaims(sourceID string, col *Collection) []digestClaim {
+	var claims []digestClaim
 	for _, rev := range collectionRevisions(col) {
-		claim := contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}
+		claim := digestClaim{contract.NameClaim{Dir: sourceID + " " + cmp.Or(rev.ResolvedRef, rev.RequestedRef), Name: rev.Bundle.Contract.Service.Name, Source: "declared"}, rev.Digest}
 		if inf, ok := rev.Bundle.NameInferred(); ok {
 			claim.Source, claim.Inferred = inf.Source, true
 		}
 		claims = append(claims, claim)
+	}
+	if col != nil {
+		for _, t := range col.Targets {
+			if t.Service != "" {
+				claims = append(claims, digestClaim{NameClaim: contract.NameClaim{
+					Dir: sourceID + " target " + t.Scope + "/" + t.Kind + "/" + t.Name, Name: t.Service, Source: "declared"}})
+			}
+		}
 	}
 	return claims
 }
