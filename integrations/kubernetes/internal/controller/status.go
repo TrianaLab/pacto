@@ -266,15 +266,16 @@ func formatValidationErrors(validationErrors []contract.ValidationError) string 
 // setRuntimeObservedCondition records whether runtime evidence was collected. When
 // any read failed (obsErr may join several, one per line) it reports False
 // (ReasonObservationFailed) with every failure in the message, rather than
-// claiming success: True means the collection fully succeeded.
-func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
+// claiming success: True means the collection fully succeeded. Both messages end
+// with observe, which names where each observation setting came from.
+func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error, observe string) {
 	if obsErr != nil {
 		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; "))
+			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; ")+". Observation: "+observe)
 		return
 	}
 	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully. Observation: "+observe)
 }
 
 // mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.

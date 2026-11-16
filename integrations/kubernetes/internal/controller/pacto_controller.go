@@ -68,13 +68,15 @@ type PactoReconciler struct {
 	// INV-5 is module-wide, not controller-local: the dashboard reconciler reads its
 	// OCI Secrets through its own APIReader for the same reason, and a typed Get on
 	// EITHER cached client is enough to break it cluster-wide.
-	APIReader                         client.Reader
-	Scheme                            *runtime.Scheme
-	Recorder                          record.EventRecorder
-	Loader                            ContractLoader
-	StabilizationWindow               time.Duration
-	EnableMetricsObservation          bool
-	EnableProbing                     bool
+	APIReader           client.Reader
+	Scheme              *runtime.Scheme
+	Recorder            record.EventRecorder
+	Loader              ContractLoader
+	StabilizationWindow time.Duration
+	// Probing and MetricsObservation run on, off or auto; auto resolves per target namespace from
+	// observer.LabelObserve (observeSettings).
+	Probing                           observer.Mode
+	MetricsObservation                observer.Mode
 	EnableInterfaceNameMatchDiscovery bool
 	// KernelEvidence merges the node agent's NodeRuntimeObservations (read from
 	// KernelEvidenceNamespace) into the runtime evidence. Those objects are not
@@ -311,7 +313,8 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	obs := observer.New(r.Client).WithReader(r.APIReader)
 
 	// 10. Collect runtime evidence (spec section 9.1).
-	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
+	probing, metricsObs, readErr := r.observeSettings(ctx, pacto.Namespace)
+	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec, probing, metricsObs))
 	if e := pacto.Status.EvaluatedRevision; e != nil {
 		e.KernelCoverage = obs.KernelCoverage()
 	}
@@ -327,8 +330,9 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	// 11-12. Lean observed runtime and resources status (backward compat for dashboard).
 	obsErr := r.observeBackCompat(ctx, obs, pacto)
 
-	// A Collect failure already covers the workload read the back-compat view shares with it.
-	r.setRuntimeObservedCondition(pacto, cmp.Or(collectErr, obsErr))
+	// A Collect failure already covers the workload read the back-compat view shares with it. A transient
+	// label read failure is a gap in this collection too.
+	r.setRuntimeObservedCondition(pacto, errors.Join(cmp.Or(collectErr, obsErr), readErr), observeMessage(probing, metricsObs))
 
 	// 13. Evaluate: contract × evidence → findings + coverage; contract-only structural findings first.
 	findings, cov := validation.Evaluate(*effectiveContract, evidenceSet)
@@ -353,7 +357,7 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 
 // buildCollectInput maps the resolved target, its bindings and the persisted observation windows onto the
 // observer's input (spec section 9.1).
-func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract) observer.CollectInput {
+func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract, probing, metricsObs observer.Setting) observer.CollectInput {
 	workloadName, workloadKind := pacto.ResolvedWorkload()
 	workloadRef := pacto.Spec.Target.WorkloadRef
 
@@ -383,8 +387,8 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		StabilizationWindow:               r.StabilizationWindow,
 		ObservationWindows:                observationWindows,
 		Now:                               time.Now(),
-		EnableMetricsObservation:          r.EnableMetricsObservation,
-		EnableProbing:                     r.EnableProbing,
+		EnableMetricsObservation:          metricsObs.On,
+		EnableProbing:                     probing.On,
 		EnableInterfaceNameMatchDiscovery: r.EnableInterfaceNameMatchDiscovery,
 		KernelEvidence:                    r.KernelEvidence,
 		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
