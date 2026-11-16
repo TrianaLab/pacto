@@ -318,7 +318,8 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 // flag.
 func noStrayArgs(fs *flag.FlagSet) error {
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q: write a flag value after an equals sign, as in --enable-probing=off", fs.Arg(0))
+		return fmt.Errorf("unexpected argument %q: write a flag value after an equals sign, as in "+
+			"--enable-probing=off", fs.Arg(0))
 	}
 	return nil
 }
