@@ -62,6 +62,9 @@ func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source strin
 		Service: ServiceFromContract(c, source),
 	}
 
+	if inf, ok := bundle.NameInferred(); ok {
+		svc.NameInferredFrom = inf.Source
+	}
 	svc.Interfaces = interfacesFromContract(c, bundle.FS)
 	for _, b := range c.Breaks {
 		svc.Breaks = append(svc.Breaks, BreakInfo{Consumers: slices.Clone(b.Consumers), Reason: b.Reason, Expires: b.Expires})

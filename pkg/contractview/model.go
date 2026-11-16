@@ -159,6 +159,9 @@ type ServiceDetails struct {
 
 	Namespace string            `json:"namespace,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	// NameInferredFrom is where Name comes from when the contract does not
+	// declare it (a local read inferred it).
+	NameInferredFrom string `json:"nameInferredFrom,omitempty"`
 
 	// Contract references from operator.
 	ResolvedRef     string `json:"resolvedRef,omitempty"`

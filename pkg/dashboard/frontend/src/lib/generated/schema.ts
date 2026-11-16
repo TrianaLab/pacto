@@ -5966,6 +5966,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            nameInferredFrom?: string;
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
             offering?: string;
