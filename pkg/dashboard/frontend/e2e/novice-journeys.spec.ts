@@ -200,11 +200,12 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.getByRole('link', { name: 'Compare revisions' }).click();
     await expect(page).toHaveURL(/#\/fleet\/changes\//, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: T });
-    // The pickers read "1.0.0 · <short digest>": pick by version.
+    // The pickers read "1.0.0 · <short digest>": pick by version. The options load
+    // after the heading, so wait for the one wanted: a snapshot taken too early found
+    // none, and selecting the empty value then waited out the whole test timeout.
     for (const [sel, v] of [['#impact-old-rev', '1.0.0'], ['#impact-new-rev', '2.0.1']]) {
-      const value = await page.locator(`${sel} option`).evaluateAll(
-        (os, ver) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${ver} `))?.value ?? '', v);
-      await page.locator(sel).selectOption(value);
+      const option = page.locator(`${sel} option`).filter({ hasText: new RegExp(`^${v.replaceAll('.', '\\.')} `) }).first();
+      await page.locator(sel).selectOption((await option.getAttribute('value', { timeout: T })) ?? '');
     }
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: T });

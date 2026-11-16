@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,10 +19,13 @@ import (
 // delivery-demo.sh sources, so breakage there first showed up after merge.
 func TestDeliveryFilterWatchesTheDemoInputs(t *testing.T) {
 	root := repoRoot(t)
-	patterns := pathFilters(t, root)["delivery"]
-	if len(patterns) == 0 {
-		t.Fatal("ci.yml has no `delivery` path filter")
+	filters := pathFilters(t, root)
+	if len(filters["delivery"]) == 0 || len(filters["delivery_ui"]) == 0 {
+		t.Fatal("ci.yml has no `delivery` or `delivery_ui` path filter")
 	}
+	// delivery_ui (the frontend) runs only the shards that load the bundle,
+	// so the guard and the harness must stay in delivery, which runs them all.
+	patterns := slices.Concat(filters["delivery"], filters["delivery_ui"])
 	want := []string{"pkg/dashboard/server.go", "pkg/dashboard/ui/index.html", "scripts/ci/kind-run.sh"}
 	src := filepath.Join(root, "pkg", "dashboard", "frontend", "src")
 	_ = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
@@ -43,7 +47,27 @@ func TestDeliveryFilterWatchesTheDemoInputs(t *testing.T) {
 	}
 	for _, f := range want {
 		if !matchesAny(patterns, f) {
-			t.Errorf("the delivery path filter does not match %s, so a change to it skips the delivery-demo leg", f)
+			t.Errorf("the delivery path filters do not match %s, so a change to it skips the delivery-demo leg", f)
+		}
+	}
+}
+
+// TestDeliveryUIFilterRunsOnlyTheBrowserShards: a frontend-only change
+// (delivery_ui) runs delivery-demo with ui-only, which drops the shards that
+// never load the UI bundle. Anything the other shards run on (the guard, the
+// harness) must stay in delivery, which runs every shard.
+func TestDeliveryUIFilterRunsOnlyTheBrowserShards(t *testing.T) {
+	root := repoRoot(t)
+	filters := pathFilters(t, root)
+	for _, f := range []string{"pkg/dashboard/server.go", "scripts/ci/kind-run.sh", "tests/acceptance/kind/delivery-demo.sh"} {
+		if matchesAny(filters["delivery_ui"], f) || !matchesAny(filters["delivery"], f) {
+			t.Errorf("%s must be in the delivery filter (every shard), not delivery_ui (the browser shards only)", f)
+		}
+	}
+	wf := readFile(t, root, ".github", "workflows", "ci.yml")
+	for _, s := range []string{"needs.changes.outputs.delivery_ui == 'true'", "ui-only: ${{ needs.changes.outputs.delivery != 'true'"} {
+		if !strings.Contains(wf, s) {
+			t.Errorf("ci.yml's delivery-demo leg lost %q: a frontend-only change must run the browser shards, and only them", s)
 		}
 	}
 }
