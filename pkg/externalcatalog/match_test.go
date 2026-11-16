@@ -177,6 +177,7 @@ func TestClassifySecretKeyValueNeverParsed(t *testing.T) {
 		{"s3cr3t.v4lue", "password"},
 		{"https://erp.corp-legacy.co.uk", "DB_PASSWD"},
 		{credFixture, "DATABASE_SECRET"},
+		{credFixture, "DATABASE_DSN"}, // dsn is sensitive, so a DSN value never gives a host
 	} {
 		if got := c.Classify(in[0], in[1]); got != nil {
 			t.Errorf("Classify(%q) = %+v", in[1], got)

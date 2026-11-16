@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/externalid"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // How sure a [Match] is.
@@ -205,24 +206,9 @@ func keyScore(patterns []string, key string) int {
 	return best
 }
 
-// hostKeyRE is a key name that says its value is a host.
-var hostKeyRE = regexp.MustCompile(`(?i)(url|uri|host|endpoint|addr|address|server|broker|dsn)`)
-
-// sensitivePatterns mark a key whose value is never parsed.
-// ponytail: mirrors schemax.SensitiveKey from 508-S2a, which this branch does
-// not carry yet, plus "passwd"; call schemax.SensitiveKey (extended with
-// "passwd") once both stories sit on the integration branch.
-var sensitivePatterns = []string{"password", "passwd", "secret", "token", "key", "credential", "private", "dsn"}
-
-func sensitiveKey(key string) bool {
-	key = strings.ToLower(key)
-	for _, p := range sensitivePatterns {
-		if strings.Contains(key, p) {
-			return true
-		}
-	}
-	return false
-}
+// hostKeyRE is a key name that says its value is a host. A DSN key never
+// reaches it: schemax.SensitiveKey holds "dsn", so its value is never parsed.
+var hostKeyRE = regexp.MustCompile(`(?i)(url|uri|host|endpoint|addr|address|server|broker)`)
 
 // Classify names the external systems a configuration value and its key point
 // to. A value under a sensitive key is never parsed. Otherwise every host the
@@ -235,7 +221,7 @@ func (c *Catalog) Classify(value, key string) []Match {
 		return nil
 	}
 	var out []Match
-	if !sensitiveKey(key) {
+	if !schemax.SensitiveKey(key) {
 		hostKey := hostKeyRE.MatchString(key)
 		for _, h := range NormalizeHost(value) {
 			if !h.Scheme && h.Port == "" && !hostKey {

@@ -131,8 +131,8 @@ publish:
 
 - The configuration schema holds each key and its type, never a value, so it
   declares no defaults.
-- It marks a key `writeOnly` when its name holds password, secret, token, key,
-  credential, private or dsn (any case), when it is read from a Secret or when
+- It marks a key `writeOnly` when its name holds password, passwd, secret,
+  token, key, credential, private or dsn (any case), when it is read from a Secret or when
   its value is a URL with credentials.
 - Next steps name each manifest or ConfigMap in the folder that sets
   such a key to a literal value, because the bundle publishes that file.
