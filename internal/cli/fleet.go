@@ -55,7 +55,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 // present, which is how a command keeps a deliberately narrowed spelling (`pacto
 // impact --traces` takes one document and reads it itself) or its own help text
 // (`pacto mcp --root` selects a catalog, not a snapshot closure) without having
-// to restate the other nine.
+// to restate the rest.
 func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
 	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")

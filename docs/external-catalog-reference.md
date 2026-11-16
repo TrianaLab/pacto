@@ -111,7 +111,9 @@ Pacto checks the default catalog's signature only when a configured source
 already reads `ghcr.io`, so a private-registry or air-gapped installation never
 calls it. The check runs in the background and never delays a build: the first
 answer reports `signature: unknown` with a reason saying the check is running,
-and a later refresh reports the result. When the signature verifies, `copy` reads
+and a later refresh reports the result. A one-shot command such as
+`pacto fleet` exits before the check ends, so it always reports `unknown`; the
+long-running dashboard reports the result. When the signature verifies, `copy` reads
 `registry`. Otherwise `copy` reads `embedded`: Pacto classifies with the copy
 compiled into the binary and `reason` says why the signature was not checked.
 A release run from a branch other than `main` signs with another identity, so
