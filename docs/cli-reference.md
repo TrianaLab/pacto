@@ -1038,7 +1038,7 @@ pacto fleet attention [flags]
       --category string           attention category
   -h, --help[=true|false]         help for attention
       --key string                items about the entity with this exact key
-      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering)
+      --kind string               items about entities of this kind (service, revision, target, owner, source, domain, offering, external)
       --limit int                 maximum results (0 = 200, capped at 500)
       --offset int                result offset for paging
       --owner string              free-text owner search over team, DRI and contacts

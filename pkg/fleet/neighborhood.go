@@ -492,6 +492,9 @@ func boundNeighborhoodParams(nq NeighborhoodQuery) (boundedParams, error) {
 // serviceNeighborhood is the logical-service projection (Perspective service): every
 // node is a service and every edge is a service-to-service declared/observed edge.
 func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
+	if kind == KindExternal {
+		return q.externalNeighborhood(key, bp)
+	}
 	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(kind, key)
 	if err != nil {
 		return nil, err
@@ -511,6 +514,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		TruncatedEdges:         truncatedEdges,
 		TotalNodes:             totalNodes,
 	}
+	q.addExternalLeaves(res, nodeDepth, bp)
 	return res, nil
 }
 

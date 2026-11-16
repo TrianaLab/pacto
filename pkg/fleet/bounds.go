@@ -28,6 +28,19 @@ const (
 // closure is orders of magnitude under it.
 const MaxGraphNodes = 500
 
+// MaxExternalNodes caps the external systems one answer names (decision D4).
+// Beyond it the least-consumed fold into one other-egress node and the answer
+// is partial (LimitationExternalCap). It is per installation, with no chart
+// value: raise it here if a real fleet hits it.
+const MaxExternalNodes = 200
+
+// MaxExternalSources caps the consumers, and their sources, one answer lists
+// for one external system; ConsumersTotal and SourcesTotal keep the counts.
+const MaxExternalSources = 50
+
+// MaxSearchExternals caps the external systems a search lists.
+const MaxSearchExternals = 20
+
 // sourceHealthRank orders source statuses most-relevant (least healthy) first,
 // so that when the meta's source list is truncated the sources that matter -
 // unavailable, stale, partial - are the ones kept.

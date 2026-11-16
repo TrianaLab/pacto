@@ -234,7 +234,7 @@ func TestFleetEntitiesDescriptionsNameOfferings(t *testing.T) {
 	}
 	for path, want := range map[string]string{
 		"/api/fleet/entities":        "platform offerings",
-		"/api/fleet/entities/{kind}": "domain or offering",
+		"/api/fleet/entities/{kind}": "domain, offering or external",
 	} {
 		if d := doc.Paths[path]["get"].Description; !strings.Contains(d, want) {
 			t.Errorf("%s description %q lacks %q", path, d, want)

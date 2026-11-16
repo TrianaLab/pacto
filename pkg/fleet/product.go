@@ -46,6 +46,10 @@ const (
 	KindDomain EntityKind = "domain"
 	// KindOffering is a platform offering (service.offering), keyed by its slug.
 	KindOffering EntityKind = "offering"
+	// KindExternal is an external system no contract describes (a vendor API,
+	// a managed cloud resource or a legacy host), keyed by its canonical
+	// identity. It is listed only when asked for.
+	KindExternal EntityKind = "external"
 )
 
 // ProductKinds are the kinds the entities listing answers by default:
@@ -88,14 +92,14 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 func EntityKinds() []string {
 	return []string{
 		string(KindService), string(KindRevision), string(KindTarget), string(KindOwner),
-		string(KindSource), string(KindDomain), string(KindOffering),
+		string(KindSource), string(KindDomain), string(KindOffering), string(KindExternal),
 	}
 }
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
 	switch k {
-	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain, KindOffering:
+	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain, KindOffering, KindExternal:
 		return true
 	default:
 		return false
@@ -109,7 +113,7 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain,offering"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain,offering,external"`
 	Key       string     `json:"key"`
 	Label     string     `json:"label"`
 	Secondary string     `json:"secondary,omitempty"`
@@ -482,7 +486,12 @@ func sourceEntityRef(st SourceState) EntityRef {
 // clickable entry point in [Overview.EntryPoints]: a count is
 // never a passive number.
 type OverviewSummary struct {
-	Services                 int `json:"services"`
+	Services int `json:"services"`
+	// Externals counts the external systems the services declare, one per
+	// canonical identity (none is folded here); HiddenExternals those only
+	// services the caller's permissions hide declare, never named.
+	Externals                int `json:"externals" doc:"The external systems the services declare, one per canonical identity"`
+	HiddenExternals          int `json:"hiddenExternals,omitempty" doc:"The external systems only services the caller's permissions hide declare; never named"`
 	ServicesNeedingAttention int `json:"servicesNeedingAttention"`
 	// GoldenPaths counts the golden paths, which every other count leaves out:
 	// a golden path is a starting point for services, never one of them.
@@ -771,6 +780,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.add(q.serviceKnowledge(s))
 	}
 	sum.KnowledgeItems = len(q.knowledgeAttention())
+	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 
 	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {

@@ -39,6 +39,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -369,6 +370,10 @@ const (
 	// configured could not be read, so external systems it would classify are
 	// joined by name only. It makes the answer partial.
 	LimitationExternalCatalogUnavailable = "EXTERNAL_CATALOG_UNAVAILABLE"
+	// LimitationExternalCap: the answer names MaxExternalNodes external
+	// systems and folds the least-consumed rest into one other-egress node.
+	// It makes the answer partial.
+	LimitationExternalCap = "EXTERNAL_CAP"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -802,6 +807,10 @@ type Relationship struct {
 	// ToExternal is the external system a ref-less external dependency joins
 	// (see [ExternalRecord]). Resolved stays false: no fleet service delivers it.
 	ToExternal ExternalKey `json:"toExternal,omitempty" doc:"The canonical identity of the external system this ref-less external dependency joins; resolved stays false because no fleet service delivers it"`
+	// FoldedInto is set only on an answer: the other-egress node ToExternal is
+	// folded into when the answer names more than MaxExternalNodes external
+	// systems. ToExternal keeps the real identity.
+	FoldedInto ExternalKey `json:"foldedInto,omitempty" doc:"On an answer that folds external systems, the other-egress node toExternal is folded into; toExternal keeps the real identity"`
 	// DependencyBehavior is what a declared dependency requires of its
 	// provider's behavior and whether the provider meets it (pactoVersion 2.2).
 	DependencyBehavior
@@ -842,6 +851,13 @@ type Relationship struct {
 // "host/<registrable-domain>".
 type ExternalKey string
 
+// OtherEgress is the node an answer folds the external systems beyond
+// MaxExternalNodes into. No identity can take it (externalid.Parse refuses it).
+const OtherEgress ExternalKey = externalid.Reserved
+
+// ClassOtherEgress is the class of the OtherEgress node.
+const ClassOtherEgress = "other-egress"
+
 // ExternalSourceContract is the kind of an [ExternalSource] that a contract's
 // dependencies declare.
 const ExternalSourceContract = "contract"
@@ -854,6 +870,8 @@ type ExternalRecord struct {
 	Key   ExternalKey `json:"key" doc:"The canonical identity"`
 	Label string      `json:"label" doc:"The catalog label, else the first name a consumer declared"`
 	Class string      `json:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"The catalog class, unclassified when no catalog entry names it"`
+	// Aliases are the catalog entry's aliases, so a search finds it by any.
+	Aliases []string `json:"aliases,omitempty" doc:"The aliases of the catalog entry that classified it"`
 	// Sources is the evidence, one per consumer and declaring position, each
 	// with its own provenance. SourcesTotal counts every declaration.
 	Sources      []ExternalSource      `json:"sources" doc:"The evidence that names this external system, one per consumer and dependency position, each with its own provenance"`
@@ -989,6 +1007,9 @@ type FleetSnapshot struct {
 	// hiddenProviders counts, in a restricted snapshot, the hidden providers
 	// of each offering that keeps a visible provider. Only counted.
 	hiddenProviders map[string]int
+	// hiddenExternals counts, in a restricted snapshot, the external systems
+	// only hidden services name. They are never named.
+	hiddenExternals int
 	// hiddenUnresolvedRefs holds, in a restricted snapshot, the declared,
 	// unresolved references of the services the view hides, so counts of
 	// unresolved uses stay honest. Never serialized and never named.

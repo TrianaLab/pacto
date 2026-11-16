@@ -436,8 +436,8 @@ func TestTallyScopes_WorstScopeFirst(t *testing.T) {
 // accepts, and the default listing kinds are among them.
 func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
 	all := EntityKinds()
-	if len(all) != 7 {
-		t.Fatalf("EntityKinds = %v, want all seven kinds", all)
+	if len(all) != 8 {
+		t.Fatalf("EntityKinds = %v, want all eight kinds", all)
 	}
 	for _, k := range all {
 		if !validEntityKind(EntityKind(k)) {

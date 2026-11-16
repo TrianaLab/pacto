@@ -192,7 +192,7 @@ func TestJoinCatalogAliasAcrossConsumers(t *testing.T) {
 		t.Fatalf("externals = %+v", snap.Externals)
 	}
 	q := NewQuery(snap)
-	want := &ExternalRecord{Key: "stripe", Label: "Stripe", Class: externalcatalog.ClassVendorAPI,
+	want := &ExternalRecord{Key: "stripe", Label: "Stripe", Class: externalcatalog.ClassVendorAPI, Aliases: []string{"stripe", "stripe-api"},
 		Sources:      []ExternalSource{aliasSource(t, q, "billing", "stripe-api"), aliasSource(t, q, "checkout", "Stripe")},
 		SourcesTotal: 2, ConsumersTotal: 2, Consumers: []ServiceKey{NewServiceKey("billing"), NewServiceKey("checkout")},
 		Catalog:      &ExternalCatalogMatch{Origin: externalcatalog.OriginDefault, Digest: externalcatalog.DefaultDigest(), Entry: "stripe"},

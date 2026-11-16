@@ -95,6 +95,7 @@ func fleetRows() []surfaceRow {
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
+			{"", "", "GET /api/fleet/entities?class", "the dashboard's externals list filters by class"},
 		},
 		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity",
 			"key", "kind", "source", "stale-only", "status"),

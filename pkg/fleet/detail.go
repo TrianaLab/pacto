@@ -1117,12 +1117,13 @@ type EntityDetail struct {
 	Source   *SourceDetailData   `json:"source,omitempty"`
 	Domain   *DomainDetailData   `json:"domain,omitempty"`
 	Offering *OfferingDetailData `json:"offering,omitempty"`
+	External *ExternalDetailData `json:"external,omitempty"`
 	Actions  []string            `json:"actions,omitempty"`
 }
 
 // EntityDetail returns the unified detail envelope for one entity, deep-cloned so
 // the caller can mutate it freely. Supported kinds: service, revision, target,
-// owner, source, domain and offering.
+// owner, source, domain, offering and external.
 func (q *Query) EntityDetail(kind EntityKind, key string) (*EntityDetail, error) {
 	d, err := q.entityDetail(kind, key)
 	if err != nil {
@@ -1150,6 +1151,8 @@ func (q *Query) entityDetail(kind EntityKind, key string) (*EntityDetail, error)
 		return q.domainDetail(key)
 	case KindOffering:
 		return q.offeringDetail(key)
+	case KindExternal:
+		return q.externalDetail(key)
 	default:
 		return nil, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "not a known entity kind"}
 	}

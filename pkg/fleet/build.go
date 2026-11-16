@@ -2276,6 +2276,7 @@ func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key Exter
 			rec.Label = e.Label
 		}
 		rec.Catalog = &ExternalCatalogMatch{Origin: ref.Origin, Digest: ref.Digest, Entry: string(e.Identity)}
+		rec.Aliases = slices.Clone(e.Aliases)
 	}
 	snap.Externals[key] = rec
 	return rec
@@ -2285,19 +2286,25 @@ func externalRecord(snap *FleetSnapshot, cat *externalcatalog.Catalog, key Exter
 // fills its totals. It never bounds a record: answers do.
 func finalizeExternals(snap *FleetSnapshot) {
 	for _, rec := range snap.Externals {
-		rec.Consumers = slices.Sorted(maps.Keys(rec.declarations))
-		rec.ConsumersTotal = len(rec.Consumers)
-		rec.SourcesTotal = 0
-		for _, n := range rec.declarations {
-			rec.SourcesTotal += n
-		}
-		slices.SortFunc(rec.Sources, func(a, b ExternalSource) int {
-			if c := strings.Compare(string(a.Service), string(b.Service)); c != 0 {
-				return c
-			}
-			return a.Index - b.Index
-		})
+		finalizeExternal(rec)
 	}
+}
+
+// finalizeExternal derives a record's consumers and totals from its
+// declarations and orders its sources by consumer then position.
+func finalizeExternal(rec *ExternalRecord) {
+	rec.Consumers = slices.Sorted(maps.Keys(rec.declarations))
+	rec.ConsumersTotal = len(rec.Consumers)
+	rec.SourcesTotal = 0
+	for _, n := range rec.declarations {
+		rec.SourcesTotal += n
+	}
+	slices.SortFunc(rec.Sources, func(a, b ExternalSource) int {
+		if c := strings.Compare(string(a.Service), string(b.Service)); c != 0 {
+			return c
+		}
+		return a.Index - b.Index
+	})
 }
 
 // externalCatalogRefs projects the catalogs a build classified with.
