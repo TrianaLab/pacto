@@ -31,6 +31,7 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import TargetKeyChooser from '../components/TargetKeyChooser.svelte';
 
   // The product Operational Graph. With no focus it shows a DISCOVERY state
   // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
@@ -101,6 +102,9 @@
   const loading = $derived(focused && loader.loading);
   const notFound = $derived(focused && !shown && loader.error instanceof ApiError && loader.error.status === 404);
   const error = $derived(focused ? loader.error : null);
+  // A target key that does not name one target for certain: the server lists the
+  // candidates (409) and the reader chooses one to focus, keeping the graph's state.
+  const candidates = $derived(error instanceof ApiError && error.status === 409 ? error.candidates : []);
   const knowledge = $derived(snapshotKnowledge(shown?.meta));
   const focusRef = $derived(shown?.requestedFocus ?? null);
   const focusNode = $derived((shown?.nodes || []).find((n) => n.focus) || null);
@@ -546,6 +550,8 @@
           <h2>Nothing found for “{gs.key}”</h2>
           <a class="btn" href={fleetGraphDiscoveryUrl()}>Search again</a>
         </div>
+      {:else if candidates.length}
+        <TargetKeyChooser message={error.message} {candidates} hrefFor={(key) => fleetGraphFocusUrl('target', key, gs)} />
       {:else}
         <EmptyState error title="Couldn’t load the graph" message={error instanceof Error ? error.message : String(error)} onRetry={() => loader.refresh()} />
       {/if}

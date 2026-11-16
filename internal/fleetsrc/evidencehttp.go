@@ -81,13 +81,15 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if err := strictjson.Decode(io.TeeReader(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &data), &body); err != nil {
 		return nil, err
 	}
-	// v3 is v2 plus provisioning records and v4 is v3 plus usage records,
-	// which an older body never carries.
+	// v3 is v2 plus provisioning records, v4 is v3 plus usage records and v5
+	// is v4 plus clusters, which an older body never carries.
 	switch body.SchemaVersion {
-	case evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage:
+	case evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning,
+		evidenceingest.TargetsSchemaVersionUsage, evidenceingest.TargetsSchemaVersionCluster:
 	default:
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q, %q or %q", url, body.SchemaVersion,
-			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning, evidenceingest.TargetsSchemaVersionUsage)
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q, %q, %q or %q", url, body.SchemaVersion,
+			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning,
+			evidenceingest.TargetsSchemaVersionUsage, evidenceingest.TargetsSchemaVersionCluster)
 	}
 
 	col := &fleet.Collection{}
@@ -125,6 +127,7 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 			Coverage:     &coverage,
 			EvidenceAt:   &evidenceAt,
 			ReconciledAt: &acceptedAt,
+			Cluster:      acceptingCluster(t.Cluster, body.Cluster),
 		})
 	}
 
@@ -159,6 +162,20 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 	return col, nil
+}
+
+// acceptingCluster is the cluster that accepted a record, nil when unknown. The
+// listing server's own cluster only names it when the ids are equal: a record
+// another cluster accepted keeps its id alone, and is never given the listing
+// server's cluster. [fleet.Build] validates both.
+func acceptingCluster(id string, server *evidenceingest.ClusterDTO) *fleet.Cluster {
+	switch {
+	case id == "":
+		return nil
+	case server != nil && server.ID == id:
+		return &fleet.Cluster{ID: id, Name: server.Name, NameSource: server.NameSource}
+	}
+	return &fleet.Cluster{ID: id}
 }
 
 // evidenceDegraded reports whether the server's contribution is incomplete and a

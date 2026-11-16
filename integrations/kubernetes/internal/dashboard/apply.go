@@ -62,6 +62,13 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("namespaces").
 				WithVerbs("list"),
+			// Its live source names the cluster by the kube-system namespace
+			// UID, so it reads that one namespace by name.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("").
+				WithResources("namespaces").
+				WithResourceNames("kube-system").
+				WithVerbs("get"),
 		)
 }
 

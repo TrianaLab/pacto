@@ -19,6 +19,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
 
 // PactoGroup is the API group of the operator's Pacto CRD.
@@ -35,6 +37,9 @@ type K8sClient interface {
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all resources of the CRD DiscoverCRD found.
 	ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error)
+	// ClusterIdentity reads the cluster's id and a display name; contextName is
+	// the kubeconfig context, the name used when no node label names the cluster.
+	ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error)
 }
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
@@ -189,6 +194,10 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace 
 		return nil, err
 	}
 	return json.Marshal(list)
+}
+
+func (c *k8sGoClient) ClusterIdentity(ctx context.Context, contextName string) (kubecluster.Identity, error) {
+	return kubecluster.Identify(ctx, c.dynamic, contextName)
 }
 
 // NewDynamic returns a dynamic client from in-cluster config or the ambient

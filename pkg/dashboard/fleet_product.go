@@ -414,11 +414,15 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 
 // productQueryError maps a product-query error to HTTP: absent → 404, a document
 // that exists but cannot be served → 422 carrying the exact reason, everything
-// else (invalid filter, ambiguous key) → 422 with an actionable message.
+// else (invalid filter, ambiguous name) → 422 with an actionable message. A 3-part
+// target key that names targets in several clusters → 409 with the candidates.
 func productQueryError(err error) error {
 	var nf *fleet.NotFoundError
 	if errors.As(err, &nf) {
 		return huma.Error404NotFound("not found", err)
+	}
+	if amb := ambiguousTargetKey(err); amb != nil {
+		return amb
 	}
 	// The document is listed but its body is oversized, unreadable or not text.
 	// That is an explicit failure with its own explanation, never empty content.

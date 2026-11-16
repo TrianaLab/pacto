@@ -245,16 +245,35 @@ func (s *Server) fleetTargetDetail(ctx context.Context, in *fleetTargetDetailInp
 	return &fleetTargetDetailOutput{Body: view}, nil
 }
 
-// fleetLookupError maps a by-key lookup error to HTTP: absent → 404; otherwise
-// (the only other error GetService/GetTarget return is AmbiguousError — a bare
-// name matched several domains/targets) → 422, since the fix is to pass the
-// fully-qualified key the error lists.
+// fleetLookupError maps a by-key lookup error to HTTP: absent → 404; a 3-part
+// target key that names targets in several clusters → 409 with the candidates;
+// otherwise (AmbiguousError — a bare name matched several domains/targets) →
+// 422, since the fix is to pass the fully-qualified key the error lists.
 func fleetLookupError(err error) error {
 	var nf *fleet.NotFoundError
 	if errors.As(err, &nf) {
 		return huma.Error404NotFound("not found", err)
 	}
+	if amb := ambiguousTargetKey(err); amb != nil {
+		return amb
+	}
 	return huma.Error422UnprocessableEntity("ambiguous or invalid key: qualify it", err)
+}
+
+// ambiguousTargetKey maps a [fleet.TargetKeyAmbiguousError] to 409 with its
+// reason and one "candidates" detail per target the caller may see (its key
+// and label), and
+// returns nil for any other error. Name ambiguity stays 422 in each caller.
+func ambiguousTargetKey(err error) error {
+	var amb *fleet.TargetKeyAmbiguousError
+	if !errors.As(err, &amb) {
+		return nil
+	}
+	details := make([]error, len(amb.Candidates))
+	for i, c := range amb.Candidates {
+		details[i] = &huma.ErrorDetail{Location: "candidates", Value: c.Key, Message: c.Label}
+	}
+	return huma.Error409Conflict(amb.Message(), details...)
 }
 
 type fleetGraphInput struct {
@@ -288,6 +307,9 @@ func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGra
 		var nf *fleet.NotFoundError
 		if errors.As(err, &nf) {
 			return nil, huma.Error404NotFound("not found", err)
+		}
+		if amb := ambiguousTargetKey(err); amb != nil {
+			return nil, amb
 		}
 		return nil, huma.Error422UnprocessableEntity("invalid fleet graph query", err)
 	}

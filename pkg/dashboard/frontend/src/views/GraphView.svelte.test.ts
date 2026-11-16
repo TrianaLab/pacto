@@ -739,6 +739,24 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('a target focus key that names more than one cluster offers the candidates to focus', async () => {
+    const err = new ApiError(409, 'this target key names targets in more than one cluster; choose one');
+    err.candidates = [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: '_/prod/k8s/app', label: 'prod/k8s/app (cluster unknown)' },
+    ];
+    neighborhoodFn.mockRejectedValue(err);
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/app' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = q(target, '[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('This target key names targets in more than one cluster; choose one.');
+    expect([...chooser.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/fleet/graph/target/c1%2Fprod%2Fk8s%2Fapp', '#/fleet/graph/target/_%2Fprod%2Fk8s%2Fapp',
+    ]);
+    expect(target.textContent).not.toContain('Couldn’t load the graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('a failed neighborhood load offers Retry', async () => {
     neighborhoodFn.mockRejectedValueOnce(new ApiError(503, 'backend unavailable'));
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });

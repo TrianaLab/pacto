@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -572,6 +573,23 @@ type ServeOptions struct {
 	TrustPath string   // a public-key file or a directory of <keyId>.pub files
 	Subjects  []string // exact oci://…@sha256:… contract revisions evidence is stored on
 	Producers []string // trusted producer ids advertised on GET /producers
+	// Cluster is the cluster this server runs in (the operator sets it), stamped
+	// on every record it accepts; nil when unknown.
+	Cluster *evidenceingest.ClusterDTO
+}
+
+// checkServeCluster refuses a cluster identity the fleet would drop, so a
+// misconfigured server fails at start instead of reporting clusterless records.
+func checkServeCluster(c *evidenceingest.ClusterDTO) error {
+	switch {
+	case c == nil:
+		return nil
+	case !fleet.ValidClusterID(c.ID):
+		return fmt.Errorf("invalid cluster id %q: want letters, digits, '.', '_' or '-', at most 253 characters, starting with a letter or digit", c.ID)
+	case (c.Name != "" || c.NameSource != "") && !fleet.ValidClusterName(c.Name, c.NameSource):
+		return fmt.Errorf("invalid cluster name %q from %q: want at most 63 printable bytes and a name source of node-label, context, file or uid", c.Name, c.NameSource)
+	}
+	return nil
 }
 
 // defaultReadinessTimeout bounds ONE readiness preflight end to end: every configured
@@ -593,6 +611,9 @@ const defaultReadinessTimeout = 3 * time.Second
 // it returns the ids of keys that may report provisioning for every provider
 // for the caller to warn about.
 func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string, error) {
+	if err := checkServeCluster(opts.Cluster); err != nil {
+		return nil, nil, err
+	}
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
 		return nil, nil, err
@@ -610,6 +631,9 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 	if err != nil {
 		return nil, nil, err
 	}
+	if opts.Cluster != nil {
+		store.WithCluster(opts.Cluster.ID)
+	}
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil)
 	timeout := s.env().readinessTimeout
 	handler := evidenceingest.NewHandler(acceptor, opts.Producers, func(ctx context.Context) bool {
@@ -620,7 +644,7 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, []string
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return store.Ready(ctx) == nil
-	})
+	}).WithCluster(opts.Cluster)
 	mux := http.NewServeMux()
 	handler.Routes(mux)
 	return mux, unscopedProvisioningKeys(trust), nil

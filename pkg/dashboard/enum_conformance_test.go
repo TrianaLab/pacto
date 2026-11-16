@@ -84,6 +84,8 @@ func TestProductHTTP_EmittedEnumsConform(t *testing.T) {
 	}
 
 	src := fleet.NewMemorySource("ext", "custom", &fleet.Collection{
+		// One cluster keeps the 3-part key and puts the cluster enums on the wire.
+		Cluster:   &fleet.Cluster{ID: "9f1c4e2a-0000-4000-8000-00000000000a", Name: "eu-prod", NameSource: fleet.ClusterNameFromContext},
 		Revisions: []fleet.RawRevision{{Bundle: newPaymentBundle(), Digest: "sha256:aaa", ResolvedRef: "reg/payment-service:1.0.0"}},
 		Targets: []fleet.RawTarget{{
 			Scope: "prod", Kind: "k8s", Name: "pay-1", Service: "payment-service",
@@ -110,6 +112,12 @@ func TestProductHTTP_EmittedEnumsConform(t *testing.T) {
 	}
 	assertConforms(t, "ProductTargetDetail.compliance", target["compliance"], schemaFieldEnum(t, doc, "ProductTargetDetail", "compliance"))
 	assertConforms(t, "ProductTargetDetail.linkState", target["linkState"], schemaFieldEnum(t, doc, "ProductTargetDetail", "linkState"))
+	assertConforms(t, "ProductTargetDetail.clusterRelation", target["clusterRelation"], schemaFieldEnum(t, doc, "ProductTargetDetail", "clusterRelation"))
+	cluster, _ := target["cluster"].(map[string]any)
+	if cluster == nil {
+		t.Fatalf("target detail missing cluster: %v", target)
+	}
+	assertConforms(t, "Fleet.Cluster.nameSource", cluster["nameSource"], schemaFieldEnum(t, doc, "Fleet.Cluster", "nameSource"))
 	sevSet := schemaFieldEnum(t, doc, "Fleet.ProductFinding", "severity")
 	for _, f := range itemsOf(target, "findings") {
 		assertConforms(t, "Fleet.ProductFinding.severity", f["severity"], sevSet)

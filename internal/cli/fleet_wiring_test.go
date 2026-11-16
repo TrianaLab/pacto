@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
@@ -418,6 +419,9 @@ type fakeClusterClient struct {
 
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
+}
+func (c *fakeClusterClient) ClusterIdentity(context.Context, string) (kubecluster.Identity, error) {
+	return kubecluster.Identity{}, errors.New("reading the cluster id: forbidden")
 }
 func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	if c.listErr != nil {

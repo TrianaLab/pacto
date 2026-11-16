@@ -30,6 +30,14 @@ rules:
 - apiGroups:
   - ""
   resourceNames:
+  - kube-system
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resourceNames:
   - pacto-node-agent
   resources:
   - namespaces

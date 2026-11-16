@@ -25,18 +25,20 @@ import (
 // concrete deployed instance, so it becomes a target (never a revision).
 type K8sSource struct {
 	id        string
+	cluster   *fleet.Cluster // nil when the cluster identity could not be read
 	client    k8sclient.K8sClient
 	namespace string // "" means all namespaces
 }
 
 // NewK8sSource returns a live cluster source reading Pacto CRs in namespace
-// (empty for all namespaces). id is the provenance id (e.g. the cluster or
-// context name).
-func NewK8sSource(id string, client k8sclient.K8sClient, namespace string) *K8sSource {
+// (empty for all namespaces). id is the provenance id (the cluster UID, else
+// the context name); cluster is the cluster every target is in, nil when
+// unknown.
+func NewK8sSource(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespace string) *K8sSource {
 	if id == "" {
 		id = "k8s"
 	}
-	return &K8sSource{id: id, client: client, namespace: namespace}
+	return &K8sSource{id: id, cluster: cluster, client: client, namespace: namespace}
 }
 
 // ContractRefs returns the contract references the Pacto CRs in namespace
@@ -55,7 +57,7 @@ func NewK8sSource(id string, client k8sclient.K8sClient, namespace string) *K8sS
 // The discovery, listing and error conventions are [K8sSource.Collect]'s: a
 // cluster with no Pacto CRD installed yields no references rather than an error.
 func ContractRefs(ctx context.Context, client k8sclient.K8sClient, namespace string) ([]string, error) {
-	col, err := NewK8sSource("k8s", client, namespace).Collect(ctx)
+	col, err := NewK8sSource("k8s", nil, client, namespace).Collect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +118,7 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		Items []json.RawMessage `json:"items"`
 	}
 	_ = json.Unmarshal(data, &raw)
-	col := &fleet.Collection{ObservedUndeclaredOnly: true}
+	col := &fleet.Collection{ObservedUndeclaredOnly: true, Cluster: s.cluster}
 	for i, item := range list.Items {
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {

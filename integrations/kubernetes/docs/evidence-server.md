@@ -211,11 +211,14 @@ longer trusted. The chart accepts only a `.yaml` or `.yml` key.
 
 ### Read provisioning reports
 
-The targets endpoint answers with schema `pacto.dev/evidence-source/v4` and a
-`usage` list when it holds usage reports, with `pacto.dev/evidence-source/v3`
-and a `provisioning` list when it holds only provisioning reports, and with
-`pacto.dev/evidence-source/v2` otherwise, so an older reader keeps working
-against a server that holds none. A provider report is never a target.
+The targets endpoint answers with schema `pacto.dev/evidence-source/v5` when it
+carries a cluster, which the operator passes, so upgrade older readers that
+accept only v2 to v4. Without a cluster it answers with
+`pacto.dev/evidence-source/v4` and a `usage` list when it holds usage reports, with
+`pacto.dev/evidence-source/v3` and a `provisioning` list when it holds only
+provisioning reports, and with `pacto.dev/evidence-source/v2` otherwise, so an
+older reader keeps working against a server that holds none. A provider report
+is never a target.
 
 Nothing durable lives in the cluster: no PersistentVolumeClaim, no data volume,
 because the registry is the store. Delete and recreate the Deployment and the

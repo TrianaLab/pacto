@@ -1,10 +1,7 @@
-//go:build js && wasm
-
 package main
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"time"
 
@@ -13,14 +10,14 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
-	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // This file builds the in-memory operational graph (fleet) and impact provider
 // the WASM demo wires into the dashboard, entirely from the embedded bundles plus
 // deterministic operational targets — so the Operational Graph and Impact pages
 // are useful the moment the demo opens, with no server and no OCI registry.
-// It is wasm-only (see the build tag): the host build never compiles it.
+// It builds on the host too, so `go test` checks the demo fleet; the impact
+// provider and the wiring stay in main_wasm.go.
 
 // demoRegistry is the synthetic registry the demo's revision refs live under. The
 // refs are immutable digest refs so they satisfy the same identity rules the real
@@ -114,7 +111,11 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
+	// One cluster, named from its kubeconfig context: every key keeps its 3-part
+	// form and the target page shows where the target runs.
+	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
+		Cluster:      prodCluster,
 		Targets:      demoTargets(src),
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
@@ -124,7 +125,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// instead of quarantining) and contributes the observed call edges. That is how a
 	// target ends up with two sources, which is the only way the provenance block on
 	// the target page shows anything worth reading.
+	// It observes the same estate, so it reports the same cluster: a clusterless
+	// contribution merged into a clustered target would make that target partial.
 	telemetry := fleet.NewMemorySource("otel-traces", "observation", &fleet.Collection{
+		Cluster:  prodCluster,
 		Targets:  demoCorroboratedTargets(),
 		Observed: demoObservedEdges(),
 	})
@@ -152,25 +156,6 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		return nil, nil, err
 	}
 	return snap, byRef, nil
-}
-
-// demoImpactProvider returns the impact provider the demo wires into the
-// dashboard. It analyzes against the snapshot the dashboard hands it, the SAME
-// published snapshot the Operational Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
-// in-memory ref index. Observed edges are folded into that snapshot by
-// buildDemoFleet, so include-observed is a real capability driven by the SAME
-// pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
-// and not a second, divergent source of observed data.
-func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
-	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		oldB, newB := byRef[oldRef], byRef[newRef]
-		if oldB == nil || newB == nil {
-			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)
-		}
-		return impact.Analyze(ctx, oldB.Contract, newB.Contract, oldB.FS, newB.FS, snap, impact.Options{
-			IncludeObserved: includeObserved,
-		}), nil
-	}
 }
 
 // demoTargets are deterministic operational targets covering the range of states

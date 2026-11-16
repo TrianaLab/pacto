@@ -71,7 +71,7 @@ rules:
     resources: [stages/status, operations/status]
     verbs: [get, update]
   {{- include "pacto-operator.delivery.rbac.pointerReadRules" . | nindent 2 }}
-  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
+  {{- include "pacto-operator.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" $name "labels" $labels "serviceAccount" (include "pacto-operator.delivery.recorderServiceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---

@@ -20,6 +20,7 @@ Present in every install, including one with every managed component disabled. W
 | --- | --- | --- | --- |
 | `"" (core)` | `configmaps` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
+| `"" (core)` | `namespaces` | `get` | `kube-system` |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `secrets` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |

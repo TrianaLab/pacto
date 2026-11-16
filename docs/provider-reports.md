@@ -88,8 +88,8 @@ provisioning report. Otherwise the provisioning rules above apply, with
 `ResourceUsage` in place of `ResourceProvisioned`.
 
 The targets endpoint lists usage under `usage` with schema
-`pacto.dev/evidence-source/v4`, written only when it holds usage, so a v3
-reader keeps working. The operational graph shows a figure as reported only
+`pacto.dev/evidence-source/v4` (v5 when the response also names a
+cluster), written only when it holds usage, so a v3 reader keeps working. The operational graph shows a figure as reported only
 when one signed, fresh report about the newest consumer revision that uses
 the resource, named as `revision`, is contradicted by no other producer. An
 unsigned, stale or foreign report reads unknown, with its figures apart as

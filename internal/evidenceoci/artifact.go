@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
@@ -30,6 +31,11 @@ const (
 	// read, so a future version is a recognised incompatibility rather than a field
 	// silently missing.
 	RecordSchemaVersion = "pacto.dev/evidence-record/v1"
+
+	// acceptedClusterAnnotation is the manifest annotation naming the cluster
+	// whose server accepted the record. It sits outside the strictly decoded
+	// payload, so a reader that predates it ignores it.
+	acceptedClusterAnnotation = "dev.pacto.evidence.accepted-cluster"
 
 	// maxPayloadBytes bounds one evidence payload: the signed envelope cap plus room
 	// for the findings the server evaluated from it. A larger blob is malformed, and
@@ -91,7 +97,22 @@ func BuildArtifact(rec evidenceingest.Record, subj Subject, subjectDesc ocispec.
 			ErrInvalidArtifact, len(payload), maxPayloadBytes)
 	}
 
-	return ocireferrer.Build(ArtifactType, PayloadMediaType, payload, &subjectDesc, nil), nil
+	var annotations map[string]string
+	if rec.Cluster != "" {
+		annotations = map[string]string{acceptedClusterAnnotation: rec.Cluster}
+	}
+	return ocireferrer.Build(ArtifactType, PayloadMediaType, payload, &subjectDesc, annotations), nil
+}
+
+// acceptedCluster reads the accepting cluster from a validated manifest, ""
+// when it carries none or one that cannot name a cluster.
+func acceptedCluster(manifest []byte) string {
+	var m ocispec.Manifest
+	_ = json.Unmarshal(manifest, &m) // ValidateManifest already decoded it strictly
+	if id := m.Annotations[acceptedClusterAnnotation]; fleet.ValidClusterID(id) {
+		return id
+	}
+	return ""
 }
 
 // ValidateManifest checks a fetched manifest is a well-formed Pacto evidence

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -208,6 +209,15 @@ func TestObservedEvidenceOnlyAddsHolds(t *testing.T) {
 func TestCallerHelpers(t *testing.T) {
 	if CallerName("ns", "Deployment", "x") != "k8s:ns/Deployment/x" || callerNamespace("k8s:ns/Deployment/x") != "ns" {
 		t.Fatal("caller names")
+	}
+}
+
+func TestDeliveryCallerNameUsesSharedEncoding(t *testing.T) {
+	if got, want := CallerName("ns", "Deployment", "x"), fleet.K8sCaller("", "ns", "Deployment", "x"); got != want {
+		t.Fatalf("CallerName = %q, want the fleet encoding %q", got, want)
+	}
+	if ns := callerNamespace(fleet.K8sCaller("9f1c4e2a", "ns", "Deployment", "x")); ns != "ns" {
+		t.Errorf("callerNamespace of a qualified caller = %q", ns)
 	}
 }
 

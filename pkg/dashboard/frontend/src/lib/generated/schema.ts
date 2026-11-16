@@ -2303,6 +2303,34 @@ export interface components {
             /** @description The record's signature was checked against a trust config: a signed move */
             verified: boolean;
         };
+        "Fleet.Cluster": {
+            /** @description The kube-system namespace UID: the identity of the cluster. */
+            id: string;
+            /** @description A display name for the cluster; never an identity. */
+            name?: string;
+            /**
+             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /** @description The source that reported the name; empty when this process read it itself. */
+            reportedBy?: string;
+        };
+        "Fleet.ClusterRecord": {
+            /** @description The kube-system namespace UID: the identity of the cluster. */
+            id: string;
+            /** @description A display name for the cluster; never an identity. */
+            name?: string;
+            /**
+             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @enum {string}
+             */
+            nameSource?: "node-label" | "context" | "file" | "uid";
+            /** @description The source that reported the name; empty when this process read it itself. */
+            reportedBy?: string;
+            /** @description Every source that reported this cluster id. */
+            sources: string[] | null;
+        };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
             compliant: number;
@@ -2729,6 +2757,7 @@ export interface components {
             truncated: boolean;
         };
         "Fleet.FleetSnapshot": {
+            clusters?: components["schemas"]["Fleet.ClusterRecord"][] | null;
             completeness: string;
             /** Format: date-time */
             generatedAt: string;
@@ -3724,6 +3753,22 @@ export interface components {
         "Fleet.TargetRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** @description The kube-system UID of the cluster that reported this target. */
+            cluster?: string;
+            /** @description A display name for the cluster; never an identity. */
+            clusterName?: string;
+            /** @description The source that reported the cluster name; empty when this process read it itself. */
+            clusterNameReportedBy?: string;
+            /**
+             * @description How the cluster name was found.
+             * @enum {string}
+             */
+            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            /**
+             * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
+             * @enum {string}
+             */
+            clusterRelation?: "runs-in" | "reported-through";
             compliance: string;
             contractRevision?: string;
             coverage?: components["schemas"]["Fleet.Coverage"];
@@ -5381,6 +5426,13 @@ export interface components {
             revision?: components["schemas"]["ProductRef"];
         };
         ProductTargetDetail: {
+            /** @description The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one */
+            cluster?: components["schemas"]["Fleet.Cluster"];
+            /**
+             * @description runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)
+             * @enum {string}
+             */
+            clusterRelation?: "runs-in" | "reported-through";
             /** @enum {string} */
             compliance: "Compliant" | "NonCompliant" | "Unknown" | "Warning" | "Invalid" | "Reference" | "NotEvaluated";
             coverage?: components["schemas"]["Fleet.Coverage"];

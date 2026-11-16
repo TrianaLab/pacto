@@ -492,6 +492,9 @@ export function installScaleFixture(): void {
     if (route === '/api/fleet/entities/target') {
       const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;
       if (env?.check) lengthenEnv(env.check as Record<string, unknown>);
+      // A cluster name at its longest (63 characters); the UID and the keys stay the engine's.
+      const cluster = (doc.target as Record<string, unknown> | undefined)?.cluster as Record<string, unknown> | undefined;
+      if (cluster) cluster.name = `${cluster.name ?? 'cluster'}-${WORDS.join('-')}`.slice(0, 63);
     }
     if (route === '/api/delivery/history') {
       const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
@@ -712,7 +715,9 @@ export function installScaleFixture(): void {
   // lengthens the Stage rows' namespace, stage and version (a plan or propose body is
   // asked of the engine under the short names again), stalePropose answers every
   // propose PlanStale with the fresh plan and no field that explains it.
-  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean };
+  // ambiguousTarget answers the sentinel target key with the 409 a 3-part key that
+  // names targets in more than one cluster gets: 6 candidates with long labels.
+  const flags = window as unknown as { __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -847,6 +852,18 @@ export function installScaleFixture(): void {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
+    const ambiguousQuery = new URLSearchParams(path.split('?')[1] ?? '');
+    if (flags.__pactoAmbiguousTarget && method === 'GET' && ambiguousQuery.get('key') === 'scale-ambiguous/kubernetes/payments'
+      && (route === '/api/fleet/entities/target' || (route === '/api/fleet/neighborhood' && ambiguousQuery.get('kind') === 'target'))) {
+      const errors = Array.from({ length: 6 }, (_, i) => {
+        const uid = `${(0x9f1c4e2a + i * 7919).toString(16)}-7f1a-4c55-9d1e-2b8a4e6f0a1${i}`;
+        return { location: 'candidates', value: `${uid}/scale-ambiguous/kubernetes/payments`, message: `${longName(`cluster-${i}`)} / scale-ambiguous / payments` };
+      });
+      // A target with no known cluster keeps a key of its own under the `_` component.
+      errors.push({ location: 'candidates', value: '_/scale-ambiguous/kubernetes/payments', message: 'scale-ambiguous/kubernetes/payments (cluster unknown)' });
+      return { status: 409, contentType: 'application/problem+json', body: JSON.stringify({ status: 409, title: 'Conflict',
+        detail: 'this target key names targets in more than one cluster; choose one', errors }) };
     }
     const res = await (real as Serve)(method, engineName(path), body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
@@ -1484,6 +1501,31 @@ export const ROUTES: Route[] = [
   { name: 'revision entity', open: firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/') },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
+  {
+    // A cluster-qualified key in the single-cluster demo lands on the 3-part canonical href.
+    name: 'target entity with a cluster',
+    open: async (page) => {
+      await page.goto('/#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments-service');
+      await expect(page).toHaveURL(/#\/fleet\/targets\/prod%2FDeployment%2Fpayments-service$/, { timeout: 30_000 });
+      await expect(page.locator('[data-testid="target-cluster"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
+    name: 'target key names more than one cluster',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+      await page.goto('/#/fleet/targets/scale-ambiguous%2Fkubernetes%2Fpayments');
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
+    },
+  },
+  {
+    name: 'graph focus target key names more than one cluster',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoAmbiguousTarget?: boolean }).__pactoAmbiguousTarget = true; });
+      await page.goto('/#/fleet/graph/target/scale-ambiguous%2Fkubernetes%2Fpayments');
+      await expect(page.locator('[data-testid="target-key-chooser"] a')).toHaveCount(7, { timeout: 30_000 });
+    },
+  },
   { name: 'owner entity', hash: '#/fleet/owners/team:catalog-team' },
   { name: 'domain entity', hash: '#/fleet/domains/commerce' },
   { name: 'offering entity', hash: '#/fleet/offerings/messaging' },
