@@ -124,7 +124,12 @@ describe('successorBadge', () => {
   it('names whether a range accepts the successor and never reads an unresolved one as accepted', () => {
     expect(successorBadge('satisfied', '^16.0.0')).toEqual({ label: 'accepts successor', tone: 'ok', title: 'Range ^16.0.0' });
     expect(successorBadge('unsatisfied', '^16.0.0')).toMatchObject({ label: 'excludes successor', tone: 'warn' });
-    expect(successorBadge('unknown')).toEqual({ label: 'successor unknown', tone: 'neutral', title: 'No range declared' });
+    expect(successorBadge('unknown')).toEqual({ label: 'successor unknown', tone: 'neutral', title: 'Range not declared' });
+    // compatibility: unknown declares no range, so the title never reads "Range unknown".
+    expect(successorBadge('unknown', 'unknown')).toMatchObject({ title: 'Range not declared' });
+    // Nor is a successor graded against a range that was never declared.
+    expect(successorBadge('unsatisfied', 'unknown')).toEqual({ label: 'successor unknown', tone: 'neutral', title: 'Range not declared' });
+    expect(successorBadge('satisfied', 'unknown', 'latest supported')).toMatchObject({ label: 'latest supported unknown', tone: 'neutral' });
     expect(successorBadge('bogus')).toMatchObject({ label: 'successor unknown' });
     expect(successorBadge(undefined)).toBeNull();
     expect(successorBadge('unsatisfied', '^16.0.0', 'latest supported')).toMatchObject({ label: 'excludes latest supported', tone: 'warn' });

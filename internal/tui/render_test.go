@@ -655,3 +655,28 @@ func TestRenderImpactEvent(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderDependencyUndeclaredRange(t *testing.T) {
+	var b strings.Builder
+	renderExplainDependencies(&b, []app.ExplainDependency{
+		{Name: "ledger", Ref: "oci://reg.io/ledger", Compatibility: contract.CompatibilityUnknown},
+		{Name: "fraud", Ref: "oci://reg.io/fraud", Compatibility: "^1.2.0"},
+	})
+	out := b.String()
+	for _, want := range []string{"oci://reg.io/ledger (range not declared)", "oci://reg.io/fraud (^1.2.0)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderConsumerUndeclaredRange(t *testing.T) {
+	var b strings.Builder
+	renderConsumer(&b, impact.AffectedConsumer{
+		Service: "invoices", Direct: true, Confidence: impact.ConfidenceDeclared,
+		Compatibility: contract.CompatibilityUnknown, CompatibilityVerdict: impact.CompatibilityUnknown,
+	})
+	if out := b.String(); !strings.Contains(out, "invoices [direct]: unknown (range not declared), declared") {
+		t.Fatalf("consumer line does not say the range is not declared:\n%s", out)
+	}
+}

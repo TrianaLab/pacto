@@ -195,6 +195,15 @@ YAML
   [ -z "$(find "$out" -name pacto.yaml -path "*/wallet/*")" ] || fail "a draft was written for wallet, which a Pacto describes"
   # Never `*`: an inferred range that accepts any version would wave a breaking change through.
   ! grep -rq 'compatibility: "\*"' "$out" || fail "a draft pins a dependency to *: $(grep -rn compatibility "$out")"
+  # Every range init works out is a proposal: compatibility stays unknown, the proposal is a comment.
+  ! grep -rqE 'compatibility: .?=' "$out" || fail "a draft pins a dependency to one version: $(grep -rn compatibility "$out")"
+  local declared
+  declared="$(grep -rhE '^ *compatibility:' "$out" | grep -vE '^ *compatibility: unknown +# ' || true)"
+  [ -z "$declared" ] || fail "a draft declares a range instead of compatibility: unknown with a comment: $declared"
+  if grep -q 'name: wallet' "$out/$L/till/pacto.yaml"; then
+    grep -qE 'compatibility: unknown +# proposed \^' "$out/$L/till/pacto.yaml" \
+      || fail "till depends on wallet without a proposed range: $(grep -n compatibility "$out/$L/till/pacto.yaml")"
+  fi
   while IFS= read -r d; do
     timeout 60 "$PACTO" validate "$(dirname "$d")" >/dev/null || fail "the draft $d does not validate"
   done < <(find "$out" -name pacto.yaml)

@@ -212,6 +212,18 @@ describe('DependenciesSection — lock and drift rendering', () => {
     document.body.removeChild(target);
   });
 
+  it('names compatibility unknown as a range not declared, never as a range', () => {
+    const component = mount(DependenciesSection, {
+      target,
+      props: { name: 'test-service', dependencies: [{ name: 'ledger', ref: 'oci://ghcr.io/org/ledger', required: true, compatibility: 'unknown' }] },
+    });
+    const cells = target.querySelectorAll('tbody td');
+    expect(cells[3].textContent?.trim()).toBe('Range not declared');
+    expect(target.textContent).not.toMatch(/accepts\s+unknown/i);
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
   it('renders neutral fallback when no lock fields present', () => {
     const component = mount(DependenciesSection, {
       target,
