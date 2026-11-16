@@ -173,8 +173,9 @@ func writeConfigurationRefs(b *strings.Builder, entries []ConsumeConfiguration, 
 // value, its minimum (numbers) or the empty value of its type; a line comments
 // the type, the allowed values and the default. A property no candidate fits
 // is left out of values, listed in missing and written as a comment asking for
-// a value. It is all empty when the schema cannot be parsed or requires
-// nothing.
+// a value. A writeOnly property takes neither its default nor an enum value
+// and its comment says sensitive instead. It is all empty when the schema
+// cannot be parsed or requires nothing.
 func valuesSkeleton(schema []byte, path string) (values map[string]any, missing []string, block string) {
 	doc, err := schemax.Parse(schema, path)
 	required, _ := doc["required"].([]any)
@@ -193,6 +194,10 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		typ := schemaType(prop["type"])
 		enum, _ := prop["enum"].([]any)
 		def, hasDef := prop["default"]
+		sensitive := prop["writeOnly"] == true
+		if sensitive {
+			enum, def, hasDef = nil, nil, false
+		}
 		value, ok := skeletonValue(prop, typ, enum, def, hasDef)
 		if !ok {
 			missing = append(missing, key)
@@ -210,6 +215,9 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		}
 		if hasDef {
 			comment += ", default " + plainValue(def)
+		}
+		if sensitive {
+			comment += ", sensitive"
 		}
 		fmt.Fprintf(&lines, "      %s: %s # %s\n", yamlKey(key), jsonValue(value), comment)
 	}

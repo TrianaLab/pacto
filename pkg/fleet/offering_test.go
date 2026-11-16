@@ -993,3 +993,29 @@ func TestServiceDetailCurrentRevisionUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// The consume snippet never copies a writeOnly property's default, in the
+// values or in the comment.
+func TestConsumeSnippetOmitsWriteOnlyDefault(t *testing.T) {
+	schema := `{"required":["DB_PASSWORD"],"properties":{"DB_PASSWORD":{"type":"string","writeOnly":true,"default":"hunter2"}}}`
+	values, missing, block := valuesSkeleton([]byte(schema), "s.json")
+	if values["DB_PASSWORD"] != "" || len(missing) != 0 || block != "    values:\n      DB_PASSWORD: \"\" # required string, sensitive\n" {
+		t.Errorf("values %v, missing %v, block %q", values, missing, block)
+	}
+	// An enum is no candidate either: nothing fits, so the consumer sets it.
+	enum := `{"required":["DB_PASSWORD"],"properties":{"DB_PASSWORD":{"type":"string","writeOnly":true,"enum":["hunter2"]}}}`
+	if _, missing, block := valuesSkeleton([]byte(enum), "s.json"); len(missing) != 1 || strings.Contains(block, "hunter2") {
+		t.Errorf("enum: missing %v, block %q", missing, block)
+	}
+	files := fstest.MapFS{"configuration/schema.json": {Data: []byte(schema)}}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{ociRev("ghcr.io/trianalab/pacto", pgOffering(), files)}})
+	o := offeringData(t, q, "postgresql")
+	sn := o.Providers.Items[0].Consume
+	if sn == nil || !strings.Contains(sn.YAML, "sensitive") || strings.Contains(sn.YAML, "hunter2") {
+		t.Fatalf("snippet = %+v", sn)
+	}
+	b, err := json.Marshal(o)
+	if err != nil || strings.Contains(string(b), "hunter2") {
+		t.Errorf("marshalled offering detail leaks the default: err %v", err)
+	}
+}

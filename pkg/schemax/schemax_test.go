@@ -210,3 +210,23 @@ func TestSensitiveKey(t *testing.T) {
 		}
 	}
 }
+
+// A writeOnly property, and every property under a writeOnly object, reads
+// (sensitive) whatever its default holds.
+func TestPropertiesMaskWriteOnly(t *testing.T) {
+	data := `{"properties":{
+	  "DB_PASSWORD":{"type":"string","writeOnly":true,"default":"hunter2"},
+	  "LOG_LEVEL":{"type":"string","writeOnly":false,"default":"info"},
+	  "cache":{"type":"object","properties":{"host":{"type":"string","default":"redis"},"token":{"type":"string","writeOnly":true,"default":"hunter2"}}},
+	  "db":{"type":"object","writeOnly":true,"properties":{"password":{"type":"string","default":"hunter2"}}}}}`
+	want := []Property{
+		{Key: "DB_PASSWORD", Value: "(sensitive)", Type: "string"},
+		{Key: "LOG_LEVEL", Value: "info", Type: "string"},
+		{Key: "cache.host", Value: "redis", Type: "string"},
+		{Key: "cache.token", Value: "(sensitive)", Type: "string"},
+		{Key: "db.password", Value: "(sensitive)", Type: "string"},
+	}
+	if got := Properties([]byte(data), "s.json"); !reflect.DeepEqual(got, want) {
+		t.Errorf("Properties() = %+v, want %+v", got, want)
+	}
+}
