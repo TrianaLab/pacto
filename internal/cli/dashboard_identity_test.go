@@ -135,6 +135,39 @@ func TestDashboardTokenLoginIdentity(t *testing.T) {
 	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
 }
 
+// Token sign-in reviews a sign-in link token with the dashboard's own client,
+// for the dashboard's audience, and a dashboard that cannot build that client
+// does not start.
+func TestDashboardTokenLoginReviewsTheAudience(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	d := defaultDeps()
+	var asked *rest.Config
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		asked = c
+		f := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		f.PrependReactor("create", "tokenreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			obj.Object["status"] = map[string]any{"authenticated": true, "audiences": []any{authn.DashboardAudience},
+				"user": map[string]any{"username": "system:serviceaccount:pacto:pacto-viewer"}}
+			return true, obj, nil
+		})
+		return f, nil
+	}
+	cluster := &rest.Config{Host: "https://k", BearerToken: "dashboard"}
+	id, err := newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err == nil && asked.BearerToken == "dashboard" && asked.QPS == sarQPS, "the review runs as the dashboard: %v %+v", err, asked)
+	r := httptest.NewRequest(http.MethodPost, "https://dash.example/auth/token", strings.NewReader(`{"token":"link","link":true}`))
+	r.Header.Set("Origin", "https://dash.example")
+	rec := httptest.NewRecorder()
+	id.auth.Routes().ServeHTTP(rec, r)
+	expect(t, rec.Code == http.StatusNoContent, "a link token signs in: %d %s", rec.Code, rec.Body)
+
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
+	_, err = newDashboardIdentity(v, "0.0.0.0", cluster, d)
+	expect(t, err != nil && strings.Contains(err.Error(), "bad config"), "no client to review tokens with: %v", err)
+}
+
 func expect(t *testing.T, ok bool, format string, args ...any) {
 	t.Helper()
 	if !ok {

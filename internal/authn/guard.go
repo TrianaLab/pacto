@@ -104,7 +104,8 @@ type State struct {
 	SignedIn bool
 	// CSRF is the token to send in CSRFHeader; empty when not signed in.
 	CSRF string
-	// Token is the bearer for the caller's own cluster requests (shared only).
+	// Token is the bearer for the caller's own cluster requests (shared only);
+	// empty for a sign-in link session, so its requests carry no credential.
 	Token string
 	// Person is who the cluster says the caller is: what the API server
 	// answered for the session's token, or for the kubeconfig in local mode.
@@ -116,6 +117,10 @@ type State struct {
 	// AuthTime is when the caller last logged in at the identity provider,
 	// as Unix seconds or RFC 3339, when known.
 	AuthTime string
+	// UID and Extra are what the TokenReview named for a sign-in link
+	// session, which holds no Token. Set for link sessions only.
+	UID   string
+	Extra map[string][]string
 }
 
 type stateKey struct{}
@@ -258,7 +263,13 @@ func (d *Dashboard) sessionState(r *http.Request) State {
 	}
 	if d.tokens != nil {
 		if s, ok := d.tokens.session(r); ok {
-			return State{SignedIn: true, CSRF: s.csrf, Token: s.token, Person: s.person, Method: "token"}
+			st := State{SignedIn: true, CSRF: s.csrf, Person: s.person, Method: "token", AuthTime: s.authTime}
+			if s.bearer {
+				st.Token = s.token
+			} else { // a link session: its token is no credential, so nothing ever sends it
+				st.UID, st.Extra = s.uid, s.extra
+			}
+			return st
 		}
 	}
 	return State{}

@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -164,4 +166,91 @@ func waitShared(t *testing.T, id *dashboardIdentity) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+// TestTokenSignInAgainstAPIServer proves the token classification against a
+// real apiserver: a ServiceAccount token minted for the dashboard signs in as
+// a link session, although the apiserver refuses it as a bearer; one minted
+// for the default audience is refused with TokenAudienceRequired; a person's
+// static token signs in as a bearer session; and a dashboard that may not
+// review tokens names the missing right.
+func TestTokenSignInAgainstAPIServer(t *testing.T) {
+	ann := perfPerson{name: "ann", token: "ann-static-token"}
+	cp := startControlPlane(t, []perfPerson{ann})
+	ctx := context.Background()
+	adm, err := dynamic.NewForConfig(cp.config(cp.admin, -1))
+	must(t, err)
+	rbac := func(kind, name string, extra map[string]any) *unstructured.Unstructured {
+		m := map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": kind, "metadata": map[string]any{"name": name}}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return &unstructured.Unstructured{Object: m}
+	}
+	must(t, create(ctx, adm.Resource(gvrCRole), rbac("ClusterRole", "pacto-dashboard-tokenreview", map[string]any{"rules": []any{
+		map[string]any{"apiGroups": []any{"authentication.k8s.io"}, "resources": []any{"tokenreviews"}, "verbs": []any{"create"}}}}), false))
+	must(t, create(ctx, adm.Resource(gvrCRB), rbac("ClusterRoleBinding", "pacto-dashboard-tokenreview", map[string]any{
+		"subjects": []any{map[string]any{"kind": "User", "name": perfDashboardSA.user(), "apiGroup": "rbac.authorization.k8s.io"}},
+		"roleRef":  map[string]any{"kind": "ClusterRole", "name": "pacto-dashboard-tokenreview", "apiGroup": "rbac.authorization.k8s.io"}}), false))
+	must(t, create(ctx, adm.Resource(gvrNS), &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": "pacto"}}}, false))
+	gvrSA := schema.GroupVersionResource{Version: "v1", Resource: "serviceaccounts"}
+	must(t, create(ctx, adm.Resource(gvrSA).Namespace("pacto"), &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": "pacto-viewer"}}}, false))
+	mint := func(audiences ...string) string {
+		spec := map[string]any{"expirationSeconds": int64(600)}
+		if audiences != nil {
+			spec["audiences"] = audiences
+		}
+		out, err := adm.Resource(gvrSA).Namespace("pacto").Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "authentication.k8s.io/v1", "kind": "TokenRequest", "metadata": map[string]any{"name": "pacto-viewer"}, "spec": spec}}, metav1.CreateOptions{}, "token")
+		must(t, err)
+		tok, _, _ := unstructured.NestedString(out.Object, "status", "token")
+		return tok
+	}
+	linkToken, defaultToken := mint(authn.DashboardAudience), mint()
+
+	cluster := cp.config("", 0)
+	routes := func(asUser string) *authn.Dashboard {
+		own, err := dynamic.NewForConfig(cp.config(asUser, 0))
+		must(t, err)
+		review := authn.DashboardTokenReview(authn.AudienceReview(own, authn.DashboardAudience), authn.SelfSubjectReview(cluster, func(c *rest.Config) (dynamic.Interface, error) { return dynamic.NewForConfig(c) }))
+		return authn.NewShared(nil, authn.NewTokenLogin(review, authn.Lifetime{}))
+	}
+	signIn := func(d *authn.Dashboard, body string) (*httptest.ResponseRecorder, authn.State) {
+		r := httptest.NewRequest(http.MethodPost, "https://dash.example/auth/token", strings.NewReader(body))
+		r.Header.Set("Origin", "https://dash.example")
+		rec := httptest.NewRecorder()
+		d.Routes().ServeHTTP(rec, r)
+		var st authn.State
+		get := httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/services", nil)
+		for _, c := range rec.Result().Cookies() {
+			get.AddCookie(c)
+		}
+		d.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { st = authn.StateFrom(r.Context()) })).ServeHTTP(httptest.NewRecorder(), get)
+		return rec, st
+	}
+	d := routes(perfDashboardSA.token)
+
+	rec, st := signIn(d, `{"token":"`+linkToken+`","link":true}`)
+	expect(t, rec.Code == http.StatusNoContent && st.SignedIn && st.Token == "" && st.Person.User == "system:serviceaccount:pacto:pacto-viewer" && st.UID != "",
+		"a token minted for the dashboard signs in as a link session: %d %s %+v", rec.Code, rec.Body, st)
+
+	rec, _ = signIn(d, `{"token":"`+defaultToken+`"}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "TokenAudienceRequired") &&
+		strings.Contains(rec.Body.String(), "kubectl create token pacto-viewer -n pacto --audience pacto-dashboard"),
+		"a default-audience ServiceAccount token is refused: %d %s", rec.Code, rec.Body)
+
+	asBearer, err := dynamic.NewForConfig(authn.RESTConfig(cluster, linkToken))
+	must(t, err)
+	_, _, err = authn.ReviewSelf(ctx, asBearer)
+	expect(t, apierrors.IsUnauthorized(err), "the apiserver refuses a dashboard-audience token as a bearer: %v", err)
+
+	rec, st = signIn(d, `{"token":"`+ann.token+`"}`)
+	expect(t, rec.Code == http.StatusNoContent && st.Token == ann.token && st.Person.User == ann.user(),
+		"a person's static token signs in as a bearer session: %d %s %+v", rec.Code, rec.Body, st)
+
+	rec, _ = signIn(routes(ann.token), `{"token":"`+linkToken+`","link":true}`)
+	expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Body.String(), "create on tokenreviews"),
+		"a dashboard that may not review tokens names the right: %d %s", rec.Code, rec.Body)
 }

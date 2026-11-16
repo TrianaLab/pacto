@@ -1,10 +1,13 @@
 package authn
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"k8s.io/client-go/rest"
 )
 
 // echo records the State the middleware passed on.
@@ -207,4 +210,17 @@ func TestSharedModeGatesTheAPI(t *testing.T) {
 			t.Errorf("signed in %s: %d, want through", path, got)
 		}
 	}
+}
+
+// A link session holds no bearer, so a client built for it is anonymous: it
+// never carries the dashboard's own credentials.
+func TestLinkSessionCarriesNoBearer(t *testing.T) {
+	d, _ := dashboardRoutes(Reviewed{Person: viewerSA}, nil, Reviewed{}, errors.New("Unauthorized"))
+	st := stateOf(t, d, signIn(d, `{"token":"t","link":true}`))
+	expect(t, st.SignedIn && st.Token == "", "a link session's state %+v", st)
+	own := &rest.Config{Host: "https://k", BearerToken: "dashboard", Username: "u", Password: "p", BearerTokenFile: "/var/run/token",
+		TLSClientConfig: rest.TLSClientConfig{CertData: []byte("c"), KeyData: []byte("k")}}
+	c := RESTConfig(own, st.Token)
+	expect(t, c.BearerToken == "" && c.BearerTokenFile == "" && c.Username == "" && c.CertData == nil && c.KeyData == nil && c.Host == own.Host,
+		"a link session's client is anonymous: %+v", c)
 }
