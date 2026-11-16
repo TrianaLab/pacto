@@ -10,6 +10,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"gopkg.in/yaml.v3"
 )
 
 func planExternals(t *testing.T, opts Options) *Result {
@@ -227,5 +228,74 @@ func assertNoCredential(t *testing.T, s string) {
 		if strings.Contains(s, bad) {
 			t.Errorf("%q leaked", bad)
 		}
+	}
+}
+
+// TestPactifyLineSeparatorKeyStaysComment: a values key holding U+2028 or
+// U+2029, which YAML reads as a line break, cannot end the comment and
+// declare a dependency, and the text lines carry no such rune either.
+func TestPactifyLineSeparatorKeyStaysComment(t *testing.T) {
+	for _, sep := range []string{`\L`, `\P`} {
+		evil := "stripe_url" + sep + "  - name: evil" + sep + "    external: true" + sep + "    required: true #"
+		dir := writeTree(t, t.TempDir(), map[string]string{
+			"Dockerfile":       "FROM scratch\n",
+			"chart/Chart.yaml": "apiVersion: v2\nname: pay\nversion: 1.0.0\n",
+			"chart/values.yaml": "\"" + evil + "\": https://api.stripe.com\n" +
+				"\"vendor" + sep + "x\": https://acme.io:8443\n",
+		})
+		r := planExternals(t, Options{Dir: dir, DescribeOnly: true})
+		text := file(t, r, "pacto.yaml").Content
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+			t.Fatal(err)
+		}
+		c, err := contract.Parse(strings.NewReader(text))
+		if err != nil || len(c.Dependencies) != 0 || doc["dependencies"] != nil {
+			t.Fatalf("%s: injected entry: %v %+v\n%s", sep, err, c, text)
+		}
+		all := text + strings.Join(r.Found, "\n") + strings.Join(r.Unknown, "\n")
+		for _, e := range r.Externals {
+			all += e.Where
+		}
+		if strings.ContainsAny(all, "\u2028\u2029") {
+			t.Errorf("%s: a line separator reached the output:\n%s", sep, all)
+		}
+	}
+}
+
+// TestPactifyIgnoredValuesNotRead: a chart values.yaml .pactoignore leaves
+// out is not read.
+func TestPactifyIgnoredValuesNotRead(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"Dockerfile":        "FROM scratch\n",
+		".pactoignore":      "chart/values.yaml\n",
+		"chart/Chart.yaml":  "apiVersion: v2\nname: pay\nversion: 1.0.0\n",
+		"chart/values.yaml": "stripe_url: https://api.stripe.com\nvendor: {url: 'https://acme.io:8443'}\n",
+	})
+	r := planExternals(t, Options{Dir: dir, DescribeOnly: true})
+	if len(r.Externals) != 0 || hasLine(r.Unknown, "values.yaml") {
+		t.Errorf("an ignored values.yaml was read: %+v %q", r.Externals, r.Unknown)
+	}
+}
+
+// TestPactifyChartUnidentifiedHostUnknown: a chart value naming a host no
+// catalog entry identifies is named in Unknown by its key, never its value,
+// as an env value is; a sensitive key's value is never parsed, so it gives no
+// such line.
+func TestPactifyChartUnidentifiedHostUnknown(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"Dockerfile":        "FROM scratch\n",
+		"chart/Chart.yaml":  "apiVersion: v2\nname: pay\nversion: 1.0.0\n",
+		"chart/values.yaml": "payments: {url: 'https://acme.io/v1'}\nlegacy: {host: 'db1.corp.local:5432'}\nDATABASE_DSN: 'postgres://u:p@db.xyz.rds.amazonaws.com:5432/app'\n",
+		"k8s/d.yaml":        "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: pay}\nspec: {template: {spec: {containers: [{name: pay, image: 'r.example/pay:1.0.0', env: [{name: DATABASE_DSN, value: 'postgres://u:p@db.xyz.rds.amazonaws.com:5432/app'}]}]}}}\n",
+	})
+	r := planExternals(t, Options{Dir: dir, DescribeOnly: true})
+	for _, want := range []string{"chart/values.yaml:1 url names a host outside the cluster", "chart/values.yaml:2 host names a host outside the cluster"} {
+		if !hasLine(r.Unknown, want) {
+			t.Errorf("no %q in %q", want, r.Unknown)
+		}
+	}
+	if hasLine(r.Unknown, "DATABASE_DSN") || strings.Contains(strings.Join(r.Unknown, "\n"), "acme.io") {
+		t.Errorf("a sensitive or raw value was characterised: %q", r.Unknown)
 	}
 }

@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // External is a system outside the cluster that the folder names: a vendor
@@ -53,14 +55,23 @@ func (p *planner) externals(dir string) {
 			p.unknown("%s suggests %s: nothing else in the folder confirms it", e.Where, e.Identity)
 		}
 	}
-	for _, e := range p.sc.env {
-		if !e.secret && namesHost(externalcatalog.NormalizeHost(e.value)) && !slices.ContainsFunc(p.r.Externals, func(x External) bool { return x.Host != "" && x.Where == envWhere(e) }) {
-			p.unknown("%s names a host outside the cluster that no catalog entry identifies: declare it in pacto.yaml if %s calls it", envWhere(e), p.r.Service)
+	// A value under a sensitive key is never parsed, so it never gets here.
+	unidentified := func(where, value, key string) {
+		if !schemax.SensitiveKey(key) && namesHost(externalcatalog.NormalizeHost(value)) && !slices.ContainsFunc(p.r.Externals, func(x External) bool { return x.Host != "" && x.Where == where }) {
+			p.unknown("%s names a host outside the cluster that no catalog entry identifies: declare it in pacto.yaml if %s calls it", where, p.r.Service)
 		}
+	}
+	for _, e := range p.sc.env {
+		if !e.secret {
+			unidentified(envWhere(e), e.value, e.name)
+		}
+	}
+	for _, c := range p.sc.charts {
+		p.sc.chartValues(dir, c, unidentified)
 	}
 }
 
-func envWhere(e envVar) string { return e.file + ", env " + e.name }
+func envWhere(e envVar) string { return commentSafe(e.file + ", env " + e.name) }
 
 // externals classifies the workload's environment and every chart's
 // values.yaml. A Secret contributes its name and key names, never a value.
@@ -68,7 +79,7 @@ func (sc *scan) externals(dir string, cat *externalcatalog.Catalog) []External {
 	out := []External{}
 	add := func(where string, ms []externalcatalog.Match) {
 		for _, m := range ms {
-			x := External{Identity: string(m.Identity), Class: m.Class, Confidence: m.Confidence, Where: where, Host: m.Host, Entry: m.Entry}
+			x := External{Identity: string(m.Identity), Class: m.Class, Confidence: m.Confidence, Where: commentSafe(where), Host: m.Host, Entry: m.Entry}
 			if !slices.Contains(out, x) {
 				out = append(out, x)
 			}
@@ -92,7 +103,7 @@ func (sc *scan) externals(dir string, cat *externalcatalog.Catalog) []External {
 		}
 	}
 	for _, c := range sc.charts {
-		chartValues(dir, c, func(where, value, key string) { add(where, cat.Classify(value, key)) })
+		sc.chartValues(dir, c, func(where, value, key string) { add(where, cat.Classify(value, key)) })
 	}
 	slices.SortStableFunc(out, func(a, b External) int {
 		return strings.Compare(a.Identity+"\x00"+a.Where, b.Identity+"\x00"+b.Where)
@@ -101,8 +112,13 @@ func (sc *scan) externals(dir string, cat *externalcatalog.Catalog) []External {
 }
 
 // chartValues calls visit with every string leaf of a chart's values.yaml,
-// read as data: templates are never rendered.
-func chartValues(dir, chart string, visit func(where, value, key string)) {
+// read as data: templates are never rendered. A values.yaml .pactoignore
+// leaves out is not read. where has its non-printable characters replaced.
+func (sc *scan) chartValues(dir, chart string, visit func(where, value, key string)) {
+	file := path.Join(chart, "values.yaml")
+	if sc.ign != nil && sc.ign.Ignored(file, false) {
+		return
+	}
 	data, err := os.ReadFile(filepath.Join(dir, chart, "values.yaml"))
 	if err != nil {
 		return
@@ -111,9 +127,8 @@ func chartValues(dir, chart string, visit func(where, value, key string)) {
 	if yaml.Unmarshal(data, &doc) != nil {
 		return
 	}
-	file := path.Join(chart, "values.yaml")
 	stringLeaves(&doc, "", func(n *yaml.Node, key string) {
-		visit(fmt.Sprintf("%s:%d %s", file, n.Line, key), n.Value, key)
+		visit(commentSafe(fmt.Sprintf("%s:%d %s", file, n.Line, key)), n.Value, key)
 	})
 }
 
@@ -187,10 +202,12 @@ func dependencyName(id string) string {
 	return strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(last), "-"), "-")
 }
 
-// commentSafe replaces every control character with "?".
+// commentSafe replaces every rune that is not printable on one line with
+// "?": control characters, and U+2028 and U+2029, which YAML also reads as
+// line breaks.
 func commentSafe(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+		if !unicode.IsPrint(r) {
 			return '?'
 		}
 		return r
