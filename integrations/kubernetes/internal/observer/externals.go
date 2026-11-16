@@ -210,27 +210,33 @@ func (x *externalScan) service(ctx context.Context, name, from string) {
 }
 
 // objectHost reports a host a namespace object names. An object says the host
-// is outside the cluster, so a host no catalog entry classifies is legacy.
+// is outside the cluster, so a host no catalog entry classifies is legacy. A
+// host that gives no identity (a private suffix such as .corp.internal, or a
+// two-label name no rule names) makes the list partial, never silently short.
 func (x *externalScan) objectHost(kind, where, host string) {
 	for _, h := range externalcatalog.NormalizeHost(host) {
-		if m, ok := x.cat.MatchHost(h); ok {
-			if m.Class == externalcatalog.ClassUnclassified {
-				m.Class = externalcatalog.ClassLegacy
-			}
-			x.add(kind, where, []externalcatalog.Match{m})
+		m, ok := x.cat.MatchHost(h)
+		if !ok {
+			partialCoverage(&x.cov, "object-host-unclassified")
+			continue
 		}
+		if m.Class == externalcatalog.ClassUnclassified {
+			m.Class = externalcatalog.ClassLegacy
+		}
+		x.add(kind, where, []externalcatalog.Match{m})
 	}
 }
 
 // serviceEntries reports the hosts the pod spec names that an Istio
 // ServiceEntry of the Pacto's namespace, or one exported to every namespace,
-// lists. Without the ServiceEntry API the reader is off and the list partial.
+// lists. Without the ServiceEntry API the reader is off and the list partial,
+// unless the pod spec names no host a ServiceEntry could list.
 func (x *externalScan) serviceEntries(ctx context.Context) {
-	if !x.input.ServiceEntries {
-		partialCoverage(&x.cov, "serviceentry-reader-off")
+	if len(x.hosts) == 0 {
 		return
 	}
-	if len(x.hosts) == 0 {
+	if !x.input.ServiceEntries {
+		partialCoverage(&x.cov, "serviceentry-reader-off")
 		return
 	}
 	local, err := x.listServiceEntries(ctx, client.InNamespace(x.input.Namespace))
@@ -260,15 +266,20 @@ func (x *externalScan) listServiceEntries(ctx context.Context, opts ...client.Li
 }
 
 // serviceEntry reports each host the pod spec names that one ServiceEntry
-// lists, exactly or under a "*." wildcard.
+// lists, exactly or under a "*." wildcard. An entry exported from another
+// namespace is not named: where names only objects of the Pacto's namespace.
 func (x *externalScan) serviceEntry(se unstructured.Unstructured) {
 	hosts, _, _ := unstructured.NestedStringSlice(se.Object, "spec", "hosts")
+	obj := "serviceentry (exported)"
+	if se.GetNamespace() == x.input.Namespace {
+		obj = "serviceentry/" + se.GetNamespace() + "/" + se.GetName()
+	}
 	for _, rule := range hosts {
 		rule = strings.ToLower(rule)
 		for _, h := range x.hosts {
 			suffix, wild := strings.CutPrefix(rule, "*")
 			if h.Host == rule || (wild && strings.HasSuffix(h.Host, suffix)) {
-				x.objectHost(unversioned.ExternalKindServiceEntry, "serviceentry/"+se.GetNamespace()+"/"+se.GetName()+" host "+rule, h.String())
+				x.objectHost(unversioned.ExternalKindServiceEntry, obj+" host "+rule, h.String())
 			}
 		}
 	}

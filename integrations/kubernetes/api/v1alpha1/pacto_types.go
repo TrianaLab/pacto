@@ -916,7 +916,10 @@ type PactoStatus struct {
 	// The reason is pod-spec-unavailable (the target workload could not be
 	// read), configmap-unreadable (a ConfigMap the pod spec references could
 	// not be read), serviceentry-reader-off (the cluster serves no Istio
-	// ServiceEntry API) or truncated (more than 50 externals).
+	// ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
+	// not be listed), object-host-unclassified (a Service or ServiceEntry
+	// names a host that gives no identity, such as one under a private
+	// suffix) or truncated (more than 50 externals).
 	// +optional
 	ExternalsCoverage *CallerCoverage `json:"externalsCoverage,omitempty"`
 

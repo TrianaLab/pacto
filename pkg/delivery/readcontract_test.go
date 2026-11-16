@@ -113,10 +113,12 @@ func TestExternalUsesStaleStatusUnavailable(t *testing.T) {
 func TestExternalUsesServiceEntryOffPartial(t *testing.T) {
 	reconciled := now
 	for reason, words := range map[string]string{
-		"serviceentry-reader-off": "Istio ServiceEntries",
-		"pod-spec-unavailable":    "pod spec",
-		"configmap-unreadable":    "ConfigMap",
-		"made-up":                 "the operator reported made-up",
+		"serviceentry-reader-off":  "Istio ServiceEntries",
+		"serviceentry-unreadable":  "could not read the Istio ServiceEntries",
+		"object-host-unclassified": "under a private suffix",
+		"pod-spec-unavailable":     "pod spec",
+		"configmap-unreadable":     "ConfigMap",
+		"made-up":                  "the operator reported made-up",
 	} {
 		p := externalsPacto(&CallerCoverageView{State: "partial", Reason: reason, RefreshSeconds: 300})
 		unreported(t, ExternalLimitations(p, &reconciled, now), reason, words)

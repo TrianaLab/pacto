@@ -31,8 +31,12 @@ never `NonCompliant`. That happens for:
   Service or a host an Istio `ServiceEntry` lists, the operator also reports it
   in `status.externals`. It reads Services, EndpointSlices and ServiceEntries
   in the Pacto's own namespace only, plus ServiceEntries exported to every
-  namespace (`exportTo: ["*"]`). A name that points into another namespace is
-  classified as text and never looked up. `status.externals` shows every reader
+  namespace (`exportTo: ["*"]`), which it reports as `serviceentry (exported)`
+  without naming their namespace. A name that points into another namespace is
+  classified as text and never looked up. A host such an object names that
+  gives no identity, for example one under a private suffix such as
+  `.corp.internal`, makes `status.externalsCoverage` partial
+  (`object-host-unclassified`). `status.externals` shows every reader
   of the Pacto the normalized host and port that the referenced ConfigMap keys
   hold. It never reads a Secret.
 - **Non-HTTP capability bindings** -- health and metrics probing supports HTTP

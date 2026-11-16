@@ -266,9 +266,38 @@ func TestObserveExternalsServiceEntryExportToRespected(t *testing.T) {
 		serviceEntry("mesh", "shared", []string{"api.partner.co.uk"}, []string{"*"}),
 		serviceEntry("team-b", "private", []string{"api.partner.co.uk"}, []string{"."}))
 	s := summary(got)
-	if !strings.Contains(s, "serviceentry/mesh/shared") || strings.Contains(s, "team-b") {
+	// An entry exported from another namespace is reported, never named.
+	if !strings.Contains(s, "serviceentry (exported) host api.partner.co.uk") || strings.Contains(s, "mesh") || strings.Contains(s, "shared") || strings.Contains(s, "team-b") {
 		t.Fatalf("got %s", s)
 	}
+}
+
+// TestObserveExternalsServiceEntryOffNoHostComplete: with no host in the pod
+// spec, no ServiceEntry could add anything, so the reader being off leaves the
+// list complete.
+func TestObserveExternalsServiceEntryOffNoHostComplete(t *testing.T) {
+	in := extInput()
+	in.ServiceEntries = false
+	got, cov := extObserve(t, interceptor.Funcs{}, in, extDeployment(corev1.Container{Env: []corev1.EnvVar{envVal("LOG_LEVEL", "debug")}}))
+	if len(got) != 0 {
+		t.Fatalf("got %s", summary(got))
+	}
+	wantCoverage(t, cov, unversioned.CallerCoverageComplete, "")
+}
+
+// TestObserveExternalsObjectHostUnclassifiedPartial: an ExternalName under a
+// private suffix gives no identity, so the list says it is partial instead of
+// reading as "uses none".
+func TestObserveExternalsObjectHostUnclassifiedPartial(t *testing.T) {
+	d := extDeployment(corev1.Container{Env: []corev1.EnvVar{envVal("LEGACY_DB", "legacy-db:5432")}})
+	svc := extService("legacy-db", func(s *corev1.Service) {
+		s.Spec.Type, s.Spec.ExternalName = corev1.ServiceTypeExternalName, "db1.corp.internal"
+	})
+	got, cov := extObserve(t, interceptor.Funcs{}, extInput(), d, svc)
+	if len(got) != 0 {
+		t.Fatalf("got %s", summary(got))
+	}
+	wantCoverage(t, cov, unversioned.CallerCoveragePartial, "object-host-unclassified")
 }
 
 func TestObserveExternalsServiceEntryOffPartial(t *testing.T) {
