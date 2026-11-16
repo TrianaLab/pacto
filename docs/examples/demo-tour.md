@@ -39,7 +39,7 @@ Thirty-nine services are in the snapshot. Eleven carry the stories:
 | Service | Owner | Its part |
 |---------|-------|----------|
 | `payments-service` | payments-team | six revisions; the change stories 3 and 4 analyse |
-| `orders-service` | commerce-team | declares a dependency on payments, and is observed calling it |
+| `orders-service` | commerce-team | declares a dependency on payments, and is seen calling it |
 | `api-gateway` | platform-foundations | declares the same dependency, and has an expired readiness assessment |
 | `auth-service` | identity-team | deployed and never observed: the Unknown target |
 | `audit-log` | platform-foundations-security | calls payments and declares nothing: the shadow consumer |

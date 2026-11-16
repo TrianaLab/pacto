@@ -44,14 +44,15 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 | Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload` and a manifests artifact that copies the YAML files |
 | The `team` label on the workload | `service.owner.team` |
 | The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json` with each key and its type, no values; sensitive keys are `writeOnly` |
-| An environment value that names another in-cluster service | `dependencies`, with the range from that service's contract in `--fleet`, or the placeholder `^1.0.0` |
+| An environment value that names another in-cluster service | `dependencies`, each with `compatibility: unknown` and, from that service's contract in `--fleet`, a proposed range in a comment |
 | A readiness, liveness or startup probe | a `health` capability |
 | A file named exactly `openapi` or `swagger`, with a `.yaml`, `.yml` or `.json` extension | one `openapi` interface |
 | `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
 
 Init reads only these. A file such as `api/openapi.v1.yaml` is missed, and
-state stays for you to write. A placeholder range is named in a comment above
-the dependency and under `unknown`.
+state stays for you to write. Every dependency range is a proposal: init writes
+`compatibility: unknown` with the proposal in a comment, and the dependency is
+named under `unknown`.
 
 Init skips the files and folders that the service's
 [`.pactoignore`](pactoignore.md) lists. It also skips every folder that holds a
@@ -149,8 +150,10 @@ Work through the `unknown` list of each service.
 - **Configuration.** Init's schema lists the environment only. `schema-infer`
   writes a JSON Schema from a config file
   ([For developers](developers.md#2-infer-schemas-from-your-code-optional)).
-- **Dependencies.** Replace each placeholder `compatibility` with the versions
-  the service accepts.
+- **Dependencies.** Replace each `compatibility: unknown` with the versions the
+  service accepts. Until you do, impact cannot tell whether a change to that
+  dependency breaks the service: its verdict is unknown, and a BREAKING change
+  to the dependency stays unverified.
 
 Then check every contract and see who declares each service:
 
@@ -182,7 +185,13 @@ sensitive key to a literal value is read in the draft from the Secret
 a file of `KEY=value` lines. When such a value is a URL, the draft no longer
 lists the service it names as a dependency, and next steps ask you to add it.
 
-Without the [node agent](runtime-agent.md), dependencies come only from
+### Dependencies of a draft
+
+With the [node agent](runtime-agent.md), the Services a workload's pods were
+seen calling become dependencies with `compatibility: unknown`. Each gets a
+proposed range from the lowest version the reconciled Pactos describing the
+called Service report, and none when those Pactos disagree on the contract.
+Without the agent, dependencies come only from
 environment values, as in a folder. The draft holds no ConfigMaps, so each one
 the workload reads is named under `unknown` and its keys stay out of the
 configuration schema. A value such as `host:6443` matches whether or not `host`
