@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -70,7 +69,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	ref := defaultPath(opts.Path)
 
 	logging.LoggerFromContext(ctx).Debug("resolving contract for validation", "ref", ref)
-	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
+	bundle, asWritten, err := s.resolveBundleAsWritten(ctx, ref, opts.Overrides)
 	if err != nil {
 		return newValidateResult(ref, opts, nil, failedStage("load", "PARSE_ERROR", err)), nil
 	}
@@ -104,7 +103,6 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	}
 	stages = append(stages, validation.ValidateStagesWithResolverAt(ctx, bundle.Contract, rawYAML, bundle.FS, resolver, s.env().now())...)
 	stages = withExpiredEnvironments(stages, bundle.Contract, s.env().now())
-	stages = s.withBehind(ctx, stages, bundle.Contract, s.judgedFS(ctx, ref, opts.Overrides, bundle), resolver)
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -125,6 +123,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		ce, cw := s.closureFindings(ctx, ref, bundle, resolver)
 		stages = append(stages, validation.RanStage("closure", validation.ValidationResult{Errors: ce, Warnings: cw}))
 	}
+	stages = s.withBehind(ctx, stages, bundle.Contract, asWritten, resolver)
 
 	return implied(newValidateResult(ref, opts, rawYAML, stages...), bundle), nil
 }
@@ -147,41 +146,38 @@ func withExpiredEnvironments(stages []validation.Stage, c *contract.Contract, no
 	return stages
 }
 
-// judgedFS is the bundle's files as written, before any override: with
-// overrides, bundle.FS holds the merged pacto.yaml, so the bundle is read
-// again. A bundle that no longer reads is an empty FS, whose missing pacto.yaml
-// says Pacto cannot tell.
-func (s *Service) judgedFS(ctx context.Context, ref string, overrides override.Overrides, bundle *contract.Bundle) fs.FS {
-	if overrides.IsEmpty() {
-		return bundle.FS
-	}
-	if b, err := s.resolveBundle(ctx, ref); err == nil {
-		return b.FS
-	}
-	return fstest.MapFS{}
-}
-
 // withBehind adds a CONTRACT_BEHIND info finding to the structural stage when
-// c declares a pactoVersion older than the current one, saying whether raising
-// it keeps what the contract means. It judges the pacto.yaml in fsys, the
-// bundle before any override, so override values never reach the judged
-// bytes. A skipped structural stage still carries it.
+// the pacto.yaml in fsys, the bundle as written before any override, declares
+// a pactoVersion older than the current one, saying whether raising it keeps
+// what the contract means. It runs after every other stage: a run that
+// already fails anywhere cannot tell, so the raise is never judged keeping.
+// c is the contract after overrides; only a pacto.yaml that cannot be read
+// falls back to its version. A skipped structural stage still carries it.
 func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *contract.Contract, fsys fs.FS, resolver validation.BundleResolver) []validation.Stage {
-	current, behind := contract.Behind(c.PactoVersion)
-	if !behind {
-		return stages
-	}
+	merged := validation.Merged(stages)
+	failing := !merged.IsValid()
+	check := validation.UpgradeCheck(ctx, fsys, resolver, s.env().now())
 	raw, err := fs.ReadFile(fsys, DefaultContractPath)
 	var up contract.Upgraded
 	if err == nil {
-		// ponytail: this validates the original twice; pass the first run's
+		// ponytail: this validates the original again; pass the run's own
 		// findings into Upgrade if validate time matters.
-		up, err = contract.Upgrade(raw, current, validation.UpgradeCheck(ctx, fsys, resolver, s.env().now()))
-		if err == nil && up.From == "" {
-			return stages // pacto.yaml declares no pactoVersion, so it is current; an override set the older one
-		}
+		up, err = contract.Upgrade(raw, contract.Current(), func(b []byte) ([]contract.ValidationError, []contract.ValidationWarning, error) {
+			if failing {
+				return nil, nil, validation.ErrUnverified
+			}
+			return check(b)
+		})
 	}
-	w := contract.ValidationWarning{Path: "pactoVersion", Code: string(finding.CodeContractBehind), Message: behindMessage(c, current, up, err)}
+	declared := up.From
+	if declared == "" {
+		declared = c.PactoVersion // pacto.yaml did not read or its pactoVersion did not parse
+	}
+	current, behind := contract.Behind(declared)
+	if !behind || (err == nil && up.Kept == nil && up.To == up.From) {
+		return stages // at or past current as written, or no pactoVersion written
+	}
+	w := contract.ValidationWarning{Path: "pactoVersion", Code: string(finding.CodeContractBehind), Message: behindMessage(c, declared, current, up, err)}
 	for i := range stages {
 		if stages[i].Name == "structural" {
 			stages[i].Warnings = append(stages[i].Warnings, w)
@@ -190,10 +186,10 @@ func (s *Service) withBehind(ctx context.Context, stages []validation.Stage, c *
 	return stages
 }
 
-// behindMessage says that c's pactoVersion is behind current and what raising
-// it does, given the Upgrade result up and its error.
-func behindMessage(c *contract.Contract, current string, up contract.Upgraded, err error) string {
-	head := fmt.Sprintf("pactoVersion %q is behind %q; ", c.PactoVersion, current)
+// behindMessage says that the declared pactoVersion is behind current and
+// what raising it does, given the Upgrade result up and its error.
+func behindMessage(c *contract.Contract, declared, current string, up contract.Upgraded, err error) string {
+	head := fmt.Sprintf("pactoVersion %q is behind %q; ", declared, current)
 	switch {
 	case err != nil:
 		return head + err.Error()

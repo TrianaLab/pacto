@@ -988,3 +988,10 @@ func TestLoadLocalBundleWithOverridesErrors(t *testing.T) {
 		t.Fatalf("dirBase(.) = %q", got)
 	}
 }
+
+func TestResolveBundleAsWrittenOverrideError(t *testing.T) {
+	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '2.5'\nservice: {name: s, version: 1.0.0}\n"})
+	if _, _, err := NewService(nil, nil).resolveBundleAsWritten(context.Background(), dir, override.Overrides{SetValues: []string{"workload=nope"}}); err == nil {
+		t.Fatal("an override that breaks the contract loaded")
+	}
+}

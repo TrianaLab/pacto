@@ -156,9 +156,9 @@ func TestValidateBehindInvalidContractNeverSaysKeeps(t *testing.T) {
 	}
 }
 
-// A bundle that no longer reads when it is loaded again without overrides
-// leaves Pacto unable to tell, and it says so.
-func TestValidateBehindCheckErrorSaysSo(t *testing.T) {
+// The judged pacto.yaml comes from the one read Validate makes: a registry
+// tag that moves, or a pull that fails, after it never reaches the judgement.
+func TestValidateBehindJudgesTheOneRead(t *testing.T) {
 	pulls := 0
 	b := testBundle()
 	b.RawYAML = nil
@@ -170,8 +170,40 @@ func TestValidateBehindCheckErrorSaysSo(t *testing.T) {
 		return b, nil
 	}}
 	r := validateAt(t, NewService(store, nil), ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0", Overrides: override.Overrides{SetValues: []string{"service.version=1.0.1"}}})
-	got := behind(t, r)
-	if !strings.Contains(got, "file does not exist") || strings.Contains(got, "keeps what") {
+	if got := behind(t, r); pulls != 1 || !strings.Contains(got, "keeps what") {
+		t.Fatalf("%d pulls, message %q", pulls, got)
+	}
+}
+
+// Behind is decided on the pacto.yaml as written: an override of pactoVersion
+// neither invents nor hides CONTRACT_BEHIND, and the message names the
+// declared version.
+func TestValidateBehindOverriddenVersion(t *testing.T) {
+	setVersion := func(v string) override.Overrides {
+		return override.Overrides{Values: []map[string]any{{"pactoVersion": v}}}
+	}
+	current := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + contract.Current() + "'\nservice: {name: s, version: 1.0.0}\n"})
+	r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: current, Overrides: setVersion(prevVersion)})
+	if len(withoutBehind(r.Warnings)) != len(r.Warnings) {
+		t.Fatalf("a current file got %+v", r.Warnings)
+	}
+	old := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
+	got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: old, Overrides: setVersion(contract.Current())}))
+	if !strings.HasPrefix(got, `pactoVersion "`+prevVersion+`" is behind`) {
 		t.Fatalf("message %q", got)
+	}
+}
+
+// A run whose only failure is a stage outside the layers Upgrade re-runs (here
+// an unmet guarantee) still cannot tell: it never says the raise keeps.
+func TestValidateBehindGuaranteeFailureNeverSaysKeeps(t *testing.T) {
+	root := t.TempDir()
+	writeClosureFile(t, root, "orders/pacto.yaml", guaranteeProvider)
+	writeClosureFile(t, root, "orders/events.yaml", "asyncapi: 3.0.0\ninfo: {title: orders, version: 1.0.0}\n")
+	writeClosureFile(t, root, "checkout/pacto.yaml", guaranteeConsumer("  - {name: orders, ref: ../orders, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-most-once}]}\n"))
+	r := validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: filepath.Join(root, "checkout")})
+	got := behind(t, r)
+	if r.Valid || !strings.HasSuffix(got, validation.ErrUnverified.Error()) {
+		t.Fatalf("valid=%v message %q", r.Valid, got)
 	}
 }
