@@ -489,8 +489,8 @@ type SourceState struct {
 	Error              *SourceError `json:"error,omitempty"`
 	RevisionCount      int          `json:"revisionCount"`
 	TargetCount        int          `json:"targetCount"`
-	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read; empty means every namespace. Anything in another namespace is unknown."`
-	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted."`
+	Namespaces         []string     `json:"namespaces,omitempty" doc:"The namespaces a Kubernetes source read that you may see. Empty with no namespacesTotal means every namespace; empty with namespacesTotal above 0 means every namespace it read is hidden from you. Anything in another namespace is unknown."`
+	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 }
 
 // ToolSummary is a bounded projection of an agent-invocable tool derived from a

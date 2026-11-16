@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,8 +55,8 @@ func TestSourceStateKeepsNamespaces(t *testing.T) {
 }
 
 func TestScopedNamespacesAreReviewed(t *testing.T) {
-	if got := scopedFleet(t).Namespaces(); !slices.Equal(got, []string{"audit", "ledger", "payments"}) {
-		t.Errorf("Namespaces = %q, want the watched and the unreadable ones too", got)
+	if got := scopedFleet(t).Namespaces(); !slices.Equal(got, []string{"ledger", "payments"}) {
+		t.Errorf("Namespaces = %q, want the read ones only: a review where the source could not read is likely refused too", got)
 	}
 }
 
@@ -172,5 +173,37 @@ func TestRestrictRebuildsScopeWhenEveryWatchedNamespaceIsVisible(t *testing.T) {
 	want := []string{"source c1 watches 1 namespace (payments); services in any other namespace are unknown"}
 	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceScoped); !slices.Equal(got, want) {
 		t.Errorf("scope = %q, want %q", got, want)
+	}
+}
+
+// TestRestrictHiddenAllReadsAsScoped: a reader who may see none of the watched
+// namespaces gets no names and the total, and the field doc says that shape is
+// a scoped source, never every namespace.
+func TestRestrictHiddenAllReadsAsScoped(t *testing.T) {
+	s := scopedFleet(t).Restrict(func(string) bool { return false }).SnapshotForSerialization()
+	b, err := json.Marshal(s.Sources[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"namespaces"`) || !strings.Contains(string(b), `"namespacesTotal":2`) {
+		t.Errorf("source = %s, want no names and namespacesTotal 2", b)
+	}
+	f, _ := reflect.TypeFor[SourceState]().FieldByName("Namespaces")
+	if doc := f.Tag.Get("doc"); !strings.Contains(doc, "empty with namespacesTotal above 0 means every namespace it read is hidden from you") {
+		t.Errorf("Namespaces doc = %q, want the hidden-all shape documented", doc)
+	}
+}
+
+// TestUnreadableNamespaceHiddenFromRestrictedReader: a namespace the source
+// could not read is never reviewed, so a restricted reader never sees it named.
+func TestUnreadableNamespaceHiddenFromRestrictedReader(t *testing.T) {
+	q := scopedFleet(t)
+	visible := map[string]bool{}
+	for _, ns := range q.Namespaces() {
+		visible[ns] = true
+	}
+	s := q.Restrict(func(ns string) bool { return visible[ns] }).SnapshotForSerialization()
+	if got := scopeMessages(s.Limitations, LimitationK8sNamespaceUnreadable); len(got) != 0 {
+		t.Errorf("unreadable = %q, want none for a reader whose namespaces were reviewed", got)
 	}
 }

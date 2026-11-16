@@ -63,6 +63,23 @@ func TestBoundLimitations_Caps(t *testing.T) {
 	}
 }
 
+// TestBoundLimitationsKeepsNamespaceScope: more than the cap of limitations
+// that sort before K8S_ never push out the namespace scope of a source.
+func TestBoundLimitationsKeepsNamespaceScope(t *testing.T) {
+	var ls []Limitation
+	for range MaxMetaLimitations + 5 {
+		ls = append(ls, Limitation{Code: "DOMAIN_CONFLICT"})
+	}
+	ls = append(ls, NamespaceScopeLimitation("c1", []string{"payments"}, 0), NamespaceUnreadableLimitation("c1", "ledger", "forbidden"))
+	capped, trunc := BoundLimitations(ls)
+	if !trunc || len(capped) != MaxMetaLimitations {
+		t.Fatalf("len=%d trunc=%v", len(capped), trunc)
+	}
+	if got := []string{capped[MaxMetaLimitations-2].Code, capped[MaxMetaLimitations-1].Code}; got[0] != LimitationK8sNamespaceScoped || got[1] != LimitationK8sNamespaceUnreadable {
+		t.Errorf("last two = %q, want the namespace scope kept in order", got)
+	}
+}
+
 func TestProductMeta_UnderCapNotTruncated(t *testing.T) {
 	q := productFleet(t)
 	m := q.ProductMeta()

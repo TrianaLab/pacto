@@ -81,6 +81,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			hiddenNS[ns] = true
 		}
 	}
+	hideUnreadable(s, visible, hiddenNS)
 	restricted := !visible("")
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted)
 	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {

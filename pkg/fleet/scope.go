@@ -72,17 +72,25 @@ func joinNames(names []string) string {
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
-// scopeNamespaces lists the namespaces the snapshot's sources were told to
-// read: the ones they read and the ones they could not.
+// scopeNamespaces lists the namespaces the snapshot's sources read. A
+// namespace a source could not read is left out: the dashboard's review there
+// is likely refused by the same missing grant, and one refused review would
+// fail every request. restrictScope drops its limitation for a restricted
+// reader, so only a reader of every namespace learns which one failed.
 func scopeNamespaces(s *FleetSnapshot, seen map[string]bool) {
 	for _, st := range s.Sources {
 		for _, ns := range st.Namespaces {
 			seen[ns] = true
 		}
 	}
+}
+
+// hideUnreadable adds to hidden each namespace a source could not read that
+// visible refuses, so its limitation alone restricts the answer.
+func hideUnreadable(s *FleetSnapshot, visible func(string) bool, hidden map[string]bool) {
 	for _, l := range s.Limitations {
-		if ns, ok := unreadableNamespace(l); ok {
-			seen[ns] = true
+		if ns, ok := unreadableNamespace(l); ok && !visible(ns) {
+			hidden[ns] = true
 		}
 	}
 }
