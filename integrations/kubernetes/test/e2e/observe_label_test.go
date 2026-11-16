@@ -86,6 +86,29 @@ func TestObserveNamespaceLabel(t *testing.T) {
 		requireRuntimeObservedMessage(t, p, "does not name probing")
 		requireRuntimeObservedMessage(t, p, "metrics on (namespace label pacto.trianalab.io/observe=metrics")
 	})
+
+	t.Run("metrics_label_collects_metrics_evidence", func(t *testing.T) {
+		// The label reaches the metrics collector: an unlabelled namespace stays Unknown, the labelled one
+		// scrapes the contract's metrics path and goes Compliant.
+		metricsContract := buildContract(contractSpec{
+			name:   "app",
+			ifaces: []ifaceSpec{{name: "api"}},
+			caps:   []capSpec{{typ: "metrics", iface: "api", path: "/metrics"}},
+		})
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, promMetrics)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract}, Target: target})
+
+		requireStatus(t, reconcile(t, "p", ns, auto).pacto, pactov1alpha1.ContractStatusUnknown)
+
+		setObserveLabel(t, ns, "metrics")
+		p := reconcile(t, "p", ns, auto).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2)
+	})
 }
 
 func setObserveLabel(t *testing.T, ns, value string) {
