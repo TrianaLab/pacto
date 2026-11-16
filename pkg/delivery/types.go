@@ -260,16 +260,20 @@ type ClassPolicy struct {
 	AgentGroups []string `json:"agentGroups,omitempty"`
 	// BreakGlassGroups may override and edit the pointer directly.
 	BreakGlassGroups []string `json:"breakGlassGroups,omitempty"`
-	// TeamGroupPrefix maps a contract owner team to an identity-provider group:
-	// a member of group TeamGroupPrefix+team belongs to the team. A group named
-	// exactly like the team always counts.
+	// TeamGroupPrefix maps a contract owner team to an identity-provider group
+	// when TeamNarrowing is on: a member of group TeamGroupPrefix+team belongs
+	// to the team. Empty, the group named exactly like the team counts.
 	TeamGroupPrefix string `json:"teamGroupPrefix,omitempty"`
+	// TeamNarrowing makes owner teams narrow who may answer a question. Off,
+	// owner teams only route it. The chart sets it when
+	// delivery.identities.teamGroupPrefix is set, even to "".
+	TeamNarrowing bool `json:"teamNarrowing,omitempty"`
 	// RequireOwnerTeam leaves a question that names no team to nobody: only
 	// break-glass can then override. Off, any person may answer it.
 	RequireOwnerTeam bool `json:"requireOwnerTeam"`
-	// HumanGroups, when set, is the only way to count as a person: anyone in
-	// none of them is an agent. Empty classifies by AgentGroups alone, so an
-	// agent identity left out of every agent group counts as a person.
+	// HumanGroups is a deprecated override: when set, anyone in none of them
+	// is an agent. Empty, people and agents are told apart by how they sign
+	// in (ClassifyBy).
 	HumanGroups []string `json:"humanGroups,omitempty"`
 	// GateProviders names the type of each gate provider the chart
 	// configures (delivery.gates.providers), never its URL or signers, so a
@@ -303,7 +307,7 @@ const (
 // DefaultClassPolicy is the chart's default delivery.identities: what a client assumes
 // when the policy is not published.
 func DefaultClassPolicy() ClassPolicy {
-	return ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+	return ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 }
 
 // ParseClassPolicy reads a published ClassPolicy.
@@ -319,8 +323,9 @@ func ParseClassPolicy(b []byte) (ClassPolicy, error) {
 // that makes them and when they last logged in interactively.
 type Caller struct {
 	Identity
-	Class    ActorClass `json:"class"`
-	AuthTime string     `json:"authTime,omitempty"`
+	Class       ActorClass  `json:"class"`
+	ClassSource ClassSource `json:"classSource,omitempty" doc:"How the class was decided: controller, break-glass-group, service-account, agent-group, outside-human-groups, system-user or user"`
+	AuthTime    string      `json:"authTime,omitempty"`
 	// Policy is the published ClassPolicy the caller was classified with,
 	// for the teams and person checks a client makes before it offers.
 	Policy ClassPolicy `json:"-"`
@@ -332,10 +337,15 @@ type Caller struct {
 // InTeams reports whether groups name one of the teams: the group T, or with
 // a TeamGroupPrefix only that prefix plus T. A Kubernetes system: group is
 // never a team, as every user carries one. No teams means the question names
-// nobody: any person may answer it, or nobody with RequireOwnerTeam.
+// nobody: any person may answer it, or nobody with RequireOwnerTeam. With
+// TeamNarrowing off any groups answer a named team. It is the one place that
+// reads TeamNarrowing, so every caller agrees.
 func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	if len(teams) == 0 {
 		return !p.RequireOwnerTeam
+	}
+	if !p.TeamNarrowing {
+		return true
 	}
 	for _, t := range teams {
 		if g := p.TeamGroupPrefix + t; !strings.HasPrefix(g, "system:") && slices.Contains(groups, g) {
@@ -345,26 +355,71 @@ func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	return false
 }
 
-// Classify derives the actor class. Service accounts other than the promoter
-// are agents: an agent must run under its own identity, and a person never logs
-// in as a service account.
+// ClassSource says how ClassifyBy decided an identity's class.
+type ClassSource string
+
+const (
+	// ClassByController: the promoter's own service account.
+	ClassByController ClassSource = "controller"
+	// ClassByBreakGlassGroup: a member of a break-glass group.
+	ClassByBreakGlassGroup ClassSource = "break-glass-group"
+	// ClassByServiceAccount: a Kubernetes service account, always an agent.
+	ClassByServiceAccount ClassSource = "service-account"
+	// ClassByAgentGroup: a member of an agent group, automation that signs in
+	// through OIDC.
+	ClassByAgentGroup ClassSource = "agent-group"
+	// ClassByOutsideHumanGroups: outside the deprecated HumanGroups override.
+	ClassByOutsideHumanGroups ClassSource = "outside-human-groups"
+	// ClassBySystemUser: a system: user that is no service account (a
+	// control-plane component, a node or system:anonymous) or an
+	// unauthenticated request. None of them is a person.
+	ClassBySystemUser ClassSource = "system-user"
+	// ClassByUser: any other authenticated identity, a person.
+	ClassByUser ClassSource = "user"
+)
+
+// Classify derives the actor class (ClassifyBy without its source).
 func (p ClassPolicy) Classify(id Identity) ActorClass {
+	c, _ := p.ClassifyBy(id)
+	return c
+}
+
+// ClassifyBy derives the actor class from how id signed in, and says how.
+// Service accounts other than the promoter are agents: an agent must run
+// under its own identity, and a person never logs in as a service account.
+// So are system: users and unauthenticated requests. Every other
+// authenticated identity is a person unless an agent group or the
+// deprecated HumanGroups override says otherwise.
+func (p ClassPolicy) ClassifyBy(id Identity) (ActorClass, ClassSource) {
 	switch {
 	case id.User == p.ControllerUser:
-		return ClassController
+		return ClassController, ClassByController
 	case intersects(id.Groups, p.BreakGlassGroups):
-		return ClassBreakGlass
-	case isServiceAccount(id.User) || intersects(id.Groups, p.AgentGroups) || p.unenrolled(id):
-		return ClassAgent
+		return ClassBreakGlass, ClassByBreakGlassGroup
+	case isServiceAccount(id.User):
+		return ClassAgent, ClassByServiceAccount
+	case intersects(id.Groups, p.AgentGroups):
+		return ClassAgent, ClassByAgentGroup
+	case p.unenrolled(id):
+		return ClassAgent, ClassByOutsideHumanGroups
+	case isSystemUser(id):
+		return ClassAgent, ClassBySystemUser
 	default:
-		return ClassHuman
+		return ClassHuman, ClassByUser
 	}
 }
 
-// IsHuman reports whether id may approve: not a service account, in no agent
-// or controller group and, when HumanGroups is set, in one of them.
+// IsHuman reports whether id may approve: not a service account or a system
+// user, in no agent or controller group and, when HumanGroups is set, in one
+// of them. A break-glass member who is otherwise a person counts.
 func (p ClassPolicy) IsHuman(id Identity) bool {
-	return id.User != p.ControllerUser && !isServiceAccount(id.User) && !intersects(id.Groups, p.AgentGroups) && !p.unenrolled(id)
+	return id.User != p.ControllerUser && !isServiceAccount(id.User) && !intersects(id.Groups, p.AgentGroups) && !p.unenrolled(id) && !isSystemUser(id)
+}
+
+// isSystemUser: a system: username (a service account included) or the
+// group every unauthenticated request carries.
+func isSystemUser(id Identity) bool {
+	return strings.HasPrefix(id.User, "system:") || slices.Contains(id.Groups, "system:unauthenticated")
 }
 
 // unenrolled: a human allowlist is set and id is in none of it.

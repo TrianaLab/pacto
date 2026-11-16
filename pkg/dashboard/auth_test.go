@@ -70,7 +70,7 @@ func TestDeliveryCaller(t *testing.T) {
 	code, c := call(t, http.MethodGet, base+"/api/delivery/caller", nil)
 	expect(t, code == http.StatusOK && c["user"] == "https://idp#carol" && c["class"] == "human" && c["authTime"] != nil && c["requireOwnerTeam"] == false,
 		"caller %d %v", code, c)
-	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true, TeamNarrowing: true}
 	_, c = call(t, http.MethodGet, base+"/api/delivery/caller", nil)
 	expect(t, c["requireOwnerTeam"] == true, "the caller says when an ownerless question is nobody's: %v", c)
 	f.callerErr = Refuse(http.StatusServiceUnavailable, "ClusterUnreachable", "apiserver down")

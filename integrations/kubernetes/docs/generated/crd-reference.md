@@ -93,10 +93,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `status.actorClassifiedBy` | `string` | no |  |  | ActorClassifiedBy is how the actor's class was decided. |
 | `status.applied` | `boolean` | no |  |  | Applied is true once the pointer moved for this operation. |
 | `status.approvals` | `[]object` | no |  |  |  |
+| `status.approvals[].access` | `string` | no |  |  | Access is what let the approver decide, such as "update deployments/checkout in payments". |
+| `status.approvals[].accessAt` | `string` | no |  |  | AccessAt is when Access was answered (RFC 3339). |
+| `status.approvals[].accessSource` | `string` | no |  |  | AccessSource is who answered Access: subject-access-review or self-subject-access-review. |
 | `status.approvals[].authTime` | `string` | no |  |  |  |
 | `status.approvals[].by` | `string` | yes |  |  |  |
+| `status.approvals[].classifiedBy` | `string` | no |  |  | ClassifiedBy is how the approver was classified as a person. |
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |

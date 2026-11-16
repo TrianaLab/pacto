@@ -1053,6 +1053,8 @@ export interface components {
         CallerOutputBody: {
             authTime?: string;
             class: string;
+            /** @description How the class was decided: controller, break-glass-group, service-account, agent-group, outside-human-groups, system-user or user */
+            classSource?: string;
             groups?: string[] | null;
             /** @description A question that names no team has nobody who may answer it; only break-glass can override */
             requireOwnerTeam: boolean;
@@ -1361,8 +1363,12 @@ export interface components {
             always?: boolean;
         };
         "Delivery.ApprovalRecord": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             name: string;
             note?: string;
@@ -1463,6 +1469,7 @@ export interface components {
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1509,6 +1516,7 @@ export interface components {
         "Delivery.LifecycleEvent": {
             actor: string;
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             cause?: components["schemas"]["Delivery.Cause"];
@@ -1622,6 +1630,7 @@ export interface components {
         };
         "Delivery.OperationStatus": {
             actorClass?: string;
+            actorClassifiedBy?: string;
             applied?: boolean;
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
             approvedTeams?: string[] | null;
@@ -1740,8 +1749,12 @@ export interface components {
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };
         "Delivery.RecordApproval": {
+            access?: string;
+            accessAt?: string;
+            accessSource?: string;
             authTime?: string;
             by: string;
+            classifiedBy?: string;
             decision: string;
             intentDigest: string;
             note?: string;
@@ -2196,6 +2209,7 @@ export interface components {
         };
         ExplanationStatusStruct: {
             actorClass?: string;
+            actorClassifiedBy?: string;
             message?: string;
             outcome?: string;
             phase: string;

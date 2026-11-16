@@ -102,7 +102,7 @@ func RecordEntry(r StoredRecord) HistoryEntry {
 		e.From, e.To = p.Intent.Params.From, p.Intent.Params.To
 	}
 	if p.Actor != nil {
-		e.Actor, e.ActorClass = p.Actor.User, p.Actor.Class
+		e.Actor, e.ActorClass, e.ActorClassifiedBy = p.Actor.User, p.Actor.Class, p.Actor.ClassifiedBy
 	}
 	if o := p.Outcome; o != nil {
 		e.Outcome, e.Verification, e.Reason = o.Result, o.Verification, o.Reason

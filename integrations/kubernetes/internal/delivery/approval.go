@@ -131,7 +131,8 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (
 			skipped = "Approval " + a.Name + " by " + s.By + " does not count: " + why
 			continue
 		}
-		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime}
+		_, by := r.Policy.ClassifyBy(delivery.Identity{User: s.By, Groups: s.Groups})
+		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime, ClassifiedBy: by}
 		op.Status.Approvals = append(op.Status.Approvals, rec)
 		op.Status.ApprovedTeams = delivery.AnsweredTeams(r.Policy, ownersOf(op), s.Groups, op.Status.ApprovedTeams)
 		return &rec, ""

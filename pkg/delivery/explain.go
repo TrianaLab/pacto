@@ -30,6 +30,7 @@ func ExplainOperation(op *OperationObject, stage *StageObject) *Explanation {
 	s := op.Status
 	e.Status.Phase, e.Status.Outcome, e.Status.Verification = s.Phase, s.Outcome, s.Verification
 	e.Status.Reason, e.Status.Message, e.Status.Question, e.Status.ActorClass, e.Status.Seq = s.Reason, s.Message, s.Question, s.ActorClass, s.Seq
+	e.Status.ActorClassifiedBy = s.ActorClassifiedBy
 	for _, v := range s.Verdicts {
 		e.Verdicts = append(e.Verdicts, ExplainedVerdict{Verdict: v, Rerun: RerunHint(v)})
 	}

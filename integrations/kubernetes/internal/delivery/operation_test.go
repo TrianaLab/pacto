@@ -1770,3 +1770,22 @@ func TestPromoterRaisedNeedsNoPrincipal(t *testing.T) {
 		t.Fatalf("automatic rollback: %+v %+v", rb.Spec.OnBehalfOf, rb.Status)
 	}
 }
+
+// TestAdmitRecordsClassificationSource: admission records how the actor was
+// classified, and a consumed approval how its approver was.
+func TestAdmitRecordsClassificationSource(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	if o := e.drive("p1"); o.Status.ActorClass != delivery.ClassAgent || o.Status.ActorClassifiedBy != delivery.ClassByServiceAccount {
+		t.Fatalf("a service account: %s/%s", o.Status.ActorClass, o.Status.ActorClassifiedBy)
+	}
+	e, _ = stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Unknown)
+	e.now = e.now.Add(2 * time.Minute)
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.ActorClassifiedBy != delivery.ClassByController {
+		t.Fatalf("held by the promoter: %+v", o.Status)
+	}
+	e.approve(o, "no", "bob", delivery.Reject)
+	if o = e.drive("p1"); len(o.Status.Approvals) != 1 || o.Status.Approvals[0].ClassifiedBy != delivery.ClassByUser {
+		t.Fatalf("the approver's source: %+v", o.Status.Approvals)
+	}
+}

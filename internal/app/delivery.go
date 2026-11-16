@@ -104,7 +104,7 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 				": pass --delivery-namespace with the namespace the chart's delivery.namespace names"
 		}
 	}
-	c.Class = c.Policy.Classify(c.Identity)
+	c.Class, c.ClassSource = c.Policy.ClassifyBy(c.Identity)
 	if v := extra[authn.AuthTimeExtra]; len(v) > 0 {
 		c.AuthTime = v[0]
 	}

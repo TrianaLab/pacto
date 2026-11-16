@@ -108,7 +108,7 @@ func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusal
 // WhoAmI answers with the published policy the apiserver-backed client reads.
 func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) {
 	c := f.caller
-	c.Policy = delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"}
+	c.Policy = delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:", TeamNarrowing: true}
 	if f.policy != nil {
 		c.Policy = *f.policy
 	}
@@ -478,7 +478,7 @@ func TestInbox(t *testing.T) {
 	// Under requireOwnerTeam an ownerless question is nobody's but
 	// break-glass's, so it is in front of break-glass only.
 	f.ops[0].Spec.Actor.User = "someone-else"
-	f.policy = &delivery.ClassPolicy{TeamGroupPrefix: "acme:", BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+	f.policy = &delivery.ClassPolicy{TeamGroupPrefix: "acme:", BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true, TeamNarrowing: true}
 	f.caller = person("acme:team-checkout")
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, names(inbox["held"]) == "for-checkout:approve", "a person cannot answer an ownerless question: %v", inbox["held"])
@@ -534,7 +534,7 @@ func TestEnvironments(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, strings.Contains(got, "unfreeze"), "break-glass actions %v", got)
-	f.owner, f.policy = "", &delivery.ClassPolicy{TeamGroupPrefix: "acme:", RequireOwnerTeam: true}
+	f.owner, f.policy = "", &delivery.ClassPolicy{TeamGroupPrefix: "acme:", RequireOwnerTeam: true, TeamNarrowing: true}
 	f.caller = person("acme:team-payments")
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
@@ -986,7 +986,7 @@ func TestDecide(t *testing.T) {
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
 		{"not my team", func() string { f.caller = person("acme:team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
 		{"no team declared", func() string {
-			f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+			f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true, TeamNarrowing: true}
 			f.ops[0].Status = held()
 			return base
 		}, http.StatusForbidden, "NoOwnerTeam"},
@@ -1048,7 +1048,7 @@ func TestCompareVersions(t *testing.T) {
 
 func TestDeliveryNamespaceScope(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
-	f.policy = &delivery.ClassPolicy{} // no team prefix: acme:team-checkout is no team here
+	f.policy = &delivery.ClassPolicy{TeamNarrowing: true} // no team prefix: acme:team-checkout is no team here
 	a := &authed{state: AuthState{SignedIn: true}}
 	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: a.auth(false, true), DeliveryNamespace: "prod",
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))

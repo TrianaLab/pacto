@@ -72,7 +72,7 @@ var (
 
 // Policy maps the personas to actor classes and contract teams to groups:
 // a member of team-orders belongs to team orders.
-var Policy = delivery.ClassPolicy{ControllerUser: Promoter.User, TeamGroupPrefix: "team-"}
+var Policy = delivery.ClassPolicy{ControllerUser: Promoter.User, TeamGroupPrefix: "team-", TeamNarrowing: true}
 
 // Class is the actor class Policy gives p.
 func (p Persona) Class() delivery.ActorClass {

@@ -221,7 +221,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		e.reg.hosts = hosts
 		return e.reg
 	}}
-	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
+	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}, TeamNarrowing: true}
 	clock := func() time.Time { return e.now }
 	guarded := []string{"pd-operation"}
 	e.health = &fakeHealth{result: delivery.Pass}

@@ -23,7 +23,7 @@ func rowStage(level Level, st StageStatus) StageObject {
 }
 
 func rowCaller(class ActorClass, groups ...string) Caller {
-	return Caller{Identity: Identity{User: "alice", Groups: groups}, Class: class, Policy: ClassPolicy{TeamGroupPrefix: "acme:"}}
+	return Caller{Identity: Identity{User: "alice", Groups: groups}, Class: class, Policy: ClassPolicy{TeamGroupPrefix: "acme:", TeamNarrowing: true}}
 }
 
 func offerOf(row StageRow, action string) *Offer {

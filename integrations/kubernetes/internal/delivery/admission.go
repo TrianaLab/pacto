@@ -35,8 +35,8 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation) (rec
 		return reconcile.Result{}, err
 	}
 	now := r.now()
-	class := r.Policy.Classify(delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups})
-	op.Status.ActorClass = class
+	class, by := r.Policy.ClassifyBy(delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups})
+	op.Status.ActorClass, op.Status.ActorClassifiedBy = class, by
 	op.Status.Guarded = true // unguarded() just found every policy enforcing
 	op.Status.Times.Admitted = ts(now)
 	t, known := delivery.TypeByID(op.Spec.Type)

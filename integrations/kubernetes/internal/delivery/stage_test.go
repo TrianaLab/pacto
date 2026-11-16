@@ -628,7 +628,7 @@ func TestStageReadyApplier(t *testing.T) {
 
 func TestLoadClassPolicy(t *testing.T) {
 	p, err := LoadClassPolicy("", "me")
-	if err != nil || p.ControllerUser != "me" || !p.RequireOwnerTeam || p.AgentGroups[0] != "pacto:agents" {
+	if err != nil || p.ControllerUser != "me" || p.RequireOwnerTeam || p.AgentGroups[0] != "pacto:agents" {
 		t.Fatalf("defaults: %+v %v", p, err)
 	}
 	dir := t.TempDir()

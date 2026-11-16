@@ -10,7 +10,7 @@ import (
 // each named, and the one it counts.
 func TestApprovalEligible(t *testing.T) {
 	at := time.Unix(1_000_000, 0)
-	policy := ClassPolicy{ControllerUser: "system:serviceaccount:d:promoter", AgentGroups: []string{"pacto:agents"}}
+	policy := ClassPolicy{ControllerUser: "system:serviceaccount:d:promoter", AgentGroups: []string{"pacto:agents"}, TeamNarrowing: true}
 	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}, OnBehalfOf: &Principal{User: "carol"}}
 	held := OperationStatus{Phase: PhaseHeld, Times: Times{Held: at.Add(-time.Minute).UTC().Format(time.RFC3339)},
 		Plan: &Plan{Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-checkout"}}}}
@@ -188,7 +188,7 @@ func TestApplyEffects(t *testing.T) {
 }
 
 func TestTeamsWaiting(t *testing.T) {
-	p := ClassPolicy{TeamGroupPrefix: "acme:"}
+	p := ClassPolicy{TeamGroupPrefix: "acme:", TeamNarrowing: true}
 	owners := []string{"checkout", "orders"}
 	got := AnsweredTeams(p, owners, []string{"acme:checkout", "checkout"}, nil)
 	if strings.Join(got, ",") != "checkout" || strings.Join(TeamsWaiting(owners, got), ",") != "orders" {
@@ -260,5 +260,30 @@ func TestNamedPersonMayNotApproveUnderAnotherSpelling(t *testing.T) {
 func TestSamePersonNeverMatchesNobody(t *testing.T) {
 	if samePerson("", "") || samePerson(" ", "") || !samePerson("Dana ", "dana") {
 		t.Error("an empty name matches no one; case and padding do not count")
+	}
+}
+
+// TestAnsweredTeamsOneApprovalWithoutNarrowing: with narrowing off one
+// approval answers every owner team.
+func TestAnsweredTeamsOneApprovalWithoutNarrowing(t *testing.T) {
+	owners := []string{"orders", "checkout"}
+	got := AnsweredTeams(ClassPolicy{}, owners, []string{"devs"}, nil)
+	if len(got) != 2 || len(TeamsWaiting(owners, got)) != 0 {
+		t.Fatalf("answered %v, waiting %v", got, TeamsWaiting(owners, got))
+	}
+}
+
+// TestApprovalNarrowingStillRefusesOtherTeams: with narrowing on, a person
+// outside the owner teams is refused.
+func TestApprovalNarrowingStillRefusesOtherTeams(t *testing.T) {
+	at := time.Unix(1_000_000, 0)
+	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bob"}}
+	held := OperationStatus{Phase: PhaseHeld, Plan: &Plan{Floor: Floor{Human: true, Decision: Approve, Owners: []string{"checkout"}}}}
+	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "alice", Groups: []string{"ledger"}}
+	if code, _ := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{TeamNarrowing: true}, 0); code != "NotYourTeam" {
+		t.Fatalf("narrowing on: %q", code)
+	}
+	if code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0); code != "" {
+		t.Fatalf("narrowing off: %q %q", code, why)
 	}
 }
