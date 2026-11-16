@@ -92,13 +92,15 @@
                     {:else}
                       {dep.name} <span class="badge {reasonBadgeClass(reason)}" data-tip={reasonTooltip(reason)}>{reasonLabel(reason)}</span>
                     {/if}
+                    {#if dep.nameFromRef}<span class="badge" data-testid="dep-name-from-ref" data-tip="The contract declares no name for this dependency; Pacto derived it from the ref.">name from ref</span>{/if}
                     {#if dep.guaranteeStatus || dep.deprecatedInterfaces?.length}
                       <div class="dep-behavior" data-testid="dep-behavior"><BehaviorBadges status={dep.guaranteeStatus} reason={dep.guaranteeReason} deprecated={dep.deprecatedInterfaces ?? []} /></div>
                     {/if}
                   </td>
                   <td><code class="text-3">{dep.ref}</code></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
-                  <td>{dep.compatibility || '—'}</td>
+                  <!-- compatibility: unknown declares no range, so it is never read as one. -->
+                  <td>{#if dep.compatibilityUnknown || dep.compatibility === 'unknown'}<span class="badge" data-tip="Pacto cannot tell which versions of this provider work, so it never counts the dependency as compatible.">Range not declared</span>{:else}{dep.compatibility || '—'}{/if}</td>
                   <td>
                     {#if dep.lockedVersion || dep.lockedDigest}
                       <div class="lock-cell">

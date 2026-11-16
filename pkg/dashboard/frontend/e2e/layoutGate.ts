@@ -487,7 +487,16 @@ export function installScaleFixture(): void {
       if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
     };
     if (route === '/api/fleet/entities/revision') {
-      for (const d of ((doc.revision as Record<string, unknown> | undefined)?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      const rev = doc.revision as Record<string, unknown> | undefined;
+      for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
+      // reason, a 5-digit port on every interface and a long inferred source.
+      if (rev) {
+        rev.breaks = { total: 25, count: 20, truncated: true, hidden: 3, items: Array.from({ length: 20 }, (_, i) => ({
+          consumer: longName(`break-consumer-${i}`), reason: longName(`break-reason-${i}`), expires: '2026-12-14' })) };
+        for (const it of (rev.interfaces as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) it.port = 65535;
+        rev.inferred = [{ field: 'service.name', value: longName('inferred-service-name'), source: `${longName('charts/deeply/nested/chart-folder')}/Chart.yaml:2`, provenance: 'inferred' }];
+      }
     }
     if (route === '/api/fleet/entities/target') {
       const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;

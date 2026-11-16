@@ -542,6 +542,7 @@
                 {:else}
                   <IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} describe />{' '}<code>{u.requestedRef || u.ref}</code>
                 {/if}
+                {#if u.nameFromRef}{' '}<IdentityBadge label="name from ref" title="The contract declares no name for this dependency; Pacto derived it from the ref." describe />{/if}
                 {#if inferred.get(u.ref)}
                   {@const s = inferred.get(u.ref)}
                   {' '}<IdentityBadge label="inferred" tone="neutral" title="Matched by name only; the contract does not declare it" describe />

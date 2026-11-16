@@ -243,6 +243,12 @@ func TestDeclaredClaimCarriesRangeStatus(t *testing.T) {
 	}
 }
 
+func TestDeclaredClaimCarriesNameFromRef(t *testing.T) {
+	if !declaredClaim(Relationship{NameFromRef: true}).NameFromRef {
+		t.Error("NameFromRef dropped from the declared claim")
+	}
+}
+
 // lifecycleFleet: pg 1.0.0 and 2.0.0 provide postgresql, each with its own
 // service lifecycle; app 1.0.0 pins pg 1.0.0 in its lock and app 2.0.0 does
 // not; cache depends on redis, which declares no lifecycle. pg runs in the

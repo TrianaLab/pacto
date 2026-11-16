@@ -2432,6 +2432,7 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
+            nameFromRef?: boolean;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;

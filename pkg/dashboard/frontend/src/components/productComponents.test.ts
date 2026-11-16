@@ -37,6 +37,7 @@ import SchemaContent from './SchemaContent.svelte';
 // @ts-expect-error
 import BundleProvenance from './BundleProvenance.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
+import { inService } from '../lib/identityContext.ts';
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
@@ -563,5 +564,60 @@ describe('identity renderers isolate the name', () => {
     const name = 'svc‮gnp.exe';
     comp = mount(NodeDrawer, { target, props: { data: { name, external: true, dependencies: [], dependents: [] } } });
     expect(target.querySelector('.drawer-name bdi')?.textContent).toBe(name);
+  });
+});
+
+// pactoVersion 2.5: a service whose name no revision declares carries nameInferred.
+// The services list, search results and every other entity link render through
+// EntityIdentity, so the chip shows wherever the name does.
+describe('EntityIdentity — an inferred service name', () => {
+  let target: HTMLElement;
+  let comp: ReturnType<typeof mount> | null = null;
+  beforeEach(() => { target = document.createElement('div'); document.body.appendChild(target); });
+  afterEach(() => { if (comp) { unmount(comp); comp = null; } document.body.removeChild(target); });
+
+  it('marks an inferred name with its source', () => {
+    comp = mount(EntityIdentity, { target, props: { ref: { kind: 'service', key: 'd/payments', label: 'payments', nameInferred: { field: 'service.name', value: 'payments', source: 'chart/Chart.yaml:2' } } } });
+    const chip = target.querySelector('[data-testid="name-inferred"]');
+    expect(chip?.textContent).toContain('inferred name');
+    expect(target.textContent).toContain('Name inferred from chart/Chart.yaml:2');
+  });
+
+  it('shows no chip for a declared name', () => {
+    comp = mount(EntityIdentity, { target, props: { ref: { kind: 'service', key: 'd/payments', label: 'payments' } } });
+    expect(target.querySelector('[data-testid="name-inferred"]')).toBeNull();
+  });
+});
+
+describe('inService — a revision with no declared version', () => {
+  it('reads "Version not declared" on its own service page', () => {
+    expect(inService({ kind: 'revision', key: 'd/n@sha256:1', label: 'newsletter-service' }, 'newsletter-service').label).toBe('Version not declared');
+    expect(inService({ kind: 'revision', key: 'd/n@sha256:1', label: 'newsletter-service 1.0.0' }, 'newsletter-service').label).toBe('1.0.0');
+    expect(inService({ kind: 'service', key: 'd/n', label: 'newsletter-service' }, 'newsletter-service').label).toBe('newsletter-service');
+  });
+});
+
+describe('RelationshipList — minimal contract claims', () => {
+  let target: HTMLElement;
+  let comp: ReturnType<typeof mount> | null = null;
+  beforeEach(() => { target = document.createElement('div'); document.body.appendChild(target); });
+  afterEach(() => { if (comp) { unmount(comp); comp = null; } document.body.removeChild(target); });
+  const edge = (claim: Record<string, unknown>) => ({
+    id: 'e1', from: { kind: 'revision', key: 'd/a@sha256:1', label: 'a 1.0.0' }, to: { kind: 'service', key: 'd/payments', label: 'payments' },
+    relation: 'dependency', difference: 'matched', declaredClaims: { total: 1, count: 1, truncated: false, items: [claim] },
+  });
+
+  it('unknown range is unverified', () => {
+    // A backend that still said satisfied must not paint an undeclared range as in range.
+    comp = mount(RelationshipList, { target, props: { items: [edge({ requestedRef: 'oci://r/payments', required: true, compatibility: 'unknown', rangeStatus: 'satisfied' })], showClaims: true } });
+    const claim = target.querySelector('.rel-claim')!;
+    expect(claim.textContent).toContain('Range not declared');
+    expect(claim.textContent).not.toContain('In range');
+    expect(claim.querySelector('.tag')?.className).toContain('tone-neutral');
+  });
+
+  it('name from ref', () => {
+    comp = mount(RelationshipList, { target, props: { items: [edge({ requestedRef: 'oci://r/payments:1.0.0', required: true, compatibility: '^1.0.0', nameFromRef: true })], showClaims: true } });
+    expect(target.querySelector('[data-testid="name-from-ref"]')?.textContent).toContain('name from ref');
   });
 });

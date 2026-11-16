@@ -72,6 +72,7 @@
       if (ask.digest === id.digest) offers = { rows, match: promotes(artifact) };
     });
   });
+  const breaksHidden = (n) => (n ? `${n === 1 ? '1 consumer' : `${formatCount(n)} consumers`} hidden by your Kubernetes permissions.` : 'No consumer you may see.');
   const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
 
   // The SBOM summary. The backend already bucketed every package by license over the
@@ -130,7 +131,7 @@
 <div class="rev-entity">
   <section class="re-facts">
     <div class="re-fact"><span class="re-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
-    {#if d.version}<div class="re-fact"><span class="re-k">Version</span><span>{d.version}</span></div>{/if}
+    {#if d.version}<div class="re-fact"><span class="re-k">Version</span><span>{d.version}</span></div>{:else}<div class="re-fact"><span class="re-none">Version not declared</span></div>{/if}
     <!-- The wire field is `pactoVersion`; uppercased as a label it read as PACTOVERSION,
          a field name sitting in a row of English words. The API already documents it as
          "Pacto version". -->
@@ -154,6 +155,21 @@
       </div>
     {/if}
   </section>
+
+  {#if d.inferred?.length}
+    <!-- What the contract left out and Pacto implied (pactoVersion 2.5), each value with
+         where it came from: an inferred value is never shown as a declared one. -->
+    <section class="re-facts" data-testid="revision-inferred" aria-label="Inferred">
+      <span class="re-k">Inferred</span>
+      {#each d.inferred as f (f.field)}
+        <div class="re-fact re-inferred">
+          <code>{f.field}</code><span>{f.value}</span>
+          <IdentityBadge label="inferred" title={`Not declared in the contract; read from ${f.source}`} />
+          <span class="re-src">inferred from {f.source}</span>
+        </div>
+      {/each}
+    </section>
+  {/if}
 
   <RevisionFigures {stages} revision={d} self={detail.entity?.key ?? ''} service={d.service?.label ?? ''} {historyHref} />
 
@@ -303,6 +319,7 @@
           <div class="ri-head">
             <span class="ri-name">{i.name}</span>
             {#if i.type}<IdentityBadge label={i.type} tone="info" />{/if}
+            {#if i.port}<span class="ri-port">:{i.port}</span>{/if}
             {#if i.visibility}<IdentityBadge label={i.visibility} tone="neutral" />{/if}
             <LifecycleBadge lifecycle={i.lifecycle} detail={false} />
             {#if i.compatibilityEpoch}<IdentityBadge label={`Epoch ${i.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." describe />{/if}
@@ -348,6 +365,32 @@
       {/each}
     </ul>
   </PreviewSection>
+  {/if}
+
+  {#if (d.breaks?.total ?? 0) > 0}
+    <!-- Breaks the provider announces on purpose (pactoVersion 2.5), one row per consumer
+         named. A consumer the viewer may not see is counted, never named. -->
+    <PreviewSection
+      title="Announced breaks"
+      collapsible
+      open={false}
+      summary="Consumers this revision tells it breaks on purpose"
+      total={d.breaks.total}
+      count={d.breaks.count ?? 0}
+      truncated={d.breaks.truncated}
+      empty={breaksHidden(d.breaks.hidden)}
+    >
+      <ul class="re-breaks">
+        {#each d.breaks.items ?? [] as b, bi (`${b.consumer}:${bi}`)}
+          <li data-testid="revision-break">
+            {#if b.service}<EntityLink ref={b.service} showStatus={false} showKind={false} />{:else}<span class="ri-name">{b.consumer}</span>{/if}
+            <span class="rb-reason">{b.reason}</span>
+            {#if b.expires}<span class="rc-cat">until {formatDate(b.expires)}</span>{/if}
+          </li>
+        {/each}
+      </ul>
+      {#if d.breaks.hidden}<p class="ri-note">{breaksHidden(d.breaks.hidden)}</p>{/if}
+    </PreviewSection>
   {/if}
 
   {#if (d.configurations?.count ?? 0) > 0}
@@ -602,4 +645,10 @@
   .ri-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .ri-port { font-family: var(--font-mono, monospace); font-size: var(--text-sm); color: var(--c-text-2); }
+  .re-inferred code { font-size: var(--text-sm); }
+  .re-src { font-size: var(--text-sm); color: var(--c-text-3); overflow-wrap: anywhere; min-width: 0; }
+  .re-breaks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .re-breaks li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); min-width: 0; }
+  .rb-reason { color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
 </style>
