@@ -438,3 +438,25 @@ func TestExternalTwoPositionsOneConsumer(t *testing.T) {
 		t.Fatalf("stripe = %+v", rec)
 	}
 }
+
+// TestJoinIdentityOverridesAlias: a declared identity (pactoVersion 2.5) wins
+// over the name, so a dependency the catalog does not know by name joins the
+// node it names; one that does not parse falls back to the name.
+func TestJoinIdentityOverridesAlias(t *testing.T) {
+	named := extDep("payments-provider")
+	named.Identity = "stripe"
+	broken := extDep("legacy-mq")
+	broken.Identity = "Not An Identity"
+	snap := externalSnap(t, BuildOptions{}, extContract("checkout", "1.0.0", named, broken))
+	rec := snap.Externals["stripe"]
+	if rec == nil || len(rec.Sources) != 1 || rec.Sources[0].Match != externalcatalog.MatchIdentity || rec.Label != "Stripe" {
+		t.Fatalf("externals = %+v", snap.Externals)
+	}
+	rel := declaredTo(t, snap, "checkout", "payments-provider")
+	if rel.ToExternal != "stripe" || rel.Reason != "joined external stripe through identity; this Pacto system does not deliver it" {
+		t.Errorf("edge = %+v", rel)
+	}
+	if mq := snap.Externals["legacy-mq"]; mq == nil || mq.Sources[0].Match != externalcatalog.MatchNormalizedName {
+		t.Errorf("legacy-mq = %+v", mq)
+	}
+}

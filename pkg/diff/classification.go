@@ -202,6 +202,11 @@ var rules = map[classificationKey]Classification{
 	// service needs. A new free-text version of an external dependency is
 	// something nobody can check: PotentialBreaking (the default).
 	{"dependencies.external", Modified}: NonBreaking,
+	// identity only moves which external node the consumer joins, never what
+	// the consumer offers.
+	{"dependencies.identity", Added}:    NonBreaking,
+	{"dependencies.identity", Removed}:  NonBreaking,
+	{"dependencies.identity", Modified}: NonBreaking,
 	// Dropping every requirement can refuse no provider. Adding or changing
 	// one is the PotentialBreaking default.
 	{"dependencies.requires", Removed}: NonBreaking,

@@ -2778,7 +2778,7 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 	if dep.Ref != "" {
 		return "", externalReason
 	}
-	id, match, err := externalcatalog.DeclaredIdentity(cat, dep.Name)
+	id, match, err := declaredExternal(cat, dep)
 	if err != nil {
 		return "", externalReason
 	}
@@ -2804,6 +2804,17 @@ func joinExternal(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk Revision
 	}
 	rec.Sources = append(rec.Sources, src)
 	return key, reason
+}
+
+// declaredExternal names the external system dep calls: the identity it
+// declares when that parses, else what [externalcatalog.DeclaredIdentity]
+// makes of its name. Validation refuses an identity that does not parse, so the
+// name fallback only serves a contract read without it.
+func declaredExternal(cat *externalcatalog.Catalog, dep contract.Dependency) (externalid.ID, string, error) {
+	if id, err := externalid.Parse(dep.Identity); dep.Identity != "" && err == nil {
+		return id, externalcatalog.MatchIdentity, nil
+	}
+	return externalcatalog.DeclaredIdentity(cat, dep.Name)
 }
 
 // externalRecord returns the record of key, creating it classified by the

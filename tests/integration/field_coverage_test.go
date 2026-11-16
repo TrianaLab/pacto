@@ -368,6 +368,10 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].requires[].timeout/invalid", unmet, set("dependencies.1.requires.0.timeout", "1ms")),
 	valid("dependencies[].version/valid", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true, "version": "claude-sonnet-4-5"})),
 	invalid("dependencies[].version/invalid", "EXTERNAL_VERSION_REQUIRED", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true})),
+	valid("dependencies[].identity/valid", set("dependencies.1", map[string]any{"name": "payments-provider", "required": true, "external": true, "version": "2025-01", "identity": "stripe"})),
+	invalid("dependencies[].identity/invalid", "INVALID_EXTERNAL_IDENTITY", set("dependencies.1", map[string]any{"name": "payments-provider", "required": true, "external": true, "version": "2025-01", "identity": "other-egress"})),
+	invalid("dependencies[].identity/with-ref", "IDENTITY_WITHOUT_EXTERNAL", set("dependencies.0.identity", "stripe")),
+	invalid("dependencies[].identity/needs-2.5", needs25, set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks"), set("dependencies.1", map[string]any{"name": "payments-provider", "required": true, "external": true, "version": "2025-01", "identity": "stripe"})),
 
 	valid("breaks/valid", del("breaks")),
 	invalid("breaks/invalid", schemaViolation, set("breaks", []any{})),

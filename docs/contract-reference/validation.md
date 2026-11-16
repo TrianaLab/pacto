@@ -37,7 +37,7 @@ in an older contract, reports that version's code for each use instead: set
 | An interface `lifecycle`, `compatibilityEpoch` or `guarantees`, a dependency `requires` | `"2.2"` | `NEEDS_PACTO_2_2` |
 | `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
 | `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
-| A dependency `compatibility: unknown`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
+| A dependency `compatibility: unknown` or `identity`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
 | No field: the contract declares a `pactoVersion` older than the CLI's newest | any older 2.x | `CONTRACT_BEHIND` (info, never fails `pacto validate`) |
 
 - `pacto validate` and `pacto_check` report `CONTRACT_BEHIND` on the
@@ -108,6 +108,8 @@ Validates semantic references and consistency:
 | A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
 | An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
 | `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
+| `identity` appears only on an `external` dependency without `ref` | `IDENTITY_WITHOUT_EXTERNAL` |
+| `identity` is a canonical external identity, other than `other-egress` | `INVALID_EXTERNAL_IDENTITY` |
 | A dependency with `ref` has a `compatibility` range | `EMPTY_COMPATIBILITY` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | OCI dependency pins a digest | `TAG_NOT_DIGEST` (warning) |

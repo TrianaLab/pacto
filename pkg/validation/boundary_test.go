@@ -14,12 +14,14 @@ const modulePrefix = "github.com/trianalab/pacto/v4/"
 // allowedInternal is the engine's internal-import ALLOWLIST. Any import under the
 // module prefix that is not listed here fails the test. pkg/graph is allowed
 // because crossfield.go uses the pure graph.ParseDependencyRef and pkg/graph is
-// itself dependency-pure (verified).
+// itself dependency-pure (verified). pkg/externalid is allowed because
+// crossfield.go checks dependencies[].identity with the pure externalid.Parse.
 var allowedInternal = map[string]bool{
-	modulePrefix + "pkg/contract": true,
-	modulePrefix + "pkg/evidence": true,
-	modulePrefix + "pkg/finding":  true,
-	modulePrefix + "pkg/graph":    true,
+	modulePrefix + "pkg/contract":   true,
+	modulePrefix + "pkg/evidence":   true,
+	modulePrefix + "pkg/externalid": true,
+	modulePrefix + "pkg/finding":    true,
+	modulePrefix + "pkg/graph":      true,
 }
 
 // Impure imports the pure engine must never pull in, even from stdlib or outside
@@ -31,7 +33,7 @@ var forbiddenPrefix = []string{"k8s.io/", "sigs.k8s.io/"}
 func disallowedImport(path string) string {
 	if strings.HasPrefix(path, modulePrefix) {
 		if !allowedInternal[path] {
-			return "internal import not on allowlist (contract, evidence, finding, graph)"
+			return "internal import not on allowlist (contract, evidence, externalid, finding, graph)"
 		}
 		return ""
 	}
@@ -83,7 +85,7 @@ func TestDisallowedImport(t *testing.T) {
 		{"fmt", ""},
 		{"strings", ""},
 		// disallowed: module-internal not on allowlist
-		{modulePrefix + "pkg/oci", "internal import not on allowlist (contract, evidence, finding, graph)"},
+		{modulePrefix + "pkg/oci", "internal import not on allowlist (contract, evidence, externalid, finding, graph)"},
 		// disallowed: forbidden exact
 		{"os", "forbidden exact import (engine must stay pure)"},
 		{"net", "forbidden exact import (engine must stay pure)"},

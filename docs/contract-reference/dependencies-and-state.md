@@ -21,6 +21,7 @@ Declares dependencies on other services via their Pacto contracts.
 | `compatibility` | string | With `ref` | Non-empty. Valid semver constraint, or `unknown` in 2.5. See [Unknown compatibility](#unknown-compatibility) |
 | `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
 | `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
+| `identity` | string | No | Only for `external` without `ref`. The canonical identity of the external system. See [Name an external system](#name-an-external-system). Needs `pactoVersion: "2.5"` |
 | `requires` | list | No | Guarantees this service relies on from the provider. See [Required guarantees](#required-guarantees). Needs `pactoVersion: "2.2"` |
 
 !!! note
@@ -124,6 +125,33 @@ potentially breaking. Pacto has no contract to compare it with, so anything
 that relies on it is Unknown and never passes. A dependency with no `ref` and no
 `external: true` fails validation with `DEPENDENCY_REF_REQUIRED`. An external
 dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`.
+
+### Name an external system
+
+The operational graph joins every external dependency with no `ref` on one
+node per external system, so consumers that call the same vendor share it. A
+name the external catalog knows as an alias joins its entry: `stripe` and
+`stripe-api` both join `stripe`. Any other name joins a node of its own,
+lower-cased. When the name says what the dependency does instead, set
+`identity` to the system it calls:
+
+```yaml
+pactoVersion: "2.5"
+dependencies:
+  - name: payments-provider
+    external: true
+    version: "2024-06-20"
+    required: true
+    identity: stripe             # or host/corp-legacy.example
+```
+
+An identity is lower-case path segments: one for a vendor (`stripe`),
+`host/<registrable-domain>` for a host and
+`<provider>/<service>/<account>/<region>/<id>` for a managed resource
+(`aws/rds/123456789012/eu-west-1/orders-db`). `identity` on a dependency with a
+`ref` or without `external: true` fails with `IDENTITY_WITHOUT_EXTERNAL`. One
+that does not parse, or the reserved `other-egress`, fails with
+`INVALID_EXTERNAL_IDENTITY`. Changing it is never breaking.
 
 ### A dependency whose contract is not published yet
 

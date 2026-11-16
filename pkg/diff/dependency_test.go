@@ -187,3 +187,21 @@ func TestDiffCompatibilityRangeToRangeUnchanged(t *testing.T) {
 		t.Errorf("change = %+v, want dependencies.compatibility POTENTIAL_BREAKING", c)
 	}
 }
+
+// TestDiffDependencyIdentityNonBreaking: naming, renaming or dropping the
+// identity of an external dependency only moves which external node the
+// consumer joins.
+func TestDiffDependencyIdentityNonBreaking(t *testing.T) {
+	for _, tc := range []struct {
+		old, new string
+		want     ChangeType
+	}{{"", "stripe", Added}, {"stripe", "", Removed}, {"stripe", "host/stripe.com", Modified}} {
+		old, new := minimalContract(), minimalContract()
+		old.Dependencies = []contract.Dependency{{Name: "pay", External: true, Version: "v1", Identity: tc.old}}
+		new.Dependencies = []contract.Dependency{{Name: "pay", External: true, Version: "v1", Identity: tc.new}}
+		changes := diffDependencies(old, new)
+		if len(changes) != 1 || changes[0].Path != "dependencies.identity" || changes[0].Type != tc.want || changes[0].Classification != NonBreaking {
+			t.Errorf("%q -> %q: got %+v", tc.old, tc.new, changes)
+		}
+	}
+}

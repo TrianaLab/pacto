@@ -269,6 +269,9 @@ func (c *Catalog) ResolveDeclared(name string) (Entry, Ref, bool) {
 
 // How [DeclaredIdentity] named a declared external dependency.
 const (
+	// MatchIdentity is a dependency that names its identity itself
+	// (dependencies[].identity, pactoVersion 2.5).
+	MatchIdentity       = "identity"
 	MatchCatalogAlias   = "catalog-alias"
 	MatchHost           = "host"
 	MatchNormalizedName = "normalized-name"

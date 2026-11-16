@@ -1175,6 +1175,7 @@ export interface components {
         "Contract.Dependency": {
             compatibility?: string;
             external?: boolean;
+            identity?: string;
             name: string;
             nameFromRef?: boolean;
             ref?: string;

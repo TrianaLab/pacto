@@ -621,6 +621,12 @@
             "minLength": 1,
             "description": "The version an external dependency with no ref runs against, as free text (e.g. 2025-01 or claude-sonnet-4-5). Shown in the graph and in diffs; Pacto cannot check it, so anything relying on it is Unknown."
           },
+          "identity": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?(/[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?){0,4}$",
+            "description": "The canonical identity of an external system this dependency joins (for example stripe, host/corp-legacy.example or aws/rds/123456789012/eu-west-1/orders-db). Only for an external dependency with no ref; needed only when its name is not an alias the external catalog knows."
+          },
           "requires": {
             "type": "array",
             "description": "The behavior this service relies on from the provider's interfaces. Pacto refuses the dependency when the provider does not declare a guarantee this asks for, or declares a weaker one.",
