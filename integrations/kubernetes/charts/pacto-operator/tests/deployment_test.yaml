@@ -60,20 +60,50 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--enable-dashboard"
 
-  - it: should not include watch-namespace by default (cluster-wide)
+  - it: should not include watch-namespaces by default (cluster-wide)
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--watch-namespace="
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--watch-namespace
         any: true
 
-  - it: should include watch-namespace when set
+  - it: should include watch-namespaces when set
+    set:
+      controller.watchNamespaces: [production]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=production"
+
+  - it: keeps the deprecated watchNamespace alias
     set:
       controller.watchNamespace: production
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=production"
+      - notContains:
+          path: spec.template.spec.containers[0].args
           content: "--watch-namespace=production"
+
+  - it: merges watchNamespace into watchNamespaces
+    set:
+      controller.watchNamespaces: [payments, ledger]
+      controller.watchNamespace: payments
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=ledger,payments"
+
+  - it: reuse-values without watchNamespaces renders --watch-namespaces=x
+    set:
+      controller.watchNamespaces: null
+      controller.secretGrants: null
+      controller.watchNamespace: x
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespaces=x"
 
   - it: should not enable probing, metrics observation or kernel evidence by default
     asserts:

@@ -1770,16 +1770,18 @@ metadata:
     app.kubernetes.io/instance: pacto-operator
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/managed-by: Helm
+# With controller.watchNamespaces every namespaced read moves to the Roles in
+# watch-namespaces.yaml: only the node agent half and the dashboard's delivery
+# half stay here, and neither renders without its feature.
 rules:
-  # Core controller permissions
+  # Core controller permissions. No Secret is read cluster-wide: pull secrets
+  # and Secret-backed configurations are read where role.yaml,
+  # watch-namespaces.yaml and secret-grants.yaml grant them.
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
   - apiGroups: [""]
     resources: [services]
-    verbs: [get, list, watch]
-  - apiGroups: [""]
-    resources: [secrets]
     verbs: [get, list, watch]
   # ConfigMap-backed configuration collection (required-configurations dimension).
   # Read through the manager's cache, whose informer needs list and watch to sync.
@@ -1844,7 +1846,8 @@ rules:
     resourceNames: [pacto-dashboard]
   # The operator reads the cluster id, the kube-system namespace UID, at start:
   # it names the cluster in Evidence Server reports, and the managed dashboard
-  # ClusterRole grants the same read.
+  # ClusterRole grants the same read. A namespace list without the dashboard's
+  # delivery half leaves the cluster id unknown.
   - apiGroups: [""]
     resources: [namespaces]
     resourceNames: [kube-system]
