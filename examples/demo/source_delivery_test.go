@@ -762,3 +762,47 @@ func TestDemoReplanHeldAsAgent(t *testing.T) {
 		t.Fatalf("replanned: %+v %+v", got.Spec.OnBehalfOf, got.Status.Plan.Floor)
 	}
 }
+
+// TestDemoApproverWithoutRights: a person of an asked team who may not
+// update the workload is refused, as the dashboard refuses dana on prod.
+func TestDemoApproverWithoutRights(t *testing.T) {
+	d, h := demoServer(t)
+	op, _ := storyHeld(t, d, h)
+	op.Spec.OnBehalfOf = &delivery.Principal{User: "someone@example.com"}
+	dana := d.callerOf(story.Dana)
+	dana.Groups = []string{"team-orders", "team-checkout"}
+	access := d.accessOf(story.Dana, story.Prod, d.stage(story.Prod, "payments").Spec.WorkloadOf())
+	if code := answerRefusalOf(&op, dana, access); code != "CannotUpdateWorkload" {
+		t.Fatalf("dana on prod: %q", code)
+	}
+	if a := d.accessOf(story.Dana, story.Test, delivery.WorkloadRef{Kind: "Deployment", Name: "payments"}); !a.Allowed || a.Source != delivery.AccessBySelfReview {
+		t.Fatalf("dana on test: %+v", a)
+	}
+	if a := d.accessOf(story.Alice, story.Prod, delivery.WorkloadRef{Kind: "Rollout", Name: "payments"}); a.Unverified == "" {
+		t.Fatalf("an unknown kind: %+v", a)
+	}
+}
+
+// answerRefusalOf is the code the dashboard's answerRefusal gives.
+func answerRefusalOf(op *delivery.OperationObject, c delivery.Caller, access delivery.WorkloadAccess) string {
+	a := delivery.ApprovalSpec{OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest, Decision: delivery.Approve, By: c.User, Groups: c.Groups}
+	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, a, time.Now(), c.Policy, 0, access)
+	return code
+}
+
+// TestDemoApprovalRecordsAccess: a decision keeps how its author was
+// classified and the access that let them decide.
+func TestDemoApprovalRecordsAccess(t *testing.T) {
+	d, h := demoServer(t)
+	op, decide := storyHeld(t, d, h)
+	storyApproved(t, d, h, decide)
+	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	a := got.Status.Approvals[len(got.Status.Approvals)-1]
+	if a.ClassifiedBy != delivery.ClassByUser || a.Access != "update deployments/payments in prod" ||
+		a.AccessSource != delivery.AccessBySelfReview || a.AccessAt == "" {
+		t.Fatalf("approval: %+v", a)
+	}
+	if w := d.WorkloadAccess(t.Context(), story.Prod, delivery.WorkloadRef{Kind: "Deployment", Name: "payments"}); !w.Allowed {
+		t.Fatalf("the persona may update payments in prod: %+v", w)
+	}
+}

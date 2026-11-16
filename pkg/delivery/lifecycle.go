@@ -50,24 +50,25 @@ func ParseAuthTime(v string) (time.Time, bool) {
 // they create one, and refuse with the reason.
 //
 // It counts only on a held operation, for its uid and intent, from a person
-// who neither asked for the change nor is whoever the asker acts for, in a
-// team the question was routed to (floor.owners), no earlier than the
+// who neither asked for the change nor is whoever the asker acts for, who
+// may update the Stage's workload (access, a SubjectAccessReview answered),
+// in a team the question was routed to (floor.owners), no earlier than the
 // operation was last held and, when freshness is not zero, within freshness
 // of that person's login. Its
 // decision answers the question asked: once the version shipped only an
 // accept or a reject, and a change that needs an approval is not cleared by
 // an accepted unknown.
-func ApprovalEligible(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (bool, string) {
-	_, why := ApprovalRefusal(spec, st, uid, a, created, p, freshness)
+func ApprovalEligible(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration, access WorkloadAccess) (bool, string) {
+	_, why := ApprovalRefusal(spec, st, uid, a, created, p, freshness, access)
 	return why == "", why
 }
 
 // ApprovalRefusal is ApprovalEligible's answer as a code a client can show
-// (OwnChange, NotYourTeam, NoOwnerTeam and so on) and the reason; both empty
-// when the approval counts.
-func ApprovalRefusal(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (code, why string) {
+// (OwnChange, CannotUpdateWorkload, NotYourTeam, NoOwnerTeam and so on) and
+// the reason; both empty when the approval counts.
+func ApprovalRefusal(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration, access WorkloadAccess) (code, why string) {
 	if code, why = approvalAnswers(spec, st, uid, a); code == "" {
-		code, why = approverMay(spec, st, a, created, p, freshness)
+		code, why = approverMay(spec, st, a, created, p, freshness, access)
 	}
 	return code, why
 }
@@ -166,7 +167,7 @@ func askerMay(spec OperationSpec, st OperationStatus, a ApprovalSpec) (string, s
 }
 
 // approverMay says why whoever gave a may not decide op.
-func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (string, string) {
+func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration, access WorkloadAccess) (string, string) {
 	var owners []string
 	if st.Plan != nil {
 		owners = st.Plan.Floor.Owners
@@ -177,9 +178,10 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 	if code, why := askerMay(spec, st, a); code != "" {
 		return code, why
 	}
+	if code, why := personMay(a, p, access); code != "" {
+		return code, why
+	}
 	switch {
-	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
-		return "AgentsMayNotApprove", a.By + " is not a person, and only people decide"
 	case len(owners) == 0 && p.RequireOwnerTeam:
 		return "NoOwnerTeam", "no team is declared for this service, so nobody may answer and only break-glass can override; declare service.owner"
 	case !p.InTeams(a.Groups, owners):
@@ -190,6 +192,42 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 		return "FreshLoginRequired", fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
 	}
 	return "", ""
+}
+
+// personMay says why the author of a may not decide: only a person who may
+// update the Stage's workload does, and a review nobody could ask never says
+// yes.
+func personMay(a ApprovalSpec, p ClassPolicy, access WorkloadAccess) (string, string) {
+	id := Identity{User: a.By, Groups: a.Groups}
+	switch {
+	case !p.IsHuman(id):
+		// A break-glass group makes no agent a person: name what does.
+		q := p
+		q.BreakGlassGroups = nil
+		_, source := q.ClassifyBy(id)
+		return "AgentsMayNotApprove", "agents cannot approve: " + a.By + " is " + sourcePhrase(source)
+	case access.Unverified != "":
+		return "ApproverUnverified", "Pacto could not ask whether " + a.By + " may " + access.Phrase() + ": " + access.Unverified
+	case !access.Allowed:
+		return "CannotUpdateWorkload", a.By + " cannot " + access.Phrase() + ", and only people who may update the workload decide its changes"
+	}
+	return "", ""
+}
+
+// sourcePhrase names how an identity was classified as an agent, in a
+// sentence.
+func sourcePhrase(s ClassSource) string {
+	switch s {
+	case ClassByController:
+		return "the promoter"
+	case ClassByServiceAccount:
+		return "a service account"
+	case ClassByAgentGroup:
+		return "in an agent group"
+	case ClassByOutsideHumanGroups:
+		return "outside the human groups"
+	}
+	return "a system user"
 }
 
 // Caps on the Stage's digest memories.

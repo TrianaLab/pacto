@@ -50,6 +50,11 @@ type DeliveryAPI interface {
 	// Can asks the apiserver whether the caller may verb resource of the
 	// delivery API group in namespace.
 	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
+	// WorkloadAccess asks the apiserver whether the caller may update the
+	// workload w in namespace, the default approver rule: only someone who
+	// may decides its held changes. A review that cannot be asked is
+	// unverified, never allowed.
+	WorkloadAccess(ctx context.Context, namespace string, w delivery.WorkloadRef) delivery.WorkloadAccess
 	// StageNamespaces are the namespaces the caller may list Stages in,
 	// whether or not anything else runs there. Nil with no error means this
 	// host cannot enumerate namespaces.

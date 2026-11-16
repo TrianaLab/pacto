@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// allowed is a review that lets its subject update the workload.
+var allowed = WorkloadAccess{Resource: "deployments", Name: "payments", Namespace: "payments", Allowed: true, Source: AccessBySubjectReview}
+
 // TestApprovalEligible: every reason the promoter passes an Approval over,
 // each named, and the one it counts.
 func TestApprovalEligible(t *testing.T) {
@@ -41,32 +44,32 @@ func TestApprovalEligible(t *testing.T) {
 		{"accept where an approval is needed", held, with(func(a *ApprovalSpec) { a.Decision = AcceptUnknown }), at, "needs an approval"},
 		{"the actor", held, with(func(a *ApprovalSpec) { a.By = "bot" }), at, "bot asked for this change"},
 		{"whoever the actor acts for", held, with(func(a *ApprovalSpec) { a.By = "carol" }), at, "carol asked for this change"},
-		{"an agent", held, with(func(a *ApprovalSpec) { a.Groups = append(a.Groups, "pacto:agents") }), at, "not a person"},
+		{"an agent", held, with(func(a *ApprovalSpec) { a.Groups = append(a.Groups, "pacto:agents") }), at, "agents cannot approve: alice is in an agent group"},
 		{"another team", held, with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, "not in a team this question is asked of (team-checkout)"},
 		{"before the hold", held, good, at.Add(-2 * time.Minute), "before the question was last asked"},
 		{"a stale login", held, with(func(a *ApprovalSpec) { a.AuthTime = "990000" }), at, "login was not within 15m0s"},
 		{"no login time", held, with(func(a *ApprovalSpec) { a.AuthTime = "nope" }), at, "sign in again"},
 		{"a login from the future", held, with(func(a *ApprovalSpec) { a.AuthTime = at.Add(time.Hour).Format(time.RFC3339) }), at, "sign in again"},
 	} {
-		ok, why := ApprovalEligible(spec, c.st, "u1", c.a, c.created, policy, 15*time.Minute)
+		ok, why := ApprovalEligible(spec, c.st, "u1", c.a, c.created, policy, 15*time.Minute, allowed)
 		if ok != (c.why == "") || !strings.Contains(why, c.why) || ok && why != "" {
 			t.Errorf("%s: got %v %q, want %q", c.name, ok, why, c.why)
 		}
 	}
-	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute); !ok {
+	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute, allowed); !ok {
 		t.Error("a held operation with no plan asks no team in particular")
 	}
-	if code, _ := ApprovalRefusal(spec, held, "u1", with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, policy, 15*time.Minute); code != "NotYourTeam" {
+	if code, _ := ApprovalRefusal(spec, held, "u1", with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, policy, 15*time.Minute, allowed); code != "NotYourTeam" {
 		t.Errorf("a refusal carries its code: %q", code)
 	}
 	// With login freshness off, no login is too old and none is needed.
 	for _, auth := range []string{"990000", ""} {
-		if ok, why := ApprovalEligible(spec, held, "u1", with(func(a *ApprovalSpec) { a.AuthTime = auth }), at, policy, 0); !ok {
+		if ok, why := ApprovalEligible(spec, held, "u1", with(func(a *ApprovalSpec) { a.AuthTime = auth }), at, policy, 0, allowed); !ok {
 			t.Errorf("freshness off, login %q: %q", auth, why)
 		}
 	}
 	policy.RequireOwnerTeam = true
-	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute); ok || !strings.Contains(why, "only break-glass can override") {
+	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute, allowed); ok || !strings.Contains(why, "only break-glass can override") {
 		t.Errorf("with an owner team required, an ownerless question has nobody to answer it: %v %q", ok, why)
 	}
 }
@@ -236,11 +239,11 @@ func TestApproverMayRefusesAgentOpWithoutPrincipal(t *testing.T) {
 	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}}
 	st := OperationStatus{Phase: PhaseHeld, ActorClass: ClassAgent}
 	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "alice"}
-	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "NoPrincipal" || !strings.Contains(why, "onBehalfOf") {
+	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0, allowed); code != "NoPrincipal" || !strings.Contains(why, "onBehalfOf") {
 		t.Errorf("got %q %q", code, why)
 	}
 	st.ActorClass = ClassHuman
-	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "" {
+	if code, why := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0, allowed); code != "" {
 		t.Errorf("a person's change needs no principal: %q %q", code, why)
 	}
 }
@@ -252,7 +255,7 @@ func TestNamedPersonMayNotApproveUnderAnotherSpelling(t *testing.T) {
 	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bot"}, OnBehalfOf: &Principal{User: " Dana@Example.com"}}
 	st := OperationStatus{Phase: PhaseHeld, ActorClass: ClassAgent}
 	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "dana@example.com"}
-	if code, _ := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0); code != "OwnChange" {
+	if code, _ := ApprovalRefusal(spec, st, "u1", a, at, ClassPolicy{}, 0, allowed); code != "OwnChange" {
 		t.Errorf("got %q, want OwnChange", code)
 	}
 }
@@ -280,10 +283,89 @@ func TestApprovalNarrowingStillRefusesOtherTeams(t *testing.T) {
 	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bob"}}
 	held := OperationStatus{Phase: PhaseHeld, Plan: &Plan{Floor: Floor{Human: true, Decision: Approve, Owners: []string{"checkout"}}}}
 	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "alice", Groups: []string{"ledger"}}
-	if code, _ := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{TeamNarrowing: true}, 0); code != "NotYourTeam" {
+	if code, _ := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{TeamNarrowing: true}, 0, allowed); code != "NotYourTeam" {
 		t.Fatalf("narrowing on: %q", code)
 	}
-	if code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0); code != "" {
+	if code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, allowed); code != "" {
 		t.Fatalf("narrowing off: %q %q", code, why)
+	}
+}
+
+func accessCase() (OperationSpec, OperationStatus, ApprovalSpec, time.Time) {
+	at := time.Unix(1_000_000, 0)
+	spec := OperationSpec{IntentDigest: "sha256:i", Actor: Actor{User: "bob"}}
+	held := OperationStatus{Phase: PhaseHeld, Plan: &Plan{Floor: Floor{Human: true, Decision: Approve, Owners: []string{"payments"}}}}
+	a := ApprovalSpec{OperationUID: "u1", IntentDigest: "sha256:i", Decision: Approve, By: "dana@example.com"}
+	return spec, held, a, at
+}
+
+// TestApprovalNeedsWorkloadAccess: an approval counts only from a person who
+// may update the workload.
+func TestApprovalNeedsWorkloadAccess(t *testing.T) {
+	spec, held, a, at := accessCase()
+	if code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, allowed); code != "" {
+		t.Fatalf("allowed: %q %q", code, why)
+	}
+	denied := allowed
+	denied.Allowed = false
+	code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, denied)
+	if code != "CannotUpdateWorkload" || !strings.HasPrefix(why, "dana@example.com cannot update deployments/payments in payments") {
+		t.Fatalf("denied: %q %q", code, why)
+	}
+}
+
+// TestApprovalUnverifiedNeverCounts: a review nobody could ask never says yes.
+func TestApprovalUnverifiedNeverCounts(t *testing.T) {
+	spec, held, a, at := accessCase()
+	failed := allowed
+	failed.Unverified = "the review timed out"
+	code, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, failed)
+	if code != "ApproverUnverified" || !strings.Contains(why, "could not ask whether dana@example.com may update deployments/payments in payments: the review timed out") {
+		t.Fatalf("%q %q", code, why)
+	}
+}
+
+// TestApprovalUnknownKindUnverified: a workload kind with no resource is
+// unverified.
+func TestApprovalUnknownKindUnverified(t *testing.T) {
+	spec, held, a, at := accessCase()
+	access, group := AccessFor(StageSpec{Workload: &WorkloadRef{Kind: "Rollout", Name: "payments"}}, "payments")
+	if group != "" || access.Allowed {
+		t.Fatalf("%q %+v", group, access)
+	}
+	if code, _ := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, access); code != "ApproverUnverified" {
+		t.Fatalf("%q", code)
+	}
+}
+
+// TestApprovalAgentRefusedWhateverAccess: agents never approve, whatever
+// their RBAC, and the refusal names how they were classified.
+func TestApprovalAgentRefusedWhateverAccess(t *testing.T) {
+	spec, held, a, at := accessCase()
+	for user, want := range map[string]string{
+		"system:serviceaccount:ci:ci-bot":  "a service account",
+		"system:kube-scheduler":            "a system user",
+		"system:serviceaccount:d:promoter": "the promoter",
+	} {
+		a.By, a.Groups = user, []string{"pacto:break-glass"}
+		p := ClassPolicy{ControllerUser: "system:serviceaccount:d:promoter", BreakGlassGroups: []string{"pacto:break-glass"}}
+		code, why := ApprovalRefusal(spec, held, "u1", a, at, p, 0, allowed)
+		if code != "AgentsMayNotApprove" || !strings.HasPrefix(why, "agents cannot approve: "+user+" is "+want) {
+			t.Errorf("%s: %q %q", user, code, why)
+		}
+	}
+	a.By, a.Groups = "ops@example.com", nil
+	if _, why := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{HumanGroups: []string{"staff"}}, 0, allowed); !strings.HasSuffix(why, "outside the human groups") {
+		t.Errorf("unenrolled: %q", why)
+	}
+}
+
+// TestApprovalOwnChangeBeforeAccess: the asker is refused for asking, so
+// they never learn about their access first.
+func TestApprovalOwnChangeBeforeAccess(t *testing.T) {
+	spec, held, a, at := accessCase()
+	a.By = "bob"
+	if code, _ := ApprovalRefusal(spec, held, "u1", a, at, ClassPolicy{}, 0, WorkloadAccess{}); code != "OwnChange" {
+		t.Fatalf("%q", code)
 	}
 }

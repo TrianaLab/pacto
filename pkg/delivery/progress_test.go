@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -118,7 +119,7 @@ func TestProgressOf(t *testing.T) {
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Candidate = rowRun })}},
 		{name: "frozen with a held promote", state: "blocked", codes: []string{"Frozen", "Held", "PlanHeld"}, auto: "frozen",
 			in: ProgressInput{Stage: progStage(LevelAutonomous, func(s *StageStatus) { s.Frozen, s.FrozenReason = true, "Errored" }),
-				Caller: person, Team: "team-payments", Ops: []OperationObject{heldOp("op-1", "team-checkout")},
+				Caller: person, Team: "team-payments", Access: &allowed, Ops: []OperationObject{heldOp("op-1", "team-checkout")},
 				Plan: progPlan(PredictHeld, func(p *Plan) { p.Question = "Approve?"; p.Conflicts = []string{"StageFrozen: Errored"} })},
 			fix: map[string]string{"Frozen": "--type unfreeze"}},
 		{name: "auto-hold on advise", state: "can-promote", codes: []string{"AutoHold", "Level"}, auto: "advise",
@@ -299,11 +300,11 @@ func TestProgressOfUnfreezeFixNeedsTeam(t *testing.T) {
 		t.Errorf("outside the team: %+v", r)
 	}
 	no := false
-	rbac := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", MayCreate: &no, Plan: progPlan(PredictHeld, nil)})
+	rbac := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", MayCreate: &no, Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(rbac, "Frozen"); r.Fix != "you may unfreeze it once your Kubernetes RBAC lets you create Operations in prod" {
 		t.Errorf("in the team, RBAC refuses: %+v", r)
 	}
-	in := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Plan: progPlan(PredictHeld, nil)})
+	in := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Access: &allowed, Plan: progPlan(PredictHeld, nil)})
 	if r := reasonOf(in, "Frozen"); r.Fix != `pacto delivery propose -n prod --stage payments --type unfreeze --reason "<why>"` {
 		t.Errorf("in the team: %+v", r)
 	}
@@ -358,9 +359,9 @@ func TestProgressOfRBACDenied(t *testing.T) {
 	if failed.State != "unknown" || !strings.Contains(reasonOf(failed, "RBACUnknown").Message, "timeout") || anyCommand(failed, "propose") {
 		t.Errorf("review failed: %+v", failed)
 	}
-	allowed := ProgressOf(ProgressInput{Stage: st, Caller: person, Team: "team-payments", MayCreate: &yes, Plan: progPlan(PredictProceeds, nil)})
-	if allowed.State != "can-promote" || !anyCommand(allowed, "propose") {
-		t.Errorf("allowed: %+v", allowed)
+	ok := ProgressOf(ProgressInput{Stage: st, Caller: person, Team: "team-payments", MayCreate: &yes, Access: &allowed, Plan: progPlan(PredictProceeds, nil)})
+	if ok.State != "can-promote" || !anyCommand(ok, "propose") {
+		t.Errorf("allowed: %+v", ok)
 	}
 }
 
@@ -379,5 +380,53 @@ func TestProgressPlanRequest(t *testing.T) {
 		if _, ok := ProgressPlanRequest(st); ok {
 			t.Errorf("%s: planned", name)
 		}
+	}
+}
+
+// TestUnfreezeFixNeedsAccess: a person gets the unfreeze command only with
+// update rights on the workload; an access not asked, denied or unverified
+// names none.
+func TestUnfreezeFixNeedsAccess(t *testing.T) {
+	frozen := progStage(LevelAdvise, func(s *StageStatus) { s.Frozen = true })
+	denied, unverified := allowed, allowed
+	denied.Allowed = false
+	unverified.Unverified = "timeout"
+	for _, c := range []struct {
+		access *WorkloadAccess
+		fix    string
+	}{
+		{nil, "a person who may update the workload, or break-glass, unfreezes it"},
+		{&denied, "you cannot update deployments/payments in payments"},
+		{&unverified, "Pacto could not check whether you may update deployments/payments in payments"},
+		{&allowed, "--type unfreeze"},
+	} {
+		p := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassHuman, "acme:team-payments"), Team: "team-payments", Access: c.access, Plan: progPlan(PredictHeld, nil)})
+		f := reasonOf(p, "Frozen").Fix
+		if !strings.Contains(f, c.fix) || c.access != &allowed && anyCommand(p, "propose -n prod --stage payments --type unfreeze") {
+			t.Errorf("%+v: %q", c.access, f)
+		}
+	}
+	bg := ProgressOf(ProgressInput{Stage: frozen, Caller: rowCaller(ClassBreakGlass), Plan: progPlan(PredictHeld, nil)})
+	if !anyCommand(bg, "propose -n prod --stage payments --type unfreeze") {
+		t.Errorf("break-glass needs no access: %+v", bg.Reasons)
+	}
+}
+
+// TestUnfreezeAccessAskedForAFrozenPerson: only a person on a frozen or
+// auto-held Stage is asked.
+func TestUnfreezeAccessAskedForAFrozenPerson(t *testing.T) {
+	asked := 0
+	access := func(context.Context, string, string) WorkloadAccess { asked++; return allowed }
+	frozen := progStage(LevelAdvise, func(s *StageStatus) { s.Frozen = true })
+	held := progStage(LevelAdvise, func(s *StageStatus) { s.AutoHold = true })
+	if a := UnfreezeAccess(context.Background(), rowCaller(ClassHuman), frozen, access); a == nil || !a.Allowed {
+		t.Fatalf("frozen: %+v", a)
+	}
+	if UnfreezeAccess(context.Background(), rowCaller(ClassHuman), held, access) == nil || asked != 2 {
+		t.Fatal("auto-hold")
+	}
+	if UnfreezeAccess(context.Background(), rowCaller(ClassAgent), frozen, access) != nil ||
+		UnfreezeAccess(context.Background(), rowCaller(ClassHuman), progStage(LevelAdvise, nil), access) != nil || asked != 2 {
+		t.Fatal("an agent, or a Stage that runs, is not asked")
 	}
 }

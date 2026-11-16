@@ -91,6 +91,8 @@ func deliveryDeps(user string, dynErr error) deps {
 					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}", "runnerBundle": "SIGNED-ANSWER"}},
 						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
+		// The caller may update every workload unless a test says otherwise.
+		c.PrependReactor("create", "selfsubjectaccessreviews", mayUpdateWorkloads)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
 				"username": user, "groups": []any{"team-payments"},
@@ -438,7 +440,7 @@ func TestDeliveryCommandWriteVerbs(t *testing.T) {
 		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},
 		{"text", []string{"cancel", "-n", "prod", "held"}, false, []string{"cancel requested for prod/held"}},
 		{"text", []string{"cancel", "-n", "prod", "gone"}, true, nil},
-		{"text", []string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"}, true, []string{"agents may not approve"}},
+		{"text", []string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"}, true, []string{"agents cannot approve"}},
 	})
 	checkDeliveryRuns(t, approveDeps("alice", nil), []deliveryRun{
 		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok", "--oidc-issuer-url", "https://idp"}, false,
@@ -653,4 +655,14 @@ func TestRequestFromCorrelationID(t *testing.T) {
 	if err != nil || req.CorrelationID != "CHG-2041" {
 		t.Fatalf("request %+v, err %v", req, err)
 	}
+}
+
+// mayUpdateWorkloads allows every SelfSubjectAccessReview that asks to
+// update a workload and leaves the rest to the next reactor.
+func mayUpdateWorkloads(a k8stesting.Action) (bool, runtime.Object, error) {
+	attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+	if attrs["verb"] != "update" {
+		return false, nil, nil
+	}
+	return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -98,6 +99,10 @@ type env struct {
 	now    time.Time
 	fails  fails
 	health *fakeHealth
+	// rights answers each SubjectAccessReview by user: absent allows.
+	rights map[string]bool
+	// reviews are the SubjectAccessReviews the promoter asked, in order.
+	reviews []authorizationv1.SubjectAccessReviewSpec
 	// mu guards fails and reg.hosts: RunChecks runs the gates concurrently.
 	mu sync.Mutex
 }
@@ -155,7 +160,7 @@ func kindOf(obj runtime.Object) string {
 
 func newEnv(t *testing.T, objs ...client.Object) *env {
 	t.Helper()
-	e := &env{t: t, now: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), fails: fails{}}
+	e := &env{t: t, now: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), fails: fails{}, rights: map[string]bool{}}
 	e.reg = &fakeRegistry{
 		contracts: map[string]string{dA: contractRef(c1), dB: contractRef(c2), dC: contractRef(c3)},
 		bundles:   map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0"), contractRef(c3): bundle("2.0.0")},
@@ -190,6 +195,17 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if err := fail("create", obj); err != nil {
 					return err
+				}
+				if sar, ok := obj.(*authorizationv1.SubjectAccessReview); ok {
+					if e.failing("create/SubjectAccessReview") {
+						return errors.New("injected review failure")
+					}
+					e.mu.Lock()
+					defer e.mu.Unlock()
+					e.reviews = append(e.reviews, sar.Spec)
+					allowed, ok := e.rights[sar.Spec.User]
+					sar.Status.Allowed = allowed || !ok
+					return nil
 				}
 				if obj.GetUID() == "" { // the apiserver assigns one; the fake client does not
 					obj.SetUID(types.UID("uid-" + obj.GetName()))

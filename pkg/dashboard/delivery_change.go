@@ -54,15 +54,17 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	published := ""
+	var listed []delivery.StageObject
 	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
 	if err == nil {
+		listed = []delivery.StageObject{*stage}
 		out.Body.Level, published = ladderOf(*stage).Level, stage.Status.AuthFreshness
 		out.Body.Upstream, out.Body.Environment = upstreamOf(ctx, api, stage, s.opts.DeliveryNamespace), stage.Spec.Environment
 	} else {
 		stage = nil
 	}
 	out.Body.DecisionFreshness = int(delivery.DecisionFreshnessFor(published).Seconds())
-	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller, published)
+	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller, published, delivery.AccessMemo(listed, api.WorkloadAccess))
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live
 		// host's record stream read is what it costs.
@@ -107,12 +109,15 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 
 // actions are what the UI offers on an operation. They only hide what the
 // caller cannot do, as the promoter's rules and the caller's own RBAC say;
-// the apiserver and the promoter still decide.
-func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, published string) []string {
+// the apiserver and the promoter still decide. access is asked only for a
+// held change.
+func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, published string,
+	access delivery.StageAccess) []string {
 	acts := []string{}
 	st := op.Status
 	may := func(verb, resource string) bool { return mayIn(ctx, api, verb, resource)(op.Metadata.Namespace) }
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d, published) && may("create", "approvals") {
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) &&
+		mayOffer(op, caller, d, published, access(ctx, op.Metadata.Namespace, op.Spec.Stage)) && may("create", "approvals") {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
 	if cancellable(op, caller) && may("delete", "operations") {
@@ -160,15 +165,16 @@ func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns 
 // publishes a login freshness, a cluster that reports no login time
 // (userInfo.extra[delivery.pacto.trianalab.io/auth-time]) counts nobody's, so
 // it offers nothing.
-func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, published string) bool {
-	return (caller.AuthTime != "" || delivery.PublishedFreshness(published) == 0) && answerRefusal(op, caller, decision) == ""
+func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, published string, access delivery.WorkloadAccess) bool {
+	return (caller.AuthTime != "" || delivery.PublishedFreshness(published) == 0) && answerRefusal(op, caller, decision, access) == ""
 }
 
 // answerRefusal is why the promoter would not count caller's decision on op
-// as a code, apart from how old their login is; "" when it would.
-func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) string {
+// as a code, apart from how old their login is; "" when it would. access is
+// whether caller may update the workload of op's Stage.
+func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, access delivery.WorkloadAccess) string {
 	// Freshness zero: how old the login is does not count here.
-	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approvalOf(op, caller, decision), time.Now(), caller.Policy, 0)
+	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approvalOf(op, caller, decision), time.Now(), caller.Policy, 0, access)
 	return code
 }
 

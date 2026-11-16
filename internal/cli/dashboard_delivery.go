@@ -420,6 +420,10 @@ func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool,
 	return ok, refusal(err)
 }
 
+func (a dashDelivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	return a.d.WorkloadAccess(ctx, ns, w)
+}
+
 // Bounds of the namespace answers: kept a minute, reviews asked eight at
 // once. ponytail: past maxCallers the answers start over; an LRU when one
 // dashboard serves more people than that.

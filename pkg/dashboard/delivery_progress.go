@@ -42,6 +42,7 @@ func (s *Server) deliveryProgress(ctx context.Context, in *progressInput) (*prog
 		return nil, err
 	}
 	pin := delivery.ProgressInput{Stage: *st, Caller: caller, AsOf: asOf}
+	pin.Access = delivery.UnfreezeAccess(ctx, caller, *st, delivery.AccessMemo([]delivery.StageObject{*st}, api.WorkloadAccess))
 	if ops, err := api.Operations(ctx, in.Namespace); err != nil {
 		pin.OpsErr = err.Error()
 	} else {

@@ -127,6 +127,31 @@ func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, er
 	return allowed, nil
 }
 
+// WorkloadAccess asks the apiserver whether the caller may update w in ns,
+// the default approver rule: a SelfSubjectAccessReview with the caller's own
+// credentials. A review that fails, or a kind with no resource, is
+// unverified, never allowed.
+func (d *Delivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	a, group := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+	if a.Unverified != "" {
+		return a
+	}
+	a.Source = delivery.AccessBySelfReview
+	review := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{
+			"namespace": ns, "verb": "update", "group": group, "resource": a.Resource, "name": a.Name}},
+	}}
+	out, err := d.Dynamic.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		a.Unverified = "the SelfSubjectAccessReview failed: " + err.Error()
+		return a
+	}
+	a.Allowed, _, _ = unstructured.NestedBool(out.Object, "status", "allowed")
+	a.At = d.Now().UTC().Format(time.RFC3339)
+	return a
+}
+
 // classPolicy is the promoter's published ClassPolicy, or Policy when it is
 // not published or, with the reason, cannot be read. Admission and the
 // promoter decide anyway; this only shapes what a client offers.
@@ -602,8 +627,9 @@ func (d *Delivery) Freshness(ctx context.Context, ns, name string) (time.Duratio
 }
 
 // Approve records a person's decision on one operation, bound to its uid and
-// intent digest. Only a person may: admission refuses agents. Where the Stage
-// publishes a login freshness, the login must be that recent too.
+// intent digest. Only a person who may update the Stage's workload may:
+// admission refuses agents and the promoter counts nobody else. Where the
+// Stage publishes a login freshness, the login must be that recent too.
 func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
 	op, err := d.Get(ctx, ns, name)
 	if err != nil {
@@ -614,7 +640,7 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 		return "", err
 	}
 	if caller.Class == delivery.ClassAgent {
-		return "", errors.New("agents may not approve: Pacto delivery asks a person, and there is no approve tool for agents")
+		return "", errors.New("agents cannot approve: Pacto delivery asks a person, and there is no approve tool for agents")
 	}
 	// A Stage it cannot read leaves the login freshness unknown: refuse rather
 	// than record a decision the promoter may not count.
@@ -629,7 +655,12 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	}
 	spec := delivery.ApprovalSpec{Operation: name, OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest,
 		Decision: decision, Note: note, By: caller.User, AuthTime: caller.AuthTime, Groups: caller.Groups}
-	if ok, why := delivery.ApprovalEligible(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness); !ok {
+	access := d.WorkloadAccess(ctx, ns, st.Spec.WorkloadOf())
+	switch code, why := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness, access); code {
+	case "":
+	case "CannotUpdateWorkload":
+		return "", errors.New("you cannot " + access.Phrase() + ", and only people who may update the workload decide its changes; no decision was recorded")
+	default:
 		return "", errors.New("the promoter would not count this decision, so none was recorded: " + why)
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{

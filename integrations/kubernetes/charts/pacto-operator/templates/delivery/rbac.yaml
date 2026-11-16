@@ -43,6 +43,11 @@ rules:
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
+  # It asks whether the author of an approval, unfreeze or acknowledge may
+  # update the Stage's workload: only someone who may decides.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
   {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]

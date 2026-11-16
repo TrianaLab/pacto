@@ -77,6 +77,29 @@ tests:
             verbs: [get, list, watch]
         documentIndex: 1
 
+  - it: grants the promoter create on subjectaccessreviews only
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [selfsubjectaccessreviews]
+            verbs: [create]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create, get, list, watch]
+
   - it: publishes the identity policy the promoter mounts, readable by every signed-in user
     template: templates/delivery/identities.yaml
     set:

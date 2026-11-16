@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -41,6 +42,9 @@ type ProgressInput struct {
 	// nil when it was not asked. RBACErr says the review failed.
 	MayCreate *bool
 	RBACErr   string
+	// Access is whether a person caller may update the Stage's workload, as
+	// a person's unfreeze needs; nil when it was not asked.
+	Access *WorkloadAccess
 	// Ops are the Stage's operations that did not conclude Succeeded;
 	// OpsErr says they could not be read.
 	Ops    []OperationObject
@@ -177,6 +181,9 @@ func (p *progress) unfreezeFix() string {
 	case !p.commands():
 		return ""
 	case MayRaise(TypeUnfreeze, in.Caller.Class, false) && mayUnfreeze(in.Caller, in.Team):
+		if why := p.unfreezeAccess(); why != "" {
+			return why
+		}
 		if p.mayPropose(TypeUnfreeze) {
 			return p.propose(`--type unfreeze --reason "<why>"`)
 		}
@@ -189,6 +196,29 @@ func (p *progress) unfreezeFix() string {
 		return "only break-glass unfreezes it: the running contract declares no team"
 	}
 	return "a person or break-glass unfreezes it"
+}
+
+// UnfreezeAccess is ProgressInput.Access for caller on st: asked only for a
+// person on a Stage frozen or on auto-hold, nil otherwise.
+func UnfreezeAccess(ctx context.Context, caller Caller, st StageObject, access StageAccess) *WorkloadAccess {
+	if caller.Class != ClassHuman || !st.Status.Frozen && !st.Status.AutoHold {
+		return nil
+	}
+	return new(access(ctx, st.Metadata.Namespace, st.Metadata.Name))
+}
+
+// unfreezeAccess is why a person may not unfreeze for want of update rights
+// on the workload, or "": a person needs them, and an access not asked is
+// no yes.
+func (p *progress) unfreezeAccess() string {
+	switch a := p.in.Access; {
+	case p.in.Caller.Class != ClassHuman:
+		return ""
+	case a == nil:
+		return "a person who may update the workload, or break-glass, unfreezes it"
+	default:
+		return unfreezeAccessWhy(*a)
+	}
 }
 
 // heldReasons names each operation waiting for a person, who may decide it

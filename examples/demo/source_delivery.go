@@ -1178,7 +1178,10 @@ func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, de
 	approval := fmt.Sprintf("%s-approval-%d", name, d.n)
 	d.approvals[approval] = delivery.ApprovalSpec{Operation: name, OperationUID: o.Metadata.UID, IntentDigest: o.Spec.IntentDigest,
 		Decision: decision, Note: note, By: c.User, AuthTime: c.AuthTime, Groups: c.Groups}
-	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime})
+	access := d.accessOf(personaOf(c.User), o.Metadata.Namespace, d.stage(o.Metadata.Namespace, o.Spec.Stage).Spec.WorkloadOf())
+	_, by := c.Policy.ClassifyBy(c.Identity)
+	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime,
+		ClassifiedBy: by, Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At})
 	var owners []string
 	if o.Status.Plan != nil {
 		owners = o.Status.Plan.Floor.Owners
@@ -1261,8 +1264,32 @@ func (d *demoDelivery) wire(opts *dashboard.Options) {
 //go:embed pactify-fraud.json
 var pactifyPlan string
 
-// Can: the demo has no RBAC, so every persona may ask for anything; the
-// promoter's own rules still shape what is offered.
+// WorkloadAccess answers a SelfSubjectAccessReview for the persona from
+// story.MayUpdate, the rights the kind demo binds.
+func (d *demoDelivery) WorkloadAccess(_ context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.accessOf(personas[d.persona], ns, w)
+}
+
+// accessOf is what a SelfSubjectAccessReview answers for p on w in ns, as
+// of the demo's clock (not advanced).
+func (d *demoDelivery) accessOf(p story.Persona, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	a, _ := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+	if a.Unverified != "" {
+		return a
+	}
+	at := d.at
+	if at.IsZero() {
+		at = d.now()
+	}
+	a.Allowed, a.Source, a.At = story.MayUpdate(p, ns), delivery.AccessBySelfReview, stamp(at)
+	return a
+}
+
+// Can: the demo has no RBAC on delivery objects, so every persona may ask
+// for anything; the promoter's own rules and the update rights of
+// WorkloadAccess still shape what is offered.
 func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
 
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the

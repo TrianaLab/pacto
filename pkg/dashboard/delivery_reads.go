@@ -265,11 +265,12 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// operations are never deleted, so an Errored one waits on someone only
 	// while the pause it caused lasts; after that it is history.
 	frozen, frozenStages := frozenOf(stages, mine, in.Q)
-	held, errored := inboxQueues(ops, in.Q, frozen, caller)
+	byStage := delivery.StagesByName(stages)
+	access := delivery.AccessMemo(stages, api.WorkloadAccess)
+	held, errored := inboxQueues(ctx, ops, in.Q, frozen, caller, access)
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = l
-	byStage := delivery.StagesByName(stages)
 	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
@@ -309,7 +310,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for _, st := range page {
 		b.Frozen = append(b.Frozen, environmentRowOf(st, nil, caller, read, false))
 	}
-	narrowRows(ctx, api, b.Frozen)
+	narrowRows(ctx, api, b.Frozen, caller.Class, access)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
 }
@@ -343,8 +344,10 @@ func frozenOf(stages []delivery.StageObject, mine func(string) bool, q string) (
 }
 
 // inboxQueues splits the operations matching q into those held on the caller
-// and those errored on a Stage that is still frozen.
-func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller) (held, errored []InboxItem) {
+// and those errored on a Stage that is still frozen. access answers whether
+// the caller may update the workload of a Stage.
+func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller,
+	access delivery.StageAccess) (held, errored []InboxItem) {
 	held, errored = []InboxItem{}, []InboxItem{}
 	for _, o := range ops {
 		it := inboxItem(o)
@@ -352,7 +355,7 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 			continue
 		}
 		switch {
-		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
+		case it.Phase == delivery.PhaseHeld && waitsOn(ctx, &o, it, caller, access):
 			held = append(held, it)
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			errored = append(errored, it)
@@ -363,9 +366,10 @@ func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]boo
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
 // count. A question that names no team is also break-glass's: under
-// requireOwnerTeam nobody else can resolve it, unless they asked for it.
-func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
-	return answerRefusal(op, caller, it.Decision) == "" ||
+// requireOwnerTeam nobody else can resolve it, unless they asked for it. An
+// agent never decides, so its access is never asked.
+func waitsOn(ctx context.Context, op *delivery.OperationObject, it InboxItem, caller delivery.Caller, access delivery.StageAccess) bool {
+	return caller.Policy.IsHuman(caller.Identity) && answerRefusal(op, caller, it.Decision, access(ctx, it.Namespace, it.Stage)) == "" ||
 		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && !delivery.AskedBy(op.Spec, caller.User)
 }
 
@@ -525,7 +529,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if in.Service != "" {
 		undoOffers(ctx, api, shown, out.Body.Environments, caller)
 	}
-	narrowRows(ctx, api, out.Body.Environments)
+	narrowRows(ctx, api, out.Body.Environments, caller.Class, delivery.AccessMemo(shown, api.WorkloadAccess))
 	s.revisionLinks(ctx, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
@@ -1300,13 +1304,16 @@ func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObje
 	}
 }
 
-// narrowRows makes unavailable what the caller's RBAC refuses (NarrowOffers).
-func narrowRows(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
+// narrowRows makes unavailable what the caller's RBAC refuses (NarrowOffers)
+// and an unfreeze a person of class may not make for want of update rights
+// on the workload (NarrowUnfreeze).
+func narrowRows(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow, class delivery.ActorClass, access delivery.StageAccess) {
 	ptrs := make([]*delivery.StageRow, len(rows))
 	for i := range rows {
 		ptrs[i] = &rows[i].StageRow
 	}
 	delivery.NarrowOffers(ctx, ptrs, delivery.CreateOperations(api.Can))
+	delivery.NarrowUnfreeze(ctx, ptrs, class, access)
 }
 
 // maxPeople bounds the names a dashboard remembers.

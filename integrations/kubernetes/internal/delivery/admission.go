@@ -157,6 +157,8 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 // readable, any person may unfreeze, or nobody with RequireOwnerTeam. Nobody
 // but break-glass may acknowledge then: the stand-in it waves through may be
 // a failed version, and the type promises that only the service's team does.
+// A person who passes the team rule also needs update rights on the Stage's
+// workload (access), the default approver rule.
 func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
 	if op.Spec.Type != delivery.TypeUnfreeze && op.Spec.Type != delivery.TypeAcknowledge || op.Status.ActorClass != delivery.ClassHuman {
 		return ""
@@ -181,7 +183,7 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 		}
 	}
 	if (len(team) > 0 || op.Spec.Type != delivery.TypeAcknowledge) && r.Policy.InTeams(op.Spec.Actor.Groups, team) {
-		return ""
+		return r.updateRefusal(ctx, op, stage, verb)
 	}
 	if len(team) == 0 {
 		return "NoOwnerTeam: the contract running on " + stage.Name + " declares no team or cannot be read (" + running.Err +
@@ -189,6 +191,20 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 	}
 	return "NotYourTeam: " + op.Spec.Actor.User + " is not in " + team[0] + ", the team of the service " + stage.Name +
 		" runs, so they may not " + verb + "; that team or break-glass can"
+}
+
+// updateRefusal says why the person who raised op may not verb on the
+// Stage for want of update rights on its workload, or "".
+func (r *OperationReconciler) updateRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, verb string) string {
+	a := r.access(ctx, delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups}, stage)
+	switch {
+	case a.Unverified != "":
+		return "ApproverUnverified: Pacto could not ask whether " + op.Spec.Actor.User + " may " + a.Phrase() + " (" + a.Unverified +
+			"), so they may not " + verb + "; someone who may, or break-glass, can"
+	case !a.Allowed:
+		return "CannotUpdateWorkload: " + op.Spec.Actor.User + " cannot " + a.Phrase() + ", so they may not " + verb + "; someone who may, or break-glass, can"
+	}
+	return ""
 }
 
 // cited finds the operation a rollback undoes, by uid, on the same Stage.

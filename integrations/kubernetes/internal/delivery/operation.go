@@ -169,9 +169,19 @@ func (r *OperationReconciler) requeue() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: r.Poll}, nil
 }
 
-// saveHeld writes an operation that now waits on a person, and says so in an Event.
-func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation) (reconcile.Result, error) {
+// saveHeld writes an operation that now waits on a person, and says so in an
+// Event. With team narrowing off a second Event says owner teams do not
+// narrow who may answer, so an upgrade that turned it off shows where people
+// look at held changes.
+// ponytail: one Event per hold, no state; a per-Stage condition if it is
+// missed.
+func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	event(r.Events, op, true, "Held", op.Status.Reason+": "+op.Status.Question)
+	if !r.Policy.TeamNarrowing {
+		a, _ := delivery.AccessFor(stage.Spec, stage.Namespace)
+		event(r.Events, op, false, "TeamNarrowingOff", "owner teams do not narrow who may answer: whoever may "+a.Phrase()+
+			" decides; set delivery.identities.teamGroupPrefix to narrow it to the owner teams")
+	}
 	return r.save(ctx, op)
 }
 
@@ -219,7 +229,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
 		op.Status.ApprovedTeams = nil // a question asked again is answered again
 		op.Status.Reason, op.Status.Message = reasonAwaitingHuman, "a person must "+string(plan.Floor.Decision)
-		return r.saveHeld(ctx, op)
+		return r.saveHeld(ctx, op, stage)
 	case delivery.PredictWaits:
 		op.Status.Reason, op.Status.Message = reasonWaiting, strings.Join(plan.Conflicts, "; ")
 		return r.save(ctx, op)
@@ -263,7 +273,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
 			op.Status.ApprovedTeams = nil // a question asked again is answered again
 			op.Status.Reason, op.Status.Message = reasonRecheckChanged, "a gate no longer passes, so a person must decide again"
-			return r.saveHeld(ctx, op)
+			return r.saveHeld(ctx, op, stage)
 		}
 		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 	}
@@ -528,7 +538,7 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
 		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +
 			". Accept the unknown (the version stays), or reject it (it is rolled back)?"
-		return r.saveHeld(ctx, op)
+		return r.saveHeld(ctx, op, stage)
 	}
 	op.Status.Message = msg
 	return r.save(ctx, op)
@@ -573,7 +583,7 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	}
 	// An Approve answers the question asked before the version shipped, not
 	// this one, so only an accept or a reject counts here.
-	a, skipped := r.approval(ctx, op)
+	a, skipped := r.approval(ctx, op, stage)
 	switch {
 	case a == nil:
 		return r.recheckHeld(ctx, op, stage, skipped)

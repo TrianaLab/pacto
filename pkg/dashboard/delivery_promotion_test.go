@@ -23,15 +23,16 @@ func fed(env, name, upNS, upName string) delivery.StageObject {
 func TestInboxCountsWhatWaitsPerEnvironment(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
 	// payments in prod is fed by payments in test; a held change on a Stage
-	// the caller cannot read has no environment.
+	// the caller cannot read is not held on them: Pacto cannot ask whether
+	// they may update its workload.
 	f.stages[0].Spec.Candidates.UpstreamStage = &delivery.StageRef{Namespace: "test", Name: "payments"}
 	f.stages = append(f.stages, stage("test", "payments", "payments", delivery.StageStatus{}))
 	f.ops = append(f.ops, operation("hidden", "unseen", "nowhere", held()), operation("prod", "shared", "payments", held("team-checkout", "team-ledger")))
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	got := fmt.Sprint(inbox["byEnvironment"])
-	want := "[map[environment:other errored:1 frozen:1 held:0 upstream:[]] map[environment:prod errored:0 frozen:0 held:3 upstream:[test]] map[environment: errored:0 frozen:0 held:1 upstream:[]]]"
-	expect(t, got == want, "per environment, in promotion order, the unreadable last:\n%s\nwant\n%s", got, want)
+	want := "[map[environment:other errored:1 frozen:1 held:0 upstream:[]] map[environment:prod errored:0 frozen:0 held:3 upstream:[test]]]"
+	expect(t, got == want, "per environment, in promotion order:\n%s\nwant\n%s", got, want)
 
 	expect(t, inbox["heldShared"] == float64(1), "one held change names two teams: %v", inbox["heldShared"])
 
@@ -48,7 +49,7 @@ func TestInboxCountsWhatWaitsPerEnvironment(t *testing.T) {
 	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(3) && len(inbox["errored"].([]any)) == 0 && len(inbox["frozen"].([]any)) == 0,
 		"only what waits to enter prod: %v", inbox)
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=prod", nil)
-	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(1), "the held change on an unreadable Stage stays: %v", inbox["heldPage"])
+	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(0), "a held change on an unreadable Stage is not the caller's: %v", inbox["heldPage"])
 }
 
 func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {

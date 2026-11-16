@@ -78,6 +78,11 @@ type fakeDelivery struct {
 	// stageNS answers StageNamespaces; nsErr fails it.
 	stageNS []string
 	nsErr   error
+	// access answers WorkloadAccess by "namespace/name" (absent allows);
+	// accessErr leaves every review unverified. accesses counts them.
+	access    map[string]bool
+	accessErr string
+	accesses  atomic.Int32
 }
 
 func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -207,6 +212,14 @@ func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, 
 	f.cans.Add(1)
 	what := verb + " " + resource
 	return !f.deny[what] && !f.deny[what+" "+ns], f.canErr
+}
+
+func (f *fakeDelivery) WorkloadAccess(_ context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
+	f.accesses.Add(1)
+	a, _ := delivery.AccessFor(delivery.StageSpec{Workload: &w}, ns)
+	allowed, ok := f.access[ns+"/"+w.Name]
+	a.Allowed, a.Unverified, a.Source = (allowed || !ok) && f.accessErr == "", f.accessErr, delivery.AccessBySelfReview
+	return a
 }
 
 func (f *fakeDelivery) StageNamespaces(context.Context) ([]string, error) { return f.stageNS, f.nsErr }
@@ -1134,12 +1147,11 @@ func TestPeopleAndVersionLabels(t *testing.T) {
 	expect(t, op["versions"] == nil, "an unreadable Stage leaves the versions out: %v", op["versions"])
 	f.stageErr = nil
 
-	// A held change on a Stage the caller cannot see has no versions.
+	// A held change on a Stage the caller cannot see is not held on them.
 	f.ops = append(f.ops, operation("prod", "elsewhere", "gone", held("team-checkout")))
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	last := inbox["held"].([]any)[len(inbox["held"].([]any))-1].(map[string]any)
-	_, has := last["fromVersion"]
-	expect(t, last["name"] == "elsewhere" && !has, "no Stage, no versions: %v", last)
+	expect(t, last["name"] != "elsewhere", "no Stage, not held on the caller: %v", last)
 }
 
 func TestRememberIsBounded(t *testing.T) {

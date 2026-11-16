@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,7 +70,7 @@ func actFor(t *testing.T, d deps) *app.Delivery {
 	t.Helper()
 	dyn, err := d.newDynamic()
 	expect(t, err == nil, "client: %v", err)
-	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: delivery.PolicyNamespace}
+	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Policy: delivery.DefaultClassPolicy(), PolicyNamespace: delivery.PolicyNamespace, Now: time.Now}
 }
 
 // mcpReadServer is `pacto mcp --delivery` over stdio with flags, built as

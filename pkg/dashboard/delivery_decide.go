@@ -141,7 +141,8 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	}
 	// The promoter's own rule: the dashboard records only a decision it counts.
 	approval := approvalOf(op, caller, in.Body.Decision)
-	if code, why := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approval, time.Now(), caller.Policy, delivery.PublishedFreshness(published)); code != "" {
+	access := delivery.AccessMemo([]delivery.StageObject{*stage}, api.WorkloadAccess)(ctx, in.Namespace, op.Spec.Stage)
+	if code, why := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approval, time.Now(), caller.Policy, delivery.PublishedFreshness(published), access); code != "" {
 		status := http.StatusForbidden
 		if code == "FreshLoginRequired" {
 			status = http.StatusUnauthorized
@@ -172,7 +173,7 @@ func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 	window := delivery.DecisionFreshnessFor(published)
 	switch {
 	case !caller.Policy.IsHuman(caller.Identity):
-		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
+		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "agents cannot approve: the apiserver says "+caller.User+" is an agent")
 	case window == 0:
 		return nil
 	case caller.AuthTime == "":

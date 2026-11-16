@@ -34,7 +34,7 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	// when it was admitted. A Reject needs no plan, so a re-plan that fails
 	// still lets one through.
 	refreshed, err := r.refreshOrder(ctx, op, stage)
-	a, skipped := r.approval(ctx, op)
+	a, skipped := r.approval(ctx, op, stage)
 	newSkip := skipped != "" && skipped != op.Status.Message
 	if newSkip {
 		op.Status.Message = skipped
@@ -112,10 +112,12 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 // approval consumes the first Approval for op that delivery.ApprovalEligible
 // counts and op has not consumed yet. The groups are the ones admission bound
 // to the user. It also says why the newest Approval for op it passed over does
-// not count, so the person who gave it is not left waiting on nothing.
+// not count, so the person who gave it is not left waiting on nothing. An
+// approval counts only from someone the apiserver lets update the Stage's
+// workload (access), and its record keeps that answer.
 // ponytail: times are whole seconds, so an approval created in the same
 // second as a new hold still counts.
-func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (*delivery.ApprovalRecord, string) {
+func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (*delivery.ApprovalRecord, string) {
 	approvals, err := r.approvalsOf(ctx, op)
 	if err != nil {
 		return nil, ""
@@ -126,13 +128,16 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (
 		if slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
 			continue
 		}
-		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy, r.Freshness)
+		id := delivery.Identity{User: s.By, Groups: s.Groups}
+		access := r.access(ctx, id, stage)
+		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy, r.Freshness, access)
 		if !ok {
 			skipped = "Approval " + a.Name + " by " + s.By + " does not count: " + why
 			continue
 		}
-		_, by := r.Policy.ClassifyBy(delivery.Identity{User: s.By, Groups: s.Groups})
-		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime, ClassifiedBy: by}
+		_, by := r.Policy.ClassifyBy(id)
+		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime, ClassifiedBy: by,
+			Access: access.Phrase(), AccessSource: access.Source, AccessAt: access.At}
 		op.Status.Approvals = append(op.Status.Approvals, rec)
 		op.Status.ApprovedTeams = delivery.AnsweredTeams(r.Policy, ownersOf(op), s.Groups, op.Status.ApprovedTeams)
 		return &rec, ""
