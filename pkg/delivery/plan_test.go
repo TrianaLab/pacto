@@ -1151,8 +1151,9 @@ func TestDescribeRangesNamesPolicyReferrers(t *testing.T) {
 		{Service: "checkout", Compatibility: "^3.0.0"},
 		{Service: "audit", Via: []string{fleet.RelationshipPolicyRef}},
 		{Service: "ledger", Compatibility: "^2.0.0", Via: []string{fleet.RelationshipDependency, fleet.RelationshipPolicyRef}},
+		{Service: "reports"},
 	})
-	want := "checkout (accepts ^3.0.0), audit (fails its new policy), ledger (accepts ^2.0.0 and references its policy)"
+	want := "checkout (accepts ^3.0.0), audit (fails its new policy), ledger (accepts ^2.0.0 and references its policy), reports"
 	if got != want {
 		t.Fatalf("describeRanges = %q, want %q", got, want)
 	}
