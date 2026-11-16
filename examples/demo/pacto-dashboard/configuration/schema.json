@@ -28,7 +28,7 @@
       "type": "string"
     },
     "PACTO_DASHBOARD_NAMESPACE": {
-      "description": "Kubernetes namespace filter (empty = all)",
+      "description": "Kubernetes namespaces to read, comma-separated (empty = all)",
       "type": "string"
     },
     "PACTO_DASHBOARD_OIDC_CLIENT_ID": {
@@ -79,6 +79,15 @@
     },
     "PACTO_DASHBOARD_REPO": {
       "description": "Comma-separated OCI repositories to scan",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_REVIEW": {
+      "default": "cluster",
+      "description": "How signed-in people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each PACTO_DASHBOARD_NAMESPACE only, and then services without a namespace show to nobody",
+      "enum": [
+        "cluster",
+        "local"
+      ],
       "type": "string"
     },
     "PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT": {

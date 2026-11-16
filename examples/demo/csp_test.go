@@ -28,3 +28,19 @@ func TestDemoCSPMatchesDashboard(t *testing.T) {
 		t.Fatalf("DEMO_CSP drifted from the dashboard policy:\n got %s\nwant %s", got, want)
 	}
 }
+
+// The demo's dashboard bundle carries its own copy of the configuration
+// schema (a bundle ref cannot leave its directory), so it follows the flags.
+func TestDemoDashboardConfigSchemaMatchesDashboard(t *testing.T) {
+	want, err := dashboard.ExportConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("pacto-dashboard/configuration/schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != string(want) {
+		t.Fatal("pacto-dashboard/configuration/schema.json drifted: go run ./cmd/genbundle config-schema > examples/demo/pacto-dashboard/configuration/schema.json")
+	}
+}
