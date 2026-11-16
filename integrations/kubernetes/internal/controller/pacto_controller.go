@@ -391,6 +391,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
 		CallerWindow:                      r.requeueInterval(pacto),
 		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
+		Scoped:                            r.Scoped,
 	}
 }
 

@@ -86,7 +86,8 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
 | `-version` | `bool` |  | no | Print version information and exit. |
-| `-watch-namespace` | `string` |  | chart value | Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. The dashboard inherits this scope automatically. |
+| `-watch-namespace` | `string` |  | chart value | Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list. |
+| `-watch-namespaces` | `string` |  | no | Restrict the controller and the managed dashboard to these namespaces (comma-separated). Empty (default) means cluster-wide. |
 | `-zap-devel` | `bool` |  | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
 | `-zap-encoder` | `value` |  | no | Zap log encoding (one of 'json' or 'console') |
 | `-zap-log-level` | `value` |  | no | Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', 'panic' or any integer value > 0 which corresponds to custom debug levels of increasing verbosity |

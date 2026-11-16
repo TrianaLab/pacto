@@ -22,15 +22,12 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	appsv1 "k8s.io/api/apps/v1"
-	coordinationv1 "k8s.io/api/coordination/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -44,7 +41,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	// +kubebuilder:scaffold:imports
 )
@@ -82,7 +79,9 @@ type options struct {
 	secureMetrics                                    bool
 	enableHTTP2                                      bool
 	showVersion                                      bool
-	watchNamespace                                   string
+	watchNamespace                                   string // deprecated --watch-namespace, merged into namespaces
+	watchNamespacesRaw                               string
+	namespaces                                       []string
 
 	enableDashboard        bool
 	dashboardOCISecrets    string
@@ -140,9 +139,11 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"If set, HTTP/2 will be enabled for the metrics server")
 	fs.BoolVar(&o.enableDashboard, "enable-dashboard", false,
 		"Enable the managed Pacto dashboard deployment. Disabled by default.")
+	fs.StringVar(&o.watchNamespacesRaw, "watch-namespaces", "",
+		"Restrict the controller and the managed dashboard to these namespaces (comma-separated). "+
+			"Empty (default) means cluster-wide.")
 	fs.StringVar(&o.watchNamespace, "watch-namespace", "",
-		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
-			"The dashboard inherits this scope automatically.")
+		"Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list.")
 	fs.StringVar(&o.dashboardOCISecrets, "dashboard-oci-secrets", "",
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
@@ -321,6 +322,10 @@ func main() {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&o.zap)))
+	o.namespaces = scope.Namespaces(o.watchNamespacesRaw, o.watchNamespace)
+	if o.watchNamespace != "" {
+		setupLog.Info("--watch-namespace is deprecated; use --watch-namespaces")
+	}
 
 	setupLog.Info("Starting pacto-operator",
 		"version", version,
@@ -359,6 +364,7 @@ func main() {
 		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,
 		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
+		Scoped:                            len(o.namespaces) > 0,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -463,38 +469,12 @@ func newManager(o *options) (ctrl.Manager, error) {
 		// LeaderElectionReleaseOnCancel: true,
 	}
 
-	mgrOpts.Cache = cacheOptions(o)
-	if o.watchNamespace != "" {
-		setupLog.Info("Watching single namespace", "namespace", o.watchNamespace)
+	mgrOpts.Cache = scope.CacheOptions(o.namespaces, o.kernelEvidenceNamespace, o.enableKernelEvidence)
+	if len(o.namespaces) > 0 {
+		setupLog.Info("Watching namespaces", "namespaces", o.namespaces)
 	}
 
 	return ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
-}
-
-// cacheOptions scopes the manager's cache. Pods are cached only for the kernel merge, which reads a handful
-// of their fields: the transform drops the rest (managedFields included) before they reach the cache. The
-// node agent's observations and heartbeat Leases are read in the kernel evidence namespace only, whatever
-// --watch-namespace says: a cluster-wide Lease informer would cache every controller's leader election.
-// --watch-namespace restricts everything else to that one namespace.
-func cacheOptions(o *options) cache.Options {
-	opts := cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Pod{}: {Transform: observer.TrimPod},
-		},
-	}
-	// A ByObject entry makes the manager resolve the kind at startup, so registering the
-	// node agent kinds only with kernel evidence on keeps an operator that has it off
-	// starting even where the NodeRuntimeObservation CRD was never applied (helm upgrade
-	// installs no new CRDs).
-	if o.enableKernelEvidence {
-		kernel := cache.ByObject{Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}}}
-		opts.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = kernel
-		opts.ByObject[&coordinationv1.Lease{}] = kernel
-	}
-	if o.watchNamespace != "" {
-		opts.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
-	}
-	return opts
 }
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
@@ -531,7 +511,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Enabled:            o.enableDashboard,
 		Image:              dashboardImage,
 		Namespace:          namespace,
-		WatchNamespace:     o.watchNamespace,
+		WatchNamespaces:    o.namespaces,
 		OCISecrets:         parsedOCISecrets,
 		OwnerRef:           ownerRef,
 		EvidenceSourceURL:  evidenceSourceURL,
@@ -559,6 +539,8 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		APIReader: mgr.GetAPIReader(),
 		Scheme:    mgr.GetScheme(),
 		Config:    dashCfg,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Recorder: mgr.GetEventRecorderFor("pacto-dashboard"),
 	}); err != nil {
 		return fmt.Errorf("failed to add dashboard reconciler: %w", err)
 	}

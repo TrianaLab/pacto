@@ -168,3 +168,15 @@ func TestRevisionMirrorSkipsNotGrantedPullSecret(t *testing.T) {
 		t.Fatalf("the reconcile reports it on the Pacto; the mirror emits nothing, got %v", events)
 	}
 }
+
+// The observer's configuration grant hint follows the same mode as the pull
+// secret one, so the reconciler hands its Scoped flag to every collection.
+func TestBuildCollectInputCarriesScoped(t *testing.T) {
+	for _, scoped := range []bool{false, true} {
+		r := &PactoReconciler{Scoped: scoped}
+		in := r.buildCollectInput(&pactov1alpha1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}})
+		if in.Scoped != scoped {
+			t.Errorf("Scoped = %v, want %v", in.Scoped, scoped)
+		}
+	}
+}

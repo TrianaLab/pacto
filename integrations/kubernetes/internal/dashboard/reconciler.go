@@ -16,7 +16,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -45,6 +47,14 @@ type Reconciler struct {
 
 	Scheme *runtime.Scheme
 	Config Config
+
+	// Recorder emits the StaleClusterRBAC Warning on the dashboard Deployment when a scoped
+	// dashboard cannot remove a ClusterRole left by a cluster-wide install.
+	Recorder record.EventRecorder
+
+	// warnedStale keeps that Warning to once per process: a scoped install that was never
+	// cluster-wide holds no right to look, so every sync would otherwise repeat it.
+	warnedStale bool
 
 	// tickInterval overrides the periodic reconciliation interval (default 5m).
 	// Exposed for testing only.
@@ -85,11 +95,15 @@ func (r *Reconciler) Sync(ctx context.Context) error {
 	if err := r.reconcileServiceAccount(ctx); err != nil {
 		return fmt.Errorf("service account: %w", err)
 	}
-	if err := r.reconcileClusterRole(ctx); err != nil {
-		return fmt.Errorf("cluster role: %w", err)
-	}
-	if err := r.reconcileClusterRoleBinding(ctx); err != nil {
-		return fmt.Errorf("cluster role binding: %w", err)
+	if r.Config.needsClusterRole() {
+		if err := r.reconcileClusterRole(ctx); err != nil {
+			return fmt.Errorf("cluster role: %w", err)
+		}
+		if err := r.reconcileClusterRoleBinding(ctx); err != nil {
+			return fmt.Errorf("cluster role binding: %w", err)
+		}
+	} else if err := r.pruneStaleClusterRBAC(ctx); err != nil {
+		return fmt.Errorf("stale cluster role: %w", err)
 	}
 	if err := r.reconcileOCICredentials(ctx); err != nil {
 		return fmt.Errorf("oci credentials: %w", err)
@@ -120,7 +134,45 @@ func (r *Reconciler) reconcileServiceAccount(ctx context.Context) error {
 }
 
 func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
-	return r.Apply(ctx, clusterRoleAC(), client.FieldOwner(FieldManager), client.ForceOwnership)
+	return r.Apply(ctx, clusterRoleAC(len(r.Config.WatchNamespaces) > 0), client.FieldOwner(FieldManager), client.ForceOwnership)
+}
+
+// staleClusterRBACHint is the command that removes what a scoped dashboard could not.
+const staleClusterRBACHint = "kubectl delete clusterrole,clusterrolebinding pacto-dashboard"
+
+// pruneStaleClusterRBAC removes the ClusterRole and binding a cluster-wide install left behind.
+// A scoped operator usually may not read or delete them; then it says so once, with the command,
+// instead of leaving the old cluster-wide read in place silently.
+func (r *Reconciler) pruneStaleClusterRBAC(ctx context.Context) error {
+	reader := &forbiddenReader{Reader: r.APIReader}
+	err := component.Prune(ctx, "dashboard", reader, r.Client, component.Owned(ComponentValue), []component.Resource{
+		{Kind: "ClusterRoleBinding", Obj: &rbacv1.ClusterRoleBinding{}, Key: client.ObjectKey{Name: Name}},
+		{Kind: "ClusterRole", Obj: &rbacv1.ClusterRole{}, Key: client.ObjectKey{Name: Name}},
+	})
+	if !reader.forbidden && !apierrors.IsForbidden(err) {
+		return err
+	}
+	if !r.warnedStale {
+		r.warnedStale = true
+		msg := "The operator may not check for or remove a pacto-dashboard ClusterRole and ClusterRoleBinding " +
+			"left by a cluster-wide install; if they exist, remove them with: " + staleClusterRBACHint
+		logf.FromContext(ctx).WithName("dashboard").Info(msg)
+		deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: Name, Namespace: r.Config.Namespace}}
+		r.Recorder.Event(deploy, corev1.EventTypeWarning, "StaleClusterRBAC", msg)
+	}
+	return nil
+}
+
+// forbiddenReader records whether any read was Forbidden, which component.Prune skips silently.
+type forbiddenReader struct {
+	client.Reader
+	forbidden bool
+}
+
+func (f *forbiddenReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	err := f.Reader.Get(ctx, key, obj, opts...)
+	f.forbidden = f.forbidden || apierrors.IsForbidden(err)
+	return err
 }
 
 func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
