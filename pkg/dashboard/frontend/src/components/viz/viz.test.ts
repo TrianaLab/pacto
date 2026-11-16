@@ -12,6 +12,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte components have no declaration files
 import DistributionBar from './DistributionBar.svelte';
+import ColumnChart from './ColumnChart.svelte';
+import LineChart from './LineChart.svelte';
+import { get } from 'svelte/store';
+import { tipLabel, tipState, hideTip, type TipModel } from '../../lib/chartTip.ts';
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
@@ -498,5 +502,145 @@ describe('PostureBars', () => {
     comp = mount(PostureBars, { target, props: { summary: { ...posture, findings: {} } } });
     const titles = Array.from(target.querySelectorAll('.dist-title')).map((h) => h.textContent);
     expect(titles).not.toContain('Findings by severity');
+  });
+});
+
+// The column and line primitives of the Metrics page (#597): unknown is hatched and
+// never drawn as 0, a real 0 is a stub, every word is HTML and every bucket reads by
+// keyboard with the same words as its tooltip.
+const weeks = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `Week ${i + 1}`, short: `W${i + 1}` }));
+const tipFor = (values: (number | null)[]) => (i: number): TipModel => ({ title: `Week ${i + 1}`, rows: [{ value: String(values[i]), label: 'caught' }] });
+const texts = (sel: string) => Array.from(target.querySelectorAll(sel)).map((e) => (e.textContent || '').trim());
+
+describe('ColumnChart', () => {
+  it('draws an all-unknown chart with its reason and never a 0', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(3), series: [{ key: 'b', label: 'caught', values: [null, null, null] }], unknown: ['no records', 'no records', 'no CI records'] } });
+    flushSync();
+    const label = target.querySelector('.cc-labels')?.textContent || '';
+    expect(label).not.toMatch(/\b0\b/);
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(0);
+    expect(target.querySelectorAll('.cc-col')).toHaveLength(0);
+    const bands = target.querySelectorAll('.cc-unknown');
+    expect(bands).toHaveLength(3);
+    for (const b of Array.from(bands)) expect(b.childNodes).toHaveLength(0);
+    for (const hit of Array.from(target.querySelectorAll('.cc-hit'))) expect(hit.getAttribute('aria-label')).toMatch(/no (CI )?records.*Not counted as 0/);
+  });
+
+  it('puts the reason on an opaque plate when the band is wide enough', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'b', label: 'caught', values: [3, null] }], unknown: [null, 'no records'] } });
+    flushSync();
+    expect(texts('.cc-plate')).toEqual(['no records']);
+  });
+
+  it('draws a real 0 as a stub and says 0 in its tooltip', () => {
+    const values = [0, 4];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'b', label: 'caught', values }], tipOf: tipFor(values) } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-stub')).toHaveLength(1);
+    expect(target.querySelectorAll('.cc-col')).toHaveLength(1);
+    expect(target.querySelectorAll('.cc-hit')[0].getAttribute('aria-label')).toBe('Week 1, caught 0');
+  });
+
+  it('stacks segments in series order with a 2px surface gap', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(1), series: [
+      { key: 'clear', label: 'Clear', color: 'var(--c-ok)', values: [6] },
+      { key: 'blocked', label: 'Blocked', color: 'var(--c-err)', values: [2] },
+      { key: 'unv', label: 'Unverified', texture: 'dots', values: [2] },
+    ] } });
+    const segs = Array.from(target.querySelectorAll('.cc-col')) as SVGElement[];
+    expect(segs.map((s) => s.getAttribute('data-series'))).toEqual(['clear', 'blocked', 'unv']);
+    expect(segs[2].getAttribute('fill')).toBe('url(#viz-dots)');
+    const box = (s: SVGElement) => ({ y: Number(s.getAttribute('data-y')), h: Number(s.getAttribute('data-h')) });
+    expect(box(segs[0]).y - (box(segs[1]).y + box(segs[1]).h)).toBeCloseTo(2);
+    expect(box(segs[1]).y - (box(segs[2]).y + box(segs[2]).h)).toBeCloseTo(2);
+  });
+
+  it('labels the peak and the last column only', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(8), series: [{ key: 'b', label: 'caught', values: [1, 9, 2, 3, 2, 1, 4, 5] }] } });
+    flushSync();
+    expect(texts('.cc-val')).toEqual(['9', '5']);
+  });
+
+  it('makes every bucket a tab stop named with its tooltip text', () => {
+    const values = [2, 3, null];
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(3), series: [{ key: 'b', label: 'caught', values }], unknown: [null, null, 'no records'], tipOf: tipFor(values) } });
+    flushSync();
+    const hits = Array.from(target.querySelectorAll('.cc-hit'));
+    expect(hits).toHaveLength(3);
+    hits.slice(0, 2).forEach((h, i) => {
+      expect(h.getAttribute('tabindex')).toBe('0');
+      expect(h.getAttribute('aria-label')).toBe(tipLabel(tipFor(values)(i)));
+    });
+  });
+
+  it('draws a hatched cap on a known column with unknown on top', () => {
+    comp = mount(ColumnChart, { target, props: { buckets: weeks(2), series: [{ key: 'p', label: 'protected', values: [3, 4] }], caps: [false, true] } });
+    flushSync();
+    expect(target.querySelectorAll('.cc-cap')).toHaveLength(1);
+  });
+
+  it('prints no axis text in compact mode', () => {
+    comp = mount(ColumnChart, { target, props: { compact: true, buckets: weeks(4), series: [{ key: 'b', label: 'caught', values: [1, 0, null, 3] }] } });
+    flushSync();
+    expect(target.querySelector('.cc-labels')).toBeNull();
+    expect(target.querySelectorAll('.cc-hit')).toHaveLength(4);
+  });
+});
+
+describe('LineChart', () => {
+  const series = (values: (number | null)[], partial?: boolean[]) => [{ key: 's', label: 'Services observed', color: 'var(--chart-1)', values, partial }];
+  afterEach(() => hideTip());
+
+  it('breaks the line at a missing value, never dropping it to 0', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, 4, null, 5, 6]), label: 'Coverage' } });
+    flushSync();
+    const d = target.querySelector('.lc-line')?.getAttribute('d') || '';
+    expect(d.match(/M/g)).toHaveLength(2);
+  });
+
+  it('hatches a bucket where every series is missing', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: [...series([3, null, 5]), { key: 'd', label: 'Described', color: 'var(--chart-2)', values: [1, null, 2] }], label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-unknown')).toHaveLength(1);
+  });
+
+  it('names a run of missing buckets once, with one band and one plate', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(5), series: series([3, null, null, 5, 6]), label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-unknown')).toHaveLength(1);
+    expect(texts('.lc-plate')).toEqual(['no records']);
+  });
+
+  it('draws one y scale', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5]), label: 'Coverage' } });
+    flushSync();
+    expect(target.querySelectorAll('.lc-yaxis')).toHaveLength(1);
+  });
+
+  it('moves the crosshair with the arrow keys and updates the tooltip', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5]), label: 'Coverage per week; use arrow keys to read each week' } });
+    flushSync();
+    const hit = target.querySelector('.lc-hit') as SVGElement;
+    expect(hit.getAttribute('tabindex')).toBe('0');
+    expect(hit.getAttribute('aria-label')).toBe('Coverage per week; use arrow keys to read each week');
+    hit.dispatchEvent(new FocusEvent('focus'));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 3');
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    flushSync();
+    expect(get(tipState)?.model.title).toBe('Week 2');
+    expect(get(tipState)?.model.rows[0].value).toBe('8');
+    expect(target.querySelector('.lc-cross')?.getAttribute('opacity')).toBe('1');
+    hit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    flushSync();
+    expect(get(tipState)).toBeNull();
+  });
+
+  it('draws a partial point hollow and hatched', () => {
+    comp = mount(LineChart, { target, props: { buckets: weeks(3), series: series([3, 8, 5], [false, false, true]), label: 'Coverage' } });
+    flushSync();
+    const p = target.querySelectorAll('.lc-partial');
+    expect(p).toHaveLength(1);
+    expect(p[0].getAttribute('fill')).toBe('url(#viz-hatch)');
   });
 });

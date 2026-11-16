@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { niceMax, bandScale, linearScale, logScale, logDomain, logTicks, colPath, barPath, showTick, directLabelIndexes, durationText, SERIES, HEAT } from './chart.ts';
+import { niceMax, bandScale, linearScale, logScale, logDomain, logTicks, colPath, barPath, showTick, directLabelIndexes, durationText, runs, SERIES, HEAT } from './chart.ts';
 
 describe('niceMax', () => {
   it('rounds up to the next nice step', () => {
@@ -109,5 +109,12 @@ describe('colour order', () => {
   it('names the chart tokens in fixed order', () => {
     expect(SERIES).toEqual(['--chart-1', '--chart-2']);
     expect(HEAT).toEqual(['--chart-hm-1', '--chart-hm-2', '--chart-hm-3', '--chart-hm-4']);
+  });
+});
+
+describe('runs', () => {
+  it('groups consecutive flagged buckets so one plate names a whole gap', () => {
+    expect(runs([false, true, true, false, true])).toEqual([{ start: 1, len: 2 }, { start: 4, len: 1 }]);
+    expect(runs([false, false])).toEqual([]);
   });
 });

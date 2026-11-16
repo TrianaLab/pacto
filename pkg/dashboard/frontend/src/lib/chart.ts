@@ -96,6 +96,18 @@ export function directLabelIndexes(values: (number | null | undefined)[], band: 
   return gap <= 1 || gap * band < labelWidth + 8 ? [last] : [peak, last];
 }
 
+/** runs groups consecutive true flags, so one reason plate spans a whole gap of unknown buckets. */
+export function runs(flags: boolean[]): { start: number; len: number }[] {
+  const out: { start: number; len: number }[] = [];
+  flags.forEach((f, i) => {
+    if (!f) return;
+    const last = out[out.length - 1];
+    if (last && last.start + last.len === i) last.len++;
+    else out.push({ start: i, len: 1 });
+  });
+  return out;
+}
+
 /** durationText prints seconds as the two largest units: "45s", "12m", "3h 20m", "2d 4h". */
 export function durationText(seconds: number | null | undefined): string {
   if (seconds == null) return 'unknown';
