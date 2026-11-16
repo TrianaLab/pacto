@@ -192,3 +192,9 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `EVIDENCE_STALE` | `Inconclusive` |
 | `HEALTH_FAILING` | `Inconclusive` |
 | `OBSERVATION_UNSUPPORTED` | `Inconclusive` |
+
+### Severity `info`
+
+| Code | Category |
+| --- | --- |
+| `CONTRACT_BEHIND` | `OutdatedVersion` |

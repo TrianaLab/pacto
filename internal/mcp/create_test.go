@@ -782,7 +782,7 @@ func TestEditAddDependencyOmittedCompatibilityIsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsStr(ed.Changes, `set pactoVersion to "2.5"`) || !containsStr(ed.Changes, undeclaredLedger) {
+	if !containsStr(ed.Changes, `set pactoVersion to "2.5" (was "2.0")`) || !containsStr(ed.Changes, undeclaredLedger) {
 		t.Errorf("changes = %q", ed.Changes)
 	}
 	if got := readPactoYAML(t, dir); !strings.Contains(got, "compatibility: unknown") || !strings.Contains(got, `pactoVersion: "2.5"`) {
@@ -809,7 +809,7 @@ func TestExplicitUnknownRaisesPactoVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsStr(ed.Changes, `set pactoVersion to "2.5"`) || countStr(ed.Changes, undeclaredLedger) != 1 {
+	if !containsStr(ed.Changes, `set pactoVersion to "2.5" (was "2.0")`) || countStr(ed.Changes, undeclaredLedger) != 1 {
 		t.Errorf("changes = %q", ed.Changes)
 	}
 }
@@ -962,7 +962,7 @@ func TestAssessSections(t *testing.T) {
 
 func TestBuildSuggestions(t *testing.T) {
 	t.Run("invalid contract gets no suggestions", func(t *testing.T) {
-		s := buildSuggestions(testutil.TestBundle().Contract, nil, false, nil)
+		s := buildSuggestions(testutil.TestBundle().Contract, nil, false, nil, nil)
 		if len(s) != 0 {
 			t.Error("expected no suggestions for invalid contract")
 		}
@@ -972,7 +972,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle := testutil.TestBundle()
 		bundle.Contract.Dependencies = nil
 		bundle.Contract.Configurations = nil
-		s := buildSuggestions(bundle.Contract, nil, true, nil)
+		s := buildSuggestions(bundle.Contract, nil, true, nil, nil)
 		if len(s) == 0 {
 			t.Error("expected suggestions for missing sections")
 		}
@@ -983,7 +983,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle.Contract.Service.Owner = contract.Owner{Team: "team/billing"}
 		bundle.Contract.Dependencies = []contract.Dependency{{Name: "ledger", External: true, Version: "v1"}, {Name: "auth", Ref: "oci://r.example/auth", External: true}}
 		var owner, external []Suggestion
-		for _, sg := range buildSuggestions(bundle.Contract, nil, true, nil) {
+		for _, sg := range buildSuggestions(bundle.Contract, nil, true, nil, nil) {
 			if strings.Contains(sg.Message, "owner.team") {
 				owner = append(owner, sg)
 			}
@@ -2930,7 +2930,7 @@ func TestExternalDependencies(t *testing.T) {
 
 	dir = testutil.WriteTestBundle(t)
 	ed, err := Edit(context.Background(), nil, EditOptions{}, EditInput{Path: dir, AddDependencies: external})
-	if err != nil || !containsStr(ed.Changes, `set pactoVersion "2.1" for the external dependency`) || !containsStr(ed.Changes, `added dependency "model"`) {
+	if err != nil || !containsStr(ed.Changes, `set pactoVersion to "2.1" (was "2.0")`) || !containsStr(ed.Changes, `added dependency "model"`) {
 		t.Fatalf("edit: %v %+v", err, ed)
 	}
 	if res, err := Check(context.Background(), nil, dir, nil); err != nil || !res.Valid {
@@ -2949,7 +2949,7 @@ func TestDependencyEntry(t *testing.T) {
 	if e := dependencyEntry(DependencyInput{Ref: "oci://r/a:1"}); e["external"] != nil || e["compatibility"] != contract.CompatibilityUnknown {
 		t.Errorf("plain: %v", e)
 	}
-	if needs21(map[string]any{"pactoVersion": "2.0"}, []DependencyInput{{Ref: "r"}}) {
+	if hasExternal([]DependencyInput{{Ref: "r"}}) {
 		t.Error("no external dependency needs no 2.1")
 	}
 }
@@ -3002,7 +3002,7 @@ func TestEdit_Domain(t *testing.T) {
 	if result.Summary.Domain != "payments" {
 		t.Errorf("summary domain %q", result.Summary.Domain)
 	}
-	if want := []string{`set pactoVersion to "2.4"`, `set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+	if want := []string{`set pactoVersion to "2.4" (was "2.3")`, `set domain to "payments"`}; !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %v, want %v", result.Changes, want)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
@@ -3077,7 +3077,7 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if want := []string{`set pactoVersion to "2.4"`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
+	if want := []string{`set pactoVersion to "2.4" (was "2.3")`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %v, want %v", result.Changes, want)
 	}
 	if result.Summary.Offering != "postgresql" {

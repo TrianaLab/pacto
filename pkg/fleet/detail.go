@@ -537,6 +537,11 @@ type RevisionDetailData struct {
 	Service      EntityRef `json:"service"`
 	Version      string    `json:"version,omitempty"`
 	PactoVersion string    `json:"pactoVersion,omitempty"`
+	// PactoVersionCurrent and PactoVersionUnknown compare the declared
+	// pactoVersion with the versions the answering Pacto knows, so two Pactos
+	// of different releases can answer differently.
+	PactoVersionCurrent string `json:"pactoVersionCurrent,omitempty" doc:"The latest pactoVersion known to the Pacto that served this answer, set when this revision declares an older or unknown one"`
+	PactoVersionUnknown bool   `json:"pactoVersionUnknown,omitempty" doc:"The revision declares a pactoVersion the Pacto that served this answer does not know"`
 	// Inferred lists what a local read implied rather than read from the
 	// contract (an absent pactoVersion, an inferred service.name), each with
 	// its source. It is empty for a published revision.
@@ -1350,6 +1355,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		EvidenceSourceCounts: evidenceCounts,
 		Ownership:            revisionOwnership(rev),
 	}
+	data.PactoVersionCurrent, data.PactoVersionUnknown = pactoVersionStatus(rev.PactoVersion)
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
 		Revision: data, Actions: []string{"open-graph", "compare", "impact"},
@@ -2437,4 +2443,32 @@ func revisionStatus(r *ContractRevision) string {
 		return StatusInvalid
 	}
 	return ""
+}
+
+// PactoVersionText is the declared pactoVersion with the answering Pacto's
+// view of it: behind its latest version, or unknown to it.
+func (r *RevisionDetailData) PactoVersionText() string {
+	switch {
+	case r.PactoVersionUnknown:
+		return fmt.Sprintf("%s (unknown to this Pacto, latest %s)", r.PactoVersion, r.PactoVersionCurrent)
+	case r.PactoVersionCurrent != "":
+		return fmt.Sprintf("%s (behind %s)", r.PactoVersion, r.PactoVersionCurrent)
+	}
+	return r.PactoVersion
+}
+
+// pactoVersionStatus returns this Pacto's latest pactoVersion when v is older
+// or unknown to it, and whether v is unknown. An empty v reads as neither: the
+// contract left it out and the reader implies the current one.
+func pactoVersionStatus(v string) (current string, unknown bool) {
+	if v == "" {
+		return "", false
+	}
+	if !contract.Known(v) {
+		return contract.Current(), true
+	}
+	if cur, behind := contract.Behind(v); behind {
+		return cur, false
+	}
+	return "", false
 }

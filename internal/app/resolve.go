@@ -149,16 +149,34 @@ func (s *Service) ResolveBundle(ctx context.Context, ref string) (*contract.Bund
 // resolveBundleWithOverrides loads a bundle and applies overrides to it.
 // A local bundle is completed after the overrides apply.
 func (s *Service) resolveBundleWithOverrides(ctx context.Context, ref string, overrides override.Overrides) (*contract.Bundle, error) {
+	b, _, err := s.resolveBundleAsWritten(ctx, ref, overrides)
+	return b, err
+}
+
+// resolveBundleAsWritten is resolveBundleWithOverrides that also returns the
+// bundle's files before any override, from the same single read.
+func (s *Service) resolveBundleAsWritten(ctx context.Context, ref string, overrides override.Overrides) (*contract.Bundle, fs.FS, error) {
 	parsed := graph.ParseDependencyRef(ref)
-	if !parsed.IsOCI() {
+	var read *contract.Bundle
+	var err error
+	if parsed.IsOCI() {
+		read, err = s.resolveOCIBundle(ctx, parsed.Location)
+	} else {
 		logging.LoggerFromContext(ctx).Debug("loading local bundle", "path", parsed.Location)
-		return loadLocalBundleWithOverrides(parsed.Location, overrides)
+		read, err = readLocalBundle(parsed.Location)
 	}
-	bundle, err := s.resolveOCIBundle(ctx, parsed.Location)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return applyOverrides(bundle, overrides)
+	asWritten := read.FS
+	bundle, err := applyOverrides(read, overrides)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !parsed.IsOCI() {
+		bundle.Complete(dirBase(parsed.Location))
+	}
+	return bundle, asWritten, nil
 }
 
 // applyOverrides applies value file and --set overrides to a bundle.

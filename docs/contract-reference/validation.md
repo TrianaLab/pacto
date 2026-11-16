@@ -38,6 +38,27 @@ in an older contract, reports that version's code for each use instead: set
 | `environments` | `"2.3"` | `NEEDS_PACTO_2_3` |
 | `service.domain`, `service.offering`, `service.summary`, `service.lifecycle`, `service.template`, `service.origin`, `values` or a `configuration` selector beside a configuration `ref` | `"2.4"` | `NEEDS_PACTO_2_4` |
 | A dependency `compatibility: unknown`, an interface `port`, `breaks` | `"2.5"` | `NEEDS_PACTO_2_5` |
+| No field: the contract declares a `pactoVersion` older than the CLI's newest | any older 2.x | `CONTRACT_BEHIND` (info, never fails `pacto validate`) |
+
+- `pacto validate` and `pacto_check` report `CONTRACT_BEHIND` on the
+  structural stage, in `warnings`, with `valid` and the exit code unchanged.
+- Its message says what raising `pactoVersion` does. Validation checks the
+  `pacto.yaml` you wrote, without `-f` or `--set` values, again at the newest
+  version. The message says the raise keeps what the contract means, or names
+  the finding it would add (usually `ENVIRONMENT_VALUES_MISSING`, because from
+  `"2.4"` a required configuration taken by `ref` has its defaults checked) or
+  says to fix the errors the run reports before Pacto can tell.
+- When raising a contract older than `"2.4"` that takes a configuration by
+  `ref` adds no finding, the message says the operator then also accepts
+  `ContractOverrides` values for those configurations.
+- The fleet revision detail (`pacto fleet entity`, `pacto_fleet_entity`, the
+  TUI and the dashboard revision page) shows the declared `pactoVersion` as
+  `2.3 (behind 2.5)`. In JSON, `pactoVersionCurrent` is the newest version the
+  Pacto that answered knows, and `pactoVersionUnknown` marks a version it does
+  not know.
+- A 1.x contract follows
+  [MIGRATION.md](https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md)
+  and is never raised automatically.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports

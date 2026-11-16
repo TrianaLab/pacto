@@ -275,7 +275,7 @@ func renderOriginDetail(b *strings.Builder, o *fleet.OriginDetail, steps []fleet
 func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	field(b, "service", r.Service.Label)
 	field(b, "version", r.Version)
-	field(b, "pacto version", r.PactoVersion)
+	field(b, "pacto version", r.PactoVersionText())
 	field(b, "lifecycle", strings.TrimPrefix(lifecycleText(r.Lifecycle), ", "))
 	field(b, "valid", fmt.Sprintf("%t", r.Valid))
 	field(b, "workload", r.Workload)

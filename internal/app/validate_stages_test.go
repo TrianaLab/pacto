@@ -368,7 +368,7 @@ func TestValidateWarnsExpiredEnvironment(t *testing.T) {
 	dir := writeExpiringBundle(t)
 	before := pinnedService(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC))
 	r, err := before.Validate(context.Background(), ValidateOptions{Path: dir})
-	if err != nil || !r.Valid || len(r.Warnings) != 0 {
+	if err != nil || !r.Valid || len(withoutBehind(r.Warnings)) != 0 {
 		t.Fatalf("before expiry: %+v %v", r, err)
 	}
 	after := pinnedService(time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC))
@@ -386,7 +386,7 @@ func TestValidateWarnsExpiredEnvironment(t *testing.T) {
 		t.Fatalf("stage = %+v", st)
 	}
 	rep, err := after.ValidationReport(context.Background(), dir)
-	if err != nil || len(rep.Warnings) != 1 || rep.Warnings[0].Code != "ENVIRONMENT_EXPIRED" {
+	if err != nil || len(withoutBehind(rep.Warnings)) != 1 || withoutBehind(rep.Warnings)[0].Code != "ENVIRONMENT_EXPIRED" {
 		t.Fatalf("report = %+v %v", rep, err)
 	}
 }

@@ -283,7 +283,7 @@ func (p *planner) existing(data []byte) {
 	}
 	if c.Publish == nil && !p.opts.DescribeOnly {
 		bump := ""
-		if c.PactoVersion == "2.0" { // the only version before publish existed
+		if validation.PublishNeedsRaise(c.PactoVersion) {
 			bump = "set pactoVersion: \"2.1\" and "
 		}
 		p.next("pacto.yaml has no publish section, so pacto publish refuses it: %sadd publish "+

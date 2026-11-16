@@ -45,6 +45,7 @@ func TestValidate_Closure_DeprecatedProviderInterface(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		res.Warnings = withoutBehind(res.Warnings)
 		if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != tc.code || res.Warnings[0].Path != "dependencies[1]" {
 			t.Fatalf("%s: valid=%v warnings=%+v errors=%+v", tc.code, res.Valid, res.Warnings, res.Errors)
 		}
@@ -54,7 +55,7 @@ func TestValidate_Closure_DeprecatedProviderInterface(t *testing.T) {
 	}
 
 	res, err := NewService(&mockBundleStore{}, nil).Validate(context.Background(), ValidateOptions{Path: filepath.Join(root, "billing"), Closure: true})
-	if err != nil || len(res.Warnings) != 0 {
+	if err != nil || len(withoutBehind(res.Warnings)) != 0 {
 		t.Fatalf("a transitive provider is its direct consumer's business: %+v %v", res.Warnings, err)
 	}
 }
@@ -235,6 +236,7 @@ func TestValidate_Closure_DeprecatedProviderService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	res.Warnings = withoutBehind(res.Warnings)
 	if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != "DEPENDENCY_SERVICE_DEPRECATED" || res.Warnings[0].Path != "dependencies[0]" ||
 		res.Warnings[0].Message != "ledger@1.0.0 is deprecated since 2026-01-15; successor oci://r/ledger-v2" {
 		t.Fatalf("valid=%v warnings=%+v errors=%+v", res.Valid, res.Warnings, res.Errors)

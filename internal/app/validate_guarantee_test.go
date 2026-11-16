@@ -98,7 +98,7 @@ func TestValidate_Guarantees(t *testing.T) {
 					t.Errorf("path %q", e.Path)
 				}
 			}
-			for _, w := range res.Warnings {
+			for _, w := range withoutBehind(res.Warnings) {
 				warns = append(warns, w.Code+": "+w.Message)
 			}
 			if strings.Join(errs, "\n") != strings.Join(tt.errors, "\n") {

@@ -245,8 +245,10 @@ func TestCheckReportsExpiredEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != "ENVIRONMENT_EXPIRED" {
-		t.Fatalf("got valid=%v errors=%+v warnings=%+v", res.Valid, res.Errors, res.Warnings)
+	// The 2.4 fixture is also behind the current version, an info finding.
+	ws := slices.DeleteFunc(res.Warnings, func(w ValidationItem) bool { return w.Code == "CONTRACT_BEHIND" })
+	if !res.Valid || len(ws) != 1 || ws[0].Code != "ENVIRONMENT_EXPIRED" {
+		t.Fatalf("got valid=%v errors=%+v warnings=%+v", res.Valid, res.Errors, ws)
 	}
 }
 

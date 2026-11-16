@@ -1173,3 +1173,38 @@ func TestRevisionDetailInterfacePort(t *testing.T) {
 		t.Fatalf("interfaces = %+v", items)
 	}
 }
+
+func TestRevisionDetailPactoVersionCurrent(t *testing.T) {
+	older := contract.SupportedVersions[len(contract.SupportedVersions)-2]
+	for _, tc := range []struct {
+		declared, current string
+		unknown           bool
+	}{
+		{older, contract.Current(), false},
+		{contract.Current(), "", false},
+		{"", "", false},
+		{"9.9", contract.Current(), true},
+	} {
+		rev := declaredRev("payments", "1.0.0", "sha256:p")
+		rev.Bundle.Contract.PactoVersion = tc.declared
+		d := minimalRevDetail(t, &Collection{Revisions: []RawRevision{rev}}, "payments")
+		if d.PactoVersionCurrent != tc.current || d.PactoVersionUnknown != tc.unknown {
+			t.Errorf("declared %q: current = %q unknown = %v, want %q %v", tc.declared, d.PactoVersionCurrent, d.PactoVersionUnknown, tc.current, tc.unknown)
+		}
+	}
+}
+
+func TestRevisionDetailPactoVersionText(t *testing.T) {
+	for _, tc := range []struct {
+		r    RevisionDetailData
+		want string
+	}{
+		{RevisionDetailData{PactoVersion: "2.3", PactoVersionCurrent: "2.5"}, "2.3 (behind 2.5)"},
+		{RevisionDetailData{PactoVersion: "9.9", PactoVersionCurrent: "2.5", PactoVersionUnknown: true}, "9.9 (unknown to this Pacto, latest 2.5)"},
+		{RevisionDetailData{PactoVersion: "2.5"}, "2.5"},
+	} {
+		if got := tc.r.PactoVersionText(); got != tc.want {
+			t.Errorf("PactoVersionText(%+v) = %q, want %q", tc.r, got, tc.want)
+		}
+	}
+}

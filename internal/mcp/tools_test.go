@@ -572,7 +572,7 @@ func TestEditToolEnvironmentDescriptions(t *testing.T) {
 		return p["description"].(string)
 	}
 	add := desc("add_environments")
-	for _, want := range []string{"lifetime?", "expires?", "owner?", "Raises pactoVersion to 2.3, or to 2.4 with lifetime, expires or owner"} {
+	for _, want := range []string{"lifetime?", "expires?", "owner?", "Needs pactoVersion 2.3, or 2.4 with lifetime, expires or owner"} {
 		if !strings.Contains(add, want) {
 			t.Errorf("add_environments does not say %q: %s", want, add)
 		}
@@ -600,5 +600,19 @@ func TestSchemaDescribesMinimalContract(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.5") {
 		t.Errorf("schema $id = %q, %v", schema.ID, err)
+	}
+}
+
+// A raise can be refused, so no description promises one and the tool says
+// when it fails.
+func TestEditToolDescribesRefusedRaises(t *testing.T) {
+	tool := editTool()
+	if !strings.Contains(tool.Description, "otherwise the edit fails naming the finding the raise would add") {
+		t.Errorf("description: %s", tool.Description)
+	}
+	for name, p := range tool.InputSchema.(map[string]any)["properties"].(map[string]any) {
+		if d := p.(map[string]any)["description"].(string); strings.Contains(d, "raise") {
+			t.Errorf("%s promises a raise: %s", name, d)
+		}
 	}
 }
