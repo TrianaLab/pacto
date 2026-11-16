@@ -83,6 +83,18 @@ td .badge:not(.status-badge), td .pill { max-width: 100%; min-width: 0; white-sp
   background: var(--c-hatch), var(--c-surface);
   box-shadow: inset 0 0 0 1px var(--c-neutral);
 }
+/* The dot grid (unverified, #597) on any HTML mark, with the same solid edge. */
+.dots {
+  background: var(--c-dots), var(--c-surface);
+  box-shadow: inset 0 0 0 1px var(--c-neutral);
+}
+/* Forced colours would repaint either texture as Canvas and lose the difference. */
+@media (forced-colors: active) { .hatch, .dots { forced-color-adjust: none; } }
+
+/* Chart chrome (#597): recessive grid lines and the baseline, one stroke each. Words on
+   a chart are HTML (SPEC 12); these classes go on SVG lines only. */
+.chart-grid { stroke: var(--chart-grid); stroke-width: 1; }
+.chart-axis { stroke: var(--chart-axis); stroke-width: 1; }
 
 /* ─── Pill (small inline tag) ─── */
 .pill {

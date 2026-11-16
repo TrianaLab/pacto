@@ -107,14 +107,32 @@ server reads the repository named with `--stats-read-registry`; over stdio,
 `PACTO_STATS_REGISTRY` and the tool's `registry` argument also work, and over
 HTTP only the flag turns `pacto_stats` on
 ([MCP integration](mcp-integration.md#which-tools-exist)).
-`pacto dashboard --stats-registry` draws the same answer as trends on the Metrics page, each
-number linked to the records behind it. A rate with nothing to take it over and
-a lead time with no publish record to join are shown as unknown, never as 0.
 Every answer carries its `asOf`, its completeness and how many records it read
 and skipped.
 
-![The dashboard Metrics page: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-light.png#only-light)
-![The dashboard Metrics page: breaking changes caught, gates, delivery rates and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-dark.png#only-dark)
+## Read the Metrics page
+
+`pacto dashboard --stats-registry` draws the same answer on the Metrics page,
+plus promotion depth and lead time pooled over the environments that end a
+promotion chain. Only the dashboard computes these: `pacto stats` and
+`pacto_stats` give lead time per environment.
+Three headline tiles show breaking changes caught with the consumers they
+protected, release gates by their newest verdict (clear, blocked or
+unverified) and lead time to production at p50 with its p90. Five charts
+follow: what Pacto stopped, gate outcomes over time, delivery health by
+environment, lead time by environment and coverage over time. Each chart has a
+**Show as table** view, hovering or focusing a mark shows its exact numbers
+and every count links to its records.
+
+An unknown, such as a rate with nothing to take it over, is hatched and never
+drawn as 0, and unverified gates are dotted.
+Up to eight environments get one small panel each; more turn delivery health
+into a heatmap you can filter and group by promotion depth, owner or domain,
+with owner and domain inferred from the fleet snapshot. A partial snapshot
+marks the whole answer partial, as `pacto stats --by owner` does.
+
+![The dashboard Metrics page: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-light.png#only-light)
+![The dashboard Metrics page: headline tiles with sparklines, charts of what Pacto stopped and gate outcomes per week, delivery health and lead time per environment, labelled unsigned statistics](assets/screenshots/dashboard-metrics-dark.png#only-dark)
 
 ## Run records are unsigned statistics
 

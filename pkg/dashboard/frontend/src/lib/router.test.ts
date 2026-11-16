@@ -850,6 +850,12 @@ describe('metrics route', () => {
     expect(parseHash('#/metrics?other=1').params).toEqual({});
   });
 
+  it('keeps the promotion-depth filter in the URL (#597)', () => {
+    const url = metricsUrl({ window: '30d', depth: '2' });
+    expect(url).toBe('#/metrics?window=30d&depth=2');
+    expect(parseHash(url)).toEqual({ view: 'metrics', params: { window: '30d', depth: '2' } });
+  });
+
   it('is never redirected on a Fleet host', () => {
     expect(legacyRedirectTarget('#/metrics?window=7d')).toBeNull();
   });

@@ -6286,10 +6286,14 @@ export interface components {
             environmentOrder: "stages" | "name";
             /** @description Delivery numbers per environment, in environmentOrder */
             environments: components["schemas"]["StatsEnvironment"][] | null;
+            /** @description Delivery numbers per environment of each owner and each domain, counting only that group's services */
+            environmentsBy: components["schemas"]["StatsEnvironmentsBy"];
             /** @description Numbers per group */
             groups?: components["schemas"]["Stats.Group"][] | null;
             /** @description Whether records outside the caller's view exist */
             hidden: components["schemas"]["Stats.Hidden"];
+            /** @description Lead time pooled over the chain-end environments and over each depth, or over every environment when none is a chain end; empty without environments */
+            leadTimeGroups: components["schemas"]["StatsLeadTimeGroup"][] | null;
             /** @description Why the answer is incomplete */
             limitations: components["schemas"]["Fleet.Limitation"][] | null;
             /** @description Always unsigned statistics: run records are never evidence */
@@ -6351,8 +6355,15 @@ export interface components {
              * @description Promote operations accepted with verification unknown; neither verified nor failed
              */
             acceptedUnknown: number;
+            /** @description True when the environment has a depth, is fed by another environment and feeds none: the end of its promotion chain */
+            chainEnd?: boolean;
             /** @description A Stage here is on a cycle of upstream links, so the environment is placed by name */
             cycle?: boolean;
+            /**
+             * Format: int64
+             * @description Promotion depth from the Stages' upstream links, never from a name: 0 when nothing feeds the environment, else one more than the deepest environment that feeds it; absent when it has no readable Stage, is on, or below, a cycle or unordered environment, or a Stage here or upstream names an upstream Stage you cannot read
+             */
+            depth?: number;
             /** @description Environment name */
             environment: string;
             /** @description Promote operations that ended Failed or Errored, of promote operations */
@@ -6366,6 +6377,8 @@ export interface components {
              * @description Operations of every type in the window
              */
             operations: number;
+            /** @description The environments that feed this one directly, of those in upstream; absent without a depth */
+            parents?: string[] | null;
             /** @description Succeeded rollback operations, of Succeeded promote operations */
             rolledBack: components["schemas"]["Stats.Ratio"];
             /**
@@ -6379,6 +6392,42 @@ export interface components {
             upstream: string[] | null;
             /** @description Promote operations whose verification is Unverified, of promote operations verified or unverified */
             verificationFailed: components["schemas"]["Stats.Ratio"];
+        };
+        StatsEnvironmentGroup: {
+            /** @description Delivery numbers per environment of the group's services, alphabetical; empty when they have no operation record */
+            environments: components["schemas"]["Stats.EnvironmentMetrics"][] | null;
+            /** @description Group key: the owner or domain, or (unknown) for a service the fleet snapshot does not place, (unowned) for no owner and (none) for no domain */
+            key: string;
+            /** @description Group label */
+            label: string;
+        };
+        StatsEnvironmentsBy: {
+            /** @description Where owner and domain came from; absent without a fleet snapshot */
+            attribution?: components["schemas"]["Stats.Attribution"];
+            /** @description One group per domain, alphabetical, the groups no domain names last */
+            domain: components["schemas"]["StatsEnvironmentGroup"][] | null;
+            /** @description One group per owner, alphabetical, the groups no owner names last */
+            owner: components["schemas"]["StatsEnvironmentGroup"][] | null;
+        };
+        StatsLeadTimeGroup: {
+            /** @description Lead time per bucket, aligned with buckets; unknown when a bucket has no joined promotion, never 0 */
+            buckets: components["schemas"]["Stats.LeadTime"][] | null;
+            /**
+             * Format: int64
+             * @description The depth of a depth-<n> group
+             */
+            depth?: number;
+            /**
+             * Format: int64
+             * @description Environments in the group
+             */
+            environments: number;
+            /** @description chain-end: every chain-end environment; depth-<n>: every environment at that depth; all: every environment, given when none is a chain end */
+            key: string;
+            /** @description Group label: chain end, entry, hop 2, hop 3 and so on, or every environment */
+            label: string;
+            /** @description Lead time over the window; joined counts the promotions behind it */
+            leadTime: components["schemas"]["Stats.LeadTime"];
         };
         StatsLink: {
             /** @description The dashboard route, without the leading # */

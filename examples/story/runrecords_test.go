@@ -153,6 +153,77 @@ func TestRunRecordsHaveHonestUnknowns(t *testing.T) {
 	}
 }
 
+// TestRunRecordsDrawEveryChartState: the newest 30 days hold every state the
+// Metrics charts draw (#597): an unverified gate, a promotion into a chain-end
+// environment that joins its publish record, a rollback with no succeeded
+// promote beside it in its week, and an oldest bucket with no record at all.
+func TestRunRecordsDrawEveryChartState(t *testing.T) {
+	var recent []runrecord.Record
+	unverified, quiet := false, true
+	for _, r := range runRecords(t, Now) {
+		age := Now.Sub(r.RecordedAt)
+		if age >= 30*day {
+			continue
+		}
+		recent = append(recent, r)
+		quiet = quiet && age < 28*day
+		unverified = unverified || (r.Gate != nil && r.Gate.Verdict == runrecord.VerdictUnverified)
+	}
+	promotes, rollbacks := succeededByWeek(recent)
+	for name, ok := range map[string]bool{"unverified gate": unverified, "joined promotion into a chain end": joinsChainEnd(t, recent),
+		"rollback without a succeeded promote in its week": strayRollback(promotes, rollbacks), "empty oldest bucket": quiet} {
+		if !ok {
+			t.Errorf("the newest 30 days hold no %s", name)
+		}
+	}
+}
+
+// succeededByWeek counts succeeded promotes and rollbacks per environment and
+// week of age: promotes[env][w].
+func succeededByWeek(recs []runrecord.Record) (promotes, rollbacks map[string]map[int]int) {
+	promotes, rollbacks = map[string]map[int]int{}, map[string]map[int]int{}
+	for _, r := range recs {
+		count := map[string]map[string]map[int]int{"promote": promotes, "rollback": rollbacks}[r.Type]
+		if r.Kind != runrecord.KindOperation || r.Outcome != string(delivery.Succeeded) || count == nil {
+			continue
+		}
+		if count[r.Environment] == nil {
+			count[r.Environment] = map[int]int{}
+		}
+		count[r.Environment][int(Now.Sub(r.RecordedAt)/(7*day))]++
+	}
+	return promotes, rollbacks
+}
+
+// joinsChainEnd reports a succeeded promotion into a chain-end environment
+// whose digest joins a publish record of the full story.
+func joinsChainEnd(t *testing.T, recent []runrecord.Record) bool {
+	published := map[string]bool{}
+	for _, r := range runRecords(t, Now) {
+		if r.Kind == runrecord.KindPublish && r.DeployDigest != "" {
+			published[r.Service+" "+r.DeployDigest] = true
+		}
+	}
+	for _, r := range recent {
+		if r.Kind == runrecord.KindOperation && r.Outcome == string(delivery.Succeeded) && r.Type == "promote" &&
+			slices.Contains([]string{Prod, "prod-eu", "prod-us"}, r.Environment) && published[r.Service+" "+r.To] {
+			return true
+		}
+	}
+	return false
+}
+
+func strayRollback(promotes, rollbacks map[string]map[int]int) bool {
+	for env, weeks := range rollbacks {
+		for w := range weeks {
+			if promotes[env][w] == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestRunRecordsCoverStagePaths(t *testing.T) {
 	seen := map[string]bool{}
 	for _, r := range runRecords(t, Now) {
@@ -462,5 +533,63 @@ func TestHistoryChainsForward(t *testing.T) {
 	}
 	if len(published) == 0 || len(running) == 0 {
 		t.Fatal("the history holds no publish or operation record")
+	}
+}
+
+// TestStoryChangeClassificationAgrees: every CI record of one change (service,
+// from, to) carries the same classification, so a publish never contradicts the
+// diff and impact runs before it. A refused publish is its own change. History
+// revisions are numbered apart from the story's, so each list is checked alone.
+func TestStoryChangeClassificationAgrees(t *testing.T) {
+	agree(t, storyEvents())
+	agree(t, historyEvents())
+}
+
+func agree(t *testing.T, events []StatsEvent) {
+	t.Helper()
+	type change struct {
+		service  string
+		from, to int
+	}
+	seen := map[change]string{}
+	for _, ev := range events {
+		if ev.Classification == "" || ev.Verdict == runrecord.VerdictRefused {
+			continue
+		}
+		c := change{ev.Service, ev.From, ev.To}
+		if prev, ok := seen[c]; ok && prev != ev.Classification {
+			t.Errorf("%+v: %s record says %s, an earlier one says %s", c, ev.Kind, ev.Classification, prev)
+		}
+		seen[c] = ev.Classification
+	}
+}
+
+// TestRunRecordsUnverifiedImpactWaitsForAPerson: a promote of a revision whose
+// impact verdict is unverified clears its impact gate only once a person
+// accepted the unknown, never on its own.
+func TestRunRecordsUnverifiedImpactWaitsForAPerson(t *testing.T) {
+	recs := runRecords(t, Now)
+	unverified, deploys := map[string]bool{}, map[string]bool{}
+	for _, r := range recs {
+		if r.Kind == runrecord.KindImpact && r.Gate != nil && r.Gate.Verdict == runrecord.VerdictUnverified {
+			unverified[r.NewRevision] = true
+		}
+	}
+	for _, r := range recs {
+		if r.Kind == runrecord.KindPublish && unverified[r.BundleDigest] {
+			deploys[r.DeployDigest] = true
+		}
+	}
+	n := 0
+	for _, r := range recs {
+		if r.Kind == runrecord.KindOperation && r.Type == "promote" && deploys[r.To] {
+			n++
+			if r.HeldFor == "" || r.ActorClass != "human" {
+				t.Errorf("%s promote %s at %v follows an unverified impact with no person accepting it", r.Service, r.To, r.RecordedAt)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no promote follows an unverified impact, so the check checks nothing")
 	}
 }
