@@ -46,6 +46,9 @@ when the source page covers the area and describes no such feature. A cell holds
 | **Flux** | not verified | not verified | Partial | not verified | Partial | Yes | [Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/) |
 | **Backstage** | not verified | not verified | ✅ | not verified | not verified | not verified | [Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format) |
 | **Port** | not verified | not verified | ✅ | not verified | not verified | not verified | [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/) |
+| **Pact** | not verified | Partial | ✅ | not verified | Partial | No | [Pact Broker introduction](https://docs.pact.io/pact_broker) |
+| **oasdiff** | not verified | ✅ | not verified | not verified | not verified | No | [oasdiff README](https://github.com/oasdiff/oasdiff) |
+| **buf** | not verified | ✅ | Partial | not verified | not verified | No | [buf README](https://github.com/bufbuild/buf) |
 | **Pacto** | ✅ | ✅ | ✅ | ✅ (opt-in) | ✅ | No (delivery promotes, alpha) | This site |
 
 What each source page shows:
@@ -78,6 +81,16 @@ What each source page shows:
 - **Port**: a relation connects two blueprints and the entities built from
   them. Dependencies between services are one of its common uses, and several
   sources can add targets to the same relation.
+- **Pact**: consumer tests write the expected requests and responses to a
+  pact file, and the Pact Broker shares it and draws the network of services.
+  The provider build replays the pact against the provider, and `can-i-deploy`
+  reads the results before a deployment proceeds.
+- **oasdiff**: oasdiff compares two OpenAPI specs and lists the changes that
+  break existing clients, from the command line or in CI. Its rules classify
+  each change as breaking or non-breaking.
+- **buf**: `buf breaking` compares a Protobuf schema with a past version and
+  flags source, JSON or wire-format incompatibilities. A `buf.yaml` declares the
+  schema modules it depends on, and `buf.lock` pins them.
 
 ## Pacto's own row
 
