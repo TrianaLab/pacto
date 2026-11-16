@@ -1,10 +1,10 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { api } from '../lib/api.ts';
+  import { api, ApiError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel } from '../lib/entityLabels.ts';
-  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, fleetEntityUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
   import { currentEntity } from '../lib/currentEntity.svelte.ts';
@@ -52,6 +52,19 @@
   function load() { loader.refresh(); }
 
   const detail = $derived(loader.dataTag === identity ? loader.data : null);
+  // A legacy 3-part target key, or a cluster-qualified key in a single-cluster
+  // snapshot, resolves to one target whose canonical key differs: put the canonical
+  // href in the address bar without a new history entry, so a shared link is the real one.
+  $effect(() => {
+    if (kind === 'target' && detail?.entity?.key && detail.entity.key !== entityKey) {
+      replaceHash(detail.entity.href ? hashForHref(detail.entity.href) : fleetEntityUrl('target', detail.entity.key));
+    }
+  });
+  // A 3-part target key that names targets in more than one cluster never resolves to
+  // a guess: the server answers 409 with the candidates and the reader chooses.
+  const candidates = $derived(
+    kind === 'target' && loader.error instanceof ApiError && loader.error.status === 409 ? loader.error.candidates : [],
+  );
   const knowledge = $derived(snapshotKnowledge(detail?.meta));
   const state = $derived(decideViewState({
     loading: loader.loading, error: loader.error, itemCount: detail ? 1 : 0, knowledge,
@@ -143,7 +156,16 @@
     subtitle={detail?.entity?.summary || ''}
   />
 
-  {#if state.kind !== 'ready'}
+  {#if state.kind !== 'ready' && candidates.length}
+    <section class="ev-choose" data-testid="target-key-chooser" aria-label="Targets this key names">
+      <p class="t-body">This target key names targets in more than one cluster. Choose one:</p>
+      <ul>
+        {#each candidates as c (c.key)}
+          <li><a href={fleetEntityUrl('target', c.key)} title={c.label}><span class="ev-choose-label">{c.label}</span> <bdi class="ev-choose-key">{c.key}</bdi></a></li>
+        {/each}
+      </ul>
+    </section>
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
     <!-- An entity page is a dozen titled sections deep. The shared navigator lists the
@@ -223,5 +245,10 @@
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .ev-choose ul { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ev-choose a { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); min-inline-size: 0; max-inline-size: 100%; }
+  .ev-choose-label { overflow-wrap: anywhere; }
+  .ev-choose-key { color: var(--c-text-3); font-family: var(--font-mono, monospace); font-size: var(--text-sm); overflow-wrap: anywhere; }
+  @media (pointer: coarse) { .ev-choose a { min-block-size: 44px; align-items: center; } }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
 </style>

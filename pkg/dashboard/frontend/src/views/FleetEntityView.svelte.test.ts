@@ -881,3 +881,51 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetEntityView — cluster-qualified target keys', () => {
+  // A block body: a function returned from beforeEach is a cleanup hook, and the mock would run again after the test.
+  beforeEach(() => { detailFn.mockReset(); });
+
+  it('replaces a legacy or forward key with the canonical href, without a new history entry', async () => {
+    location.hash = '#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp';
+    const replace = vi.spyOn(history, 'replaceState');
+    const push = vi.spyOn(history, 'pushState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'c1/prod/k8s/app');
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '#/fleet/targets/prod%2Fk8s%2Fapp'));
+    expect(push).not.toHaveBeenCalled();
+    replace.mockRestore(); push.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('leaves the location alone when the requested key is the canonical one', async () => {
+    const replace = vi.spyOn(history, 'replaceState');
+    detailFn.mockResolvedValue(targetDetail());
+    const { target, component } = await mountView('target', 'prod/k8s/app');
+    expect(replace).not.toHaveBeenCalled();
+    replace.mockRestore();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers a chooser when a target key names targets in more than one cluster', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const err = new ApiError(409, 'this target key names targets in more than one cluster; choose one');
+    err.candidates = [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: 'c2/prod/k8s/app', label: 'us-prod / prod / app' },
+    ];
+    detailFn.mockRejectedValue(err);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'target', entityKey: 'prod/k8s/app', refreshTick: 0 } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="target-key-chooser"]')).toBeTruthy());
+    const chooser = target.querySelector('[data-testid="target-key-chooser"]') as HTMLElement;
+    expect(chooser.textContent).toContain('This target key names targets in more than one cluster. Choose one:');
+    const links = [...chooser.querySelectorAll('a')];
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/fleet/targets/c1%2Fprod%2Fk8s%2Fapp', '#/fleet/targets/c2%2Fprod%2Fk8s%2Fapp']);
+    expect(links[0].textContent).toContain('eu-prod / prod / app');
+    expect(links[0].querySelector('bdi')?.textContent).toBe('c1/prod/k8s/app');
+    expect(target.querySelector('h1')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+});

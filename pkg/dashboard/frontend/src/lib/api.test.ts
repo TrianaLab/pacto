@@ -430,6 +430,22 @@ describe('delivery endpoints', () => {
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
   });
 
+  it('carries the candidates of a target key that names targets in more than one cluster', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, title: 'Conflict', detail: 'choose one', errors: [
+      { location: 'candidates', value: 'c1/prod/k8s/app', message: 'eu-prod / prod / app' },
+      { location: 'body.key', value: 'ignored', message: 'not a candidate' },
+      { location: 'candidates', value: 'c2/prod/k8s/app', message: 'us-prod / prod / app' },
+    ] }, 409));
+    const err = await api.fleetEntityDetail('target', 'prod/k8s/app').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect([err.status, err.candidates]).toEqual([409, [
+      { key: 'c1/prod/k8s/app', label: 'eu-prod / prod / app' },
+      { key: 'c2/prod/k8s/app', label: 'us-prod / prod / app' },
+    ]]);
+    mockFetch.mockResolvedValue(jsonResponse({ status: 404, detail: 'not found' }, 404));
+    expect((await api.fleetEntityDetail('target', 'x').catch((e) => e)).candidates).toEqual([]);
+  });
+
   it('carries differs on a PlanStale answer', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', differs: 'reason', plan: { intentDigest: 'sha256:new' } }, 409));
     const err = await api.deliveryOperation('prod', 'op1').catch((e) => e);

@@ -27,6 +27,9 @@ export class ApiError extends Error {
   /** On PlanStale, the bound field that alone explains the difference
    *  (reason, on-behalf-of person, both, or cause); empty when something else moved. */
   differs: string;
+  /** On a 409 for a target key that names targets in more than one cluster, the
+   *  cluster-qualified keys to choose from, each with its label; empty otherwise. */
+  candidates: { key: string; label: string }[] = [];
   constructor(status: number, message: string, code = '', plan?: DeliveryPlan, differs = '') {
     super(message);
     this.status = status;
@@ -332,6 +335,16 @@ function errorCode(error: unknown): { code: string; plan?: DeliveryPlan; differs
   return { code: '' };
 }
 
+// errorCandidates reads the problem-details entries a 409 for an ambiguous target key
+// carries: one {location: 'candidates', value: <key>, message: <label>} per target.
+function errorCandidates(error: unknown): { key: string; label: string }[] {
+  const errs = (error as { errors?: { location?: string; value?: unknown; message?: string }[] } | null)?.errors;
+  if (!Array.isArray(errs)) return [];
+  return errs
+    .filter((e) => e?.location === 'candidates' && typeof e.value === 'string')
+    .map((e) => ({ key: e.value as string, label: e.message ?? '' }));
+}
+
 function errorMessage(error: unknown, response: Response): string {
   if (error && typeof error === 'object') {
     const e = error as { detail?: string; title?: string };
@@ -347,7 +360,9 @@ async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
     const { code, plan, differs } = errorCode(error);
-    throw new ApiError(response.status, errorMessage(error, response), code, plan, differs);
+    const err = new ApiError(response.status, errorMessage(error, response), code, plan, differs);
+    err.candidates = errorCandidates(error);
+    throw err;
   }
   return (data ?? null) as T;
 }

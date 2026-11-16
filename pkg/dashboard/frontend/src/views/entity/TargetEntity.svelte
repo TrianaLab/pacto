@@ -68,6 +68,16 @@
   });
   const deliveryRows = $derived((delivery?.data?.environments ?? [])
     .filter((x) => x.service === svcName && x.environment === envName && (!x.domain || x.domain === svcDomain)));
+  // The cluster that reported this target (514-S1). The UID is the identity; the name
+  // is display only, so it always says where it came from, and who reported it when
+  // this process did not read it itself.
+  const NAME_SOURCES = { 'node-label': 'node label', context: 'context name', file: 'target-state file', uid: 'cluster id' };
+  const cluster = $derived(d.cluster ?? null);
+  const clusterHow = $derived.by(() => {
+    if (!cluster) return '';
+    const how = NAME_SOURCES[cluster.nameSource] ?? NAME_SOURCES.uid;
+    return cluster.reportedBy ? `(reported by ${cluster.reportedBy} as ${how})` : `(from ${how})`;
+  });
   const siblingTargetsHref = $derived(d.service?.key ? fleetEntityListUrl('target', { service: d.service.key }) : '');
 </script>
 
@@ -111,6 +121,14 @@
     <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
     {#if siblingTargetsHref}<div class="te-fact"><span class="te-k">Elsewhere</span><a href={siblingTargetsHref} data-testid="sibling-targets-link">All targets of this service</a></div>{/if}
     {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
+    {#if cluster}
+      <div class="te-fact" data-testid="target-cluster">
+        <span class="te-k">{d.clusterRelation === 'runs-in' ? 'Runs in cluster' : 'Reported through cluster'}</span>
+        <bdi class="te-long">{cluster.name || cluster.id.slice(0, 8)}</bdi>
+        <span class="te-note">{clusterHow}</span>
+        <span class="te-note">uid <span title={cluster.id}>{cluster.id.slice(0, 8)}</span></span>
+      </div>
+    {/if}
     <!-- Always present: an environment nobody reports reads Unknown, with the reason. -->
     <div class="te-fact" data-testid="target-environment">
       <span class="te-k">Environment</span>
@@ -240,5 +258,6 @@
   .te-rr-line, .te-note { margin: 0; }
   .te-expired { color: var(--c-warn); }
   .te-offers { flex-basis: 100%; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .te-long { min-inline-size: 0; overflow-wrap: anywhere; }
   .te-env-reason { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>
