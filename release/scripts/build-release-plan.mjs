@@ -113,6 +113,10 @@ function buildPlan(u) {
           // core version promises. Not byte-deterministic — oras stamps its own layer —
           // so publish-oci-unit.sh adopts it by revision+version annotation, not digest.
           { unit: 'demo-compose', kind: 'oci-image', coordinate: u['demo-compose'].coordinate, tag: core },
+          // The default external catalog (pkg/externalcatalog/default/catalog.yaml),
+          // published at the digest every binary of this core version embeds and
+          // signed keyless, so a fleet can prove the copy it classifies with.
+          { unit: 'external-catalog', kind: 'oci-image', coordinate: u['external-catalog'].coordinate, tag: core },
         ],
       },
       kubernetes: {
@@ -140,7 +144,7 @@ function buildPlan(u) {
     // resolves), then k8s group. Every step leaves published modules resolvable.
     publishOrder: [
       'core:go-module', 'core:dashboard-image', 'core:dashboard-contract-bundle',
-      'core:cli', 'core:demo-bundles', 'core:demo-compose',
+      'core:external-catalog', 'core:cli', 'core:demo-bundles', 'core:demo-compose',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
       'kubernetes:operator-chart', 'kubernetes:delivery-image',
       'kubernetes:docs',

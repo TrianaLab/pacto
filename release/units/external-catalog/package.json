@@ -1,0 +1,10 @@
+{
+  "name": "@pacto/external-catalog",
+  "version": "4.5.0",
+  "private": true,
+  "pacto": {
+    "releaseUnit": "external-catalog",
+    "kind": "oci-image",
+    "coordinate": "ghcr.io/trianalab/pacto/external-catalog"
+  }
+}

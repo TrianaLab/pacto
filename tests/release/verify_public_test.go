@@ -25,7 +25,7 @@ func verifyPublic(t *testing.T, unitsDir, units string) (string, error) {
 func TestVerifyPublicSelectsEveryGHCRRepository(t *testing.T) {
 	// Every release unit, so the selection is decided by kind alone.
 	all := `["dashboard-contract-bundle","delivery-image","demo-bundles",` +
-		`"demo-compose","k8s-docs","k8s-module","operator-chart","operator-image","cli","core","dashboard-image"]`
+		`"demo-compose","external-catalog","k8s-docs","k8s-module","operator-chart","operator-image","cli","core","dashboard-image"]`
 	out, err := verifyPublic(t, filepath.Join(repoRoot(t), "release", "units"), all)
 	if err != nil {
 		t.Fatalf("verify-public.sh list mode: %v\n%s", err, out)
@@ -37,6 +37,7 @@ func TestVerifyPublicSelectsEveryGHCRRepository(t *testing.T) {
 		"dashboard-contract-bundle trianalab/pacto/dashboard-contract",
 		"delivery-image trianalab/pacto/delivery",
 		"demo-compose trianalab/pacto/demo",
+		"external-catalog trianalab/pacto/external-catalog",
 		"operator-chart trianalab/pacto/charts/pacto-operator",
 		"operator-image trianalab/pacto/operator",
 		"dashboard-image trianalab/pacto/dashboard",

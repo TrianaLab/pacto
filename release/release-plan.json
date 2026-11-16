@@ -36,6 +36,12 @@
           "kind": "oci-image",
           "tag": "4.5.0",
           "unit": "demo-compose"
+        },
+        {
+          "coordinate": "ghcr.io/trianalab/pacto/external-catalog",
+          "kind": "oci-image",
+          "tag": "4.5.0",
+          "unit": "external-catalog"
         }
       ],
       "tags": [
@@ -95,6 +101,7 @@
     "core:go-module",
     "core:dashboard-image",
     "core:dashboard-contract-bundle",
+    "core:external-catalog",
     "core:cli",
     "core:demo-bundles",
     "core:demo-compose",

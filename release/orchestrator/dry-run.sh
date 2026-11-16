@@ -48,7 +48,7 @@ echo "== TRANSACTION SELECTION: drive the REAL orchestrator (detect.mjs) per sce
 # coordinated and recovery each decide the correct unit set. This is the same
 # detect.mjs release.yml runs; the release.yml job `if:` selection over these
 # units is separately gated by tests/release/dag_test.go.
-CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles,demo-compose"
+CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles,demo-compose,external-catalog"
 K8S_UNITS="k8s-module,operator-image,operator-chart,delivery-image,k8s-docs"
 mk_txn() { # <id> <groups-csv> <units-csv> <ready 0|1> -> transaction json
   python3 - "$@" <<'PY'
@@ -168,7 +168,8 @@ led init "$TXN" "$SHA" "$MSHA" >/dev/null
 # identical->skip (safe resume), conflict->fail closed. Only PACTO_LEDGER_REPO +
 # the coordinates differ from production. One OCI unit per release LINE so the
 # partial-failure/resume spans BOTH categories; every other OCI unit
-# (dashboard-contract-bundle, demo-bundles, operator-chart) publishes through
+# (dashboard-contract-bundle, demo-bundles, operator-chart; external-catalog has
+# its own resume case below) publishes through
 # this identical adapter path — exercised here once per line, not per artifact.
 adapter() { bash "$ROOT/release/orchestrator/publish-oci-unit.sh" "$@"; }
 # Fresh coordinates the adapter itself publishes: the build step already pushed
@@ -208,7 +209,7 @@ echo "   verify MISMATCH refused (fail closed)"
 
 echo "== ITEM 2: parallel per-unit records lose nothing; idempotent; conflict fails =="
 CTX="dryrun-conc-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CTX" "$SHA" "$MSHA" >/dev/null
-CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart delivery-image k8s-docs"
+CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose external-catalog k8s-module operator-image operator-chart delivery-image k8s-docs"
 i=0
 for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
 wait
@@ -351,6 +352,22 @@ if PACTO_RELEASE_TXN="$BTXN" PACTO_EXPECT_CONTENT="$DC" \
 fi
 [ "$(led status "$BTXN" demo-compose)" = complete ] && { echo "   FAIL: the ledger recorded a unit whose identity assertion failed"; exit 1; }
 echo "   absent -> a push of the same bytes as a non-Compose artifact records nothing"
+
+echo "== external-catalog: the digest is the identity, so a resume reads identical =="
+# The catalog artifact carries no provenance annotations: the digest computed at
+# the source SHA is all a resume can be decided by. Publish it the way release.yml
+# does, drop the ledger record (a fresh transaction), rerun: identical, never a
+# conflict and never a re-push.
+EXPECTED="$(cd "$ROOT" && go run ./cmd/genexternalcatalog check --digest-only)"
+ECREF="$REG/pacto/external-catalog:$DV"
+ETXN="dryrun-catalog-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$ETXN" "$SHA" "$MSHA" >/dev/null
+( cd "$ROOT" && PACTO_RELEASE_TXN="$ETXN" PACTO_EXPECT_DIGEST="$EXPECTED" PACTO_INSECURE_REGISTRIES="$REG" \
+    adapter external-catalog "$ECREF" "$DV" -- go run ./cmd/genexternalcatalog push "oci://$ECREF" >/dev/null )
+[ "$(led digest "$ETXN" external-catalog)" = "$EXPECTED" ] || { echo "   FAIL: the catalog was not recorded at $EXPECTED"; exit 1; }
+ETXN2="$ETXN-resume"; led init "$ETXN2" "$SHA" "$MSHA" >/dev/null
+out="$(PACTO_RELEASE_TXN="$ETXN2" PACTO_EXPECT_DIGEST="$EXPECTED" adapter external-catalog "$ECREF" "$DV" -- false)"
+case "$out" in *identical*) ;; *) echo "   FAIL: a resumed catalog publish read '$out', want identical"; exit 1;; esac
+echo "   catalog resume without a ledger record: identical by digest ($EXPECTED)"
 
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"
