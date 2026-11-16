@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -207,14 +209,20 @@ func NewScopedViewer(review Review, watched []string) *Viewer {
 	return v
 }
 
+// ErrReview is what a person learns of a failed review. It names no
+// namespace: an apiserver error names the one it was asked in, which the
+// person may not read. The cause is logged.
+var ErrReview = errors.New("the apiserver could not review which namespaces you may read")
+
 // Query is q as p sees it. A cluster-wide reader sees all of it; anyone else
 // sees the namespaces they may read and nothing without a namespace, such as
-// a service known only from a registry. A failed review is an error, never a
+// a service known only from a registry. A failed review is ErrReview, never a
 // quietly smaller answer.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
 	visible, all, err := v.visible(ctx, p, q.Namespaces())
 	if err != nil {
-		return nil, err
+		slog.WarnContext(ctx, "reviewing which namespaces a person may read failed", "error", err)
+		return nil, ErrReview
 	}
 	if all {
 		return q, nil

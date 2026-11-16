@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -192,11 +193,11 @@ func TestViewerBoundsAndFailures(t *testing.T) {
 		return false, nil
 	})
 	fail = ""
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, boom) {
+	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
 		t.Errorf("a failed cluster-wide review: %v", err)
 	}
 	fail = "a"
-	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, boom) {
+	if _, err := v.Query(context.Background(), Person{User: "x"}, q); !errors.Is(err, ErrReview) {
 		t.Errorf("a failed namespace review: %v", err)
 	}
 	fail = "-"
@@ -429,10 +430,45 @@ func TestScopedViewerUnwatchedCallerDoesNotFailRequest(t *testing.T) {
 }
 
 func TestScopedViewerFailedReviewIsError(t *testing.T) {
-	boom := errors.New("apiserver down")
+	boom := errors.New(`localsubjectaccessreviews.authorization.k8s.io is forbidden: cannot create resource in the namespace "payments"`)
 	v := NewScopedViewer(func(context.Context, Person, string) (bool, error) { return false, boom }, []string{"payments"})
-	if _, err := v.Query(context.Background(), alice, viewerFleet(t, "payments")); !errors.Is(err, boom) {
+	_, err := v.Query(context.Background(), alice, viewerFleet(t, "payments"))
+	if !errors.Is(err, ErrReview) {
 		t.Errorf("a failed review in a watched namespace: %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "payments") {
+		t.Errorf("the error names the namespace it was asked in: %v", err)
+	}
+}
+
+// TestScopedViewerUnreadableNamespaceDoesNotFailRequest: a watched namespace
+// the source could not read, where the review is refused by the same missing
+// grant, is never asked about, so the readable namespace still answers.
+func TestScopedViewerUnreadableNamespaceDoesNotFailRequest(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	src := fleet.NewMemorySource("c1", k, &fleet.Collection{
+		Targets:     []fleet.RawTarget{{Scope: "payments", Kind: k, Name: "svc-payments", Service: "svc-payments"}},
+		State:       &fleet.SourceState{Status: fleet.SourcePartial, Namespaces: []string{"payments"}, NamespacesTotal: 1},
+		Limitations: []fleet.Limitation{fleet.NamespaceUnreadableLimitation("c1", "ledger", "forbidden")},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &reviews{allow: func(_ Person, ns string) (bool, error) {
+		if ns != "payments" {
+			return false, errors.New("forbidden")
+		}
+		return true, nil
+	}}
+	got, err := NewScopedViewer(r.review, []string{"payments", "ledger"}).Query(context.Background(), alice, fleet.NewQuery(snap))
+	if err != nil || !slices.Equal(services(got), []string{"svc-payments"}) {
+		t.Fatalf("alice sees %v, %v", services(got), err)
+	}
+	for _, l := range got.SnapshotForSerialization().Limitations {
+		if strings.Contains(l.Message, "ledger") {
+			t.Errorf("alice learns of the unreadable namespace: %q", l.Message)
+		}
 	}
 }
 
