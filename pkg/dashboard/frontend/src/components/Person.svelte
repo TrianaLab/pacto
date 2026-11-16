@@ -18,6 +18,7 @@
 
 <style>
   .person { overflow-wrap: break-word; }
-  /* Text that follows the copy button (", signed in", ": note") keeps the 8px a reader needs between two boxes. */
-  .person-id { display: inline-flex; max-width: 100%; min-width: 0; vertical-align: middle; font-weight: normal; margin-inline-end: 4px; }
+  /* The name before the copy button and the text after it (", signed in", ": note") keep the 8px a reader
+     needs between two boxes: a space alone is under 4px in the smaller type of a panel. */
+  .person-id { display: inline-flex; max-width: 100%; min-width: 0; vertical-align: middle; font-weight: normal; margin-inline: 4px; }
 </style>
