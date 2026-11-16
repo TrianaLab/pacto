@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,17 +32,25 @@ const (
 	ModeOff  Mode = "off"
 )
 
-// Set implements flag.Value; true and false are accepted for the boolean flag the mode replaced.
+// Set implements flag.Value; every strconv.ParseBool spelling is accepted for the boolean flag the mode
+// replaced.
 func (m *Mode) Set(s string) error {
 	switch s {
-	case "true", "on":
+	case "on":
 		*m = ModeOn
-	case "false", "off":
+	case "off":
 		*m = ModeOff
 	case "auto":
 		*m = ModeAuto
 	default:
-		return fmt.Errorf("invalid mode %q: use on, off or auto", s)
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return fmt.Errorf("invalid mode %q: use on, off or auto", s)
+		}
+		*m = ModeOff
+		if b {
+			*m = ModeOn
+		}
 	}
 	return nil
 }

@@ -20,7 +20,8 @@ import (
 )
 
 func TestModeSetAcceptsBoolsAndWords(t *testing.T) {
-	for in, want := range map[string]Mode{"true": ModeOn, "on": ModeOn, "false": ModeOff, "off": ModeOff, "auto": ModeAuto} {
+	for in, want := range map[string]Mode{"true": ModeOn, "on": ModeOn, "false": ModeOff, "off": ModeOff, "auto": ModeAuto,
+		"1": ModeOn, "True": ModeOn, "T": ModeOn, "0": ModeOff, "FALSE": ModeOff} {
 		var m Mode
 		if err := m.Set(in); err != nil || m != want {
 			t.Errorf("Set(%q) = %q, %v; want %q", in, m, err, want)
