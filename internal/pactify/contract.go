@@ -452,7 +452,7 @@ func (p *planner) health(b *strings.Builder, api bool) {
 // whose contract is in --fleet gets its bundle; any other gets the
 // repository its contract would be published at.
 func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
-	written := p.observedEntries(b)
+	written := p.observedEntries(b, bundles)
 	header := len(written) == 0
 	for _, d := range p.r.Dependencies {
 		if written[d.Name] {
@@ -477,31 +477,60 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 	}
 }
 
-// observedEntries writes the dependencies seen at runtime whose provider's
-// Pactos report a contract version, each with compatibility unknown and a
-// range proposed from the lowest of those versions in a comment. A person
-// declares the range: a guess never decides who a change breaks. It prints
-// what kept a range from being proposed for every entry.
-func (p *planner) observedEntries(b *strings.Builder) map[string]bool {
+// observedEntries writes the dependencies seen at runtime that the Pactos
+// describing their provider name, each with compatibility unknown: with a
+// range proposed from the lowest version those Pactos report in a comment,
+// or the reason none is. A person declares the range: a guess never decides
+// who a change breaks. It prints what kept a range from being proposed for
+// every entry.
+func (p *planner) observedEntries(b *strings.Builder, bundles string) map[string]bool {
 	out := map[string]bool{}
 	for _, d := range p.opts.Inferred {
 		for _, u := range d.Unknown {
 			p.unknown("%s", u)
 		}
-		if len(d.Versions) == 0 || out[d.Name] {
-			continue
+		if out[d.Name] || (len(d.Versions) == 0 && d.Ref == "" && len(d.Unknown) == 0) {
+			continue // nothing read: dependencyEntries writes it
 		}
 		if len(out) == 0 {
 			b.WriteString("dependencies:\n")
 		}
 		out[d.Name] = true
-		services, versions, proposal := strings.TrimPrefix(d.Where, "calls seen to "), joinAnd(d.Versions), proposedRange(d.Versions)
+		services := strings.TrimPrefix(d.Where, "calls seen to ")
 		fmt.Fprintf(b, "  # inferred from runtime calls (%s)\n", d.Where)
-		writeDependency(b, d.Name, d.Ref, fmt.Sprintf("proposed %s, from the Pactos describing %s at %s", proposal, services, versions))
-		p.found("%s calls %s, described by %s %s", p.r.Service, services, d.Name, versions)
+		if len(d.Versions) == 0 {
+			p.unproposed(b, d, services, bundles)
+			continue
+		}
+		described, versions, proposal := cmp.Or(theServices(d.described), services), joinAnd(d.Versions), proposedRange(d.Versions)
+		writeDependency(b, d.Name, d.Ref, fmt.Sprintf("proposed %s, from the Pactos describing %s at %s", proposal, described, versions))
+		if described == services {
+			p.found("%s calls %s, described by %s %s", p.r.Service, services, d.Name, versions)
+		} else {
+			p.found("%s calls %s, and the Pactos describing %s report %s %s", p.r.Service, services, described, d.Name, versions)
+		}
 		p.undeclared(d.Name, proposal, "the lowest version the Pactos describing it report")
 	}
 	return out
+}
+
+// unproposed writes a dependency seen at runtime whose Pactos were read but
+// propose no range: they name different contracts, or none reports a
+// usable version. Its ref is the one they name, else where its contract
+// would be published.
+func (p *planner) unproposed(b *strings.Builder, d Inferred, services, bundles string) {
+	why := "no reconciled Pacto describing " + services + " reports a contract version"
+	if d.conflict {
+		why = "the Pactos describing " + services + " name different contracts"
+	}
+	ref := d.Ref
+	if ref == "" {
+		ref = "oci://" + bundles + "/" + d.Name
+		b.WriteString("  # no Pacto describing it names a contract ref: ref is where it would be published\n")
+	}
+	writeDependency(b, d.Name, ref, "no range proposed: "+why)
+	p.found("%s calls %s", p.r.Service, services)
+	p.undeclared(d.Name, "", "")
 }
 
 // writeDependency writes one dependency with compatibility unknown and

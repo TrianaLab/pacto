@@ -114,6 +114,10 @@ type Inferred struct {
 
 	// services are the Services, as ns/name, the calls were seen to.
 	services []string
+	// refs are the contract refs the Pactos describing them name, sorted;
+	// withRef are the Services whose Pactos name one, and described the
+	// Services whose Pactos report a version.
+	refs, withRef, described []string
 	// conflict says the Pactos describing those Services name different
 	// contracts, so no versions are kept.
 	conflict bool

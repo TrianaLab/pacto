@@ -175,9 +175,10 @@ func TestClusterDrafts(t *testing.T) {
 		t.Fatal("a plan wrote under --out")
 	}
 	checkCheckoutDraft(t, result(t, b, "checkout"), out)
-	// ledger calls payments and legacy, whose Pacto reports no version yet: no range proposed.
+	// ledger calls payments and legacy, whose Pacto names no contract yet: no range proposed.
 	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.0\n") ||
-		!strings.Contains(l, "  - name: legacy\n    ref: oci://reg.io/acme/contracts/legacy\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of legacy was read\n") {
+		!strings.Contains(l, "  - name: legacy\n    ref: oci://reg.io/acme/contracts/legacy\n    required: true\n    compatibility: unknown   # no range proposed: no reconciled Pacto describing the Service shop/legacy reports a contract version\n") ||
+		!hasLine(result(t, b, "ledger").Unknown, "the version of shop/legacy that Pacto shop/ghost describes: its status and spec name no usable contract ref, so no range is proposed from it") {
 		t.Fatalf("ledger:\n%s", l)
 	}
 	if n := result(t, b, "nightly"); strings.Contains(file(t, n, "pacto.yaml").Content, "dependencies") || len(n.Dependencies) != 0 {
@@ -617,7 +618,8 @@ func TestClusterProviderLowestVersion(t *testing.T) {
 		{"higher first", []*unstructured.Unstructured{p("a", "2.4.0"), p("b", "2.3.1")}, []string{"2.3.1", "2.4.0"}, nil},
 		{"lower first", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.4.0")}, []string{"2.3.1", "2.4.0"}, nil},
 		{"same version", []*unstructured.Unstructured{p("a", "2.3.1"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
-		{"non-strict ignored", []*unstructured.Unstructured{p("a", "v2.2"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
+		{"non-strict ignored", []*unstructured.Unstructured{p("a", "v2.2"), p("b", "2.3.1")}, []string{"2.3.1"},
+			[]string{"the version of shop/payments that Pacto shop/a describes: its status reports no contract version, so no range is proposed from it"}},
 		{"other namespace ignored", []*unstructured.Unstructured{other, p("b", "2.3.1")}, []string{"2.3.1"}, nil},
 		{"stale generation ignored", []*unstructured.Unstructured{stale, p("b", "2.4.1")}, []string{"2.4.1"},
 			[]string{"the version of shop/payments that Pacto shop/payments-next describes: its status is not reconciled with its spec, so no range is proposed from it"}},
@@ -724,21 +726,89 @@ func TestInferredMergeConflictingRefsProposeNothing(t *testing.T) {
 	}
 }
 
+// mergeAll merges ds as inferred does, then settles the result.
+func mergeAll(ds ...Inferred) []Inferred {
+	var list []Inferred
+	for _, d := range ds {
+		list = mergeInferred(list, d)
+	}
+	for i := range list {
+		finishInferred(&list[i])
+	}
+	return list
+}
+
+// described is a Service shop/<svc> whose Pactos name ref at versions.
+func described(svc, ref string, versions ...string) Inferred {
+	d := Inferred{Name: "payments", services: []string{"shop/" + svc}, Ref: ref, refs: []string{ref}, withRef: []string{"shop/" + svc}, Versions: versions}
+	if len(versions) > 0 {
+		d.described = d.services
+	}
+	return d
+}
+
 // TestMergeInferredKeepsConflict: once the Pactos disagree, a later
 // agreeing Service adds no versions, a repeated note is kept once and a new
 // one is added.
 func TestMergeInferredKeepsConflict(t *testing.T) {
 	note := "conflict"
-	a := Inferred{Name: "payments", services: []string{"shop/a"}, Unknown: []string{note}, conflict: true, Ref: paymentsRef}
-	b := Inferred{Name: "payments", services: []string{"shop/b"}, Unknown: []string{note}, Versions: []string{"2.3.1"}, Ref: paymentsRef}
+	a := described("a", paymentsRef)
+	a.Unknown, a.conflict = []string{note}, true
+	b := described("b", paymentsRef, "2.3.1")
+	b.Unknown = []string{note}
 	c := Inferred{Name: "payments", services: []string{"shop/c"}, Unknown: []string{"other"}}
-	list := mergeInferred(mergeInferred(mergeInferred(nil, a), b), c)
+	list := mergeAll(a, b, c)
 	if len(list) != 1 || len(list[0].Versions) != 0 || !slices.Equal(list[0].Unknown, []string{note, "other"}) || list[0].Ref != paymentsRef ||
 		list[0].Where != "calls seen to the Services shop/a, shop/b and shop/c" {
 		t.Fatalf("merged: %+v", list)
 	}
-	d := mergeInferred([]Inferred{{Name: "payments", services: []string{"shop/a"}}}, Inferred{Name: "payments", services: []string{"shop/b"}, Ref: paymentsRef, Versions: []string{"2.0.0"}})
-	if d[0].Ref != paymentsRef || !slices.Equal(d[0].Versions, []string{"2.0.0"}) {
+}
+
+// TestMergeUndescribedServiceNamesOnlyDescribed: a Service no Pacto
+// describes merged with one described at 2.0.0 keeps the version, credits
+// it only to the described Service and says the other has no Pacto.
+func TestMergeUndescribedServiceNamesOnlyDescribed(t *testing.T) {
+	other := Inferred{Name: "payments", services: []string{"other/payments"}, Where: "calls seen to the Service other/payments"}
+	for _, order := range [][]Inferred{{other, described("payments", paymentsRef, "2.0.0")}, {described("payments", paymentsRef, "2.0.0"), other}} {
+		d := mergeAll(order...)[0]
+		want := "the version of other/payments: no reconciled Pacto describing it names a contract, so the proposal comes only from the Pactos describing the Service shop/payments"
+		if d.Ref != paymentsRef || !slices.Equal(d.Versions, []string{"2.0.0"}) || !slices.Equal(d.described, []string{"shop/payments"}) || !slices.Equal(d.Unknown, []string{want}) {
+			t.Fatalf("merged: %+v", d)
+		}
+	}
+}
+
+// TestMergeConflictNotedOnce: a third Service naming a ref already seen adds
+// no second conflict note; the one note names every Service and ref.
+func TestMergeConflictNotedOnce(t *testing.T) {
+	x, y := paymentsRef, "oci://reg.io/acme/contracts/canary"
+	d := mergeAll(described("a", x, "2.0.0"), described("b", y, "2.1.0"), described("c", x, "2.2.0"))[0]
+	want := "the version of payments to propose a range from: the Services shop/a, shop/b and shop/c name different contracts (" + y + " and " + x + "), so no range is proposed"
+	if len(d.Versions) != 0 || d.Ref != y || !slices.Equal(d.Unknown, []string{want}) {
 		t.Fatalf("merged: %+v", d)
+	}
+}
+
+// TestProviderUnreadPactoJoinsAgreement: a reconciled Pacto whose contract
+// did not load still names its spec ref, so a different ref is a conflict;
+// one with no usable ref adds a note.
+func TestProviderUnreadPactoJoinsAgreement(t *testing.T) {
+	failed := func(name, ref string) unstructured.Unstructured {
+		return *obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", name, map[string]any{
+			"metadata": map[string]any{"generation": int64(1)},
+			"spec":     map[string]any{"contractRef": map[string]any{"oci": ref}, "target": map[string]any{"serviceName": "payments"}},
+			"status":   map[string]any{"observedGeneration": int64(1)}})
+	}
+	cl := &cluster{pactos: []unstructured.Unstructured{*pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1), failed("payments-v3", "reg.io/acme/contracts/payments-v3:3.0.0")}}
+	d := cl.provider(*service("shop", "payments", "10.0.0.20"))
+	if len(d.Versions) != 0 || d.Ref != paymentsRef || !d.conflict || len(d.Unknown) != 2 ||
+		d.Unknown[0] != "the version of shop/payments that Pacto shop/payments-v3 describes: its status reports no contract version, so no range is proposed from it" ||
+		!strings.Contains(d.Unknown[1], "an unnamed contract at oci://reg.io/acme/contracts/payments-v3 in Pacto shop/payments-v3") {
+		t.Fatalf("provider: %+v", d)
+	}
+	cl.pactos[1] = failed("payments-v3", "")
+	d = cl.provider(*service("shop", "payments", "10.0.0.20"))
+	if !slices.Equal(d.Versions, []string{"2.4.0"}) || !slices.Equal(d.Unknown, []string{"the version of shop/payments that Pacto shop/payments-v3 describes: its status and spec name no usable contract ref, so no range is proposed from it"}) {
+		t.Fatalf("provider: %+v", d)
 	}
 }

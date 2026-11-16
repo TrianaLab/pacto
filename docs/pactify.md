@@ -101,7 +101,7 @@ capabilities:               # from a readiness, liveness or startup probe
   - type: health
 dependencies:               # one per service a URL in the environment names
   - name: billing
-    ref: oci://registry.example/acme/contracts/billing   # its publish.bundle
+    ref: oci://registry.example/acme/contracts/billing   # where its contract would be published
     required: true                              # yours cannot run without it
     compatibility: unknown   # no range proposed: no contract or running version of billing was read
 configurations:             # the environment, ConfigMaps included: keys and types, no values

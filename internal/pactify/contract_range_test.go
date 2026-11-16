@@ -89,16 +89,58 @@ func TestObservedDependencyIsProposedNotDeclared(t *testing.T) {
 }
 
 // TestInferredUnknownNotesArePrinted: what kept a range from being proposed
-// is printed, and the dependency gets no proposal.
+// is printed, and a dependency whose Pactos name different contracts keeps
+// the ref they name and says why no range is proposed, even when --fleet
+// holds a contract by that name.
 func TestInferredUnknownNotesArePrinted(t *testing.T) {
 	note := "the version of shop/payments to propose a range from: the Pactos describing it name different contracts (a and b), so no range is proposed"
-	inferred := Inferred{Name: "payments", Ref: paymentsRef, Where: "calls seen to the Service shop/payments", Unknown: []string{note}}
+	inferred := Inferred{Name: "payments", Ref: paymentsRef, Where: "calls seen to the Service shop/payments", Unknown: []string{note}, conflict: true}
+	fleetDir := writeTree(t, t.TempDir(), map[string]string{
+		"payments/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: payments, version: 3.0.0}\npublish: {bundle: oci://reg.example/payments, sign: {key: k}}\n",
+	})
+	r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), DescribeOnly: true, Plan: true, FleetRoots: []string{fleetDir}, Inferred: []Inferred{inferred}}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := file(t, r, "pacto.yaml").Content
+	want := "  # inferred from runtime calls (calls seen to the Service shop/payments)\n  - name: payments\n    ref: " + paymentsRef + "\n    required: true\n" +
+		"    compatibility: unknown   # no range proposed: the Pactos describing the Service shop/payments name different contracts\n"
+	if !hasLine(r.Unknown, note) || !strings.Contains(text, want) || strings.Contains(text, "no contract for payments was read") || strings.Contains(text, "^3.0.0") ||
+		hasLine(r.Next, "such as the proposed") {
+		t.Fatalf("plan: %+v\n%s", r, text)
+	}
+}
+
+// TestNotReconciledDependencyHasNoProposal: a dependency whose only Pacto is
+// not reconciled says so, with its ref where it would be published.
+func TestNotReconciledDependencyHasNoProposal(t *testing.T) {
+	note := "the version of shop/payments that Pacto shop/payments describes: its status is not reconciled with its spec, so no range is proposed from it"
+	inferred := Inferred{Name: "payments", Where: "calls seen to the Service shop/payments", Unknown: []string{note}}
 	r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), DescribeOnly: true, Plan: true, Inferred: []Inferred{inferred}}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasLine(r.Unknown, note) || !strings.Contains(file(t, r, "pacto.yaml").Content, "    compatibility: unknown   # no range proposed: no contract or running version of payments was read\n") {
-		t.Fatalf("plan: %+v\n%s", r, file(t, r, "pacto.yaml").Content)
+	text := file(t, r, "pacto.yaml").Content
+	want := "  # inferred from runtime calls (calls seen to the Service shop/payments)\n  # no Pacto describing it names a contract ref: ref is where it would be published\n" +
+		"  - name: payments\n    ref: oci://ghcr.io/acme/contracts/payments\n    required: true\n" +
+		"    compatibility: unknown   # no range proposed: no reconciled Pacto describing the Service shop/payments reports a contract version\n"
+	if !hasLine(r.Unknown, note) || !strings.Contains(text, want) || !hasLine(r.Found, "invoices calls the Service shop/payments") {
+		t.Fatalf("plan: %+v\n%s", r, text)
+	}
+}
+
+// TestProposalNamesOnlyDescribedServices: a proposal merged from a Service
+// no Pacto describes names only the Services whose Pactos reported.
+func TestProposalNamesOnlyDescribedServices(t *testing.T) {
+	inferred := Inferred{Name: "payments", Ref: paymentsRef, Versions: []string{"2.3.1"}, Where: "calls seen to the Services other/payments and shop/payments",
+		described: []string{"shop/payments"}}
+	r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Name: "checkout", DescribeOnly: true, Plan: true, Inferred: []Inferred{inferred}}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := file(t, r, "pacto.yaml").Content; !strings.Contains(text, "compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.1\n") ||
+		!hasLine(r.Found, "checkout calls the Services other/payments and shop/payments, and the Pactos describing the Service shop/payments report payments 2.3.1") {
+		t.Fatalf("plan: %+v\n%s", r, text)
 	}
 }
 

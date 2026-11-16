@@ -339,12 +339,16 @@ func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 			out[w] = mergeInferred(out[w], dep)
 		}
 	}
+	for _, list := range out {
+		for i := range list {
+			finishInferred(&list[i])
+		}
+	}
 	return out
 }
 
-// mergeInferred adds d to list. An entry with d's name takes d's Services,
-// and its versions when both agree on the contract ref; when they name
-// different refs, it proposes nothing and says why.
+// mergeInferred adds d to list: an entry with d's name takes d's Services,
+// refs and versions. finishInferred settles what the merged entry proposes.
 func mergeInferred(list []Inferred, d Inferred) []Inferred {
 	i := slices.IndexFunc(list, func(e Inferred) bool { return e.Name == d.Name })
 	if i < 0 {
@@ -354,41 +358,70 @@ func mergeInferred(list []Inferred, d Inferred) []Inferred {
 	if !slices.ContainsFunc(d.services, func(s string) bool { return !slices.Contains(e.services, s) }) {
 		return list // another pod of the workload calling Services already merged
 	}
-	e.services = slices.Concat(e.services, d.services)
-	sort.Strings(e.services)
+	e.services = union(e.services, d.services)
 	e.Where = callsSeen(e.services)
+	e.refs, e.withRef, e.described = union(e.refs, d.refs), union(e.withRef, d.withRef), union(e.described, d.described)
 	for _, u := range d.Unknown {
 		if !slices.Contains(e.Unknown, u) {
 			e.Unknown = append(e.Unknown, u)
 		}
 	}
-	switch {
-	case e.Ref != "" && d.Ref != "" && e.Ref != d.Ref:
-		e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s to propose a range from: %s name different contracts (%s), so no range is proposed",
-			e.Name, strings.TrimPrefix(e.Where, "calls seen to "), joinAnd(sortedPair(e.Ref, d.Ref))))
-		e.Ref, e.Versions, e.conflict = min(e.Ref, d.Ref), nil, true
-	case e.conflict || d.conflict:
-		e.Versions, e.conflict = nil, true
-		e.Ref = cmp.Or(e.Ref, d.Ref)
-	default:
-		e.Ref = cmp.Or(e.Ref, d.Ref)
-		e.Versions = ascending(slices.Concat(e.Versions, d.Versions))
-	}
+	e.conflict = e.conflict || d.conflict
+	e.Versions = slices.Concat(e.Versions, d.Versions)
 	return list
 }
 
-func sortedPair(a, b string) []string {
-	return []string{min(a, b), max(a, b)}
+// finishInferred settles a merged entry: its versions when every Service
+// whose Pactos name a contract names the same one, else none and one note
+// naming each ref. A proposal names a called Service no Pacto describes.
+func finishInferred(e *Inferred) {
+	if len(e.refs) > 1 {
+		e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s to propose a range from: %s name different contracts (%s), so no range is proposed",
+			e.Name, theServices(e.withRef), joinAnd(e.refs)))
+		e.conflict = true
+	}
+	if len(e.refs) > 0 {
+		e.Ref = e.refs[0]
+	}
+	if e.conflict {
+		e.Versions = nil
+		return
+	}
+	e.Versions = ascending(e.Versions)
+	if len(e.Versions) == 0 {
+		return
+	}
+	for _, s := range e.services {
+		if !slices.Contains(e.withRef, s) {
+			e.Unknown = append(e.Unknown, fmt.Sprintf("the version of %s: no reconciled Pacto describing it names a contract, so the proposal comes only from the Pactos describing %s",
+				s, theServices(e.described)))
+		}
+	}
+}
+
+// union is the sorted, distinct union of a and b.
+func union(a, b []string) []string {
+	out := slices.Concat(a, b)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // callsSeen is where a dependency was found: the Services, as ns/name, its
 // calls were seen to.
 func callsSeen(services []string) string {
-	s := "calls seen to the Service"
-	if len(services) > 1 {
-		s += "s"
+	return "calls seen to " + theServices(services)
+}
+
+// theServices names services as "the Service a" or "the Services a and b",
+// "" when there are none.
+func theServices(services []string) string {
+	switch len(services) {
+	case 0:
+		return ""
+	case 1:
+		return "the Service " + services[0]
 	}
-	return s + " " + joinAnd(services)
+	return "the Services " + joinAnd(services)
 }
 
 // joinAnd joins parts as "a, b and c".
@@ -418,15 +451,17 @@ func ascending(versions []string) []string {
 }
 
 // description is what one reconciled Pacto says about the Service it
-// describes.
+// describes: name is "" when its status names no contract, version is ""
+// when it reports no usable one.
 type description struct {
 	version, name, ref, pacto string
 }
 
 // provider is the dependency a call to svc is on, with every contract
 // version the reconciled Pactos describing svc report, when they agree on
-// one contract. A Pacto whose status is not reconciled with its spec adds
-// nothing; Pactos naming different contracts propose nothing.
+// one contract. A Pacto whose status is not reconciled with its spec, or
+// that reports no usable version, adds a note and no version; one with a
+// ref still has to agree on it.
 func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
 	svcID := svc.GetNamespace() + "/" + svc.GetName()
 	d := Inferred{Name: svc.GetName(), Where: callsSeen([]string{svcID}), services: []string{svcID}}
@@ -437,23 +472,32 @@ func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
 			continue
 		}
 		pacto := p.GetNamespace() + "/" + p.GetName()
+		note := "the version of " + svcID + " that Pacto " + pacto + " describes: "
 		if og, _, _ := unstructured.NestedInt64(p.Object, "status", "observedGeneration"); og != p.GetGeneration() {
-			d.Unknown = append(d.Unknown, "the version of "+svcID+" that Pacto "+pacto+" describes: its status is not reconciled with its spec, so no range is proposed from it")
+			d.Unknown = append(d.Unknown, note+"its status is not reconciled with its spec, so no range is proposed from it")
 			continue
 		}
-		name := svc.GetName()
+		f := description{pacto: pacto}
 		if n, _, _ := unstructured.NestedString(p.Object, "status", "contract", "serviceName"); nameRE.MatchString(n) {
-			name, d.Name = n, n
+			f.name = n
 		}
 		version, _, _ := unstructured.NestedString(p.Object, "status", "contract", "version")
 		ref, _, _ := unstructured.NestedString(p.Object, "status", "contract", "resolvedRef")
 		if ref == "" {
 			ref, _, _ = unstructured.NestedString(p.Object, "spec", "contractRef", "oci")
 		}
-		ref = "oci://" + refRepo(ref)
-		if v, err := semver.StrictNewVersion(version); err == nil && refRE.MatchString(ref) {
-			found = append(found, description{version: v.String(), name: name, ref: ref, pacto: pacto})
+		f.ref = "oci://" + refRepo(ref)
+		if v, err := semver.StrictNewVersion(version); err == nil {
+			f.version = v.String()
 		}
+		switch {
+		case !refRE.MatchString(f.ref):
+			d.Unknown = append(d.Unknown, note+"its status and spec name no usable contract ref, so no range is proposed from it")
+			continue
+		case f.version == "":
+			d.Unknown = append(d.Unknown, note+"its status reports no contract version, so no range is proposed from it")
+		}
+		found = append(found, f)
 	}
 	return fromPactos(d, found)
 }
@@ -468,11 +512,20 @@ func fromPactos(d Inferred, found []description) Inferred {
 	slices.SortFunc(found, func(a, b description) int {
 		return cmp.Or(cmp.Compare(a.ref, b.ref), cmp.Compare(a.name, b.name), cmp.Compare(a.pacto, b.pacto))
 	})
-	d.Name, d.Ref = found[0].name, found[0].ref
-	if found[0].ref != found[len(found)-1].ref || slices.ContainsFunc(found, func(f description) bool { return f.name != found[0].name }) {
+	d.Ref, d.refs, d.withRef = found[0].ref, []string{found[0].ref}, d.services
+	var names []string
+	for _, f := range found {
+		if f.name != "" && !slices.Contains(names, f.name) {
+			names = append(names, f.name)
+		}
+	}
+	if len(names) > 0 {
+		d.Name = names[0]
+	}
+	if found[0].ref != found[len(found)-1].ref || len(names) > 1 {
 		var each []string
 		for _, f := range found {
-			each = append(each, f.name+" at "+f.ref+" in Pacto "+f.pacto)
+			each = append(each, cmp.Or(f.name, "an unnamed contract")+" at "+f.ref+" in Pacto "+f.pacto)
 		}
 		d.Unknown = append(d.Unknown, "the version of "+d.services[0]+" to propose a range from: the Pactos describing it name different contracts ("+joinAnd(each)+"), so no range is proposed")
 		d.conflict = true
@@ -481,7 +534,9 @@ func fromPactos(d Inferred, found []description) Inferred {
 	for _, f := range found {
 		d.Versions = append(d.Versions, f.version)
 	}
-	d.Versions = ascending(d.Versions)
+	if d.Versions = ascending(d.Versions); len(d.Versions) > 0 {
+		d.described = d.services
+	}
 	return d
 }
 

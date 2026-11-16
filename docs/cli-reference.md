@@ -1474,8 +1474,8 @@ drafts a contract for every workload in the namespaces that no Pacto
 describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are read from the
 cluster, and the services its pods were seen calling become dependencies with
 compatibility unknown and a proposed range, in a comment, from the lowest
-version the Pactos describing each one report. Ranges are proposed, never
-declared: declare each one. Drafts are only written, never published, and a
+version the Pactos describing each one report, when they agree on one
+contract. Ranges are proposed, never declared: declare each one. Drafts are only written, never published, and a
 draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
