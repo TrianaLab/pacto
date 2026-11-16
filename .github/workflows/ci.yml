@@ -37,6 +37,7 @@ jobs:
       release: ${{ steps.filter.outputs.release }}
       e2e: ${{ steps.filter.outputs.e2e }}
       delivery: ${{ steps.filter.outputs.delivery }}
+      delivery_ui: ${{ steps.filter.outputs.delivery_ui }}
       perf: ${{ steps.filter.outputs.perf }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -202,12 +203,8 @@ jobs:
               - 'internal/app/delivery*.go'
               - 'internal/cli/delivery*.go'
               - 'pkg/dashboard/delivery*.go'
-              # The journeys drive the delivery views and the served bundle,
-              # and server.go wires the approval guard they run against.
+              # server.go wires the approval guard the journeys run against.
               - 'pkg/dashboard/server.go'
-              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
-              - 'pkg/dashboard/ui/**'
-              - 'pkg/dashboard/frontend/e2e-live/**'
               - 'examples/story/**'
               # delivery-demo.sh sources lib.sh, delivery-identity.sh and
               # delivery-lib.sh, and delivery-demo.yml runs it through kind-run.sh.
@@ -218,6 +215,15 @@ jobs:
               - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'
+            # The frontend the journeys drive: the delivery views, the served
+            # bundle and the journeys themselves. Only the browser and agent
+            # shards open it in Chromium, so a change here alone runs only those
+            # two (delivery-demo.yml's ui-only); the nightly and the Version PR
+            # run every shard.
+            delivery_ui:
+              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
+              - 'pkg/dashboard/ui/**'
+              - 'pkg/dashboard/frontend/e2e-live/**'
             # perf-envtest measures the dashboard's delivery and fleet views and
             # the promoter against a real apiserver, so it runs for changes to
             # them, to the operator and to the harness (tests/perf/README.md).
@@ -518,7 +524,7 @@ jobs:
   # The delivery-demo shards load the same archive.
   delivery-images:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -537,7 +543,7 @@ jobs:
       # The demo's third-party images (Argo CD, Dex, Keycloak, Flux, zot...), pulled
       # once here with retries so no demo shard pulls from a public registry.
       - name: Pull the delivery demo's third-party images
-        if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+        if: needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'workflow_dispatch'
         timeout-minutes: 15
         run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/delivery-images/demo-third-party.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -602,17 +608,20 @@ jobs:
   # through its signed records) and the browser journeys against the real
   # sign-in guard run only here and in the nightly schedule of the same
   # workflow. It runs as parallel shards over delivery-images' archive, and its
-  # result is every shard's. The called workflow's report job needs issues:
-  # write, which only its own schedule uses.
+  # result is every shard's. A frontend-only change (delivery_ui) runs only the
+  # shards that load the UI bundle; the changesets Version PR runs every shard,
+  # so the release is gated on the whole demo. The called workflow's report job
+  # needs issues: write, which only its own schedule uses.
   delivery-demo:
     needs: [changes, delivery-images]
-    if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       issues: write
     uses: ./.github/workflows/delivery-demo.yml
     with:
       images-artifact: delivery-images
+      ui-only: ${{ needs.changes.outputs.delivery != 'true' && !startsWith(github.head_ref, 'changeset-release/') && github.event_name != 'workflow_dispatch' }}
 
   # The same product vertical on the OTHER surface, proved the way a stranger meets
   # it: the demo application is published to a local registry with `docker compose
