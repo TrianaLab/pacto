@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 func TestDiffSchema_BothFSNil(t *testing.T) {
@@ -559,13 +561,13 @@ func TestSchemaDiffRedactsSensitiveDefault(t *testing.T) {
 		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","default":"hunter2"},"PORT":{"type":"integer","default":8080}}}`,
 		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","writeOnly":true},"PORT":{"type":"integer","default":9090}}}`)
 	c := changeAt(t, changes, "schema.properties.DB_PASSWORD.default")
-	if c.Type != Removed || c.OldValue != redacted || c.NewValue != nil {
+	if c.Type != Removed || c.OldValue != schemax.Sensitive || c.NewValue != nil {
 		t.Errorf("sensitive default change = %+v", c)
 	}
 	if c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "schema.properties.DB_PASSWORD.default") {
 		t.Errorf("classification or reason lost: %+v", c)
 	}
-	if w := changeAt(t, changes, "schema.properties.DB_PASSWORD.writeOnly"); w.NewValue != redacted {
+	if w := changeAt(t, changes, "schema.properties.DB_PASSWORD.writeOnly"); w.NewValue != schemax.Sensitive {
 		t.Errorf("writeOnly change not redacted: %+v", w)
 	}
 	if p := changeAt(t, changes, "schema.properties.PORT.default"); p.OldValue != float64(8080) || p.NewValue != float64(9090) {
@@ -577,7 +579,7 @@ func TestSchemaDiffRedactsSensitiveDefault(t *testing.T) {
 func TestSchemaDiffRedactsSensitiveDefault_NewPropertiesObject(t *testing.T) {
 	changes := redactionDiff(t, `{"type":"object"}`,
 		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
-	if c := changeAt(t, changes, "schema.properties"); c.Type != Added || c.NewValue != redacted {
+	if c := changeAt(t, changes, "schema.properties"); c.Type != Added || c.NewValue != schemax.Sensitive {
 		t.Errorf("ancestor change not redacted: %+v", c)
 	}
 	assertNoLeak(t, changes, "s3cr3t")
@@ -586,7 +588,7 @@ func TestSchemaDiffRedactsSensitiveDefault_NewPropertiesObject(t *testing.T) {
 func TestSchemaDiffRedactsSensitiveDefault_PropertyAdded(t *testing.T) {
 	changes := redactionDiff(t, `{"type":"object","properties":{}}`,
 		`{"type":"object","properties":{"API_TOKEN":{"type":"string","default":"s3cr3t"}}}`)
-	if c := changeAt(t, changes, "schema.properties.API_TOKEN"); c.NewValue != redacted {
+	if c := changeAt(t, changes, "schema.properties.API_TOKEN"); c.NewValue != schemax.Sensitive {
 		t.Errorf("added sensitive property not redacted: %+v", c)
 	}
 	assertNoLeak(t, changes, "s3cr3t")
@@ -596,7 +598,7 @@ func TestSchemaDiffRedactsSensitiveDefault_WriteOnlyParent(t *testing.T) {
 	changes := redactionDiff(t,
 		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:old@h"}}}}}`,
 		`{"type":"object","properties":{"db":{"type":"object","writeOnly":true,"properties":{"url":{"type":"string","default":"pg://a:new@h"}}}}}`)
-	if c := changeAt(t, changes, "schema.properties.db.properties.url.default"); c.OldValue != redacted || c.NewValue != redacted {
+	if c := changeAt(t, changes, "schema.properties.db.properties.url.default"); c.OldValue != schemax.Sensitive || c.NewValue != schemax.Sensitive {
 		t.Errorf("child of writeOnly object not redacted: %+v", c)
 	}
 	assertNoLeak(t, changes, "old@h")
@@ -607,7 +609,24 @@ func TestSchemaDiffRedactsSensitiveDefault_Composition(t *testing.T) {
 	changes := redactionDiff(t,
 		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"aaa"}}}]}`,
 		`{"allOf":[{"properties":{"SECRET_KEY":{"type":"string","default":"bbb"}}}]}`)
-	if c := changeAt(t, changes, "schema.allOf[0].properties.SECRET_KEY.default"); c.OldValue != redacted || c.NewValue != redacted {
+	if c := changeAt(t, changes, "schema.allOf[0].properties.SECRET_KEY.default"); c.OldValue != schemax.Sensitive || c.NewValue != schemax.Sensitive {
 		t.Errorf("composed sensitive key not redacted: %+v", c)
 	}
+}
+
+func TestSchemaDiffRedactsSensitiveDefault_ArrayEntries(t *testing.T) {
+	changes := redactionDiff(t,
+		`{"properties":{"DB_PASSWORD":{"examples":["hunter2"],"enum":["a[b"],"anyOf":[{"type":"string"}]},"MODE":{"enum":["fast"]}}}`,
+		`{"properties":{"DB_PASSWORD":{"writeOnly":true,"examples":["hunter3"],"enum":["c[d"],"anyOf":[{"type":"string"},{"type":"null"}]},"MODE":{"enum":["slow"]}}}`)
+	for _, s := range []string{"hunter2", "hunter3", "a[b", "c[d"} {
+		assertNoLeak(t, changes, s)
+	}
+	if c := changeAt(t, changes, "schema.properties.DB_PASSWORD.examples[(sensitive)]"); c.Reason != "schema.properties.DB_PASSWORD.examples (sensitive) added" &&
+		c.Reason != "schema.properties.DB_PASSWORD.examples (sensitive) removed" {
+		t.Errorf("array entry reason = %q", c.Reason)
+	}
+	if c := changeAt(t, changes, "schema.properties.DB_PASSWORD.anyOf[1]"); c.Reason != "schema.properties.DB_PASSWORD.anyOf[1] added" {
+		t.Errorf("positional entry reason = %q", c.Reason)
+	}
+	changeAt(t, changes, "schema.properties.MODE.enum[fast]")
 }

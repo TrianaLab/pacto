@@ -105,13 +105,17 @@ func flattenProps(prefix string, props map[string]any, masked bool, out *[]Prope
 	}
 }
 
+// Sensitive is the value every summary and diff shows for a writeOnly or
+// sensitive key, in place of its default or value.
+const Sensitive = "(sensitive)"
+
 // leaf is the Property of one schema property: its default, (any) without
 // one, or (sensitive) when masked.
 func leaf(key string, propRaw map[string]any, masked bool) Property {
 	p := Property{Key: key, Value: "(any)"}
 	p.Type, _ = propRaw["type"].(string)
 	if def, ok := propRaw["default"]; masked {
-		p.Value = "(sensitive)"
+		p.Value = Sensitive
 	} else if ok {
 		p.Value = fmt.Sprintf("%v", def)
 	}

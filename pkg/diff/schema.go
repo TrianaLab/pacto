@@ -61,10 +61,6 @@ func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 	return redact(diffJSON(dirUnknown, nil, "schema", oldDoc, newDoc), sensitive)
 }
 
-// redacted replaces the value of a change to a sensitive property, the same
-// marker pkg/schemax shows for a writeOnly key.
-const redacted = "(sensitive)"
-
 // sensitivePaths appends the path of every property in node, at any depth and
 // inside any composition or $defs, that is writeOnly or whose name
 // schemax.SensitiveKey matches. The subtree of such a property is covered by
@@ -95,23 +91,47 @@ func sensitivePaths(prefix string, node any, out []string) []string {
 	return out
 }
 
-// redact replaces OldValue and NewValue with the redacted marker on every
+// redact replaces OldValue and NewValue with schemax.Sensitive on every
 // change at, under or above a sensitive path: above one, the value holds the
-// sensitive property. Path, type, classification and reason stay, so a reader
-// still sees what changed and how much it matters.
+// sensitive property. Type and classification stay, and so do path and reason
+// unless they hold an array entry's value (maskElement), so a reader still
+// sees what changed and how much it matters.
 func redact(changes []Change, sensitive []string) []Change {
 	for i, c := range changes {
 		if !slices.ContainsFunc(sensitive, func(p string) bool { return pathsOverlap(c.Path, p) }) {
 			continue
 		}
 		if c.OldValue != nil {
-			changes[i].OldValue = redacted
+			changes[i].OldValue = schemax.Sensitive
 		}
 		if c.NewValue != nil {
-			changes[i].NewValue = redacted
+			changes[i].NewValue = schemax.Sensitive
 		}
+		changes[i].Path, changes[i].Reason = maskElement(c.Path, c.Reason)
 	}
 	return changes
+}
+
+// maskElement rewrites the path and reason of one entry of a scalar array
+// diffed as a set (diffScalarArrayAsSets: prefix[value], "prefix value
+// added"), which carry the value itself, to name the entry schemax.Sensitive.
+// Any other change comes back as it is.
+func maskElement(path, reason string) (string, string) {
+	if !strings.HasSuffix(path, "]") {
+		return path, reason
+	}
+	for i := range len(path) {
+		if path[i] != '[' {
+			continue
+		}
+		prefix, elem := path[:i], path[i+1:len(path)-1]
+		for _, verb := range []string{" added", " removed"} {
+			if reason == prefix+" "+elem+verb {
+				return prefix + "[" + schemax.Sensitive + "]", prefix + " " + schemax.Sensitive + verb
+			}
+		}
+	}
+	return path, reason
 }
 
 // pathsOverlap reports whether a equals b or one lies under the other.
