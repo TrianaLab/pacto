@@ -2,15 +2,8 @@
 
 A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
 what it needs to run: its interfaces, dependencies, configuration, capabilities
-and readiness. This section is the field-by-field reference. The smallest valid
-contract is four lines:
-
-```yaml
-pactoVersion: "2.0"
-service:
-  name: my-library
-  version: 1.0.0
-```
+and readiness. This section is the field-by-field reference. An empty
+`pacto.yaml` is a valid contract; see [the smallest contract](#the-smallest-contract).
 
 The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md), [checks](checks.md) and [environments](environments.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
@@ -36,7 +29,7 @@ which adds `service.domain`, `service.offering`, `service.summary`,
 `service.lifecycle`, `service.template` and `service.origin`, and `values` and a
 `configuration` selector beside a configuration `ref`, and
 [`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json),
-the newest. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
+the newest. A contract is validated against the schema of its [`pactoVersion`](sections.md#pactoversion), or of the newest version when it declares none.
 
 ---
 
@@ -103,8 +96,40 @@ Use any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://
 
 ---
 
-## Minimal contract
+## The smallest contract
 
-Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections are optional: `workload`, `state`, `interfaces`, `configurations`, `environments`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions`. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
+An empty `pacto.yaml` is a valid contract. One line names the service:
+
+```yaml
+service: {name: payments}
+```
+
+Pacto fills what the file leaves out and says where each value came from. An
+empty `pacto.yaml` beside a chart named `payments` reads:
+
+```console
+$ pacto validate .
+. is valid (pactoVersion 2.5 from this CLI, service.name payments from chart/Chart.yaml:2, service.version not declared)
+```
+
+An absent `pactoVersion` reads as the newest version the CLI supports. An
+absent `service.name` is read from the first of these that names it:
+
+1. `name` in a `Chart.yaml`
+2. `metadata.name` in a `kustomization.yaml`, or the single service of a Compose file
+3. the `org.opencontainers.image.title` label in a `Dockerfile`
+4. the `app.kubernetes.io/name` label in a Kubernetes manifest
+5. the folder name
+
+A file `.pactoignore` leaves out is never read. When two folders end up with
+the same name and at least one of them was inferred, the operational graph
+drops the inferred ones and reports a `SERVICE_NAME_COLLISION` limitation, so
+an inferred name never joins another service.
+
+`pacto pack`, `pacto push` and `pacto publish` need a declared `service.name`
+(`PUBLISH_NEEDS_SERVICE_NAME`) and `service.version`
+(`PUBLISH_NEEDS_SERVICE_VERSION`), and write `pactoVersion` into the bundled
+`pacto.yaml`. Every published contract declares all three. Every other section
+is optional.
 
 ---

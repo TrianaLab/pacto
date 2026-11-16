@@ -24,7 +24,10 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` 
   [`service.origin`](#service-origin), and `values` and a
   [`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
   beside a configuration `ref`.
-- 2.5 adds an interface `port` and
+- 2.5 makes `pactoVersion`, `service`, `service.name` and `service.version`
+  optional (see [the smallest contract](index.md#the-smallest-contract)),
+  derives a dependency `name` from its `ref`, defaults `required` to `true`,
+  accepts `compatibility: unknown` and adds an interface `port` and
   [`breaks`](dependencies-and-state.md#breaks).
 
 Each version accepts every contract of the version before it.
@@ -50,12 +53,13 @@ Any other value fails to load with `PARSE_ERROR` (`unsupported pactoVersion "3.0
 
 ## `service`
 
-Identifies the service.
+Identifies the service. A `"2.5"` contract may leave out `service`, `name`
+and `version`; see [the smallest contract](index.md#the-smallest-contract).
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
-| `version` | string | Yes | Parses as semver (for example `2.1.0`). See the note below |
+| `name` | string | Yes (2.0 to 2.4) | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
+| `version` | string | Yes (2.0 to 2.4) | Parses as semver (for example `2.1.0`). See the note below |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 | `domain` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
 | `offering` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |

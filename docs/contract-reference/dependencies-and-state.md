@@ -15,16 +15,49 @@ Declares dependencies on other services via their Pacto contracts.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Non-empty identifier for the dependency |
+| `name` | string | Yes, unless `ref` | Non-empty identifier for the dependency. In 2.5, derived from `ref` when absent. See [Name from `ref`](#name-from-ref) |
 | `ref` | string | Yes, unless `external` | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
-| `required` | boolean | Yes | Whether the dependency is mandatory. Has no default, so every entry must set it |
-| `compatibility` | string | With `ref` | Non-empty. Valid semver constraint |
+| `required` | boolean | Yes (2.0 to 2.4) | Whether the dependency is mandatory. In 2.5 an absent `required` is `true` |
+| `compatibility` | string | With `ref` | Non-empty. Valid semver constraint, or `unknown` in 2.5. See [Unknown compatibility](#unknown-compatibility) |
 | `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
 | `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
 | `requires` | list | No | Guarantees this service relies on from the provider. See [Required guarantees](#required-guarantees). Needs `pactoVersion: "2.2"` |
 
 !!! note
     `true` means the service cannot function without the dependency. `false` means it degrades gracefully when the dependency is unavailable. The field is declared *intent*: consumers read it and the dashboard uses it to work out the affected consumers. Pacto checks nothing about it at deployment time.
+
+### Name from `ref`
+
+In a `"2.5"` contract a dependency may leave out `name`. Pacto takes the last
+path segment of the repository in `ref`, so
+`ref: oci://ghcr.io/acme/pacto/payments:1.4.0` is named `payments`. A
+dependency with neither `name` nor `ref` fails with `DEPENDENCY_NAME_REQUIRED`.
+
+A derived name is a guess from a path. The operational graph resolves it only
+against a provider published at that same repository, never against another
+service that happens to share the name, and a local `ref` never resolves by a
+derived name. The dashboard and the fleet tools mark it as a
+name from `ref`.
+
+### Unknown compatibility
+
+`compatibility: unknown` says that a range has not been decided yet. It needs
+`pactoVersion: "2.5"` and a `ref`, like any range. Everything that reads a
+range reads it as unknown, never as compatible: impact analysis gives the
+consumer the verdict `unknown` and keeps a breaking change `unverified`,
+delivery holds a promotion that depends on it and the operator reports the
+dependency as unverified. An `oci://` reference without a tag cannot be
+resolved, since there is no range to pick a tag with: pin a tag or declare a
+range. `pacto diff` reports `unknown` to a range as non-breaking and a range to
+`unknown` as potentially breaking.
+
+```yaml
+pactoVersion: "2.5"
+service: {name: reports, version: 1.0.0}
+dependencies:
+  - ref: oci://ghcr.io/acme/pacto/payments:1.4.0
+    compatibility: unknown
+```
 
 ### Required guarantees
 

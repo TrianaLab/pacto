@@ -52,6 +52,10 @@ declare `service.version` (`PUBLISH_NEEDS_SERVICE_VERSION`) or `service.name`
 (`PUBLISH_NEEDS_SERVICE_NAME`). A bundle read from a registry, and an inline
 contract in a Pacto resource, must declare all three.
 
+The operational graph drops an inferred name another service also claims
+(`SERVICE_NAME_COLLISION`). `pacto impact` keeps a breaking change to a
+contract with an inferred name `unverified` (`SERVICE_NAME_INFERRED`).
+
 ## Layer 2: Cross-field
 
 Validates semantic references and consistency:
