@@ -92,15 +92,18 @@ func TestMCPFleetView(t *testing.T) {
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	cmd := newMCPCommand(svc, "v", d)
-	if mcpFleetView(cmd, d) != nil {
+	if view, err := mcpFleetView(cmd, d); view != nil || err != nil {
 		t.Fatal("a stdio server narrows nothing")
 	}
 	_ = cmd.Flags().Set("transport", "http")
-	if mcpFleetView(cmd, d) != nil {
+	if view, err := mcpFleetView(cmd, d); view != nil || err != nil {
 		t.Fatal("an HTTP server without sign-in narrows nothing")
 	}
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
-	view := mcpFleetView(cmd, d)
+	view, err := mcpFleetView(cmd, d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Even a snapshot with no namespace asks whether the caller reads the whole
 	// cluster: that decides the services known only from a registry.
 	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); !errors.Is(err, errNobodyReviewed) {
@@ -116,7 +119,7 @@ func TestMCPFleetView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+	if _, err = view(alice, nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
 		t.Fatalf("no cluster to ask: %v", err)
 	}
 }

@@ -253,6 +253,7 @@ pacto dashboard [sources...] [flags]
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
       --port int                          port for the dashboard server (default 3000)
+      --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
       --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
       --stats-registry string             stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); a public repository is read anonymously, otherwise with the dashboard's registry credentials
@@ -1734,6 +1735,7 @@ pacto mcp [bundle-ref] [flags]
       --port int                      port for HTTP transport (default 8585)
       --publish[=true|false]          expose pacto_publish_plan and pacto_publish beside the authoring tools
       --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --review string                 with --fleet over HTTP with --auth-issuer: how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (default "cluster")
       --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --stats-read-registry string    with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)

@@ -49,6 +49,7 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
 | `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`, `_DISPLAY_NAME` for the provider's name on the sign-in button and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |
 | `PACTO_DASHBOARD_ALLOW_ANONYMOUS` | `true` serves beyond loopback without sign-in, to everyone who reaches the address; without it such a dashboard refuses to start | `false` |
+| `PACTO_DASHBOARD_REVIEW` | `local` reviews signed-in people with a LocalSubjectAccessReview in each `PACTO_DASHBOARD_NAMESPACE` only, which a namespaced Role grants; services without a namespace then show to nobody. `cluster` asks once about every namespace and needs a ClusterRole | `cluster` |
 | `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |

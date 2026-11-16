@@ -109,24 +109,50 @@ const reviewTimeout = 5 * time.Second
 // dashboard's ServiceAccount, which needs create on subjectaccessreviews).
 func SubjectAccessReview(dyn dynamic.Interface) Review {
 	return func(ctx context.Context, p Person, namespace string) (bool, error) {
-		ctx, cancel := context.WithTimeout(ctx, reviewTimeout)
-		defer cancel()
-		groups := make([]any, len(p.Groups))
-		for i, g := range p.Groups {
-			groups[i] = g
-		}
-		sar := &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "authorization.k8s.io/v1", "kind": "SubjectAccessReview",
-			"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
-				"namespace": namespace, "verb": "list", "group": "pacto.trianalab.io", "resource": "pactos"}},
-		}}
-		out, err := dyn.Resource(sarResource).Create(ctx, sar, metav1.CreateOptions{})
-		if err != nil {
-			return false, err
-		}
-		allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
-		return allowed, nil
+		return postReview(ctx, dyn.Resource(sarResource), reviewObject("SubjectAccessReview", p, namespace))
 	}
+}
+
+var lsarResource = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "localsubjectaccessreviews"}
+
+// LocalSubjectAccessReview asks the apiserver one namespace at a time, with
+// dyn's own credentials, which need create on localsubjectaccessreviews in
+// that namespace only: a namespaced Role grants it. Every namespace at once
+// ("") has no namespaced form, so it is answered false without a request.
+func LocalSubjectAccessReview(dyn dynamic.Interface) Review {
+	return func(ctx context.Context, p Person, namespace string) (bool, error) {
+		if namespace == "" {
+			return false, nil
+		}
+		obj := reviewObject("LocalSubjectAccessReview", p, namespace)
+		obj.SetNamespace(namespace)
+		return postReview(ctx, dyn.Resource(lsarResource).Namespace(namespace), obj)
+	}
+}
+
+// reviewObject is a review of kind asking whether p may list Pactos in namespace.
+func reviewObject(kind string, p Person, namespace string) *unstructured.Unstructured {
+	groups := make([]any, len(p.Groups))
+	for i, g := range p.Groups {
+		groups[i] = g
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": kind,
+		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
+			"namespace": namespace, "verb": "list", "group": "pacto.trianalab.io", "resource": "pactos"}},
+	}}
+}
+
+// postReview creates review through r and reads its answer.
+func postReview(ctx context.Context, r dynamic.ResourceInterface, review *unstructured.Unstructured) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, reviewTimeout)
+	defer cancel()
+	out, err := r.Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return false, err
+	}
+	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
+	return allowed, nil
 }
 
 // Viewer narrows fleet answers to the namespaces a person may read, asking
@@ -135,6 +161,10 @@ type Viewer struct {
 	review Review
 	ttl    time.Duration
 	now    func() time.Time
+	// scoped viewers never ask about every namespace at once and ask only
+	// about the watched namespaces; every other namespace is not visible.
+	scoped  bool
+	watched map[string]bool
 
 	mu      sync.Mutex
 	answers map[string]verdict
@@ -161,6 +191,20 @@ const (
 // NewViewer asks review, keeping each answer a minute.
 func NewViewer(review Review) *Viewer {
 	return &Viewer{review: review, ttl: time.Minute, now: time.Now, answers: map[string]verdict{}, views: map[string]*fleet.Query{}}
+}
+
+// NewScopedViewer asks review only about the watched namespaces, never about
+// every namespace at once, so nobody reads the whole fleet through it and a
+// service without a namespace shows to nobody. Every other namespace, such as
+// that of an observed caller in kube-system, is not visible and is never
+// asked about: the reviewer may hold no grant there.
+func NewScopedViewer(review Review, watched []string) *Viewer {
+	v := NewViewer(review)
+	v.scoped, v.watched = true, map[string]bool{}
+	for _, ns := range watched {
+		v.watched[ns] = true
+	}
+	return v
 }
 
 // Query is q as p sees it. A cluster-wide reader sees all of it; anyone else
@@ -197,17 +241,23 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 
 // visible returns, sorted, the namespaces of nss p may read, and whether p
 // reads every namespace. One review for every namespace at once comes first:
-// it settles a cluster-wide reader.
+// it settles a cluster-wide reader. A scoped viewer skips it and asks only
+// about the watched namespaces.
 func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string, bool, error) {
 	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
-	all, err := v.ask(ctx, p, who, "")
-	if err != nil || all {
-		return nss, all, err
+	if !v.scoped {
+		all, err := v.ask(ctx, p, who, "")
+		if err != nil || all {
+			return nss, all, err
+		}
 	}
 	allowed := make([]bool, len(nss))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(reviewsAtOnce)
 	for i, ns := range nss {
+		if v.scoped && !v.watched[ns] {
+			continue
+		}
 		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, ns); return err })
 	}
 	if err := g.Wait(); err != nil {

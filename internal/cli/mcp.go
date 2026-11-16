@@ -19,7 +19,6 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
@@ -135,6 +134,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch")
 	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
 	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
+	cmd.Flags().String("review", reviewCluster, "with --fleet over HTTP with --auth-issuer: "+reviewUsage)
 	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
 	cmd.Flags().String("exchange-client-id", "", "with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster "+
 		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
@@ -230,7 +230,10 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 	if err != nil {
 		return nil, err
 	}
-	view := mcpFleetView(cmd, d)
+	view, err := mcpFleetView(cmd, d)
+	if err != nil {
+		return nil, err
+	}
 	url, _ := cmd.Flags().GetString("dashboard-url")
 	// view is nil for an HTTP server without --auth-issuer too, so only the
 	// transport says whether the caller is this process's own user.
@@ -545,14 +548,19 @@ func mcpRegression(ctx context.Context, cmd *cobra.Command, d deps, ev impact.Ev
 // read, asked with this process's own credentials about the person the
 // apiserver reviewed for the request (remoteCaller). Other servers answer
 // from the whole snapshot, as their single local user would read it.
-func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
+func mcpFleetView(cmd *cobra.Command, d deps) (pactomcp.FleetView, error) {
 	transport, _ := cmd.Flags().GetString("transport")
 	issuer, _ := cmd.Flags().GetString("auth-issuer")
+	mode, _ := cmd.Flags().GetString("review")
+	namespaces := flagNamespaces(cmd)
+	if err := checkReview(mode, namespaces); err != nil {
+		return nil, err
+	}
 	if transport != "http" || issuer == "" {
-		return nil
+		return nil, nil
 	}
 	cluster, _ := d.clusterConfig()
-	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
+	viewer := clusterViewer(cluster, d.dynamicFor, mode, namespaces)
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
@@ -563,7 +571,7 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}
 		return r, nil
-	}
+	}, nil
 }
 
 // parseAuthFlags parses repeated name=value credential flags.
