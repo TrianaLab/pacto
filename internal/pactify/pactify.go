@@ -64,9 +64,9 @@ type Options struct {
 	// namespace, that Delivery's Flux OCIRepositories and Pacto resource log
 	// in to a private registry with.
 	RegistrySecret string
-	// Inferred are dependencies seen at runtime (pacto init --cluster). One
-	// with Versions is pinned to the lowest; one without gets a placeholder
-	// range, like a dependency read from the env.
+	// Inferred are dependencies seen at runtime (pacto init --cluster). Every
+	// one is written with compatibility unknown; one with Versions gets a
+	// proposed range from the lowest, in a comment.
 	Inferred []Inferred
 	// Template creates the contract from a golden path. It needs Owner and
 	// refuses Delivery, FleetRoots and Inferred.

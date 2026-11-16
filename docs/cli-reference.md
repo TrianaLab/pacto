@@ -1446,10 +1446,11 @@ becomes a configuration schema of keys and types, with no values: a key read
 from a Secret, named like a password, secret, token, key, credential, private
 key or DSN, or holding a URL with credentials is marked writeOnly, and a
 literal value for one is named under next steps. A URL in the environment
-that names another service in the cluster becomes a dependency: with that
-service's contract in --fleet, its bundle and a range from its version;
-without it, a placeholder range that the comment above it and Unknown name. A
-readiness, liveness or startup probe becomes a health check.
+that names another service in the cluster becomes a dependency with
+compatibility unknown: with that service's contract in --fleet, its bundle and
+a proposed range from its version in a comment; without it, the comment says
+no range was proposed. A readiness, liveness or startup probe becomes a health
+check.
 
 Either contract also gets a publish section, for pacto publish, with its
 bundle under --registry (default: the workload's image registry, else the
@@ -1471,9 +1472,11 @@ https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 Several folders are each pactified, with a summary at the end. --cluster
 drafts a contract for every workload in the namespaces that no Pacto
 describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are read from the
-cluster, and the services its pods were seen calling become dependencies
-pinned to the version seen running, for you to widen. Drafts are only
-written, never published, and a draft that is not valid fails the command.
+cluster, and the services its pods were seen calling become dependencies with
+compatibility unknown and a proposed range, in a comment, from the lowest
+version the Pactos describing each one report. Ranges are proposed, never
+declared: declare each one. Drafts are only written, never published, and a
+draft that is not valid fails the command.
 
 With --from the service is created from a golden path: an oci:// reference or
 a directory whose contract declares service.template. The path's contract is

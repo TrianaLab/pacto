@@ -209,11 +209,14 @@ func (p *planner) blank() string {
 	return b.String()
 }
 
-// pactoVersion is the lowest version that holds what init writes: 2.4 for a
-// domain, else 2.3 for the environments --delivery declares, else 2.1 for
+// pactoVersion is the lowest version that holds what init writes: 2.5 for
+// the compatibility unknown every dependency pactify writes has, else 2.4 for
+// a domain, else 2.3 for the environments --delivery declares, else 2.1 for
 // publish.
 func (p *planner) pactoVersion() string {
 	switch {
+	case p.r.Mode == modePactify && len(p.r.Dependencies) > 0:
+		return "2.5"
 	case p.opts.Domain != "":
 		return "2.4"
 	case p.opts.Delivery:
@@ -444,19 +447,15 @@ func (p *planner) health(b *strings.Builder, api bool) {
 	}
 }
 
-// placeholderRange is the compatibility written for a dependency whose
-// contract was not found. It is named in Unknown, never passed off as known.
-const placeholderRange = "^1.0.0"
-
-// dependencyEntries declares the services found. One whose contract is in
-// --fleet gets its bundle and a range from the version that contract has; any
-// other gets the repository its contract would be published at and a
-// placeholder range, both said in a comment and in Unknown.
+// dependencyEntries declares the services found, each with compatibility
+// unknown and, when a version was read, a proposed range in a comment. One
+// whose contract is in --fleet gets its bundle; any other gets the
+// repository its contract would be published at.
 func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
-	pinned := p.pinned(b)
-	header := len(pinned) == 0
+	written := p.observedEntries(b)
+	header := len(written) == 0
 	for _, d := range p.r.Dependencies {
-		if pinned[d.Name] {
+		if written[d.Name] {
 			continue
 		}
 		if header {
@@ -464,19 +463,82 @@ func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
 			header = false
 		}
 		ref, version := p.provider(d.Name, bundles)
-		compat := placeholderRange
-		if version != "" {
-			compat = "^" + version
-			fmt.Fprintf(b, "  # from %s; its contract in --fleet is at %s\n", d.Where, version)
-			p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
-			p.next("pacto.yaml declares %s compatible with %s, from the version its contract has: change it to the versions %s accepts", d.Name, compat, p.r.Service)
-		} else {
-			fmt.Fprintf(b, "  # from %s\n  # no contract for %s was read (pass its folder with --fleet): ref is where\n"+
-				"  # it would be published and %s is a placeholder; set the versions %s accepts\n", d.Where, d.Name, placeholderRange, p.r.Service)
-			p.unknown("the versions of %s that %s accepts: no contract for %s was read (pass its folder with --fleet), so compatibility %s in pacto.yaml is a placeholder", d.Name, p.r.Service, d.Name, placeholderRange)
+		if version == "" {
+			fmt.Fprintf(b, "  # from %s\n  # no contract for %s was read (pass its folder with --fleet): ref is where it would be published\n", d.Where, d.Name)
+			writeDependency(b, d.Name, ref, "no range proposed: no contract or running version of "+d.Name+" was read")
+			p.undeclared(d.Name, "", "")
+			continue
 		}
-		fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, ref, yq(compat))
+		proposal := proposedRange([]string{version})
+		fmt.Fprintf(b, "  # from %s\n", d.Where)
+		writeDependency(b, d.Name, ref, fmt.Sprintf("proposed %s, from its contract in --fleet at %s", proposal, version))
+		p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
+		p.undeclared(d.Name, proposal, "its contract in --fleet")
 	}
+}
+
+// observedEntries writes the dependencies seen at runtime whose provider's
+// Pactos report a contract version, each with compatibility unknown and a
+// range proposed from the lowest of those versions in a comment. A person
+// declares the range: a guess never decides who a change breaks. It prints
+// what kept a range from being proposed for every entry.
+func (p *planner) observedEntries(b *strings.Builder) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range p.opts.Inferred {
+		for _, u := range d.Unknown {
+			p.unknown("%s", u)
+		}
+		if len(d.Versions) == 0 || out[d.Name] {
+			continue
+		}
+		if len(out) == 0 {
+			b.WriteString("dependencies:\n")
+		}
+		out[d.Name] = true
+		services, versions, proposal := strings.TrimPrefix(d.Where, "calls seen to "), joinAnd(d.Versions), proposedRange(d.Versions)
+		fmt.Fprintf(b, "  # inferred from runtime calls (%s)\n", d.Where)
+		writeDependency(b, d.Name, d.Ref, fmt.Sprintf("proposed %s, from the Pactos describing %s at %s", proposal, services, versions))
+		p.found("%s calls %s, described by %s %s", p.r.Service, services, d.Name, versions)
+		p.undeclared(d.Name, proposal, "the lowest version the Pactos describing it report")
+	}
+	return out
+}
+
+// writeDependency writes one dependency with compatibility unknown and
+// comment after it.
+func writeDependency(b *strings.Builder, name, ref, comment string) {
+	fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s   # %s\n", name, ref, contract.CompatibilityUnknown, comment)
+}
+
+// undeclared says, under Unknown and next, that pacto.yaml leaves the range
+// of dep to declare, with proposal and where it came from when there is one.
+func (p *planner) undeclared(dep, proposal, from string) {
+	svc := p.r.Service
+	unknown := fmt.Sprintf("the versions of %s that %s accepts: pacto.yaml leaves compatibility unknown, so impact cannot tell whether a %s change breaks %s: "+
+		"its verdict for %s is unknown, and a BREAKING change to %s stays unverified", dep, svc, dep, svc, svc, dep)
+	next := fmt.Sprintf("declare the versions of %s that %s accepts: replace compatibility: unknown with a range", dep, svc)
+	if proposal != "" {
+		unknown += "; the proposal " + proposal + " comes from " + from
+		next += ", such as the proposed " + proposal
+	}
+	p.unknown("%s", unknown)
+	p.next("%s", next)
+}
+
+// proposedRange is ^MAJOR.MINOR.0 of the lowest strict-semver version, ""
+// when there is none. It never widens across majors: the comment lists every
+// version, so a person sees the spread.
+func proposedRange(versions []string) string {
+	var low *semver.Version
+	for _, s := range versions {
+		if v, err := semver.StrictNewVersion(s); err == nil && (low == nil || v.LessThan(low)) {
+			low = v
+		}
+	}
+	if low == nil {
+		return ""
+	}
+	return fmt.Sprintf("^%d.%d.0", low.Major(), low.Minor())
 }
 
 // provider is the ref to declare name with and the version its contract in
@@ -629,29 +691,6 @@ func literal(v string) string {
 func sensitiveLiteral(name, value string) bool {
 	v := literal(value)
 	return v != "" && (schemax.SensitiveKey(name) || schemax.SensitiveValue(v))
-}
-
-// pinned writes the dependencies seen at runtime whose provider runs a
-// contract version, each pinned to exactly that version. Never a wider range:
-// "*" accepts every version, so a breaking change would read compatible and
-// the caller would no longer hold it. An exact pin reads every new version as
-// incompatible, which asks this service's owners until a person widens it.
-func (p *planner) pinned(b *strings.Builder) map[string]bool {
-	out := map[string]bool{}
-	for _, d := range p.opts.Inferred {
-		if len(d.Versions) == 0 || out[d.Name] {
-			continue
-		}
-		if len(out) == 0 {
-			b.WriteString("dependencies:\n")
-		}
-		out[d.Name] = true
-		fmt.Fprintf(b, "  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n"+
-			"  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, d.Ref, yq("="+d.Versions[0]))
-		p.found("%s calls %s %s (%s)", p.r.Service, d.Name, d.Versions[0], d.Where)
-		p.next("pacto.yaml declares %s pinned to =%s, the version seen running: widen compatibility to the versions %s accepts, or every new %s asks %s's owners", d.Name, d.Versions[0], p.r.Service, d.Name, p.r.Service)
-	}
-	return out
 }
 
 // publish writes the publish section and keeps it for the cluster pieces.
@@ -846,7 +885,7 @@ func declaredBy(snap *fleet.FleetSnapshot, name, bundle string) []Finding {
 		if (to == nil || to.Name != name) && (bundle == "" || refRepo(rel.To) != bundle) {
 			continue
 		}
-		f := Finding{Name: from.Name, Where: strings.TrimSpace("declares " + name + " " + rel.Compatibility)}
+		f := Finding{Name: from.Name, Where: strings.TrimSpace("declares " + name + " " + contract.RangeLabel(rel.Compatibility))}
 		if !seen[f] {
 			seen[f] = true
 			out = append(out, f)

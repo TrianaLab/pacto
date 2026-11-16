@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // environment the configuration, with no publish section.
 const invoicesContract = `# Written by pacto init from Dockerfile, k8s/configmap.yaml, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then validate it: pacto validate
-pactoVersion: "2.1"
+pactoVersion: "2.5"
 service:
   name: invoices
   version: 1.3.0
@@ -36,12 +37,11 @@ capabilities:
       path: /healthz
 dependencies:
   # from k8s/configmap.yaml, env LEDGER_URL
-  # no contract for ledger was read (pass its folder with --fleet): ref is where
-  # it would be published and ^1.0.0 is a placeholder; set the versions invoices accepts
+  # no contract for ledger was read (pass its folder with --fleet): ref is where it would be published
   - name: ledger
     ref: oci://ghcr.io/acme/contracts/ledger
     required: true
-    compatibility: '^1.0.0'
+    compatibility: unknown   # no range proposed: no contract or running version of ledger was read
 configurations:
   - name: env
     schema: configuration/schema.json
@@ -88,9 +88,9 @@ func TestDescribeOnlyInvoices(t *testing.T) {
 			t.Fatalf("describe-only plans %s", f.Path)
 		}
 	}
-	if len(r.Next) != 0 || !hasLine(r.Found, "owner team billing") || !hasLine(r.Found, "health check GET /healthz on api, from the readiness probe") ||
+	if !slices.Equal(r.Next, []string{"declare the versions of ledger that invoices accepts: replace compatibility: unknown with a range"}) || !hasLine(r.Found, "owner team billing") || !hasLine(r.Found, "health check GET /healthz on api, from the readiness probe") ||
 		!hasLine(r.Found, "the 4 environment variables invoices reads, from k8s/configmap.yaml, k8s/deployment.yaml, with their types and no values") ||
-		!hasLine(r.Unknown, "compatibility ^1.0.0 in pacto.yaml is a placeholder") {
+		!hasLine(r.Unknown, "the versions of ledger that invoices accepts: pacto.yaml leaves compatibility unknown") {
 		t.Fatalf("findings: %+v", r)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
@@ -116,8 +116,9 @@ func TestPublishNamesDescribeOnly(t *testing.T) {
 }
 
 // TestDependencyFromFleet: a dependency whose contract is in --fleet gets
-// its bundle and the range from its highest version; one whose contract has
-// no publish section keeps the repository it would be published at.
+// its bundle and a range proposed from its highest version; one whose
+// contract has no publish section keeps the repository it would be
+// published at.
 func TestDependencyFromFleet(t *testing.T) {
 	fleetDir := writeTree(t, t.TempDir(), map[string]string{
 		"ledger-old/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: ledger, version: 1.2.0}\npublish: {bundle: oci://old.example/ledger, sign: {key: k}}\n",
@@ -129,23 +130,23 @@ func TestDependencyFromFleet(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	if !strings.Contains(text, "  # from k8s/configmap.yaml, env LEDGER_URL; its contract in --fleet is at 1.6.2\n  - name: ledger\n    ref: oci://reg.example/finance/ledger\n    required: true\n    compatibility: '^1.6.2'\n") {
+	if !strings.Contains(text, "  # from k8s/configmap.yaml, env LEDGER_URL\n  - name: ledger\n    ref: oci://reg.example/finance/ledger\n    required: true\n    compatibility: unknown   # proposed ^1.6.0, from its contract in --fleet at 1.6.2\n") {
 		t.Fatalf("pacto.yaml:\n%s", text)
 	}
 	if !hasLine(r.Found, "invoices calls ledger (k8s/configmap.yaml, env LEDGER_URL), whose contract in --fleet is at 1.6.2") ||
-		!hasLine(r.Next, "pacto.yaml declares ledger compatible with ^1.6.2") || hasLine(r.Unknown, "placeholder") {
+		!hasLine(r.Next, "declare the versions of ledger that invoices accepts: replace compatibility: unknown with a range, such as the proposed ^1.6.0") || hasLine(r.Unknown, "placeholder") {
 		t.Fatalf("findings: %+v", r)
 	}
 
 	noPublish := writeTree(t, t.TempDir(), map[string]string{"ledger/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: ledger, version: 2.0.0}\n"})
 	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), DescribeOnly: true, FleetRoots: []string{noPublish}, Plan: true}, os.WriteFile)
-	if err != nil || !strings.Contains(file(t, r, "pacto.yaml").Content, "    ref: oci://ghcr.io/acme/contracts/ledger\n    required: true\n    compatibility: '^2.0.0'\n") {
+	if err != nil || !strings.Contains(file(t, r, "pacto.yaml").Content, "    ref: oci://ghcr.io/acme/contracts/ledger\n    required: true\n    compatibility: unknown   # proposed ^2.0.0, from its contract in --fleet at 2.0.0\n") {
 		t.Fatalf("no publish section: %v\n%s", err, file(t, r, "pacto.yaml").Content)
 	}
 
 	other := writeTree(t, t.TempDir(), map[string]string{"billing/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: billing, version: 2.0.0}\n"})
 	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), DescribeOnly: true, FleetRoots: []string{other}, Plan: true}, os.WriteFile)
-	if err != nil || !hasLine(r.Unknown, "no contract for ledger was read") {
+	if err != nil || !strings.Contains(file(t, r, "pacto.yaml").Content, "# no contract for ledger was read") {
 		t.Fatalf("ledger not in the fleet: %+v %v", r, err)
 	}
 }

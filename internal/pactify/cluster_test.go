@@ -131,19 +131,22 @@ func result(t *testing.T, b *Bulk, name string) *Result {
 	return nil
 }
 
-// checkCheckoutDraft checks the checkout draft: payments pinned to the
-// version seen running and its manifests with no cluster-only fields.
+// checkCheckoutDraft checks the checkout draft: payments with compatibility
+// unknown and a range proposed from the version its Pacto reports, and its
+// manifests with no cluster-only fields.
 func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 	t.Helper()
 	text := file(t, checkout, "pacto.yaml").Content
-	pin := "dependencies:\n  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n" +
-		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n    compatibility: '=2.3.0'\n"
-	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "  # from calls seen to the Service shop/fraud\n  # no contract for fraud was read") ||
-		!strings.Contains(text, "  - name: fraud\n    ref: oci://reg.io/acme/contracts/fraud\n    required: true\n    compatibility: '^1.0.0'\n") {
+	proposed := "dependencies:\n  # inferred from runtime calls (calls seen to the Service shop/payments)\n" +
+		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n" +
+		"    compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.0\n"
+	if !strings.Contains(text, proposed) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "  # from calls seen to the Service shop/fraud\n  # no contract for fraud was read") ||
+		!strings.Contains(text, "  - name: fraud\n    ref: oci://reg.io/acme/contracts/fraud\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of fraud was read\n") {
 		t.Fatalf("checkout's dependencies:\n%s", text)
 	}
 	if checkout.Dir != filepath.Join(out, "shop", "checkout") || file(t, checkout, "manifests.yaml").Action != Add ||
-		!hasLine(checkout.Next, "pacto.yaml declares payments pinned to =2.3.0") || !hasLine(checkout.Found, "checkout calls payments 2.3.0 (calls seen to the Service shop/payments)") {
+		!hasLine(checkout.Next, "declare the versions of payments that checkout accepts: replace compatibility: unknown with a range, such as the proposed ^2.3.0") ||
+		!hasLine(checkout.Found, "checkout calls the Service shop/payments, described by payments 2.3.0") {
 		t.Fatalf("checkout: %+v", checkout)
 	}
 	m := file(t, checkout, "manifests.yaml").Content
@@ -153,10 +156,10 @@ func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 }
 
 // TestClusterDrafts: every workload no Pacto describes gets a draft, its
-// dependencies read from the calls its pods made. A call to a provider whose
-// Pacto runs a version is pinned to exactly that version, never "*"; one
-// with no contract version gets a placeholder range its comment names. A plan
-// writes nothing.
+// dependencies read from the calls its pods made, each with compatibility
+// unknown. A call to a provider whose Pacto reports a version gets a range
+// proposed from it in a comment, never "*"; one with no contract version
+// gets a comment saying no range is proposed. A plan writes nothing.
 func TestClusterDrafts(t *testing.T) {
 	now := time.Now()
 	out := filepath.Join(t.TempDir(), "drafts")
@@ -172,8 +175,9 @@ func TestClusterDrafts(t *testing.T) {
 		t.Fatal("a plan wrote under --out")
 	}
 	checkCheckoutDraft(t, result(t, b, "checkout"), out)
-	// ledger calls payments and legacy, whose Pacto runs no version yet: a placeholder range.
-	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: '=2.3.0'") || !strings.Contains(l, "  - name: legacy\n") {
+	// ledger calls payments and legacy, whose Pacto reports no version yet: no range proposed.
+	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: unknown   # proposed ^2.3.0, from the Pactos describing the Service shop/payments at 2.3.0\n") ||
+		!strings.Contains(l, "  - name: legacy\n    ref: oci://reg.io/acme/contracts/legacy\n    required: true\n    compatibility: unknown   # no range proposed: no contract or running version of legacy was read\n") {
 		t.Fatalf("ledger:\n%s", l)
 	}
 	if n := result(t, b, "nightly"); strings.Contains(file(t, n, "pacto.yaml").Content, "dependencies") || len(n.Dependencies) != 0 {
@@ -201,12 +205,13 @@ func TestClusterDraftsApply(t *testing.T) {
 	if err != nil || file(t, result(t, again, "checkout"), "manifests.yaml").Action != Keep || file(t, result(t, again, "checkout"), "pacto.yaml").Action != Keep {
 		t.Fatalf("second run: %+v %v", again, err)
 	}
-	checkPinnedReadsIncompatible(t, out)
+	checkProposedReadsUnknown(t, out)
 }
 
-// checkPinnedReadsIncompatible: the draft consumer, pinned to =2.3.0, reads
-// incompatible for payments 2.4.0, so the change asks checkout's owners.
-func checkPinnedReadsIncompatible(t *testing.T, out string) {
+// checkProposedReadsUnknown: the draft consumer leaves its range to payments
+// unknown, with only a proposal in a comment, so payments 2.4.0 reads
+// unknown for it: no guessed range decides who the change breaks.
+func checkProposedReadsUnknown(t *testing.T, out string) {
 	t.Helper()
 	provider := `pactoVersion: "2.1"
 service: {name: payments, version: %s}
@@ -232,7 +237,7 @@ publish:
 	next, newFS := parse("2.4.0")
 	res := impact.Analyze(context.Background(), old, next, oldFS, newFS, snap, impact.Options{})
 	i := slices.IndexFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Service == "checkout" })
-	if i < 0 || res.Consumers[i].CompatibilityVerdict != impact.CompatibilityIncompatible || res.Consumers[i].Compatibility != "=2.3.0" {
+	if i < 0 || res.Consumers[i].CompatibilityVerdict != impact.CompatibilityUnknown || res.Consumers[i].Compatibility != contract.CompatibilityUnknown {
 		t.Fatalf("checkout for payments 2.4.0: %+v", res.Consumers)
 	}
 }
