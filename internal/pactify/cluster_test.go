@@ -2,10 +2,13 @@ package pactify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -373,5 +376,205 @@ func TestMany(t *testing.T) {
 	}
 	if _, err := Many(context.Background(), Options{Name: "x"}, []string{a, b}, nil); err == nil {
 		t.Fatal("one name for two folders")
+	}
+}
+
+// env is an env list of literal name=value pairs.
+func env(pairs ...string) []any {
+	out := []any{}
+	for i := 0; i < len(pairs); i += 2 {
+		out = append(out, map[string]any{"name": pairs[i], "value": pairs[i+1]})
+	}
+	return out
+}
+
+// secretShop is checkout, whose container and initContainer set sensitive
+// literals, and nightly, a CronJob that sets one.
+func secretShop() []runtime.Object {
+	appEnv := append(env("DB_PASSWORD", "hunter2", "REDIS_URL", "redis://:r3dis-pw@cache:6379", "LOG_LEVEL", "info"),
+		map[string]any{"name": "CACHE_DSN", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "cache", "key": "dsn"}}})
+	checkout := obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}},
+		"spec": map[string]any{
+			"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": appEnv}},
+			"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("MIGRATE_TOKEN", "t0ken-123")}},
+		}}}})
+	nightly := obj("batch/v1", "CronJob", "shop", "nightly", map[string]any{"spec": map[string]any{"jobTemplate": map[string]any{"spec": map[string]any{"template": map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{"app": "nightly"}},
+		"spec":     map[string]any{"containers": []any{map[string]any{"name": "nightly", "image": "reg.io/acme/nightly:1.0.0", "env": env("BATCH_PASSWORD", "cr0n-s3cret")}}}}}}}})
+	return []runtime.Object{checkout, nightly}
+}
+
+var secretLiterals = []string{"hunter2", "r3dis-pw", "t0ken-123", "cr0n-s3cret"}
+
+// secretRef matches a secretKeyRef to key in secret at any indentation.
+func secretRef(secret, key string) *regexp.Regexp {
+	return regexp.MustCompile(`secretKeyRef:\s+key: ` + regexp.QuoteMeta(key) + `\s+name: ` + regexp.QuoteMeta(secret) + `\n`)
+}
+
+// checkSecretSchema checks that a draft's schema reads each key from secret.
+func checkSecretSchema(t *testing.T, r *Result, secret string, keys ...string) {
+	t.Helper()
+	var s struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(file(t, r, configSchema).Content), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		p := s.Properties[k]
+		if p["writeOnly"] != true || !strings.Contains(fmt.Sprint(p["description"]), "Read from the Secret "+secret) {
+			t.Fatalf("%s in %s: %+v", k, r.Service, s.Properties)
+		}
+	}
+}
+
+// checkSecretDrafts checks the checkout and nightly drafts of secretShop:
+// secretKeyRefs in place of the literals, none of which appears anywhere, the
+// Secret shape in the schema and a next step with no value on it.
+func checkSecretDrafts(t *testing.T, b *Bulk, checkout, nightly *Result) {
+	t.Helper()
+	m := file(t, checkout, "manifests.yaml").Content + file(t, nightly, "manifests.yaml").Content
+	for _, want := range []*regexp.Regexp{secretRef("checkout-env", "DB_PASSWORD"), secretRef("checkout-env", "REDIS_URL"), secretRef("checkout-env", "MIGRATE_TOKEN"),
+		secretRef("nightly-env", "BATCH_PASSWORD"), regexp.MustCompile(`name: LOG_LEVEL\s+value: info\n`), secretRef("cache", "dsn")} {
+		if !want.MatchString(m) {
+			t.Fatalf("manifests.yaml lacks %q:\n%s", want, m)
+		}
+	}
+	data, _ := json.Marshal(b)
+	for _, lit := range secretLiterals {
+		if strings.Contains(m, lit) || strings.Contains(string(data), lit) {
+			t.Fatalf("%s leaked:\n%s", lit, m)
+		}
+	}
+	checkSecretSchema(t, checkout, "checkout-env", "DB_PASSWORD", "REDIS_URL")
+	checkSecretSchema(t, nightly, "nightly-env", "BATCH_PASSWORD")
+	if !hasLine(checkout.Next, "manifests.yaml: the cluster sets DB_PASSWORD, MIGRATE_TOKEN, REDIS_URL to literal values") ||
+		!hasLine(checkout.Next, "kubectl -n shop create secret generic checkout-env --from-env-file=") || hasLine(checkout.Next, "--from-literal") ||
+		!hasLine(nightly.Next, "kubectl -n shop create secret generic nightly-env --from-env-file=") {
+		t.Fatalf("next steps: %q %q", checkout.Next, nightly.Next)
+	}
+	if !hasLine(checkout.Next, "manifests.yaml: REDIS_URL (cache) held a URL") || hasLine(checkout.Next, "DB_PASSWORD held") || hasLine(nightly.Next, "held a URL") {
+		t.Fatalf("URL next steps: %q %q", checkout.Next, nightly.Next)
+	}
+}
+
+// TestClusterDraftReadsSensitiveLiteralsFromSecret: a sensitive literal in a
+// container or initContainer, by name or by URL credentials, never reaches the
+// manifests.yaml a draft writes: the draft reads it from <workload>-env and
+// says how to create that Secret, with no value on the command line. The live
+// object is untouched.
+func TestClusterDraftReadsSensitiveLiteralsFromSecret(t *testing.T) {
+	for _, plan := range []bool{true, false} {
+		objs := secretShop()
+		out := filepath.Join(t.TempDir(), "drafts")
+		b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: plan}, ClusterOptions{Out: out}, os.WriteFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkout, nightly := result(t, b, "checkout"), result(t, b, "nightly")
+		checkSecretDrafts(t, b, checkout, nightly)
+		live := objs[0].(*unstructured.Unstructured)
+		if v, _, _ := unstructured.NestedSlice(live.Object, "spec", "template", "spec", "containers"); !strings.Contains(fmt.Sprint(v), "hunter2") {
+			t.Fatalf("the live object changed: %v", v)
+		}
+		if !plan {
+			disk, err := os.ReadFile(filepath.Join(out, "shop", "checkout", "manifests.yaml"))
+			if err != nil || strings.Contains(string(disk), "hunter2") || !strings.Contains(string(disk), "checkout-env") {
+				t.Fatalf("manifests.yaml on disk: %s %v", disk, err)
+			}
+		}
+	}
+}
+
+// TestClusterDraftSplitsDifferingLiterals: one name set to different literals
+// in two containers reads two Secret keys, so they never share one value; the
+// same literal keeps one key.
+func TestClusterDraftSplitsDifferingLiterals(t *testing.T) {
+	workload := func(migrate string) runtime.Object {
+		return obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+			"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": env("DB_PASSWORD", "app-pw")}},
+			"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("DB_PASSWORD", migrate)}},
+		}}}})
+	}
+	b, err := Cluster(context.Background(), fakeCluster(workload("migrate-pw")), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result(t, b, "checkout")
+	m := file(t, r, "manifests.yaml").Content
+	if !strings.Contains(m, "key: app.DB_PASSWORD") || !strings.Contains(m, "key: migrate.DB_PASSWORD") || strings.Contains(m, "app-pw") || strings.Contains(m, "migrate-pw") ||
+		!hasLine(r.Next, "sets app.DB_PASSWORD, migrate.DB_PASSWORD to literal values") {
+		t.Fatalf("differing literals:\n%s\n%q", m, r.Next)
+	}
+	b, err = Cluster(context.Background(), fakeCluster(workload("app-pw")), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = result(t, b, "checkout")
+	if m := file(t, r, "manifests.yaml").Content; strings.Count(m, "key: DB_PASSWORD") != 2 || strings.Contains(m, ".DB_PASSWORD") || !hasLine(r.Next, "sets DB_PASSWORD to a literal value; the draft reads it from") {
+		t.Fatalf("equal literals:\n%s\n%q", m, r.Next)
+	}
+}
+
+// TestClusterDraftKeptManifestsNoSecretNote: a manifests.yaml already in the
+// draft folder is the user's, so the draft says nothing about its Secret.
+func TestClusterDraftKeptManifestsNoSecretNote(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, map[string]string{"shop/checkout/manifests.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\n"})
+	b, err := Cluster(context.Background(), fakeCluster(secretShop()...), Options{Plan: true}, ClusterOptions{Out: out}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := result(t, b, "checkout"); file(t, r, "manifests.yaml").Action != Keep || hasLine(r.Next, "manifests.yaml: the cluster sets") {
+		t.Fatalf("kept manifests: %+v", r)
+	}
+}
+
+// TestSecretEnvNoPodSpec: an object with no containers reads no Secret.
+func TestSecretEnvNoPodSpec(t *testing.T) {
+	o := obj("apps/v1", "Deployment", "shop", "empty", map[string]any{"spec": map[string]any{}})
+	before := fmt.Sprint(o.Object)
+	if keys, urls := secretEnv(o, "empty-env", nil); keys != nil || urls != nil || fmt.Sprint(o.Object) != before {
+		t.Fatalf("keys %v, object %v", keys, o.Object)
+	}
+}
+
+// TestClusterDraftURLLiterals: a $(NAME) reference is no literal, so a URL
+// whose password is one stays in the draft; a malformed credential URL is
+// rewritten; only a rewritten container URL the scan reads a dependency from
+// is named as a lost dependency, never an outside host or an initContainer's.
+func TestClusterDraftURLLiterals(t *testing.T) {
+	appEnv := append(env("DATABASE_URL", "postgres://app:$(DB_PASSWORD)@db:5432/x", "ORDERS_URL", "postgres://app:pa/ss@orders-db:5432/orders",
+		"DB_DSN", "postgres://app:p%zz@ledger:5432/x", "STRIPE_URL", "https://api.stripe.com/v1?api_key=sk_live_x", "ALIAS_PASSWORD", "$(OTHER_PASSWORD)"),
+		map[string]any{"name": "DB_PASSWORD", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "db", "key": "password"}}})
+	checkout := obj("apps/v1", "Deployment", "shop", "checkout", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": map[string]any{
+		"containers":     []any{map[string]any{"name": "app", "image": "reg.io/acme/checkout:1.4.0", "env": appEnv}},
+		"initContainers": []any{map[string]any{"name": "migrate", "image": "reg.io/acme/migrate:1.0.0", "env": env("MIGRATE_DB_URL", "postgres://u:p@db/x")}},
+	}}}})
+	b, err := Cluster(context.Background(), fakeCluster(checkout), Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result(t, b, "checkout")
+	m := file(t, r, "manifests.yaml").Content
+	for _, want := range []*regexp.Regexp{regexp.MustCompile(`value: postgres://app:\$\(DB_PASSWORD\)@db:5432/x\n`), regexp.MustCompile(`value: \$\(OTHER_PASSWORD\)\n`),
+		secretRef("checkout-env", "ORDERS_URL"), secretRef("checkout-env", "DB_DSN"), secretRef("checkout-env", "STRIPE_URL"), secretRef("checkout-env", "MIGRATE_DB_URL")} {
+		if !want.MatchString(m) {
+			t.Fatalf("manifests.yaml lacks %q:\n%s", want, m)
+		}
+	}
+	for _, lit := range []string{"pa/ss", "p%zz", "sk_live_x", "u:p@"} {
+		if strings.Contains(m, lit) {
+			t.Fatalf("%s leaked:\n%s", lit, m)
+		}
+	}
+	// ORDERS_URL's / in the password is one the scan's host reader never got past.
+	if !hasLine(r.Next, "manifests.yaml: DB_DSN (ledger) held a URL") || hasLine(r.Next, "ORDERS_URL (") || hasLine(r.Next, "STRIPE_URL (") ||
+		hasLine(r.Next, "MIGRATE_DB_URL (") || hasLine(r.Next, "DATABASE_URL") {
+		t.Fatalf("next steps: %q", r.Next)
+	}
+	if !hasDependency(r, "db") {
+		t.Fatalf("db is not a dependency: %+v", r.Dependencies)
 	}
 }

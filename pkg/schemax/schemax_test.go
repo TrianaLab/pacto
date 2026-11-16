@@ -197,3 +197,66 @@ func TestParse(t *testing.T) {
 		t.Error("broken JSON parsed")
 	}
 }
+
+func TestSensitiveKey(t *testing.T) {
+	for name, want := range map[string]bool{
+		"DB_PASSWORD": true, "client_secret": true, "GITHUB_TOKEN": true, "API_KEY": true,
+		"AWS_CREDENTIALS": true, "PRIVATE_PEM": true, "SENTRY_DSN": true,
+		"PORT": false, "LOG_LEVEL": false, "HOST": false,
+		"MONKEY": true, // the documented ceiling of a substring match
+	} {
+		if got := SensitiveKey(name); got != want {
+			t.Errorf("SensitiveKey(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// A writeOnly property, and every property under a writeOnly object, reads
+// (sensitive) whatever its default holds.
+func TestPropertiesMaskWriteOnly(t *testing.T) {
+	data := `{"properties":{
+	  "DB_PASSWORD":{"type":"string","writeOnly":true,"default":"hunter2"},
+	  "LOG_LEVEL":{"type":"string","writeOnly":false,"default":"info"},
+	  "cache":{"type":"object","properties":{"host":{"type":"string","default":"redis"},"token":{"type":"string","writeOnly":true,"default":"hunter2"}}},
+	  "db":{"type":"object","writeOnly":true,"properties":{"password":{"type":"string","default":"hunter2"}}}}}`
+	want := []Property{
+		{Key: "DB_PASSWORD", Value: "(sensitive)", Type: "string"},
+		{Key: "LOG_LEVEL", Value: "info", Type: "string"},
+		{Key: "cache.host", Value: "redis", Type: "string"},
+		{Key: "cache.token", Value: "(sensitive)", Type: "string"},
+		{Key: "db.password", Value: "(sensitive)", Type: "string"},
+	}
+	if got := Properties([]byte(data), "s.json"); !reflect.DeepEqual(got, want) {
+		t.Errorf("Properties() = %+v, want %+v", got, want)
+	}
+}
+
+// TestSensitiveValue: a URL carries a credential when its userinfo holds a
+// non-empty password or a query parameter has a sensitive name; a password
+// url.Parse rejects, or a scheme-less user:password@host, still counts.
+func TestSensitiveValue(t *testing.T) {
+	for v, want := range map[string]bool{
+		"postgres://app:pw@db/x":                     true,
+		"redis://:pw@cache:6379":                     true,
+		"https://api/x?token=abc":                    true,
+		"postgres://app:pa%ss@db:5432/x":             true,
+		"postgres://app:p%zz@orders-db:5432/x":       true,
+		"postgres://app:p w@db/x":                    true,
+		"postgres://app:pa/ss@orders-db:5432/orders": true,
+		"postgres://app:pa#ss@db:5432/x":             true,
+		"redis://:s3cr?t@redis:6379":                 true,
+		"app:pw@db:5432/x":                           true,
+		"postgres://app@db/x":                        false,
+		"postgres://app:@db/x":                       false,
+		"http://billing:8080":                        false,
+		"localhost:8080":                             false,
+		"Note: email me@x.com":                       false,
+		"bad%zz":                                     false,
+		"info":                                       false,
+		"":                                           false,
+	} {
+		if got := SensitiveValue(v); got != want {
+			t.Errorf("SensitiveValue(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

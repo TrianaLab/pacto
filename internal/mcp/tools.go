@@ -27,7 +27,8 @@ func createTool() *mcpsdk.Tool {
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
 			"config files. Supports dry_run mode. With pactify it does what `pacto init` does " +
 			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests " +
-			"(the environment and ConfigMaps become a configuration schema, service URLs become dependencies, " +
+			"(the environment and ConfigMaps become a configuration schema of keys and types with no values, sensitive keys marked writeOnly; " +
+			"service URLs become dependencies, " +
 			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
 			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +

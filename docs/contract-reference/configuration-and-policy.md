@@ -120,12 +120,19 @@ Your configuration JSON Schema should declare secret fields as strings:
 {
   "type": "object",
   "properties": {
-    "DB_PASSWORD": { "type": "string", "description": "Database password (secret reference)" },
-    "API_KEY": { "type": "string", "description": "Stripe API key (secret reference)" }
+    "DB_PASSWORD": { "type": "string", "writeOnly": true, "description": "Database password (secret reference)" },
+    "API_KEY": { "type": "string", "writeOnly": true, "description": "Stripe API key (secret reference)" }
   },
   "required": ["DB_PASSWORD", "API_KEY"]
 }
 ```
+
+- `writeOnly` is standard JSON Schema. The dashboard, the fleet API, the
+  consume snippet, the operator status and `pacto diff` show the default and
+  any other schema value of such a key as `(sensitive)`.
+- A value you set under `values` or in an environment file is shown as
+  written, so keep secrets out of it and use a reference such as
+  `secret://vault/...`.
 
 ### Reusing a schema you already have
 

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -1581,5 +1583,33 @@ func TestPrintEnvironmentDifferences(t *testing.T) {
 		"\nDifferences between a, b (1):\n  x\n    a  3\n    b  not set\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestDiffOutputNeverPrintsSensitiveDefault(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion:   "2.0",
+		Service:        contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
+	}
+	oldFS := fstest.MapFS{"configuration/schema.json": &fstest.MapFile{Data: []byte(
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","default":"hunter2"}}}`)}}
+	newFS := fstest.MapFS{"configuration/schema.json": &fstest.MapFile{Data: []byte(
+		`{"type":"object","properties":{"DB_PASSWORD":{"type":"string","writeOnly":true}}}`)}}
+	d := diff.Compare(context.Background(), c, c, oldFS, newFS)
+	result := &app.DiffResult{Classification: d.Classification.String(), Changes: d.Changes}
+
+	for _, format := range outputFormats {
+		cmd, buf := testCmd()
+		if err := printDiffResult(cmd, result, format); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "schema.properties.DB_PASSWORD.default") {
+			t.Errorf("%s: change path missing: %s", format, out)
+		}
+		if strings.Contains(out, "hunter2") {
+			t.Errorf("%s output leaks the value: %s", format, out)
+		}
 	}
 }

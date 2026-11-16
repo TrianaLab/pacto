@@ -53,19 +53,15 @@ const invoicesSchema = `{
   "type": "object",
   "properties": {
     "DEFAULT_CURRENCY": {
-      "default": "EUR",
       "type": "string"
     },
     "LEDGER_TIMEOUT_MS": {
-      "default": 2000,
       "type": "integer"
     },
     "LEDGER_URL": {
-      "default": "http://ledger.finance.svc.cluster.local",
       "type": "string"
     },
     "PORT": {
-      "default": 8080,
       "type": "integer"
     }
   }
@@ -93,7 +89,7 @@ func TestDescribeOnlyInvoices(t *testing.T) {
 		}
 	}
 	if len(r.Next) != 0 || !hasLine(r.Found, "owner team billing") || !hasLine(r.Found, "health check GET /healthz on api, from the readiness probe") ||
-		!hasLine(r.Found, "the 4 environment variables invoices reads, with the values in k8s/configmap.yaml, k8s/deployment.yaml as defaults") ||
+		!hasLine(r.Found, "the 4 environment variables invoices reads, from k8s/configmap.yaml, k8s/deployment.yaml, with their types and no values") ||
 		!hasLine(r.Unknown, "compatibility ^1.0.0 in pacto.yaml is a placeholder") {
 		t.Fatalf("findings: %+v", r)
 	}
@@ -194,23 +190,13 @@ spec:
 	if !strings.Contains(text, "capabilities:\n  - type: health\nconfigurations:") || !hasLine(r.Found, "health check, from the liveness probe in deploy.yaml") {
 		t.Fatalf("a TCP probe is a health check bound to nothing:\n%s\n%v", text, r.Found)
 	}
-	schema := file(t, r, configSchema).Content
-	for _, want := range []string{
-		`"APP_MODE": {` + "\n      \"default\": \"override\"", `"APP_RETRIES": {` + "\n      \"default\": 3,\n      \"type\": \"integer\"",
-		`"DEBUG": {` + "\n      \"default\": true,\n      \"type\": \"boolean\"", `"KEYED": {` + "\n      \"default\": \"fast\"",
-		`"MISSING": {` + "\n      \"type\": \"string\"", `"NODE": {` + "\n      \"type\": \"string\"",
-		`"TOKEN": {` + "\n      \"description\": \"Read from the Secret creds, whose values pacto init does not read.\"",
-	} {
-		if !strings.Contains(schema, want) {
-			t.Errorf("schema lacks %q:\n%s", want, schema)
-		}
-	}
-	if strings.Contains(schema, "EMPTY") {
-		t.Errorf("a null ConfigMap value is a variable:\n%s", schema)
-	}
+	checkEnvSchema(t, file(t, r, configSchema).Content)
 	if !hasLine(r.Unknown, "the environment deploy.yaml reads from the Secret creds: its keys are not read") ||
 		!hasLine(r.Unknown, "the ConfigMap gone, which deploy.yaml reads its environment from, is not in the folder") {
 		t.Fatalf("unknown: %v", r.Unknown)
+	}
+	if !hasLine(r.Next, "cm.yaml sets KEYED to a literal value, and the bundle publishes that file to anyone who can pull it: read it from a Secret") || hasLine(r.Next, "fast") {
+		t.Fatalf("next: %v", r.Next)
 	}
 
 	// An HTTP probe with no OpenAPI file is a check bound to no interface; a
@@ -227,6 +213,26 @@ spec:
 		if strings.Contains(probe, "/ready") && !hasLine(r.Unknown, "the interface that serves the health check GET /ready") {
 			t.Fatalf("unknown: %v", r.Unknown)
 		}
+	}
+}
+
+// checkEnvSchema: TestEnvironmentAndProbes's schema has keys and types, no
+// default, and no variable for a null ConfigMap value.
+func checkEnvSchema(t *testing.T, schema string) {
+	t.Helper()
+	for _, want := range []string{
+		`"APP_MODE": {` + "\n      \"type\": \"string\"\n    }", `"APP_RETRIES": {` + "\n      \"type\": \"integer\"\n    }",
+		`"DEBUG": {` + "\n      \"type\": \"boolean\"\n    }",
+		`"KEYED": {` + "\n      \"description\": \"Sensitive: pacto init does not copy its value.\",\n      \"type\": \"string\",\n      \"writeOnly\": true",
+		`"MISSING": {` + "\n      \"type\": \"string\"", `"NODE": {` + "\n      \"type\": \"string\"",
+		`"TOKEN": {` + "\n      \"description\": \"Read from the Secret creds, whose values pacto init does not read.\",\n      \"type\": \"string\",\n      \"writeOnly\": true",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("schema lacks %q:\n%s", want, schema)
+		}
+	}
+	if strings.Contains(schema, `"default"`) || strings.Contains(schema, "EMPTY") {
+		t.Errorf("a default, or a null ConfigMap value read as a variable:\n%s", schema)
 	}
 }
 
