@@ -128,7 +128,7 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 			}
 			// User and Groups: who the fleet views are narrowed for.
 			return dashboard.AuthState{SignedIn: st.SignedIn, CSRF: st.CSRF, Name: tokenName(st.Token),
-				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method, AuthTime: st.AuthTime}
+				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method, AuthTime: st.AuthTime, FleetOnly: linkSession(st)}
 		}}
 	if id.viewer != nil {
 		o.View = id.view
@@ -228,12 +228,23 @@ func (id *dashboardIdentity) subject(ctx context.Context) (subject, error) {
 	if !st.SignedIn {
 		return subject{User: authn.Anonymous.User, Groups: authn.Anonymous.Groups}, nil
 	}
+	if linkSession(st) {
+		// The TokenReview named this identity at sign-in and on every recheck;
+		// a SelfSubjectReview without a token would name system:anonymous.
+		// Bearer sessions keep whoami, which carries uid and extra from their
+		// own token.
+		return subject{User: st.Person.User, UID: st.UID, Groups: st.Person.Groups, Extra: st.Extra}, nil
+	}
 	dyn, err := id.newClient(authn.RESTConfig(id.cluster, st.Token))
 	if err != nil {
 		return subject{}, err
 	}
 	return s.whoami(ctx, sharedClient{Interface: dyn, s: s, token: st.Token})
 }
+
+// linkSession reports a sign-in link session: a token session that holds no
+// apiserver credential, so it reads the fleet index and nothing else.
+func linkSession(st authn.State) bool { return st.Method == "token" && st.Token == "" }
 
 // errNoClusterToAsk: the fleet holds Kubernetes namespaces but the dashboard
 // has no cluster to ask who may read them.

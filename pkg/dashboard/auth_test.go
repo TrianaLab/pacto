@@ -92,3 +92,17 @@ func TestCallerReportsTeamNarrowing(t *testing.T) {
 	_, c = call(t, http.MethodGet, base+"/api/delivery/caller", nil)
 	expect(t, c["teamNarrowing"] == false, "narrowing off is reported: %v", c)
 }
+
+// A sign-in link session reads the fleet only, so its capabilities hide
+// Delivery even where delivery is installed; a bearer session keeps it.
+func TestCapabilitiesHideDeliveryForFleetOnly(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Method: "token", User: "system:serviceaccount:pacto:pacto-viewer", FleetOnly: true}}
+	au := a.auth(false, false)
+	au.TokenLogin = true
+	base := startDelivery(t, &fakeDelivery{caller: person()}, au, true, nil)
+	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false, "a link session sees no Delivery: %v", caps)
+	a.state = AuthState{SignedIn: true, Method: "token", User: "alice"}
+	_, caps = call(t, http.MethodGet, base+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == true, "a bearer token session keeps Delivery: %v", caps)
+}

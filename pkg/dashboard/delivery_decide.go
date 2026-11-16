@@ -77,8 +77,10 @@ type decideOutput struct {
 }
 
 // decisionSession refuses a decision this dashboard's sign-in cannot carry:
-// a local or sign-in-free dashboard, no session or a pasted token. cli is the
-// command that decides instead.
+// a local or sign-in-free dashboard or no session. cli is the command that
+// decides instead. A token session decides like any session: mayDecide
+// refuses ServiceAccounts as agents, and a sign-in link session never gets
+// here because its delivery API refuses it first.
 func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	a := s.authSummary(ctx)
 	switch a.Mode {
@@ -88,21 +90,14 @@ func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	case "open":
 		return Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
 	}
-	st := a.State
-	switch {
-	case !st.SignedIn: // defence in depth: the sign-in gate turns a signed-out request away first
+	if !a.State.SignedIn { // defence in depth: the sign-in gate turns a signed-out request away first
 		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
-	case st.Method == "token" && a.Login:
-		return Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides: sign in with your identity provider to decide, or run: "+cli)
-	case st.Method == "token":
-		return Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
 	}
 	return nil
 }
 
-// deliveryDecide is the decision flow: local mode never decides; on a Stage
+// deliveryDecide is the decision flow, the same for an identity provider and
+// a person's token session: local mode never decides; on a Stage
 // that publishes a login freshness a decision needs an auth-time under
 // DecisionFreshnessFor it; and
 // the decision must be one the promoter counts (delivery.ApprovalRefusal):

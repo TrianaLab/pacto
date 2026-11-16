@@ -100,7 +100,7 @@
     },
     "PACTO_DASHBOARD_TOKEN_LOGIN": {
       "default": false,
-      "description": "Let people sign in by pasting a Kubernetes bearer token; a token session never decides",
+      "description": "Let people sign in with a Kubernetes token: a ServiceAccount token minted for the dashboard reads the fleet only, and a person's own token acts as them",
       "type": "boolean"
     },
     "PACTO_NO_CACHE": {

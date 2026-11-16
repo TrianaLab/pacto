@@ -44,6 +44,9 @@ type AuthState struct {
 	// AuthTime is when the caller last logged in at the identity provider,
 	// as Unix seconds or RFC 3339, when known.
 	AuthTime string
+	// FleetOnly marks a sign-in link session: it reads the fleet index and
+	// nothing else.
+	FleetOnly bool
 }
 
 type requestKey struct{}
@@ -102,7 +105,7 @@ type sessionOutput struct {
 		LoginName  string   `json:"loginName,omitempty" doc:"The identity provider's name on the sign-in button; empty says OIDC"`
 		TokenLogin bool     `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
 		SignedIn   bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
-		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a pasted token, which never decides"`
+		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a Kubernetes token"`
 		Name       string   `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
 		User       string   `json:"user,omitempty" doc:"The signed-in person's username as the API server names them; every view shows what its Kubernetes RBAC lets this user read"`
 		Groups     []string `json:"groups,omitempty" doc:"The signed-in person's groups as the API server names them"`

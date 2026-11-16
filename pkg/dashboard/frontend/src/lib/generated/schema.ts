@@ -6122,7 +6122,7 @@ export interface components {
             /** @description The identity provider's name on the sign-in button; empty says OIDC */
             loginName?: string;
             /**
-             * @description How the caller signed in: with the identity provider or with a pasted token, which never decides
+             * @description How the caller signed in: with the identity provider or with a Kubernetes token
              * @enum {string}
              */
             method?: "oidc" | "token";

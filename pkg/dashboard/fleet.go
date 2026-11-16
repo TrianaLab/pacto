@@ -74,7 +74,7 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		// A cluster that cannot be asked keeps the tab: its views then say
 		// the cluster is unreachable instead of hiding delivery. Where delivery
 		// is never served, the cluster is not asked at all.
-		if s.opts.Delivery != nil && a.Mode != "open" {
+		if s.opts.Delivery != nil && a.Mode != "open" && !a.State.FleetOnly {
 			installed, err := s.deliveryInstalled(ctx)
 			out.Body.Delivery = installed || err != nil
 		}

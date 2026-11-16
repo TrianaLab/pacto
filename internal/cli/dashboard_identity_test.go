@@ -441,3 +441,64 @@ func TestDashboardOperationAccessReviewsOnlyFleetNamespaces(t *testing.T) {
 	_, err = id.operationAccess(full)(t.Context(), []string{"shop"})
 	expect(t, errors.Is(err, errOperationReview), "a person whose client cannot be built: %v", err)
 }
+
+// A sign-in link session holds no token, so its subject is the identity the
+// TokenReview named: no SelfSubjectReview is asked, and the SAR names the
+// ServiceAccount with its uid, groups and extra.
+func TestLinkSessionSubjectIsReviewedIdentity(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	ssrs := 0
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c := fakeDelivery()
+		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			ssrs++
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{"username": "system:anonymous"}}}}, nil
+		})
+		c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+			spec, _, _ := unstructured.NestedMap(o.Object, "spec")
+			*sars = append(*sars, spec)
+			o.Object["status"] = map[string]any{"allowed": true}
+			return true, o, nil
+		})
+		return c, nil
+	}
+	viewer := authn.Person{User: "system:serviceaccount:pacto:pacto-viewer", Groups: []string{"system:serviceaccounts", "system:serviceaccounts:pacto"}}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Person: viewer, UID: "sa-1", Extra: map[string][]string{"authentication.kubernetes.io/pod-name": {"p"}}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && ssrs == 0, "no SelfSubjectReview for a link session: %v %d", err, ssrs)
+	expect(t, len(*sars) == 1, "one review: %+v", *sars)
+	sar := (*sars)[0]
+	groups, _ := sar["groups"].([]any)
+	expect(t, sar["user"] == viewer.User && sar["uid"] == "sa-1" && len(groups) == 2 && sar["extra"] != nil,
+		"the SAR names the reviewed identity: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, st.FleetOnly && st.User == viewer.User, "a link session reads the fleet only: %+v", st)
+}
+
+// A bearer token session still asks its own SelfSubjectReview, whose uid and
+// extra reach the SAR, and it is no fleet-only session.
+func TestBearerTokenSessionSubjectAsksSelfSubjectReview(t *testing.T) {
+	id, full, sars := operationAccessWorld(t)
+	next, asked := id.newClient, ""
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		if cfg.BearerToken != "" {
+			asked = cfg.BearerToken
+		}
+		return next(cfg)
+	}
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Method: "token", Token: "alice-token", Person: authn.Person{User: "alice"}}
+	}
+	visible, err := id.operationAccess(full)(t.Context(), []string{"shop"})
+	expect(t, err == nil && visible("shop") && asked == "alice-token", "the session's own token asks who it is: %v %q", err, asked)
+	sar := (*sars)[0]
+	expect(t, sar["user"] == "alice" && sar["uid"] == "u-1" && sar["extra"] != nil, "uid and extra from the token: %+v", sar)
+	var o dashboard.Options
+	id.options(&o)
+	expect(t, !o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil)).FleetOnly, "a bearer session is not fleet-only")
+}
