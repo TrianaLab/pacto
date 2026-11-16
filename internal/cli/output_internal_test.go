@@ -1650,3 +1650,24 @@ func TestPrintExplainResultUndeclaredVersion(t *testing.T) {
 		t.Fatalf("got %q", buf.String())
 	}
 }
+
+func TestPrintExplainResult_PortAndBreaks(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name: "payments", Version: "2.0.0",
+		Interfaces: []app.ExplainInterface{{Name: "api", Type: "openapi", Ref: "openapi.yaml", Port: 8080}},
+		Breaks: []contract.Break{
+			{Consumers: []string{"reports", "billing"}, Reason: "drops /v1", Expires: "2026-12-14"},
+			{Consumers: []string{"audit"}, Reason: "renames a field"},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"  - api (openapi: openapi.yaml, port 8080)\n", "\nBreaks (2):\n", "  - reports, billing: drops /v1, expires 2026-12-14\n", "  - audit: renames a field\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+}

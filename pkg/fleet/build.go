@@ -1497,6 +1497,7 @@ func aggregateServices(snap *FleetSnapshot) {
 	placed := targetPlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
+		s.NameInferred = nameInferred(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
 		deriveTemplate(snap, s, placed)
@@ -1909,6 +1910,23 @@ func ownerSeen(seen []contract.Owner, o contract.Owner) bool {
 		}
 	}
 	return false
+}
+
+// nameInferred is the inferred service.name entry of the revision of s with
+// the smallest key when every revision of s inferred its name, else nil: one
+// declared revision makes the name declared.
+func nameInferred(snap *FleetSnapshot, s *ServiceRecord) *contract.Inferred {
+	var found *contract.Inferred
+	for _, rk := range slices.Sorted(slices.Values(s.Revisions)) {
+		inf, ok := (&contract.Bundle{Inferred: snap.Revisions[rk].Inferred}).NameInferred()
+		if !ok {
+			return nil
+		}
+		if found == nil {
+			found = &inf
+		}
+	}
+	return found
 }
 
 func ensureService(snap *FleetSnapshot, domain, name string) *ServiceRecord {

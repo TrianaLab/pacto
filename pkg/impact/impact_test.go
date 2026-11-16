@@ -1220,3 +1220,26 @@ func TestImpactInferredNameNeverClears(t *testing.T) {
 		t.Fatalf("limitations = %+v", res.Limitations)
 	}
 }
+
+func TestAffectedConsumerNameInferred(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	gateway := svcContract("api-gateway", "1.0.0", contract.Owner{},
+		contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	gwBundle := mkBundle(gateway)
+	gwBundle.Inferred = []contract.Inferred{{Field: "service.name", Value: "api-gateway", Source: "chart/Chart.yaml:2"}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: gwBundle}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Analyze(context.Background(), auth, svcContract("auth-service", "1.1.0", contract.Owner{Team: "platform"}), fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	if len(res.Consumers) != 1 || res.Consumers[0].NameInferred == nil || res.Consumers[0].NameInferred.Source != "chart/Chart.yaml:2" {
+		t.Fatalf("consumers = %+v", res.Consumers)
+	}
+	for _, s := range snap.Services {
+		if s.Name == "api-gateway" && s.NameInferred == res.Consumers[0].NameInferred {
+			t.Fatal("the consumer aliases the snapshot")
+		}
+	}
+}

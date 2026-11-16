@@ -230,6 +230,8 @@ type ServiceHit struct {
 	Labels        map[string]string `json:"labels,omitempty"`
 	// Template marks a golden path (see ServiceRecord.Template).
 	Template bool `json:"template,omitempty"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -318,6 +320,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
+		NameInferred: clonePtr(s.NameInferred),
 	}
 }
 
@@ -670,6 +673,8 @@ type GraphNode struct {
 	// Provenance is how the edge that first reached the node is known: declared,
 	// observed or declared+observed.
 	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
+	// NameInferred is where Name comes from when no revision declares it.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
@@ -744,6 +749,9 @@ bfs:
 			nodeSet[next] = true
 			_, name := ParseServiceKey(next)
 			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next), Provenance: step.Provenance}
+			if s := q.snap.Services[next]; s != nil {
+				n.NameInferred = clonePtr(s.NameInferred)
+			}
 			res.Nodes = append(res.Nodes, n)
 			if gq.Transitive && (gq.MaxDepth == 0 || n.Depth < gq.MaxDepth) {
 				expanded[next] = true

@@ -99,20 +99,23 @@ type Options struct {
 
 // AffectedConsumer is one service affected by the change.
 type AffectedConsumer struct {
-	Service              string     `json:"service"`
-	Domain               string     `json:"domain,omitempty"`
-	Depth                int        `json:"depth"`  // 1 = direct, >1 = transitive
-	Direct               bool       `json:"direct"` // depth == 1
-	Path                 []string   `json:"path"`
-	Owner                string     `json:"owner,omitempty"`
-	OwnerKey             string     `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
-	Required             bool       `json:"required"`
-	Compatibility        string     `json:"compatibility,omitempty"`
-	CompatibilityVerdict string     `json:"compatibilityVerdict"`
-	Provenance           string     `json:"provenance"`
-	Confidence           Confidence `json:"confidence"`
-	Status               string     `json:"status,omitempty"`
-	Targets              []string   `json:"targets,omitempty"`
+	Service string `json:"service"`
+	Domain  string `json:"domain,omitempty"`
+	// NameInferred is where Service comes from when no revision of the
+	// consumer declares its name.
+	NameInferred         *contract.Inferred `json:"nameInferred,omitempty"`
+	Depth                int                `json:"depth"`  // 1 = direct, >1 = transitive
+	Direct               bool               `json:"direct"` // depth == 1
+	Path                 []string           `json:"path"`
+	Owner                string             `json:"owner,omitempty"`
+	OwnerKey             string             `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop). Group or link by it; owner is the display label"`
+	Required             bool               `json:"required"`
+	Compatibility        string             `json:"compatibility,omitempty"`
+	CompatibilityVerdict string             `json:"compatibilityVerdict"`
+	Provenance           string             `json:"provenance"`
+	Confidence           Confidence         `json:"confidence"`
+	Status               string             `json:"status,omitempty"`
+	Targets              []string           `json:"targets,omitempty"`
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
@@ -1021,6 +1024,9 @@ func consumerBase(snap *fleet.FleetSnapshot, key, changed fleet.ServiceKey, obse
 	if s := snap.Services[key]; s != nil {
 		c.Owner = s.Owner.DisplayString()
 		c.OwnerKey = s.Owner.KeyString()
+		if inf := s.NameInferred; inf != nil {
+			c.NameInferred = new(*inf) // a copy: the answer never aliases the snapshot
+		}
 		c.Status = s.Status
 		for _, tk := range s.Targets {
 			c.Targets = append(c.Targets, string(tk))

@@ -1235,6 +1235,13 @@ spec:
                     name:
                       description: Name is the interface name.
                       type: string
+                    port:
+                      description: Port is the port the interface declares it listens
+                        on.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
                     ref:
                       description: Ref is the bundle-relative path to the interface
                         specification file.

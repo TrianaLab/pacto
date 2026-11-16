@@ -1086,3 +1086,30 @@ func TestServiceDetailsEnvironmentsAsOf(t *testing.T) {
 		t.Fatalf("no environments, as of %q", d.EnvironmentsAsOf)
 	}
 }
+
+func TestMappingPortUnknownBreaks(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "2.5",
+		Service:      contract.Service{Name: "payments", Version: "2.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "openapi", Port: 8080}},
+		Dependencies: []contract.Dependency{
+			{Name: "ledger", Ref: "oci://x/ledger", Compatibility: contract.CompatibilityUnknown, Required: true},
+			{Name: "auth", Ref: "oci://x/auth", Compatibility: "^1.0.0", Required: true},
+		},
+		Breaks: []contract.Break{{Consumers: []string{"reports"}, Reason: "drops /v1", Expires: "2026-12-14"}},
+	}
+	d := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if d.Interfaces[0].Port != 8080 {
+		t.Errorf("port = %d", d.Interfaces[0].Port)
+	}
+	if !d.Dependencies[0].CompatibilityUnknown || d.Dependencies[1].CompatibilityUnknown {
+		t.Errorf("dependencies = %+v", d.Dependencies)
+	}
+	if len(d.Breaks) != 1 || d.Breaks[0].Consumers[0] != "reports" || d.Breaks[0].Reason != "drops /v1" || d.Breaks[0].Expires != "2026-12-14" {
+		t.Fatalf("breaks = %+v", d.Breaks)
+	}
+	c.Breaks[0].Consumers[0] = "changed"
+	if d.Breaks[0].Consumers[0] != "reports" {
+		t.Error("breaks alias the contract")
+	}
+}

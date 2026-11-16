@@ -461,14 +461,17 @@ type ServiceRecord struct {
 	// SummaryUnknown says an empty Summary is not a known absence: the sources
 	// report different summaries, or no revision was read and no source reports
 	// one. Like BusinessDomainUnknown, unknown is never "declares none".
-	SummaryUnknown bool              `json:"summaryUnknown,omitempty"`
-	Name           string            `json:"name"`
-	Owner          contract.Owner    `json:"owner,omitzero"`
-	Revisions      []RevisionKey     `json:"revisions,omitempty"`
-	Targets        []TargetKey       `json:"targets,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Status         string            `json:"status,omitempty"`
-	Sources        []string          `json:"sources,omitempty"`
+	SummaryUnknown bool   `json:"summaryUnknown,omitempty"`
+	Name           string `json:"name"`
+	// NameInferred is where Name comes from when no revision declares it:
+	// every revision of the service inferred it from its folder.
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	Owner        contract.Owner     `json:"owner,omitzero"`
+	Revisions    []RevisionKey      `json:"revisions,omitempty"`
+	Targets      []TargetKey        `json:"targets,omitempty"`
+	Labels       map[string]string  `json:"labels,omitempty"`
+	Status       string             `json:"status,omitempty"`
+	Sources      []string           `json:"sources,omitempty"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -909,6 +912,9 @@ type FleetSnapshot struct {
 	// revisionsHidden holds, in a restricted snapshot, the visible services
 	// that lost a revision to the view (a golden path visible only as one).
 	revisionsHidden map[ServiceKey]bool
+	// hiddenServices holds, in a restricted snapshot, the services the view
+	// hides, so a name that resolves to one is counted and never shown.
+	hiddenServices map[ServiceKey]bool
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool

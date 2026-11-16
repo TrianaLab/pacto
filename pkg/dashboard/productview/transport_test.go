@@ -559,3 +559,15 @@ func TestProductChangesHrefs(t *testing.T) {
 		t.Errorf("event fields = %+v", h.Items[0].ChangeEvent)
 	}
 }
+
+// TestProductRevisionDetail_BreakConsumerHrefs: a break consumer the fleet holds
+// is navigable; a plain name stays a name.
+func TestProductRevisionDetail_BreakConsumerHrefs(t *testing.T) {
+	d := toProductRevisionDetail(&fleet.RevisionDetailData{Breaks: fleet.BreaksPreview{Total: 2, Count: 2, Items: []fleet.BreakItem{
+		{Consumer: "reports", Service: &fleet.EntityRef{Kind: fleet.KindService, Key: "reports"}, Reason: "r"},
+		{Consumer: "ghost", Reason: "r"},
+	}}})
+	if b := d.Breaks.Items; len(b) != 2 || b[0].Service == nil || b[0].Service.Href == "" || b[1].Service != nil || b[1].Consumer != "ghost" {
+		t.Fatalf("breaks = %+v", b)
+	}
+}

@@ -301,6 +301,9 @@ func colorClassification(w io.Writer, s string) string {
 // interface, leaving out what is not set.
 func interfaceDetails(iface app.ExplainInterface) string {
 	var s string
+	if iface.Port != 0 {
+		s += fmt.Sprintf(", port %d", iface.Port)
+	}
 	if iface.Visibility != "" {
 		s += ", " + iface.Visibility
 	}
@@ -325,6 +328,22 @@ func printExplainInterfaces(w io.Writer, ifaces []app.ExplainInterface) {
 		if g := iface.Guarantees; g != nil && g.Text(false) != "" {
 			_, _ = fmt.Fprintf(w, "      guarantees: %s\n", g.Text(false))
 		}
+	}
+}
+
+// printExplainBreaks lists each announced break: its consumers, reason and
+// expiry.
+func printExplainBreaks(w io.Writer, breaks []contract.Break) {
+	if len(breaks) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nBreaks (%d):\n", len(breaks))
+	for _, b := range breaks {
+		expires := ""
+		if b.Expires != "" {
+			expires = ", expires " + b.Expires
+		}
+		_, _ = fmt.Fprintf(w, "  - %s: %s%s\n", strings.Join(b.Consumers, ", "), b.Reason, expires)
 	}
 }
 
@@ -468,6 +487,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 
 		printExplainInterfaces(w, result.Interfaces)
+		printExplainBreaks(w, result.Breaks)
 		printExplainDependencies(w, result.Dependencies)
 		printExplainConfigurations(w, result.Configurations)
 

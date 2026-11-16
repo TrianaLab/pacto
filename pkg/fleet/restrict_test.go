@@ -879,3 +879,40 @@ func TestRestrictedEstateCounts(t *testing.T) {
 		t.Error("the restricted overview names the hidden target")
 	}
 }
+
+func TestRestrictHidesBreakConsumers(t *testing.T) {
+	mk := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: "1.0.0"}}
+	}
+	web := mk("web")
+	web.Breaks = []contract.Break{{Consumers: []string{"api", "lone", "ghost"}, Reason: "drops /v1"}}
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: web, FS: fstest.MapFS{}}, Digest: "sha256:web"},
+			{Bundle: &contract.Bundle{Contract: mk("api"), FS: fstest.MapFS{}}, Digest: "sha256:api"},
+			{Bundle: &contract.Bundle{Contract: mk("lone"), FS: fstest.MapFS{}}, Digest: "sha256:lone"},
+		},
+		Targets: []RawTarget{
+			{Scope: "shop", Kind: k, Name: "web", Service: "web", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "api", Service: "api", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "lone", Service: "lone", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
+	d, err := r.EntityDetail(KindRevision, revKeyOf(t, r, "web"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := d.Revision.Breaks
+	if b.Total != 3 || b.Hidden != 1 || b.Count != 2 || b.Items[0].Consumer != "lone" || b.Items[0].Service == nil || b.Items[1].Consumer != "ghost" || b.Items[1].Service != nil {
+		t.Fatalf("breaks = %+v", b)
+	}
+	raw, _ := json.Marshal(b)
+	if strings.Contains(string(raw), "api") {
+		t.Errorf("a hidden consumer is named: %s", raw)
+	}
+}

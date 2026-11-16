@@ -1107,3 +1107,69 @@ func TestPhaseTallyReadyUnsigned(t *testing.T) {
 		t.Errorf("plus = %+v", sum)
 	}
 }
+
+// minimalRevDetail builds a fleet of col and returns the revision detail of
+// the one revision of service.
+func minimalRevDetail(t *testing.T, col *Collection, service string) *RevisionDetailData {
+	t.Helper()
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	d, err := q.EntityDetail(KindRevision, revKeyOf(t, q, service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Revision
+}
+
+func TestRevisionDetailInferredName(t *testing.T) {
+	rev := inferredRev("payments", "/r/payments", "chart/Chart.yaml:2")
+	rev.Bundle.Inferred = append(rev.Bundle.Inferred, contract.Inferred{Field: "pactoVersion", Value: "2.5", Source: "this CLI"})
+	d := minimalRevDetail(t, &Collection{Revisions: []RawRevision{rev}}, "payments")
+	want := []InferredField{
+		{Field: "service.name", Value: "payments", Source: "chart/Chart.yaml:2", Provenance: ProvenanceInferred},
+		{Field: "pactoVersion", Value: "2.5", Source: "this CLI", Provenance: ProvenanceInferred},
+	}
+	if !reflect.DeepEqual(d.Inferred, want) {
+		t.Fatalf("inferred = %+v", d.Inferred)
+	}
+	if d.Version != "" {
+		t.Errorf("version = %q, want empty", d.Version)
+	}
+	declared := minimalRevDetail(t, &Collection{Revisions: []RawRevision{declaredRev("billing", "1.0.0", "sha256:b")}}, "billing")
+	if declared.Inferred != nil || declared.Breaks.Items == nil {
+		t.Errorf("declared revision: inferred = %+v, breaks = %+v", declared.Inferred, declared.Breaks)
+	}
+}
+
+func TestRevisionDetailBreaksBounded(t *testing.T) {
+	consumers := []string{"reports"}
+	for i := range 24 {
+		consumers = append(consumers, fmt.Sprintf("consumer-%02d", i))
+	}
+	pay := declaredRev("payments", "2.0.0", "sha256:p")
+	pay.Bundle.Contract.Breaks = []contract.Break{{Consumers: consumers, Reason: "drops /v1", Expires: "2026-12-14"}}
+	d := minimalRevDetail(t, &Collection{Revisions: []RawRevision{pay, declaredRev("reports", "1.0.0", "sha256:r")}}, "payments")
+	b := d.Breaks
+	if b.Total != 25 || b.Count != MaxBreaks || len(b.Items) != MaxBreaks || !b.Truncated || b.Hidden != 0 {
+		t.Fatalf("breaks = total %d count %d truncated %v hidden %d", b.Total, b.Count, b.Truncated, b.Hidden)
+	}
+	first, second := b.Items[0], b.Items[1]
+	if first.Consumer != "reports" || first.Service == nil || first.Service.Label != "reports" || first.Reason != "drops /v1" || first.Expires != "2026-12-14" {
+		t.Errorf("first = %+v", first)
+	}
+	if second.Consumer != "consumer-00" || second.Service != nil {
+		t.Errorf("second = %+v: a name the fleet does not hold stays plain", second)
+	}
+}
+
+func TestRevisionDetailInterfacePort(t *testing.T) {
+	pay := declaredRev("payments", "1.0.0", "sha256:p")
+	pay.Bundle.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Port: 8080}, {Name: "events", Type: "asyncapi"}}
+	items := minimalRevDetail(t, &Collection{Revisions: []RawRevision{pay}}, "payments").Interfaces.Items
+	if len(items) != 2 || items[0].Port != 8080 || items[1].Port != 0 {
+		t.Fatalf("interfaces = %+v", items)
+	}
+}

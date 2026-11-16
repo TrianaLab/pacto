@@ -54,7 +54,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	pacto.Status.Contract = info
 	pacto.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
 
-	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
+	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract)
 	for _, iface := range c.Interfaces {
 		ii := pactov1alpha1.InterfaceInfo{
 			Name:       iface.Name,
@@ -64,6 +64,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			// ponytail: plain conversions; a field added to the contract type
 			// without one here stops the build instead of drifting silently.
 			CompatibilityEpoch: int32(iface.CompatibilityEpoch),
+			Port:               int32(iface.Port), // the schema bounds it to 1-65535
 		}
 		if l := iface.Lifecycle; l != nil {
 			ii.Lifecycle = new(pactov1alpha1.InterfaceLifecycleInfo(*l))

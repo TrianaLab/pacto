@@ -615,6 +615,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.interfaces[].lifecycle.successor` | `string` | no |  |  | Successor names the interface that replaces this one, or holds an absolute URL when the replacement lives in another service. |
 | `status.interfaces[].lifecycle.sunset` | `string` | no |  |  | Sunset is the date the interface is removed (YYYY-MM-DD). |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
+| `status.interfaces[].port` | `integer` | no |  |  | Port is the port the interface declares it listens on. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
 | `status.interfaces[].visibility` | `string` | no |  |  | Visibility is the declared visibility: public or internal. |

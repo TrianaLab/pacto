@@ -166,9 +166,12 @@ type EntityRef struct {
 	// the signature status of its newest readable revision: checked against the
 	// signer its own contract declares, never against a trust config, and
 	// not-checked when no source that read it checks signatures.
-	Template  bool   `json:"template,omitempty"`
-	Created   int    `json:"created,omitempty"`
-	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
+	Template bool `json:"template,omitempty"`
+	Created  int  `json:"created,omitempty"`
+	// NameInferred is where a SERVICE reference's name comes from when no
+	// revision declares it (see ServiceRecord.NameInferred).
+	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
+	Signature    string             `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
 	// NonCompliant counts the NonCompliant services of an OWNER or DOMAIN
 	// reference, set only on list answers: every service of a domain, and only
 	// the services an owner owns outright (Owned), the ones the non-compliant
@@ -328,6 +331,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
+		NameInferred: clonePtr(s.NameInferred),
 	}
 }
 

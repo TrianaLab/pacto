@@ -109,6 +109,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	out.hiddenConsumers = hiddenConsumers
+	out.hiddenServices = hiddenSvc
 	out.templateEdges = restrictTemplateEdges(&out, s.templateEdges, hiddenSvc, dropped)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	out.hiddenDependents = hiddenDependents

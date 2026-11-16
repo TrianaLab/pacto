@@ -391,6 +391,12 @@ type InterfaceInfo struct {
 	// +optional
 	Visibility string `json:"visibility,omitempty"`
 
+	// Port is the port the interface declares it listens on.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
 	// Lifecycle is the retirement schedule of a deprecated interface. Absent
 	// for an interface that is not deprecated.
 	// +optional

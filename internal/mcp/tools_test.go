@@ -584,3 +584,21 @@ func TestEditToolEnvironmentDescriptions(t *testing.T) {
 		t.Errorf("pacto_create environments: %s", env)
 	}
 }
+
+func TestSchemaDescribesMinimalContract(t *testing.T) {
+	var parsed schemaResult
+	if err := json.Unmarshal([]byte(resultText(t, callTool(t, "pacto_schema", map[string]any{}))), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"an empty pacto.yaml is valid", "names the service from its folder", "compatibility: unknown is never counted as compatible"} {
+		if !strings.Contains(parsed.Description, want) {
+			t.Errorf("description lacks %q: %s", want, parsed.Description)
+		}
+	}
+	var schema struct {
+		ID string `json:"$id"`
+	}
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.5") {
+		t.Errorf("schema $id = %q, %v", schema.ID, err)
+	}
+}
