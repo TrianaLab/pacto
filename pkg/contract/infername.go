@@ -24,14 +24,14 @@ type Inferred struct {
 }
 
 var (
-	serviceNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-	nonNameRE     = regexp.MustCompile(`[^a-z0-9]+`)
+	serviceNameRE   = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+	nameSeparatorRE = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 // SanitizeName turns s into a service name: lowercased, every run of other
 // characters turned into one hyphen and the ends trimmed.
 func SanitizeName(s string) string {
-	return strings.Trim(nonNameRE.ReplaceAllString(strings.ToLower(s), "-"), "-")
+	return strings.Trim(nameSeparatorRE.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }
 
 // maxInferFileSize bounds the files name inference reads.
