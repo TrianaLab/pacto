@@ -620,7 +620,7 @@ func TestClusterProviderLowestVersion(t *testing.T) {
 		{"non-strict ignored", []*unstructured.Unstructured{p("a", "v2.2"), p("b", "2.3.1")}, []string{"2.3.1"}, nil},
 		{"other namespace ignored", []*unstructured.Unstructured{other, p("b", "2.3.1")}, []string{"2.3.1"}, nil},
 		{"stale generation ignored", []*unstructured.Unstructured{stale, p("b", "2.4.1")}, []string{"2.4.1"},
-			[]string{"the version of payments that Pacto shop/payments-next describes: its status is not reconciled with its spec, so no range is proposed from it"}},
+			[]string{"the version of shop/payments that Pacto shop/payments-next describes: its status is not reconciled with its spec, so no range is proposed from it"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cl := &cluster{}

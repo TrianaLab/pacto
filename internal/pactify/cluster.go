@@ -399,11 +399,14 @@ func joinAnd(parts []string) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
-// ascending sorts strict-semver versions ascending and drops repeats.
+// ascending sorts semver versions ascending and drops repeats and anything
+// that is not a version.
 func ascending(versions []string) []string {
 	vs := make([]*semver.Version, 0, len(versions))
 	for _, s := range versions {
-		vs = append(vs, semver.MustParse(s))
+		if v, err := semver.StrictNewVersion(s); err == nil {
+			vs = append(vs, v)
+		}
 	}
 	slices.SortFunc(vs, func(a, b *semver.Version) int { return a.Compare(b) })
 	vs = slices.CompactFunc(vs, func(a, b *semver.Version) bool { return a.Equal(b) })
@@ -435,7 +438,7 @@ func (cl *cluster) provider(svc unstructured.Unstructured) Inferred {
 		}
 		pacto := p.GetNamespace() + "/" + p.GetName()
 		if og, _, _ := unstructured.NestedInt64(p.Object, "status", "observedGeneration"); og != p.GetGeneration() {
-			d.Unknown = append(d.Unknown, "the version of "+svc.GetName()+" that Pacto "+pacto+" describes: its status is not reconciled with its spec, so no range is proposed from it")
+			d.Unknown = append(d.Unknown, "the version of "+svcID+" that Pacto "+pacto+" describes: its status is not reconciled with its spec, so no range is proposed from it")
 			continue
 		}
 		name := svc.GetName()

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,15 @@ func TestVersionList(t *testing.T) {
 		if got := joinAnd(vs); got != want {
 			t.Errorf("joinAnd(%v) = %q, want %q", vs, got, want)
 		}
+	}
+}
+
+// TestAscending: versions sorted, repeats dropped, and a value that is not a
+// strict version skipped instead of panicking.
+func TestAscending(t *testing.T) {
+	got := ascending([]string{"2.4.0", "latest", "2.3.1", "2.4.0", "v1.0.0"})
+	if !slices.Equal(got, []string{"2.3.1", "2.4.0"}) {
+		t.Fatalf("ascending = %v", got)
 	}
 }
 
@@ -218,21 +228,21 @@ func TestNoInferredRangeIsDeclared(t *testing.T) {
 }
 
 // TestDeclaredByNamesUndeclaredRange: a --fleet consumer that leaves its
-// range unknown reads range not declared under Used by.
+// range unknown reads range not declared under Used by, whether the fleet
+// holds this service's contract or the consumer names it only by its bundle.
 func TestDeclaredByNamesUndeclaredRange(t *testing.T) {
-	fleetDir := writeTree(t, t.TempDir(), map[string]string{
-		"invoices/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: invoices, version: 1.3.0}\n",
-		"billing/pacto.yaml": "pactoVersion: \"2.5\"\nservice: {name: billing, version: 1.0.0}\n" +
-			"dependencies:\n  - {name: invoices, ref: oci://ghcr.io/acme/contracts/invoices, required: true, compatibility: unknown}\n",
-	})
-	r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), FleetRoots: []string{fleetDir}, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range r.Consumers {
-		if f.Name == "billing" && f.Where == "declares invoices range not declared" {
-			return
+	billing := "pactoVersion: \"2.5\"\nservice: {name: billing, version: 1.0.0}\n" +
+		"dependencies:\n  - {name: inv, ref: oci://ghcr.io/acme/contracts/invoices, required: true, compatibility: unknown}\n"
+	for label, tree := range map[string]map[string]string{
+		"with its contract": {"invoices/pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: invoices, version: 1.3.0}\n", "billing/pacto.yaml": billing},
+		"by bundle only":    {"billing/pacto.yaml": billing},
+	} {
+		r, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), FleetRoots: []string{writeTree(t, t.TempDir(), tree)}, Plan: true}, os.WriteFile)
+		if err != nil {
+			t.Fatal(label, err)
+		}
+		if !slices.Contains(r.Consumers, Finding{Name: "billing", Where: "declares invoices range not declared"}) {
+			t.Errorf("%s: consumers: %+v %+v", label, r.Consumers, r.Unknown)
 		}
 	}
-	t.Fatalf("consumers: %+v %+v", r.Consumers, r.Unknown)
 }
