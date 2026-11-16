@@ -699,6 +699,20 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 	}
 }
 
+// An empty pacto.yaml declares no name: the plan keeps the folder's, and the
+// hint never downgrades a contract whose implicit version is current.
+func TestExistingEmptyContractKeepsTheFolderName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "orders")
+	writeTree(t, dir, map[string]string{"pacto.yaml": ""})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil || r.Service != "orders" {
+		t.Fatalf("service = %q, err = %v", r.Service, err)
+	}
+	if hasLine(r.Next, "pactoVersion") || !hasLine(r.Next, "no publish section") {
+		t.Fatalf("next: %v", r.Next)
+	}
+}
+
 // TestConsumersFromFleet: the contracts in --fleet that declare this service,
 // by name or by its bundle, are its consumers, each once; a root that cannot
 // be read makes the answer partial, and a call nobody declared stays Unknown.
