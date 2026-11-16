@@ -500,6 +500,9 @@ func buildCreateMap(input CreateInput) map[string]any {
 	if len(input.Dependencies) > 0 {
 		m["dependencies"] = buildDependenciesList(input.Dependencies)
 		needs21(m, input.Dependencies)
+		if len(undeclaredRanges(input.Dependencies)) > 0 {
+			raiseVersion(m, "2.5")
+		}
 	}
 
 	workload := input.Workload
@@ -579,21 +582,50 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 }
 
 // dependencyEntry is one dependencies[] entry. An external dependency with no
-// ref carries its version instead of a ref and a range.
+// ref carries its version instead of a ref and a range. A dependency given no
+// range is written with compatibility unknown, never a guessed range.
 func dependencyEntry(dep DependencyInput) map[string]any {
 	if dep.Ref == "" && dep.External {
 		return map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
 	}
+	compat := dep.Compatibility
+	if compat == "" {
+		compat = contract.CompatibilityUnknown
+	}
 	entry := map[string]any{
 		"name":          dependencyName(dep),
 		"ref":           dep.Ref,
-		"compatibility": defaultCompatibility(dep.Compatibility),
+		"compatibility": compat,
 		"required":      dep.Required, // mandatory in v2 schema; emit true AND false
 	}
 	if dep.External {
 		entry["external"] = true
 	}
 	return entry
+}
+
+// undeclaredRanges returns, in input order, the names of the dependencies
+// dependencyEntry writes with compatibility unknown: those given no range or
+// given unknown. Each needs pactoVersion 2.5.
+func undeclaredRanges(inputs []DependencyInput) []string {
+	var names []string
+	for _, dep := range inputs {
+		if dep.Ref == "" && dep.External {
+			continue
+		}
+		if dep.Compatibility == "" || dep.Compatibility == contract.CompatibilityUnknown {
+			names = append(names, dependencyName(dep))
+		}
+	}
+	return names
+}
+
+// undeclaredRange is what pacto_create and pacto_edit say about a dependency
+// written with compatibility unknown.
+func undeclaredRange(name string) string {
+	return "compatibility of " + name + " is unknown: no range was given, so impact cannot tell whether a " + name +
+		" change breaks this service: its verdict is unknown, and a BREAKING change to " + name +
+		" stays unverified; set the versions this service accepts"
 }
 
 // needs21 sets pactoVersion 2.1 when an external dependency is declared:
@@ -1026,6 +1058,12 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 	m["dependencies"] = deps
 	if needs21(m, inputs) {
 		changes = append(changes, `set pactoVersion "2.1" for the external dependency`)
+	}
+	if names := undeclaredRanges(inputs); len(names) > 0 {
+		changes = append(changes, raiseVersion(m, "2.5")...)
+		for _, name := range names {
+			changes = append(changes, undeclaredRange(name))
+		}
 	}
 	return changes
 }
@@ -2198,13 +2236,6 @@ func defaultVersion(v string) string {
 	return v
 }
 
-func defaultCompatibility(compat string) string {
-	if compat != "" {
-		return compat
-	}
-	return "^1.0.0"
-}
-
 func collectDerived(input CreateInput, h descriptionHints) []string {
 	var derived []string
 
@@ -2224,6 +2255,9 @@ func collectDerived(input CreateInput, h descriptionHints) []string {
 		if h.isScheduled {
 			derived = append(derived, "inferred scheduled workload from description")
 		}
+	}
+	for _, name := range undeclaredRanges(input.Dependencies) {
+		derived = append(derived, undeclaredRange(name))
 	}
 
 	return derived
